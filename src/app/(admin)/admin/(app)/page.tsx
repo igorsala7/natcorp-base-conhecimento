@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PublishDemo } from "@/components/admin/publish-demo";
 
 export const metadata: Metadata = {
   title: "Painel",
@@ -54,6 +55,8 @@ export default function AdminHome() {
           Um link da marca
         </a>
       </div>
+
+      <PublishDemo />
     </div>
   );
 }

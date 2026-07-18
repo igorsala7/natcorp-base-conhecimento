@@ -6,6 +6,7 @@ import {
   FileText,
   FolderTree,
   LayoutDashboard,
+  ScrollText,
   Search,
   Settings,
   Upload,
@@ -24,7 +25,8 @@ const NAV = [
   { href: "/admin/artigos", label: "Artigos", icon: FileText, ready: false },
   { href: "/admin/importar", label: "Importar", icon: Upload, ready: false },
   { href: "/admin/busca", label: "Busca", icon: Search, ready: false },
-  { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: false },
+  { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
+  { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
   {
     href: "/admin/configuracoes",
     label: "Configurações",

@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "seed": "tsx --env-file=.env.local scripts/seed-admin.ts"
+    "seed": "tsx --env-file=.env.local scripts/seed-admin.ts",
+    "bootstrap:owner": "tsx --env-file=.env.local scripts/bootstrap-owner.ts"
   },
   "repository": {
     "type": "git",
