@@ -12,6 +12,12 @@
  * NEXT_PUBLIC_SITE_URL. A URL de redirecionamento precisa estar na allowlist
  * do Supabase (Auth → URL Configuration → Redirect URLs).
  */
+import ws from "ws";
+// O supabase-js recente exige WebSocket nativo (Node 22+). Em Node 20, injetamos
+// um polyfill para o script rodar. Sem efeito no runtime do Next.
+if (!globalThis.WebSocket) {
+  (globalThis as unknown as { WebSocket: unknown }).WebSocket = ws;
+}
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
