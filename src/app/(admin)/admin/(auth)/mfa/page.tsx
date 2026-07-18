@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,17 @@ type Mode = "loading" | "enroll" | "challenge";
  * Em ambos, o código é validado via challenge+verify, elevando a sessão a AAL2.
  */
 export default function MfaPage() {
+  return (
+    <Suspense fallback={<div className="h-40 animate-pulse rounded-md bg-surface-2" />}>
+      <MfaForm />
+    </Suspense>
+  );
+}
+
+function MfaForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/admin";
   const supabase = useRef(createClient()).current;
 
   const [mode, setMode] = useState<Mode>("loading");
@@ -30,7 +40,7 @@ export default function MfaPage() {
     const { data: aal } =
       await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal?.currentLevel === "aal2") {
-      router.replace("/admin");
+      router.replace(next);
       return;
     }
 
@@ -55,7 +65,7 @@ export default function MfaPage() {
     setQr(data.totp.qr_code);
     setSecret(data.totp.secret);
     setMode("enroll");
-  }, [router, supabase]);
+  }, [router, supabase, next]);
 
   useEffect(() => {
     void init();
@@ -86,8 +96,8 @@ export default function MfaPage() {
       return;
     }
 
-    // Sessão elevada a AAL2 — o middleware agora libera o painel.
-    router.replace("/admin");
+    // Sessão elevada a AAL2 — segue para o destino (painel ou definir senha).
+    router.replace(next);
     router.refresh();
   }
 

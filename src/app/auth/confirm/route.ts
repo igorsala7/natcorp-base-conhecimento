@@ -18,18 +18,34 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient();
 
+  let established = false;
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(new URL(next, origin));
+    established = !error;
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
       type,
       token_hash: tokenHash,
     });
-    if (!error) return NextResponse.redirect(new URL(next, origin));
+    established = !error;
   }
 
-  return NextResponse.redirect(
-    new URL("/admin/login?erro=link-invalido", origin),
-  );
+  if (!established) {
+    return NextResponse.redirect(
+      new URL("/admin/login?erro=link-invalido", origin),
+    );
+  }
+
+  // Se o usuário tem TOTP cadastrado, precisa elevar a sessão a AAL2 ANTES de
+  // qualquer ação sensível (ex.: trocar senha). Manda ao desafio primeiro,
+  // preservando o destino em `next`.
+  const { data: aal } =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal?.currentLevel === "aal1" && aal.nextLevel === "aal2") {
+    return NextResponse.redirect(
+      new URL(`/admin/mfa?next=${encodeURIComponent(next)}`, origin),
+    );
+  }
+
+  return NextResponse.redirect(new URL(next, origin));
 }

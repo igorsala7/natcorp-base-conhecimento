@@ -68,19 +68,18 @@ export async function updateSession(request: NextRequest) {
   // Com sessão: verifica o nível de garantia (AAL). TOTP é obrigatório.
   const { data: aal } =
     await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const fullyAuthed = aal?.currentLevel === "aal2";
+  const onPublic = isAdminPublic(pathname);
 
-  const needsMfa =
-    aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2";
-  const needsEnroll = aal?.nextLevel === "aal1"; // nenhum fator cadastrado
-  const onMfaRoute = pathname.startsWith("/admin/mfa");
-
-  // Precisa cadastrar ou confirmar o TOTP → força a rota /admin/mfa.
-  if ((needsMfa || needsEnroll) && !onMfaRoute) {
+  if (!fullyAuthed) {
+    // Sessão parcial (aal1): pode acessar as telas de auth em progresso
+    // (login, definir-senha, mfa), mas qualquer rota protegida vai ao TOTP.
+    if (onPublic) return response;
     return redirectTo(request, "/admin/mfa");
   }
 
-  // Já está em AAL2 (fluxo completo) mas visitando login/mfa → manda ao painel.
-  if (!needsMfa && !needsEnroll && isAdminPublic(pathname)) {
+  // Sessão completa (aal2): não faz sentido ficar no login ou no TOTP.
+  if (pathname === "/admin/login" || pathname.startsWith("/admin/mfa")) {
     return redirectTo(request, "/admin");
   }
 
