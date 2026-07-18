@@ -36,4 +36,4 @@ jobs:
           # Valores reais ficam nos secrets do repositório quando necessário.
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-          NEXT_PUBLIC_SITE_URL: http://localhost:3009
+          NEXT_PUBLIC_SITE_URL: http://localhost:3008
