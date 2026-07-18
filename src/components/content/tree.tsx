@@ -207,7 +207,7 @@ export function Tree({
             </button>
             <button
               type="button"
-              title="Publicar esta pasta e todos os filhos"
+              title="Publicar tudo"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
               onClick={() => {
                 if (confirm(`Publicar "${item.node.title}" e TODOS os artigos dentro?`))
@@ -221,7 +221,7 @@ export function Tree({
             </button>
             <button
               type="button"
-              title="Gerar embeddings desta pasta e de todos os artigos abaixo (todos os níveis)"
+              title="Gerar embeddings (pasta toda)"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
               onClick={() => {
                 if (
@@ -258,7 +258,7 @@ export function Tree({
         </button>
         <button
           type="button"
-          title="Editar URL (slug) — cria redirect 301"
+          title="Editar URL (cria redirect 301)"
           className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
           onClick={() => {
             const slug = prompt("Novo slug (URL):", item.node.slug);

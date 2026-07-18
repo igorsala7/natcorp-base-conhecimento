@@ -4,7 +4,15 @@ import { useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Markdown } from "@/components/ui/markdown";
 import type { SpaceInfo } from "@/lib/content/spaces";
+
+/** Decodifica base64 preservando UTF-8 (atob sozinho corrompe acentos). */
+function decodeB64Utf8(b64: string): string {
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
 
 type Citation = { n: number; title: string; url: string };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Citation[] };
@@ -44,7 +52,7 @@ export function ChatPanel({
       convRef.current = res.headers.get("X-Conversation-Id") || convRef.current;
       let citations: Citation[] = [];
       try {
-        citations = JSON.parse(atob(res.headers.get("X-Citations") || "W10="));
+        citations = JSON.parse(decodeB64Utf8(res.headers.get("X-Citations") || "W10="));
       } catch {
         citations = [];
       }
@@ -113,7 +121,13 @@ export function ChatPanel({
                   : "max-w-[85%]"
               }
             >
-              <p className="whitespace-pre-wrap text-sm">{m.content || "…"}</p>
+              {m.role === "user" ? (
+                <p className="whitespace-pre-wrap text-sm">{m.content || "…"}</p>
+              ) : m.content ? (
+                <Markdown content={m.content} />
+              ) : (
+                <p className="text-sm text-text-muted">…</p>
+              )}
               {m.citations && m.citations.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2">
                   {m.citations.map((c) => (

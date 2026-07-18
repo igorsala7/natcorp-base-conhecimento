@@ -76,6 +76,7 @@ export function TreeItem({
         onChange={() => {}}
         onClick={(e) => onCheck(e)}
         aria-label="Selecionar"
+        title="Selecionar (Shift para intervalo)"
         className={cn(
           "size-3.5 shrink-0 accent-[var(--color-primary)]",
           checked ? "" : "opacity-0 group-hover:opacity-100",
@@ -85,6 +86,7 @@ export function TreeItem({
         type="button"
         className="cursor-grab touch-none text-text-muted opacity-0 group-hover:opacity-100"
         aria-label="Arrastar"
+        title="Arrastar para mover"
         {...attributes}
         {...listeners}
       >
@@ -96,6 +98,7 @@ export function TreeItem({
           type="button"
           onClick={onToggle}
           aria-label={collapsed ? "Expandir" : "Colapsar"}
+          title={collapsed ? "Expandir" : "Recolher"}
           className="text-text-muted"
         >
           {collapsed ? (
