@@ -70,8 +70,18 @@ export async function POST(req: NextRequest) {
   const started = Date.now();
   const sources = await retrievePublicContext(key.space_id, question);
 
-  // Garante a conversa (persiste histórico com session_id anônimo).
+  // Garante a conversa (persiste histórico com session_id anônimo). Isola por
+  // base de cliente: uma conversationId de outro espaço/chave é descartada.
   let convId = payload.conversationId;
+  if (convId) {
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("space_id", key.space_id)
+      .maybeSingle();
+    if (!existing) convId = undefined;
+  }
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")

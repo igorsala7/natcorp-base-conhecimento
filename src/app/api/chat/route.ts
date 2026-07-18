@@ -34,8 +34,18 @@ export async function POST(req: NextRequest) {
   const started = Date.now();
   const sources = await retrieveContext(spaceId, question);
 
-  // Garante a conversa (para persistir histórico).
+  // Garante a conversa (para persistir histórico). Isola por base de cliente:
+  // uma conversationId de OUTRO espaço é descartada — nunca cruza espaços.
   let convId = conversationId;
+  if (convId) {
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("space_id", spaceId)
+      .maybeSingle();
+    if (!existing) convId = undefined;
+  }
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")

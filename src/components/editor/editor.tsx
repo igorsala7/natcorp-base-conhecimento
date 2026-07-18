@@ -17,7 +17,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { common, createLowlight } from "lowlight";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -90,12 +90,16 @@ export function ArticleEditor({
   title,
   initialContent,
   initialStatus,
+  publicUrl,
+  spacePublic,
 }: {
   nodeId: string;
   spaceId: string;
   title: string;
   initialContent: object;
   initialStatus: "draft" | "review" | "published";
+  publicUrl?: string;
+  spacePublic?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
@@ -107,6 +111,7 @@ export function ArticleEditor({
   const [showDiff, setShowDiff] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [reindexing, setReindexing] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const proposedRef = useRef<object | null>(null);
 
   const editor = useEditor({
@@ -219,8 +224,8 @@ export function ArticleEditor({
       }
     >
       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{title}</h1>
           <span className="text-xs text-text-muted">
             {saveState === "saving"
               ? "Salvando…"
@@ -232,6 +237,44 @@ export function ArticleEditor({
                     ? "Publicado"
                     : "Rascunho"}
           </span>
+          {publicUrl && (
+            <div className="mt-1 flex items-center gap-1 text-xs">
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Abrir a página pública"
+                className="flex max-w-[380px] items-center gap-1 truncate text-text-muted hover:text-primary"
+              >
+                <ExternalLink className="size-3 shrink-0" />
+                <span className="truncate">{publicUrl.replace(/^https?:\/\//, "")}</span>
+              </a>
+              <button
+                type="button"
+                title="Copiar link público"
+                onClick={() => {
+                  navigator.clipboard.writeText(publicUrl);
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 1500);
+                }}
+                className="rounded p-0.5 text-text-muted hover:bg-surface-2 hover:text-text"
+              >
+                {linkCopied ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}
+              </button>
+              {(status !== "published" || !spacePublic) && (
+                <span
+                  className="text-brand-pink-700"
+                  title={
+                    status !== "published"
+                      ? "Publique o artigo para o link ficar ativo"
+                      : "O espaço não é público — o link só abre quando o espaço for público"
+                  }
+                >
+                  • {status !== "published" ? "rascunho" : "espaço privado"}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button

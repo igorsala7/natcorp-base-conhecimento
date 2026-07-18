@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
-import { getDefaultSpace, listTree } from "@/lib/content/tree";
+import { getDefaultSpace, listTree, slugPathsOf } from "@/lib/content/tree";
+import { env } from "@/lib/env";
 import { ContentShell } from "@/components/content/content-shell";
 import { Tree } from "@/components/content/tree";
 import { ArticleEditor } from "@/components/editor/editor";
@@ -39,6 +40,16 @@ export default async function EditarArtigoPage({
 
   if (!node || node.type !== "article") notFound();
 
+  // URL pública do artigo (para copiar/compartilhar) — usa o espaço do nó.
+  const [{ data: nodeSpace }, slugPaths] = await Promise.all([
+    supabase.from("spaces").select("slug, visibility").eq("id", node.space_id).single(),
+    slugPathsOf(node.space_id),
+  ]);
+  const path = slugPaths.get(nodeId) ?? [];
+  const publicUrl = nodeSpace
+    ? `${env.NEXT_PUBLIC_SITE_URL}/docs/${nodeSpace.slug}/${path.join("/")}`
+    : undefined;
+
   return (
     <ContentShell
       aside={<Tree spaceId={space.id} nodes={tree} selectedId={nodeId} />}
@@ -51,6 +62,8 @@ export default async function EditarArtigoPage({
           (article?.content_json as object) ?? { type: "doc", content: [] }
         }
         initialStatus={node.status as "draft" | "review" | "published"}
+        publicUrl={publicUrl}
+        spacePublic={nodeSpace?.visibility === "public"}
       />
     </ContentShell>
   );

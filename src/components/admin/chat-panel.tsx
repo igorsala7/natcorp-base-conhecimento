@@ -37,6 +37,19 @@ export function ChatPanel({
   const convRef = useRef<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  /** Nova conversa (sessão limpa): descarta histórico e o id da conversa. */
+  function resetConversation() {
+    convRef.current = undefined;
+    setMessages([]);
+  }
+
+  /** Trocar de espaço isola a sessão por base de cliente: começa do zero. */
+  function changeSpace(id: string) {
+    if (id === spaceId) return;
+    setSpaceId(id);
+    resetConversation();
+  }
+
   async function send() {
     const q = input.trim();
     if (!q || streaming || !spaceId) return;
@@ -96,7 +109,7 @@ export function ChatPanel({
       <div className="flex items-center gap-2 border-b border-border p-2">
         <select
           value={spaceId}
-          onChange={(e) => setSpaceId(e.target.value)}
+          onChange={(e) => changeSpace(e.target.value)}
           className="h-8 rounded-md border border-border bg-surface px-2 text-sm"
           aria-label="Espaço"
         >
@@ -107,9 +120,18 @@ export function ChatPanel({
             </option>
           ))}
         </select>
-        <span className="text-xs text-text-muted">
-          O assistente só responde com o conteúdo deste espaço.
+        <span className="hidden text-xs text-text-muted sm:inline">
+          Só responde com o conteúdo deste espaço.
         </span>
+        <button
+          type="button"
+          onClick={resetConversation}
+          disabled={messages.length === 0}
+          className="ml-auto rounded-md border border-border px-2 py-1 text-xs text-text-muted hover:border-primary hover:text-primary disabled:opacity-50"
+          title="Começar uma conversa nova (limpa o histórico)"
+        >
+          Nova conversa
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto p-4">

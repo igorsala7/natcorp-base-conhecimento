@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,10 +79,25 @@ export function WidgetManager({
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
   const spaceName = useMemo(
     () => new Map(spaces.map((s) => [s.id, s.name])),
     [spaces],
   );
+
+  // Carrega o widget REAL nesta página para teste (mesmo script do embed).
+  useEffect(() => {
+    if (!testing) return;
+    const s = document.createElement("script");
+    s.src = `${siteUrl}/widget.js`;
+    s.setAttribute("data-key", testing);
+    s.async = true;
+    document.body.appendChild(s);
+    return () => {
+      s.remove();
+      document.querySelectorAll("[data-kb-widget]").forEach((el) => el.remove());
+    };
+  }, [testing, siteUrl]);
 
   function newDraft() {
     setMsg(null);
@@ -164,6 +179,14 @@ export function WidgetManager({
         <p className="rounded-md border border-border bg-surface px-3 py-2 text-sm">{msg}</p>
       )}
 
+      {testing && (
+        <p className="rounded-md border border-primary/40 bg-brand-purple-50 px-3 py-2 text-sm text-primary dark:bg-brand-purple-950/30">
+          Widget de teste ativo no canto da tela (arraste a bolha e converse).
+          A origem do teste é esta página — a chave precisa ter esta origem na
+          allowlist, ou a allowlist vazia. <strong>Parar teste</strong> para remover.
+        </p>
+      )}
+
       {/* Lista de chaves */}
       <div className="space-y-3">
         {initialKeys.length === 0 && !draft && (
@@ -189,6 +212,16 @@ export function WidgetManager({
               )}
               <span className="text-xs text-text-muted">{k.rate_limit}/min</span>
               <div className="ml-auto flex gap-2">
+                <Button
+                  size="sm"
+                  variant={testing === k.public_key ? "primary" : "secondary"}
+                  onClick={() =>
+                    setTesting((t) => (t === k.public_key ? null : k.public_key))
+                  }
+                  title="Carrega o widget real nesta página para testar"
+                >
+                  {testing === k.public_key ? "Parar teste" : "Testar"}
+                </Button>
                 <Button size="sm" variant="ghost" onClick={() => setDraft(rowToDraft(k))}>
                   Editar
                 </Button>

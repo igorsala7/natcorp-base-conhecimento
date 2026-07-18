@@ -3,8 +3,10 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { getDefaultSpace, listTree } from "@/lib/content/tree";
 import { listSpaces } from "@/lib/content/spaces";
 import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
+import { env } from "@/lib/env";
 import { ContentShell } from "@/components/content/content-shell";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
+import { SpacePublicUrl } from "@/components/content/space-public-url";
 import { Tree } from "@/components/content/tree";
 import { ClientTree } from "@/components/content/client-tree";
 
@@ -43,11 +45,26 @@ export default async function ConteudoPage({
   if (!global) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
 
   const { space: spaceParam } = await searchParams;
-  const current = spaces.find((s) => s.id === spaceParam) ?? { ...global, parent_space_id: null } as (typeof spaces)[number];
+  const current =
+    spaces.find((s) => s.id === spaceParam) ??
+    spaces.find((s) => s.id === global.id) ??
+    spaces.find((s) => s.type === "global") ??
+    spaces[0];
+  if (!current) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
   const canCreate = await hasPermission("space.create");
 
   const switcher = (
-    <SpaceSwitcher spaces={spaces} currentId={current.id} canCreate={canCreate} />
+    <>
+      <SpaceSwitcher spaces={spaces} currentId={current.id} canCreate={canCreate} />
+      <SpacePublicUrl
+        siteUrl={env.NEXT_PUBLIC_SITE_URL}
+        slug={current.slug}
+        name={current.name}
+        type={current.type}
+        visibility={current.visibility}
+        customDomain={current.custom_domain}
+      />
+    </>
   );
 
   if (current.type === "client") {
