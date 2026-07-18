@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateObject } from "ai";
 import { chatModel, hasAiKey } from "../ai/config";
+import { STRUCTURE_INSTRUCTIONS } from "./prompts";
 import type { Extraction } from "./extract";
 
 export type ContentItem =
@@ -75,13 +76,19 @@ export function heuristicTree(ex: Extraction): ProposedNode[] {
   return root.children;
 }
 
-/** Achata a árvore em nós com conteúdo (para o refino por LLM referenciar por índice). */
-type FlatNode = { title: string; content: ContentItem[] };
+/** Achata a árvore em nós com conteúdo + um trecho (para a IA agrupar com contexto). */
+type FlatNode = { title: string; content: ContentItem[]; excerpt: string };
 function flattenNodes(nodes: ProposedNode[]): FlatNode[] {
   const out: FlatNode[] = [];
   const walk = (list: ProposedNode[]) => {
     for (const n of list) {
-      out.push({ title: n.title, content: n.content });
+      const excerpt = n.content
+        .filter((c): c is { type: "p"; text: string } => c.type === "p")
+        .map((c) => c.text)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .slice(0, 240);
+      out.push({ title: n.title, content: n.content, excerpt });
       walk(n.children);
     }
   };
@@ -123,11 +130,11 @@ export async function refineStructureWithLLM(
     const { object } = await generateObject({
       model: chatModel(),
       prompt:
-        "Você recebe títulos de seções extraídos de um documento, com índices, na ordem original. " +
-        "Proponha uma árvore de navegação hierárquica (categorias e subtópicos) usando esses índices. " +
-        "REGRAS: use cada índice no máximo uma vez; NÃO invente títulos nem crie novos índices; " +
-        "pode corrigir a capitalização em `title`; agrupe subtópicos sob suas categorias.\n\n" +
-        flat.map((f, i) => `[${i}] ${f.title}`).join("\n"),
+        STRUCTURE_INSTRUCTIONS +
+        "\n\nSEÇÕES (índice, título e trecho):\n" +
+        flat
+          .map((f, i) => `[${i}] ${f.title}${f.excerpt ? ` — ${f.excerpt}` : ""}`)
+          .join("\n"),
       schema: refineSchema,
     });
 

@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { generateObject } from "ai";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { LAYOUT_INSTRUCTIONS } from "./prompts";
 
 /**
  * "Melhorar layout" (Fase 4, etapa 4). Um passe de LLM que REFORMATA texto cru
@@ -86,17 +87,7 @@ export async function improveLayout(plainText: string): Promise<ImproveResult> {
     const { object } = await generateObject({
       model: chatModel(),
       schema: blocksSchema,
-      prompt:
-        "Você recebe o texto cru de um artigo de documentação. Reformate-o em blocos ricos " +
-        "para melhor leitura. Regras ABSOLUTAS:\n" +
-        "- NÃO reescreva, resuma, traduza ou invente conteúdo. Preserve TODAS as palavras e a ordem.\n" +
-        "- Transforme avisos ('Atenção:', 'Importante:', 'Cuidado:') em callouts.\n" +
-        "- Transforme listas de passos numerados em 'steps'.\n" +
-        "- Transforme trechos que parecem código em blocos de código.\n" +
-        "- Transforme listas com marcadores em 'bullets'.\n" +
-        "- O resto permanece como parágrafos.\n\n" +
-        "TEXTO:\n" +
-        plainText.slice(0, 12000),
+      prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
     });
     return { ok: true, doc: blocksToTipTap(object.blocks) };
   } catch (e) {
