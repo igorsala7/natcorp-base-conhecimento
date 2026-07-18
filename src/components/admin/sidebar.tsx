@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  FileText,
   FolderTree,
   LayoutDashboard,
   ScrollText,
@@ -21,8 +20,7 @@ import { cn } from "@/lib/utils";
  */
 const NAV = [
   { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
-  { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: false },
-  { href: "/admin/artigos", label: "Artigos", icon: FileText, ready: false },
+  { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
   { href: "/admin/importar", label: "Importar", icon: Upload, ready: false },
   { href: "/admin/busca", label: "Busca", icon: Search, ready: false },
   { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },

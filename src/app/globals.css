@@ -73,6 +73,44 @@
     border-radius: 2px;
   }
 
+  /* Abas do editor: mostra só o conteúdo da aba ativa (show-N). */
+  .tabs-content > .tab-item {
+    display: none;
+  }
+  .tabs-content.show-0 > .tab-item:nth-child(1),
+  .tabs-content.show-1 > .tab-item:nth-child(2),
+  .tabs-content.show-2 > .tab-item:nth-child(3),
+  .tabs-content.show-3 > .tab-item:nth-child(4),
+  .tabs-content.show-4 > .tab-item:nth-child(5),
+  .tabs-content.show-5 > .tab-item:nth-child(6) {
+    display: block;
+  }
+
+  /* Code block com highlight (lowlight/highlight.js) — tema alinhado à marca. */
+  .prose pre {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+  }
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-built_in {
+    color: var(--color-primary);
+  }
+  .hljs-string,
+  .hljs-attr {
+    color: var(--color-accent);
+  }
+  .hljs-comment {
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+  .hljs-number,
+  .hljs-literal {
+    color: var(--color-accent);
+  }
+
   /* Respeita quem pediu menos movimento. */
   @media (prefers-reduced-motion: reduce) {
     *,
