@@ -16,8 +16,7 @@ import { parseDbConfig } from "../src/lib/jobs/db-config";
 import { extractDocument } from "../src/lib/importer/extract";
 import {
   heuristicTree,
-  collectTitles,
-  refineTitlesWithLLM,
+  refineStructureWithLLM,
 } from "../src/lib/importer/structure";
 import { hasAiKey } from "../src/lib/ai/config";
 
@@ -82,17 +81,22 @@ async function processJob(jobId: string) {
   }
 
   await setProgress(jobId, { status: "inferring", progress: 65 }, "Inferindo estrutura");
-  const tree = heuristicTree(extraction);
+  const heuristic = heuristicTree(extraction);
 
-  // Refino opcional por LLM (só títulos). Registra se a IA foi usada.
+  // Refino por LLM: agora a árvore da IA é REALMENTE aplicada (antes só a
+  // heurística era usada). Se a IA falhar/indisponível, cai na heurística.
+  let tree = heuristic;
   let usedAi = false;
   if (hasAiKey()) {
-    const refined = await refineTitlesWithLLM(collectTitles(tree));
-    usedAi = Boolean(refined);
+    const refined = await refineStructureWithLLM(heuristic);
+    if (refined && refined.length > 0) {
+      tree = refined;
+      usedAi = true;
+    }
     await setProgress(
       jobId,
       { progress: 85 },
-      usedAi ? "Estrutura refinada por IA" : "IA indisponível — só heurística",
+      usedAi ? "Estrutura reorganizada pela IA" : "IA indisponível — só heurística",
     );
   } else {
     await setProgress(jobId, { progress: 85 }, "Sem IA — estrutura por heurística");

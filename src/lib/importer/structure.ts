@@ -75,49 +75,83 @@ export function heuristicTree(ex: Extraction): ProposedNode[] {
   return root.children;
 }
 
-/**
- * Refino por LLM (opcional): manda SÓ a lista de títulos candidatos e recebe
- * uma árvore proposta (renomear/reaninhar). Não manda o conteúdo — a spec
- * pede processar a estrutura, não o documento inteiro.
- */
-const treeSchema = z.object({
-  nodes: z.array(
-    z.object({
-      title: z.string(),
-      children: z.array(z.object({ title: z.string(), children: z.array(z.object({ title: z.string() })).optional() })).optional(),
-    }),
-  ),
-});
-
-export async function refineTitlesWithLLM(
-  titles: string[],
-): Promise<{ title: string; children?: unknown[] }[] | null> {
-  if (!hasAiKey() || titles.length === 0) return null;
-  try {
-    const { object } = await generateObject({
-      model: chatModel(),
-      schema: treeSchema,
-      prompt:
-        "Você recebe uma lista de títulos candidatos extraídos de um documento, na ordem. " +
-        "Proponha uma árvore de navegação hierárquica (categorias e subtópicos) reaproveitando os títulos. " +
-        "NÃO invente títulos novos nem conteúdo; apenas organize e, se necessário, corrija capitalização.\n\n" +
-        titles.map((t, i) => `${i + 1}. ${t}`).join("\n"),
-    });
-    return object.nodes;
-  } catch {
-    return null;
-  }
-}
-
-/** Coleta todos os títulos da árvore heurística (para o refino por LLM). */
-export function collectTitles(nodes: ProposedNode[]): string[] {
-  const out: string[] = [];
+/** Achata a árvore em nós com conteúdo (para o refino por LLM referenciar por índice). */
+type FlatNode = { title: string; content: ContentItem[] };
+function flattenNodes(nodes: ProposedNode[]): FlatNode[] {
+  const out: FlatNode[] = [];
   const walk = (list: ProposedNode[]) => {
     for (const n of list) {
-      out.push(n.title);
+      out.push({ title: n.title, content: n.content });
       walk(n.children);
     }
   };
   walk(nodes);
   return out;
+}
+
+// Schema com profundidade limitada (até 3 níveis). Cada nó referencia um índice
+// da lista achatada; `title` opcional permite corrigir a capitalização.
+const l3 = z.object({ index: z.number().int(), title: z.string().optional() });
+const l2 = z.object({
+  index: z.number().int(),
+  title: z.string().optional(),
+  children: z.array(l3).optional(),
+});
+const l1 = z.object({
+  index: z.number().int(),
+  title: z.string().optional(),
+  children: z.array(l2).optional(),
+});
+const refineSchema = z.object({ nodes: z.array(l1) });
+
+type RefNode = { index: number; title?: string; children?: RefNode[] };
+
+/**
+ * Refino por LLM (etapa 2 da spec): manda SÓ os títulos indexados (não o
+ * conteúdo) e recebe a hierarquia proposta. Reconstrói a árvore preservando o
+ * conteúdo de cada seção por índice. Retorna null se a IA não estiver disponível
+ * ou falhar (o worker cai na heurística).
+ */
+export async function refineStructureWithLLM(
+  nodes: ProposedNode[],
+): Promise<ProposedNode[] | null> {
+  if (!hasAiKey()) return null;
+  const flat = flattenNodes(nodes);
+  if (flat.length === 0) return null;
+
+  try {
+    const { object } = await generateObject({
+      model: chatModel(),
+      prompt:
+        "Você recebe títulos de seções extraídos de um documento, com índices, na ordem original. " +
+        "Proponha uma árvore de navegação hierárquica (categorias e subtópicos) usando esses índices. " +
+        "REGRAS: use cada índice no máximo uma vez; NÃO invente títulos nem crie novos índices; " +
+        "pode corrigir a capitalização em `title`; agrupe subtópicos sob suas categorias.\n\n" +
+        flat.map((f, i) => `[${i}] ${f.title}`).join("\n"),
+      schema: refineSchema,
+    });
+
+    const used = new Set<number>();
+    const rebuild = (list: RefNode[]): ProposedNode[] =>
+      list
+        .filter((n) => flat[n.index] && !used.has(n.index))
+        .map((n) => {
+          used.add(n.index);
+          const base = flat[n.index]!;
+          return {
+            title: (n.title || base.title || "Sem título").slice(0, 200),
+            content: base.content,
+            children: rebuild(n.children ?? []),
+          };
+        });
+
+    const tree = rebuild(object.nodes as RefNode[]);
+    // Segurança: qualquer seção que a IA tenha esquecido volta no fim (nada se perde).
+    flat.forEach((f, i) => {
+      if (!used.has(i)) tree.push({ title: f.title, content: f.content, children: [] });
+    });
+    return tree.length ? tree : null;
+  } catch {
+    return null;
+  }
 }
