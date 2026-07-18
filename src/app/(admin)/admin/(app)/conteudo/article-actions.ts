@@ -192,6 +192,45 @@ export async function reindexArticleEmbeddings(
 }
 
 /**
+ * Gera embeddings de TODOS os artigos da subárvore (pasta → artigos de todos
+ * os níveis abaixo), sem publicar. Exige content.edit.
+ */
+export async function reindexSubtreeEmbeddings(
+  nodeId: string,
+): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+
+  const { data: subtree } = await supabase.rpc("subtree_ids", { p_node_id: nodeId });
+  const articleIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
+  let count = 0;
+  for (const artNodeId of articleIds) {
+    const { data: art } = await supabase
+      .from("articles")
+      .select("id, content_json")
+      .eq("node_id", artNodeId)
+      .maybeSingle();
+    if (!art) continue;
+    await reindexNodeChunks(supabase, {
+      nodeId: artNodeId,
+      articleId: art.id,
+      spaceId,
+      doc: art.content_json as { type: string; content?: never[] },
+      withEmbeddings: true,
+    });
+    count += 1;
+  }
+  await audit({ action: "content.reindex_subtree", entityType: "node", entityId: nodeId, spaceId, after: { count } });
+  return { ok: true, count };
+}
+
+/**
  * Publica um nó e TODA a subárvore (pasta → todos os filhos publicados),
  * gerando embeddings de cada artigo. Exige content.publish.
  */

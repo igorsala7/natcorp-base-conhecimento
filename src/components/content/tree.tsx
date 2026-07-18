@@ -15,7 +15,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CheckCircle2, FilePlus, FolderPlus, Link2, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, FilePlus, FolderPlus, Link2, Pencil, Sparkles, Trash2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +28,7 @@ import {
   moveNodesToParent,
   renameNode,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
-import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+import { publishSubtree, reindexSubtreeEmbeddings } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   flatten,
   getProjection,
@@ -218,6 +218,30 @@ export function Tree({
               }}
             >
               <CheckCircle2 className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Gerar embeddings desta pasta e de todos os artigos abaixo (todos os níveis)"
+              className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
+              onClick={() => {
+                if (
+                  confirm(
+                    `Gerar embeddings de TODOS os artigos dentro de "${item.node.title}" (todos os níveis)?`,
+                  )
+                )
+                  startTransition(async () => {
+                    setMessage("Gerando embeddings…");
+                    const r = await reindexSubtreeEmbeddings(item.id);
+                    setMessage(
+                      r.ok
+                        ? `Embeddings gerados: ${r.count} artigo(s).`
+                        : (r.error ?? "Falha."),
+                    );
+                    router.refresh();
+                  });
+              }}
+            >
+              <Sparkles className="size-3.5" />
             </button>
           </>
         )}

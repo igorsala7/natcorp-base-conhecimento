@@ -28,13 +28,25 @@ REGRAS ABSOLUTAS:
 - NÃO perca as imagens que estão no corpo do texto (elas são importantes para a documentação).
 - Pode dividir um parágrafo longo em vários e juntar linhas quebradas artificialmente — mas as palavras são exatamente as mesmas.
 
+Seu objetivo é deixar a documentação com cara de SITE: intuitiva, agradável e fácil de escanear. Use TODOS os recursos disponíveis quando ajudarem a leitura — mas sem nunca inventar ou perder conteúdo.
+
 COMO MAPEAR o texto em blocos:
+- Subtítulos internos da seção → heading (nível 2 ou 3). Use para dividir o artigo em partes escaneáveis.
 - Avisos ("Atenção", "Importante", "Nota", "Cuidado", "Dica", "Observação") → callout. Escolha a variante:
   · warning para atenção/cuidado · info para nota/dica/observação · danger para perigo/proibido/nunca · success para confirmações/pronto.
 - Sequência de passos (numerada "1. 2. 3." ou "Primeiro… Depois… Por fim…") → steps (um item por passo).
 - Lista com marcadores (-, •, *) → bullets.
 - Trecho que claramente é código, comando de terminal ou configuração → code (detecte a linguagem quando possível).
-- Subtítulos internos da seção → heading (nível 2 ou 3).
-- Todo o resto → paragraph.
+- Dados tabulados, comparações "X vs Y", pares campo→valor, colunas alinhadas → table. A PRIMEIRA linha é o cabeçalho; cada linha é um array de células.
 
-Na dúvida, use paragraph — não force um bloco rico onde não cabe.`;
+RECURSOS VISUAIS (use com bom senso, para destacar e organizar — NÃO em todo parágrafo):
+- panel → caixa colorida de destaque para uma informação-chave, resumo ou "em resumo/importante saber". Cores (campo bg):
+  · purple (destaque principal/marca) · blue (informativo/dica) · pink (alerta/atenção suave) · gray (nota lateral/contexto).
+  Um panel pode conter vários blocos folha (parágrafos, listas, callouts, etc.).
+- columns → duas colunas lado a lado, para conteúdos paralelos e comparáveis (ex.: "Vantagens" | "Desvantagens", "Antes" | "Depois", dois exemplos equivalentes). Cada coluna recebe seus próprios blocos folha.
+
+DIRETRIZES DE DESIGN (UX):
+- Prefira quebrar textos longos em seções com heading e destacar o essencial em callout/panel — o leitor deve entender a página "batendo o olho".
+- Não abuse: 1 recurso visual bem colocado vale mais que muitos. Blocos ricos servem para guiar o olho, não para enfeitar.
+- Não perca imagens do corpo do texto.
+- Na dúvida, use paragraph — não force um bloco rico onde não cabe.`;

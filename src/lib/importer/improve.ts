@@ -9,22 +9,46 @@ import { LAYOUT_INSTRUCTIONS } from "./prompts";
  * em blocos ricos (callout, passo-a-passo, code, listas) — NÃO reescreve,
  * resume ou inventa. O usuário sempre revê o diff antes de aplicar.
  */
+// Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
+const leafOptions = [
+  z.object({ kind: z.literal("paragraph"), text: z.string() }),
+  z.object({ kind: z.literal("heading"), level: z.number().min(2).max(3), text: z.string() }),
+  z.object({
+    kind: z.literal("callout"),
+    variant: z.enum(["info", "warning", "success", "danger"]),
+    text: z.string(),
+  }),
+  z.object({ kind: z.literal("steps"), items: z.array(z.string()) }),
+  z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
+  z.object({
+    kind: z.literal("code"),
+    language: z.string().optional(),
+    code: z.string(),
+  }),
+  z.object({
+    kind: z.literal("table"),
+    // primeira linha = cabeçalho; cada linha é um array de células (texto).
+    rows: z.array(z.array(z.string())),
+  }),
+] as const;
+
+const leafBlockSchema = z.discriminatedUnion("kind", leafOptions);
+type LeafBlock = z.infer<typeof leafBlockSchema>;
+
 const blocksSchema = z.object({
   blocks: z.array(
     z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("paragraph"), text: z.string() }),
-      z.object({ kind: z.literal("heading"), level: z.number().min(2).max(3), text: z.string() }),
+      ...leafOptions,
+      // Painel = caixa colorida de destaque; pode conter vários blocos folha.
       z.object({
-        kind: z.literal("callout"),
-        variant: z.enum(["info", "warning", "success", "danger"]),
-        text: z.string(),
+        kind: z.literal("panel"),
+        bg: z.enum(["purple", "pink", "blue", "gray"]),
+        items: z.array(leafBlockSchema),
       }),
-      z.object({ kind: z.literal("steps"), items: z.array(z.string()) }),
-      z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
+      // Colunas = layout lado a lado (2 colunas), cada uma com blocos folha.
       z.object({
-        kind: z.literal("code"),
-        language: z.string().optional(),
-        code: z.string(),
+        kind: z.literal("columns"),
+        columns: z.array(z.array(leafBlockSchema)),
       }),
     ]),
   ),
@@ -32,41 +56,85 @@ const blocksSchema = z.object({
 
 type Block = z.infer<typeof blocksSchema>["blocks"][number];
 
+/** Nós de texto de uma célula/parágrafo (vazio → sem filhos, TipTap não aceita texto vazio). */
+function textNode(t: string) {
+  return t ? [{ type: "text", text: t }] : [];
+}
+
+function leafToTipTap(b: LeafBlock): object {
+  switch (b.kind) {
+    case "heading":
+      return { type: "heading", attrs: { level: b.level }, content: textNode(b.text) };
+    case "callout":
+      return {
+        type: "callout",
+        attrs: { variant: b.variant },
+        content: [{ type: "paragraph", content: textNode(b.text) }],
+      };
+    case "steps":
+      return {
+        type: "steps",
+        content: b.items.map((t) => ({
+          type: "stepItem",
+          content: [{ type: "paragraph", content: textNode(t) }],
+        })),
+      };
+    case "bullets":
+      return {
+        type: "bulletList",
+        content: b.items.map((t) => ({
+          type: "listItem",
+          content: [{ type: "paragraph", content: textNode(t) }],
+        })),
+      };
+    case "code":
+      return {
+        type: "codeBlock",
+        attrs: { language: b.language ?? null },
+        content: textNode(b.code),
+      };
+    case "table":
+      return {
+        type: "table",
+        content: b.rows
+          .filter((r) => r.length > 0)
+          .map((row, ri) => ({
+            type: "tableRow",
+            content: row.map((cell) => ({
+              type: ri === 0 ? "tableHeader" : "tableCell",
+              content: [{ type: "paragraph", content: textNode(cell) }],
+            })),
+          })),
+      };
+    default:
+      return { type: "paragraph", content: textNode(b.text) };
+  }
+}
+
+/** Garante conteúdo mínimo (block+) para contêineres que não aceitam vazio. */
+function nonEmpty(nodes: object[]): object[] {
+  return nodes.length ? nodes : [{ type: "paragraph" }];
+}
+
 function blocksToTipTap(blocks: Block[]) {
-  const content = blocks.map((b) => {
+  const content = blocks.map((b): object => {
     switch (b.kind) {
-      case "heading":
-        return { type: "heading", attrs: { level: b.level }, content: [{ type: "text", text: b.text }] };
-      case "callout":
+      case "panel":
         return {
-          type: "callout",
-          attrs: { variant: b.variant },
-          content: [{ type: "paragraph", content: [{ type: "text", text: b.text }] }],
+          type: "panel",
+          attrs: { bg: b.bg },
+          content: nonEmpty(b.items.map(leafToTipTap)),
         };
-      case "steps":
+      case "columns":
         return {
-          type: "steps",
-          content: b.items.map((t) => ({
-            type: "stepItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: t }] }],
+          type: "columns",
+          content: (b.columns.length ? b.columns : [[], []]).map((col) => ({
+            type: "column",
+            content: nonEmpty(col.map(leafToTipTap)),
           })),
-        };
-      case "bullets":
-        return {
-          type: "bulletList",
-          content: b.items.map((t) => ({
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: t }] }],
-          })),
-        };
-      case "code":
-        return {
-          type: "codeBlock",
-          attrs: { language: b.language ?? null },
-          content: [{ type: "text", text: b.code }],
         };
       default:
-        return { type: "paragraph", content: [{ type: "text", text: b.text }] };
+        return leafToTipTap(b as LeafBlock);
     }
   });
   return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
