@@ -1,5 +1,6 @@
 import "server-only";
 import { createPublicClient } from "@/lib/supabase/public";
+import { getEffectiveTreePublic } from "@/lib/content/overlays";
 
 export type PublicSpace = {
   id: string;
@@ -52,19 +53,48 @@ async function fetchPublishedNodes(spaceId: string): Promise<PublicNode[]> {
   return (data ?? []) as PublicNode[];
 }
 
-/** Monta a árvore publicada com o caminho de slugs de cada nó. */
+/**
+ * Monta a árvore publicada com o caminho de slugs. Resolve overlays: para um
+ * espaço-cliente, a árvore efetiva é global − ocultos ⊕ sobrescritos ∪ exclusivos.
+ */
 export async function getPortalTree(spaceId: string): Promise<PortalTreeNode[]> {
-  const nodes = await fetchPublishedNodes(spaceId);
-  const byId = new Map<string, PortalTreeNode>();
-  for (const n of nodes) {
-    byId.set(n.id, { ...n, slugPath: [], children: [] });
+  const supabase = createPublicClient();
+  const { data: space } = await supabase
+    .from("spaces")
+    .select("type, parent_space_id")
+    .eq("id", spaceId)
+    .maybeSingle();
+
+  let roots: PortalTreeNode[];
+  if (space?.type === "client" && space.parent_space_id) {
+    // Árvore efetiva já vem aninhada e podada (só publicado, sem ocultos).
+    const eff = await getEffectiveTreePublic(spaceId);
+    const toPortal = (list: typeof eff): PortalTreeNode[] =>
+      list.map((n) => ({
+        id: n.id,
+        parent_id: n.parent_id,
+        type: n.type,
+        title: n.title,
+        slug: n.slug,
+        position: n.position,
+        link_url: n.link_url,
+        updated_at: n.updated_at,
+        slugPath: [],
+        children: toPortal(n.children),
+      }));
+    roots = toPortal(eff);
+  } else {
+    const nodes = await fetchPublishedNodes(spaceId);
+    const byId = new Map<string, PortalTreeNode>();
+    for (const n of nodes) byId.set(n.id, { ...n, slugPath: [], children: [] });
+    roots = [];
+    for (const node of byId.values()) {
+      const parent = node.parent_id ? byId.get(node.parent_id) : null;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
   }
-  const roots: PortalTreeNode[] = [];
-  for (const node of byId.values()) {
-    const parent = node.parent_id ? byId.get(node.parent_id) : null;
-    if (parent) parent.children.push(node);
-    else roots.push(node);
-  }
+
   const assign = (list: PortalTreeNode[], prefix: string[]) => {
     list.sort((a, b) => (a.position < b.position ? -1 : 1));
     for (const n of list) {

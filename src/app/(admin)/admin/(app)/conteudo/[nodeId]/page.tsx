@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getDefaultSpace, listTree } from "@/lib/content/tree";
 import { ContentShell } from "@/components/content/content-shell";
+import { Tree } from "@/components/content/tree";
 import { ArticleEditor } from "@/components/editor/editor";
 
 export const metadata: Metadata = { title: "Editar artigo" };
@@ -40,10 +41,7 @@ export default async function EditarArtigoPage({
 
   return (
     <ContentShell
-      spaceId={space.id}
-      spaceName={space.name}
-      tree={tree}
-      selectedId={nodeId}
+      aside={<Tree spaceId={space.id} nodes={tree} selectedId={nodeId} />}
     >
       <ArticleEditor
         nodeId={nodeId}

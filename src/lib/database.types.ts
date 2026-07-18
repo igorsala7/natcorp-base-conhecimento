@@ -696,6 +696,58 @@ export type Database = {
           },
         ]
       }
+      space_overlays: {
+        Row: {
+          created_at: string
+          hidden: boolean
+          id: string
+          override_node_id: string | null
+          position_override: string | null
+          source_node_id: string
+          space_id: string
+        }
+        Insert: {
+          created_at?: string
+          hidden?: boolean
+          id?: string
+          override_node_id?: string | null
+          position_override?: string | null
+          source_node_id: string
+          space_id: string
+        }
+        Update: {
+          created_at?: string
+          hidden?: boolean
+          id?: string
+          override_node_id?: string | null
+          position_override?: string | null
+          source_node_id?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_overlays_override_node_id_fkey"
+            columns: ["override_node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "space_overlays_source_node_id_fkey"
+            columns: ["source_node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "space_overlays_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       spaces: {
         Row: {
           created_at: string
