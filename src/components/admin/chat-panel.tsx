@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FileText, Send } from "lucide-react";
+import { FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
+import { submitChatFeedback } from "@/app/(admin)/admin/(app)/assistente/actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
 /** Decodifica base64 preservando UTF-8 (atob sozinho corrompe acentos). */
@@ -21,7 +22,12 @@ type Citation = {
   image?: string | null;
   heading_path?: string | null;
 };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Citation[] };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: Citation[];
+  feedback?: 1 | -1;
+};
 
 export function ChatPanel({
   spaces,
@@ -102,6 +108,11 @@ export function ChatPanel({
   function updateLast(fn: (m: Msg) => Msg) {
     setMessages((prev) => prev.map((m, i) => (i === prev.length - 1 ? fn(m) : m)));
     requestAnimationFrame(() => scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight));
+  }
+
+  function giveFeedback(i: number, value: 1 | -1) {
+    submitChatFeedback(convRef.current ?? "", value);
+    setMessages((prev) => prev.map((m, idx) => (idx === i ? { ...m, feedback: value } : m)));
   }
 
   return (
@@ -193,6 +204,27 @@ export function ChatPanel({
                       </a>
                     ))}
                   </div>
+                </div>
+              )}
+              {m.role === "assistant" && m.content && i === messages.length - 1 && !streaming && (
+                <div className="mt-2 flex items-center gap-1">
+                  <span className="text-xs text-text-muted">Resposta útil?</span>
+                  <button
+                    type="button"
+                    aria-label="Útil"
+                    onClick={() => giveFeedback(i, 1)}
+                    className={`rounded p-1 hover:bg-surface-2 ${m.feedback === 1 ? "text-primary" : "text-text-muted"}`}
+                  >
+                    <ThumbsUp className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Não útil"
+                    onClick={() => giveFeedback(i, -1)}
+                    className={`rounded p-1 hover:bg-surface-2 ${m.feedback === -1 ? "text-brand-pink-700" : "text-text-muted"}`}
+                  >
+                    <ThumbsDown className="size-3.5" />
+                  </button>
                 </div>
               )}
             </div>

@@ -1,62 +1,79 @@
 import type { Metadata } from "next";
-import { PublishDemo } from "@/components/admin/publish-demo";
+import Link from "next/link";
+import { FolderTree, FileText, CheckCircle2, CheckSquare, MessageSquare, Search } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
 
-export const metadata: Metadata = {
-  title: "Painel",
-};
+export const metadata: Metadata = { title: "Painel" };
 
-/**
- * Painel do Admin — vazio por ora (Fase 0). Existe para provar o shell,
- * os tokens de cor, o dark mode e a proteção por sessão + TOTP.
- * Conteúdo real chega nas próximas fases.
- */
-export default function AdminHome() {
+/** Painel do admin — números reais + atalhos e pendências. */
+export default async function AdminHome() {
+  const supabase = await createClient();
+  const [spaces, articles, published, review, convs, gaps] = await Promise.all([
+    supabase.from("spaces").select("id", { count: "exact", head: true }),
+    supabase.from("nodes").select("id", { count: "exact", head: true }).eq("type", "article").is("deleted_at", null),
+    supabase.from("nodes").select("id", { count: "exact", head: true }).eq("type", "article").eq("status", "published").is("deleted_at", null),
+    supabase.from("nodes").select("id", { count: "exact", head: true }).eq("status", "review").is("deleted_at", null),
+    supabase.from("conversations").select("id", { count: "exact", head: true }),
+    supabase.from("search_logs").select("id", { count: "exact", head: true }).eq("results_count", 0),
+  ]);
+
+  const cards = [
+    { label: "Espaços", value: spaces.count ?? 0, icon: FolderTree, href: "/admin/conteudo" },
+    { label: "Artigos", value: articles.count ?? 0, icon: FileText, href: "/admin/conteudo" },
+    { label: "Publicados", value: published.count ?? 0, icon: CheckCircle2, href: "/admin/conteudo" },
+    { label: "Conversas", value: convs.count ?? 0, icon: MessageSquare, href: "/admin/analises" },
+  ];
+
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
-      <p className="mt-2 max-w-prose text-text-muted">
-        Fundação pronta. A partir daqui construímos a árvore de conteúdo, o
-        editor, o portal público, a busca híbrida, o importador e o assistente
-        de IA — uma fase por vez.
-      </p>
+      <p className="mt-1 text-sm text-text-muted">Visão geral da sua base de conhecimento.</p>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[
-          { titulo: "Espaços", valor: "—", nota: "Fase 1" },
-          { titulo: "Artigos", valor: "—", nota: "Fase 1" },
-          { titulo: "Publicados", valor: "—", nota: "Fase 1" },
-        ].map((card) => (
-          <div
-            key={card.titulo}
-            className="rounded-lg border border-border bg-surface p-5"
-          >
-            <div className="text-sm text-text-muted">{card.titulo}</div>
-            <div className="mt-1 text-3xl font-semibold tabular-nums">
-              {card.valor}
-            </div>
-            <div className="mt-2 inline-flex items-center rounded-full bg-brand-pink-50 px-2 py-0.5 text-xs font-medium text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-              {card.nota}
-            </div>
-          </div>
-        ))}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((c) => {
+          const Icon = c.icon;
+          return (
+            <Link
+              key={c.label}
+              href={c.href}
+              className="rounded-xl border border-border bg-surface p-5 transition-colors hover:border-primary"
+            >
+              <Icon className="size-5 text-text-muted" />
+              <div className="mt-2 text-3xl font-semibold tabular-nums">{c.value}</div>
+              <div className="text-sm text-text-muted">{c.label}</div>
+            </Link>
+          );
+        })}
       </div>
 
-      <div className="mt-8 flex flex-wrap gap-3">
-        <span className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg">
-          Botão primário
-        </span>
-        <span className="inline-flex items-center rounded-md border border-border bg-surface-2 px-4 py-2 text-sm font-medium">
-          Secundário
-        </span>
-        <a
-          href="#"
-          className="inline-flex items-center px-4 py-2 text-sm font-medium text-primary underline-offset-4 hover:underline"
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Link
+          href="/admin/revisao"
+          className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary"
         >
-          Um link da marca
-        </a>
+          <CheckSquare className="size-5 text-primary" />
+          <div className="flex-1">
+            <div className="text-sm font-medium">Fila de revisão</div>
+            <div className="text-xs text-text-muted">Artigos aguardando aprovação</div>
+          </div>
+          <span className="rounded-full bg-brand-purple-50 px-2.5 py-1 text-sm font-semibold text-primary dark:bg-brand-purple-950/40">
+            {review.count ?? 0}
+          </span>
+        </Link>
+        <Link
+          href="/admin/analises"
+          className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary"
+        >
+          <Search className="size-5 text-brand-pink-700" />
+          <div className="flex-1">
+            <div className="text-sm font-medium">Buscas sem resultado</div>
+            <div className="text-xs text-text-muted">Lacunas na documentação</div>
+          </div>
+          <span className="rounded-full bg-brand-pink-50 px-2.5 py-1 text-sm font-semibold text-brand-pink-700 dark:bg-brand-pink-950/40">
+            {gaps.count ?? 0}
+          </span>
+        </Link>
       </div>
-
-      <PublishDemo />
     </div>
   );
 }
