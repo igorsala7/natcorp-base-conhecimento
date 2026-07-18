@@ -67,9 +67,14 @@
       ".m.a code{background:#f0ebf7;border-radius:4px;padding:1px 4px;font-size:.85em}" +
       ".m.a pre{background:#f4f0fa;border-radius:8px;padding:10px;overflow-x:auto;margin:6px 0}" +
       ".m.a pre code{background:none;padding:0}" +
-      ".cites{align-self:flex-start;display:flex;flex-wrap:wrap;gap:6px;margin-top:-4px}" +
-      ".cites a{font-size:12px;color:var(--pc);border:1px solid #e2d8ee;border-radius:999px;padding:2px 8px;text-decoration:none;background:#fff}" +
-      ".cites a:hover{background:#f3edfa}" +
+      ".cites{align-self:stretch;display:flex;flex-direction:column;gap:6px;margin-top:2px}" +
+      ".cite{display:flex;align-items:center;gap:8px;text-decoration:none;border:1px solid #e2d8ee;border-radius:10px;padding:6px;background:#fff;transition:border-color .15s}" +
+      ".cite:hover{border-color:var(--pc)}" +
+      ".cthumb{width:38px;height:38px;border-radius:6px;object-fit:cover;flex:none;background:#f3edfa}" +
+      ".cthumb.cph{display:flex;align-items:center;justify-content:center;font-size:18px}" +
+      ".cbody{min-width:0;display:flex;flex-direction:column}" +
+      ".ctitle{font-size:12px;font-weight:600;color:var(--pc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".cpath{font-size:11px;color:#8a7ea3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".sugg{display:flex;flex-wrap:wrap;gap:6px}" +
       ".sugg button{font-size:13px;color:var(--pc);border:1px solid #e2d8ee;background:#fff;border-radius:999px;padding:6px 10px;cursor:pointer}" +
       ".sugg button:hover{background:#f3edfa}" +
@@ -434,10 +439,35 @@
     box.className = "cites";
     cites.forEach(function (c) {
       var a = document.createElement("a");
+      a.className = "cite";
       a.href = API + c.url;
       a.target = "_blank";
       a.rel = "noopener";
-      a.textContent = "[" + c.n + "] " + c.title;
+      var thumb;
+      if (c.image) {
+        thumb = document.createElement("img");
+        thumb.src = c.image;
+        thumb.alt = "";
+        thumb.className = "cthumb";
+      } else {
+        thumb = document.createElement("div");
+        thumb.className = "cthumb cph";
+        thumb.textContent = "📄";
+      }
+      var body = document.createElement("div");
+      body.className = "cbody";
+      var t = document.createElement("span");
+      t.className = "ctitle";
+      t.textContent = "[" + c.n + "] " + c.title;
+      body.appendChild(t);
+      if (c.heading_path) {
+        var hp = document.createElement("span");
+        hp.className = "cpath";
+        hp.textContent = c.heading_path;
+        body.appendChild(hp);
+      }
+      a.appendChild(thumb);
+      a.appendChild(body);
       box.appendChild(a);
     });
     messagesEl.appendChild(box);

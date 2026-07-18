@@ -86,7 +86,13 @@ export async function POST(req: NextRequest) {
     content: question,
   });
 
-  const citations = sources.map((s) => ({ n: s.n, title: s.title, url: s.url }));
+  const citations = sources.map((s) => ({
+    n: s.n,
+    title: s.title,
+    url: s.url,
+    image: s.image,
+    heading_path: s.heading_path,
+  }));
   const encoder = new TextEncoder();
   const sse = (obj: unknown) => encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
 

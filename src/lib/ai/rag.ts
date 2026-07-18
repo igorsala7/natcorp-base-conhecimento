@@ -22,7 +22,24 @@ export type RetrievedSource = {
   content: string;
   snippet: string | null; // trecho destacado (para busca)
   url: string; // link para o portal (com âncora)
+  image: string | null; // miniatura (capa do artigo ou 1ª imagem) — para os cards
 };
+
+/** Primeira imagem embutida no documento TipTap (para usar como miniatura). */
+function firstImageOf(doc: unknown): string | null {
+  let found: string | null = null;
+  const walk = (n: unknown) => {
+    if (found || !n || typeof n !== "object") return;
+    const node = n as { type?: string; attrs?: { src?: unknown }; content?: unknown[] };
+    if ((node.type === "figureImage" || node.type === "image") && typeof node.attrs?.src === "string") {
+      found = node.attrs.src;
+      return;
+    }
+    if (Array.isArray(node.content)) node.content.forEach(walk);
+  };
+  walk(doc);
+  return found;
+}
 
 /** Nós efetivos + caminhos de slug, a partir de uma árvore já resolvida. */
 async function spaceContext(
@@ -82,6 +99,19 @@ async function retrieveWith(
     p_limit: limit,
   });
 
+  // Miniatura por nó citado: capa do artigo ou 1ª imagem do conteúdo.
+  const hitNodeIds = (data ?? []).map((r) => r.node_id);
+  const imageByNode = new Map<string, string | null>();
+  if (hitNodeIds.length) {
+    const { data: arts } = await supabase
+      .from("articles")
+      .select("node_id, cover_image, content_json")
+      .in("node_id", hitNodeIds);
+    for (const a of arts ?? []) {
+      imageByNode.set(a.node_id, a.cover_image ?? firstImageOf(a.content_json));
+    }
+  }
+
   return (data ?? []).map((r, i) => {
     const slugPath = slugPathById.get(r.node_id) ?? [];
     const anchor = r.heading_path
@@ -95,6 +125,7 @@ async function retrieveWith(
       content: r.content,
       snippet: r.snippet ?? null,
       url: `/docs/${spaceSlug}/${slugPath.join("/")}${anchor}`,
+      image: imageByNode.get(r.node_id) ?? null,
     } as RetrievedSource;
   });
 }

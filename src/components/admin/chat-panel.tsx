@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { FileText, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
@@ -14,7 +14,13 @@ function decodeB64Utf8(b64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-type Citation = { n: number; title: string; url: string };
+type Citation = {
+  n: number;
+  title: string;
+  url: string;
+  image?: string | null;
+  heading_path?: string | null;
+};
 type Msg = { role: "user" | "assistant"; content: string; citations?: Citation[] };
 
 export function ChatPanel({
@@ -129,18 +135,42 @@ export function ChatPanel({
                 <p className="text-sm text-text-muted">…</p>
               )}
               {m.citations && m.citations.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2">
-                  {m.citations.map((c) => (
-                    <a
-                      key={c.n}
-                      href={c.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-primary hover:underline"
-                    >
-                      [{c.n}] {c.title}
-                    </a>
-                  ))}
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-2 text-xs font-medium text-text-muted">Fontes</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {m.citations.map((c) => (
+                      <a
+                        key={c.n}
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 transition-colors hover:border-primary"
+                      >
+                        {c.image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={c.image}
+                            alt=""
+                            className="size-10 shrink-0 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="flex size-10 shrink-0 items-center justify-center rounded bg-surface-2 text-text-muted">
+                            <FileText className="size-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <span className="block truncate text-xs font-medium text-primary">
+                            [{c.n}] {c.title}
+                          </span>
+                          {c.heading_path && (
+                            <span className="block truncate text-[11px] text-text-muted">
+                              {c.heading_path}
+                            </span>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

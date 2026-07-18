@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   });
 
   const citationsB64 = Buffer.from(
-    JSON.stringify(sources.map((s) => ({ n: s.n, title: s.title, url: s.url }))),
+    JSON.stringify(sources.map((s) => ({ n: s.n, title: s.title, url: s.url, image: s.image, heading_path: s.heading_path }))),
   ).toString("base64");
   const baseHeaders: Record<string, string> = {
     "X-Citations": citationsB64,
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
         conversation_id: convId!,
         role: "assistant",
         content: text,
-        citations: sources.map((s) => ({ n: s.n, title: s.title, url: s.url })) as never,
+        citations: sources.map((s) => ({ n: s.n, title: s.title, url: s.url, image: s.image, heading_path: s.heading_path })) as never,
         latency_ms: Date.now() - started,
         tokens: usage?.totalTokens ?? null,
       });
