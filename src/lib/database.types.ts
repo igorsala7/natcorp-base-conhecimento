@@ -246,6 +246,78 @@ export type Database = {
           },
         ]
       }
+      import_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          error: string | null
+          extracted: Json | null
+          id: string
+          log: Json
+          mime: string | null
+          original_name: string | null
+          progress: number
+          result_tree: Json | null
+          size_bytes: number | null
+          source_file: string
+          space_id: string
+          status: string
+          target_parent_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          extracted?: Json | null
+          id?: string
+          log?: Json
+          mime?: string | null
+          original_name?: string | null
+          progress?: number
+          result_tree?: Json | null
+          size_bytes?: number | null
+          source_file: string
+          space_id: string
+          status?: string
+          target_parent_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          extracted?: Json | null
+          id?: string
+          log?: Json
+          mime?: string | null
+          original_name?: string | null
+          progress?: number
+          result_tree?: Json | null
+          size_bytes?: number | null
+          source_file?: string
+          space_id?: string
+          status?: string
+          target_parent_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "import_jobs_target_parent_id_fkey"
+            columns: ["target_parent_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
