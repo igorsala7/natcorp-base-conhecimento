@@ -919,6 +919,13 @@ export type Database = {
       node_label: { Args: { p_id: string }; Returns: string }
       restore_subtree: { Args: { p_node_id: string }; Returns: number }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
+      subtree_ids: {
+        Args: { p_node_id: string }
+        Returns: {
+          id: string
+          type: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

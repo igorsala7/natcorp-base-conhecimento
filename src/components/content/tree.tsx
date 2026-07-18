@@ -15,16 +15,19 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { FilePlus, FolderPlus, Link2, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, FilePlus, FolderPlus, Link2, Pencil, Trash2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { Button } from "@/components/ui/button";
 import {
   changeSlug,
   createNode,
   deleteNode,
+  deleteNodes,
   moveNode,
+  moveNodesToParent,
   renameNode,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
+import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   flatten,
   getProjection,
@@ -50,6 +53,8 @@ export function Tree({
   const [overId, setOverId] = useState<string | null>(null);
   const [offsetLeft, setOffsetLeft] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const sensors = useSensors(
@@ -75,6 +80,35 @@ export function Tree({
       return next;
     });
   }
+
+  /** Marca/desmarca um nó; com Shift, seleciona o intervalo desde o último. */
+  function onCheck(id: string, e: React.MouseEvent) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      const ids = flat.map((i) => i.id);
+      if (e.shiftKey && lastChecked) {
+        const a = ids.indexOf(lastChecked);
+        const b = ids.indexOf(id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i++) next.add(ids[i]!);
+        }
+      } else if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    setLastChecked(id);
+  }
+
+  function clearSelection() {
+    setCheckedIds(new Set());
+    setLastChecked(null);
+  }
+
+  const folders = flat.filter((i) => i.node.type === "folder");
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
     startTransition(async () => {
@@ -166,6 +200,20 @@ export function Tree({
             >
               <FilePlus className="size-3.5" />
             </button>
+            <button
+              type="button"
+              title="Publicar esta pasta e todos os filhos"
+              className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
+              onClick={() => {
+                if (confirm(`Publicar "${item.node.title}" e TODOS os artigos dentro?`))
+                  run(async () => {
+                    const r = await publishSubtree(item.id);
+                    return r.ok ? { ok: true } : { ok: false, error: r.error };
+                  });
+              }}
+            >
+              <CheckCircle2 className="size-3.5" />
+            </button>
           </>
         )}
         <button
@@ -236,6 +284,59 @@ export function Tree({
         </Button>
       </div>
 
+      {checkedIds.size > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-brand-purple-50 px-2 py-1.5 text-sm dark:bg-brand-purple-950/30">
+          <span className="font-medium text-primary">{checkedIds.size} selecionado(s)</span>
+          <select
+            defaultValue=""
+            className="h-7 rounded border border-border bg-surface px-1 text-xs"
+            aria-label="Mover para"
+            onChange={(e) => {
+              const dest = e.target.value;
+              e.target.value = "";
+              const ids = [...checkedIds];
+              run(async () => {
+                const r = await moveNodesToParent(ids, dest === "__root__" ? null : dest);
+                clearSelection();
+                return r;
+              });
+            }}
+          >
+            <option value="" disabled>
+              Mover para…
+            </option>
+            <option value="__root__">Raiz</option>
+            {folders
+              .filter((f) => !checkedIds.has(f.id))
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {"— ".repeat(f.depth)}
+                  {f.node.title}
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            className="rounded px-2 py-0.5 text-xs text-brand-pink-700 hover:bg-surface"
+            onClick={() => {
+              if (confirm(`Excluir ${checkedIds.size} item(ns) e tudo dentro?`)) {
+                const ids = [...checkedIds];
+                run(async () => {
+                  const r = await deleteNodes(ids);
+                  clearSelection();
+                  return r;
+                });
+              }
+            }}
+          >
+            Excluir
+          </button>
+          <button type="button" className="ml-auto text-xs text-text-muted hover:text-text" onClick={clearSelection}>
+            Limpar
+          </button>
+        </div>
+      )}
+
       {message && (
         <p className="mb-2 rounded-md bg-brand-pink-50 px-2 py-1 text-xs text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
           {message}
@@ -269,8 +370,10 @@ export function Tree({
                 hasChildren={hasChildrenMap.get(item.id) ?? false}
                 active={item.id === activeId}
                 selected={item.id === selectedId}
+                checked={checkedIds.has(item.id)}
                 indentationWidth={INDENT}
                 onToggle={() => toggle(item.id)}
+                onCheck={(e) => onCheck(item.id, e)}
                 onSelect={() => {
                   if (item.node.type === "article")
                     router.push(`/admin/conteudo/${item.id}`);

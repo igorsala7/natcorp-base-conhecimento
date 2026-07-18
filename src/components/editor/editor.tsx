@@ -14,6 +14,7 @@ import {
 } from "@tiptap/extension-table";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ import {
   publishNode,
   unpublishNode,
   improveArticleLayout,
+  reindexArticleEmbeddings,
 } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 
 const lowlight = createLowlight(common);
@@ -87,6 +89,8 @@ export function ArticleEditor({
 
   const [improving, setImproving] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   const proposedRef = useRef<object | null>(null);
 
   const editor = useEditor({
@@ -154,6 +158,14 @@ export function ArticleEditor({
     setShowDiff(false);
   }
 
+  async function onReindex() {
+    setReindexing(true);
+    setMsg(null);
+    const res = await reindexArticleEmbeddings(nodeId);
+    setReindexing(false);
+    setMsg(res.ok ? "Embeddings gerados — o assistente já usa este artigo na busca semântica." : res.error);
+  }
+
   async function onPublishToggle() {
     const res =
       status === "published"
@@ -183,7 +195,13 @@ export function ArticleEditor({
   if (!editor) return null;
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className={
+        fullscreen
+          ? "fixed inset-0 z-40 flex flex-col overflow-hidden bg-bg p-4 md:p-8"
+          : "flex h-full flex-col"
+      }
+    >
       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
@@ -200,6 +218,17 @@ export function ArticleEditor({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            title={fullscreen ? "Sair da tela cheia" : "Expandir (tela cheia)"}
+            onClick={() => setFullscreen((f) => !f)}
+          >
+            {fullscreen ? <Minimize2 /> : <Maximize2 />}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onReindex} disabled={reindexing} title="Gerar embeddings para a busca semântica sem despublicar">
+            {reindexing ? "Gerando…" : "Gerar embeddings"}
+          </Button>
           <Button variant="secondary" onClick={onImprove} disabled={improving}>
             {improving ? "Melhorando…" : "Melhorar layout (IA)"}
           </Button>

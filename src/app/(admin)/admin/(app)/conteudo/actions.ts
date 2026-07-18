@@ -239,6 +239,59 @@ export async function moveNode(input: {
   return { ok: true };
 }
 
+/** Move vários nós para o fim da lista de um destino (ação em massa). */
+export async function moveNodesToParent(
+  ids: string[],
+  newParentId: string | null,
+): Promise<NodeActionResult> {
+  const supabase = await createClient();
+  // posição inicial = maior position atual no destino
+  let q = supabase
+    .from("nodes")
+    .select("position")
+    .is("deleted_at", null)
+    .order("position", { ascending: false })
+    .limit(1);
+  q = newParentId ? q.eq("parent_id", newParentId) : q.is("parent_id", null);
+  const { data: last } = await q.maybeSingle();
+  let prev: string | null = last?.position ?? null;
+
+  for (const id of ids) {
+    if (id === newParentId) continue; // não mover para si mesmo
+    const position = generateKeyBetween(prev, null);
+    const { error } = await supabase.rpc("move_node", {
+      p_node_id: id,
+      p_new_parent_id: newParentId as string,
+      p_position: position,
+    });
+    if (error) {
+      return err(
+        error.message.includes("permiss")
+          ? "Sem permissão para reorganizar."
+          : `Falha ao mover: ${error.message}`,
+      );
+    }
+    prev = position;
+  }
+  await audit({ action: "content.move_bulk", entityType: "node", after: { count: ids.length } });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
+}
+
+/** Exclui vários nós (soft delete). */
+export async function deleteNodes(ids: string[]): Promise<NodeActionResult> {
+  const supabase = await createClient();
+  for (const id of ids) {
+    const { error } = await supabase.rpc("soft_delete_subtree", { p_node_id: id });
+    if (error && !error.message.includes("permiss")) {
+      return err(`Falha: ${error.message}`);
+    }
+  }
+  await audit({ action: "content.delete_bulk", entityType: "node", after: { count: ids.length } });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
+}
+
 /** Soft delete da subárvore (lixeira). */
 export async function deleteNode(id: string): Promise<NodeActionResult> {
   const supabase = await createClient();

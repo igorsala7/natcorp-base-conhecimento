@@ -158,6 +158,93 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
   return { ok: true };
 }
 
+/**
+ * Reindexa os chunks do artigo COM embeddings, sem precisar despublicar/publicar.
+ * Útil para gerar embeddings de conteúdo já publicado antes de configurar a IA.
+ */
+export async function reindexArticleEmbeddings(
+  nodeId: string,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const { data: art } = await supabase
+    .from("articles")
+    .select("id, content_json")
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  if (!art) return { ok: false, error: "Artigo não encontrado." };
+
+  await reindexNodeChunks(supabase, {
+    nodeId,
+    articleId: art.id,
+    spaceId,
+    doc: art.content_json as { type: string; content?: never[] },
+    withEmbeddings: true,
+  });
+  await audit({ action: "content.reindex", entityType: "node", entityId: nodeId, spaceId });
+  return { ok: true };
+}
+
+/**
+ * Publica um nó e TODA a subárvore (pasta → todos os filhos publicados),
+ * gerando embeddings de cada artigo. Exige content.publish.
+ */
+export async function publishSubtree(
+  nodeId: string,
+): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.publish", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão para publicar." };
+  }
+
+  const { data: subtree } = await supabase.rpc("subtree_ids", {
+    p_node_id: nodeId,
+  });
+  const ids = (subtree ?? []).map((r) => r.id);
+  if (ids.length === 0) return { ok: false, error: "Nada a publicar." };
+
+  const now = new Date().toISOString();
+  await supabase
+    .from("nodes")
+    .update({ status: "published", published_at: now })
+    .in("id", ids);
+
+  // Reindexa (com embeddings) cada artigo da subárvore.
+  const articleIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
+  let count = 0;
+  for (const artNodeId of articleIds) {
+    const { data: art } = await supabase
+      .from("articles")
+      .select("id, content_json")
+      .eq("node_id", artNodeId)
+      .maybeSingle();
+    if (!art) continue;
+    await supabase.from("articles").update({ published_at: now }).eq("id", art.id);
+    await reindexNodeChunks(supabase, {
+      nodeId: artNodeId,
+      articleId: art.id,
+      spaceId,
+      doc: art.content_json as { type: string; content?: never[] },
+      withEmbeddings: true,
+    });
+    count += 1;
+  }
+
+  await audit({ action: "content.publish_subtree", entityType: "node", entityId: nodeId, spaceId, after: { count } });
+  revalidatePath("/admin/conteudo");
+  return { ok: true, count };
+}
+
 /** Despublica (volta para rascunho). Exige content.publish. */
 export async function unpublishNode(nodeId: string): Promise<SaveResult> {
   const supabase = await createClient();

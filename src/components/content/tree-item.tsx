@@ -29,9 +29,11 @@ export function TreeItem({
   hasChildren,
   active,
   selected,
+  checked,
   indentationWidth,
   onToggle,
   onSelect,
+  onCheck,
   children: actions,
 }: {
   id: string;
@@ -41,9 +43,11 @@ export function TreeItem({
   hasChildren: boolean;
   active: boolean;
   selected: boolean;
+  checked: boolean;
   indentationWidth: number;
   onToggle: () => void;
   onSelect: () => void;
+  onCheck: (e: React.MouseEvent) => void;
   children?: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -62,9 +66,21 @@ export function TreeItem({
       className={cn(
         "group flex items-center gap-1 rounded-md py-1 pr-2 text-sm",
         selected ? "bg-brand-purple-50 dark:bg-brand-purple-950/40" : "hover:bg-surface-2",
+        checked && "bg-brand-purple-50 dark:bg-brand-purple-950/30",
         active && "ring-1 ring-ring",
       )}
     >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => {}}
+        onClick={(e) => onCheck(e)}
+        aria-label="Selecionar"
+        className={cn(
+          "size-3.5 shrink-0 accent-[var(--color-primary)]",
+          checked ? "" : "opacity-0 group-hover:opacity-100",
+        )}
+      />
       <button
         type="button"
         className="cursor-grab touch-none text-text-muted opacity-0 group-hover:opacity-100"
