@@ -15,15 +15,21 @@ import {
   Info,
   Italic,
   Link as LinkIcon,
+  Columns2,
+  Highlighter,
   List,
   ListOrdered,
   ListTree,
+  MousePointerClick,
+  Palette,
   Puzzle,
   Quote,
   Rows3,
+  Square,
   Strikethrough,
   Table as TableIcon,
   Video as VideoIcon,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -153,6 +159,37 @@ export function EditorToolbar({
       </Btn>
       <Btn title="Snippet reutilizável" onClick={() => insert({ type: "snippet", attrs: { snippetKey: "" } })}>
         <Puzzle />
+      </Btn>
+      <Sep />
+      <Btn
+        title="Realce"
+        active={editor.isActive("highlight")}
+        onClick={() => editor.chain().focus().toggleHighlight({ color: "#fde68a" }).run()}
+      >
+        <Highlighter />
+      </Btn>
+      <label
+        title="Cor do texto"
+        className="flex size-8 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-2 [&_svg]:size-4"
+      >
+        <Palette />
+        <input
+          type="color"
+          className="sr-only"
+          onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+        />
+      </label>
+      <Btn title="Painel (caixa com fundo)" onClick={() => insert({ type: "panel", attrs: { bg: "purple" }, content: [{ type: "paragraph" }] })}>
+        <Square />
+      </Btn>
+      <Btn title="Colunas" onClick={() => insert({ type: "columns", content: [{ type: "column", content: [{ type: "paragraph" }] }, { type: "column", content: [{ type: "paragraph" }] }] })}>
+        <Columns2 />
+      </Btn>
+      <Btn title="Fluxograma / gráfico (Mermaid)" onClick={() => insert({ type: "mermaid", attrs: { code: "flowchart TD\n  A[Início] --> B{Decisão}\n  B -->|Sim| C[Fim]\n  B -->|Não| A" } })}>
+        <Workflow />
+      </Btn>
+      <Btn title="Botão / CTA" onClick={() => insert({ type: "buttonLink", attrs: { label: "Saiba mais", href: "", variant: "primary" } })}>
+        <MousePointerClick />
       </Btn>
 
       <input

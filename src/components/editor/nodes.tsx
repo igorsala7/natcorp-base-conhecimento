@@ -16,6 +16,7 @@ import {
   Info,
   OctagonAlert,
 } from "lucide-react";
+import { MermaidView } from "./mermaid-view";
 
 /* ============================ CALLOUT ============================ */
 const CALLOUT_VARIANTS = {
@@ -501,5 +502,213 @@ export const Snippet = Node.create({
   },
   addNodeView() {
     return ReactNodeViewRenderer(SnippetView);
+  },
+});
+
+/* ============================ PAINEL (caixa com fundo) ============================ */
+const PANEL_BG: Record<string, string> = {
+  purple: "bg-brand-purple-50 dark:bg-brand-purple-950/30",
+  pink: "bg-brand-pink-50 dark:bg-brand-pink-950/30",
+  blue: "bg-brand-blue-50 dark:bg-brand-blue-950/30",
+  gray: "bg-brand-gray-100 dark:bg-brand-gray-800",
+};
+function PanelView({ node, updateAttributes }: NodeViewProps) {
+  const bg = (node.attrs.bg ?? "purple") as string;
+  return (
+    <NodeViewWrapper className={`my-4 rounded-xl p-5 ${PANEL_BG[bg] ?? PANEL_BG.purple}`}>
+      <select
+        contentEditable={false}
+        value={bg}
+        onChange={(e) => updateAttributes({ bg: e.target.value })}
+        className="mb-2 rounded border border-border bg-surface px-1 text-xs text-text-muted"
+      >
+        <option value="purple">Fundo roxo</option>
+        <option value="pink">Fundo rosa</option>
+        <option value="blue">Fundo azul</option>
+        <option value="gray">Fundo cinza</option>
+      </select>
+      <div className="[&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+        <NodeViewContent />
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const Panel = Node.create({
+  name: "panel",
+  group: "block",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return { bg: { default: "purple" } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="panel"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "panel" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(PanelView);
+  },
+});
+
+/* ============================ COLUNAS ============================ */
+function ColumnsView() {
+  return (
+    <NodeViewWrapper className="my-4">
+      <NodeViewContent className="grid gap-4 md:grid-cols-2 [&>.column]:min-w-0" />
+    </NodeViewWrapper>
+  );
+}
+export const Columns = Node.create({
+  name: "columns",
+  group: "block",
+  content: "column+",
+  parseHTML() {
+    return [{ tag: 'div[data-type="columns"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "columns" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ColumnsView);
+  },
+});
+function ColumnView() {
+  return (
+    <NodeViewWrapper className="column rounded-lg border border-dashed border-border p-3 [&>*:first-child]:mt-0">
+      <NodeViewContent />
+    </NodeViewWrapper>
+  );
+}
+export const Column = Node.create({
+  name: "column",
+  content: "block+",
+  defining: true,
+  parseHTML() {
+    return [{ tag: 'div[data-type="column"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "column" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ColumnView);
+  },
+});
+
+/* ============================ MERMAID (fluxograma/gráfico) ============================ */
+function MermaidNodeView({ node, updateAttributes }: NodeViewProps) {
+  const [editing, setEditing] = useState(!node.attrs.code);
+  const code = (node.attrs.code ?? "") as string;
+  return (
+    <NodeViewWrapper className="my-4">
+      <div className="rounded-lg border border-border">
+        <div
+          contentEditable={false}
+          className="flex items-center justify-between border-b border-border bg-surface-2 px-3 py-1 text-xs text-text-muted"
+        >
+          <span>Diagrama (Mermaid)</span>
+          <button type="button" className="text-primary" onClick={() => setEditing((e) => !e)}>
+            {editing ? "Pré-visualizar" : "Editar"}
+          </button>
+        </div>
+        {editing ? (
+          <textarea
+            contentEditable={false}
+            value={code}
+            onChange={(e) => updateAttributes({ code: e.target.value })}
+            placeholder={"flowchart TD\n  A[Início] --> B{Decisão}\n  B -->|Sim| C[Fim]\n  B -->|Não| A"}
+            className="h-40 w-full resize-y bg-surface p-3 font-mono text-xs focus:outline-none"
+          />
+        ) : (
+          <div contentEditable={false}>
+            <MermaidView code={code} />
+          </div>
+        )}
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const Mermaid = Node.create({
+  name: "mermaid",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return { code: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="mermaid"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "mermaid" })];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(MermaidNodeView);
+  },
+});
+
+/* ============================ BOTÃO / CTA ============================ */
+function ButtonLinkView({ node, updateAttributes }: NodeViewProps) {
+  const { label, href, variant } = node.attrs as {
+    label: string;
+    href: string;
+    variant: string;
+  };
+  return (
+    <NodeViewWrapper className="my-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border p-3">
+        <span
+          className={
+            variant === "secondary"
+              ? "inline-flex items-center rounded-md border border-border bg-surface-2 px-4 py-2 text-sm font-medium"
+              : "inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg"
+          }
+        >
+          {label || "Botão"}
+        </span>
+        <input
+          contentEditable={false}
+          value={label}
+          onChange={(e) => updateAttributes({ label: e.target.value })}
+          placeholder="Rótulo"
+          className="rounded border border-border bg-surface px-2 py-1 text-xs"
+        />
+        <input
+          contentEditable={false}
+          value={href}
+          onChange={(e) => updateAttributes({ href: e.target.value })}
+          placeholder="https://…"
+          className="flex-1 rounded border border-border bg-surface px-2 py-1 text-xs"
+        />
+        <select
+          contentEditable={false}
+          value={variant}
+          onChange={(e) => updateAttributes({ variant: e.target.value })}
+          className="rounded border border-border bg-surface px-1 text-xs"
+        >
+          <option value="primary">Primário</option>
+          <option value="secondary">Secundário</option>
+        </select>
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const ButtonLink = Node.create({
+  name: "buttonLink",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return { label: { default: "Saiba mais" }, href: { default: "" }, variant: { default: "primary" } };
+  },
+  parseHTML() {
+    return [{ tag: 'a[data-type="button-link"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["a", mergeAttributes(HTMLAttributes, { "data-type": "button-link" })];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ButtonLinkView);
   },
 });

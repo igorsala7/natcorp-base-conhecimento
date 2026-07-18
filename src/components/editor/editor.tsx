@@ -13,6 +13,9 @@ import {
   TableHeader,
 } from "@tiptap/extension-table";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { Highlight } from "@tiptap/extension-highlight";
 import { common, createLowlight } from "lowlight";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +33,11 @@ import {
   LinkCard,
   HtmlEmbed,
   Snippet,
+  Panel,
+  Columns,
+  Column,
+  Mermaid,
+  ButtonLink,
 } from "./nodes";
 import { EditorToolbar } from "./toolbar";
 import {
@@ -48,6 +56,9 @@ const EDITOR_EXTENSIONS = [
   Link.configure({ openOnClick: false }),
   Placeholder.configure({ placeholder: "Escreva o conteúdo…" }),
   CodeBlockLowlight.configure({ lowlight }),
+  TextStyle,
+  Color,
+  Highlight.configure({ multicolor: true }),
   Table.configure({ resizable: true }),
   TableRow,
   TableHeader,
@@ -64,6 +75,11 @@ const EDITOR_EXTENSIONS = [
   LinkCard,
   HtmlEmbed,
   Snippet,
+  Panel,
+  Columns,
+  Column,
+  Mermaid,
+  ButtonLink,
 ];
 
 type SaveState = "idle" | "saving" | "saved" | "error";

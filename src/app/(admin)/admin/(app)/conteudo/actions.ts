@@ -8,6 +8,7 @@ import { requirePermission, PermissionError } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { slugify } from "@/lib/content/slug";
 import { slugPathsOf, subtreeIds } from "@/lib/content/tree";
+import type { Json } from "@/lib/database.types";
 
 export type NodeActionResult =
   | { ok: true; id?: string }
@@ -276,6 +277,76 @@ export async function moveNodesToParent(
   await audit({ action: "content.move_bulk", entityType: "node", after: { count: ids.length } });
   revalidatePath("/admin/conteudo");
   return { ok: true };
+}
+
+/**
+ * Unifica vários artigos em um só, na ordem recebida (ordem da árvore).
+ * O conteúdo de cada artigo é concatenado em sequência (separado por linha).
+ * Cria um novo artigo no lugar do primeiro e manda os originais para a lixeira.
+ */
+export async function mergeArticles(
+  orderedNodeIds: string[],
+): Promise<NodeActionResult> {
+  if (orderedNodeIds.length < 2) return err("Selecione ao menos 2 artigos.");
+  const supabase = await createClient();
+
+  const { data: first } = await supabase
+    .from("nodes")
+    .select("space_id, parent_id, position, title")
+    .eq("id", orderedNodeIds[0]!)
+    .single();
+  if (!first) return err("Artigo não encontrado.");
+  try {
+    await requirePermission("content.create", first.space_id);
+    await requirePermission("content.delete", first.space_id);
+  } catch {
+    return err("Sem permissão para unificar (precisa criar e excluir).");
+  }
+
+  // Concatena o conteúdo de cada artigo, na ordem, com um separador.
+  const merged: unknown[] = [];
+  for (let i = 0; i < orderedNodeIds.length; i++) {
+    const { data: art } = await supabase
+      .from("articles")
+      .select("content_json")
+      .eq("node_id", orderedNodeIds[i]!)
+      .maybeSingle();
+    const doc = art?.content_json as { content?: unknown[] } | null;
+    const blocks = Array.isArray(doc?.content) ? doc!.content : [];
+    if (i > 0 && merged.length > 0) merged.push({ type: "horizontalRule" });
+    merged.push(...blocks);
+  }
+  const mergedDoc = {
+    type: "doc",
+    content: merged.length ? merged : [{ type: "paragraph" }],
+  };
+
+  // Cria o artigo unificado no lugar do primeiro.
+  const slug = await uniqueSlug(supabase, first.space_id, first.parent_id, `${first.title} unificado`);
+  const position = generateKeyBetween(first.position, null);
+  const { data: node, error } = await supabase
+    .from("nodes")
+    .insert({
+      space_id: first.space_id,
+      parent_id: first.parent_id,
+      type: "article",
+      title: `${first.title} (unificado)`,
+      slug,
+      position,
+    })
+    .select("id")
+    .single();
+  if (error || !node) return err(`Falha ao criar: ${error?.message}`);
+  await supabase.from("articles").insert({ node_id: node.id, content_json: mergedDoc as Json });
+
+  // Manda os originais para a lixeira.
+  for (const id of orderedNodeIds) {
+    await supabase.rpc("soft_delete_subtree", { p_node_id: id });
+  }
+
+  await audit({ action: "content.merge", entityType: "node", entityId: node.id, spaceId: first.space_id, after: { count: orderedNodeIds.length } });
+  revalidatePath("/admin/conteudo");
+  return { ok: true, id: node.id };
 }
 
 /** Exclui vários nós (soft delete). */

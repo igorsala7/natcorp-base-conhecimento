@@ -9,6 +9,7 @@ import {
 import { slugify } from "@/lib/content/slug";
 import { PortalTabs } from "./tabs";
 import { CopyAnchor } from "./copy-anchor";
+import { MermaidView } from "@/components/editor/mermaid-view";
 import type { TocItem } from "./toc";
 
 type TipTapNode = {
@@ -76,6 +77,14 @@ function applyMarks(text: string, marks: TipTapNode["marks"], key: number): Reac
     else if (mark.type === "italic") el = <em>{el}</em>;
     else if (mark.type === "strike") el = <s>{el}</s>;
     else if (mark.type === "code") el = <code>{el}</code>;
+    else if (mark.type === "highlight")
+      el = (
+        <mark style={{ backgroundColor: String(mark.attrs?.color ?? "#fde68a"), padding: "0 2px", borderRadius: 2 }}>
+          {el}
+        </mark>
+      );
+    else if (mark.type === "textStyle" && mark.attrs?.color)
+      el = <span style={{ color: String(mark.attrs.color) }}>{el}</span>;
     else if (mark.type === "link")
       el = (
         <a href={String(mark.attrs?.href ?? "#")} rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
@@ -256,6 +265,53 @@ function renderNode(node: TipTapNode, key: number, ctx: Ctx): ReactNode {
       const snippet = ctx.snippets.get(snippetKey);
       if (!snippet) return null; // snippet inexistente → não renderiza
       return <Fragment key={key}>{renderChildren(snippet.content, ctx)}</Fragment>;
+    }
+
+    case "panel": {
+      const bg = String(node.attrs?.bg ?? "purple");
+      const cls: Record<string, string> = {
+        purple: "bg-brand-purple-50 dark:bg-brand-purple-950/30",
+        pink: "bg-brand-pink-50 dark:bg-brand-pink-950/30",
+        blue: "bg-brand-blue-50 dark:bg-brand-blue-950/30",
+        gray: "bg-brand-gray-100 dark:bg-brand-gray-800",
+      };
+      return (
+        <div key={key} className={`my-4 rounded-xl p-5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${cls[bg] ?? cls.purple}`}>
+          {renderChildren(node.content, ctx)}
+        </div>
+      );
+    }
+    case "columns":
+      return (
+        <div key={key} className="my-4 grid gap-4 md:grid-cols-2">
+          {renderChildren(node.content, ctx)}
+        </div>
+      );
+    case "column":
+      return (
+        <div key={key} className="min-w-0 [&>*:first-child]:mt-0">
+          {renderChildren(node.content, ctx)}
+        </div>
+      );
+    case "mermaid":
+      return <MermaidView key={key} code={String(node.attrs?.code ?? "")} />;
+    case "buttonLink": {
+      const href = String(node.attrs?.href ?? "#");
+      const variant = String(node.attrs?.variant ?? "primary");
+      return (
+        <div key={key} className="my-4">
+          <a
+            href={href}
+            className={
+              variant === "secondary"
+                ? "inline-flex items-center rounded-md border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium no-underline"
+                : "inline-flex items-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-fg no-underline hover:bg-primary-hover"
+            }
+          >
+            {String(node.attrs?.label ?? "Saiba mais")}
+          </a>
+        </div>
+      );
     }
 
     default:

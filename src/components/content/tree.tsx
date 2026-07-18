@@ -23,6 +23,7 @@ import {
   createNode,
   deleteNode,
   deleteNodes,
+  mergeArticles,
   moveNode,
   moveNodesToParent,
   renameNode,
@@ -109,6 +110,10 @@ export function Tree({
   }
 
   const folders = flat.filter((i) => i.node.type === "folder");
+  // Artigos selecionados, na ordem da árvore (para unificar em sequência).
+  const selectedArticles = flat
+    .filter((i) => checkedIds.has(i.id) && i.node.type === "article")
+    .map((i) => i.id);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
     startTransition(async () => {
@@ -315,6 +320,30 @@ export function Tree({
                 </option>
               ))}
           </select>
+          {selectedArticles.length >= 2 && (
+            <button
+              type="button"
+              className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+              title="Unificar os artigos selecionados em um só, na ordem da árvore"
+              onClick={() => {
+                if (
+                  confirm(
+                    `Unificar ${selectedArticles.length} artigos em um só? Os originais vão para a lixeira.`,
+                  )
+                ) {
+                  const ids = selectedArticles;
+                  run(async () => {
+                    const r = await mergeArticles(ids);
+                    clearSelection();
+                    if (r.ok && r.id) router.push(`/admin/conteudo/${r.id}`);
+                    return r;
+                  });
+                }
+              }}
+            >
+              Unificar ({selectedArticles.length})
+            </button>
+          )}
           <button
             type="button"
             className="rounded px-2 py-0.5 text-xs text-brand-pink-700 hover:bg-surface"
