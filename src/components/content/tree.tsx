@@ -15,10 +15,11 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { FilePlus, FolderPlus, Link2, Pencil, Trash2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { Button } from "@/components/ui/button";
 import {
+  changeSlug,
   createNode,
   deleteNode,
   moveNode,
@@ -177,6 +178,17 @@ export function Tree({
           }}
         >
           <Pencil className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title="Editar URL (slug) — cria redirect 301"
+          className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
+          onClick={() => {
+            const slug = prompt("Novo slug (URL):", item.node.slug);
+            if (slug) run(() => changeSlug(item.id, slug));
+          }}
+        >
+          <Link2 className="size-3.5" />
         </button>
         <button
           type="button"

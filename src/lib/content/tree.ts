@@ -34,6 +34,50 @@ export async function getDefaultSpace(): Promise<Space | null> {
   return data;
 }
 
+/**
+ * Mapa id → caminho de slugs (completo) de todos os nós do espaço.
+ * Usado para gerar redirects quando um slug muda.
+ */
+export async function slugPathsOf(
+  spaceId: string,
+): Promise<Map<string, string[]>> {
+  const tree = await listTree(spaceId);
+  const map = new Map<string, string[]>();
+  const walk = (nodes: TreeNode[], prefix: string[]) => {
+    for (const n of nodes) {
+      const p = [...prefix, n.slug];
+      map.set(n.id, p);
+      walk(n.children, p);
+    }
+  };
+  walk(tree, []);
+  return map;
+}
+
+/** IDs do nó e de toda a sua subárvore. */
+export async function subtreeIds(
+  spaceId: string,
+  nodeId: string,
+): Promise<string[]> {
+  const tree = await listTree(spaceId);
+  const ids: string[] = [];
+  const find = (nodes: TreeNode[]): TreeNode | null => {
+    for (const n of nodes) {
+      if (n.id === nodeId) return n;
+      const found = find(n.children);
+      if (found) return found;
+    }
+    return null;
+  };
+  const collect = (n: TreeNode) => {
+    ids.push(n.id);
+    n.children.forEach(collect);
+  };
+  const target = find(tree);
+  if (target) collect(target);
+  return ids;
+}
+
 /** Carrega a árvore (não excluída) de um espaço, já aninhada e ordenada. */
 export async function listTree(spaceId: string): Promise<TreeNode[]> {
   const supabase = await createClient();

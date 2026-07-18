@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission, PermissionError } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { slugify } from "@/lib/content/slug";
+import { slugPathsOf, subtreeIds } from "@/lib/content/tree";
 
 export type NodeActionResult =
   | { ok: true; id?: string }
@@ -130,6 +131,72 @@ export async function renameNode(
   if (error) return err(`Falha: ${error.message}`);
 
   await audit({ action: "content.rename", entityType: "node", entityId: id });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
+}
+
+/**
+ * Muda o slug de um nó e cria redirects 301 para os caminhos antigos do nó e
+ * de toda a sua subárvore — URLs já compartilhadas nunca podem quebrar.
+ */
+export async function changeSlug(
+  id: string,
+  newSlug: string,
+): Promise<NodeActionResult> {
+  const supabase = await createClient();
+  const { data: node } = await supabase
+    .from("nodes")
+    .select("space_id, parent_id, slug")
+    .eq("id", id)
+    .single();
+  if (!node) return err("Nó não encontrado.");
+  try {
+    await requirePermission("content.edit", node.space_id);
+  } catch {
+    return err("Sem permissão para editar.");
+  }
+
+  const slug = await uniqueSlug(supabase, node.space_id, node.parent_id, newSlug);
+  if (slug === node.slug) return { ok: true };
+
+  // Caminhos antigos (nó + descendentes) ANTES da mudança.
+  const oldPaths = await slugPathsOf(node.space_id);
+  const affected = await subtreeIds(node.space_id, id);
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({ slug })
+    .eq("id", id);
+  if (error) return err(`Falha: ${error.message}`);
+
+  // Um redirect por nó afetado: caminho antigo → id do nó (o portal resolve
+  // o caminho atual do nó no momento do acesso).
+  const redirects = affected
+    .map((nid) => {
+      const p = oldPaths.get(nid);
+      return p
+        ? { space_id: node.space_id, from_path: p.join("/"), to_node_id: nid }
+        : null;
+    })
+    .filter(Boolean) as {
+    space_id: string;
+    from_path: string;
+    to_node_id: string;
+  }[];
+  if (redirects.length) {
+    await supabase.from("redirects").upsert(redirects, {
+      onConflict: "space_id,from_path",
+    });
+  }
+
+  await audit({
+    action: "content.slug_change",
+    entityType: "node",
+    entityId: id,
+    spaceId: node.space_id,
+    before: { slug: node.slug },
+    after: { slug },
+  });
   revalidatePath("/admin/conteudo");
   return { ok: true };
 }

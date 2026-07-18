@@ -14,6 +14,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      article_feedback: {
+        Row: {
+          comment: string | null
+          created_at: string
+          helpful: boolean
+          id: string
+          node_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          helpful: boolean
+          id?: string
+          node_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          helpful?: boolean
+          id?: string
+          node_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_feedback_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       articles: {
         Row: {
           content_html: string | null
@@ -367,6 +399,45 @@ export type Database = {
           status?: string
         }
         Relationships: []
+      }
+      redirects: {
+        Row: {
+          created_at: string
+          from_path: string
+          id: string
+          space_id: string
+          to_node_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          from_path: string
+          id?: string
+          space_id: string
+          to_node_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          from_path?: string
+          id?: string
+          space_id?: string
+          to_node_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "redirects_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "redirects_to_node_id_fkey"
+            columns: ["to_node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       role_permissions: {
         Row: {
