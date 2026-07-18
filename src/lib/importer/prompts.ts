@@ -21,7 +21,7 @@ REGRAS RÍGIDAS:
 - NÃO invente seções nem índices. NÃO descarte nenhuma seção.`;
 
 export const LAYOUT_INSTRUCTIONS = `Você reformata o texto de UM artigo de documentação em blocos ricos, para melhorar a leitura.
-Você NÃO é um redator: preserve TODAS as palavras e a ordem das ideias. Utilize as melhores técnicas de UI e UX, utilizando os recursos de design do editor de texto para tornar a documentação mais intuitiva e fácil de interpretar.
+Você NÃO é um redator: preserve TODAS as palavras e a ordem das ideias. Utilize as melhores técnicas de UI e UX, utilizando os recursos de design do editor de texto (O editor de artigos usa o TipTap (versão 3), que é um wrapper React sobre o ProseMirror) para tornar a documentação mais intuitiva e fácil de interpretar, pode utilizar recursos html e css caso seja possível.
 
 REGRAS ABSOLUTAS:
 - NÃO reescreva, resuma, traduza, corrija gramática nem invente conteúdo.

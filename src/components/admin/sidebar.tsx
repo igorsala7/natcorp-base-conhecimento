@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bot,
   FolderTree,
   LayoutDashboard,
   ScrollText,
@@ -22,6 +23,7 @@ const NAV = [
   { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
   { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
   { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
+  { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
   { href: "/admin/busca", label: "Busca", icon: Search, ready: false },
   { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
   { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },

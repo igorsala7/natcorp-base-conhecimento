@@ -246,6 +246,38 @@ export type Database = {
           },
         ]
       }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          session_id: string | null
+          space_id: string
+          user_ref: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          session_id?: string | null
+          space_id: string
+          user_ref?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          session_id?: string | null
+          space_id?: string
+          user_ref?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       import_jobs: {
         Row: {
           created_at: string
@@ -406,6 +438,50 @@ export type Database = {
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          citations: Json
+          content: string
+          conversation_id: string
+          created_at: string
+          feedback: number | null
+          id: string
+          latency_ms: number | null
+          role: string
+          tokens: number | null
+        }
+        Insert: {
+          citations?: Json
+          content: string
+          conversation_id: string
+          created_at?: string
+          feedback?: number | null
+          id?: string
+          latency_ms?: number | null
+          role: string
+          tokens?: number | null
+        }
+        Update: {
+          citations?: Json
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          feedback?: number | null
+          id?: string
+          latency_ms?: number | null
+          role?: string
+          tokens?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
             referencedColumns: ["id"]
           },
         ]
@@ -809,6 +885,22 @@ export type Database = {
       hybrid_search: {
         Args: { p_limit?: number; p_query: string; p_space_id?: string }
         Returns: {
+          heading_path: string
+          node_id: string
+          score: number
+          snippet: string
+          title: string
+        }[]
+      }
+      hybrid_search_scoped: {
+        Args: {
+          p_embedding?: string
+          p_limit?: number
+          p_node_ids?: string[]
+          p_query: string
+        }
+        Returns: {
+          content: string
           heading_path: string
           node_id: string
           score: number

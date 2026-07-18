@@ -132,6 +132,22 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
     .update({ published_at: now })
     .eq("node_id", nodeId);
 
+  // Reindexa com embeddings ao publicar (spec: reindex disparado na publicação).
+  const { data: art } = await supabase
+    .from("articles")
+    .select("id, content_json")
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  if (art) {
+    await reindexNodeChunks(supabase, {
+      nodeId,
+      articleId: art.id,
+      spaceId,
+      doc: art.content_json as { type: string; content?: never[] },
+      withEmbeddings: true,
+    });
+  }
+
   await audit({
     action: "content.publish",
     entityType: "node",
