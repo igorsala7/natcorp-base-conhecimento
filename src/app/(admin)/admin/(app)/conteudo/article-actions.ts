@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { reindexNodeChunks } from "@/lib/content/chunk";
+import { improveLayout } from "@/lib/importer/improve";
 import type { Json } from "@/lib/database.types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -80,6 +81,32 @@ export async function saveArticle(
   }
 
   return { ok: true };
+}
+
+/**
+ * "Melhorar layout": pede à IA para reformatar o texto do artigo em blocos
+ * ricos (sem reescrever). Retorna o documento proposto SEM salvar — o usuário
+ * revê e aplica no editor.
+ */
+export async function improveArticleLayout(
+  nodeId: string,
+): Promise<{ ok: true; doc: object } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+
+  const { data: article } = await supabase
+    .from("articles")
+    .select("content_json")
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  const text = extractText(article?.content_json);
+  return improveLayout(text);
 }
 
 /** Publica o nó (exige content.publish). content_html será gerado na Fase 2. */

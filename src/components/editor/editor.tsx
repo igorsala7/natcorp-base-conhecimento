@@ -35,9 +35,34 @@ import {
   saveArticle,
   publishNode,
   unpublishNode,
+  improveArticleLayout,
 } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 
 const lowlight = createLowlight(common);
+
+/** Extensões compartilhadas entre o editor principal e o preview de diff. */
+const EDITOR_EXTENSIONS = [
+  StarterKit.configure({ codeBlock: false }),
+  Link.configure({ openOnClick: false }),
+  Placeholder.configure({ placeholder: "Escreva o conteúdo…" }),
+  CodeBlockLowlight.configure({ lowlight }),
+  Table.configure({ resizable: true }),
+  TableRow,
+  TableHeader,
+  TableCell,
+  Callout,
+  Steps,
+  StepItem,
+  Accordion,
+  AccordionItem,
+  Tabs,
+  TabItem,
+  FigureImage,
+  Video,
+  LinkCard,
+  HtmlEmbed,
+  Snippet,
+];
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -60,30 +85,13 @@ export function ArticleEditor({
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [improving, setImproving] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const proposedRef = useRef<object | null>(null);
+
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({ codeBlock: false }),
-      Link.configure({ openOnClick: false }),
-      Placeholder.configure({ placeholder: "Escreva o conteúdo…" }),
-      CodeBlockLowlight.configure({ lowlight }),
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Callout,
-      Steps,
-      StepItem,
-      Accordion,
-      AccordionItem,
-      Tabs,
-      TabItem,
-      FigureImage,
-      Video,
-      LinkCard,
-      HtmlEmbed,
-      Snippet,
-    ],
+    extensions: EDITOR_EXTENSIONS,
     content: initialContent,
     editorProps: {
       attributes: {
@@ -107,11 +115,44 @@ export function ArticleEditor({
     [nodeId],
   );
 
+  // Editor read-only só para pré-visualizar a formatação proposta pela IA.
+  const previewEditor = useEditor({
+    immediatelyRender: false,
+    editable: false,
+    extensions: EDITOR_EXTENSIONS,
+    content: { type: "doc", content: [] },
+    editorProps: {
+      attributes: { class: "prose prose-neutral dark:prose-invert max-w-none" },
+    },
+  });
+
   useEffect(() => {
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
   }, []);
+
+  async function onImprove() {
+    setImproving(true);
+    setMsg(null);
+    const res = await improveArticleLayout(nodeId);
+    setImproving(false);
+    if (!res.ok) {
+      setMsg(res.error);
+      return;
+    }
+    proposedRef.current = res.doc;
+    previewEditor?.commands.setContent(res.doc as never);
+    setShowDiff(true);
+  }
+
+  function applyImprove() {
+    if (proposedRef.current && editor) {
+      editor.commands.setContent(proposedRef.current as never);
+      scheduleSave(editor.getJSON());
+    }
+    setShowDiff(false);
+  }
 
   async function onPublishToggle() {
     const res =
@@ -158,12 +199,17 @@ export function ArticleEditor({
                     : "Rascunho"}
           </span>
         </div>
-        <Button
-          variant={status === "published" ? "secondary" : "primary"}
-          onClick={onPublishToggle}
-        >
-          {status === "published" ? "Despublicar" : "Publicar"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={onImprove} disabled={improving}>
+            {improving ? "Melhorando…" : "Melhorar layout (IA)"}
+          </Button>
+          <Button
+            variant={status === "published" ? "secondary" : "primary"}
+            onClick={onPublishToggle}
+          >
+            {status === "published" ? "Despublicar" : "Publicar"}
+          </Button>
+        </div>
       </div>
 
       <EditorToolbar editor={editor} onUploadImage={uploadImage} />
@@ -177,6 +223,39 @@ export function ArticleEditor({
       <div className="mt-4 flex-1 overflow-auto">
         <EditorContent editor={editor} />
       </div>
+
+      {showDiff && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
+          onClick={() => setShowDiff(false)}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <div>
+                <h2 className="font-semibold">Nova formatação proposta pela IA</h2>
+                <p className="text-xs text-text-muted">
+                  A IA reformata sem reescrever. Revise antes de aplicar (dá para
+                  desfazer com Ctrl+Z).
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setShowDiff(false)}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={applyImprove}>
+                  Aplicar
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-auto p-5">
+              <EditorContent editor={previewEditor} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
