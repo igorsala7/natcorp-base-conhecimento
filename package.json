@@ -4,9 +4,9 @@
   "description": "Repositório da base de conhecimento da Natcorp.",
   "scripts": {
     "test": "vitest run",
-    "dev": "next dev",
+    "dev": "next dev -p 3009",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3009",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
