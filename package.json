@@ -1,0 +1,60 @@
+{
+  "name": "natcorp-base-conhecimento",
+  "version": "0.1.0",
+  "description": "Repositório da base de conhecimento da Natcorp.",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorsala7/natcorp-base-conhecimento.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/igorsala7/natcorp-base-conhecimento/issues"
+  },
+  "homepage": "https://github.com/igorsala7/natcorp-base-conhecimento#readme",
+  "private": "true",
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.3.0",
+    "@supabase/ssr": "^0.12.3",
+    "@supabase/supabase-js": "^2.109.0",
+    "@tanstack/react-query": "^5.101.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "geist": "^1.7.2",
+    "lucide-react": "^1.25.0",
+    "next": "^16.2.10",
+    "next-themes": "^0.4.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@tailwindcss/typography": "^0.5.20",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.4",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.10",
+    "postcss": "^8.5.19",
+    "prettier": "^3.9.5",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

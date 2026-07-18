@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Tokens semânticos — fonte da verdade para cor de UI.
+ * Nenhum componente referencia um hex direto; todos usam estes tokens
+ * (via classes Tailwind mapeadas em tailwind.config.ts).
+ *
+ * Dark mode NÃO é inversão: promovemos os tons 300/400 do roxo para papel
+ * de primária e escurecemos os fundos com o viés roxo dos neutros
+ * (nunca preto puro).
+ */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafafb; /* brand.gray.50 */
+  --color-border: #e8e6ec; /* brand.gray.200 */
+  --color-text: #201d26; /* brand.gray.900 */
+  --color-text-muted: #7c7688; /* brand.gray.500 */
+
+  --color-primary: #511c76; /* brand.purple.700 — AAA sobre branco */
+  --color-primary-hover: #431862; /* brand.purple.800 */
+  --color-primary-fg: #ffffff;
+
+  --color-accent: #c95788; /* brand.pink.500 — preenchimentos/badges */
+  --color-accent-fg: #ffffff;
+
+  --color-focus-ring: #8153a3; /* brand.purple.500 */
+
+  color-scheme: light;
+}
+
+.dark {
+  --color-bg: #16131c; /* neutro escuro com viés roxo, não preto puro */
+  --color-surface: #201d26; /* brand.gray.900 */
+  --color-surface-2: #302c38; /* brand.gray.800 */
+  --color-border: #302c38; /* brand.gray.800 */
+  --color-text: #f4f3f6; /* brand.gray.100 */
+  --color-text-muted: #a9a4b5; /* brand.gray.400 */
+
+  --color-primary: #9e77bc; /* brand.purple.400 — legível sobre fundo escuro */
+  --color-primary-hover: #c0a6d5; /* brand.purple.300 */
+  --color-primary-fg: #220c32; /* texto escuro sobre roxo claro */
+
+  --color-accent: #de76a1; /* brand.pink.400 */
+  --color-accent-fg: #3d1122; /* brand.pink.950 */
+
+  --color-focus-ring: #9e77bc; /* brand.purple.400 */
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    /* Densidade calma: leitura confortável no corpo. */
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Anel de foco sempre visível — nunca outline:none sem substituto. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Respeita quem pediu menos movimento. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
