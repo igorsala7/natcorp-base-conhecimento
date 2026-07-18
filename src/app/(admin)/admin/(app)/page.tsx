@@ -6,7 +6,8 @@ export const metadata: Metadata = {
 
 /**
  * Painel do Admin — vazio por ora (Fase 0). Existe para provar o shell,
- * os tokens de cor e o dark mode. Conteúdo real chega nas próximas fases.
+ * os tokens de cor, o dark mode e a proteção por sessão + TOTP.
+ * Conteúdo real chega nas próximas fases.
  */
 export default function AdminHome() {
   return (

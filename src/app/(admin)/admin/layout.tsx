@@ -1,19 +1,15 @@
 import type { ReactNode } from "react";
-import { Sidebar } from "@/components/admin/sidebar";
-import { Topbar } from "@/components/admin/topbar";
 
 /**
- * Shell do Admin: sidebar fixa + topbar + área de conteúdo.
- * A proteção de rota (sessão + AAL2/TOTP) entra na Parte B via middleware.
+ * Layout raiz do Admin — apenas um passthrough. A divisão de chrome fica nos
+ * grupos aninhados: (app) tem o shell autenticado (sidebar+topbar) e (auth)
+ * tem o layout centrado das telas de login/MFA. A proteção de rota é do
+ * middleware (AAL2).
  */
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-dvh overflow-hidden bg-bg text-text">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar />
-        <main className="flex-1 overflow-auto p-6 md:p-8">{children}</main>
-      </div>
-    </div>
-  );
+export default function AdminRootLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return children;
 }
