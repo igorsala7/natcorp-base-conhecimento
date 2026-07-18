@@ -188,6 +188,64 @@ export type Database = {
         }
         Relationships: []
       }
+      chunks: {
+        Row: {
+          article_id: string
+          content: string
+          embedding: string | null
+          heading_path: string | null
+          id: string
+          node_id: string
+          space_id: string
+          token_count: number | null
+          tsv: unknown
+        }
+        Insert: {
+          article_id: string
+          content: string
+          embedding?: string | null
+          heading_path?: string | null
+          id?: string
+          node_id: string
+          space_id: string
+          token_count?: number | null
+          tsv?: unknown
+        }
+        Update: {
+          article_id?: string
+          content?: string
+          embedding?: string | null
+          heading_path?: string | null
+          id?: string
+          node_id?: string
+          space_id?: string
+          token_count?: number | null
+          tsv?: unknown
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chunks_article_id_fkey"
+            columns: ["article_id"]
+            isOneToOne: false
+            referencedRelation: "articles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chunks_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chunks_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -496,6 +554,41 @@ export type Database = {
         }
         Relationships: []
       }
+      search_logs: {
+        Row: {
+          created_at: string
+          id: string
+          query: string
+          results_count: number
+          space_id: string | null
+          user_ref: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          query: string
+          results_count?: number
+          space_id?: string | null
+          user_ref?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          query?: string
+          results_count?: number
+          space_id?: string | null
+          user_ref?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "search_logs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       snippets: {
         Row: {
           content_json: Json
@@ -580,6 +673,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      f_unaccent: { Args: { "": string }; Returns: string }
       has_permission: {
         Args: {
           p_permission_key: string
@@ -587,6 +681,16 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      hybrid_search: {
+        Args: { p_limit?: number; p_query: string; p_space_id?: string }
+        Returns: {
+          heading_path: string
+          node_id: string
+          score: number
+          snippet: string
+          title: string
+        }[]
       }
       max_role_level: {
         Args: { p_space_id?: string; p_user_id: string }

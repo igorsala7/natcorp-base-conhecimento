@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
+import { reindexNodeChunks } from "@/lib/content/chunk";
 import type { Json } from "@/lib/database.types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -54,7 +55,7 @@ export async function saveArticle(
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("articles")
     .update({
       content_json: contentJson as Json,
@@ -63,8 +64,20 @@ export async function saveArticle(
       updated_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq("node_id", nodeId);
+    .eq("node_id", nodeId)
+    .select("id")
+    .single();
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+
+  // Reindexa os chunks para a busca (idempotente).
+  if (updated) {
+    await reindexNodeChunks(supabase, {
+      nodeId,
+      articleId: updated.id,
+      spaceId,
+      doc: contentJson as { type: string; content?: never[] },
+    });
+  }
 
   return { ok: true };
 }

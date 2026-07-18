@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/admin/sidebar";
 import { Topbar } from "@/components/admin/topbar";
+import { CommandPalette } from "@/components/admin/command-palette";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -32,6 +33,7 @@ export default async function AppLayout({
         <Topbar email={user.email ?? ""} />
         <main className="flex-1 overflow-auto p-6 md:p-8">{children}</main>
       </div>
+      <CommandPalette />
     </div>
   );
 }
