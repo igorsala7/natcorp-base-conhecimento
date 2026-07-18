@@ -1,9 +1,18 @@
 import "server-only";
 import { embed } from "ai";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { Database } from "@/lib/database.types";
 import { embeddingModel, hasEmbeddingKey } from "@/lib/ai/config";
-import { getEffectiveTreeAdmin, type EffectiveNode } from "@/lib/content/overlays";
+import {
+  getEffectiveTreeAdmin,
+  getEffectiveTreePublic,
+  type EffectiveNode,
+} from "@/lib/content/overlays";
 import { slugify } from "@/lib/content/slug";
+
+type DbClient = SupabaseClient<Database>;
 
 export type RetrievedSource = {
   n: number; // índice da citação [n]
@@ -11,18 +20,21 @@ export type RetrievedSource = {
   title: string;
   heading_path: string | null;
   content: string;
+  snippet: string | null; // trecho destacado (para busca)
   url: string; // link para o portal (com âncora)
 };
 
-/** Contexto de recuperação de um espaço: nós efetivos + caminhos de slug. */
-async function spaceContext(spaceId: string) {
-  const supabase = await createClient();
+/** Nós efetivos + caminhos de slug, a partir de uma árvore já resolvida. */
+async function spaceContext(
+  supabase: DbClient,
+  spaceId: string,
+  tree: EffectiveNode[],
+) {
   const { data: space } = await supabase
     .from("spaces")
     .select("slug")
     .eq("id", spaceId)
-    .single();
-  const tree = await getEffectiveTreeAdmin(spaceId);
+    .maybeSingle();
 
   const slugPathById = new Map<string, string[]>();
   const nodeIds: string[] = [];
@@ -38,17 +50,19 @@ async function spaceContext(spaceId: string) {
   return { spaceSlug: space?.slug ?? "global", nodeIds, slugPathById };
 }
 
-/**
- * Recupera os trechos mais relevantes para a pergunta, DENTRO do espaço.
- * Busca híbrida escopada pelos nós efetivos (respeita overlays e isolamento).
- */
-export async function retrieveContext(
+/** Núcleo da recuperação: busca híbrida escopada pelos nós de `tree`. */
+async function retrieveWith(
+  supabase: DbClient,
   spaceId: string,
   query: string,
-  limit = 8,
+  limit: number,
+  tree: EffectiveNode[],
 ): Promise<RetrievedSource[]> {
-  const supabase = await createClient();
-  const { spaceSlug, nodeIds, slugPathById } = await spaceContext(spaceId);
+  const { spaceSlug, nodeIds, slugPathById } = await spaceContext(
+    supabase,
+    spaceId,
+    tree,
+  );
   if (nodeIds.length === 0) return [];
 
   let embedding: number[] | null = null;
@@ -79,9 +93,39 @@ export async function retrieveContext(
       title: r.title,
       heading_path: r.heading_path,
       content: r.content,
+      snippet: r.snippet ?? null,
       url: `/docs/${spaceSlug}/${slugPath.join("/")}${anchor}`,
     } as RetrievedSource;
   });
+}
+
+/**
+ * Recupera os trechos mais relevantes para a pergunta, DENTRO do espaço.
+ * Caminho AUTENTICADO (admin/portal): usa a sessão e a árvore completa.
+ */
+export async function retrieveContext(
+  spaceId: string,
+  query: string,
+  limit = 8,
+): Promise<RetrievedSource[]> {
+  const supabase = await createClient();
+  const tree = await getEffectiveTreeAdmin(spaceId);
+  return retrieveWith(supabase as DbClient, spaceId, query, limit, tree);
+}
+
+/**
+ * Caminho PÚBLICO (widget / API v1): sem sessão. Escopo = árvore pública do
+ * espaço (só publicado, respeitando overlays). Usa service-role para ler os
+ * chunks e escrever conversas mesmo em espaços privados vinculados à chave.
+ */
+export async function retrievePublicContext(
+  spaceId: string,
+  query: string,
+  limit = 8,
+): Promise<RetrievedSource[]> {
+  const supabase = createAdminClient();
+  const tree = await getEffectiveTreePublic(spaceId);
+  return retrieveWith(supabase, spaceId, query, limit, tree);
 }
 
 /** Monta o bloco de contexto numerado para o prompt. */

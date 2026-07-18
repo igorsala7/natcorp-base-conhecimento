@@ -606,6 +606,24 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limits: {
+        Row: {
+          bucket: string
+          count: number
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          count?: number
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       redirects: {
         Row: {
           created_at: string
@@ -868,6 +886,53 @@ export type Database = {
           },
         ]
       }
+      widget_keys: {
+        Row: {
+          active: boolean
+          allowed_origins: string[]
+          config: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          public_key: string
+          rate_limit: number
+          space_id: string
+        }
+        Insert: {
+          active?: boolean
+          allowed_origins?: string[]
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          public_key: string
+          rate_limit?: number
+          space_id: string
+        }
+        Update: {
+          active?: boolean
+          allowed_origins?: string[]
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          public_key?: string
+          rate_limit?: number
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_keys_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -917,6 +982,11 @@ export type Database = {
         Returns: undefined
       }
       node_label: { Args: { p_id: string }; Returns: string }
+      rate_limit_hit: {
+        Args: { p_bucket: string; p_max: number; p_window_seconds?: number }
+        Returns: boolean
+      }
+      rate_limits_gc: { Args: never; Returns: undefined }
       restore_subtree: { Args: { p_node_id: string }; Returns: number }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
       subtree_ids: {
