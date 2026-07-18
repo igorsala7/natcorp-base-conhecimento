@@ -15,17 +15,24 @@ export function ThemeToggle() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
-  const isDark = resolvedTheme === "dark";
+  // Só sabemos o tema real após montar. Antes disso, tudo (ícone E aria-label)
+  // precisa bater com o que o servidor renderizou — senão dá hydration mismatch.
+  const isDark = mounted && resolvedTheme === "dark";
 
   return (
     <Button
       variant="ghost"
       size="icon"
-      aria-label={isDark ? "Ativar tema claro" : "Ativar tema escuro"}
+      aria-label={
+        !mounted
+          ? "Alternar tema"
+          : isDark
+            ? "Ativar tema claro"
+            : "Ativar tema escuro"
+      }
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
-      {/* Antes de montar, renderiza um ícone neutro para não divergir do SSR. */}
-      {mounted && isDark ? <Sun /> : <Moon />}
+      {isDark ? <Sun /> : <Moon />}
     </Button>
   );
 }
