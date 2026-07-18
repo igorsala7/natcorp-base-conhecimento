@@ -132,6 +132,9 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
     .update({ published_at: now })
     .eq("node_id", nodeId);
 
+  // Snapshot obrigatório a cada publicação (histórico append-only).
+  await supabase.rpc("create_article_version", { p_node_id: nodeId, p_label: "Publicação" });
+
   // Reindexa com embeddings ao publicar (spec: reindex disparado na publicação).
   const { data: art } = await supabase
     .from("articles")
@@ -269,6 +272,7 @@ export async function publishSubtree(
       .maybeSingle();
     if (!art) continue;
     await supabase.from("articles").update({ published_at: now }).eq("id", art.id);
+    await supabase.rpc("create_article_version", { p_node_id: artNodeId, p_label: "Publicação" });
     await reindexNodeChunks(supabase, {
       nodeId: artNodeId,
       articleId: art.id,

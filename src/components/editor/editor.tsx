@@ -17,7 +17,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { common, createLowlight } from "lowlight";
-import { Check, Copy, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { Check, Copy, ExternalLink, History, Maximize2, Minimize2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +40,7 @@ import {
   ButtonLink,
 } from "./nodes";
 import { EditorToolbar } from "./toolbar";
+import { HistoryPanel } from "./history-panel";
 import {
   saveArticle,
   publishNode,
@@ -92,6 +93,7 @@ export function ArticleEditor({
   initialStatus,
   publicUrl,
   spacePublic,
+  canRestore,
 }: {
   nodeId: string;
   spaceId: string;
@@ -100,6 +102,7 @@ export function ArticleEditor({
   initialStatus: "draft" | "review" | "published";
   publicUrl?: string;
   spacePublic?: boolean;
+  canRestore?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
@@ -112,6 +115,7 @@ export function ArticleEditor({
   const [fullscreen, setFullscreen] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const proposedRef = useRef<object | null>(null);
 
   const editor = useEditor({
@@ -285,6 +289,9 @@ export function ArticleEditor({
           >
             {fullscreen ? <Minimize2 /> : <Maximize2 />}
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowHistory(true)} title="Histórico de versões, comparar e restaurar">
+            <History /> Histórico
+          </Button>
           <Button variant="ghost" size="sm" onClick={onReindex} disabled={reindexing} title="Gerar embeddings para a busca semântica sem despublicar">
             {reindexing ? "Gerando…" : "Gerar embeddings"}
           </Button>
@@ -311,6 +318,14 @@ export function ArticleEditor({
       <div className="mt-4 flex-1 overflow-auto">
         <EditorContent editor={editor} />
       </div>
+
+      {showHistory && (
+        <HistoryPanel
+          nodeId={nodeId}
+          canRestore={!!canRestore}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
 
       {showDiff && (
         <div

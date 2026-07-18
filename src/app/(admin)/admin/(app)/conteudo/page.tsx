@@ -51,18 +51,23 @@ export default async function ConteudoPage({
     spaces.find((s) => s.type === "global") ??
     spaces[0];
   if (!current) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
-  const canCreate = await hasPermission("space.create");
+  const [canCreate, canExport] = await Promise.all([
+    hasPermission("space.create"),
+    hasPermission("content.restore", current.id),
+  ]);
 
   const switcher = (
     <>
       <SpaceSwitcher spaces={spaces} currentId={current.id} canCreate={canCreate} />
       <SpacePublicUrl
         siteUrl={env.NEXT_PUBLIC_SITE_URL}
+        spaceId={current.id}
         slug={current.slug}
         name={current.name}
         type={current.type}
         visibility={current.visibility}
         customDomain={current.custom_domain}
+        canExport={canExport}
       />
     </>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Check, ExternalLink, Globe, Lock, KeyRound } from "lucide-react";
+import { Copy, Check, ExternalLink, Globe, Lock, KeyRound, Download } from "lucide-react";
 
 /**
  * Mostra a URL pública do espaço para compartilhar com o cliente.
@@ -11,18 +11,22 @@ import { Copy, Check, ExternalLink, Globe, Lock, KeyRound } from "lucide-react";
  */
 export function SpacePublicUrl({
   siteUrl,
+  spaceId,
   slug,
   name,
   type,
   visibility,
   customDomain,
+  canExport,
 }: {
   siteUrl: string;
+  spaceId: string;
   slug: string;
   name: string;
   type: "global" | "client";
   visibility: "public" | "private" | "password";
   customDomain: string | null;
+  canExport?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const url = customDomain
@@ -78,6 +82,15 @@ export function SpacePublicUrl({
         <p className="mt-1.5 text-[11px] text-brand-pink-700">
           Este espaço não é público — só ficará acessível após torná-lo público nas configurações.
         </p>
+      )}
+      {canExport && (
+        <a
+          href={`/api/admin/export?space=${spaceId}`}
+          className="mt-2 inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text-muted hover:border-primary hover:text-primary"
+          title="Exportar este espaço em Markdown + manifest.json (.zip)"
+        >
+          <Download className="size-3" /> Exportar (.zip)
+        </a>
       )}
     </div>
   );

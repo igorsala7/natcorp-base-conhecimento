@@ -13,6 +13,7 @@ import {
   ScrollText,
   Search,
   Settings,
+  Trash2,
   Upload,
   Users,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
   { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
+  { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
   { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
   { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
   { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },

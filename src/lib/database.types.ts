@@ -46,6 +46,50 @@ export type Database = {
           },
         ]
       }
+      article_versions: {
+        Row: {
+          article_id: string
+          content_json: Json
+          content_text: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          label: string | null
+          protected: boolean
+          version: number
+        }
+        Insert: {
+          article_id: string
+          content_json: Json
+          content_text?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          protected?: boolean
+          version: number
+        }
+        Update: {
+          article_id?: string
+          content_json?: Json
+          content_text?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          protected?: boolean
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_versions_article_id_fkey"
+            columns: ["article_id"]
+            isOneToOne: false
+            referencedRelation: "articles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       articles: {
         Row: {
           content_html: string | null
@@ -938,7 +982,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_article_version: {
+        Args: { p_label?: string; p_node_id: string; p_protected?: boolean }
+        Returns: number
+      }
       f_unaccent: { Args: { "": string }; Returns: string }
+      gc_versions: { Args: never; Returns: number }
+      hard_delete_subtree: { Args: { p_node_id: string }; Returns: number }
       has_permission: {
         Args: {
           p_permission_key: string
@@ -987,6 +1037,10 @@ export type Database = {
         Returns: boolean
       }
       rate_limits_gc: { Args: never; Returns: undefined }
+      rename_article_version: {
+        Args: { p_label: string; p_protected: boolean; p_version_id: string }
+        Returns: undefined
+      }
       restore_subtree: { Args: { p_node_id: string }; Returns: number }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
       subtree_ids: {
