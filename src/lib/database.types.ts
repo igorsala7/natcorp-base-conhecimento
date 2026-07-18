@@ -707,6 +707,41 @@ export type Database = {
           },
         ]
       }
+      review_comments: {
+        Row: {
+          author_id: string | null
+          body: string | null
+          created_at: string
+          id: string
+          kind: string
+          node_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          node_id: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          node_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_comments_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       role_permissions: {
         Row: {
           permission_id: string
@@ -982,6 +1017,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      approve_review: { Args: { p_node_id: string }; Returns: undefined }
       create_article_version: {
         Args: { p_label?: string; p_node_id: string; p_protected?: boolean }
         Returns: number
@@ -1037,12 +1073,17 @@ export type Database = {
         Returns: boolean
       }
       rate_limits_gc: { Args: never; Returns: undefined }
+      reject_review: {
+        Args: { p_comment: string; p_node_id: string }
+        Returns: undefined
+      }
       rename_article_version: {
         Args: { p_label: string; p_protected: boolean; p_version_id: string }
         Returns: undefined
       }
       restore_subtree: { Args: { p_node_id: string }; Returns: number }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
+      submit_for_review: { Args: { p_node_id: string }; Returns: undefined }
       subtree_ids: {
         Args: { p_node_id: string }
         Returns: {

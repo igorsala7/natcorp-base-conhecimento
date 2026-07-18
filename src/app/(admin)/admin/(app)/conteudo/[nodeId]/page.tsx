@@ -49,7 +49,13 @@ export default async function EditarArtigoPage({
   const publicUrl = nodeSpace
     ? `${env.NEXT_PUBLIC_SITE_URL}/docs/${nodeSpace.slug}/${path.join("/")}`
     : undefined;
-  const canRestore = await hasPermission("content.restore", node.space_id);
+  const [canRestore, canPublish, canApprove, canReject, canComment] = await Promise.all([
+    hasPermission("content.restore", node.space_id),
+    hasPermission("content.publish", node.space_id),
+    hasPermission("review.approve", node.space_id),
+    hasPermission("review.reject", node.space_id),
+    hasPermission("review.comment", node.space_id),
+  ]);
 
   return (
     <ContentShell
@@ -66,6 +72,9 @@ export default async function EditarArtigoPage({
         publicUrl={publicUrl}
         spacePublic={nodeSpace?.visibility === "public"}
         canRestore={canRestore}
+        canPublish={canPublish}
+        canReview={canApprove || canReject}
+        canComment={canComment}
       />
     </ContentShell>
   );

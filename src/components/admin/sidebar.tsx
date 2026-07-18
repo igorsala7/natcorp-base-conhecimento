@@ -4,14 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  BarChart3,
   Bot,
+  CheckSquare,
   Code2,
   FolderTree,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
-  Search,
   Settings,
   Trash2,
   Upload,
@@ -22,11 +23,12 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
   { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
+  { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
   { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
   { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
   { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
   { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
-  { href: "/admin/busca", label: "Busca", icon: Search, ready: false },
+  { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
   { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
   { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
   {

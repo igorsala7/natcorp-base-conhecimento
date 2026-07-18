@@ -41,6 +41,12 @@ import {
 } from "./nodes";
 import { EditorToolbar } from "./toolbar";
 import { HistoryPanel } from "./history-panel";
+import { ReviewThread } from "./review-thread";
+import {
+  submitForReview,
+  approveReview,
+  rejectReview,
+} from "@/app/(admin)/admin/(app)/conteudo/review-actions";
 import {
   saveArticle,
   publishNode,
@@ -94,6 +100,9 @@ export function ArticleEditor({
   publicUrl,
   spacePublic,
   canRestore,
+  canPublish,
+  canReview,
+  canComment,
 }: {
   nodeId: string;
   spaceId: string;
@@ -103,6 +112,9 @@ export function ArticleEditor({
   publicUrl?: string;
   spacePublic?: boolean;
   canRestore?: boolean;
+  canPublish?: boolean;
+  canReview?: boolean;
+  canComment?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
@@ -189,6 +201,30 @@ export function ArticleEditor({
     const res = await reindexArticleEmbeddings(nodeId);
     setReindexing(false);
     setMsg(res.ok ? "Embeddings gerados — o assistente já usa este artigo na busca semântica." : res.error);
+  }
+
+  async function onSubmitReview() {
+    const res = await submitForReview(nodeId);
+    if (!res.ok) return setMsg(res.error);
+    setStatus("review");
+    setMsg("Enviado para revisão. Um revisor precisa aprovar para publicar.");
+    router.refresh();
+  }
+  async function onApprove() {
+    const res = await approveReview(nodeId);
+    if (!res.ok) return setMsg(res.error);
+    setStatus("published");
+    setMsg("Aprovado e publicado.");
+    router.refresh();
+  }
+  async function onReject() {
+    const comment = prompt("Motivo da rejeição (será enviado ao autor):");
+    if (comment === null) return;
+    const res = await rejectReview(nodeId, comment);
+    if (!res.ok) return setMsg(res.error);
+    setStatus("draft");
+    setMsg("Rejeitado — voltou para rascunho.");
+    router.refresh();
   }
 
   async function onPublishToggle() {
@@ -298,12 +334,31 @@ export function ArticleEditor({
           <Button variant="secondary" onClick={onImprove} disabled={improving}>
             {improving ? "Melhorando…" : "Melhorar layout (IA)"}
           </Button>
-          <Button
-            variant={status === "published" ? "secondary" : "primary"}
-            onClick={onPublishToggle}
-          >
-            {status === "published" ? "Despublicar" : "Publicar"}
-          </Button>
+          {status === "review" && (
+            <span className="rounded-full bg-brand-pink-50 px-2.5 py-1 text-xs font-medium text-brand-pink-700 dark:bg-brand-pink-950/40">
+              Em revisão
+            </span>
+          )}
+          {canReview && status === "review" && (
+            <>
+              <Button variant="secondary" onClick={onReject}>Rejeitar</Button>
+              <Button variant="primary" onClick={onApprove}>Aprovar</Button>
+            </>
+          )}
+          {canPublish ? (
+            <Button
+              variant={status === "published" ? "secondary" : "primary"}
+              onClick={onPublishToggle}
+            >
+              {status === "published" ? "Despublicar" : "Publicar"}
+            </Button>
+          ) : (
+            status === "draft" && (
+              <Button variant="primary" onClick={onSubmitReview}>
+                Enviar para revisão
+              </Button>
+            )
+          )}
         </div>
       </div>
 
@@ -314,6 +369,15 @@ export function ArticleEditor({
           {msg}
         </p>
       )}
+
+      <details className="mt-2 rounded-lg border border-border" open={status === "review"}>
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-text-muted">
+          Revisão e comentários
+        </summary>
+        <div className="border-t border-border p-3">
+          <ReviewThread nodeId={nodeId} canComment={!!canComment} />
+        </div>
+      </details>
 
       <div className="mt-4 flex-1 overflow-auto">
         <EditorContent editor={editor} />
