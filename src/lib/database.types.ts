@@ -14,6 +14,106 @@ export type Database = {
   }
   public: {
     Tables: {
+      articles: {
+        Row: {
+          content_html: string | null
+          content_json: Json
+          content_text: string | null
+          cover_image: string | null
+          excerpt: string | null
+          id: string
+          meta: Json
+          node_id: string
+          published_at: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          content_html?: string | null
+          content_json?: Json
+          content_text?: string | null
+          cover_image?: string | null
+          excerpt?: string | null
+          id?: string
+          meta?: Json
+          node_id: string
+          published_at?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          content_html?: string | null
+          content_json?: Json
+          content_text?: string | null
+          cover_image?: string | null
+          excerpt?: string | null
+          id?: string
+          meta?: Json
+          node_id?: string
+          published_at?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "articles_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: true
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assets: {
+        Row: {
+          alt_text: string | null
+          checksum: string | null
+          created_at: string
+          height: number | null
+          id: string
+          mime: string | null
+          size_bytes: number | null
+          space_id: string | null
+          storage_path: string
+          width: number | null
+        }
+        Insert: {
+          alt_text?: string | null
+          checksum?: string | null
+          created_at?: string
+          height?: number | null
+          id?: string
+          mime?: string | null
+          size_bytes?: number | null
+          space_id?: string | null
+          storage_path: string
+          width?: number | null
+        }
+        Update: {
+          alt_text?: string | null
+          checksum?: string | null
+          created_at?: string
+          height?: number | null
+          id?: string
+          mime?: string | null
+          size_bytes?: number | null
+          space_id?: string | null
+          storage_path?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assets_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -139,6 +239,85 @@ export type Database = {
             referencedRelation: "roles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "memberships_space_fk"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nodes: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          icon: string | null
+          id: string
+          link_url: string | null
+          parent_id: string | null
+          path: unknown
+          position: string
+          published_at: string | null
+          slug: string
+          space_id: string
+          status: string
+          title: string
+          type: string
+          updated_at: string
+          visibility: string | null
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          icon?: string | null
+          id?: string
+          link_url?: string | null
+          parent_id?: string | null
+          path?: unknown
+          position: string
+          published_at?: string | null
+          slug: string
+          space_id: string
+          status?: string
+          title?: string
+          type: string
+          updated_at?: string
+          visibility?: string | null
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          icon?: string | null
+          id?: string
+          link_url?: string | null
+          parent_id?: string | null
+          path?: unknown
+          position?: string
+          published_at?: string | null
+          slug?: string
+          space_id?: string
+          status?: string
+          title?: string
+          type?: string
+          updated_at?: string
+          visibility?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nodes_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nodes_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
         ]
       }
       permissions: {
@@ -246,6 +425,85 @@ export type Database = {
         }
         Relationships: []
       }
+      snippets: {
+        Row: {
+          content_json: Json
+          id: string
+          key: string
+          space_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          content_json?: Json
+          id?: string
+          key: string
+          space_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          content_json?: Json
+          id?: string
+          key?: string
+          space_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "snippets_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spaces: {
+        Row: {
+          created_at: string
+          custom_domain: string | null
+          id: string
+          name: string
+          parent_space_id: string | null
+          slug: string
+          theme: Json
+          type: string
+          visibility: string
+        }
+        Insert: {
+          created_at?: string
+          custom_domain?: string | null
+          id?: string
+          name: string
+          parent_space_id?: string | null
+          slug: string
+          theme?: Json
+          type?: string
+          visibility?: string
+        }
+        Update: {
+          created_at?: string
+          custom_domain?: string | null
+          id?: string
+          name?: string
+          parent_space_id?: string | null
+          slug?: string
+          theme?: Json
+          type?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spaces_parent_space_id_fkey"
+            columns: ["parent_space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -263,6 +521,13 @@ export type Database = {
         Args: { p_space_id?: string; p_user_id: string }
         Returns: number
       }
+      move_node: {
+        Args: { p_new_parent_id: string; p_node_id: string; p_position: string }
+        Returns: undefined
+      }
+      node_label: { Args: { p_id: string }; Returns: string }
+      restore_subtree: { Args: { p_node_id: string }; Returns: number }
+      soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never
