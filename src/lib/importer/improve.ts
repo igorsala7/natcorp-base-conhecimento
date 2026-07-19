@@ -150,8 +150,81 @@ export type ImproveResult =
   | { ok: true; doc: object }
   | { ok: false; error: string };
 
-/** Reformata o texto puro em blocos ricos. Exige AI_API_KEY. */
-export async function improveLayout(plainText: string): Promise<ImproveResult> {
+export type ImageRef = { src: string; alt: string; caption: string };
+
+const IMG_TOKEN = "⟦IMG:";
+function imgNode(im: ImageRef): object {
+  return { type: "figureImage", attrs: { src: im.src, alt: im.alt, caption: im.caption } };
+}
+
+/** Texto puro de um nó (concatena os text nodes). */
+function plainOf(node: unknown): string {
+  const parts: string[] = [];
+  const walk = (n: unknown) => {
+    if (!n || typeof n !== "object") return;
+    const o = n as { text?: string; content?: unknown[] };
+    if (typeof o.text === "string") parts.push(o.text);
+    if (Array.isArray(o.content)) o.content.forEach(walk);
+  };
+  walk(node);
+  return parts.join("");
+}
+
+/** Remove os marcadores ⟦IMG:n⟧ dos text nodes; poda text nodes vazios. */
+function stripTokens(node: unknown): unknown {
+  if (!node || typeof node !== "object") return node;
+  const o = node as { text?: string; content?: unknown[] };
+  const clone: Record<string, unknown> = { ...o };
+  if (typeof o.text === "string") {
+    const t = o.text.replace(/⟦IMG:\d+⟧/g, "");
+    if (!t.trim()) return null;
+    clone.text = t;
+  }
+  if (Array.isArray(o.content)) {
+    clone.content = o.content.map(stripTokens).filter((x) => x !== null);
+  }
+  return clone;
+}
+
+/**
+ * Re-insere as imagens no lugar dos marcadores ⟦IMG:n⟧ que a IA preservou.
+ * Qualquer imagem não colocada vai para o fim — nunca se perde uma imagem.
+ */
+function reinsertImages(doc: { type: string; content?: object[] }, images: ImageRef[]): object {
+  const blocks = doc.content ?? [];
+  const out: object[] = [];
+  const placed = new Set<number>();
+
+  for (const block of blocks) {
+    const text = plainOf(block);
+    if (!text.includes(IMG_TOKEN)) {
+      out.push(block);
+      continue;
+    }
+    const indices = [...text.matchAll(/⟦IMG:(\d+)⟧/g)].map((m) => Number(m[1]));
+    const cleaned = stripTokens(block);
+    if (cleaned && plainOf(cleaned).trim()) out.push(cleaned as object);
+    for (const i of indices) {
+      const im = images[i];
+      if (im?.src && !placed.has(i)) {
+        placed.add(i);
+        out.push(imgNode(im));
+      }
+    }
+  }
+  // Rede de segurança: imagens que a IA "esqueceu" voltam ao final.
+  images.forEach((im, i) => {
+    if (im?.src && !placed.has(i)) out.push(imgNode(im));
+  });
+
+  return { type: "doc", content: out.length ? out : [{ type: "paragraph" }] };
+}
+
+/** Reformata o texto puro em blocos ricos, preservando as imagens. Exige AI_API_KEY. */
+export async function improveLayout(
+  plainText: string,
+  images: ImageRef[] = [],
+): Promise<ImproveResult> {
   if (!hasAiKey()) {
     return { ok: false, error: "AI_API_KEY não configurada — preencha no .env.local." };
   }
@@ -163,7 +236,8 @@ export async function improveLayout(plainText: string): Promise<ImproveResult> {
       schema: blocksSchema,
       prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
     });
-    return { ok: true, doc: blocksToTipTap(object.blocks) };
+    const doc = blocksToTipTap(object.blocks) as { type: string; content?: object[] };
+    return { ok: true, doc: images.length ? reinsertImages(doc, images) : doc };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: `Falha da IA: ${msg}` };

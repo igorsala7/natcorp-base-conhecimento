@@ -23,6 +23,46 @@ function extractText(doc: unknown): string {
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Texto do artigo com marcadores ⟦IMG:n⟧ no lugar das imagens, mais a lista de
+ * imagens capturadas — para o "Melhorar layout" preservar as imagens.
+ */
+function extractTextWithImages(doc: unknown): {
+  text: string;
+  images: { src: string; alt: string; caption: string }[];
+} {
+  const parts: string[] = [];
+  const images: { src: string; alt: string; caption: string }[] = [];
+  const walk = (n: unknown) => {
+    if (!n || typeof n !== "object") return;
+    const node = n as {
+      type?: string;
+      text?: string;
+      attrs?: { src?: unknown; alt?: unknown; caption?: unknown };
+      content?: unknown[];
+    };
+    if (node.type === "figureImage" || node.type === "image") {
+      const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
+      if (src) {
+        parts.push(`\n\n⟦IMG:${images.length}⟧\n\n`);
+        images.push({
+          src,
+          alt: typeof node.attrs?.alt === "string" ? node.attrs.alt : "",
+          caption: typeof node.attrs?.caption === "string" ? node.attrs.caption : "",
+        });
+      }
+      return;
+    }
+    if (typeof node.text === "string") parts.push(node.text);
+    if (Array.isArray(node.content)) {
+      node.content.forEach(walk);
+      if (node.type === "paragraph" || node.type === "heading") parts.push("\n\n");
+    }
+  };
+  walk(doc);
+  return { text: parts.join("").replace(/\n{3,}/g, "\n\n").trim(), images };
+}
+
 async function spaceIdOfNode(
   supabase: Awaited<ReturnType<typeof createClient>>,
   nodeId: string,
@@ -105,8 +145,8 @@ export async function improveArticleLayout(
     .select("content_json")
     .eq("node_id", nodeId)
     .maybeSingle();
-  const text = extractText(article?.content_json);
-  return improveLayout(text);
+  const { text, images } = extractTextWithImages(article?.content_json);
+  return improveLayout(text, images);
 }
 
 /** Publica o nó (exige content.publish). content_html será gerado na Fase 2. */

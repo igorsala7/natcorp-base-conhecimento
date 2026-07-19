@@ -57,7 +57,7 @@ VOCÊ NÃO É REDATOR — REGRAS ABSOLUTAS
 - NÃO reescreva, resuma, traduza, corrija gramática, nem invente conteúdo. As PALAVRAS e a ORDEM das ideias são exatamente as mesmas.
 - Pode dividir um parágrafo longo em vários, e juntar linhas quebradas artificialmente (mesmas palavras).
 - Pode reorganizar uma lista que estava embutida numa frase em itens de lista — mantendo os mesmos itens/palavras.
-- NÃO perca imagens do corpo do texto (são importantes na documentação).
+- IMAGENS: o texto contém marcadores como ⟦IMG:0⟧, ⟦IMG:1⟧ — cada um representa uma IMAGEM naquela posição. COPIE cada marcador EXATAMENTE como está (mesmos caracteres), em um parágrafo só dele, mantendo a posição relativa ao texto. NUNCA altere, traduza, descreva ou remova um marcador — ele será trocado pela imagem real depois.
 
 BLOCOS DISPONÍVEIS (use SOMENTE estes)
 - paragraph — texto corrido.
