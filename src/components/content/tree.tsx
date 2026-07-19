@@ -61,7 +61,9 @@ export function Tree({
   const [, startTransition] = useTransition();
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // Distância maior evita "arrastar sem querer" ao clicar (que movia o item
+    // e fazia a seleção perder a referência).
+    useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
   );
 
   const flat = useMemo(
@@ -138,6 +140,10 @@ export function Tree({
     const active = activeId;
     resetDrag();
     if (!projected || !active || !e.over) return;
+    // Soltou no próprio lugar, sem mudar de pai → não faz nada (evita
+    // "movimentos fantasma" ao clicar/arrastar de leve).
+    const activeItem = flat.find((i) => i.id === active);
+    if (e.over.id === active && projected.parentId === (activeItem?.parentId ?? null)) return;
 
     const overIndex = flat.findIndex((i) => i.id === e.over!.id);
     const { prev, next } = siblingPositions(

@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
-import { getDefaultSpace, listTree, slugPathsOf } from "@/lib/content/tree";
+import { listTree, slugPathsOf } from "@/lib/content/tree";
+import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
 import { env } from "@/lib/env";
 import { ContentShell } from "@/components/content/content-shell";
 import { Tree } from "@/components/content/tree";
+import { ClientTree } from "@/components/content/client-tree";
 import { ArticleEditor } from "@/components/editor/editor";
 
 export const metadata: Metadata = { title: "Editar artigo" };
@@ -20,11 +22,8 @@ export default async function EditarArtigoPage({
   const canView = await hasPermission("content.view");
   if (!canView) notFound();
 
-  const space = await getDefaultSpace();
-  if (!space) notFound();
-
   const supabase = await createClient();
-  const [{ data: node }, { data: article }, tree] = await Promise.all([
+  const [{ data: node }, { data: article }] = await Promise.all([
     supabase
       .from("nodes")
       .select("id, title, status, type, space_id")
@@ -35,16 +34,27 @@ export default async function EditarArtigoPage({
       .select("content_json")
       .eq("node_id", nodeId)
       .maybeSingle(),
-    listTree(space.id),
   ]);
 
   if (!node || node.type !== "article") notFound();
 
-  // URL pública do artigo (para copiar/compartilhar) — usa o espaço do nó.
+  // A árvore lateral é SEMPRE a do espaço do artigo (não a do espaço padrão),
+  // senão a seleção "perde a referência" e clicar abre o nó errado.
   const [{ data: nodeSpace }, slugPaths] = await Promise.all([
-    supabase.from("spaces").select("slug, visibility").eq("id", node.space_id).single(),
+    supabase
+      .from("spaces")
+      .select("id, slug, name, type, visibility")
+      .eq("id", node.space_id)
+      .single(),
     slugPathsOf(node.space_id),
   ]);
+
+  const aside =
+    nodeSpace?.type === "client" ? (
+      <ClientTree clientSpaceId={node.space_id} nodes={await getEffectiveTreeAdmin(node.space_id)} />
+    ) : (
+      <Tree spaceId={node.space_id} nodes={await listTree(node.space_id)} selectedId={nodeId} />
+    );
   const path = slugPaths.get(nodeId) ?? [];
   const publicUrl = nodeSpace
     ? `${env.NEXT_PUBLIC_SITE_URL}/docs/${nodeSpace.slug}/${path.join("/")}`
@@ -58,9 +68,7 @@ export default async function EditarArtigoPage({
   ]);
 
   return (
-    <ContentShell
-      aside={<Tree spaceId={space.id} nodes={tree} selectedId={nodeId} />}
-    >
+    <ContentShell aside={aside}>
       <ArticleEditor
         nodeId={nodeId}
         spaceId={node.space_id}
