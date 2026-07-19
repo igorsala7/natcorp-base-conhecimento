@@ -56,6 +56,8 @@ export function Tree({
   const [message, setMessage] = useState<string | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<string | null>(null);
+  const [creating, setCreating] = useState<null | "folder" | "article">(null);
+  const [draftTitle, setDraftTitle] = useState("");
   const [, startTransition] = useTransition();
 
   const sensors = useSensors(
@@ -284,33 +286,51 @@ export function Tree({
 
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            const title = prompt("Nome da pasta:");
-            if (title)
-              run(() =>
-                createNode({ spaceId, parentId: null, type: "folder", title }),
-              );
-          }}
-        >
-          <FolderPlus className="size-4" /> Pasta
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            const title = prompt("Título do artigo:");
-            if (title)
-              run(() =>
-                createNode({ spaceId, parentId: null, type: "article", title }),
-              );
-          }}
-        >
-          <FilePlus className="size-4" /> Artigo
-        </Button>
+      <div className="mb-2">
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={() => { setCreating("folder"); setDraftTitle(""); }}>
+            <FolderPlus className="size-4" /> Pasta
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => { setCreating("article"); setDraftTitle(""); }}>
+            <FilePlus className="size-4" /> Artigo
+          </Button>
+        </div>
+        {creating && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const title = draftTitle.trim();
+              if (title) run(() => createNode({ spaceId, parentId: null, type: creating, title }));
+              setCreating(null);
+              setDraftTitle("");
+            }}
+            className="mt-2 flex items-center gap-2 rounded-lg border border-primary/40 bg-brand-purple-50 p-1.5 dark:bg-brand-purple-950/30"
+          >
+            {creating === "folder" ? (
+              <FolderPlus className="size-4 shrink-0 text-primary" />
+            ) : (
+              <FilePlus className="size-4 shrink-0 text-primary" />
+            )}
+            <input
+              autoFocus
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setCreating(null)}
+              placeholder={creating === "folder" ? "Nome da pasta" : "Título do artigo"}
+              className="h-7 min-w-0 flex-1 rounded border border-border bg-surface px-2 text-sm focus:border-primary focus:outline-none"
+            />
+            <button type="submit" className="shrink-0 rounded bg-primary px-2 py-1 text-xs font-medium text-primary-fg">
+              Criar
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreating(null)}
+              className="shrink-0 rounded px-1.5 py-1 text-xs text-text-muted hover:text-text"
+            >
+              Cancelar
+            </button>
+          </form>
+        )}
       </div>
 
       {checkedIds.size > 0 && (
