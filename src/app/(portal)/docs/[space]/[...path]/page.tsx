@@ -14,7 +14,8 @@ import {
   getPublicSnippets,
 } from "@/lib/portal/data";
 import { RenderDoc, extractToc } from "@/components/portal/render";
-import { PortalShell, Breadcrumbs } from "@/components/portal/shell";
+import { PortalShell, Breadcrumbs, spaceChrome } from "@/components/portal/shell";
+import { SearchTrigger, AskTrigger } from "@/components/portal/portal-search";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { Feedback } from "@/components/portal/feedback";
 
@@ -81,7 +82,30 @@ export default async function DocsPage({
         permanentRedirect(`/docs/${spaceSlug}/${target.slugPath.join("/")}`);
       }
     }
-    notFound();
+    // Página inexistente → resposta amigável (com busca/IA), não um beco sem saída.
+    return (
+      <PortalShell space={space} tree={tree} activePath="">
+        <div className="mx-auto max-w-md py-16 text-center">
+          <p className="text-sm font-medium uppercase tracking-wide text-text-muted">404</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight">Página não encontrada</h1>
+          <p className="mt-2 text-text-muted">
+            O endereço mudou ou não existe. Tente buscar ou perguntar à IA.
+          </p>
+          <div className="mt-6">
+            <SearchTrigger variant="hero" />
+          </div>
+          <div className="mt-3 flex justify-center gap-2">
+            <AskTrigger />
+            <Link
+              href={`/docs/${spaceSlug}`}
+              className="inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-sm hover:border-primary hover:text-primary"
+            >
+              Início
+            </Link>
+          </div>
+        </div>
+      </PortalShell>
+    );
   }
 
   const crumbs = ancestorsOf(tree, node.id).slice(0, -1);
@@ -115,11 +139,19 @@ export default async function DocsPage({
   const snippets = await getPublicSnippets(space.id, db);
   const toc = extractToc(doc);
   const minutes = Math.max(1, Math.round(wordCount(doc) / 200));
+  const { supportUrl } = spaceChrome(space);
 
-  const articles = flattenPortalTree(tree).filter((n) => n.type === "article");
+  const flat = flattenPortalTree(tree);
+  const articles = flat.filter((n) => n.type === "article");
   const idx = articles.findIndex((n) => n.id === node.id);
   const prev = idx > 0 ? articles[idx - 1] : null;
   const next = idx >= 0 && idx < articles.length - 1 ? articles[idx + 1] : null;
+
+  // Relacionados: irmãos (mesma pasta) do artigo atual.
+  const parent = node.parent_id ? flat.find((n) => n.id === node.parent_id) : null;
+  const related = (parent ? parent.children : tree)
+    .filter((n) => n.type === "article" && n.id !== node.id)
+    .slice(0, 4);
 
   return (
     <PortalShell space={space} tree={tree} activePath={activePath} toc={toc}>
@@ -137,11 +169,31 @@ export default async function DocsPage({
           )}
         </div>
 
-        <div className="prose prose-neutral mt-6 max-w-none dark:prose-invert">
+        <div className="prose prose-neutral prose-portal mt-6 max-w-none dark:prose-invert">
           <RenderDoc doc={doc} snippets={snippets} />
         </div>
 
-        <Feedback nodeId={node.id} />
+        {related.length > 0 && (
+          <section className="mt-12 border-t border-border pt-6">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-text-muted">
+              Relacionados
+            </h2>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {related.map((r) => (
+                <li key={r.id}>
+                  <Link
+                    href={`/docs/${spaceSlug}/${r.slugPath.join("/")}`}
+                    className="block truncate rounded-lg border border-border px-3 py-2 text-sm no-underline transition hover:border-primary hover:text-primary"
+                  >
+                    {r.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <Feedback nodeId={node.id} supportUrl={supportUrl} />
 
         <nav className="mt-8 flex justify-between gap-4 border-t border-border pt-6 text-sm">
           {prev ? (

@@ -28,6 +28,17 @@
 
   --color-focus-ring: #8153a3; /* brand.purple.500 */
 
+  /* Escala tipográfica deliberada (documentação = leitura em primeiro lugar). */
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.875rem; /* 14 */
+  --text-base: 1rem; /* 16 */
+  --text-lg: 1.125rem; /* 18 */
+  --text-xl: 1.25rem; /* 20 */
+  --text-2xl: 1.5rem; /* 24 */
+  --text-3xl: 1.875rem; /* 30 */
+  --text-4xl: clamp(2rem, 1.4rem + 2.6vw, 2.75rem); /* 32→44 títulos de página */
+  --measure: 72ch; /* medida de linha confortável (65–75 caracteres) */
+
   color-scheme: light;
 }
 
@@ -120,5 +131,95 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+@layer components {
+  /* Leitura do portal: medida confortável e hierarquia clara. */
+  .prose-portal {
+    max-width: var(--measure);
+  }
+  .prose-portal :where(h2) {
+    font-size: var(--text-2xl);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    margin-top: 2.25em;
+    scroll-margin-top: 5rem;
+  }
+  .prose-portal :where(h3) {
+    font-size: var(--text-xl);
+    line-height: 1.3;
+    margin-top: 1.75em;
+    scroll-margin-top: 5rem;
+  }
+  .prose-portal :where(p, li) {
+    line-height: 1.75;
+  }
+  /* Bloco de código com realce (lowlight/highlight.js) já estilizado em base. */
+  .prose-portal :where(pre) {
+    position: relative;
+    padding-top: 2.25rem;
+  }
+
+  /* Botão de copiar código (aparece no hover do bloco). */
+  .code-copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    padding: 0.2rem 0.5rem;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  pre:hover .code-copy,
+  .code-copy:focus-visible {
+    opacity: 1;
+  }
+  .code-copy:hover {
+    color: var(--color-text);
+    border-color: var(--color-focus-ring);
+  }
+}
+
+/* Animações do portal (busca/painel) — sutis; respeitam reduced-motion. */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes slidein {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slideinleft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes scalein {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }

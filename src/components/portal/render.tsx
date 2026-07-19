@@ -7,8 +7,10 @@ import {
   OctagonAlert,
 } from "lucide-react";
 import { slugify } from "@/lib/content/slug";
+import { highlightCode } from "@/lib/content/highlight";
 import { PortalTabs } from "./tabs";
 import { CopyAnchor } from "./copy-anchor";
+import { CodeCopy } from "./code-copy";
 import { MermaidView } from "@/components/editor/mermaid-view";
 import type { TocItem } from "./toc";
 
@@ -134,12 +136,21 @@ function renderNode(node: TipTapNode, key: number, ctx: Ctx): ReactNode {
     case "hardBreak":
       return <br key={key} />;
 
-    case "codeBlock":
+    case "codeBlock": {
+      const code = textOf(node);
+      const lang = node.attrs?.language as string | undefined;
+      const html = highlightCode(code, lang);
       return (
         <pre key={key}>
-          <code>{textOf(node)}</code>
+          <CodeCopy code={code} />
+          {html ? (
+            <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
+          ) : (
+            <code>{code}</code>
+          )}
         </pre>
       );
+    }
 
     case "table":
       return (
