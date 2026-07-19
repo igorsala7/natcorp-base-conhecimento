@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { reindexNodeChunks } from "@/lib/content/chunk";
 import { audit } from "@/lib/auth/audit";
 
 export type TrashResult = { ok: true; count?: number } | { ok: false; error: string };
@@ -61,6 +63,38 @@ export async function restoreTrash(nodeId: string): Promise<TrashResult> {
         : `Falha ao restaurar: ${error.message}`,
     };
   }
+  // Regenera os embeddings dos artigos PUBLICADOS restaurados (foram removidos
+  // do RAG ao excluir). Via service-role, sem depender de content.edit.
+  try {
+    const admin = createAdminClient();
+    const { data: subtree } = await admin.rpc("subtree_ids", { p_node_id: nodeId });
+    const articleIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
+    for (const artNodeId of articleIds) {
+      const { data: node } = await admin
+        .from("nodes")
+        .select("space_id, status")
+        .eq("id", artNodeId)
+        .single();
+      if (node?.status !== "published") continue;
+      const { data: art } = await admin
+        .from("articles")
+        .select("id, content_json")
+        .eq("node_id", artNodeId)
+        .maybeSingle();
+      if (art) {
+        await reindexNodeChunks(admin, {
+          nodeId: artNodeId,
+          articleId: art.id,
+          spaceId: node.space_id,
+          doc: art.content_json as { type: string; content?: never[] },
+          withEmbeddings: true,
+        });
+      }
+    }
+  } catch {
+    // Reindex é best-effort: a restauração já ocorreu.
+  }
+
   await audit({ action: "content.restore_subtree", entityType: "node", entityId: nodeId, after: { count: data } });
   revalidatePath("/admin/lixeira");
   revalidatePath("/admin/conteudo");
