@@ -1,10 +1,26 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ComponentType, type ReactNode } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
+  ChevronDown,
+  Code2,
+  Download,
+  FileText,
+  Folder,
+  HelpCircle,
   Info,
+  Lightbulb,
+  MessageSquare,
   OctagonAlert,
+  PlayCircle,
+  Rocket,
+  Settings,
+  Shield,
+  Star,
+  Users,
+  Zap,
 } from "lucide-react";
 import { slugify } from "@/lib/content/slug";
 import { highlightCode } from "@/lib/content/highlight";
@@ -12,6 +28,26 @@ import { PortalTabs } from "./tabs";
 import { CopyAnchor } from "./copy-anchor";
 import { CodeCopy } from "./code-copy";
 import { MermaidView } from "@/components/editor/mermaid-view";
+
+/** Ícones dos cards (mesmo conjunto do editor). */
+const CARD_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  book: BookOpen,
+  rocket: Rocket,
+  settings: Settings,
+  zap: Zap,
+  shield: Shield,
+  users: Users,
+  star: Star,
+  help: HelpCircle,
+  code: Code2,
+  file: FileText,
+  lightbulb: Lightbulb,
+  check: CheckCircle2,
+  folder: Folder,
+  download: Download,
+  play: PlayCircle,
+  message: MessageSquare,
+};
 import type { TocItem } from "./toc";
 
 type TipTapNode = {
@@ -79,6 +115,12 @@ function applyMarks(text: string, marks: TipTapNode["marks"], key: number): Reac
     else if (mark.type === "italic") el = <em>{el}</em>;
     else if (mark.type === "strike") el = <s>{el}</s>;
     else if (mark.type === "code") el = <code>{el}</code>;
+    else if (mark.type === "kbd")
+      el = (
+        <kbd className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[0.85em]">
+          {el}
+        </kbd>
+      );
     else if (mark.type === "highlight")
       el = (
         <mark style={{ backgroundColor: String(mark.attrs?.color ?? "#fde68a"), padding: "0 2px", borderRadius: 2 }}>
@@ -310,6 +352,85 @@ function renderNode(node: TipTapNode, key: number, ctx: Ctx): ReactNode {
           {renderChildren(node.content, ctx)}
         </div>
       );
+    case "cardGrid": {
+      const cols = Number(node.attrs?.cols) || 3;
+      const grid =
+        cols === 2 ? "sm:grid-cols-2" : cols === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3";
+      return (
+        <div key={key} className={`my-5 grid gap-3 ${grid}`}>
+          {renderChildren(node.content, ctx)}
+        </div>
+      );
+    }
+    case "card": {
+      const Icon = CARD_ICONS[String(node.attrs?.icon ?? "book")] ?? BookOpen;
+      const title = String(node.attrs?.title ?? "");
+      const href = String(node.attrs?.href ?? "");
+      const inner = (
+        <>
+          <span className="mb-2 flex size-9 items-center justify-center rounded-lg bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+            <Icon className="size-5" />
+          </span>
+          {title && <div className="font-semibold">{title}</div>}
+          <div className="mt-1 text-sm text-text-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            {renderChildren(node.content, ctx)}
+          </div>
+        </>
+      );
+      return href ? (
+        <a key={key} href={href} className="block rounded-xl border border-border bg-surface p-4 no-underline transition hover:border-primary">
+          {inner}
+        </a>
+      ) : (
+        <div key={key} className="rounded-xl border border-border bg-surface p-4">
+          {inner}
+        </div>
+      );
+    }
+    case "toggle": {
+      const title = String(node.attrs?.title ?? "Detalhes");
+      return (
+        <details key={key} className="my-3 rounded-lg border border-border">
+          <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
+            <ChevronDown className="size-4 shrink-0 text-text-muted" />
+            {title}
+          </summary>
+          <div className="border-t border-border p-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            {renderChildren(node.content, ctx)}
+          </div>
+        </details>
+      );
+    }
+    case "hero": {
+      const bg = String(node.attrs?.bg ?? "purple");
+      const cls: Record<string, string> = {
+        purple:
+          "bg-gradient-to-br from-brand-purple-50 to-brand-pink-50 dark:from-brand-purple-950/40 dark:to-brand-pink-950/30",
+        blue: "bg-brand-blue-50 dark:bg-brand-blue-950/30",
+        gray: "bg-surface-2",
+        dark: "bg-brand-purple-900 text-white dark:bg-brand-purple-950",
+      };
+      const dark = bg === "dark";
+      const eyebrow = String(node.attrs?.eyebrow ?? "");
+      const title = String(node.attrs?.title ?? "");
+      const subtitle = String(node.attrs?.subtitle ?? "");
+      return (
+        <div key={key} className={`my-5 rounded-2xl p-6 sm:p-8 ${cls[bg] ?? cls.purple}`}>
+          {eyebrow && (
+            <p className={`text-xs font-semibold uppercase tracking-wide ${dark ? "text-white/70" : "text-primary"}`}>
+              {eyebrow}
+            </p>
+          )}
+          {title && <p className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{title}</p>}
+          {subtitle && <p className={`mt-2 ${dark ? "text-white/80" : "text-text-muted"}`}>{subtitle}</p>}
+        </div>
+      );
+    }
+    case "spacer": {
+      const size = String(node.attrs?.size ?? "md");
+      const h = size === "sm" ? "h-3" : size === "lg" ? "h-12" : "h-6";
+      return <div key={key} className={h} aria-hidden />;
+    }
     case "mermaid":
       return <MermaidView key={key} code={String(node.attrs?.code ?? "")} />;
     case "buttonLink": {

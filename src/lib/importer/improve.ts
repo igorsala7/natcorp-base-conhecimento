@@ -51,6 +51,24 @@ const blocksSchema = z.object({
         kind: z.literal("columns"),
         columns: z.array(z.array(z.string())),
       }),
+      // Banner/Hero = cabeçalho de destaque (título + subtítulo).
+      z.object({
+        kind: z.literal("hero"),
+        eyebrow: z.string().optional(),
+        title: z.string(),
+        subtitle: z.string().optional(),
+      }),
+      // Grade de cards = itens paralelos com título + descrição curta.
+      z.object({
+        kind: z.literal("cardGrid"),
+        cards: z.array(z.object({ title: z.string(), text: z.string() })),
+      }),
+      // Toggle = bloco recolhível para conteúdo secundário/opcional.
+      z.object({
+        kind: z.literal("toggle"),
+        title: z.string(),
+        items: z.array(z.string()),
+      }),
     ]),
   ),
 });
@@ -138,6 +156,32 @@ function blocksToTipTap(blocks: Block[]) {
             type: "column",
             content: nonEmpty(col.map(paragraph)),
           })),
+        };
+      case "hero":
+        return {
+          type: "hero",
+          attrs: {
+            eyebrow: b.eyebrow ?? "",
+            title: b.title,
+            subtitle: b.subtitle ?? "",
+            bg: "purple",
+          },
+        };
+      case "cardGrid":
+        return {
+          type: "cardGrid",
+          attrs: { cols: b.cards.length === 2 || b.cards.length === 4 ? b.cards.length : 3 },
+          content: (b.cards.length ? b.cards : [{ title: "", text: "" }]).map((c) => ({
+            type: "card",
+            attrs: { icon: "book", title: c.title, href: "" },
+            content: [paragraph(c.text)],
+          })),
+        };
+      case "toggle":
+        return {
+          type: "toggle",
+          attrs: { title: b.title },
+          content: nonEmpty(b.items.map(paragraph)),
         };
       default:
         return leafToTipTap(b as LeafBlock);

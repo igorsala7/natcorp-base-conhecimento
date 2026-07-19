@@ -34,6 +34,10 @@ import {
   MousePointerClick,
   Puzzle,
   Link2,
+  LayoutGrid,
+  Megaphone,
+  ListCollapse,
+  StretchVertical,
 } from "lucide-react";
 
 type Cmd = (opts: { editor: Editor; range: Range }) => void;
@@ -236,6 +240,42 @@ function buildItems(onImage: () => void): SlashItem[] {
       icon: Puzzle,
       keywords: "snippet reutilizavel transclusao",
       command: replace({ type: "snippet", attrs: { snippetKey: "" } }),
+    },
+    {
+      title: "Banner / Hero",
+      subtitle: "Cabeçalho de destaque",
+      icon: Megaphone,
+      keywords: "banner hero cabecalho destaque capa",
+      command: replace({ type: "hero", attrs: { eyebrow: "", title: "", subtitle: "", bg: "purple" } }),
+    },
+    {
+      title: "Grade de cards",
+      subtitle: "Cards com ícone e título",
+      icon: LayoutGrid,
+      keywords: "cards grade grid cartoes navegacao",
+      command: replace({
+        type: "cardGrid",
+        attrs: { cols: 3 },
+        content: [1, 2, 3].map(() => ({
+          type: "card",
+          attrs: { icon: "book", title: "", href: "" },
+          content: [{ type: "paragraph" }],
+        })),
+      }),
+    },
+    {
+      title: "Toggle (recolhível)",
+      subtitle: "Bloco que expande/recolhe",
+      icon: ListCollapse,
+      keywords: "toggle recolhivel detalhes expandir esconder",
+      command: replace({ type: "toggle", attrs: { title: "" }, content: [{ type: "paragraph" }] }),
+    },
+    {
+      title: "Espaçador",
+      subtitle: "Espaço vertical",
+      icon: StretchVertical,
+      keywords: "espaco espacador spacer vazio",
+      command: replace({ type: "spacer", attrs: { size: "md" } }),
     },
   ];
 }

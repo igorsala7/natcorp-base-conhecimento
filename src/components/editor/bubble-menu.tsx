@@ -11,6 +11,7 @@ import {
   Highlighter,
   Heading2,
   Heading3,
+  Keyboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +80,9 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
       </B>
       <B title="Realce" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight({ color: "#fde68a" }).run()}>
         <Highlighter />
+      </B>
+      <B title="Tecla (kbd)" active={editor.isActive("kbd")} onClick={() => editor.chain().focus().toggleMark("kbd").run()}>
+        <Keyboard />
       </B>
       <B
         title="Link"

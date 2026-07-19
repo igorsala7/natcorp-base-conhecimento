@@ -33,6 +33,10 @@ import {
   Video as VideoIcon,
   Workflow,
   Link2,
+  LayoutGrid,
+  Megaphone,
+  ListCollapse,
+  StretchVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +117,9 @@ export function EditorToolbar({
   };
 
   const blocks: { icon: React.ComponentType<{ className?: string }>; label: string; run: () => void }[] = [
+    { icon: Megaphone, label: "Banner / Hero", run: () => insert({ type: "hero", attrs: { eyebrow: "", title: "", subtitle: "", bg: "purple" } }) },
+    { icon: LayoutGrid, label: "Grade de cards", run: () => insert({ type: "cardGrid", attrs: { cols: 3 }, content: [1, 2, 3].map(() => ({ type: "card", attrs: { icon: "book", title: "", href: "" }, content: [{ type: "paragraph" }] })) }) },
+    { icon: ListCollapse, label: "Toggle (recolhível)", run: () => insert({ type: "toggle", attrs: { title: "" }, content: [{ type: "paragraph" }] }) },
     { icon: Info, label: "Callout", run: () => insert({ type: "callout", attrs: { variant: "info" }, content: [{ type: "paragraph" }] }) },
     { icon: ListTree, label: "Passo a passo", run: () => insert({ type: "steps", content: [{ type: "stepItem", content: [{ type: "paragraph" }] }] }) },
     { icon: Rows3, label: "Accordion", run: () => insert({ type: "accordion", content: [{ type: "accordionItem", attrs: { title: "Seção" }, content: [{ type: "paragraph" }] }] }) },
@@ -127,6 +134,7 @@ export function EditorToolbar({
     { icon: Link2, label: "Card de link", run: () => insert({ type: "linkCard", attrs: { url: "", title: "", description: "" } }) },
     { icon: FileCode, label: "Embed HTML", run: () => insert({ type: "htmlEmbed", attrs: { html: "" } }) },
     { icon: Puzzle, label: "Snippet", run: () => insert({ type: "snippet", attrs: { snippetKey: "" } }) },
+    { icon: StretchVertical, label: "Espaçador", run: () => insert({ type: "spacer", attrs: { size: "md" } }) },
     { icon: Minus, label: "Divisor", run: () => { editor.chain().focus().setHorizontalRule().run(); setInsertOpen(false); } },
   ];
 

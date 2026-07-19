@@ -51,6 +51,12 @@ import {
   Column,
   Mermaid,
   ButtonLink,
+  CardGrid,
+  Card,
+  Toggle,
+  Hero,
+  Spacer,
+  Kbd,
 } from "./nodes";
 import { EditorToolbar } from "./toolbar";
 import { HistoryPanel } from "./history-panel";
@@ -110,6 +116,12 @@ const EDITOR_EXTENSIONS = [
   Column,
   Mermaid,
   ButtonLink,
+  CardGrid,
+  Card,
+  Toggle,
+  Hero,
+  Spacer,
+  Kbd,
 ];
 
 type SaveState = "idle" | "saving" | "saved" | "error";

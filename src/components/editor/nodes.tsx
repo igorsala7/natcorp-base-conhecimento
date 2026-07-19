@@ -1,22 +1,66 @@
 "use client";
 
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Node, Mark, mergeAttributes } from "@tiptap/core";
 import {
   NodeViewWrapper,
   NodeViewContent,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
+  Code2,
+  Download,
+  FileText,
+  Folder,
+  HelpCircle,
   Info,
+  Lightbulb,
+  MessageSquare,
   OctagonAlert,
+  PlayCircle,
+  Rocket,
+  Settings,
+  Shield,
+  Star,
+  Users,
+  Zap,
 } from "lucide-react";
 import { MermaidView } from "./mermaid-view";
+
+/** Ícones disponíveis para os cards (chave → componente lucide). */
+export const CARD_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  book: BookOpen,
+  rocket: Rocket,
+  settings: Settings,
+  zap: Zap,
+  shield: Shield,
+  users: Users,
+  star: Star,
+  help: HelpCircle,
+  code: Code2,
+  file: FileText,
+  lightbulb: Lightbulb,
+  check: CheckCircle2,
+  folder: Folder,
+  download: Download,
+  play: PlayCircle,
+  message: MessageSquare,
+};
+
+/** Fundos do hero/banner. */
+export const HERO_BG: Record<string, string> = {
+  purple:
+    "bg-gradient-to-br from-brand-purple-50 to-brand-pink-50 dark:from-brand-purple-950/40 dark:to-brand-pink-950/30",
+  blue: "bg-brand-blue-50 dark:bg-brand-blue-950/30",
+  gray: "bg-surface-2",
+  dark: "bg-brand-purple-900 text-white dark:bg-brand-purple-950",
+};
 
 /* ============================ CALLOUT ============================ */
 const CALLOUT_VARIANTS = {
@@ -710,5 +754,278 @@ export const ButtonLink = Node.create({
   },
   addNodeView() {
     return ReactNodeViewRenderer(ButtonLinkView);
+  },
+});
+
+/* ============================ GRADE DE CARDS ============================ */
+function CardGridView({ node, updateAttributes }: NodeViewProps) {
+  const cols = Number(node.attrs.cols) || 3;
+  const gridCls =
+    cols === 2 ? "sm:grid-cols-2" : cols === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3";
+  return (
+    <NodeViewWrapper className="my-4">
+      <div contentEditable={false} className="mb-1.5 flex items-center gap-2 text-xs text-text-muted">
+        <span>Grade de cards</span>
+        <select
+          value={cols}
+          onChange={(e) => updateAttributes({ cols: Number(e.target.value) })}
+          className="rounded border border-border bg-surface px-1"
+        >
+          <option value={2}>2 colunas</option>
+          <option value={3}>3 colunas</option>
+          <option value={4}>4 colunas</option>
+        </select>
+      </div>
+      <NodeViewContent className={`grid gap-3 ${gridCls} [&>.kb-card]:min-w-0`} />
+    </NodeViewWrapper>
+  );
+}
+export const CardGrid = Node.create({
+  name: "cardGrid",
+  group: "block",
+  content: "card+",
+  addAttributes() {
+    return { cols: { default: 3 } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="card-grid"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "card-grid" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(CardGridView);
+  },
+});
+
+function CardView({ node, updateAttributes }: NodeViewProps) {
+  const iconKey = (node.attrs.icon ?? "book") as string;
+  const title = (node.attrs.title ?? "") as string;
+  const href = (node.attrs.href ?? "") as string;
+  const Icon = CARD_ICONS[iconKey] ?? BookOpen;
+  return (
+    <NodeViewWrapper className="kb-card rounded-xl border border-border bg-surface p-4">
+      <div contentEditable={false} className="mb-2 flex items-center gap-2">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+          <Icon className="size-5" />
+        </span>
+        <select
+          value={iconKey}
+          onChange={(e) => updateAttributes({ icon: e.target.value })}
+          className="rounded border border-border bg-surface px-1 text-xs text-text-muted"
+          aria-label="Ícone do card"
+        >
+          {Object.keys(CARD_ICONS).map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+      <input
+        contentEditable={false}
+        value={title}
+        onChange={(e) => updateAttributes({ title: e.target.value })}
+        placeholder="Título do card"
+        className="mb-1 w-full rounded border border-transparent bg-transparent text-sm font-semibold focus:border-border focus:px-1 focus:outline-none"
+      />
+      <div className="text-sm text-text-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+        <NodeViewContent />
+      </div>
+      <input
+        contentEditable={false}
+        value={href}
+        onChange={(e) => updateAttributes({ href: e.target.value })}
+        placeholder="Link (opcional)"
+        className="mt-2 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
+      />
+    </NodeViewWrapper>
+  );
+}
+export const Card = Node.create({
+  name: "card",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return { icon: { default: "book" }, title: { default: "" }, href: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="card"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "card" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(CardView);
+  },
+});
+
+/* ============================ TOGGLE (recolhível) ============================ */
+function ToggleView({ node, updateAttributes }: NodeViewProps) {
+  const title = (node.attrs.title ?? "") as string;
+  return (
+    <NodeViewWrapper className="my-3 rounded-lg border border-border">
+      <div
+        contentEditable={false}
+        className="flex items-center gap-2 rounded-t-lg border-b border-border bg-surface-2 px-3 py-1.5"
+      >
+        <ChevronDown className="size-4 shrink-0 text-text-muted" />
+        <input
+          value={title}
+          onChange={(e) => updateAttributes({ title: e.target.value })}
+          placeholder="Título (o leitor clica para expandir)"
+          className="flex-1 bg-transparent text-sm font-medium focus:outline-none"
+        />
+      </div>
+      <div className="p-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+        <NodeViewContent />
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const Toggle = Node.create({
+  name: "toggle",
+  group: "block",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return { title: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="toggle"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "toggle" }), 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleView);
+  },
+});
+
+/* ============================ HERO / BANNER ============================ */
+function HeroView({ node, updateAttributes }: NodeViewProps) {
+  const { eyebrow, title, subtitle, bg } = node.attrs as {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    bg: string;
+  };
+  const dark = bg === "dark";
+  return (
+    <NodeViewWrapper className="my-4">
+      <div className={`relative rounded-2xl p-6 ${HERO_BG[bg] ?? HERO_BG.purple}`}>
+        <div contentEditable={false} className="space-y-2">
+          <input
+            value={eyebrow}
+            onChange={(e) => updateAttributes({ eyebrow: e.target.value })}
+            placeholder="SOBRESCRITO (opcional)"
+            className={`w-full bg-transparent text-xs font-semibold uppercase tracking-wide focus:outline-none ${dark ? "text-white/70 placeholder:text-white/40" : "text-primary placeholder:text-text-muted"}`}
+          />
+          <input
+            value={title}
+            onChange={(e) => updateAttributes({ title: e.target.value })}
+            placeholder="Título do banner"
+            className={`w-full bg-transparent text-2xl font-bold tracking-tight focus:outline-none ${dark ? "text-white placeholder:text-white/50" : "placeholder:text-text-muted"}`}
+          />
+          <textarea
+            value={subtitle}
+            onChange={(e) => updateAttributes({ subtitle: e.target.value })}
+            placeholder="Subtítulo (opcional)"
+            rows={2}
+            className={`w-full resize-none bg-transparent text-sm focus:outline-none ${dark ? "text-white/80 placeholder:text-white/40" : "text-text-muted"}`}
+          />
+        </div>
+        <select
+          contentEditable={false}
+          value={bg}
+          onChange={(e) => updateAttributes({ bg: e.target.value })}
+          className="absolute right-3 top-3 rounded border border-border bg-surface px-1 text-xs text-text-muted"
+        >
+          <option value="purple">Roxo</option>
+          <option value="blue">Azul</option>
+          <option value="gray">Cinza</option>
+          <option value="dark">Escuro</option>
+        </select>
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const Hero = Node.create({
+  name: "hero",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      eyebrow: { default: "" },
+      title: { default: "" },
+      subtitle: { default: "" },
+      bg: { default: "purple" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="hero"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "hero" })];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(HeroView);
+  },
+});
+
+/* ============================ ESPAÇADOR ============================ */
+function SpacerView({ node, updateAttributes }: NodeViewProps) {
+  const size = (node.attrs.size ?? "md") as string;
+  const h = size === "sm" ? "h-4" : size === "lg" ? "h-16" : "h-8";
+  return (
+    <NodeViewWrapper className="my-1">
+      <div
+        contentEditable={false}
+        className={`flex items-center justify-center gap-2 rounded border border-dashed border-border text-[10px] text-text-muted ${h}`}
+      >
+        espaço
+        <select
+          value={size}
+          onChange={(e) => updateAttributes({ size: e.target.value })}
+          className="rounded border border-border bg-surface px-1"
+          aria-label="Tamanho do espaço"
+        >
+          <option value="sm">Pequeno</option>
+          <option value="md">Médio</option>
+          <option value="lg">Grande</option>
+        </select>
+      </div>
+    </NodeViewWrapper>
+  );
+}
+export const Spacer = Node.create({
+  name: "spacer",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return { size: { default: "md" } };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-type="spacer"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-type": "spacer" })];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(SpacerView);
+  },
+});
+
+/* ============================ KBD (tecla, inline) ============================ */
+export const Kbd = Mark.create({
+  name: "kbd",
+  parseHTML() {
+    return [{ tag: "kbd" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["kbd", mergeAttributes(HTMLAttributes), 0];
+  },
+  addKeyboardShortcuts() {
+    return { "Mod-Shift-k": () => this.editor.commands.toggleMark(this.name) };
   },
 });

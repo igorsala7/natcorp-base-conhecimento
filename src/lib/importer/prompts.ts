@@ -82,6 +82,9 @@ COMO MAPEAR O TEXTO EM BLOCOS
 RECURSOS DE DESTAQUE (use com parcimônia)
 - panel — para a informação-CHAVE de uma seção, um resumo ("em resumo", "o essencial") ou um pré-requisito. Cores: purple = destaque principal/marca; blue = informativo/dica; pink = atenção suave; gray = nota lateral/contexto.
 - columns — para conteúdos PARALELOS e comparáveis (Vantagens | Desvantagens, Antes | Depois, dois exemplos equivalentes).
+- hero — cabeçalho de destaque NO INÍCIO do artigo, quando o texto abre com um título forte + uma frase de resumo. Campos: title (obrigatório), subtitle (opcional) e eyebrow (rótulo curto acima, opcional). Use no máximo UM por artigo.
+- cardGrid — quando houver um CONJUNTO de itens paralelos, cada um com um nome/título + uma descrição curta (ex.: lista de recursos, módulos, seções ou links). Cada card = { title, text }. Ótimo para transformar uma lista "Nome: descrição" repetida em uma grade visual.
+- toggle — para conteúdo SECUNDÁRIO/opcional que pode ficar recolhido (detalhes avançados, FAQ, "leia mais", exceções). Campos: title + items (parágrafos). Não use para o conteúdo principal.
 
 PRINCÍPIOS DE LEITURA (o objetivo é ficar BONITO e FÁCIL de entender)
 - ESCANEABILIDADE: o leitor entende a página "batendo o olho". Quebre em seções com heading; parágrafos curtos (2–4 frases), uma ideia por parágrafo.
