@@ -5,6 +5,7 @@ import { Clock } from "lucide-react";
 import {
   getPublicSpace,
   getPortalTree,
+  getPortalAccess,
   resolveByPath,
   findRedirect,
   flattenPortalTree,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/portal/data";
 import { RenderDoc, extractToc } from "@/components/portal/render";
 import { PortalShell, Breadcrumbs } from "@/components/portal/shell";
+import { PasswordGate } from "@/components/portal/password-gate";
 import { Feedback } from "@/components/portal/feedback";
 
 type Params = { space: string; path: string[] };
@@ -63,14 +65,16 @@ export default async function DocsPage({
   params: Promise<Params>;
 }) {
   const { space: spaceSlug, path } = await params;
-  const space = await getPublicSpace(spaceSlug);
-  if (!space) notFound();
+  const access = await getPortalAccess(spaceSlug);
+  if (!access) notFound();
+  if (access.locked) return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  const { space, db } = access;
 
-  const tree = await getPortalTree(space.id);
+  const tree = await getPortalTree(space.id, db);
   const node = resolveByPath(tree, path);
 
   if (!node) {
-    const toNodeId = await findRedirect(space.id, path.join("/"));
+    const toNodeId = await findRedirect(space.id, path.join("/"), db);
     if (toNodeId) {
       const target = flattenPortalTree(tree).find((n) => n.id === toNodeId);
       if (target) {
@@ -106,9 +110,9 @@ export default async function DocsPage({
     );
   }
 
-  const article = await getPublicArticle(node.id);
+  const article = await getPublicArticle(node.id, db);
   const doc = (article?.content_json as Doc) ?? { type: "doc", content: [] };
-  const snippets = await getPublicSnippets(space.id);
+  const snippets = await getPublicSnippets(space.id, db);
   const toc = extractToc(doc);
   const minutes = Math.max(1, Math.round(wordCount(doc) / 200));
 

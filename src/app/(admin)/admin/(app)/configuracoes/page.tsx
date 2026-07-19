@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { env } from "@/lib/env";
@@ -27,6 +28,13 @@ export default async function ConfiguracoesPage({
 
   if (!current) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
 
+  const supabase = await createClient();
+  const { data: pw } = await supabase
+    .from("spaces")
+    .select("password_hash")
+    .eq("id", current.id)
+    .single();
+
   return (
     <SpaceSettingsForm
       spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
@@ -37,6 +45,7 @@ export default async function ConfiguracoesPage({
         visibility: current.visibility,
         custom_domain: current.custom_domain,
       }}
+      hasPassword={!!pw?.password_hash}
       siteUrl={env.NEXT_PUBLIC_SITE_URL}
     />
   );

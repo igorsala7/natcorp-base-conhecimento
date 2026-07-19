@@ -136,8 +136,11 @@ export async function getEffectiveTreeAdmin(spaceId: string): Promise<EffectiveN
 }
 
 /** Árvore efetiva para o portal público (só publicado, sem ocultos). */
-export async function getEffectiveTreePublic(spaceId: string): Promise<EffectiveNode[]> {
-  const supabase = createPublicClient();
+export async function getEffectiveTreePublic(
+  spaceId: string,
+  client?: Client,
+): Promise<EffectiveNode[]> {
+  const supabase = client ?? createPublicClient();
   const tree = await resolveTree(supabase, spaceId);
   const prune = (nodes: EffectiveNode[]): EffectiveNode[] =>
     nodes

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Image from "next/image";
 import { FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -180,14 +181,25 @@ export function ChatPanel({
                         className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 transition-colors hover:border-primary"
                       >
                         {c.image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={c.image}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            className="size-10 shrink-0 rounded object-cover"
-                          />
+                          /\.supabase\.co\//.test(c.image) ? (
+                            <Image
+                              src={c.image}
+                              alt=""
+                              width={40}
+                              height={40}
+                              className="size-10 shrink-0 rounded object-cover"
+                            />
+                          ) : (
+                            // Host externo (raro): não passa pelo next/image.
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={c.image}
+                              alt=""
+                              loading="lazy"
+                              decoding="async"
+                              className="size-10 shrink-0 rounded object-cover"
+                            />
+                          )
                         ) : (
                           <div className="flex size-10 shrink-0 items-center justify-center rounded bg-surface-2 text-text-muted">
                             <FileText className="size-4" />

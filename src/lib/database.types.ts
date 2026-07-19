@@ -928,6 +928,7 @@ export type Database = {
           id: string
           name: string
           parent_space_id: string | null
+          password_hash: string | null
           slug: string
           theme: Json
           type: string
@@ -939,6 +940,7 @@ export type Database = {
           id?: string
           name: string
           parent_space_id?: string | null
+          password_hash?: string | null
           slug: string
           theme?: Json
           type?: string
@@ -950,6 +952,7 @@ export type Database = {
           id?: string
           name?: string
           parent_space_id?: string | null
+          password_hash?: string | null
           slug?: string
           theme?: Json
           type?: string
@@ -1082,6 +1085,10 @@ export type Database = {
         Returns: undefined
       }
       restore_subtree: { Args: { p_node_id: string }; Returns: number }
+      set_space_password: {
+        Args: { p_plain: string; p_space_id: string }
+        Returns: undefined
+      }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
       submit_for_review: { Args: { p_node_id: string }; Returns: undefined }
       subtree_ids: {
@@ -1090,6 +1097,10 @@ export type Database = {
           id: string
           type: string
         }[]
+      }
+      verify_space_password: {
+        Args: { p_plain: string; p_space_id: string }
+        Returns: boolean
       }
     }
     Enums: {

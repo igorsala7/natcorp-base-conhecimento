@@ -1,6 +1,13 @@
 import "server-only";
+import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createPublicClient } from "@/lib/supabase/public";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { Database } from "@/lib/database.types";
 import { getEffectiveTreePublic } from "@/lib/content/overlays";
+import { spaceCookieName, verifySpaceToken } from "@/lib/portal/space-auth";
+
+type PortalDb = SupabaseClient<Database>;
 
 export type PublicSpace = {
   id: string;
@@ -8,6 +15,37 @@ export type PublicSpace = {
   name: string;
   theme: Record<string, unknown>;
 };
+
+export type PortalSpace = PublicSpace & {
+  visibility: "public" | "password";
+  type: string;
+  parent_space_id: string | null;
+};
+
+/**
+ * Resolve um espaço acessível pelo portal (público OU protegido por senha),
+ * via service-role — pois o anon não enxerga espaços 'password' na RLS.
+ * Retorna null para privados/inexistentes.
+ */
+export async function resolvePortalSpace(spaceSlug: string): Promise<PortalSpace | null> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("spaces")
+    .select("id, slug, name, theme, visibility, type, parent_space_id")
+    .eq("slug", spaceSlug)
+    .in("visibility", ["public", "password"])
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id,
+    slug: data.slug,
+    name: data.name,
+    theme: (data.theme as Record<string, unknown>) ?? {},
+    visibility: data.visibility as "public" | "password",
+    type: data.type,
+    parent_space_id: data.parent_space_id,
+  };
+}
 
 export type PublicNode = {
   id: string;
@@ -40,10 +78,31 @@ export async function getPublicSpace(
   return { ...data, theme: (data.theme as Record<string, unknown>) ?? {} };
 }
 
+export type PortalAccess =
+  | { space: PortalSpace; locked: true; db: null }
+  | { space: PortalSpace; locked: false; db: PortalDb };
+
+/**
+ * Resolve o acesso do portal a um espaço:
+ * - público → cliente anon (RLS);
+ * - com senha → se o cookie assinado for válido, cliente service-role; senão
+ *   `locked` (a página mostra o formulário de senha);
+ * - privado/inexistente → null (404).
+ */
+export async function getPortalAccess(spaceSlug: string): Promise<PortalAccess | null> {
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space) return null;
+  if (space.visibility === "password") {
+    const token = (await cookies()).get(spaceCookieName(space.id))?.value;
+    if (!verifySpaceToken(space.id, token)) return { space, locked: true, db: null };
+    return { space, locked: false, db: createAdminClient() };
+  }
+  return { space, locked: false, db: createPublicClient() };
+}
+
 /** Todos os nós publicados do espaço (flat), ordenados por posição. */
-async function fetchPublishedNodes(spaceId: string): Promise<PublicNode[]> {
-  const supabase = createPublicClient();
-  const { data } = await supabase
+async function fetchPublishedNodes(spaceId: string, db: PortalDb): Promise<PublicNode[]> {
+  const { data } = await db
     .from("nodes")
     .select("id, parent_id, type, title, slug, position, link_url, updated_at")
     .eq("space_id", spaceId)
@@ -57,9 +116,11 @@ async function fetchPublishedNodes(spaceId: string): Promise<PublicNode[]> {
  * Monta a árvore publicada com o caminho de slugs. Resolve overlays: para um
  * espaço-cliente, a árvore efetiva é global − ocultos ⊕ sobrescritos ∪ exclusivos.
  */
-export async function getPortalTree(spaceId: string): Promise<PortalTreeNode[]> {
-  const supabase = createPublicClient();
-  const { data: space } = await supabase
+export async function getPortalTree(
+  spaceId: string,
+  db: PortalDb = createPublicClient(),
+): Promise<PortalTreeNode[]> {
+  const { data: space } = await db
     .from("spaces")
     .select("type, parent_space_id")
     .eq("id", spaceId)
@@ -68,7 +129,7 @@ export async function getPortalTree(spaceId: string): Promise<PortalTreeNode[]> 
   let roots: PortalTreeNode[];
   if (space?.type === "client" && space.parent_space_id) {
     // Árvore efetiva já vem aninhada e podada (só publicado, sem ocultos).
-    const eff = await getEffectiveTreePublic(spaceId);
+    const eff = await getEffectiveTreePublic(spaceId, db);
     const toPortal = (list: typeof eff): PortalTreeNode[] =>
       list.map((n) => ({
         id: n.id,
@@ -84,7 +145,7 @@ export async function getPortalTree(spaceId: string): Promise<PortalTreeNode[]> 
       }));
     roots = toPortal(eff);
   } else {
-    const nodes = await fetchPublishedNodes(spaceId);
+    const nodes = await fetchPublishedNodes(spaceId, db);
     const byId = new Map<string, PortalTreeNode>();
     for (const n of nodes) byId.set(n.id, { ...n, slugPath: [], children: [] });
     roots = [];
@@ -130,9 +191,9 @@ export function resolveByPath(
 export async function findRedirect(
   spaceId: string,
   fromPath: string,
+  db: PortalDb = createPublicClient(),
 ): Promise<string | null> {
-  const supabase = createPublicClient();
-  const { data } = await supabase
+  const { data } = await db
     .from("redirects")
     .select("to_node_id")
     .eq("space_id", spaceId)
@@ -142,9 +203,8 @@ export async function findRedirect(
 }
 
 /** Conteúdo do artigo publicado de um nó. */
-export async function getPublicArticle(nodeId: string) {
-  const supabase = createPublicClient();
-  const { data } = await supabase
+export async function getPublicArticle(nodeId: string, db: PortalDb = createPublicClient()) {
+  const { data } = await db
     .from("articles")
     .select("content_json, excerpt, updated_at, cover_image, meta")
     .eq("node_id", nodeId)
@@ -155,9 +215,9 @@ export async function getPublicArticle(nodeId: string) {
 /** Mapa de snippets do espaço (chave → documento) para transclusão. */
 export async function getPublicSnippets(
   spaceId: string,
+  db: PortalDb = createPublicClient(),
 ): Promise<Map<string, { type: string; content?: unknown[] }>> {
-  const supabase = createPublicClient();
-  const { data } = await supabase
+  const { data } = await db
     .from("snippets")
     .select("key, content_json")
     .eq("space_id", spaceId);

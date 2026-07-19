@@ -20,10 +20,12 @@ const INP =
 export function SpaceSettingsForm({
   spaces,
   current,
+  hasPassword,
   siteUrl,
 }: {
   spaces: { id: string; name: string; slug: string }[];
   current: Current;
+  hasPassword: boolean;
   siteUrl: string;
 }) {
   const router = useRouter();
@@ -31,13 +33,21 @@ export function SpaceSettingsForm({
   const [name, setName] = useState(current.name);
   const [visibility, setVisibility] = useState(current.visibility);
   const [customDomain, setCustomDomain] = useState(current.custom_domain ?? "");
+  const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
   function save() {
+    if (visibility === "password" && !hasPassword && !password) {
+      setMsg("Defina uma senha para proteger este espaço.");
+      return;
+    }
     startTransition(async () => {
-      const r = await updateSpaceSettings({ spaceId: current.id, name, visibility, customDomain });
+      const r = await updateSpaceSettings({ spaceId: current.id, name, visibility, customDomain, password });
       setMsg(r.ok ? "Configurações salvas." : r.error);
-      if (r.ok) router.refresh();
+      if (r.ok) {
+        setPassword("");
+        router.refresh();
+      }
     });
   }
 
@@ -97,9 +107,24 @@ export function SpaceSettingsForm({
             })}
           </div>
           {visibility === "password" && (
-            <p className="mt-1.5 text-xs text-text-muted">
-              A proteção por senha do portal será aplicada; defina a senha na gestão de acessos do espaço.
-            </p>
+            <div className="mt-3 rounded-lg border border-border bg-bg p-3">
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium text-text-muted">
+                  {hasPassword ? "Nova senha (deixe em branco para manter)" : "Definir senha"}
+                </span>
+                <input
+                  type="password"
+                  className={INP}
+                  placeholder={hasPassword ? "••••••••" : "mínimo 4 caracteres"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+              <p className="mt-1.5 text-xs text-text-muted">
+                O portal pedirá esta senha antes de mostrar a documentação deste espaço.
+                {hasPassword && " Uma senha já está definida."}
+              </p>
+            </div>
           )}
         </div>
 

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getPublicSpace, getPortalTree } from "@/lib/portal/data";
+import { getPublicSpace, getPortalTree, getPortalAccess } from "@/lib/portal/data";
 import { PortalShell } from "@/components/portal/shell";
+import { PasswordGate } from "@/components/portal/password-gate";
 
 export async function generateMetadata({
   params,
@@ -29,9 +30,11 @@ export default async function SpaceHome({
   params: Promise<{ space: string }>;
 }) {
   const { space: spaceSlug } = await params;
-  const space = await getPublicSpace(spaceSlug);
-  if (!space) notFound();
-  const tree = await getPortalTree(space.id);
+  const access = await getPortalAccess(spaceSlug);
+  if (!access) notFound();
+  if (access.locked) return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  const { space, db } = access;
+  const tree = await getPortalTree(space.id, db);
 
   return (
     <PortalShell space={space} tree={tree} activePath="">

@@ -18,13 +18,15 @@ const schema = z.object({
     .regex(/^[a-z0-9.-]*$/i, "Domínio inválido.")
     .optional()
     .or(z.literal("")),
+  // Opcional: define/atualiza a senha (só quando visibility='password').
+  password: z.string().min(4).max(200).optional().or(z.literal("")),
 });
 
 /** Atualiza nome, visibilidade e domínio do espaço. Exige space.manage. */
 export async function updateSpaceSettings(input: unknown): Promise<SettingsResult> {
   const parsed = schema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-  const { spaceId, name, visibility, customDomain } = parsed.data;
+  const { spaceId, name, visibility, customDomain, password } = parsed.data;
 
   try {
     await requirePermission("space.manage", spaceId);
@@ -33,6 +35,15 @@ export async function updateSpaceSettings(input: unknown): Promise<SettingsResul
   }
 
   const supabase = await createClient();
+
+  // Define a senha quando o espaço é protegido e uma nova senha foi informada.
+  if (visibility === "password" && password) {
+    const { error: pwErr } = await supabase.rpc("set_space_password", {
+      p_space_id: spaceId,
+      p_plain: password,
+    });
+    if (pwErr) return { ok: false, error: `Falha ao definir a senha: ${pwErr.message}` };
+  }
   const { data: before } = await supabase
     .from("spaces")
     .select("name, visibility, custom_domain")
