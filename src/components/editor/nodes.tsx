@@ -268,7 +268,7 @@ function FigureImageView({ node, updateAttributes }: NodeViewProps) {
       <figure className="text-center">
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt={alt ?? ""} className="mx-auto max-h-[480px] rounded-lg" />
+          <img src={src} alt={alt ?? ""} loading="lazy" decoding="async" className="mx-auto max-h-[480px] rounded-lg" />
         ) : (
           <div className="rounded-lg border border-dashed border-border p-8 text-sm text-text-muted">
             Imagem sem origem

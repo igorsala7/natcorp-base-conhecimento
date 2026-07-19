@@ -86,7 +86,7 @@ function RenderNode({ node, images, depth }: { node: ProposedNode; images: strin
           </p>
         ) : images[c.image] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={images[c.image]} alt="" className="my-2 max-h-48 rounded" />
+          <img key={i} src={images[c.image]} alt="" loading="lazy" decoding="async" className="my-2 max-h-48 rounded" />
         ) : null,
       )}
       {node.children.map((child, i) => (

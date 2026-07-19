@@ -35,7 +35,7 @@ const NAV = [
     href: "/admin/configuracoes",
     label: "Configurações",
     icon: Settings,
-    ready: false,
+    ready: true,
   },
 ] as const;
 

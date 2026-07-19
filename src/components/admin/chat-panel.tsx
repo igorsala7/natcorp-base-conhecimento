@@ -184,6 +184,8 @@ export function ChatPanel({
                           <img
                             src={c.image}
                             alt=""
+                            loading="lazy"
+                            decoding="async"
                             className="size-10 shrink-0 rounded object-cover"
                           />
                         ) : (

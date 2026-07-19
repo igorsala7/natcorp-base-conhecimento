@@ -211,7 +211,13 @@ function renderNode(node: TipTapNode, key: number, ctx: Ctx): ReactNode {
       return (
         <figure key={key} className="my-6 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt={String(node.attrs?.alt ?? "")} className="mx-auto rounded-lg" />
+          <img
+            src={src}
+            alt={String(node.attrs?.alt ?? "")}
+            loading="lazy"
+            decoding="async"
+            className="mx-auto rounded-lg"
+          />
           {node.attrs?.caption ? (
             <figcaption className="mt-2 text-sm text-text-muted">
               {String(node.attrs.caption)}

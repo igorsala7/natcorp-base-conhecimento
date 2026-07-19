@@ -75,6 +75,9 @@
       ".cbody{min-width:0;display:flex;flex-direction:column}" +
       ".ctitle{font-size:12px;font-weight:600;color:var(--pc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".cpath{font-size:11px;color:#8a7ea3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".fbk{align-self:flex-start;display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7ea3;margin-top:-2px}" +
+      ".fbk-btn{background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px;border-radius:6px;opacity:.7}" +
+      ".fbk-btn:hover{opacity:1;background:#f3edfa}.fbk-btn.on{opacity:1}" +
       ".sugg{display:flex;flex-wrap:wrap;gap:6px}" +
       ".sugg button{font-size:13px;color:var(--pc);border:1px solid #e2d8ee;background:#fff;border-radius:999px;padding:6px 10px;cursor:pointer}" +
       ".sugg button:hover{background:#f3edfa}" +
@@ -425,6 +428,7 @@
       if (full) {
         history.push({ role: "assistant", content: full });
         if (citations.length) renderCitations(citations);
+        renderFeedback();
       }
       done();
     }
@@ -432,6 +436,36 @@
       busy = false;
       sendBtn.disabled = false;
     }
+  }
+
+  function renderFeedback() {
+    if (!conversationId) return;
+    var row = document.createElement("div");
+    row.className = "fbk";
+    var label = document.createElement("span");
+    label.textContent = "Foi útil?";
+    row.appendChild(label);
+    var sent = false;
+    ["up", "down"].forEach(function (dir) {
+      var b = document.createElement("button");
+      b.className = "fbk-btn";
+      b.setAttribute("aria-label", dir === "up" ? "Útil" : "Não útil");
+      b.textContent = dir === "up" ? "👍" : "👎";
+      b.addEventListener("click", function () {
+        if (sent) return;
+        sent = true;
+        b.classList.add("on");
+        fetch(API + "/api/v1/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+          body: JSON.stringify({ conversationId: conversationId, value: dir === "up" ? 1 : -1 }),
+        }).catch(function () {});
+        label.textContent = "Obrigado!";
+      });
+      row.appendChild(b);
+    });
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   function renderCitations(cites) {
