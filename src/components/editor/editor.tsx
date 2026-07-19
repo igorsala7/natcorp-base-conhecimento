@@ -17,7 +17,20 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { common, createLowlight } from "lowlight";
-import { Check, Copy, ExternalLink, History, Maximize2, Minimize2 } from "lucide-react";
+import GlobalDragHandle from "tiptap-extension-global-drag-handle";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  History,
+  Maximize2,
+  Minimize2,
+  MoreHorizontal,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
+import { createSlashCommand } from "./slash-command";
+import { EditorBubbleMenu } from "./bubble-menu";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,11 +70,21 @@ import {
 
 const lowlight = createLowlight(common);
 
+function countWords(text: string): number {
+  const t = text.trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+
 /** Extensões compartilhadas entre o editor principal e o preview de diff. */
 const EDITOR_EXTENSIONS = [
   StarterKit.configure({ codeBlock: false }),
   Link.configure({ openOnClick: false }),
-  Placeholder.configure({ placeholder: "Escreva o conteúdo…" }),
+  Placeholder.configure({
+    placeholder: ({ node }) =>
+      node.type.name === "paragraph"
+        ? "Escreva, ou tecle “/” para inserir blocos…"
+        : "",
+  }),
   CodeBlockLowlight.configure({ lowlight }),
   TextStyle,
   Color,
@@ -128,20 +151,81 @@ export function ArticleEditor({
   const [reindexing, setReindexing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [words, setWords] = useState(0);
+  const moreRef = useRef<HTMLDivElement>(null);
   const proposedRef = useRef<object | null>(null);
+  const slashImageRef = useRef<() => void>(() => {});
+
+  // Faz upload de um arquivo de imagem e o insere no cursor.
+  const uploadAndInsert = useCallback(
+    async (file: File, ed: NonNullable<typeof editor>) => {
+      const url = await uploadImage(file);
+      if (url) ed.chain().focus().insertContent({ type: "figureImage", attrs: { src: url, alt: file.name, caption: "" } }).run();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
-    extensions: EDITOR_EXTENSIONS,
+    extensions: [
+      ...EDITOR_EXTENSIONS,
+      createSlashCommand(() => slashImageRef.current()),
+      GlobalDragHandle.configure({ dragHandleWidth: 24, scrollTreshold: 100 }),
+    ],
     content: initialContent,
     editorProps: {
       attributes: {
         class:
-          "prose prose-neutral dark:prose-invert max-w-prose focus:outline-none min-h-[50vh]",
+          "prose prose-neutral dark:prose-invert prose-portal max-w-none pl-7 focus:outline-none min-h-[60vh]",
+      },
+      handlePaste(view, event) {
+        const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
+          f.type.startsWith("image/"),
+        );
+        if (files.length && editorInstance.current) {
+          event.preventDefault();
+          files.forEach((f) => uploadAndInsert(f, editorInstance.current!));
+          return true;
+        }
+        return false;
+      },
+      handleDrop(view, event) {
+        const files = Array.from((event as DragEvent).dataTransfer?.files ?? []).filter((f) =>
+          f.type.startsWith("image/"),
+        );
+        if (files.length && editorInstance.current) {
+          event.preventDefault();
+          files.forEach((f) => uploadAndInsert(f, editorInstance.current!));
+          return true;
+        }
+        return false;
       },
     },
-    onUpdate: ({ editor }) => scheduleSave(editor.getJSON()),
+    onUpdate: ({ editor }) => {
+      scheduleSave(editor.getJSON());
+      setWords(countWords(editor.getText()));
+    },
   });
+  const editorInstance = useRef(editor);
+  editorInstance.current = editor;
+
+  // Abre o seletor de imagem (usado pelo slash command "/Imagem").
+  useEffect(() => {
+    slashImageRef.current = () => {
+      const ed = editorInstance.current;
+      if (!ed) return;
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (file) void uploadAndInsert(file, ed);
+      };
+      input.click();
+    };
+  }, [uploadAndInsert]);
 
   const scheduleSave = useCallback(
     (json: object) => {
@@ -172,6 +256,15 @@ export function ArticleEditor({
       if (timer.current) clearTimeout(timer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showMore) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!moreRef.current?.contains(e.target as Node)) setShowMore(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [showMore]);
 
   async function onImprove() {
     setImproving(true);
@@ -317,23 +410,30 @@ export function ArticleEditor({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            title={fullscreen ? "Sair da tela cheia" : "Expandir (tela cheia)"}
-            onClick={() => setFullscreen((f) => !f)}
-          >
-            {fullscreen ? <Minimize2 /> : <Maximize2 />}
+          <Button variant="secondary" size="sm" onClick={onImprove} disabled={improving} title="Reformatar o texto em blocos ricos (IA)">
+            <Wand2 /> <span className="hidden sm:inline">{improving ? "Melhorando…" : "Melhorar layout"}</span>
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setShowHistory(true)} title="Histórico de versões, comparar e restaurar">
-            <History /> Histórico
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onReindex} disabled={reindexing} title="Gerar embeddings para a busca semântica sem despublicar">
-            {reindexing ? "Gerando…" : "Gerar embeddings"}
-          </Button>
-          <Button variant="secondary" onClick={onImprove} disabled={improving}>
-            {improving ? "Melhorando…" : "Melhorar layout (IA)"}
-          </Button>
+
+          <div ref={moreRef} className="relative">
+            <Button variant="ghost" size="icon" title="Mais ações" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)}>
+              <MoreHorizontal />
+            </Button>
+            {showMore && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-xl border border-border bg-bg p-1.5 shadow-2xl">
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowHistory(true); setShowMore(false); }}>
+                  <History className="size-4 text-text-muted" /> Histórico de versões
+                </button>
+                <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
+                  <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
+                </button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setFullscreen((f) => !f); setShowMore(false); }}>
+                  {fullscreen ? <Minimize2 className="size-4 text-text-muted" /> : <Maximize2 className="size-4 text-text-muted" />}
+                  {fullscreen ? "Sair da tela cheia" : "Tela cheia"}
+                </button>
+              </div>
+            )}
+          </div>
+
           {status === "review" && (
             <span className="rounded-full bg-brand-pink-50 px-2.5 py-1 text-xs font-medium text-brand-pink-700 dark:bg-brand-pink-950/40">
               Em revisão
@@ -380,7 +480,14 @@ export function ArticleEditor({
       </details>
 
       <div className="mt-4 flex-1 overflow-auto">
-        <EditorContent editor={editor} />
+        <div className="mx-auto max-w-3xl">
+          <EditorContent editor={editor} />
+        </div>
+        <EditorBubbleMenu editor={editor} />
+      </div>
+
+      <div className="mt-2 flex items-center justify-end border-t border-border pt-2 text-xs text-text-muted">
+        <span className="tabular-nums">{words} palavra{words === 1 ? "" : "s"}</span>
       </div>
 
       {showHistory && (
