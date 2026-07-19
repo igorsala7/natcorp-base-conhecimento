@@ -32,23 +32,24 @@ const leafOptions = [
   }),
 ] as const;
 
-const leafBlockSchema = z.discriminatedUnion("kind", leafOptions);
-type LeafBlock = z.infer<typeof leafBlockSchema>;
+type LeafBlock = z.infer<(typeof leafOptions)[number]>;
 
 const blocksSchema = z.object({
   blocks: z.array(
     z.discriminatedUnion("kind", [
       ...leafOptions,
-      // Painel = caixa colorida de destaque; pode conter vários blocos folha.
+      // Painel = caixa colorida de destaque com parágrafos.
+      // (Contém texto simples — não aninhamos a união de blocos folha aqui,
+      //  senão a gramática de saída estruturada da IA fica grande demais.)
       z.object({
         kind: z.literal("panel"),
         bg: z.enum(["purple", "pink", "blue", "gray"]),
-        items: z.array(leafBlockSchema),
+        items: z.array(z.string()),
       }),
-      // Colunas = layout lado a lado (2 colunas), cada uma com blocos folha.
+      // Colunas = 2 colunas lado a lado, cada uma com parágrafos (texto simples).
       z.object({
         kind: z.literal("columns"),
-        columns: z.array(z.array(leafBlockSchema)),
+        columns: z.array(z.array(z.string())),
       }),
     ]),
   ),
@@ -116,6 +117,11 @@ function nonEmpty(nodes: object[]): object[] {
   return nodes.length ? nodes : [{ type: "paragraph" }];
 }
 
+/** Texto simples → parágrafo TipTap. */
+function paragraph(text: string): object {
+  return { type: "paragraph", content: textNode(text) };
+}
+
 function blocksToTipTap(blocks: Block[]) {
   const content = blocks.map((b): object => {
     switch (b.kind) {
@@ -123,14 +129,14 @@ function blocksToTipTap(blocks: Block[]) {
         return {
           type: "panel",
           attrs: { bg: b.bg },
-          content: nonEmpty(b.items.map(leafToTipTap)),
+          content: nonEmpty(b.items.map(paragraph)),
         };
       case "columns":
         return {
           type: "columns",
           content: (b.columns.length ? b.columns : [[], []]).map((col) => ({
             type: "column",
-            content: nonEmpty(col.map(leafToTipTap)),
+            content: nonEmpty(col.map(paragraph)),
           })),
         };
       default:

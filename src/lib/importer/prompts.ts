@@ -67,8 +67,8 @@ BLOCOS DISPONÍVEIS (use SOMENTE estes)
 - bullets — lista com marcadores.
 - code { language? } — código, comando de terminal ou configuração (detecte a linguagem).
 - table — dados tabulados; a PRIMEIRA linha é o cabeçalho; cada linha é um array de células.
-- panel { purple | blue | pink | gray } — caixa colorida de destaque; pode conter vários blocos folha.
-- columns — duas colunas lado a lado; cada coluna recebe seus próprios blocos folha.
+- panel { purple | blue | pink | gray } — caixa colorida de destaque (um ou mais parágrafos).
+- columns — duas colunas lado a lado; cada coluna com um ou mais parágrafos.
 
 COMO MAPEAR O TEXTO EM BLOCOS
 - Subtítulos internos → heading (2 para subseção; 3 para sub-subseção). Divida "paredões" de texto em seções escaneáveis.
