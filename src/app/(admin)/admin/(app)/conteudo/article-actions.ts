@@ -106,17 +106,18 @@ export async function saveArticle(
       updated_at: new Date().toISOString(),
     })
     .eq("node_id", nodeId)
-    .select("id")
+    .select("id, content_json")
     .single();
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
 
-  // Reindexa os chunks para a busca (idempotente).
+  // Reindexa os chunks para a busca (idempotente). Usa o JSON RECÉM-PERSISTIDO
+  // (jsonb do banco = dados puros), nunca o argumento cru da action.
   if (updated) {
     await reindexNodeChunks(supabase, {
       nodeId,
       articleId: updated.id,
       spaceId,
-      doc: contentJson as { type: string; content?: never[] },
+      doc: updated.content_json as { type: string; content?: never[] },
     });
   }
 
