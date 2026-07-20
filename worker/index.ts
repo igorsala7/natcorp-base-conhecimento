@@ -87,7 +87,7 @@ async function processJob(jobId: string) {
   // heurística era usada). Se a IA falhar/indisponível, cai na heurística.
   let tree = heuristic;
   let usedAi = false;
-  if (hasAiKey()) {
+  if (await hasAiKey()) {
     const refined = await refineStructureWithLLM(heuristic);
     if (refined && refined.length > 0) {
       tree = refined;

@@ -14,6 +14,97 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_assignments: {
+        Row: {
+          model: string
+          params: Json
+          provider_id: string
+          purpose: string
+          updated_at: string
+        }
+        Insert: {
+          model: string
+          params?: Json
+          provider_id: string
+          purpose: string
+          updated_at?: string
+        }
+        Update: {
+          model?: string
+          params?: Json
+          provider_id?: string
+          purpose?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assignments_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "ai_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_provider_keys: {
+        Row: {
+          api_key_enc: string
+          provider_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          api_key_enc: string
+          provider_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          api_key_enc?: string
+          provider_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_provider_keys_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: true
+            referencedRelation: "ai_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_providers: {
+        Row: {
+          active: boolean
+          base_url: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          base_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          base_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          name?: string
+        }
+        Relationships: []
+      }
       article_feedback: {
         Row: {
           comment: string | null
@@ -360,6 +451,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      email_secrets: {
+        Row: {
+          brevo_api_key_enc: string | null
+          id: boolean
+          smtp_pass_enc: string | null
+          updated_at: string
+        }
+        Insert: {
+          brevo_api_key_enc?: string | null
+          id?: boolean
+          smtp_pass_enc?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brevo_api_key_enc?: string | null
+          id?: boolean
+          smtp_pass_enc?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      email_settings: {
+        Row: {
+          from_email: string | null
+          from_name: string
+          id: boolean
+          smtp_host: string | null
+          smtp_port: number | null
+          smtp_secure: boolean
+          smtp_user: string | null
+          transport: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          from_email?: string | null
+          from_name?: string
+          id?: boolean
+          smtp_host?: string | null
+          smtp_port?: number | null
+          smtp_secure?: boolean
+          smtp_user?: string | null
+          transport?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          from_email?: string | null
+          from_name?: string
+          id?: boolean
+          smtp_host?: string | null
+          smtp_port?: number | null
+          smtp_secure?: boolean
+          smtp_user?: string | null
+          transport?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       import_jobs: {
         Row: {
@@ -1217,6 +1368,22 @@ export type Database = {
           snippet: string
           title: string
         }[]
+      }
+      ai_provider_has_key: {
+        Args: { p_provider_id: string }
+        Returns: boolean
+      }
+      set_ai_provider_key: {
+        Args: { p_key_enc: string; p_provider_id: string }
+        Returns: undefined
+      }
+      email_has_secret: {
+        Args: { p_campo: string }
+        Returns: boolean
+      }
+      set_email_secret: {
+        Args: { p_campo: string; p_valor_enc: string }
+        Returns: undefined
       }
       max_role_level: {
         Args: { p_space_id?: string; p_user_id: string }

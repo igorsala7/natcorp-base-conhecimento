@@ -23,10 +23,10 @@ export default async function AssistentePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Assistente</h1>
         <p className="text-sm text-text-muted">
           Responde com base na documentação do espaço selecionado, com citações.
-          {!hasAiKey() && " (Configure AI_API_KEY para ativar.)"}
+          {!await hasAiKey() && " (Configure AI_API_KEY para ativar.)"}
         </p>
       </div>
-      <ChatPanel spaces={spaces} aiReady={hasAiKey()} />
+      <ChatPanel spaces={spaces} aiReady={await hasAiKey()} />
     </div>
   );
 }

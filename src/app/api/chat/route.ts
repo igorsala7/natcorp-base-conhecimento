@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     conversationId?: string;
   };
 
-  if (!hasAiKey()) {
+  if (!await hasAiKey()) {
     return Response.json({ error: "AI_API_KEY não configurada." }, { status: 400 });
   }
   if (!(await hasPermission("content.view", spaceId))) {
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: chatModel(),
+    model: await chatModel(),
     system: withContext(systemPrompt, buildContextBlock(sources)),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     onFinish: async ({ text, usage }) => {

@@ -122,13 +122,13 @@ type RefNode = { index: number; title?: string; children?: RefNode[] };
 export async function refineStructureWithLLM(
   nodes: ProposedNode[],
 ): Promise<ProposedNode[] | null> {
-  if (!hasAiKey()) return null;
+  if (!await hasAiKey()) return null;
   const flat = flattenNodes(nodes);
   if (flat.length === 0) return null;
 
   try {
     const { object } = await generateObject({
-      model: chatModel(),
+      model: await chatModel(),
       prompt:
         STRUCTURE_INSTRUCTIONS +
         "\n\nSEÇÕES (índice, título e trecho):\n" +

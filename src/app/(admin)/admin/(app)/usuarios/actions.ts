@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission, PermissionError } from "@/lib/auth/permissions";
 import { currentMaxLevel } from "@/lib/auth/roles";
+import { sendEmail } from "@/lib/email/send";
 import { audit } from "@/lib/auth/audit";
 import { env } from "@/lib/env";
 
@@ -100,9 +101,27 @@ export async function inviteUser(
     after: { email, role: roleKey },
   });
 
+  // Envia o convite por e-mail quando houver transporte configurado. O link
+  // continua na resposta: se o envio falhar, o convite NÃO é perdido — quem
+  // convidou copia e manda por fora, como sempre foi.
+  const link = linkData.properties?.action_link ?? "";
+  let envio = "";
+  if (link) {
+    const r = await sendEmail({
+      to: email,
+      subject: "Você foi convidado para a Base de Conhecimento",
+      html:
+        `<p>Você foi convidado para acessar a Base de Conhecimento.</p>` +
+        `<p><a href="${link}">Clique aqui para definir sua senha e entrar</a>.</p>` +
+        `<p style="color:#666;font-size:12px">Se o botão não funcionar, copie este endereço: ${link}</p>`,
+      text: `Você foi convidado para a Base de Conhecimento. Acesse: ${link}`,
+    });
+    envio = r.ok ? " E-mail enviado." : ` (E-mail não enviado: ${r.reason})`;
+  }
+
   revalidatePath("/admin/usuarios");
   return {
-    ok: `Convite criado para ${email}. Link (envie manualmente): ${linkData.properties?.action_link ?? "gerado"}`,
+    ok: `Convite criado para ${email}.${envio} Link: ${link || "gerado"}`,
   };
 }
 

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   if (!originAllowed(key.allowed_origins, origin)) {
     return json({ error: "Origem não autorizada." }, 403);
   }
-  if (!hasAiKey()) return json({ error: "IA não configurada no servidor." }, 503);
+  if (!await hasAiKey()) return json({ error: "IA não configurada no servidor." }, 503);
   if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit))) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: chatModel(),
+    model: await chatModel(),
     system: withContext(systemPrompt, buildContextBlock(sources)),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
   });

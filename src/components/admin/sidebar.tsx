@@ -16,6 +16,7 @@ import {
   PanelLeftOpen,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   Trash2,
   Upload,
   Users,
@@ -56,6 +57,7 @@ const GRUPOS = [
     items: [
       { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
       { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
+      { href: "/admin/sistema", label: "Sistema", icon: SlidersHorizontal, ready: true },
       { href: "/admin/configuracoes", label: "Configurações", icon: Settings, ready: true },
     ],
   },

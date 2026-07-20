@@ -291,14 +291,14 @@ export async function improveLayout(
   plainText: string,
   images: ImageRef[] = [],
 ): Promise<ImproveResult> {
-  if (!hasAiKey()) {
+  if (!await hasAiKey()) {
     return { ok: false, error: "AI_API_KEY não configurada — preencha no .env.local." };
   }
   if (!plainText.trim()) return { ok: false, error: "Sem conteúdo para melhorar." };
 
   try {
     const { object } = await generateObject({
-      model: chatModel(),
+      model: await chatModel(),
       schema: blocksSchema,
       prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
     });

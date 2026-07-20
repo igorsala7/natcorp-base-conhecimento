@@ -1,6 +1,6 @@
 import "server-only";
 import { embedMany } from "ai";
-import { embeddingModel, hasEmbeddingKey } from "@/lib/ai/config";
+import { embeddingModel, embeddingCallOptions, hasEmbeddingKey } from "@/lib/ai/config";
 import type { createClient } from "@/lib/supabase/server";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText, richToText } from "@/lib/blocks/serialize";
@@ -66,11 +66,14 @@ export async function reindexNodeChunks(
   if (chunks.length === 0) return;
 
   let embeddings: number[][] | null = null;
-  if (withEmbeddings && hasEmbeddingKey()) {
+  if (withEmbeddings && await hasEmbeddingKey()) {
     try {
       const { embeddings: e } = await embedMany({
-        model: embeddingModel(),
+        model: await embeddingModel(),
         values: chunks.map((c) => c.content),
+        // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
+        // `chunks.embedding` é vector(1536) e recusa outro tamanho.
+        providerOptions: await embeddingCallOptions(),
       });
       embeddings = e;
     } catch {
@@ -159,11 +162,14 @@ export async function reindexDocumentChunks(
   if (chunks.length === 0) return 0;
 
   let embeddings: number[][] | null = null;
-  if (withEmbeddings && hasEmbeddingKey()) {
+  if (withEmbeddings && await hasEmbeddingKey()) {
     try {
       const { embeddings: e } = await embedMany({
-        model: embeddingModel(),
+        model: await embeddingModel(),
         values: chunks.map((c) => c.content),
+        // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
+        // `chunks.embedding` é vector(1536) e recusa outro tamanho.
+        providerOptions: await embeddingCallOptions(),
       });
       embeddings = e;
     } catch {

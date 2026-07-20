@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!payload.spaceSlug) return json({ error: "Espaço ausente." }, 400);
   const access = await getPortalAccess(payload.spaceSlug);
   if (!access || access.locked) return json({ error: "Espaço indisponível." }, 403);
-  if (!hasAiKey()) return json({ error: "IA não configurada." }, 503);
+  if (!await hasAiKey()) return json({ error: "IA não configurada." }, 503);
 
   const supabase = createAdminClient();
 
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: chatModel(),
+    model: await chatModel(),
     system: withContext(systemPrompt, buildContextBlock(sources)),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
   });

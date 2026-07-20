@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
-import { embeddingModel, hasEmbeddingKey } from "@/lib/ai/config";
+import { embeddingModel, embeddingCallOptions, hasEmbeddingKey } from "@/lib/ai/config";
 import {
   getEffectiveTreeAdmin,
   getEffectiveTreePublic,
@@ -98,9 +98,15 @@ async function retrieveWith(
   if (nodeIds.length === 0 && documentIds.length === 0) return [];
 
   let embedding: number[] | null = null;
-  if (hasEmbeddingKey()) {
+  if (await hasEmbeddingKey()) {
     try {
-      const { embedding: e } = await embed({ model: embeddingModel(), value: query });
+      const { embedding: e } = await embed({
+        model: await embeddingModel(),
+        value: query,
+        // Dimensão vai na CHAMADA neste SDK, não no modelo. Sem isto, um
+        // modelo de 3072 devolveria vetor que a coluna vector(1536) recusa.
+        providerOptions: await embeddingCallOptions(),
+      });
       embedding = e;
     } catch {
       embedding = null;
