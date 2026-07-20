@@ -3,12 +3,25 @@ import { z } from "zod";
 import { generateObject } from "ai";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
 import { LAYOUT_INSTRUCTIONS } from "./prompts";
+import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
+import { blocksToText } from "@/lib/blocks/serialize";
+import { iconByKey } from "@/lib/blocks/icons";
 
 /**
  * "Melhorar layout" (Fase 4, etapa 4). Um passe de LLM que REFORMATA texto cru
  * em blocos ricos (callout, passo-a-passo, code, listas) — NÃO reescreve,
  * resume ou inventa. O usuário sempre revê o diff antes de aplicar.
  */
+// ATENÇÃO: a saída estruturada da Anthropic tem LIMITE DE GRAMÁTICA. Manter o
+// schema PLANO — nunca aninhar `discriminatedUnion` dentro de arrays de
+// contêiner (painel/colunas usam texto simples). Campos escalares opcionais
+// (icon/ratios/divider) são baratos; blocos novos, nem tanto. Ao mexer aqui,
+// testar contra a API real antes de commitar.
+//
+// `icon` é string livre (uma enum com ~75 ícones estouraria a gramática): a
+// chave é validada contra o catálogo no conversor e descartada se não existir.
+const iconField = z.string().optional();
+
 // Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
 const leafOptions = [
   z.object({ kind: z.literal("paragraph"), text: z.string() }),
@@ -17,6 +30,7 @@ const leafOptions = [
     kind: z.literal("callout"),
     variant: z.enum(["info", "warning", "success", "danger"]),
     text: z.string(),
+    icon: iconField,
   }),
   z.object({ kind: z.literal("steps"), items: z.array(z.string()) }),
   z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
@@ -30,6 +44,8 @@ const leafOptions = [
     // primeira linha = cabeçalho; cada linha é um array de células (texto).
     rows: z.array(z.array(z.string())),
   }),
+  // Divisória: separa blocos de assunto dentro do artigo.
+  z.object({ kind: z.literal("divider") }),
 ] as const;
 
 type LeafBlock = z.infer<(typeof leafOptions)[number]>;
@@ -39,17 +55,20 @@ const blocksSchema = z.object({
     z.discriminatedUnion("kind", [
       ...leafOptions,
       // Painel = caixa colorida de destaque com parágrafos.
-      // (Contém texto simples — não aninhamos a união de blocos folha aqui,
-      //  senão a gramática de saída estruturada da IA fica grande demais.)
       z.object({
         kind: z.literal("panel"),
         bg: z.enum(["purple", "pink", "blue", "gray"]),
         items: z.array(z.string()),
+        icon: iconField,
       }),
-      // Colunas = 2 colunas lado a lado, cada uma com parágrafos (texto simples).
+      // Região dividida em colunas (cada coluna = parágrafos de texto simples).
+      // `ratios` dá a proporção (ex.: [1,2] = estreita à esquerda + larga à
+      // direita, ideal para imagem + texto); `divider` desenha a linha entre elas.
       z.object({
         kind: z.literal("columns"),
         columns: z.array(z.array(z.string())),
+        ratios: z.array(z.number()).optional(),
+        divider: z.boolean().optional(),
       }),
       // Banner/Hero = cabeçalho de destaque (título + subtítulo).
       z.object({
@@ -57,211 +76,214 @@ const blocksSchema = z.object({
         eyebrow: z.string().optional(),
         title: z.string(),
         subtitle: z.string().optional(),
+        icon: iconField,
       }),
       // Grade de cards = itens paralelos com título + descrição curta.
       z.object({
         kind: z.literal("cardGrid"),
-        cards: z.array(z.object({ title: z.string(), text: z.string() })),
+        cards: z.array(z.object({ title: z.string(), text: z.string(), icon: iconField })),
       }),
       // Toggle = bloco recolhível para conteúdo secundário/opcional.
       z.object({
         kind: z.literal("toggle"),
         title: z.string(),
         items: z.array(z.string()),
+        icon: iconField,
       }),
     ]),
   ),
 });
 
-type Block = z.infer<typeof blocksSchema>["blocks"][number];
+type LayoutBlock = z.infer<typeof blocksSchema>["blocks"][number];
 
-/** Nós de texto de uma célula/parágrafo (vazio → sem filhos, TipTap não aceita texto vazio). */
-function textNode(t: string) {
-  return t ? [{ type: "text", text: t }] : [];
+// A saída é convertida para o formato de BLOCOS v2 (não mais TipTap).
+function rt(t: string): RichText {
+  return t ? [{ text: t }] : [];
+}
+function para(t: string): Block {
+  return { id: newId(), type: "paragraph", text: rt(t) };
+}
+function nonEmptyChildren(nodes: Block[]): Block[] {
+  return nodes.length ? nodes : [para("")];
 }
 
-function leafToTipTap(b: LeafBlock): object {
+/** Só aceita ícone que exista no catálogo (a IA manda string livre). */
+function iconStyles(icon: string | undefined): { styles: { icon: string } } | undefined {
+  return icon && iconByKey(icon) ? { styles: { icon } } : undefined;
+}
+
+function leafToBlock(b: LeafBlock): Block {
   switch (b.kind) {
     case "heading":
-      return { type: "heading", attrs: { level: b.level }, content: textNode(b.text) };
+      return { id: newId(), type: "heading", data: { level: b.level as 2 | 3 }, text: rt(b.text) };
     case "callout":
       return {
+        id: newId(),
         type: "callout",
-        attrs: { variant: b.variant },
-        content: [{ type: "paragraph", content: textNode(b.text) }],
+        data: { variant: b.variant },
+        children: [para(b.text)],
+        ...iconStyles(b.icon),
       };
+    case "divider":
+      return { id: newId(), type: "divider" };
+    case "paragraph":
+      return para(b.text);
     case "steps":
       return {
+        id: newId(),
         type: "steps",
-        content: b.items.map((t) => ({
-          type: "stepItem",
-          content: [{ type: "paragraph", content: textNode(t) }],
-        })),
+        children: b.items.map((t) => ({ id: newId(), type: "step", children: [para(t)] })),
       };
     case "bullets":
       return {
+        id: newId(),
         type: "bulletList",
-        content: b.items.map((t) => ({
-          type: "listItem",
-          content: [{ type: "paragraph", content: textNode(t) }],
-        })),
+        children: b.items.map((t) => ({ id: newId(), type: "listItem", text: rt(t) })),
       };
     case "code":
-      return {
-        type: "codeBlock",
-        attrs: { language: b.language ?? null },
-        content: textNode(b.code),
-      };
+      return { id: newId(), type: "code", data: { language: b.language ?? null, code: b.code } };
     case "table":
       return {
+        id: newId(),
         type: "table",
-        content: b.rows
-          .filter((r) => r.length > 0)
-          .map((row, ri) => ({
-            type: "tableRow",
-            content: row.map((cell) => ({
-              type: ri === 0 ? "tableHeader" : "tableCell",
-              content: [{ type: "paragraph", content: textNode(cell) }],
-            })),
-          })),
+        data: {
+          hasHeader: true,
+          rows: b.rows.filter((r) => r.length > 0).map((row) => row.map((cell) => rt(cell))),
+        },
       };
-    default:
-      return { type: "paragraph", content: textNode(b.text) };
   }
 }
 
-/** Garante conteúdo mínimo (block+) para contêineres que não aceitam vazio. */
-function nonEmpty(nodes: object[]): object[] {
-  return nodes.length ? nodes : [{ type: "paragraph" }];
-}
-
-/** Texto simples → parágrafo TipTap. */
-function paragraph(text: string): object {
-  return { type: "paragraph", content: textNode(text) };
-}
-
-function blocksToTipTap(blocks: Block[]) {
-  const content = blocks.map((b): object => {
-    switch (b.kind) {
-      case "panel":
-        return {
-          type: "panel",
-          attrs: { bg: b.bg },
-          content: nonEmpty(b.items.map(paragraph)),
-        };
-      case "columns":
-        return {
-          type: "columns",
-          content: (b.columns.length ? b.columns : [[], []]).map((col) => ({
-            type: "column",
-            content: nonEmpty(col.map(paragraph)),
-          })),
-        };
-      case "hero":
-        return {
-          type: "hero",
-          attrs: {
-            eyebrow: b.eyebrow ?? "",
-            title: b.title,
-            subtitle: b.subtitle ?? "",
-            bg: "purple",
-          },
-        };
-      case "cardGrid":
-        return {
-          type: "cardGrid",
-          attrs: { cols: b.cards.length === 2 || b.cards.length === 4 ? b.cards.length : 3 },
-          content: (b.cards.length ? b.cards : [{ title: "", text: "" }]).map((c) => ({
-            type: "card",
-            attrs: { icon: "book", title: c.title, href: "" },
-            content: [paragraph(c.text)],
-          })),
-        };
-      case "toggle":
-        return {
-          type: "toggle",
-          attrs: { title: b.title },
-          content: nonEmpty(b.items.map(paragraph)),
-        };
-      default:
-        return leafToTipTap(b as LeafBlock);
+function blockToBlock(b: LayoutBlock): Block {
+  switch (b.kind) {
+    case "panel":
+      return {
+        id: newId(),
+        type: "panel",
+        data: { bg: b.bg },
+        children: nonEmptyChildren(b.items.map(para)),
+        ...iconStyles(b.icon),
+      };
+    case "columns": {
+      const cols = b.columns.length ? b.columns : [[], []];
+      // Proporções só valem se houver uma para cada divisão (1..12).
+      const ratios =
+        b.ratios && b.ratios.length === cols.length
+          ? b.ratios.map((r) => Math.min(12, Math.max(1, Math.round(Number(r) || 1))))
+          : undefined;
+      return {
+        id: newId(),
+        type: "container",
+        data: {
+          columns: cols.length,
+          ...(ratios ? { ratios } : {}),
+          ...(b.divider ? { divider: true } : {}),
+        },
+        children: cols.map((col) => ({ id: newId(), type: "column", children: nonEmptyChildren(col.map(para)) })),
+      };
     }
-  });
-  return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
+    case "hero":
+      return {
+        id: newId(),
+        type: "hero",
+        data: { eyebrow: b.eyebrow ?? "", title: b.title, subtitle: b.subtitle ?? "", bg: "purple" },
+        ...iconStyles(b.icon),
+      };
+    case "cardGrid":
+      return {
+        id: newId(),
+        type: "cardGrid",
+        data: { cols: b.cards.length === 2 || b.cards.length === 4 ? b.cards.length : 3 },
+        children: (b.cards.length ? b.cards : [{ title: "", text: "" }]).map((c) => ({
+          id: newId(),
+          type: "card",
+          data: { icon: c.icon && iconByKey(c.icon) ? c.icon : "book", title: c.title, href: "" },
+          children: [para(c.text)],
+        })),
+      };
+    case "toggle":
+      return {
+        id: newId(),
+        type: "toggle",
+        data: { title: b.title },
+        children: nonEmptyChildren(b.items.map(para)),
+        ...iconStyles(b.icon),
+      };
+    default:
+      return leafToBlock(b as LeafBlock);
+  }
+}
+
+function blocksToDoc(blocks: LayoutBlock[]): BlockDoc {
+  const out = blocks.map(blockToBlock);
+  return { version: 2, blocks: out.length ? out : [para("")] };
 }
 
 export type ImproveResult =
-  | { ok: true; doc: object }
+  | { ok: true; doc: BlockDoc }
   | { ok: false; error: string };
 
 export type ImageRef = { src: string; alt: string; caption: string };
 
 const IMG_TOKEN = "⟦IMG:";
-function imgNode(im: ImageRef): object {
-  return { type: "figureImage", attrs: { src: im.src, alt: im.alt, caption: im.caption } };
+function imgBlock(im: ImageRef): Block {
+  return { id: newId(), type: "image", data: { src: im.src, alt: im.alt, caption: im.caption } };
 }
 
-/** Texto puro de um nó (concatena os text nodes). */
-function plainOf(node: unknown): string {
-  const parts: string[] = [];
-  const walk = (n: unknown) => {
-    if (!n || typeof n !== "object") return;
-    const o = n as { text?: string; content?: unknown[] };
-    if (typeof o.text === "string") parts.push(o.text);
-    if (Array.isArray(o.content)) o.content.forEach(walk);
-  };
-  walk(node);
-  return parts.join("");
-}
-
-/** Remove os marcadores ⟦IMG:n⟧ dos text nodes; poda text nodes vazios. */
-function stripTokens(node: unknown): unknown {
-  if (!node || typeof node !== "object") return node;
-  const o = node as { text?: string; content?: unknown[] };
-  const clone: Record<string, unknown> = { ...o };
-  if (typeof o.text === "string") {
-    const t = o.text.replace(/⟦IMG:\d+⟧/g, "");
-    if (!t.trim()) return null;
-    clone.text = t;
-  }
-  if (Array.isArray(o.content)) {
-    clone.content = o.content.map(stripTokens).filter((x) => x !== null);
-  }
-  return clone;
+/** Remove os marcadores ⟦IMG:n⟧ do texto de um bloco; retorna null se ficar vazio. */
+function stripTokens(block: Block): Block | null {
+  if (!("text" in block)) return block;
+  const text = block.text
+    .map((s) => ({ ...s, text: s.text.replace(/⟦IMG:\d+⟧/g, "") }))
+    .filter((s) => s.text.length > 0);
+  if (!text.map((s) => s.text).join("").trim()) return null;
+  return { ...block, text } as Block;
 }
 
 /**
  * Re-insere as imagens no lugar dos marcadores ⟦IMG:n⟧ que a IA preservou.
  * Qualquer imagem não colocada vai para o fim — nunca se perde uma imagem.
  */
-function reinsertImages(doc: { type: string; content?: object[] }, images: ImageRef[]): object {
-  const blocks = doc.content ?? [];
-  const out: object[] = [];
+function reinsertImages(doc: BlockDoc, images: ImageRef[]): BlockDoc {
   const placed = new Set<number>();
 
-  for (const block of blocks) {
-    const text = plainOf(block);
-    if (!text.includes(IMG_TOKEN)) {
-      out.push(block);
-      continue;
-    }
-    const indices = [...text.matchAll(/⟦IMG:(\d+)⟧/g)].map((m) => Number(m[1]));
-    const cleaned = stripTokens(block);
-    if (cleaned && plainOf(cleaned).trim()) out.push(cleaned as object);
-    for (const i of indices) {
-      const im = images[i];
-      if (im?.src && !placed.has(i)) {
-        placed.add(i);
-        out.push(imgNode(im));
+  // Recursivo: o marcador pode estar DENTRO de uma coluna/painel — é assim que
+  // sai o layout "imagem à esquerda, texto à direita".
+  const walk = (list: Block[]): Block[] => {
+    const out: Block[] = [];
+    for (const block of list) {
+      const kids = "children" in block ? block.children : undefined;
+      if (kids && kids.length) {
+        const nextKids = walk(kids);
+        out.push(nextKids === kids ? block : ({ ...block, children: nextKids } as Block));
+        continue;
+      }
+      const text = "text" in block ? blocksToText([block]) : "";
+      if (!text.includes(IMG_TOKEN)) {
+        out.push(block);
+        continue;
+      }
+      const indices = [...text.matchAll(/⟦IMG:(\d+)⟧/g)].map((m) => Number(m[1]));
+      const cleaned = stripTokens(block);
+      if (cleaned && blocksToText([cleaned]).trim()) out.push(cleaned);
+      for (const i of indices) {
+        const im = images[i];
+        if (im?.src && !placed.has(i)) {
+          placed.add(i);
+          out.push(imgBlock(im));
+        }
       }
     }
-  }
-  // Rede de segurança: imagens que a IA "esqueceu" voltam ao final.
+    return out;
+  };
+
+  const blocks = walk(doc.blocks);
+  // Rede de segurança: imagem que a IA esqueceu volta ao final do artigo.
   images.forEach((im, i) => {
-    if (im?.src && !placed.has(i)) out.push(imgNode(im));
+    if (im?.src && !placed.has(i)) blocks.push(imgBlock(im));
   });
 
-  return { type: "doc", content: out.length ? out : [{ type: "paragraph" }] };
+  return { version: 2, blocks: blocks.length ? blocks : [para("")] };
 }
 
 /** Reformata o texto puro em blocos ricos, preservando as imagens. Exige AI_API_KEY. */
@@ -280,7 +302,7 @@ export async function improveLayout(
       schema: blocksSchema,
       prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
     });
-    const doc = blocksToTipTap(object.blocks) as { type: string; content?: object[] };
+    const doc = blocksToDoc(object.blocks);
     return { ok: true, doc: images.length ? reinsertImages(doc, images) : doc };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

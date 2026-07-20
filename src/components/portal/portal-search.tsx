@@ -42,7 +42,7 @@ export function SearchTrigger({
       <button
         type="button"
         onClick={open}
-        className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 text-left text-text-muted shadow-sm transition hover:border-primary"
+        className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3.5 text-left text-text-muted transition-shadow hover:shadow-2"
       >
         <Search className="size-5 shrink-0" />
         <span className="flex-1 text-base">{placeholder}</span>
@@ -197,7 +197,7 @@ export function PortalAssistant({
             className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
             onClick={() => setOpen(false)}
           />
-          <div className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-2xl motion-safe:animate-[scalein_150ms_ease-out]">
+          <div className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-3 motion-safe:animate-[scalein_150ms_ease-out]">
             <div className="flex items-center gap-3 border-b border-border px-4">
               <Search className="size-5 shrink-0 text-text-muted" />
               <input

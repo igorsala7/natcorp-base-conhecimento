@@ -8,6 +8,8 @@ import { requirePermission, PermissionError } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { slugify } from "@/lib/content/slug";
 import { slugPathsOf, subtreeIds } from "@/lib/content/tree";
+import { normalizeDoc } from "@/lib/blocks/convert";
+import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
 
 export type NodeActionResult =
@@ -303,22 +305,21 @@ export async function mergeArticles(
     return err("Sem permissão para unificar (precisa criar e excluir).");
   }
 
-  // Concatena o conteúdo de cada artigo, na ordem, com um separador.
-  const merged: unknown[] = [];
+  // Concatena os blocos de cada artigo, na ordem, com uma divisória entre eles.
+  const merged: Block[] = [];
   for (let i = 0; i < orderedNodeIds.length; i++) {
     const { data: art } = await supabase
       .from("articles")
       .select("content_json")
       .eq("node_id", orderedNodeIds[i]!)
       .maybeSingle();
-    const doc = art?.content_json as { content?: unknown[] } | null;
-    const blocks = Array.isArray(doc?.content) ? doc!.content : [];
-    if (i > 0 && merged.length > 0) merged.push({ type: "horizontalRule" });
+    const blocks = normalizeDoc(art?.content_json).blocks;
+    if (i > 0 && merged.length > 0) merged.push({ id: newId(), type: "divider" });
     merged.push(...blocks);
   }
-  const mergedDoc = {
-    type: "doc",
-    content: merged.length ? merged : [{ type: "paragraph" }],
+  const mergedDoc: BlockDoc = {
+    version: 2,
+    blocks: merged.length ? merged : [{ id: newId(), type: "paragraph", text: [] }],
   };
 
   // Cria o artigo unificado no lugar do primeiro.

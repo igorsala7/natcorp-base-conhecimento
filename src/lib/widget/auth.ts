@@ -14,16 +14,25 @@ export type WidgetConfig = {
 
 export type ResolvedKey = {
   id: string;
+  /** Espaço DONO: permissão e `conversations.space_id` (que é NOT NULL). */
   space_id: string;
+  /**
+   * ESCOPO de leitura do RAG — uma ou várias documentações. Sempre inclui o
+   * dono, mesmo que a junção esteja vazia: uma chave sem escopo emudeceria o
+   * widget, e um estado de dados incompleto não pode derrubar o produto.
+   */
+  space_ids: string[];
   allowed_origins: string[];
   rate_limit: number;
   config: WidgetConfig;
+  /** Prompt próprio deste chatbot (nulo = herda o da documentação). */
+  system_prompt: string | null;
 };
 
 /**
  * Resolve uma chave pública (pk_...) ativa via service-role. Retorna null se
  * inexistente/inativa. A chave é PÚBLICA: a segurança vem da allowlist de
- * origem + rate limit + escopo fixo no space_id.
+ * origem + rate limit + escopo fixo nas documentações vinculadas.
  */
 export async function resolveWidgetKey(
   publicKey: string | null,
@@ -32,16 +41,28 @@ export async function resolveWidgetKey(
   const supabase = createAdminClient();
   const { data } = await supabase
     .from("widget_keys")
-    .select("id, space_id, allowed_origins, rate_limit, config, active")
+    .select("id, space_id, allowed_origins, rate_limit, config, active, system_prompt")
     .eq("public_key", publicKey)
     .maybeSingle();
   if (!data || !data.active) return null;
+
+  const { data: escopo } = await supabase
+    .from("widget_key_spaces")
+    .select("space_id")
+    .eq("widget_key_id", data.id);
+
+  // O dono entra sempre e sem duplicar: se a junção perdeu a linha por algum
+  // motivo, o chatbot continua respondendo sobre a própria documentação.
+  const space_ids = [...new Set([data.space_id, ...(escopo ?? []).map((e) => e.space_id)])];
+
   return {
     id: data.id,
     space_id: data.space_id,
+    space_ids,
     allowed_origins: data.allowed_origins ?? [],
     rate_limit: data.rate_limit ?? 30,
     config: (data.config ?? {}) as WidgetConfig,
+    system_prompt: data.system_prompt ?? null,
   };
 }
 

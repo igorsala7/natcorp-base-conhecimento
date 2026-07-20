@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw, Trash2, FolderTree, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
+import { EmptyState } from "@/components/ui/empty-state";
 import { restoreTrash, hardDeleteTrash, emptyTrash, type TrashItem } from "./actions";
 
 export function TrashManager({
@@ -49,25 +51,32 @@ export function TrashManager({
       </div>
 
       {msg && (
-        <p className="mb-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">{msg}</p>
+        <p role="status" className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
+          {msg}
+        </p>
       )}
 
       {initialItems.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-text-muted">
-          A lixeira está vazia.
-        </p>
+        <EmptyState
+          icon={Trash2}
+          title="A lixeira está vazia"
+          description="Itens excluídos ficam aqui por 30 dias e podem ser restaurados no lugar de origem."
+        />
       ) : (
-        <ul className="space-y-2">
+        <Surface elevation={1} padding="none" className="overflow-hidden">
+          <ul className="divide-y divide-border">
           {initialItems.map((it) => {
             const Icon = it.type === "folder" ? FolderTree : FileText;
             return (
-              <li key={it.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3">
+              <li key={it.id} className="flex items-center gap-3 px-4 py-3">
                 <Icon className="size-4 shrink-0 text-text-muted" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{it.title}</p>
                   <p className="text-xs text-text-muted">
                     {it.spaceName} · {it.count > 1 ? `${it.count} itens` : "1 item"} · excluído em{" "}
-                    {new Date(it.deleted_at).toLocaleString("pt-BR")}
+                    <time dateTime={new Date(it.deleted_at).toISOString()}>
+                      {new Date(it.deleted_at).toLocaleString("pt-BR")}
+                    </time>
                   </p>
                 </div>
                 <Button
@@ -89,13 +98,14 @@ export function TrashManager({
                         run(() => hardDeleteTrash(it.id), (n) => `Excluído (${n} itens).`);
                     }}
                   >
-                    <Trash2 className="size-4 text-brand-pink-700" />
+                    <Trash2 className="size-4 text-red-600 dark:text-red-400" />
                   </Button>
                 )}
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </Surface>
       )}
     </div>
   );

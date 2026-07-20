@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Field } from "@/components/ui/field";
+import { Input, controlClass } from "@/components/ui/input";
 import type { ProposedNode } from "@/lib/importer/structure";
 import { materializeImport } from "../actions";
+import { listSpaceFolders } from "../../conteudo/space-actions";
 
 /** Remove um nó pelo caminho de índices, retornando uma nova árvore. */
 function removeAt(tree: ProposedNode[], path: number[]): ProposedNode[] {
@@ -102,23 +106,60 @@ export function ImportPreview({
   tree: initialTree,
   images,
   usedAi,
+  spaces,
+  defaultSpaceId,
 }: {
   jobId: string;
   fileName: string;
   tree: ProposedNode[];
   images: string[];
   usedAi: boolean;
+  spaces: { id: string; name: string; type: "global" | "client" }[];
+  defaultSpaceId: string;
 }) {
   const router = useRouter();
   const [tree, setTree] = useState<ProposedNode[]>(initialTree);
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Destino da importação (escolhido na confirmação).
+  const [askTarget, setAskTarget] = useState(false);
+  const [spaceId, setSpaceId] = useState(defaultSpaceId);
+  const [parentId, setParentId] = useState<string>("__root__");
+  // Pastas carregadas junto do espaço a que pertencem — assim o "carregando"
+  // é derivado (nada de setState síncrono dentro do efeito).
+  const [loaded, setLoaded] = useState<{
+    spaceId: string;
+    list: { id: string; title: string; depth: number }[];
+  } | null>(null);
+  const folders = loaded?.spaceId === spaceId ? loaded.list : [];
+  const loadingFolders = askTarget && loaded?.spaceId !== spaceId;
+  const [useNewFolder, setUseNewFolder] = useState(true);
+  const [newFolderTitle, setNewFolderTitle] = useState(
+    fileName.replace(/\.[^.]+$/, "").slice(0, 80),
+  );
+
+  // Carrega as pastas da documentação escolhida (o nível onde vai pendurar).
+  useEffect(() => {
+    if (!askTarget) return;
+    let alive = true;
+    void listSpaceFolders(spaceId).then((list) => {
+      if (alive) setLoaded({ spaceId, list });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [askTarget, spaceId]);
+
   function confirm() {
     startTransition(async () => {
-      const res = await materializeImport(jobId, tree);
+      const res = await materializeImport(jobId, tree, {
+        spaceId,
+        parentId: parentId === "__root__" ? null : parentId,
+        newFolderTitle: useNewFolder ? newFolderTitle : null,
+      });
       if (!res.ok) setMsg(res.error);
-      else router.push("/admin/conteudo");
+      else router.push(`/admin/conteudo?space=${spaceId}`);
     });
   }
 
@@ -132,10 +173,96 @@ export function ImportPreview({
             Renomeie ou descarte seções antes de confirmar.
           </p>
         </div>
-        <Button onClick={confirm} disabled={pending}>
+        <Button onClick={() => setAskTarget(true)} disabled={pending}>
           {pending ? "Importando…" : "Confirmar importação"}
         </Button>
       </div>
+
+      <Dialog
+        open={askTarget}
+        onClose={() => !pending && setAskTarget(false)}
+        title="Onde importar?"
+        description="Escolha a documentação e o ponto da árvore que vai receber o conteúdo."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAskTarget(false)} disabled={pending}>
+              Cancelar
+            </Button>
+            <Button onClick={confirm} disabled={pending || (useNewFolder && !newFolderTitle.trim())}>
+              {pending ? "Importando…" : "Importar aqui"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Documentação" htmlFor="imp-space">
+            <select
+              id="imp-space"
+              value={spaceId}
+              onChange={(e) => {
+                setSpaceId(e.target.value);
+                setParentId("__root__"); // pasta do espaço antigo não vale mais
+              }}
+              className={`${controlClass} h-10`}
+            >
+              {spaces.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field
+            label="Nível na árvore"
+            htmlFor="imp-parent"
+            hint={loadingFolders ? "Carregando pastas…" : undefined}
+          >
+            <select
+              id="imp-parent"
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              disabled={loadingFolders}
+              className={`${controlClass} h-10`}
+            >
+              <option value="__root__">Raiz da documentação</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {"— ".repeat(f.depth)}
+                  {f.title}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="rounded-lg border border-border p-3">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={useNewFolder}
+                onChange={(e) => setUseNewFolder(e.target.checked)}
+                className="mt-1 accent-[var(--color-primary)]"
+              />
+              <span>
+                <span className="font-medium">Criar uma pasta para todo o conteúdo</span>
+                <span className="block text-xs leading-relaxed text-text-muted">
+                  Tudo o que foi importado fica pendurado nela, em vez de misturar com o que já
+                  existe.
+                </span>
+              </span>
+            </label>
+            {useNewFolder && (
+              <Input
+                value={newFolderTitle}
+                onChange={(e) => setNewFolderTitle(e.target.value)}
+                placeholder="Nome da nova pasta"
+                aria-label="Nome da nova pasta"
+                className="mt-3"
+              />
+            )}
+          </div>
+        </div>
+      </Dialog>
 
       {msg && (
         <p className="mt-2 rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">

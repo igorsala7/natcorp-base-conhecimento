@@ -28,13 +28,30 @@ export default async function WidgetPage() {
   const spaces = await listSpaces();
   const { data: keys } = await supabase
     .from("widget_keys")
-    .select("id, space_id, name, public_key, allowed_origins, rate_limit, active, config, created_at")
+    .select(
+      "id, space_id, name, public_key, allowed_origins, rate_limit, active, config, system_prompt, created_at",
+    )
     .order("created_at", { ascending: false });
+
+  // Escopo de leitura de cada chave, em uma consulta só.
+  const { data: escopos } = await supabase
+    .from("widget_key_spaces")
+    .select("widget_key_id, space_id");
+  const escopoPorChave = new Map<string, string[]>();
+  for (const e of escopos ?? []) {
+    escopoPorChave.set(e.widget_key_id, [
+      ...(escopoPorChave.get(e.widget_key_id) ?? []),
+      e.space_id,
+    ]);
+  }
 
   return (
     <WidgetManager
       spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
-      initialKeys={(keys ?? []) as WidgetKeyRow[]}
+      initialKeys={(keys ?? []).map((k) => ({
+        ...k,
+        scope_space_ids: escopoPorChave.get(k.id) ?? [k.space_id],
+      })) as WidgetKeyRow[]}
       siteUrl={env.NEXT_PUBLIC_SITE_URL}
     />
   );

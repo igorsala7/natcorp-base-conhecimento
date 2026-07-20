@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Globe, Lock, KeyRound } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { updateSpaceSettings } from "./actions";
+import { controlClass } from "@/components/ui/input";
+import { updateSpaceSettings, clearSpaceEmbeddings } from "./actions";
 
 type Current = {
   id: string;
@@ -13,9 +14,6 @@ type Current = {
   visibility: "public" | "private" | "password";
   custom_domain: string | null;
 };
-
-const INP =
-  "w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm focus:border-primary focus:outline-none";
 
 export function SpaceSettingsForm({
   spaces,
@@ -29,12 +27,39 @@ export function SpaceSettingsForm({
   siteUrl: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(current.name);
   const [visibility, setVisibility] = useState(current.visibility);
   const [customDomain, setCustomDomain] = useState(current.custom_domain ?? "");
+  const [slug, setSlug] = useState(current.slug);
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState<string | null>(null);
+
+  function clearEmbeddings() {
+    if (
+      !window.confirm(
+        `Limpar os embeddings de TODO o conteúdo de "${current.name}"?\n\n` +
+          "A busca por texto continua funcionando, mas a busca semântica e o assistente " +
+          "ficarão sem vetores até você gerar novamente.",
+      )
+    )
+      return;
+    setClearing(true);
+    setClearMsg(null);
+    startTransition(async () => {
+      const r = await clearSpaceEmbeddings(current.id);
+      setClearing(false);
+      setClearMsg(
+        r.ok
+          ? `Embeddings limpos: ${r.count} trecho(s). Gere novamente pela árvore de conteúdo.`
+          : r.error,
+      );
+      if (r.ok) router.refresh();
+    });
+  }
 
   function save() {
     if (visibility === "password" && !hasPassword && !password) {
@@ -42,7 +67,7 @@ export function SpaceSettingsForm({
       return;
     }
     startTransition(async () => {
-      const r = await updateSpaceSettings({ spaceId: current.id, name, visibility, customDomain, password });
+      const r = await updateSpaceSettings({ spaceId: current.id, name, slug, visibility, customDomain, password });
       setMsg(r.ok ? "Configurações salvas." : r.error);
       if (r.ok) {
         setPassword("");
@@ -66,7 +91,12 @@ export function SpaceSettingsForm({
         </div>
         <select
           value={current.id}
-          onChange={(e) => router.push(`/admin/configuracoes?space=${e.target.value}`)}
+          onChange={(e) => {
+            // Mantém `from`: sem ele o botão de voltar perde o destino.
+            const params = new URLSearchParams(searchParams.toString());
+            params.set("space", e.target.value);
+            router.push(`/admin/configuracoes?${params.toString()}`);
+          }}
           className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
           aria-label="Espaço"
         >
@@ -81,7 +111,30 @@ export function SpaceSettingsForm({
       <div className="space-y-4 rounded-xl border border-border bg-surface p-5">
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-text-muted">Nome</span>
-          <input className={INP} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className={controlClass} value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-text-muted">Endereço público</span>
+          <div className="flex items-center gap-1">
+            <span className="shrink-0 text-sm text-text-muted">/docs/</span>
+            <input
+              className={controlClass}
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="minha-documentacao"
+            />
+          </div>
+          <span className="mt-1 block text-xs leading-relaxed text-text-muted">
+            {slug !== current.slug ? (
+              <strong className="font-medium text-primary">
+                Ao salvar, <code>/docs/{current.slug}</code> passa a redirecionar (301) para o novo
+                endereço — os links já compartilhados continuam funcionando.
+              </strong>
+            ) : (
+              <>Trocar o endereço não quebra links antigos: eles passam a redirecionar.</>
+            )}
+          </span>
         </label>
 
         <div>
@@ -114,7 +167,7 @@ export function SpaceSettingsForm({
                 </span>
                 <input
                   type="password"
-                  className={INP}
+                  className={controlClass}
                   placeholder={hasPassword ? "••••••••" : "mínimo 4 caracteres"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -131,7 +184,7 @@ export function SpaceSettingsForm({
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-text-muted">Domínio personalizado (opcional)</span>
           <input
-            className={INP}
+            className={controlClass}
             placeholder="docs.cliente.com"
             value={customDomain}
             onChange={(e) => setCustomDomain(e.target.value)}
@@ -145,6 +198,25 @@ export function SpaceSettingsForm({
           <Button onClick={save} disabled={pending}>
             {pending ? "Salvando…" : "Salvar configurações"}
           </Button>
+        </div>
+
+        {/* Manutenção do índice semântico */}
+        <div className="mt-2 rounded-lg border border-border p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="size-4 text-text-muted" /> Índice semântico (embeddings)
+          </h2>
+          <p className="mt-1 text-xs text-text-muted">
+            Remove os vetores de <strong>todo o conteúdo de “{current.name}”</strong>. A busca por
+            texto continua funcionando; a busca semântica e o assistente ficam sem vetores até você
+            gerar de novo (botão <em>Gerar embeddings</em> na pasta, dentro da árvore de conteúdo).
+            Use ao trocar de modelo/provedor de embedding.
+          </p>
+          {clearMsg && <p className="mt-2 text-xs text-text-muted">{clearMsg}</p>}
+          <div className="mt-3">
+            <Button variant="secondary" onClick={clearEmbeddings} disabled={clearing}>
+              <Eraser /> {clearing ? "Limpando…" : "Limpar embeddings"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

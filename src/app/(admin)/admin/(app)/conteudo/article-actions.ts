@@ -6,61 +6,47 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { reindexNodeChunks } from "@/lib/content/chunk";
 import { improveLayout } from "@/lib/importer/improve";
+import { normalizeDoc } from "@/lib/blocks/convert";
+import { isBlockDoc, BlockDocSchema } from "@/lib/blocks/schema";
+import { blocksToText, blocksToPlainWithImageMarkers } from "@/lib/blocks/serialize";
 import type { Json } from "@/lib/database.types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
+export type SaveDraftResult =
+  | { ok: true; hasDraft: boolean }
+  | { ok: false; error: string };
 
-/** Extrai texto puro de um documento TipTap (para excerpt/busca). */
+/** Extrai texto puro do documento (blocos v2 ou TipTap legado). */
 function extractText(doc: unknown): string {
-  const parts: string[] = [];
-  const walk = (n: unknown) => {
-    if (!n || typeof n !== "object") return;
-    const node = n as { text?: string; content?: unknown[] };
-    if (typeof node.text === "string") parts.push(node.text);
-    if (Array.isArray(node.content)) node.content.forEach(walk);
-  };
-  walk(doc);
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+  return blocksToText(normalizeDoc(doc).blocks);
 }
 
 /**
- * Texto do artigo com marcadores ⟦IMG:n⟧ no lugar das imagens, mais a lista de
- * imagens capturadas — para o "Melhorar layout" preservar as imagens.
+ * Se houver rascunho pendente (tabela `article_drafts`), promove-o a
+ * `content_json` (a versão oficial), recalcula texto/excerpt e apaga o rascunho.
+ * Retorna se comitou algo. Usado ao publicar/aprovar/despublicar.
  */
-function extractTextWithImages(doc: unknown): {
-  text: string;
-  images: { src: string; alt: string; caption: string }[];
-} {
-  const parts: string[] = [];
-  const images: { src: string; alt: string; caption: string }[] = [];
-  const walk = (n: unknown) => {
-    if (!n || typeof n !== "object") return;
-    const node = n as {
-      type?: string;
-      text?: string;
-      attrs?: { src?: unknown; alt?: unknown; caption?: unknown };
-      content?: unknown[];
-    };
-    if (node.type === "figureImage" || node.type === "image") {
-      const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
-      if (src) {
-        parts.push(`\n\n⟦IMG:${images.length}⟧\n\n`);
-        images.push({
-          src,
-          alt: typeof node.attrs?.alt === "string" ? node.attrs.alt : "",
-          caption: typeof node.attrs?.caption === "string" ? node.attrs.caption : "",
-        });
-      }
-      return;
-    }
-    if (typeof node.text === "string") parts.push(node.text);
-    if (Array.isArray(node.content)) {
-      node.content.forEach(walk);
-      if (node.type === "paragraph" || node.type === "heading") parts.push("\n\n");
-    }
-  };
-  walk(doc);
-  return { text: parts.join("").replace(/\n{3,}/g, "\n\n").trim(), images };
+async function commitDraftIfAny(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nodeId: string,
+): Promise<boolean> {
+  const { data: draft } = await supabase
+    .from("article_drafts")
+    .select("content_json")
+    .eq("node_id", nodeId)
+    .maybeSingle();
+  if (!draft) return false;
+  const text = extractText(draft.content_json);
+  await supabase
+    .from("articles")
+    .update({
+      content_json: draft.content_json,
+      content_text: text,
+      excerpt: text.slice(0, 200),
+    })
+    .eq("node_id", nodeId);
+  await supabase.from("article_drafts").delete().eq("node_id", nodeId);
+  return true;
 }
 
 async function spaceIdOfNode(
@@ -75,11 +61,18 @@ async function spaceIdOfNode(
   return data?.space_id ?? null;
 }
 
-/** Salva o conteúdo do artigo (rascunho). content_json é a fonte da verdade. */
+/**
+ * Salva o conteúdo do artigo.
+ * - Artigo PUBLICADO: as edições vão para `article_drafts` (rascunho). O portal
+ *   continua servindo `content_json` (a versão publicada) — a página pública não
+ *   muda até Publicar. Retorna `hasDraft: true`.
+ * - Artigo em rascunho/revisão (sem página pública a proteger): grava direto em
+ *   `content_json` e reindexa. Retorna `hasDraft: false`.
+ */
 export async function saveArticle(
   nodeId: string,
   contentJson: unknown,
-): Promise<SaveResult> {
+): Promise<SaveDraftResult> {
   const supabase = await createClient();
   const spaceId = await spaceIdOfNode(supabase, nodeId);
   if (!spaceId) return { ok: false, error: "Nó não encontrado." };
@@ -89,29 +82,54 @@ export async function saveArticle(
     return { ok: false, error: "Sem permissão para editar." };
   }
 
-  const text = extractText(contentJson);
-  const excerpt = text.slice(0, 200);
+  // Se já é um documento de blocos v2, valida antes de persistir (barra lixo).
+  if (isBlockDoc(contentJson)) {
+    const parsed = BlockDocSchema.safeParse(contentJson);
+    if (!parsed.success) return { ok: false, error: "Documento de blocos inválido." };
+  }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const now = new Date().toISOString();
 
+  const { data: node } = await supabase
+    .from("nodes")
+    .select("status")
+    .eq("id", nodeId)
+    .single();
+
+  // Artigo publicado → edição fica em rascunho (article_drafts), protegendo a
+  // página pública, que segue servindo content_json.
+  if (node?.status === "published") {
+    const { error } = await supabase
+      .from("article_drafts")
+      .upsert(
+        { node_id: nodeId, content_json: contentJson as Json, updated_by: user?.id ?? null, updated_at: now },
+        { onConflict: "node_id" },
+      );
+    if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+    return { ok: true, hasDraft: true };
+  }
+
+  // Rascunho/revisão → grava direto em content_json e reindexa (busca).
+  const text = extractText(contentJson);
   const { data: updated, error } = await supabase
     .from("articles")
     .update({
       content_json: contentJson as Json,
       content_text: text,
-      excerpt,
+      excerpt: text.slice(0, 200),
       updated_by: user?.id ?? null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq("node_id", nodeId)
     .select("id, content_json")
     .single();
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+  // Limpa rascunho remanescente (defensivo).
+  await supabase.from("article_drafts").delete().eq("node_id", nodeId);
 
-  // Reindexa os chunks para a busca (idempotente). Usa o JSON RECÉM-PERSISTIDO
-  // (jsonb do banco = dados puros), nunca o argumento cru da action.
   if (updated) {
     await reindexNodeChunks(supabase, {
       nodeId,
@@ -121,6 +139,21 @@ export async function saveArticle(
     });
   }
 
+  return { ok: true, hasDraft: false };
+}
+
+/** Descarta o rascunho pendente — o artigo volta ao conteúdo publicado. */
+export async function discardDraft(nodeId: string): Promise<SaveResult> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão para editar." };
+  }
+  const { error } = await supabase.from("article_drafts").delete().eq("node_id", nodeId);
+  if (error) return { ok: false, error: `Falha: ${error.message}` };
   return { ok: true };
 }
 
@@ -146,7 +179,9 @@ export async function improveArticleLayout(
     .select("content_json")
     .eq("node_id", nodeId)
     .maybeSingle();
-  const { text, images } = extractTextWithImages(article?.content_json);
+  const { text, images } = blocksToPlainWithImageMarkers(
+    normalizeDoc(article?.content_json).blocks,
+  );
   return improveLayout(text, images);
 }
 
@@ -160,6 +195,9 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
   } catch {
     return { ok: false, error: "Sem permissão para publicar." };
   }
+
+  // Rascunho pendente vira o conteúdo oficial ANTES do snapshot/reindex.
+  await commitDraftIfAny(supabase, nodeId);
 
   const now = new Date().toISOString();
   const { error } = await supabase
@@ -312,13 +350,20 @@ export async function publishSubtree(
       .eq("node_id", artNodeId)
       .maybeSingle();
     if (!art) continue;
+    // Rascunho pendente vira oficial antes do snapshot/reindex.
+    await commitDraftIfAny(supabase, artNodeId);
+    const { data: fresh } = await supabase
+      .from("articles")
+      .select("content_json")
+      .eq("id", art.id)
+      .maybeSingle();
     await supabase.from("articles").update({ published_at: now }).eq("id", art.id);
     await supabase.rpc("create_article_version", { p_node_id: artNodeId, p_label: "Publicação" });
     await reindexNodeChunks(supabase, {
       nodeId: artNodeId,
       articleId: art.id,
       spaceId,
-      doc: art.content_json as { type: string; content?: never[] },
+      doc: (fresh?.content_json ?? art.content_json) as { type: string; content?: never[] },
       withEmbeddings: true,
     });
     count += 1;
@@ -340,6 +385,9 @@ export async function unpublishNode(nodeId: string): Promise<SaveResult> {
     return { ok: false, error: "Sem permissão para despublicar." };
   }
 
+  // Preserva edições pendentes: o rascunho vira o conteúdo do artigo (agora rascunho).
+  await commitDraftIfAny(supabase, nodeId);
+
   const { error } = await supabase
     .from("nodes")
     .update({ status: "draft", published_at: null })
@@ -354,4 +402,82 @@ export async function unpublishNode(nodeId: string): Promise<SaveResult> {
   });
   revalidatePath("/admin/conteudo");
   return { ok: true };
+}
+
+/**
+ * Promove TODOS os rascunhos pendentes de um espaço a conteúdo oficial.
+ *
+ * Seguro por construção: `saveArticle` só cria linha em `article_drafts` para
+ * nós já publicados, então isto nunca torna público algo que não era. Artigos
+ * nunca publicados ficam de fora de propósito — publicar conteúdo novo em
+ * massa e sem querer é irreversível na prática, e essa decisão fica individual.
+ *
+ * Serve o "Publicar alterações pendentes" da edição em massa na prévia.
+ */
+export async function publishPendingDrafts(
+  spaceId: string,
+): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  try {
+    await requirePermission("content.publish", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão para publicar." };
+  }
+
+  // Duas consultas em vez de um join embutido: não dependo do PostgREST
+  // inferir a relação reversa, e o erro (se houver) fica explícito.
+  const { data: rascunhos } = await supabase.from("article_drafts").select("node_id");
+  const comRascunho = (rascunhos ?? []).map((r) => r.node_id);
+  if (comRascunho.length === 0) return { ok: true, count: 0 };
+
+  // Filtra pelos que são deste espaço e seguem publicados.
+  const { data: nodes } = await supabase
+    .from("nodes")
+    .select("id")
+    .eq("space_id", spaceId)
+    .eq("status", "published")
+    .is("deleted_at", null)
+    .in("id", comRascunho);
+
+  const ids = (nodes ?? []).map((n) => n.id);
+  if (ids.length === 0) return { ok: true, count: 0 };
+
+  const now = new Date().toISOString();
+  let count = 0;
+  for (const nodeId of ids) {
+    const promovido = await commitDraftIfAny(supabase, nodeId);
+    if (!promovido) continue;
+    count++;
+
+    const { data: art } = await supabase
+      .from("articles")
+      .select("id, content_json")
+      .eq("node_id", nodeId)
+      .maybeSingle();
+    if (!art) continue;
+
+    await supabase.from("articles").update({ published_at: now }).eq("id", art.id);
+    // Snapshot obrigatório a cada publicação (histórico append-only).
+    await supabase.rpc("create_article_version", {
+      p_node_id: nodeId,
+      p_label: "Publicação em massa",
+    });
+    await reindexNodeChunks(supabase, {
+      nodeId,
+      articleId: art.id,
+      spaceId,
+      doc: art.content_json as { type: string; content?: never[] },
+      withEmbeddings: true,
+    });
+  }
+
+  await audit({
+    action: "content.publish",
+    entityType: "space",
+    entityId: spaceId,
+    spaceId,
+    after: { publishedDrafts: count },
+  });
+  revalidatePath("/admin/conteudo");
+  return { ok: true, count };
 }

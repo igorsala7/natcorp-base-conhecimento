@@ -32,19 +32,22 @@ export function Toc({ items }: { items: TocItem[] }) {
   if (items.length === 0) return null;
 
   return (
-    <nav aria-label="Índice da página" className="text-sm">
-      <div className="mb-2 font-semibold text-text-muted">Nesta página</div>
-      <ul className="space-y-1 border-l border-border">
+    <nav aria-label="Índice da página" className="text-[0.8125rem]">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
+        Nesta página
+      </div>
+      <ul className="border-l border-border">
         {items.map((item) => (
           <li key={item.id}>
             <a
               href={`#${item.id}`}
+              aria-current={active === item.id ? "location" : undefined}
               className={cn(
-                "-ml-px block border-l-2 py-0.5 transition",
+                "-ml-px block border-l-2 py-1.5 leading-snug transition-colors",
                 item.level === 3 ? "pl-6" : "pl-3",
                 active === item.id
                   ? "border-primary font-medium text-primary"
-                  : "border-transparent text-text-muted hover:text-text",
+                  : "border-transparent text-text-muted hover:border-brand-gray-300 hover:text-text dark:hover:border-brand-gray-700",
               )}
             >
               {item.text}

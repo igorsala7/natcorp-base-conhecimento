@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { controlClass } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { Surface } from "@/components/ui/surface";
 import {
   saveWidgetKey,
   regenerateWidgetKey,
@@ -11,7 +14,12 @@ import {
 
 export type WidgetKeyRow = {
   id: string;
+  /** Documentação DONA (permissão e registro das conversas). */
   space_id: string;
+  /** Documentações que este chatbot consulta — inclui a dona. */
+  scope_space_ids: string[];
+  /** Persona própria; nulo herda a da documentação dona. */
+  system_prompt: string | null;
   name: string;
   public_key: string;
   allowed_origins: string[];
@@ -30,8 +38,13 @@ export type WidgetKeyRow = {
 
 type SpaceOpt = { id: string; name: string; slug: string };
 
-const INP =
-  "w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm focus:border-primary focus:outline-none";
+/**
+ * Roxo da marca como DADO, não como estilo: o widget é injetado no site do
+ * cliente (Shadow DOM) e não enxerga as CSS variables deste app, então a cor
+ * precisa viajar literal no `widget_keys.config`. Fica aqui para não haver
+ * duas verdades quando a marca mudar.
+ */
+const COR_PADRAO = "#511C76";
 
 type Draft = {
   id?: string;
@@ -40,6 +53,8 @@ type Draft = {
   allowedOrigins: string;
   rateLimit: number;
   active: boolean;
+  scopeSpaceIds: string[];
+  systemPrompt: string;
   primaryColor: string;
   title: string;
   welcome: string;
@@ -57,7 +72,9 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     allowedOrigins: (k.allowed_origins ?? []).join("\n"),
     rateLimit: k.rate_limit,
     active: k.active,
-    primaryColor: c.primaryColor ?? "#511C76",
+    scopeSpaceIds: k.scope_space_ids ?? [k.space_id],
+    systemPrompt: k.system_prompt ?? "",
+    primaryColor: c.primaryColor ?? COR_PADRAO,
     title: c.title ?? "Assistente",
     welcome: c.welcome ?? "Olá! Como posso ajudar com a documentação?",
     avatarUrl: c.avatarUrl ?? "",
@@ -107,7 +124,10 @@ export function WidgetManager({
       allowedOrigins: "",
       rateLimit: 30,
       active: true,
-      primaryColor: "#511C76",
+      // Nasce enxergando só a documentação dona; ampliar é escolha explícita.
+      scopeSpaceIds: [spaces[0]?.id ?? ""].filter(Boolean),
+      systemPrompt: "",
+      primaryColor: COR_PADRAO,
       title: "Assistente",
       welcome: "Olá! Como posso ajudar com a documentação?",
       avatarUrl: "",
@@ -125,6 +145,9 @@ export function WidgetManager({
       allowedOrigins: draft.allowedOrigins.split("\n").map((s) => s.trim()).filter(Boolean),
       rateLimit: Number(draft.rateLimit) || 30,
       active: draft.active,
+      // A dona entra sempre, mesmo que desmarcada na lista.
+      scopeSpaceIds: [...new Set([draft.spaceId, ...draft.scopeSpaceIds])],
+      systemPrompt: draft.systemPrompt.trim() || null,
       config: {
         primaryColor: draft.primaryColor,
         title: draft.title,
@@ -195,7 +218,7 @@ export function WidgetManager({
           </p>
         )}
         {initialKeys.map((k) => (
-          <div key={k.id} className="rounded-lg border border-border bg-surface p-4">
+          <Surface key={k.id} elevation={1}>
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-medium">{k.name}</span>
               <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-muted">
@@ -245,7 +268,7 @@ export function WidgetManager({
                 ⚠ Sem allowlist de origem: qualquer site pode usar esta chave. Restrinja em produção.
               </p>
             )}
-          </div>
+          </Surface>
         ))}
       </div>
 
@@ -257,23 +280,83 @@ export function WidgetManager({
           </h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Nome">
-              <input className={INP} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+              <input className={controlClass} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </Field>
-            <Field label="Espaço (o widget só acessa este espaço)">
+            <Field label="Documentação dona (define permissão e registra as conversas)">
               <select
-                className={INP}
+                className={controlClass}
                 value={draft.spaceId}
                 disabled={!!draft.id}
-                onChange={(e) => setDraft({ ...draft, spaceId: e.target.value })}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    spaceId: e.target.value,
+                    // Trocar a dona não pode deixar a antiga no escopo por inércia.
+                    scopeSpaceIds: [e.target.value],
+                  })
+                }
               >
                 {spaces.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </Field>
+
+            <fieldset>
+              <legend className="mb-1 block text-sm font-medium text-text">
+                O que este chatbot consulta
+              </legend>
+              <p className="mb-2 text-xs leading-relaxed text-text-muted">
+                Marque as documentações que ele pode usar para responder. A dona está sempre
+                incluída. É isto que permite uma URL responder sobre um produto e outra sobre
+                dois.
+              </p>
+              <div className="space-y-1.5 rounded-lg border border-border p-3">
+                {spaces.map((s) => {
+                  const dona = s.id === draft.spaceId;
+                  const marcada = dona || draft.scopeSpaceIds.includes(s.id);
+                  return (
+                    <label key={s.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={marcada}
+                        disabled={dona}
+                        className="accent-[var(--color-primary)]"
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            scopeSpaceIds: e.target.checked
+                              ? [...new Set([...draft.scopeSpaceIds, s.id])]
+                              : draft.scopeSpaceIds.filter((x) => x !== s.id),
+                          })
+                        }
+                      />
+                      <span className={dona ? "text-text-muted" : ""}>
+                        {s.name}
+                        {dona && " (dona)"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <Field label="Persona deste chatbot (opcional)">
+              <textarea
+                className={`${controlClass} h-24`}
+                value={draft.systemPrompt}
+                placeholder="Ex.: Você atende parceiros comerciais do Produto Alfa. Seja direto e cite o número do artigo."
+                onChange={(e) => setDraft({ ...draft, systemPrompt: e.target.value })}
+              />
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                Vazio herda a persona da documentação dona. As regras de citar fontes e não
+                responder por conhecimento próprio continuam valendo — não é possível desligá-las
+                por aqui.
+              </p>
+            </Field>
             <Field label="Origens permitidas (uma por linha; vazio = qualquer)">
               <textarea
-                className={`${INP} h-20 font-mono text-xs`}
+                className={`${controlClass} h-20 font-mono text-xs`}
                 placeholder="https://app.cliente.com"
                 value={draft.allowedOrigins}
                 onChange={(e) => setDraft({ ...draft, allowedOrigins: e.target.value })}
@@ -283,7 +366,7 @@ export function WidgetManager({
               <Field label="Limite (requisições/min por chave)">
                 <input
                   type="number"
-                  className={INP}
+                  className={controlClass}
                   value={draft.rateLimit}
                   onChange={(e) => setDraft({ ...draft, rateLimit: Number(e.target.value) })}
                 />
@@ -309,15 +392,15 @@ export function WidgetManager({
                   value={draft.primaryColor}
                   onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })}
                 />
-                <input className={`${INP} flex-1`} value={draft.primaryColor} onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })} />
+                <input className={`${controlClass} flex-1`} value={draft.primaryColor} onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })} />
               </div>
             </Field>
             <Field label="Título do widget">
-              <input className={INP} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              <input className={controlClass} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
             </Field>
             <Field label="Posição inicial">
               <select
-                className={INP}
+                className={controlClass}
                 value={draft.position}
                 onChange={(e) => setDraft({ ...draft, position: e.target.value as "right" | "left" })}
               >
@@ -326,13 +409,13 @@ export function WidgetManager({
               </select>
             </Field>
             <Field label="Avatar (URL, opcional)">
-              <input className={INP} value={draft.avatarUrl} onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })} />
+              <input className={controlClass} value={draft.avatarUrl} onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })} />
             </Field>
             <Field label="Mensagem de boas-vindas">
-              <textarea className={`${INP} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
+              <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
             </Field>
             <Field label="Perguntas sugeridas (uma por linha)">
-              <textarea className={`${INP} h-16`} value={draft.suggestions} onChange={(e) => setDraft({ ...draft, suggestions: e.target.value })} />
+              <textarea className={`${controlClass} h-16`} value={draft.suggestions} onChange={(e) => setDraft({ ...draft, suggestions: e.target.value })} />
             </Field>
           </div>
 
@@ -362,15 +445,6 @@ export function WidgetManager({
         }
       `}</style>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-text-muted">{label}</span>
-      {children}
-    </label>
   );
 }
 
@@ -410,7 +484,7 @@ function EmbedSnippet({ siteUrl, publicKey }: { siteUrl: string; publicKey: stri
 
 function ApiDocs({ siteUrl }: { siteUrl: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-5 text-sm">
+    <Surface elevation={1} padding="lg" className="text-sm">
       <h2 className="text-lg font-semibold">API REST</h2>
       <p className="mt-1 text-text-muted">
         Integre do seu jeito. Autentique com a chave pública no header{" "}
@@ -441,6 +515,6 @@ function ApiDocs({ siteUrl }: { siteUrl: string }) {
 # Resposta: {"results":[{"title","heading_path","snippet","url"}]}`}</pre>
         </div>
       </div>
-    </div>
+    </Surface>
   );
 }

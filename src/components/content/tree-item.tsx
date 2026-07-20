@@ -30,6 +30,7 @@ export function TreeItem({
   active,
   selected,
   checked,
+  anyChecked,
   indentationWidth,
   onToggle,
   onSelect,
@@ -44,9 +45,11 @@ export function TreeItem({
   active: boolean;
   selected: boolean;
   checked: boolean;
+  /** Há itens marcados na árvore → mantém as caixas visíveis. */
+  anyChecked: boolean;
   indentationWidth: number;
   onToggle: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onCheck: (e: React.MouseEvent) => void;
   children?: React.ReactNode;
 }) {
@@ -57,6 +60,7 @@ export function TreeItem({
   return (
     <div
       ref={setNodeRef}
+      data-node-id={id}
       style={{
         transform: CSS.Translate.toString(transform),
         transition,
@@ -79,7 +83,7 @@ export function TreeItem({
         title="Selecionar (Shift para intervalo)"
         className={cn(
           "size-3.5 shrink-0 accent-[var(--color-primary)]",
-          checked ? "" : "opacity-0 group-hover:opacity-100",
+          checked || anyChecked ? "" : "opacity-0 group-hover:opacity-100",
         )}
       />
       <button
@@ -114,6 +118,7 @@ export function TreeItem({
       <button
         type="button"
         onClick={onSelect}
+        title="Clique para abrir · Shift+clique seleciona um intervalo · Ctrl/⌘+clique marca vários"
         className="flex flex-1 items-center gap-2 truncate text-left"
       >
         <Icon className="size-4 shrink-0 text-text-muted" />

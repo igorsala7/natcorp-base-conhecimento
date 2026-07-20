@@ -70,6 +70,15 @@
       ".cites{align-self:stretch;display:flex;flex-direction:column;gap:6px;margin-top:2px}" +
       ".cite{display:flex;align-items:center;gap:8px;text-decoration:none;border:1px solid #e2d8ee;border-radius:10px;padding:6px;background:#fff;transition:border-color .15s}" +
       ".cite:hover{border-color:var(--pc)}" +
+      // Fonte sem link: não deve parecer clicável.
+      ".cite-nolink{cursor:default}.cite-nolink:hover{border-color:#e2d8ee}" +
+      ".cdet{align-self:stretch;margin-top:2px}" +
+      // list-style none nos dois seletores: o Safari usa ::-webkit-details-marker.
+      ".csum{cursor:pointer;list-style:none;font-size:12px;color:#6b6577;padding:4px 2px;user-select:none}" +
+      ".csum::-webkit-details-marker{display:none}" +
+      ".csum:before{content:\"\\25B8\";display:inline-block;margin-right:6px;transition:transform .15s}" +
+      ".cdet[open] .csum:before{transform:rotate(90deg)}" +
+      ".csum:hover{color:#201d26}" +
       ".cthumb{width:38px;height:38px;border-radius:6px;object-fit:cover;flex:none;background:#f3edfa}" +
       ".cthumb.cph{display:flex;align-items:center;justify-content:center;font-size:18px}" +
       ".cbody{min-width:0;display:flex;flex-direction:column}" +
@@ -429,6 +438,14 @@
         history.push({ role: "assistant", content: full });
         if (citations.length) renderCitations(citations);
         renderFeedback();
+      } else {
+        // Stream vazio = a chamada ao provedor falhou. Antes daqui não saía
+        // nada na tela e o widget parecia simplesmente ignorar a pergunta.
+        addMsg(
+          "assistant",
+          "Não foi possível gerar a resposta agora. Tente de novo em instantes."
+        );
+        if (citations.length) renderCitations(citations);
       }
       done();
     }
@@ -469,14 +486,29 @@
   }
 
   function renderCitations(cites) {
+    // Sanfona FECHADA: no painel do widget a lista de fontes ocupava mais
+    // altura que a resposta. <details> nativo — sem estado, sem JS de toggle.
+    var det = document.createElement("details");
+    det.className = "cdet";
+    var sum = document.createElement("summary");
+    sum.className = "csum";
+    sum.textContent = "Fontes (" + cites.length + ")";
+    det.appendChild(sum);
+
     var box = document.createElement("div");
     box.className = "cites";
     cites.forEach(function (c) {
-      var a = document.createElement("a");
-      a.className = "cite";
-      a.href = API + c.url;
-      a.target = "_blank";
-      a.rel = "noopener";
+      // Sem url a fonte é um arquivo da base de conhecimento, que não tem
+      // página no portal: vira <span>, senão o href ficaria só com a origem da
+      // API e o clique levaria o leitor para lugar nenhum.
+      var temLink = !!c.url;
+      var a = document.createElement(temLink ? "a" : "span");
+      a.className = temLink ? "cite" : "cite cite-nolink";
+      if (temLink) {
+        a.href = API + c.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+      }
       var thumb;
       if (c.image) {
         thumb = document.createElement("img");
@@ -504,7 +536,8 @@
       a.appendChild(body);
       box.appendChild(a);
     });
-    messagesEl.appendChild(box);
+    det.appendChild(box);
+    messagesEl.appendChild(det);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 

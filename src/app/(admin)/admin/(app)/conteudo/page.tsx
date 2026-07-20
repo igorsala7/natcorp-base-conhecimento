@@ -22,7 +22,7 @@ function EmptyState() {
   return (
     <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border">
       <div className="max-w-md p-8 text-center">
-        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
           <FileText className="size-6" />
         </div>
         <h2 className="mt-4 text-xl font-semibold tracking-tight">Comece a documentar</h2>
@@ -101,7 +101,7 @@ export default async function ConteudoPage({
 
   const tree = await listTree(current.id);
   return (
-    <ContentShell aside={<>{switcher}<Tree spaceId={current.id} nodes={tree} /></>}>
+    <ContentShell aside={<>{switcher}<Tree spaceId={current.id} nodes={tree} spaces={spaces} /></>}>
       <EmptyState />
     </ContentShell>
   );

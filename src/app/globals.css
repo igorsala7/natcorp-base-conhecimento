@@ -15,15 +15,24 @@
   --color-bg: #ffffff;
   --color-surface: #ffffff;
   --color-surface-2: #fafafb; /* brand.gray.50 */
-  --color-border: #e8e6ec; /* brand.gray.200 */
+  --color-border: #e8e6ec; /* brand.gray.200 — separação decorativa */
+  /* Borda de CONTROLE (input, select, checkbox): o hairline decorativo mede
+     1,24:1 e some para quem enxerga pouco. WCAG 1.4.11 exige 3:1 no limite de
+     um componente de interface. Medido: 3,56:1. */
+  --color-border-strong: #8b8598;
   --color-text: #201d26; /* brand.gray.900 */
-  --color-text-muted: #7c7688; /* brand.gray.500 */
+  /* Medido 5,60:1 sobre branco e 5,36:1 sobre a superfície 2. O gray.500
+     original (#7c7688) reprovava em AA (4,37:1) — texto secundário é texto. */
+  --color-text-muted: #6b6577;
 
   --color-primary: #511c76; /* brand.purple.700 — AAA sobre branco */
   --color-primary-hover: #431862; /* brand.purple.800 */
   --color-primary-fg: #ffffff;
 
-  --color-accent: #c95788; /* brand.pink.500 — preenchimentos/badges */
+  /* Rosa PREENCHIDO com tinta branca. O #C95788 da marca dá só 4,04:1 com
+     branco — reprova AA. O shade 600 mantém a marca e mede 5,62:1. O tom puro
+     continua disponível como brand-pink-500 para preenchimentos sem texto. */
+  --color-accent: #b03d6e;
   --color-accent-fg: #ffffff;
 
   --color-focus-ring: #8153a3; /* brand.purple.500 */
@@ -37,6 +46,32 @@
   --text-2xl: 1.5rem; /* 24 */
   --text-3xl: 1.875rem; /* 30 */
   --text-4xl: clamp(2rem, 1.4rem + 2.6vw, 2.75rem); /* 32→44 títulos de página */
+
+  /* ── Forma ────────────────────────────────────────────────────────────
+     Uma escala só. Antes havia 5 valores de raio soltos pelo código, o que
+     tira a sensação de sistema — é o que mais denuncia UI improvisada. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+
+  /* ── Elevação ─────────────────────────────────────────────────────────
+     Sombras curtas, difusas e de baixa opacidade, com viés roxo (o cinza
+     puro deixa a marca "suja"). Três níveis, nunca mais que isso. */
+  --shadow-1: 0 1px 2px rgb(44 26 99 / 0.05), 0 1px 1px rgb(44 26 99 / 0.03);
+  --shadow-2: 0 4px 12px rgb(44 26 99 / 0.08), 0 1px 3px rgb(44 26 99 / 0.04);
+  --shadow-3: 0 16px 40px rgb(44 26 99 / 0.14), 0 2px 8px rgb(44 26 99 / 0.06);
+
+  /* ── Movimento ────────────────────────────────────────────────────────
+     Um ritmo só para a interface inteira. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+
+  /* ── Ritmo vertical do portal ─────────────────────────────────────────
+     Hierarquia por ESPAÇO, não por linhas divisórias. */
+  --space-block: 1.75rem;
+  --space-section: 4rem;
   --measure: 72ch; /* medida de linha confortável (65–75 caracteres) */
 
   color-scheme: light;
@@ -47,8 +82,9 @@
   --color-surface: #201d26; /* brand.gray.900 */
   --color-surface-2: #302c38; /* brand.gray.800 */
   --color-border: #302c38; /* brand.gray.800 */
+  --color-border-strong: #736d80; /* 3,70:1 sobre o fundo, 3,34:1 sobre a superfície */
   --color-text: #f4f3f6; /* brand.gray.100 */
-  --color-text-muted: #a9a4b5; /* brand.gray.400 */
+  --color-text-muted: #a9a4b5; /* brand.gray.400 — 7,57:1, folgado */
 
   --color-primary: #9e77bc; /* brand.purple.400 — legível sobre fundo escuro */
   --color-primary-hover: #c0a6d5; /* brand.purple.300 */
@@ -58,6 +94,12 @@
   --color-accent-fg: #3d1122; /* brand.pink.950 */
 
   --color-focus-ring: #9e77bc; /* brand.purple.400 */
+
+  /* Sombra sutil some sobre fundo escuro: aqui a elevação vem de preto mais
+     denso, e a separação real fica por conta da borda/superfície. */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3);
+  --shadow-3: 0 16px 40px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.4);
 
   color-scheme: dark;
 }
@@ -70,11 +112,31 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
-    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--font-sans), system-ui, sans-serif;
     /* Densidade calma: leitura confortável no corpo. */
     line-height: 1.7;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Títulos: quanto maior o corpo, mais fechado o tracking — é o que dá o
+     acabamento "editorial" das documentações da Apple/Microsoft. */
+  h1 {
+    letter-spacing: -0.022em;
+  }
+  h2 {
+    letter-spacing: -0.018em;
+  }
+  h3 {
+    letter-spacing: -0.014em;
+  }
+
+  /* Números alinhados em dados, datas e contadores: sem isso a coluna
+     "dança" a cada atualização. */
+  table,
+  time,
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Anel de foco sempre visível — nunca outline:none sem substituto. */
@@ -135,30 +197,121 @@
 }
 
 @layer components {
+  /* Marca por documentação. O estilo inline em `spaceChrome` só entrega o PAR
+     de cores; é aqui que se escolhe qual vale, porque inline não enxerga
+     `.dark`. Sem isto, uma marca escura sobrescreveria também o tema escuro e
+     ficaria ilegível sobre o fundo escuro. */
+  .tema-espaco {
+    --color-primary: var(--marca-claro);
+    --color-primary-hover: var(--marca-claro-hover);
+    --color-focus-ring: var(--marca-claro);
+  }
+  .dark .tema-espaco,
+  .tema-espaco.dark {
+    --color-primary: var(--marca-escuro);
+    /* No escuro o hover CLAREIA (o inverso do tema claro): escurecer sobre
+       fundo escuro reduziria o contraste em vez de dar retorno visual. */
+    --color-primary-hover: color-mix(in srgb, var(--marca-escuro) 80%, white);
+    --color-focus-ring: var(--marca-escuro);
+  }
+
+
   /* Leitura do portal: medida confortável e hierarquia clara. */
   .prose-portal {
     max-width: var(--measure);
   }
+  /* Escada de títulos do CORPO do artigo. Fica sempre um degrau abaixo do
+     título do artigo (24px) — heading de conteúdo maior que o título que o
+     contém é inversão de hierarquia, e é o que mais denuncia falta de sistema. */
   .prose-portal :where(h2) {
     font-size: var(--text-2xl);
+    font-weight: 600;
     line-height: 1.25;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.018em;
     margin-top: 2.25em;
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(h3) {
     font-size: var(--text-xl);
+    font-weight: 600;
     line-height: 1.3;
+    letter-spacing: -0.014em;
+    margin-top: 2em;
+    scroll-margin-top: 5rem;
+  }
+  .prose-portal :where(h4) {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    line-height: 1.4;
     margin-top: 1.75em;
+    margin-bottom: 0.5em;
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(p, li) {
     line-height: 1.75;
   }
+  /* Ritmo vertical: parágrafos respiram, listas ficam coesas. */
+  .prose-portal :where(p) {
+    margin-top: 1.15em;
+    margin-bottom: 1.15em;
+  }
   /* Bloco de código com realce (lowlight/highlight.js) já estilizado em base. */
   .prose-portal :where(pre) {
     position: relative;
     padding-top: 2.25rem;
+  }
+
+  /* Etiqueta de linguagem do bloco de código. */
+  .code-lang {
+    position: absolute;
+    top: 0.55rem;
+    left: 0.85rem;
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* Tabela de documentação: cabeçalho sutil, separação horizontal apenas,
+     números alinhados. Grade completa deixa o dado pesado e difícil de varrer. */
+  .table-portal table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+  .table-portal th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-text);
+    background: var(--color-surface-2);
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+  .table-portal td {
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+    line-height: 1.6;
+  }
+  .table-portal tr:last-child td {
+    border-bottom: 0;
+  }
+
+  /* Prévia do admin: destaca o artigo alvo quando se chega por âncora
+     (botão "Prévia" do editor). Some sozinho ao navegar para outro. */
+  .previa-alvo:target {
+    position: relative;
+  }
+  .previa-alvo:target::before {
+    content: "";
+    position: absolute;
+    inset: -0.75rem -1rem;
+    border-radius: var(--radius-lg);
+    border-left: 3px solid var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    pointer-events: none;
   }
 
   /* Botão de copiar código (aparece no hover do bloco). */
@@ -242,6 +395,36 @@
     transition: none;
   }
 }
+
+/* Editor de blocos: placeholder de um contentEditable inline vazio. */
+.rich-text:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.rich-text kbd {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  border-radius: 0.25rem;
+  padding: 0 0.35em;
+  font-size: 0.85em;
+}
+
+/* Alça de arrastar do bloco (6 pontos) — só aparece no hover do bloco. */
+.block-row .block-handle {
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.block-row:hover .block-handle,
+.block-row:focus-within .block-handle {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .block-row .block-handle {
+    transition: none;
+  }
+}
+
 @keyframes scalein {
   from {
     opacity: 0;

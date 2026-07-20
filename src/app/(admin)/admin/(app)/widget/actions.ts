@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { requirePermission } from "@/lib/auth/permissions";
+import { requirePermission, hasPermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { generatePublicKey } from "@/lib/widget/auth";
 import type { Json } from "@/lib/database.types";
@@ -29,13 +29,46 @@ const upsertSchema = z.object({
   rateLimit: z.number().int().min(1).max(600),
   active: z.boolean(),
   config: configSchema,
+  /** Documentações que este chatbot pode consultar (além da dona). */
+  scopeSpaceIds: z.array(z.string().uuid()).max(50).default([]),
+  /** Persona deste chatbot. Vazio = herda a da documentação dona. */
+  systemPrompt: z.string().max(2000).nullable().default(null),
 });
+
+/**
+ * Regrava o escopo de leitura da chave.
+ *
+ * Só entram documentações que o usuário PODE VER — senão bastaria conhecer o
+ * id de um espaço alheio para ampliar o alcance do chatbot até ele. A RLS da
+ * tabela também barra isso; aqui a checagem serve para o erro ser claro em vez
+ * de virar uma falha genérica de permissão.
+ */
+async function gravarEscopo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  widgetKeyId: string,
+  ownerSpaceId: string,
+  scopeSpaceIds: string[],
+): Promise<string | null> {
+  const desejados = [...new Set([ownerSpaceId, ...scopeSpaceIds])];
+  for (const sid of desejados) {
+    if (sid === ownerSpaceId) continue;
+    if (!(await hasPermission("content.view", sid))) {
+      return "Você não tem acesso a uma das documentações selecionadas.";
+    }
+  }
+  await supabase.from("widget_key_spaces").delete().eq("widget_key_id", widgetKeyId);
+  const { error } = await supabase
+    .from("widget_key_spaces")
+    .insert(desejados.map((space_id) => ({ widget_key_id: widgetKeyId, space_id })));
+  return error ? `Falha ao salvar o escopo: ${error.message}` : null;
+}
 
 /** Cria ou atualiza uma chave de widget. Exige widget.manage no espaço. */
 export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult> {
   const parsed = upsertSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Dados inválidos." };
-  const { id, spaceId, name, allowedOrigins, rateLimit, active, config } = parsed.data;
+  const { id, spaceId, name, allowedOrigins, rateLimit, active, config, scopeSpaceIds, systemPrompt } =
+    parsed.data;
 
   try {
     await requirePermission("widget.manage", spaceId);
@@ -55,9 +88,12 @@ export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult>
         rate_limit: rateLimit,
         active,
         config: config as Json,
+        system_prompt: systemPrompt?.trim() || null,
       })
       .eq("id", id);
     if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+    const erroEscopo = await gravarEscopo(supabase, id, spaceId, scopeSpaceIds);
+    if (erroEscopo) return { ok: false, error: erroEscopo };
     await audit({ action: "widget.update", entityType: "widget_key", entityId: id, spaceId });
     revalidatePath("/admin/widget");
     return { ok: true, id };
@@ -76,11 +112,14 @@ export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult>
       rate_limit: rateLimit,
       active,
       config: config as Json,
+      system_prompt: systemPrompt?.trim() || null,
       created_by: user?.id ?? null,
     })
     .select("id")
     .single();
   if (error || !created) return { ok: false, error: `Falha ao criar: ${error?.message}` };
+  const erroEscopo = await gravarEscopo(supabase, created.id, spaceId, scopeSpaceIds);
+  if (erroEscopo) return { ok: false, error: erroEscopo };
   await audit({ action: "widget.create", entityType: "widget_key", entityId: created.id, spaceId });
   revalidatePath("/admin/widget");
   return { ok: true, id: created.id };

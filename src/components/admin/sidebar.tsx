@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   Bot,
   CheckSquare,
   Code2,
+  Database,
   FolderTree,
   LayoutDashboard,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
@@ -20,132 +22,227 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const NAV = [
-  { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
-  { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
-  { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
-  { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
-  { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
-  { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
-  { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
-  { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
-  { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
-  { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
+/**
+ * Onze itens numa lista corrida viram uma parede — o olho não acha nada sem
+ * ler tudo. Agrupados por intenção ("estou escrevendo" / "estou distribuindo"
+ * / "estou administrando"), a varredura passa a ser por grupo.
+ */
+const GRUPOS = [
   {
-    href: "/admin/configuracoes",
-    label: "Configurações",
-    icon: Settings,
-    ready: true,
+    label: null, // Painel fica solto no topo: é o destino de volta.
+    items: [{ href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true }],
+  },
+  {
+    label: "Conteúdo",
+    items: [
+      { href: "/admin/conteudo", label: "Documentação", icon: FolderTree, ready: true },
+      { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
+      { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
+      { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
+    ],
+  },
+  {
+    label: "Distribuição",
+    items: [
+      { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
+      { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
+      { href: "/admin/base-conhecimento", label: "Base do chatbot", icon: Database, ready: true },
+      { href: "/admin/aparencia", label: "Aparência", icon: Palette, ready: true },
+      { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
+    ],
+  },
+  {
+    label: "Administração",
+    items: [
+      { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
+      { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
+      { href: "/admin/configuracoes", label: "Configurações", icon: Settings, ready: true },
+    ],
   },
 ] as const;
 
-const KEY = "kb.sidebarCollapsed";
+/** `"1"` = fixada aberta. O padrão (ausente ou `"0"`) é recolhida. */
+const KEY = "kb.sidebarPinned";
+/** Carência antes de recolher: dá tempo de sair e voltar sem a barra sumir. */
+const ATRASO_RECOLHER = 1000;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  // Fixada pelo usuário no botão — sobrevive à navegação.
+  const [pinned, setPinned] = useState(false);
+  // Aberta temporariamente pelo mouse/teclado — não persiste.
+  const [espiando, setEspiando] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restaura o estado (recolhido/expandido) do localStorage.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCollapsed(localStorage.getItem(KEY) === "1");
+    setPinned(localStorage.getItem(KEY) === "1");
   }, []);
+
+  // Não deixa um timer pendente disparar depois da desmontagem.
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+
+  function abrir() {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    setEspiando(true);
+  }
+
+  function agendarFechar() {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setEspiando(false);
+    }, ATRASO_RECOLHER);
+  }
+
   function toggle() {
-    setCollapsed((c) => {
-      const next = !c;
+    setPinned((p) => {
+      const next = !p;
       localStorage.setItem(KEY, next ? "1" : "0");
       return next;
     });
+    setEspiando(false);
   }
 
+  const expandida = pinned || espiando;
+  const collapsed = !expandida;
+
   return (
-    <aside
-      className={cn(
-        "hidden shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex",
-        collapsed ? "w-16" : "w-60",
-      )}
-    >
-      <div
+    // Duas camadas de propósito: este espaçador segura o lugar na largura
+    // RECOLHIDA e a barra flutua por cima ao espiar. Se ela empurrasse o
+    // conteúdo, a página inteira refluiria a cada passada do mouse.
+    <div className={cn("relative hidden shrink-0 md:block", pinned ? "w-60" : "w-16")}>
+      <aside
+        onMouseEnter={abrir}
+        onMouseLeave={agendarFechar}
+        // Teclado também abre: navegação por Tab não gera hover, e sem isto a
+        // barra ficaria inalcançável para quem não usa mouse.
+        onFocusCapture={abrir}
+        onBlurCapture={agendarFechar}
         className={cn(
-          "flex h-14 items-center border-b border-border",
-          collapsed ? "justify-center px-2" : "gap-2 px-5",
+          "absolute inset-y-0 left-0 z-30 flex flex-col border-r border-border bg-surface",
+          "transition-[width] duration-base ease-out motion-reduce:transition-none",
+          expandida ? "w-60" : "w-16",
+          // Só sombra quando flutua sobre o conteúdo; fixada, ela faz parte do
+          // layout e sombra ali seria ruído.
+          !pinned && espiando && "shadow-2",
         )}
       >
         <div
-          className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-fg text-sm font-bold"
-          aria-hidden
+          className={cn(
+            "flex h-14 items-center border-b border-border",
+            collapsed ? "justify-center px-2" : "gap-2 px-5",
+          )}
         >
-          N
+          <div
+            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-fg text-sm font-bold"
+            aria-hidden
+          >
+            N
+          </div>
+          {!collapsed && (
+            <span className="flex-1 truncate text-sm font-semibold tracking-tight">
+              Base de Conhecimento
+            </span>
+          )}
         </div>
-        {!collapsed && (
-          <span className="flex-1 truncate text-sm font-semibold tracking-tight">
-            Base de Conhecimento
-          </span>
-        )}
-      </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 p-3">
-        {NAV.map((item) => {
-          const active =
-            item.href === "/admin"
-              ? pathname === "/admin"
-              : pathname.startsWith(item.href);
-          const Icon = item.icon;
-          const base = cn(
-            "flex items-center rounded-md py-2 text-sm font-medium transition-colors",
-            collapsed ? "justify-center px-2" : "gap-3 px-3",
-          );
+        <nav className="flex flex-1 flex-col overflow-y-auto p-2.5">
+          {GRUPOS.map((grupo, gi) => (
+            <div key={grupo.label ?? "raiz"} className={gi > 0 ? "mt-5" : undefined}>
+              {grupo.label &&
+                (collapsed ? (
+                  // Recolhida não há espaço para o rótulo: o grupo vira um traço.
+                  <div className="mx-2 mb-2 border-t border-border" aria-hidden="true" />
+                ) : (
+                  <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
+                    {grupo.label}
+                  </p>
+                ))}
+              <div className="flex flex-col gap-0.5">
+                {grupo.items.map((item) => {
+                  const active =
+                    item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
+                  const Icon = item.icon;
+                  const base = cn(
+                    "relative flex items-center rounded-md py-2 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "gap-3 px-3",
+                  );
 
-          if (!item.ready) {
-            return (
-              <span
-                key={item.href}
-                className={cn(base, "cursor-not-allowed text-text-muted opacity-60")}
-                title={collapsed ? `${item.label} — em fase futura` : "Disponível em fase futura"}
-              >
-                <Icon className="size-4 shrink-0" />
-                {!collapsed && item.label}
-              </span>
-            );
-          }
+                  if (!item.ready) {
+                    return (
+                      <span
+                        key={item.href}
+                        className={cn(base, "cursor-not-allowed text-text-muted opacity-60")}
+                        title={
+                          collapsed ? `${item.label} — em fase futura` : "Disponível em fase futura"
+                        }
+                      >
+                        <Icon className="size-4 shrink-0" />
+                        {!collapsed && item.label}
+                      </span>
+                    );
+                  }
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
-              className={cn(
-                base,
-                active
-                  ? "bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
-                  : "text-text hover:bg-surface-2",
-              )}
-            >
-              <Icon className="size-4 shrink-0" />
-              {!collapsed && item.label}
-            </Link>
-          );
-        })}
-      </nav>
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      title={collapsed ? item.label : undefined}
+                      className={cn(
+                        base,
+                        active
+                          ? "bg-brand-purple-50 font-semibold text-primary dark:bg-brand-purple-950/40"
+                          : "font-medium text-text hover:bg-surface-2",
+                      )}
+                    >
+                      {/* Barra + peso além do fundo: o estado ativo não pode
+                          depender só da cor. */}
+                      {active && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-primary"
+                        />
+                      )}
+                      <Icon className="size-4 shrink-0" />
+                      {!collapsed && item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
 
-      <button
-        type="button"
-        onClick={toggle}
-        title={collapsed ? "Expandir menu" : "Recolher menu"}
-        className={cn(
-          "flex items-center border-t border-border p-3 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text",
-          collapsed ? "justify-center" : "gap-2",
-        )}
-      >
-        {collapsed ? (
-          <PanelLeftOpen className="size-4" />
-        ) : (
-          <>
-            <PanelLeftClose className="size-4" /> Recolher
-          </>
-        )}
-      </button>
-    </aside>
+        {/* O botão agora FIXA, não "expande": expandir já é o hover. Sem ele,
+            quem usa o menu o tempo todo ficaria refém da barra sumindo. */}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-pressed={pinned}
+          title={pinned ? "Desafixar menu (recolhe sozinho)" : "Fixar menu aberto"}
+          className={cn(
+            "flex items-center border-t border-border p-3 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text",
+            collapsed ? "justify-center" : "gap-2",
+          )}
+        >
+          {pinned ? (
+            <>
+              <PanelLeftClose className="size-4" /> Desafixar
+            </>
+          ) : collapsed ? (
+            <PanelLeftOpen className="size-4" />
+          ) : (
+            <>
+              <PanelLeftOpen className="size-4" /> Fixar aberto
+            </>
+          )}
+        </button>
+      </aside>
+    </div>
   );
 }

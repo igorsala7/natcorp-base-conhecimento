@@ -45,7 +45,7 @@ export function PortalMobileNav({
             className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
             onClick={() => setOpen(false)}
           />
-          <div className="relative flex h-dvh w-[85%] max-w-xs flex-col border-r border-border bg-bg shadow-2xl motion-safe:animate-[slideinleft_200ms_ease-out]">
+          <div className="relative flex h-dvh w-[85%] max-w-xs flex-col border-r border-border bg-surface shadow-3 motion-safe:animate-[slideinleft_200ms_ease-out]">
             <div className="flex h-14 items-center justify-between border-b border-border px-4">
               <span className="font-semibold">Documentação</span>
               <button

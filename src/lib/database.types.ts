@@ -90,6 +90,35 @@ export type Database = {
           },
         ]
       }
+      article_drafts: {
+        Row: {
+          content_json: Json
+          node_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          content_json: Json
+          node_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          content_json?: Json
+          node_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_drafts_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: true
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       articles: {
         Row: {
           content_html: string | null
@@ -234,34 +263,37 @@ export type Database = {
       }
       chunks: {
         Row: {
-          article_id: string
+          article_id: string | null
           content: string
+          document_id: string | null
           embedding: string | null
           heading_path: string | null
           id: string
-          node_id: string
+          node_id: string | null
           space_id: string
           token_count: number | null
           tsv: unknown
         }
         Insert: {
-          article_id: string
+          article_id?: string | null
           content: string
+          document_id?: string | null
           embedding?: string | null
           heading_path?: string | null
           id?: string
-          node_id: string
+          node_id?: string | null
           space_id: string
           token_count?: number | null
           tsv?: unknown
         }
         Update: {
-          article_id?: string
+          article_id?: string | null
+          document_id?: string | null
           content?: string
           embedding?: string | null
           heading_path?: string | null
           id?: string
-          node_id?: string
+          node_id?: string | null
           space_id?: string
           token_count?: number | null
           tsv?: unknown
@@ -272,6 +304,13 @@ export type Database = {
             columns: ["article_id"]
             isOneToOne: false
             referencedRelation: "articles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_documents"
             referencedColumns: ["id"]
           },
           {
@@ -434,6 +473,56 @@ export type Database = {
             columns: ["role_id"]
             isOneToOne: false
             referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_documents: {
+        Row: {
+          chunk_count: number
+          created_at: string
+          created_by: string | null
+          error: string | null
+          id: string
+          mime: string | null
+          original_name: string
+          size_bytes: number | null
+          space_id: string
+          status: string
+          storage_path: string
+        }
+        Insert: {
+          chunk_count?: number
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          mime?: string | null
+          original_name: string
+          size_bytes?: number | null
+          space_id: string
+          status?: string
+          storage_path: string
+        }
+        Update: {
+          chunk_count?: number
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          mime?: string | null
+          original_name?: string
+          size_bytes?: number | null
+          space_id?: string
+          status?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_documents_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -921,8 +1010,35 @@ export type Database = {
           },
         ]
       }
+      space_slugs: {
+        Row: {
+          created_at: string
+          slug: string
+          space_id: string
+        }
+        Insert: {
+          created_at?: string
+          slug: string
+          space_id: string
+        }
+        Update: {
+          created_at?: string
+          slug?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_slugs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       spaces: {
         Row: {
+          chat_prompt: string | null
           created_at: string
           custom_domain: string | null
           id: string
@@ -935,6 +1051,7 @@ export type Database = {
           visibility: string
         }
         Insert: {
+          chat_prompt?: string | null
           created_at?: string
           custom_domain?: string | null
           id?: string
@@ -947,6 +1064,7 @@ export type Database = {
           visibility?: string
         }
         Update: {
+          chat_prompt?: string | null
           created_at?: string
           custom_domain?: string | null
           id?: string
@@ -968,6 +1086,39 @@ export type Database = {
           },
         ]
       }
+      widget_key_spaces: {
+        Row: {
+          created_at: string
+          space_id: string
+          widget_key_id: string
+        }
+        Insert: {
+          created_at?: string
+          space_id: string
+          widget_key_id: string
+        }
+        Update: {
+          created_at?: string
+          space_id?: string
+          widget_key_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_key_spaces_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_key_spaces_widget_key_id_fkey"
+            columns: ["widget_key_id"]
+            isOneToOne: false
+            referencedRelation: "widget_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       widget_keys: {
         Row: {
           active: boolean
@@ -980,6 +1131,7 @@ export type Database = {
           public_key: string
           rate_limit: number
           space_id: string
+          system_prompt: string | null
         }
         Insert: {
           active?: boolean
@@ -992,6 +1144,7 @@ export type Database = {
           public_key: string
           rate_limit?: number
           space_id: string
+          system_prompt?: string | null
         }
         Update: {
           active?: boolean
@@ -1004,6 +1157,7 @@ export type Database = {
           public_key?: string
           rate_limit?: number
           space_id?: string
+          system_prompt?: string | null
         }
         Relationships: [
           {
@@ -1048,6 +1202,7 @@ export type Database = {
       }
       hybrid_search_scoped: {
         Args: {
+          p_document_ids?: string[]
           p_embedding?: string
           p_limit?: number
           p_node_ids?: string[]
@@ -1055,8 +1210,9 @@ export type Database = {
         }
         Returns: {
           content: string
+          document_id: string | null
           heading_path: string
-          node_id: string
+          node_id: string | null
           score: number
           snippet: string
           title: string

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
-import { FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
+import { ChevronRight, FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
@@ -16,13 +16,17 @@ function decodeB64Utf8(b64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+/** Espelha `RetrievedSource`. `url` nulo = fonte de arquivo, sem página. */
 type Citation = {
   n: number;
   title: string;
-  url: string;
+  url: string | null;
   image?: string | null;
   heading_path?: string | null;
 };
+const FALHA_RESPOSTA =
+  "Não foi possível gerar a resposta agora. As fontes encontradas estão abaixo — tente de novo em instantes ou avise a equipe.";
+
 type Msg = {
   role: "user" | "assistant";
   content: string;
@@ -96,7 +100,14 @@ export function ChatPanel({
           acc += dec.decode(value, { stream: true });
           updateLast((m) => ({ ...m, content: acc }));
         }
-        updateLast((m) => ({ ...m, citations }));
+        // Stream vazio = a chamada ao provedor falhou (chave, crédito,
+        // timeout). Sem esta mensagem o usuário vê só as fontes e conclui que
+        // o produto está quebrado, sem saber o porquê.
+        updateLast((m) => ({
+          ...m,
+          citations,
+          content: acc || FALHA_RESPOSTA,
+        }));
       }
     } catch (e) {
       updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
@@ -169,16 +180,26 @@ export function ChatPanel({
                 <p className="text-sm text-text-muted">…</p>
               )}
               {m.citations && m.citations.length > 0 && (
-                <div className="mt-3 border-t border-border pt-3">
-                  <p className="mb-2 text-xs font-medium text-text-muted">Fontes</p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {m.citations.map((c) => (
-                      <a
+                // Sanfona FECHADA por padrão: a lista de fontes ocupava mais
+                // espaço que a própria resposta e empurrava a leitura para
+                // fora da tela.
+                <details className="group mt-3 border-t border-border pt-2">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-text-muted transition-colors hover:text-text">
+                    <ChevronRight className="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
+                    Fontes
+                    <span className="tabular-nums">({m.citations.length})</span>
+                  </summary>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {m.citations.map((c) => {
+                      // Fonte de arquivo não tem página: vira cartão sem link.
+                      const Tag = c.url ? "a" : "div";
+                      return (
+                      <Tag
                         key={c.n}
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 transition-colors hover:border-primary"
+                        {...(c.url ? { href: c.url, target: "_blank", rel: "noreferrer" } : {})}
+                        className={`flex items-center gap-2 rounded-lg border border-border bg-surface p-2 ${
+                          c.url ? "transition-colors hover:border-primary" : ""
+                        }`}
                       >
                         {c.image ? (
                           /\.supabase\.co\//.test(c.image) ? (
@@ -215,10 +236,11 @@ export function ChatPanel({
                             </span>
                           )}
                         </div>
-                      </a>
-                    ))}
+                      </Tag>
+                      );
+                    })}
                   </div>
-                </div>
+                </details>
               )}
               {m.role === "assistant" && m.content && i === messages.length - 1 && !streaming && (
                 <div className="mt-2 flex items-center gap-1">

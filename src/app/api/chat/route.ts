@@ -6,8 +6,8 @@ import { chatModel, hasAiKey } from "@/lib/ai/config";
 import {
   retrieveContext,
   buildContextBlock,
-  RAG_SYSTEM_PROMPT,
 } from "@/lib/ai/rag";
+import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -33,6 +33,15 @@ export async function POST(req: NextRequest) {
   const question = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const started = Date.now();
   const sources = await retrieveContext(spaceId, question);
+
+  // Assistente do admin: mesma persona que o leitor vê, para o que se testa
+  // aqui corresponder ao que o público recebe.
+  const { data: espaco } = await supabase
+    .from("spaces")
+    .select("chat_prompt")
+    .eq("id", spaceId)
+    .maybeSingle();
+  const systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:
   // uma conversationId de OUTRO espaço é descartada — nunca cruza espaços.
@@ -83,8 +92,14 @@ export async function POST(req: NextRequest) {
   }
 
   const result = streamText({
+    // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
+    // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
+    // pista do motivo. O cliente também trata resposta vazia como erro.
+    onError: ({ error }) => {
+      console.error("[chat] falha ao gerar resposta:", error);
+    },
     model: chatModel(),
-    system: RAG_SYSTEM_PROMPT + "\n\nCONTEXTO:\n" + buildContextBlock(sources),
+    system: withContext(systemPrompt, buildContextBlock(sources)),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     onFinish: async ({ text, usage }) => {
       await supabase.from("messages").insert({

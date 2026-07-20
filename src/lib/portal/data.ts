@@ -6,6 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
 import { getEffectiveTreePublic } from "@/lib/content/overlays";
 import { spaceCookieName, verifySpaceToken } from "@/lib/portal/space-auth";
+import { normalizeDoc } from "@/lib/blocks/convert";
+import type { Block } from "@/lib/blocks/schema";
 
 type PortalDb = SupabaseClient<Database>;
 
@@ -29,12 +31,31 @@ export type PortalSpace = PublicSpace & {
  */
 export async function resolvePortalSpace(spaceSlug: string): Promise<PortalSpace | null> {
   const supabase = createAdminClient();
-  const { data } = await supabase
+  let { data } = await supabase
     .from("spaces")
     .select("id, slug, name, theme, visibility, type, parent_space_id")
     .eq("slug", spaceSlug)
     .in("visibility", ["public", "password"])
     .maybeSingle();
+
+  // Não é a slug atual: pode ser uma APOSENTADA. Resolver pelo histórico é o
+  // que mantém vivo todo link já compartilhado — quem chama compara
+  // `space.slug` com o que veio na URL e responde 301 quando diferem.
+  if (!data) {
+    const { data: hist } = await supabase
+      .from("space_slugs")
+      .select("space_id")
+      .eq("slug", spaceSlug)
+      .maybeSingle();
+    if (!hist) return null;
+    const { data: porId } = await supabase
+      .from("spaces")
+      .select("id, slug, name, theme, visibility, type, parent_space_id")
+      .eq("id", hist.space_id)
+      .in("visibility", ["public", "password"])
+      .maybeSingle();
+    data = porId;
+  }
   if (!data) return null;
   return {
     id: data.id,
@@ -212,18 +233,43 @@ export async function getPublicArticle(nodeId: string, db: PortalDb = createPubl
   return data;
 }
 
-/** Mapa de snippets do espaço (chave → documento) para transclusão. */
+/**
+ * Artigos de vários nós de uma vez — para a página de leitura contínua, que
+ * mostra todos os artigos de um diretório num scroll só.
+ */
+export async function getPublicArticles(
+  nodeIds: string[],
+  db: PortalDb = createPublicClient(),
+): Promise<Map<string, { content_json: unknown; excerpt: string | null; updated_at: string }>> {
+  const out = new Map<string, { content_json: unknown; excerpt: string | null; updated_at: string }>();
+  for (let i = 0; i < nodeIds.length; i += 200) {
+    const { data } = await db
+      .from("articles")
+      .select("node_id, content_json, excerpt, updated_at")
+      .in("node_id", nodeIds.slice(i, i + 200));
+    for (const a of data ?? []) {
+      out.set(a.node_id, {
+        content_json: a.content_json,
+        excerpt: a.excerpt,
+        updated_at: a.updated_at,
+      });
+    }
+  }
+  return out;
+}
+
+/** Mapa de snippets do espaço (chave → blocos) para transclusão. */
 export async function getPublicSnippets(
   spaceId: string,
   db: PortalDb = createPublicClient(),
-): Promise<Map<string, { type: string; content?: unknown[] }>> {
+): Promise<Map<string, Block[]>> {
   const { data } = await db
     .from("snippets")
     .select("key, content_json")
     .eq("space_id", spaceId);
-  const map = new Map<string, { type: string; content?: unknown[] }>();
+  const map = new Map<string, Block[]>();
   for (const s of data ?? []) {
-    map.set(s.key, s.content_json as { type: string; content?: unknown[] });
+    map.set(s.key, normalizeDoc(s.content_json).blocks);
   }
   return map;
 }

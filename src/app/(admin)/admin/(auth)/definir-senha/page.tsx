@@ -5,6 +5,8 @@ import { useFormStatus } from "react-dom";
 import { setPassword, type AuthState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { Surface } from "@/components/ui/surface";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -26,17 +28,19 @@ export default function DefinirSenhaPage() {
   );
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
+    <Surface elevation={1} padding="lg">
       <h1 className="text-xl font-semibold tracking-tight">Definir senha</h1>
       <p className="mt-1 text-sm text-text-muted">
         Escolha uma senha para o seu primeiro acesso.
       </p>
 
       <form action={formAction} className="mt-6 space-y-4">
-        <div className="space-y-1.5">
-          <label htmlFor="password" className="text-sm font-medium">
-            Nova senha
-          </label>
+        <Field
+          label="Nova senha"
+          htmlFor="password"
+          required
+          hint="Mínimo 10 caracteres, com maiúscula, minúscula e número."
+        >
           <Input
             id="password"
             name="password"
@@ -44,15 +48,14 @@ export default function DefinirSenhaPage() {
             autoComplete="new-password"
             required
           />
-          <p className="text-xs text-text-muted">
-            Mínimo 10 caracteres, com maiúscula, minúscula e número.
-          </p>
-        </div>
+        </Field>
 
-        <div className="space-y-1.5">
-          <label htmlFor="confirm" className="text-sm font-medium">
-            Confirmar senha
-          </label>
+        <Field
+          label="Confirmar senha"
+          htmlFor="confirm"
+          required
+          error={state?.error ?? null}
+        >
           <Input
             id="confirm"
             name="confirm"
@@ -60,19 +63,10 @@ export default function DefinirSenhaPage() {
             autoComplete="new-password"
             required
           />
-        </div>
-
-        {state?.error && (
-          <p
-            role="alert"
-            className="rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300"
-          >
-            {state.error}
-          </p>
-        )}
+        </Field>
 
         <SubmitButton />
       </form>
-    </div>
+    </Surface>
   );
 }

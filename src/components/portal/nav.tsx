@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, FileText, Folder, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PortalTreeNode } from "@/lib/portal/data";
+import { useActiveArticle } from "./active-article";
 
 /** Navegação lateral do portal: árvore colapsável de seções e artigos. */
 export function PortalNav({
@@ -43,6 +44,36 @@ export function PortalNav({
     });
   }
 
+  // Leitura contínua: o artigo visível no scroll manda no destaque.
+  const reading = useActiveArticle();
+  const activeId = reading?.activeId ?? null;
+
+  // Abre as pastas que contêm o artigo em leitura — senão o destaque fica
+  // escondido dentro de uma pasta recolhida enquanto se rola a página.
+  useEffect(() => {
+    if (!activeId) return;
+    const caminho: string[] = [];
+    const acha = (nodes: PortalTreeNode[], trilha: string[]): boolean => {
+      for (const n of nodes) {
+        if (n.id === activeId) {
+          caminho.push(...trilha);
+          return true;
+        }
+        if (acha(n.children, [...trilha, n.id])) return true;
+      }
+      return false;
+    };
+    acha(tree, []);
+    if (caminho.length === 0) return;
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setOpen((prev) => {
+      if (caminho.every((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      caminho.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [activeId, tree]);
+
   return (
     <nav aria-label="Navegação da documentação" className="text-sm">
       <NavList
@@ -53,9 +84,21 @@ export function PortalNav({
         open={open}
         toggle={toggle}
         onNavigate={onNavigate}
+        activeId={activeId}
+        onPage={reading?.onPage ?? EMPTY}
       />
     </nav>
   );
+}
+
+const EMPTY = new Map<string, string>();
+
+/** Rola até o artigo já presente na página, sem recarregar. */
+function scrollToArticle(anchor: string) {
+  const el = document.getElementById(anchor);
+  if (!el) return false;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
 }
 
 function NavList({
@@ -66,6 +109,8 @@ function NavList({
   open,
   toggle,
   onNavigate,
+  activeId,
+  onPage,
 }: {
   spaceSlug: string;
   nodes: PortalTreeNode[];
@@ -74,22 +119,39 @@ function NavList({
   open: Set<string>;
   toggle: (id: string) => void;
   onNavigate?: () => void;
+  activeId: string | null;
+  onPage: Map<string, string>;
 }) {
   return (
-    <ul className={cn(depth > 0 && "ml-2.5 border-l border-border pl-2")}>
+    // Trilho de guia só nos níveis aninhados: no primeiro nível ele viraria
+    // uma régua vertical inútil ao lado de tudo.
+    <ul className={cn(depth > 0 && "ml-3 border-l border-border pl-2")}>
       {nodes
         .filter((n) => n.type !== "divider")
         .map((node) => {
           const path = node.slugPath.join("/");
-          const isActive = activePath === path;
+          const anchor = onPage.get(node.id);
+          // Se algum artigo desta página está sendo lido, ele manda no destaque.
+          const isActive = activeId ? activeId === node.id : activePath === path;
           const href =
             node.type === "link" && node.link_url ? node.link_url : `/docs/${spaceSlug}/${path}`;
           const hasChildren = node.children.length > 0;
           const isOpen = open.has(node.id);
-          const Icon = node.type === "folder" ? Folder : node.type === "link" ? ExternalLink : FileText;
 
           return (
-            <li key={node.id} className="py-0.5">
+            <li key={node.id} className="relative py-px">
+              {/* Estado ativo = barra + peso, não fundo colorido. Sobre o trilho
+                  aninhado a barra substitui a guia; no primeiro nível ela fica
+                  na margem. (padrão Apple Developer / Microsoft Learn) */}
+              {isActive && (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-y-1 w-0.5 rounded-full bg-primary",
+                    depth > 0 ? "-left-[9px]" : "-left-2",
+                  )}
+                />
+              )}
               <div className="flex items-center gap-0.5">
                 {hasChildren ? (
                   <button
@@ -97,27 +159,41 @@ function NavList({
                     onClick={() => toggle(node.id)}
                     aria-label={isOpen ? "Recolher" : "Expandir"}
                     aria-expanded={isOpen}
-                    className="flex size-6 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-2"
+                    className="flex size-6 shrink-0 items-center justify-center rounded-sm text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
                   >
-                    <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} />
+                    <ChevronRight
+                      className={cn(
+                        "size-3.5 transition-transform motion-reduce:transition-none",
+                        isOpen && "rotate-90",
+                      )}
+                    />
                   </button>
                 ) : (
                   <span className="w-6 shrink-0" />
                 )}
                 <Link
                   href={href}
-                  onClick={onNavigate}
+                  onClick={(e) => {
+                    if (anchor && scrollToArticle(anchor)) {
+                      e.preventDefault();
+                      window.history.replaceState(null, "", href);
+                    }
+                    onNavigate?.();
+                  }}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 transition",
+                    "flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 py-1.5 leading-snug transition-colors",
                     isActive
-                      ? "bg-brand-purple-50 font-medium text-primary dark:bg-brand-purple-950/40"
-                      : "text-text-muted hover:bg-surface-2 hover:text-text",
-                    node.type === "folder" && !isActive && "font-medium text-text",
+                      ? "font-semibold text-primary"
+                      : node.type === "folder"
+                        ? "font-medium text-text hover:text-primary"
+                        : "text-text-muted hover:text-text",
                   )}
                 >
-                  <Icon className="size-4 shrink-0 opacity-70" />
                   <span className="truncate">{node.title}</span>
+                  {node.type === "link" && (
+                    <ExternalLink className="size-3 shrink-0 opacity-60" aria-label="Link externo" />
+                  )}
                 </Link>
               </div>
               {hasChildren && isOpen && (
@@ -129,6 +205,8 @@ function NavList({
                   open={open}
                   toggle={toggle}
                   onNavigate={onNavigate}
+                  activeId={activeId}
+                  onPage={onPage}
                 />
               )}
             </li>

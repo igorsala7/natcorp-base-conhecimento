@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { MFA_DISABLED } from "@/lib/auth/mfa-flag";
 
 export type AuthState = { error?: string } | undefined;
 
@@ -80,8 +81,9 @@ export async function setPassword(
     return { error: "Não foi possível definir a senha. Tente novamente." };
   }
 
-  // Senha definida → segue para cadastrar o TOTP.
-  redirect("/admin/mfa");
+  // Senha definida → segue para cadastrar o TOTP (ou direto ao painel, se o
+  // 2FA estiver temporariamente desligado por MFA_DISABLED).
+  redirect(MFA_DISABLED ? "/admin" : "/admin/mfa");
 }
 
 /** Encerra a sessão e volta ao login. */

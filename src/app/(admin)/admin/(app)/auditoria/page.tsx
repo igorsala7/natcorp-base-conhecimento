@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
+import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import { AuditFilters } from "./audit-filters";
 
 export const metadata: Metadata = { title: "Auditoria" };
@@ -87,52 +88,50 @@ export default async function AuditoriaPage({
         <AuditFilters actors={actorOptions} actions={actionOptions} />
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-2 text-left text-text-muted">
-            <tr>
-              <th className="px-4 py-3 font-medium">Quando</th>
-              <th className="px-4 py-3 font-medium">Ator</th>
-              <th className="px-4 py-3 font-medium">Ação</th>
-              <th className="px-4 py-3 font-medium">Entidade</th>
-            </tr>
-          </thead>
+      <div className="mt-4">
+        <DataTable>
+          <DataHead>
+            <Th>Quando</Th>
+            <Th>Ator</Th>
+            <Th>Ação</Th>
+            <Th>Entidade</Th>
+          </DataHead>
           <tbody>
             {(entries ?? []).length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-text-muted">
-                  Nenhuma ação para os filtros selecionados.
-                </td>
-              </tr>
+              <EmptyRow colSpan={4}>Nenhuma ação para os filtros selecionados.</EmptyRow>
             )}
             {(entries ?? []).map((e) => {
               const hasDiff = e.before || e.after;
               return (
-                <tr key={e.id} className="border-t border-border align-top">
-                  <td className="whitespace-nowrap px-4 py-3 text-text-muted">
-                    {new Date(e.created_at).toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-4 py-3">{(e.actor_id && nameById.get(e.actor_id)) || "—"}</td>
-                  <td className="px-4 py-3">{ACTION_LABEL[e.action] ?? e.action}</td>
-                  <td className="px-4 py-3 text-text-muted">
+                <Tr key={e.id}>
+                  <Td className="whitespace-nowrap tabular-nums text-text-muted">
+                    <time dateTime={new Date(e.created_at).toISOString()}>
+                      {new Date(e.created_at).toLocaleString("pt-BR")}
+                    </time>
+                  </Td>
+                  <Td>{(e.actor_id && nameById.get(e.actor_id)) || "—"}</Td>
+                  <Td>{ACTION_LABEL[e.action] ?? e.action}</Td>
+                  <Td className="text-text-muted">
                     <div>
                       {e.entity_type ?? "—"}
                       {e.entity_id ? ` · ${e.entity_id.slice(0, 8)}…` : ""}
                     </div>
                     {hasDiff && (
                       <details className="mt-1">
-                        <summary className="cursor-pointer text-xs text-primary">antes/depois</summary>
-                        <pre className="mt-1 max-w-md overflow-x-auto rounded bg-surface-2 p-2 text-[11px] leading-tight text-text">
+                        <summary className="cursor-pointer text-xs text-primary">
+                          antes/depois
+                        </summary>
+                        <pre className="mt-1 max-w-md overflow-x-auto rounded-sm bg-surface-2 p-2 text-[11px] leading-tight text-text">
                           {JSON.stringify({ before: e.before, after: e.after }, null, 2)}
                         </pre>
                       </details>
                     )}
-                  </td>
-                </tr>
+                  </Td>
+                </Tr>
               );
             })}
           </tbody>
-        </table>
+        </DataTable>
       </div>
     </div>
   );

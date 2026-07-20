@@ -5,8 +5,8 @@ import { chatModel, hasAiKey } from "@/lib/ai/config";
 import {
   retrievePublicContext,
   buildContextBlock,
-  RAG_SYSTEM_PROMPT,
 } from "@/lib/ai/rag";
+import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
 import { getPortalAccess } from "@/lib/portal/data";
 
 export const runtime = "nodejs";
@@ -61,6 +61,14 @@ export async function POST(req: NextRequest) {
   const spaceId = access.space.id;
   const started = Date.now();
   const sources = await retrievePublicContext(spaceId, question);
+
+  // Ask-AI do portal usa a persona da própria documentação.
+  const { data: espaco } = await supabase
+    .from("spaces")
+    .select("chat_prompt")
+    .eq("id", spaceId)
+    .maybeSingle();
+  const systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
 
   let convId = payload.conversationId;
   if (convId) {
@@ -123,8 +131,14 @@ export async function POST(req: NextRequest) {
   }
 
   const result = streamText({
+    // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
+    // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
+    // pista do motivo. O cliente também trata resposta vazia como erro.
+    onError: ({ error }) => {
+      console.error("[chat] falha ao gerar resposta:", error);
+    },
     model: chatModel(),
-    system: RAG_SYSTEM_PROMPT + "\n\nCONTEXTO:\n" + buildContextBlock(sources),
+    system: withContext(systemPrompt, buildContextBlock(sources)),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
   });
 

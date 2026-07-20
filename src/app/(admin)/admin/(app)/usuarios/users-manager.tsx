@@ -5,7 +5,10 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, controlClass } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import type { Role } from "@/lib/auth/roles";
 import type { UserRow } from "./page";
 import {
@@ -64,27 +67,33 @@ function InviteForm({
       action={action}
       className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4"
     >
-      <div className="flex-1 space-y-1.5" style={{ minWidth: 220 }}>
-        <label htmlFor="invite-email" className="text-sm font-medium">
-          E-mail
-        </label>
+      <Field
+        label="E-mail"
+        htmlFor="invite-email"
+        required
+        className="flex-1"
+        error={state?.error ?? null}
+      >
         <Input
           id="invite-email"
           name="email"
           type="email"
+          autoComplete="email"
           required
           placeholder="pessoa@natcorp.com.br"
         />
-      </div>
-      <div className="space-y-1.5">
-        <label htmlFor="invite-role" className="text-sm font-medium">
-          Papel
-        </label>
+      </Field>
+      <Field
+        label="Papel"
+        htmlFor="invite-role"
+        required
+        hint="Só papéis abaixo do seu nível aparecem aqui."
+      >
         <select
           id="invite-role"
           name="roleKey"
           required
-          className="h-10 rounded-md border border-border bg-surface px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className={`${controlClass} h-10 w-auto`}
         >
           {assignable.map((r) => (
             <option key={r.id} value={r.key}>
@@ -92,13 +101,8 @@ function InviteForm({
             </option>
           ))}
         </select>
-      </div>
+      </Field>
       <InviteSubmit />
-      {state?.error && (
-        <p role="alert" className="w-full text-sm text-brand-pink-700 dark:text-brand-pink-300">
-          {state.error}
-        </p>
-      )}
     </form>
   );
 }
@@ -154,7 +158,7 @@ export function UsersManager({
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="h-10 rounded-md border border-border bg-surface px-3 text-sm"
+          className={`${controlClass} h-10 w-auto`}
           aria-label="Filtrar por papel"
         >
           <option value="">Todos os papéis</option>
@@ -167,7 +171,7 @@ export function UsersManager({
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-md border border-border bg-surface px-3 text-sm"
+          className={`${controlClass} h-10 w-auto`}
           aria-label="Filtrar por status"
         >
           <option value="">Todos os status</option>
@@ -202,62 +206,50 @@ export function UsersManager({
         </p>
       )}
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-2 text-left text-text-muted">
-            <tr>
-              <th className="px-4 py-3 font-medium">Usuário</th>
-              <th className="px-4 py-3 font-medium">Papéis</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Escopo</th>
-              <th className="px-4 py-3 font-medium">Ações</th>
-            </tr>
-          </thead>
+      <div className="mt-4">
+        <DataTable>
+          <DataHead>
+            <Th>Usuário</Th>
+            <Th>Papéis</Th>
+            <Th>Status</Th>
+            <Th>Escopo</Th>
+            <Th>Ações</Th>
+          </DataHead>
           <tbody>
+            {filtered.length === 0 && (
+              <EmptyRow colSpan={5}>Nenhum usuário corresponde aos filtros.</EmptyRow>
+            )}
             {filtered.map((u) => {
               const targetLevel = maxLevel(u);
               const canActOn = actorLevel > targetLevel;
               const primary = u.memberships[0];
               return (
-                <tr key={u.id} className="border-t border-border align-top">
-                  <td className="px-4 py-3">
+                <Tr key={u.id}>
+                  <Td>
                     <div className="font-medium">{u.email ?? "—"}</div>
-                    {u.full_name && (
-                      <div className="text-text-muted">{u.full_name}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
+                    {u.full_name && <div className="text-text-muted">{u.full_name}</div>}
+                  </Td>
+                  <Td>
                     <div className="flex flex-wrap gap-1">
                       {u.memberships.length === 0 && (
                         <span className="text-text-muted">sem papel</span>
                       )}
                       {u.memberships.map((m) => (
-                        <span
-                          key={m.id}
-                          className="inline-flex items-center rounded-full bg-brand-purple-50 px-2 py-0.5 text-xs font-medium text-primary dark:bg-brand-purple-950/40"
-                        >
+                        <Badge key={m.id} tone="primary">
                           {m.role_name}
-                        </span>
+                        </Badge>
                       ))}
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={
-                        u.status === "suspended"
-                          ? "text-brand-pink-700 dark:text-brand-pink-300"
-                          : "text-text"
-                      }
-                    >
+                  </Td>
+                  <Td>
+                    <Badge tone={u.status === "suspended" ? "danger" : "neutral"}>
                       {STATUS_LABEL[u.status] ?? u.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-text-muted">
-                    {u.memberships.some((m) => m.space_id === null)
-                      ? "Global"
-                      : "Por espaço"}
-                  </td>
-                  <td className="px-4 py-3">
+                    </Badge>
+                  </Td>
+                  <Td className="text-text-muted">
+                    {u.memberships.some((m) => m.space_id === null) ? "Global" : "Por espaço"}
+                  </Td>
+                  <Td>
                     {!canActOn ? (
                       <span className="text-xs text-text-muted">
                         nível ≥ ao seu
@@ -275,7 +267,7 @@ export function UsersManager({
                               fd.set("roleKey", e.target.value);
                               run(() => changeUserRole(undefined, fd));
                             }}
-                            className="h-8 rounded-md border border-border bg-surface px-2 text-xs"
+                            className={`${controlClass} h-8 w-auto px-2 text-xs`}
                           >
                             {roles
                               .filter((r) => r.level < actorLevel)
@@ -332,12 +324,12 @@ export function UsersManager({
                         )}
                       </div>
                     )}
-                  </td>
-                </tr>
+                  </Td>
+                </Tr>
               );
             })}
           </tbody>
-        </table>
+        </DataTable>
       </div>
     </div>
   );

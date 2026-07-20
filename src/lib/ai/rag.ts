@@ -11,37 +11,33 @@ import {
   type EffectiveNode,
 } from "@/lib/content/overlays";
 import { slugify } from "@/lib/content/slug";
+import { firstImageOf } from "@/lib/blocks/serialize";
 
 type DbClient = SupabaseClient<Database>;
 
 export type RetrievedSource = {
   n: number; // índice da citação [n]
-  node_id: string;
+  /** Nó do artigo. Nulo quando a fonte é um arquivo da base de conhecimento. */
+  node_id: string | null;
+  /** Documento da base. Nulo quando a fonte é um artigo. */
+  document_id: string | null;
   title: string;
   heading_path: string | null;
   content: string;
   snippet: string | null; // trecho destacado (para busca)
-  url: string; // link para o portal (com âncora)
+  /** Link no portal (com âncora). Nulo quando a fonte não tem página. */
+  url: string | null;
   image: string | null; // miniatura (capa do artigo ou 1ª imagem) — para os cards
 };
 
-/** Primeira imagem embutida no documento TipTap (para usar como miniatura). */
-function firstImageOf(doc: unknown): string | null {
-  let found: string | null = null;
-  const walk = (n: unknown) => {
-    if (found || !n || typeof n !== "object") return;
-    const node = n as { type?: string; attrs?: { src?: unknown }; content?: unknown[] };
-    if ((node.type === "figureImage" || node.type === "image") && typeof node.attrs?.src === "string") {
-      found = node.attrs.src;
-      return;
-    }
-    if (Array.isArray(node.content)) node.content.forEach(walk);
-  };
-  walk(doc);
-  return found;
-}
-
-/** Nós efetivos + caminhos de slug, a partir de uma árvore já resolvida. */
+/**
+ * Nós efetivos + o CAMINHO PÚBLICO de cada nó, a partir de uma árvore resolvida.
+ *
+ * O caminho já sai com a slug do espaço embutida (`/docs/<slug>/a/b`) porque um
+ * chatbot pode enxergar VÁRIAS documentações: guardar uma `spaceSlug` única e
+ * montar a URL depois faria as citações da segunda documentação apontarem para
+ * a primeira.
+ */
 async function spaceContext(
   supabase: DbClient,
   spaceId: string,
@@ -52,35 +48,54 @@ async function spaceContext(
     .select("slug")
     .eq("id", spaceId)
     .maybeSingle();
+  const slug = space?.slug ?? "global";
 
-  const slugPathById = new Map<string, string[]>();
+  const basePathById = new Map<string, string>();
   const nodeIds: string[] = [];
   const walk = (list: EffectiveNode[], prefix: string[]) => {
     for (const n of list) {
       const p = [...prefix, n.slug];
-      slugPathById.set(n.id, p);
+      basePathById.set(n.id, `/docs/${slug}/${p.join("/")}`);
       nodeIds.push(n.id);
       walk(n.children, p);
     }
   };
   walk(tree, []);
-  return { spaceSlug: space?.slug ?? "global", nodeIds, slugPathById };
+  return { nodeIds, basePathById };
 }
 
-/** Núcleo da recuperação: busca híbrida escopada pelos nós de `tree`. */
+/**
+ * Núcleo da recuperação: busca híbrida escopada pelos nós das árvores dadas.
+ *
+ * Recebe uma LISTA de (espaço, árvore) porque uma chave de widget pode cobrir
+ * várias documentações. A fusão RRF continua inteira no Postgres — o escopo é
+ * só a união dos nós, então nada de ranquear no cliente.
+ */
 async function retrieveWith(
   supabase: DbClient,
-  spaceId: string,
+  escopos: { spaceId: string; tree: EffectiveNode[] }[],
   query: string,
   limit: number,
-  tree: EffectiveNode[],
 ): Promise<RetrievedSource[]> {
-  const { spaceSlug, nodeIds, slugPathById } = await spaceContext(
-    supabase,
-    spaceId,
-    tree,
-  );
-  if (nodeIds.length === 0) return [];
+  const nodeIds: string[] = [];
+  const basePathById = new Map<string, string>();
+  for (const e of escopos) {
+    const ctx = await spaceContext(supabase, e.spaceId, e.tree);
+    nodeIds.push(...ctx.nodeIds);
+    for (const [id, path] of ctx.basePathById) basePathById.set(id, path);
+  }
+
+  // Arquivos da base de conhecimento dos MESMOS espaços do escopo. Só os
+  // prontos: um documento ainda em extração tem chunks pela metade, e responder
+  // com meia planilha é pior do que não responder.
+  const { data: docs } = await supabase
+    .from("knowledge_documents")
+    .select("id")
+    .in("space_id", escopos.map((e) => e.spaceId))
+    .eq("status", "ready");
+  const documentIds = (docs ?? []).map((d) => d.id);
+
+  if (nodeIds.length === 0 && documentIds.length === 0) return [];
 
   let embedding: number[] | null = null;
   if (hasEmbeddingKey()) {
@@ -95,12 +110,17 @@ async function retrieveWith(
   const { data } = await supabase.rpc("hybrid_search_scoped", {
     p_query: query,
     p_embedding: embedding ? JSON.stringify(embedding) : undefined,
-    p_node_ids: nodeIds,
+    // `undefined` (e não array vazio) quando não há escopo daquele tipo: a
+    // função trata null como "sem filtro deste lado", e um array vazio faria
+    // `= any('{}')` never matching, o que é o mesmo — mas explícito é melhor.
+    p_node_ids: nodeIds.length ? nodeIds : undefined,
+    p_document_ids: documentIds.length ? documentIds : undefined,
     p_limit: limit,
   });
 
   // Miniatura por nó citado: capa do artigo ou 1ª imagem do conteúdo.
-  const hitNodeIds = (data ?? []).map((r) => r.node_id);
+  // Chunk de arquivo não tem nó — fica de fora daqui e cita sem miniatura.
+  const hitNodeIds = (data ?? []).map((r) => r.node_id).filter((x): x is string => !!x);
   const imageByNode = new Map<string, string | null>();
   if (hitNodeIds.length) {
     const { data: arts } = await supabase
@@ -113,18 +133,34 @@ async function retrieveWith(
   }
 
   return (data ?? []).map((r, i) => {
-    const slugPath = slugPathById.get(r.node_id) ?? [];
+    // Fonte de ARQUIVO: não existe página no portal, então a citação sai sem
+    // link. A UI já trata `url: null` (cartão sem âncora).
+    if (!r.node_id) {
+      return {
+        n: i + 1,
+        node_id: null,
+        document_id: r.document_id,
+        title: r.title ?? "Documento",
+        heading_path: r.heading_path,
+        content: r.content,
+        snippet: r.snippet ?? null,
+        url: null,
+        image: null,
+      } as RetrievedSource;
+    }
+    const base = basePathById.get(r.node_id) ?? "";
     const anchor = r.heading_path
       ? "#" + slugify(r.heading_path.split(" > ").pop() ?? "")
       : "";
     return {
       n: i + 1,
       node_id: r.node_id,
+      document_id: null,
       title: r.title,
       heading_path: r.heading_path,
       content: r.content,
       snippet: r.snippet ?? null,
-      url: `/docs/${spaceSlug}/${slugPath.join("/")}${anchor}`,
+      url: base ? `${base}${anchor}` : null,
       image: imageByNode.get(r.node_id) ?? null,
     } as RetrievedSource;
   });
@@ -141,7 +177,7 @@ export async function retrieveContext(
 ): Promise<RetrievedSource[]> {
   const supabase = await createClient();
   const tree = await getEffectiveTreeAdmin(spaceId);
-  return retrieveWith(supabase as DbClient, spaceId, query, limit, tree);
+  return retrieveWith(supabase as DbClient, [{ spaceId, tree }], query, limit);
 }
 
 /**
@@ -150,13 +186,16 @@ export async function retrieveContext(
  * chunks e escrever conversas mesmo em espaços privados vinculados à chave.
  */
 export async function retrievePublicContext(
-  spaceId: string,
+  spaceIds: string | string[],
   query: string,
   limit = 8,
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
-  const tree = await getEffectiveTreePublic(spaceId);
-  return retrieveWith(supabase, spaceId, query, limit, tree);
+  const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
+  const escopos = await Promise.all(
+    ids.map(async (spaceId) => ({ spaceId, tree: await getEffectiveTreePublic(spaceId) })),
+  );
+  return retrieveWith(supabase, escopos, query, limit);
 }
 
 /** Monta o bloco de contexto numerado para o prompt. */
@@ -169,10 +208,7 @@ export function buildContextBlock(sources: RetrievedSource[]): string {
     .join("\n\n---\n\n");
 }
 
-export const RAG_SYSTEM_PROMPT = `Você é o assistente de documentação da Natcorp. Responda em português, de forma clara e objetiva.
-
-REGRAS ABSOLUTAS:
-- Responda APENAS com base no CONTEXTO fornecido. É PROIBIDO usar conhecimento geral seu.
-- CITE as fontes ao longo da resposta usando os números entre colchetes, ex.: [1], [2]. Cada afirmação relevante deve ter uma citação.
-- Se o contexto NÃO contiver a resposta, diga claramente que não encontrou essa informação na documentação e sugira procurar um atendente humano. Não invente.
-- Não repita o contexto cru; escreva uma resposta útil e cite as fontes.`;
+// O system prompt vive em `@/lib/ai/prompt-cascade`: ele depende da
+// personalização por chave e por documentação, e precisa reanexar as regras
+// absolutas depois do texto do usuário. Duas verdades sobre o prompt seria o
+// caminho mais curto para o chatbot alucinar em uma das telas.

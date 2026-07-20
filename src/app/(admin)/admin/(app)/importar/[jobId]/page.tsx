@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { ImportPreview } from "./import-preview";
+import { ImportProgress } from "./import-progress";
+import { parseLog } from "../status";
+import { listSpaces } from "@/lib/content/spaces";
 import type { ProposedNode } from "@/lib/importer/structure";
 
 export const metadata: Metadata = { title: "Revisar importação" };
@@ -18,7 +21,7 @@ export default async function PreviewPage({
   const supabase = await createClient();
   const { data: job } = await supabase
     .from("import_jobs")
-    .select("id, original_name, status, result_tree")
+    .select("id, space_id, original_name, status, progress, error, log, result_tree")
     .eq("id", jobId)
     .single();
   if (!job) notFound();
@@ -27,16 +30,24 @@ export default async function PreviewPage({
     | { tree: ProposedNode[]; images: string[]; usedAi?: boolean }
     | null;
 
+  // Ainda processando (ou falhou): mostra o progresso + relatório ao vivo.
   if (!stored || job.status !== "preview") {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Revisar importação</h1>
-        <p className="mt-2 text-text-muted">
-          Este job ainda não está pronto para revisão (status: {job.status}).
-        </p>
-      </div>
+      <ImportProgress
+        jobId={job.id}
+        fileName={job.original_name ?? "documento"}
+        initial={{
+          status: job.status,
+          progress: job.progress ?? 0,
+          error: job.error,
+          log: parseLog(job.log),
+        }}
+      />
     );
   }
+
+  // Pronto para revisão: documentações possíveis como destino.
+  const spaces = await listSpaces();
 
   return (
     <ImportPreview
@@ -45,6 +56,8 @@ export default async function PreviewPage({
       tree={stored.tree}
       images={stored.images}
       usedAi={stored.usedAi ?? false}
+      spaces={spaces.map((s) => ({ id: s.id, name: s.name, type: s.type }))}
+      defaultSpaceId={job.space_id}
     />
   );
 }

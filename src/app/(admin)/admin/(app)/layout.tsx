@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/admin/sidebar";
 import { Topbar } from "@/components/admin/topbar";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { createClient } from "@/lib/supabase/server";
+import { MFA_DISABLED, warnIfMfaDisabled } from "@/lib/auth/mfa-flag";
 
 /**
  * Shell do Admin autenticado: sidebar + topbar + conteúdo.
@@ -22,9 +23,14 @@ export default async function AppLayout({
 
   if (!user) redirect("/admin/login");
 
-  const { data: aal } =
-    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel !== "aal2") redirect("/admin/mfa");
+  // MFA_DISABLED=true pula a exigência de AAL2 (interruptor temporário).
+  if (!MFA_DISABLED) {
+    const { data: aal } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal?.currentLevel !== "aal2") redirect("/admin/mfa");
+  } else {
+    warnIfMfaDisabled("layout do admin");
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg text-text">

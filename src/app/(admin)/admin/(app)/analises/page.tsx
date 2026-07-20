@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
+import { Surface } from "@/components/ui/surface";
+import { Badge } from "@/components/ui/badge";
 
 export const metadata: Metadata = { title: "Análises" };
 
 function StatCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="text-xs font-medium text-text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-text-muted">{hint}</p>}
-    </div>
+    <Surface elevation={1}>
+      <p className="text-xs font-medium uppercase tracking-wider text-text-muted">{label}</p>
+      <p className="mt-1.5 text-[length:var(--text-2xl)] font-semibold leading-none tabular-nums">
+        {value}
+      </p>
+      {hint && <p className="mt-1 text-xs text-text-muted">{hint}</p>}
+    </Surface>
   );
 }
 
@@ -153,8 +157,8 @@ function RankList({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="mb-2 text-xs font-medium text-text-muted">{title}</p>
+    <Surface elevation={1}>
+      <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-text-muted">{title}</p>
       {rows.length === 0 ? (
         <p className="text-sm text-text-muted">{empty}</p>
       ) : (
@@ -162,19 +166,13 @@ function RankList({
           {rows.map(([q, n]) => (
             <li key={q} className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate">{q}</span>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                  accent
-                    ? "bg-brand-pink-50 text-brand-pink-700 dark:bg-brand-pink-950/40"
-                    : "bg-surface-2 text-text-muted"
-                }`}
-              >
+              <Badge tone={accent ? "accent" : "neutral"} className="tabular-nums">
                 {n}
-              </span>
+              </Badge>
             </li>
           ))}
         </ul>
       )}
-    </div>
+    </Surface>
   );
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FolderTree, FileText, CheckCircle2, CheckSquare, MessageSquare, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { Surface } from "@/components/ui/surface";
 
 export const metadata: Metadata = { title: "Painel" };
 
@@ -29,49 +30,56 @@ export default async function AdminHome() {
       <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
       <p className="mt-1 text-sm text-text-muted">Visão geral da sua base de conhecimento.</p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* KPIs: o número é o protagonista — rótulo discreto acima, valor grande
+          e tabular abaixo (padrão de painel enterprise). */}
+      <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => {
           const Icon = c.icon;
           return (
-            <Link
-              key={c.label}
-              href={c.href}
-              className="rounded-xl border border-border bg-surface p-5 transition-colors hover:border-primary"
-            >
-              <Icon className="size-5 text-text-muted" />
-              <div className="mt-2 text-3xl font-semibold tabular-nums">{c.value}</div>
-              <div className="text-sm text-text-muted">{c.label}</div>
+            <Link key={c.label} href={c.href} className="group">
+              <Surface elevation={1} padding="lg" className="h-full transition-shadow hover:shadow-2">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-text-muted">
+                  <Icon className="size-3.5" />
+                  {c.label}
+                </div>
+                <div className="mt-2 text-[length:var(--text-3xl)] font-semibold leading-none tabular-nums">
+                  {c.value}
+                </div>
+              </Surface>
             </Link>
           );
         })}
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/admin/revisao"
-          className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary"
-        >
-          <CheckSquare className="size-5 text-primary" />
-          <div className="flex-1">
-            <div className="text-sm font-medium">Fila de revisão</div>
-            <div className="text-xs text-text-muted">Artigos aguardando aprovação</div>
-          </div>
-          <span className="rounded-full bg-brand-purple-50 px-2.5 py-1 text-sm font-semibold text-primary dark:bg-brand-purple-950/40">
-            {review.count ?? 0}
-          </span>
+      <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-text-muted">
+        Precisa de atenção
+      </h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Link href="/admin/revisao">
+          <Surface
+            elevation={1}
+            className="flex h-full items-center gap-3 transition-shadow hover:shadow-2"
+          >
+            <CheckSquare className="size-5 shrink-0 text-primary" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">Fila de revisão</div>
+              <div className="text-xs text-text-muted">Artigos aguardando aprovação</div>
+            </div>
+            <span className="text-xl font-semibold tabular-nums">{review.count ?? 0}</span>
+          </Surface>
         </Link>
-        <Link
-          href="/admin/analises"
-          className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary"
-        >
-          <Search className="size-5 text-brand-pink-700" />
-          <div className="flex-1">
-            <div className="text-sm font-medium">Buscas sem resultado</div>
-            <div className="text-xs text-text-muted">Lacunas na documentação</div>
-          </div>
-          <span className="rounded-full bg-brand-pink-50 px-2.5 py-1 text-sm font-semibold text-brand-pink-700 dark:bg-brand-pink-950/40">
-            {gaps.count ?? 0}
-          </span>
+        <Link href="/admin/analises">
+          <Surface
+            elevation={1}
+            className="flex h-full items-center gap-3 transition-shadow hover:shadow-2"
+          >
+            <Search className="size-5 shrink-0 text-accent" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">Buscas sem resultado</div>
+              <div className="text-xs text-text-muted">Lacunas na documentação</div>
+            </div>
+            <span className="text-xl font-semibold tabular-nums">{gaps.count ?? 0}</span>
+          </Surface>
         </Link>
       </div>
     </div>

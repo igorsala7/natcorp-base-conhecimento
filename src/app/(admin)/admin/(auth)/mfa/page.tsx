@@ -102,7 +102,7 @@ function MfaForm() {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
+    <div className="rounded-xl border border-border bg-surface p-6">
       <h1 className="text-xl font-semibold tracking-tight">
         {mode === "challenge" ? "Verificação em duas etapas" : "Ativar 2FA"}
       </h1>

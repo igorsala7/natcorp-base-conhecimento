@@ -17,7 +17,7 @@ export type ExtractedImage = {
 };
 
 export type Extraction = {
-  source: "pdf" | "docx" | "html" | "markdown";
+  source: "pdf" | "docx" | "html" | "markdown" | "sheet";
   blocks: ExtractedBlock[];
   images: ExtractedImage[];
 };
@@ -174,6 +174,11 @@ export async function extractDocument(
     return extractDocx(buf);
   if (name.endsWith(".md") || name.endsWith(".markdown"))
     return extractMarkdown(buf.toString("utf8"));
+  if (name.endsWith(".xlsx") || name.endsWith(".xlsm") || mime?.includes("spreadsheet")) {
+    // Import dinâmico: o exceljs é pesado e só o caminho de planilha precisa dele.
+    const { extractSheet } = await import("./extract-sheet");
+    return extractSheet(buf);
+  }
   if (name.endsWith(".html") || name.endsWith(".htm"))
     return { source: "html", blocks: htmlToBlocks(buf.toString("utf8"), []), images: [] };
   // Texto puro como fallback.

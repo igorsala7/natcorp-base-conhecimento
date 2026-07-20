@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
+import { MFA_DISABLED } from "@/lib/auth/mfa-flag";
 
 /**
  * Rotas do Admin que NÃO exigem sessão completa (são o caminho para obtê-la):
@@ -65,10 +66,11 @@ export async function updateSession(request: NextRequest) {
     return redirectTo(request, "/admin/login");
   }
 
-  // Com sessão: verifica o nível de garantia (AAL). TOTP é obrigatório.
+  // Com sessão: verifica o nível de garantia (AAL). TOTP é obrigatório —
+  // exceto com MFA_DISABLED=true (interruptor temporário, ver lib/auth/mfa-flag).
   const { data: aal } =
     await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  const fullyAuthed = aal?.currentLevel === "aal2";
+  const fullyAuthed = MFA_DISABLED || aal?.currentLevel === "aal2";
   const onPublic = isAdminPublic(pathname);
 
   if (!fullyAuthed) {

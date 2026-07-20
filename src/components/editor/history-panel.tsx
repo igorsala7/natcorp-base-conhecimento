@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { History, RotateCcw, Lock, Save, X } from "lucide-react";
+import { RotateCcw, Lock, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RenderDoc } from "@/components/portal/render";
+import { Dialog } from "@/components/ui/dialog";
+import { RenderBlocks } from "@/lib/blocks/render";
+import { normalizeDoc } from "@/lib/blocks/convert";
 import { wordDiff, type DiffOp } from "@/lib/content/word-diff";
 import {
   listArticleVersions,
@@ -115,28 +117,30 @@ export function HistoryPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="flex items-center gap-2 font-semibold">
-            <History className="size-4" /> Histórico de versões
-          </h2>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={saveNamed} disabled={busy}>
-              <Save className="size-4" /> Salvar versão
-            </Button>
-            <Button size="icon" variant="ghost" onClick={onClose} aria-label="Fechar">
-              <X className="size-4" />
-            </Button>
-          </div>
-        </div>
+    <Dialog
+      open
+      onClose={onClose}
+      size="xl"
+      title="Histórico de versões"
+      className="h-[85vh] max-w-5xl"
+      bodyClassName="flex min-h-0 flex-1 flex-col"
+      actions={
+        <Button size="sm" variant="secondary" onClick={saveNamed} disabled={busy}>
+          <Save className="size-4" /> Salvar versão
+        </Button>
+      }
+    >
+      <>
+        {msg && (
+          <p
+            role="status"
+            className="mx-5 mb-2 rounded-md bg-brand-purple-50 px-3 py-2 text-sm text-primary dark:bg-brand-purple-950/30"
+          >
+            {msg}
+          </p>
+        )}
 
-        {msg && <p className="border-b border-border bg-brand-purple-50 px-5 py-2 text-sm text-primary dark:bg-brand-purple-950/30">{msg}</p>}
-
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 border-t border-border">
           {/* Lista de versões */}
           <div className="w-80 shrink-0 overflow-auto border-r border-border p-3">
             <div className="mb-3 rounded-lg border border-border p-2">
@@ -202,7 +206,7 @@ export function HistoryPanel({
             )}
             {detail?.mode === "view" && (
               <article className="prose prose-neutral max-w-none dark:prose-invert">
-                <RenderDoc doc={detail.content} snippets={new Map()} />
+                <RenderBlocks blocks={normalizeDoc(detail.content).blocks} snippets={new Map()} />
               </article>
             )}
             {detail?.mode === "diff" && (
@@ -219,8 +223,8 @@ export function HistoryPanel({
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </>
+    </Dialog>
   );
 }
 

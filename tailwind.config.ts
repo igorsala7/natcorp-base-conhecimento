@@ -85,6 +85,8 @@ const config: Config = {
         surface: "var(--color-surface)",
         "surface-2": "var(--color-surface-2)",
         border: "var(--color-border)",
+        // Limite de componente interativo (input/select/checkbox) — 3:1 mínimo.
+        "border-strong": "var(--color-border-strong)",
         text: "var(--color-text)",
         "text-muted": "var(--color-text-muted)",
         primary: {
@@ -99,15 +101,44 @@ const config: Config = {
         ring: "var(--color-focus-ring)",
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        // Geist Mono continua no código: monoespaçada de qualidade, já local.
         mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
       },
       maxWidth: {
         // Medida de linha ideal para leitura de documentação (~65–75ch).
         prose: "72ch",
       },
+      // Escala de RAIO — antes eram 5 valores soltos espalhados pelo código.
+      borderRadius: {
+        sm: "var(--radius-sm)",
+        DEFAULT: "var(--radius-md)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-xl)",
+        "2xl": "var(--radius-xl)",
+      },
+      // Escala de ELEVAÇÃO: 1 superfície, 2 popover/menu, 3 modal.
+      // Sombras curtas, baixa opacidade e viés roxo (cinza puro "suja" a marca).
+      boxShadow: {
+        1: "var(--shadow-1)",
+        2: "var(--shadow-2)",
+        3: "var(--shadow-3)",
+        sm: "var(--shadow-1)",
+        DEFAULT: "var(--shadow-1)",
+        md: "var(--shadow-2)",
+        lg: "var(--shadow-2)",
+        xl: "var(--shadow-3)",
+        "2xl": "var(--shadow-3)",
+      },
       transitionDuration: {
-        DEFAULT: "150ms",
+        DEFAULT: "var(--duration-fast)",
+        fast: "var(--duration-fast)",
+        base: "var(--duration-base)",
+      },
+      transitionTimingFunction: {
+        DEFAULT: "var(--ease-out)",
+        out: "var(--ease-out)",
       },
     },
   },

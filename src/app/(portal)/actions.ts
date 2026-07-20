@@ -85,7 +85,10 @@ export async function searchPortal(
     p_node_ids: nodeIds,
     p_limit: 12,
   });
-  const rows = data ?? [];
+  // A busca do portal é só de artigos: passa `p_node_ids` e a RLS do `anon`
+  // exige nó publicado. O filtro abaixo é a terceira barreira — se um chunk de
+  // arquivo chegasse aqui, viraria um resultado sem link para o leitor.
+  const rows = (data ?? []).filter((r): r is typeof r & { node_id: string } => !!r.node_id);
 
   // Loga a busca (alimenta as Análises de lacunas). Best-effort.
   await db.from("search_logs").insert({

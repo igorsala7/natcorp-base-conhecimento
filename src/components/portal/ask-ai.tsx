@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Send, X, ThumbsUp, ThumbsDown, FileText } from "lucide-react";
+import { ChevronRight, Sparkles, Send, X, ThumbsUp, ThumbsDown, FileText } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { submitPortalChatFeedback } from "@/app/(portal)/actions";
 
-type Citation = { n: number; title: string; url: string; heading_path?: string | null };
+/** Espelha `RetrievedSource` do servidor. `url` é nulo quando a fonte é um
+ *  arquivo da base de conhecimento, que não tem página no portal. */
+type Citation = { n: number; title: string; url: string | null; heading_path?: string | null };
+const FALHA_RESPOSTA =
+  "Não foi possível gerar a resposta agora. As fontes encontradas estão abaixo — tente de novo em instantes ou avise a equipe.";
+
 type Msg = { role: "user" | "assistant"; content: string; citations?: Citation[]; feedback?: 1 | -1 };
 
 /** Painel "Perguntar à IA" do leitor — responde com base na doc do espaço. */
@@ -110,7 +115,13 @@ export function AskAiPanel({
             scrollDown();
           } else if (evt.type === "done") {
             convRef.current = evt.conversationId || convRef.current;
-            updateLast((m) => ({ ...m, citations: cites }));
+            // Resposta vazia = falha na chamada ao modelo. Dizer isso é
+            // melhor do que uma bolha em branco ao lado das fontes.
+            updateLast((m) => ({
+              ...m,
+              citations: cites,
+              content: m.content || FALHA_RESPOSTA,
+            }));
           }
         }
       }
@@ -138,7 +149,7 @@ export function AskAiPanel({
         className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
         onClick={onClose}
       />
-      <div className="relative flex h-dvh w-full max-w-md flex-col border-l border-border bg-bg shadow-2xl motion-safe:animate-[slidein_200ms_ease-out]">
+      <div className="relative flex h-dvh w-full max-w-md flex-col border-l border-border bg-surface shadow-3 motion-safe:animate-[slidein_200ms_ease-out]">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <Sparkles className="size-4 text-primary" />
           <span className="font-semibold">Perguntar à IA</span>
@@ -163,7 +174,7 @@ export function AskAiPanel({
               <div
                 className={
                   m.role === "user"
-                    ? "max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-fg"
+                    ? "max-w-[85%] rounded-xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-fg"
                     : "max-w-full"
                 }
               >
@@ -177,13 +188,26 @@ export function AskAiPanel({
                   </span>
                 )}
                 {m.citations && m.citations.length > 0 && (
-                  <div className="mt-3 space-y-1.5 border-t border-border pt-3">
-                    <p className="text-xs font-medium text-text-muted">Fontes</p>
-                    {m.citations.map((c) => (
-                      <a
+                  // Fechada por padrão: no painel estreito do portal a lista de
+                  // fontes empurrava a resposta para fora da vista.
+                  <details className="group mt-3 border-t border-border pt-2">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-text-muted transition-colors hover:text-text">
+                      <ChevronRight className="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
+                      Fontes
+                      <span className="tabular-nums">({m.citations.length})</span>
+                    </summary>
+                    <div className="mt-2 space-y-1.5">
+                    {m.citations.map((c) => {
+                      // Sem URL (fonte de arquivo) a citação não pode ser link:
+                      // um <a href=""> recarrega a página ao ser clicado.
+                      const Tag = c.url ? "a" : "div";
+                      return (
+                      <Tag
                         key={c.n}
-                        href={c.url}
-                        className="flex items-start gap-2 rounded-lg border border-border p-2 text-sm no-underline transition-colors hover:border-primary"
+                        {...(c.url ? { href: c.url } : {})}
+                        className={`flex items-start gap-2 rounded-lg border border-border p-2 text-sm no-underline ${
+                          c.url ? "transition-colors hover:border-primary" : ""
+                        }`}
                       >
                         <FileText className="mt-0.5 size-4 shrink-0 text-text-muted" />
                         <span className="min-w-0">
@@ -196,9 +220,11 @@ export function AskAiPanel({
                             </span>
                           )}
                         </span>
-                      </a>
-                    ))}
-                  </div>
+                      </Tag>
+                      );
+                    })}
+                    </div>
+                  </details>
                 )}
                 {m.role === "assistant" && m.content && i === messages.length - 1 && !streaming && (
                   <div className="mt-2 flex items-center gap-1">

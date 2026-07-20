@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -36,6 +36,8 @@ import {
   type FlatItem,
 } from "./tree-utils";
 import { TreeItem } from "./tree-item";
+import { CopyToSpaceDialog } from "./copy-to-space-dialog";
+import type { SpaceInfo } from "@/lib/content/spaces";
 
 const INDENT = 20;
 
@@ -43,13 +45,18 @@ export function Tree({
   spaceId,
   nodes,
   selectedId,
+  spaces = [],
 }: {
   spaceId: string;
+  /** Documentações disponíveis — habilita copiar/mover a seleção entre elas. */
+  spaces?: SpaceInfo[];
   nodes: TreeNode[];
   selectedId?: string;
 }) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const storageKey = `kb.treeCollapsed.${spaceId}`;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [offsetLeft, setOffsetLeft] = useState(0);
@@ -57,6 +64,7 @@ export function Tree({
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | "folder" | "article">(null);
+  const [sendToSpace, setSendToSpace] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [, startTransition] = useTransition();
 
@@ -82,9 +90,68 @@ export function Tree({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      localStorage.setItem(storageKey, JSON.stringify([...next]));
       return next;
     });
   }
+
+  // Recupera o que estava recolhido. Sem isto, navegar remonta a árvore e tudo
+  // volta a aparecer expandido.
+  useEffect(() => {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return;
+    try {
+      const ids = JSON.parse(raw) as string[];
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setCollapsed(new Set(ids));
+    } catch {
+      /* estado inválido: ignora */
+    }
+  }, [storageKey]);
+
+  // Garante que o item selecionado esteja visível: abre só os ANCESTRAIS dele
+  // (não mexe no resto) e rola o painel até ele — antes o scroll voltava ao topo.
+  useEffect(() => {
+    if (!selectedId) return;
+    const caminho: string[] = [];
+    const acha = (list: TreeNode[], trilha: string[]): boolean => {
+      for (const n of list) {
+        if (n.id === selectedId) {
+          caminho.push(...trilha);
+          return true;
+        }
+        if (acha(n.children, [...trilha, n.id])) return true;
+      }
+      return false;
+    };
+    acha(nodes, []);
+
+    if (caminho.length) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setCollapsed((prev) => {
+        if (!caminho.some((id) => prev.has(id))) return prev; // já visível
+        const next = new Set(prev);
+        caminho.forEach((id) => next.delete(id));
+        localStorage.setItem(storageKey, JSON.stringify([...next]));
+        return next;
+      });
+    }
+
+    // Dois quadros: o item pode ter acabado de ser revelado pela expansão acima,
+    // então só depois do commit do React ele existe no DOM para receber o scroll.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        listRef.current
+          ?.querySelector(`[data-node-id="${selectedId}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [selectedId, nodes, storageKey]);
 
   /** Marca/desmarca um nó; com Shift, seleciona o intervalo desde o último. */
   function onCheck(id: string, e: React.MouseEvent) {
@@ -291,7 +358,7 @@ export function Tree({
   }
 
   return (
-    <div>
+    <div ref={listRef}>
       <div className="mb-2">
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => { setCreating("folder"); setDraftTitle(""); }}>
@@ -394,6 +461,43 @@ export function Tree({
               Unificar ({selectedArticles.length})
             </button>
           )}
+          {spaces.length > 1 && (
+            <button
+              type="button"
+              className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+              title="Copiar ou mover os itens marcados para outra documentação"
+              onClick={() => setSendToSpace(true)}
+            >
+              Outra documentação
+            </button>
+          )}
+          <button
+            type="button"
+            className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+            title="Gerar embeddings dos itens marcados, incluindo tudo abaixo na hierarquia"
+            onClick={() => {
+              const ids = [...checkedIds];
+              if (
+                !confirm(
+                  `Gerar embeddings de ${ids.length} item(ns) selecionado(s), incluindo todo o conteúdo abaixo?`,
+                )
+              )
+                return;
+              startTransition(async () => {
+                setMessage("Gerando embeddings…");
+                let total = 0;
+                for (const id of ids) {
+                  const r = await reindexSubtreeEmbeddings(id);
+                  if (r.ok) total += r.count;
+                }
+                setMessage(`Embeddings gerados: ${total} artigo(s).`);
+                clearSelection();
+                router.refresh();
+              });
+            }}
+          >
+            Gerar embeddings
+          </button>
           <button
             type="button"
             className="rounded px-2 py-0.5 text-xs text-brand-pink-700 hover:bg-surface"
@@ -422,12 +526,32 @@ export function Tree({
         </p>
       )}
 
+      {sendToSpace && (
+        <CopyToSpaceDialog
+          nodeIds={[...checkedIds]}
+          currentSpaceId={spaceId}
+          spaces={spaces}
+          onClose={() => setSendToSpace(false)}
+          onDone={(m) => {
+            setMessage(m);
+            clearSelection();
+          }}
+        />
+      )}
+
       {flat.length === 0 ? (
         <p className="px-2 py-6 text-sm text-text-muted">
           Árvore vazia. Crie uma pasta ou artigo para começar.
         </p>
       ) : (
         <DndContext
+          // Id FIXO, obrigatório sob SSR: sem ele o dnd-kit deriva o
+          // `aria-describedby` de um contador em escopo de módulo
+          // (`useUniqueId`), que no servidor sobrevive entre requisições e no
+          // cliente começa do zero — hidratação quebrada.
+          // Vira um id de DOM literal (sem prefixo), então precisa ser único
+          // na página inteira. Coberto por `ssr-dnd-ids.test.tsx`.
+          id="dnd-arvore-conteudo"
           sensors={sensors}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
@@ -450,12 +574,19 @@ export function Tree({
                 active={item.id === activeId}
                 selected={item.id === selectedId}
                 checked={checkedIds.has(item.id)}
+                anyChecked={checkedIds.size > 0}
                 indentationWidth={INDENT}
                 onToggle={() => toggle(item.id)}
                 onCheck={(e) => onCheck(item.id, e)}
-                onSelect={() => {
+                onSelect={(e) => {
+                  // Shift = intervalo, Ctrl/⌘ = marcar avulso — sem navegar.
+                  if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                    e.preventDefault();
+                    onCheck(item.id, e);
+                    return;
+                  }
                   if (item.node.type === "article")
-                    router.push(`/admin/conteudo/${item.id}`);
+                    router.push(`/admin/conteudo/${item.id}`, { scroll: false });
                   else toggle(item.id);
                 }}
               >

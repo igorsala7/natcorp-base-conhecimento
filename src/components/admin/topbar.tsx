@@ -15,16 +15,16 @@ export function Topbar({ email }: { email: string }) {
       .toUpperCase() || "NA";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-5">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-4 sm:px-5">
       <SearchTrigger />
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <ThemeToggle />
-        <span className="hidden text-sm text-text-muted sm:inline">
-          {email}
-        </span>
+        <span className="hidden text-sm text-text-muted lg:inline">{email}</span>
+        {/* Avatar em roxo, não em rosa: a marca principal é o roxo — o rosa é
+            acento pontual, não identidade de pessoa. */}
         <div
-          className="flex size-8 items-center justify-center rounded-full bg-accent text-accent-fg text-xs font-semibold"
+          className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-fg"
           aria-hidden
         >
           {initials}

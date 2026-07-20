@@ -29,7 +29,7 @@ export function PasswordGate({
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4 text-text">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-border bg-surface p-6">
         <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
           <Lock className="size-5" />
         </div>

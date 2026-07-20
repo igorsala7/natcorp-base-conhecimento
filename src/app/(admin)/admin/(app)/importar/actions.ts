@@ -5,9 +5,10 @@ import { generateKeyBetween } from "fractional-indexing";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
-import { slugify } from "@/lib/content/slug";
+import { uniqueSlug } from "@/lib/content/unique-slug";
 import { enqueueImport } from "@/lib/jobs/boss";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
+import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
 
 export type ImportResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -64,17 +65,14 @@ export async function createImportJob(input: {
   return { ok: true, id: job.id };
 }
 
-/** Converte os itens de conteúdo em um documento TipTap. */
-function toTipTap(content: ContentItem[], images: string[]) {
-  const nodes = content.map((c) =>
+/** Converte os itens de conteúdo em um documento de blocos v2. */
+function toBlocks(content: ContentItem[], images: string[]): BlockDoc {
+  const blocks: Block[] = content.map((c) =>
     c.type === "p"
-      ? { type: "paragraph", content: [{ type: "text", text: c.text }] }
-      : {
-          type: "figureImage",
-          attrs: { src: images[c.image] ?? "", alt: "", caption: "" },
-        },
+      ? { id: newId(), type: "paragraph", text: c.text ? [{ text: c.text }] : [] }
+      : { id: newId(), type: "image", data: { src: images[c.image] ?? "", alt: "", caption: "" } },
   );
-  return { type: "doc", content: nodes.length ? nodes : [{ type: "paragraph" }] };
+  return { version: 2, blocks: blocks.length ? blocks : [{ id: newId(), type: "paragraph", text: [] }] };
 }
 
 async function insertProposed(
@@ -88,7 +86,8 @@ async function insertProposed(
   const isFolder = node.children.length > 0;
   const type = isFolder ? "folder" : "article";
   const position = generateKeyBetween(prevPos, null);
-  const slug = slugify(node.title);
+  // Slug legível e único no destino (antes usava sufixo aleatório, que sujava a URL).
+  const slug = await uniqueSlug(supabase, spaceId, parentId, node.title || "sem-titulo");
 
   const { data: created, error } = await supabase
     .from("nodes")
@@ -97,7 +96,7 @@ async function insertProposed(
       parent_id: parentId,
       type,
       title: node.title || "Sem título",
-      slug: `${slug}-${Math.random().toString(36).slice(2, 6)}`,
+      slug,
       position,
     })
     .select("id")
@@ -107,7 +106,7 @@ async function insertProposed(
   if (!isFolder) {
     await supabase.from("articles").insert({
       node_id: created.id,
-      content_json: toTipTap(node.content, images) as Json,
+      content_json: toBlocks(node.content, images) as unknown as Json,
     });
   } else if (node.content.length > 0) {
     // Pasta com corpo → cria um artigo "Visão geral" com o corpo.
@@ -130,10 +129,21 @@ async function insertProposed(
   return position;
 }
 
+/** Destino escolhido na confirmação da importação. */
+export type ImportTarget = {
+  /** Documentação (espaço) de destino. */
+  spaceId: string;
+  /** Pasta onde pendurar; null = raiz da documentação. */
+  parentId: string | null;
+  /** Se preenchido, cria esta pasta no destino e pendura TUDO dentro dela. */
+  newFolderTitle?: string | null;
+};
+
 /** Materializa a árvore proposta (possivelmente editada) na árvore real. */
 export async function materializeImport(
   jobId: string,
   editedTree?: ProposedNode[],
+  target?: ImportTarget,
 ): Promise<ImportResult> {
   const supabase = await createClient();
   const { data: job } = await supabase
@@ -142,10 +152,32 @@ export async function materializeImport(
     .eq("id", jobId)
     .single();
   if (!job) return { ok: false, error: "Job não encontrado." };
+
+  // Destino: o escolhido na tela vence o que ficou gravado no job.
+  const spaceId = target?.spaceId ?? job.space_id;
+  const baseParentId = target?.parentId ?? job.target_parent_id ?? null;
+
   try {
+    // Precisa poder importar no job E criar conteúdo na documentação destino.
     await requirePermission("content.import", job.space_id);
+    await requirePermission("content.create", spaceId);
   } catch {
-    return { ok: false, error: "Sem permissão." };
+    return { ok: false, error: "Sem permissão para importar nesta documentação." };
+  }
+
+  // O pai precisa pertencer à documentação destino (evita árvore inconsistente).
+  if (baseParentId) {
+    const { data: parent } = await supabase
+      .from("nodes")
+      .select("id, type, space_id")
+      .eq("id", baseParentId)
+      .maybeSingle();
+    if (!parent || parent.space_id !== spaceId) {
+      return { ok: false, error: "A pasta de destino não pertence à documentação escolhida." };
+    }
+    if (parent.type !== "folder") {
+      return { ok: false, error: "O destino precisa ser uma pasta." };
+    }
   }
 
   const stored = job.result_tree as { tree: ProposedNode[]; images: string[] } | null;
@@ -156,29 +188,45 @@ export async function materializeImport(
   await supabase.from("import_jobs").update({ status: "importing" }).eq("id", jobId);
 
   try {
-    // posição inicial = fim da lista de irmãos no destino
-    let q = supabase
-      .from("nodes")
-      .select("position")
-      .eq("space_id", job.space_id)
-      .is("deleted_at", null)
-      .order("position", { ascending: false })
-      .limit(1);
-    q = job.target_parent_id
-      ? q.eq("parent_id", job.target_parent_id)
-      : q.is("parent_id", null);
-    const { data: last } = await q.maybeSingle();
-    let prev: string | null = last?.position ?? null;
+    // Posição inicial = fim da lista de irmãos no destino.
+    const lastPosition = async (parentId: string | null) => {
+      let q = supabase
+        .from("nodes")
+        .select("position")
+        .eq("space_id", spaceId)
+        .is("deleted_at", null)
+        .order("position", { ascending: false })
+        .limit(1);
+      q = parentId ? q.eq("parent_id", parentId) : q.is("parent_id", null);
+      const { data } = await q.maybeSingle();
+      return data?.position ?? null;
+    };
 
+    let rootParentId = baseParentId;
+
+    // Opcional: cria a pasta que vai receber todo o conteúdo importado.
+    const novaPasta = target?.newFolderTitle?.trim();
+    if (novaPasta) {
+      const slug = await uniqueSlug(supabase, spaceId, baseParentId, novaPasta);
+      const { data: folder, error } = await supabase
+        .from("nodes")
+        .insert({
+          space_id: spaceId,
+          parent_id: baseParentId,
+          type: "folder",
+          title: novaPasta,
+          slug,
+          position: generateKeyBetween(await lastPosition(baseParentId), null),
+        })
+        .select("id")
+        .single();
+      if (error || !folder) throw new Error(error?.message ?? "falha ao criar a pasta de destino");
+      rootParentId = folder.id;
+    }
+
+    let prev: string | null = await lastPosition(rootParentId);
     for (const node of tree) {
-      prev = await insertProposed(
-        supabase,
-        job.space_id,
-        job.target_parent_id,
-        node,
-        images,
-        prev,
-      );
+      prev = await insertProposed(supabase, spaceId, rootParentId, node, images, prev);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -187,7 +235,13 @@ export async function materializeImport(
   }
 
   await supabase.from("import_jobs").update({ status: "done" }).eq("id", jobId);
-  await audit({ action: "content.import_done", entityType: "import_job", entityId: jobId, spaceId: job.space_id });
+  await audit({
+    action: "content.import_done",
+    entityType: "import_job",
+    entityId: jobId,
+    spaceId,
+    after: { parentId: baseParentId, newFolder: target?.newFolderTitle ?? null },
+  });
   revalidatePath("/admin/conteudo");
   revalidatePath("/admin/importar");
   return { ok: true };

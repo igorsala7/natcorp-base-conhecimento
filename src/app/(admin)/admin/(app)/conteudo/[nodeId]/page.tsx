@@ -3,12 +3,14 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listTree, slugPathsOf } from "@/lib/content/tree";
+import { listSpaces } from "@/lib/content/spaces";
+import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
 import { env } from "@/lib/env";
 import { ContentShell } from "@/components/content/content-shell";
 import { Tree } from "@/components/content/tree";
 import { ClientTree } from "@/components/content/client-tree";
-import { ArticleEditor } from "@/components/editor/editor";
+import { BlockEditor } from "@/components/editor/blocks/block-editor";
 
 export const metadata: Metadata = { title: "Editar artigo" };
 
@@ -23,7 +25,7 @@ export default async function EditarArtigoPage({
   if (!canView) notFound();
 
   const supabase = await createClient();
-  const [{ data: node }, { data: article }] = await Promise.all([
+  const [{ data: node }, { data: article }, { data: draft }] = await Promise.all([
     supabase
       .from("nodes")
       .select("id, title, status, type, space_id")
@@ -31,6 +33,11 @@ export default async function EditarArtigoPage({
       .single(),
     supabase
       .from("articles")
+      .select("content_json")
+      .eq("node_id", nodeId)
+      .maybeSingle(),
+    supabase
+      .from("article_drafts")
       .select("content_json")
       .eq("node_id", nodeId)
       .maybeSingle(),
@@ -49,12 +56,33 @@ export default async function EditarArtigoPage({
     slugPathsOf(node.space_id),
   ]);
 
-  const aside =
+  const [spaces, canCreateSpace, canManageSpace] = await Promise.all([
+    listSpaces(),
+    hasPermission("space.create"),
+    hasPermission("space.manage", node.space_id),
+  ]);
+
+  const tree =
     nodeSpace?.type === "client" ? (
       <ClientTree clientSpaceId={node.space_id} nodes={await getEffectiveTreeAdmin(node.space_id)} />
     ) : (
-      <Tree spaceId={node.space_id} nodes={await listTree(node.space_id)} selectedId={nodeId} />
+      <Tree spaceId={node.space_id} nodes={await listTree(node.space_id)} selectedId={nodeId} spaces={spaces} />
     );
+
+  const aside = (
+    <>
+      <SpaceSwitcher
+        spaces={spaces}
+        currentId={node.space_id}
+        canCreate={canCreateSpace}
+        canManage={canManageSpace}
+        // Única tela que NÃO pode permanecer: o artigo aberto pertence à
+        // documentação antiga. Escapa para a árvore da documentação escolhida.
+        switchBasePath="/admin/conteudo"
+      />
+      {tree}
+    </>
+  );
   const path = slugPaths.get(nodeId) ?? [];
   const publicUrl = nodeSpace
     ? `${env.NEXT_PUBLIC_SITE_URL}/docs/${nodeSpace.slug}/${path.join("/")}`
@@ -69,13 +97,13 @@ export default async function EditarArtigoPage({
 
   return (
     <ContentShell aside={aside}>
-      <ArticleEditor
+      <BlockEditor
         nodeId={nodeId}
         spaceId={node.space_id}
         title={node.title}
-        initialContent={
-          (article?.content_json as object) ?? { type: "doc", content: [] }
-        }
+        initialContent={draft?.content_json ?? article?.content_json ?? null}
+        publishedContent={article?.content_json ?? null}
+        initialHasDraft={draft != null}
         initialStatus={node.status as "draft" | "review" | "published"}
         publicUrl={publicUrl}
         spacePublic={nodeSpace?.visibility === "public"}

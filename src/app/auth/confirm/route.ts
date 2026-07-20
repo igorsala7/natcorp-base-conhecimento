@@ -1,6 +1,7 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { MFA_DISABLED } from "@/lib/auth/mfa-flag";
 
 /**
  * Confirma links de e-mail (convite de primeiro acesso, recuperação de senha).
@@ -39,12 +40,14 @@ export async function GET(request: NextRequest) {
   // Se o usuário tem TOTP cadastrado, precisa elevar a sessão a AAL2 ANTES de
   // qualquer ação sensível (ex.: trocar senha). Manda ao desafio primeiro,
   // preservando o destino em `next`.
-  const { data: aal } =
-    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel === "aal1" && aal.nextLevel === "aal2") {
-    return NextResponse.redirect(
-      new URL(`/admin/mfa?next=${encodeURIComponent(next)}`, origin),
-    );
+  if (!MFA_DISABLED) {
+    const { data: aal } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal?.currentLevel === "aal1" && aal.nextLevel === "aal2") {
+      return NextResponse.redirect(
+        new URL(`/admin/mfa?next=${encodeURIComponent(next)}`, origin),
+      );
+    }
   }
 
   return NextResponse.redirect(new URL(next, origin));
