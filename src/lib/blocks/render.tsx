@@ -183,11 +183,16 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       const { provider, url } = block.data;
       if (provider === "upload")
         return (
+          /* preload="none": ZERO bytes até o play — na leitura contínua uma
+             página pode ter vários vídeos, e até o metadata de um .mov (moov
+             no fim do arquivo) pode custar caro. Ao dar play, o navegador
+             bufferiza em pedaços via HTTP Range (o Storage responde 206 —
+             verificado), nunca o arquivo inteiro de uma vez. */
           <video
             src={url}
             controls
-            preload="metadata"
-            className="my-6 mx-auto w-full max-w-full rounded-lg"
+            preload="none"
+            className="my-6 mx-auto w-full max-w-full rounded-lg bg-black/90"
           />
         );
       let embed = url;
