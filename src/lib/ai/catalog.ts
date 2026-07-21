@@ -47,7 +47,7 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   {
     key: "editor_text",
     label: "Editor — texto",
-    desc: "Reescrever, expandir, resumir e mudar o tom no editor (com revisão).",
+    desc: "Reescrever, expandir, resumir e mudar o tom no editor (com revisão). Sem atribuição própria, usa o provedor do Chat.",
   },
 ];
 

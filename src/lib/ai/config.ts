@@ -146,13 +146,26 @@ async function doBanco(purpose: Purpose): Promise<ResolvedAi | null> {
   }
 }
 
-/** Configuração efetiva de uma finalidade: banco primeiro, env como reserva. */
+/**
+ * Configuração efetiva de uma finalidade: atribuição própria no banco →
+ * atribuição de CHAT no banco → env.
+ *
+ * O degrau do meio existe porque finalidades de linguagem novas (ex.:
+ * editor_text) nascem sem atribuição — e quem configurou um provedor na tela
+ * do Sistema espera que TODAS as finalidades de texto o usem, não que uma
+ * caia silenciosamente numa AI_API_KEY antiga da env (foi exatamente o bug:
+ * chat no banco funcionando e o editor falhando numa chave sem créditos).
+ * Embeddings ficam de fora: modelo de chat não gera vetor.
+ */
 export async function resolveAi(purpose: Purpose): Promise<ResolvedAi | null> {
   const agora = Date.now();
   const hit = cache.get(purpose);
   if (hit && agora - hit.at < TTL_MS) return hit.valor;
 
-  const valor = (await doBanco(purpose)) ?? doEnv(purpose);
+  const valor =
+    (await doBanco(purpose)) ??
+    (purpose !== "embedding" && purpose !== "chat" ? await doBanco("chat") : null) ??
+    doEnv(purpose);
   cache.set(purpose, { at: agora, valor });
   return valor;
 }

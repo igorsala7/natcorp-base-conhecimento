@@ -258,6 +258,9 @@ export async function improveArticleText(
   } catch (e) {
     if (ehTimeout(e))
       return { ok: false, error: "A IA demorou demais para responder. Tente novamente." };
+    // A causa real fica no log do servidor — a mensagem ao autor é curta, mas
+    // sem isto o diagnóstico vira adivinhação (ex.: chave sem créditos).
+    console.error("[editor_text] falha na chamada de IA:", e);
     return { ok: false, error: "Falha ao consultar a IA. Verifique o provedor em Sistema → IA." };
   }
 }

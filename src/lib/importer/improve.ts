@@ -1,5 +1,4 @@
 import "server-only";
-import { z } from "zod";
 import { generateObject } from "ai";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { LAYOUT_INSTRUCTIONS } from "./prompts";
@@ -7,99 +6,16 @@ import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/sc
 import { blocksToText } from "@/lib/blocks/serialize";
 import { iconByKey } from "@/lib/blocks/icons";
 import { segmentarTexto, contarPalavras, MINIMO_PALAVRAS } from "./segment";
+import { blocksSchema, type LeafBlock, type LayoutBlock } from "./layout-schema";
 
 /**
  * "Melhorar layout" (Fase 4, etapa 4). Um passe de LLM que REFORMATA texto cru
  * em blocos ricos (callout, passo-a-passo, code, listas) — NÃO reescreve,
  * resume ou inventa. O usuário sempre revê o diff antes de aplicar.
  */
-// ATENÇÃO: a saída estruturada da Anthropic tem LIMITE DE GRAMÁTICA. Manter o
-// schema PLANO — nunca aninhar `discriminatedUnion` dentro de arrays de
-// contêiner (painel/colunas usam texto simples). Campos escalares opcionais
-// (icon/ratios/divider) são baratos; blocos novos, nem tanto. Ao mexer aqui,
-// testar contra a API real antes de commitar.
-//
-// E use `.nullable()`, NUNCA `.optional()`: o modo estrito da OpenAI exige que
-// TODA propriedade esteja em `required`, então um campo opcional faz a chamada
-// inteira falhar com `invalid_json_schema` — e o erro só aparece em execução.
-//
-// `icon` é string livre (uma enum com ~75 ícones estouraria a gramática): a
-// chave é validada contra o catálogo no conversor e descartada se não existir.
-const iconField = z.string().nullable();
-
-// Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
-const leafOptions = [
-  z.object({ kind: z.literal("paragraph"), text: z.string() }),
-  z.object({ kind: z.literal("heading"), level: z.number().min(2).max(3), text: z.string() }),
-  z.object({
-    kind: z.literal("callout"),
-    variant: z.enum(["info", "warning", "success", "danger"]),
-    text: z.string(),
-    icon: iconField,
-  }),
-  z.object({ kind: z.literal("steps"), items: z.array(z.string()) }),
-  z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
-  z.object({
-    kind: z.literal("code"),
-    language: z.string().nullable(),
-    code: z.string(),
-  }),
-  z.object({
-    kind: z.literal("table"),
-    // primeira linha = cabeçalho; cada linha é um array de células (texto).
-    rows: z.array(z.array(z.string())),
-  }),
-  // Divisória: separa blocos de assunto dentro do artigo.
-  z.object({ kind: z.literal("divider") }),
-] as const;
-
-type LeafBlock = z.infer<(typeof leafOptions)[number]>;
-
-const blocksSchema = z.object({
-  blocks: z.array(
-    z.discriminatedUnion("kind", [
-      ...leafOptions,
-      // Painel = caixa colorida de destaque com parágrafos.
-      z.object({
-        kind: z.literal("panel"),
-        bg: z.enum(["purple", "pink", "blue", "gray"]),
-        items: z.array(z.string()),
-        icon: iconField,
-      }),
-      // Região dividida em colunas (cada coluna = parágrafos de texto simples).
-      // `ratios` dá a proporção (ex.: [1,2] = estreita à esquerda + larga à
-      // direita, ideal para imagem + texto); `divider` desenha a linha entre elas.
-      z.object({
-        kind: z.literal("columns"),
-        columns: z.array(z.array(z.string())),
-        ratios: z.array(z.number()).nullable(),
-        divider: z.boolean().nullable(),
-      }),
-      // Banner/Hero = cabeçalho de destaque (título + subtítulo).
-      z.object({
-        kind: z.literal("hero"),
-        eyebrow: z.string().nullable(),
-        title: z.string(),
-        subtitle: z.string().nullable(),
-        icon: iconField,
-      }),
-      // Grade de cards = itens paralelos com título + descrição curta.
-      z.object({
-        kind: z.literal("cardGrid"),
-        cards: z.array(z.object({ title: z.string(), text: z.string(), icon: iconField })),
-      }),
-      // Toggle = bloco recolhível para conteúdo secundário/opcional.
-      z.object({
-        kind: z.literal("toggle"),
-        title: z.string(),
-        items: z.array(z.string()),
-        icon: iconField,
-      }),
-    ]),
-  ),
-});
-
-type LayoutBlock = z.infer<typeof blocksSchema>["blocks"][number];
+// O schema da saída (e suas três minas conhecidas — Anthropic/gramática,
+// OpenAI/.optional e OpenAI/oneOf) mora em `layout-schema.ts`, importável
+// pelo teste de regressão.
 
 // A saída é convertida para o formato de BLOCOS v2 (não mais TipTap).
 function rt(t: string): RichText {
