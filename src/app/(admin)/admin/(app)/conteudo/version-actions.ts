@@ -176,12 +176,14 @@ export async function restoreArticleVersion(
     p_node_id: nodeId,
     p_label: `Restaurado da v${target.version}`,
   });
-  // 4) Reindexa a busca.
+  // 4) Reindexa a busca. Com embeddings: sem isso o chatbot seguiria
+  // respondendo o conteúdo anterior até a próxima publicação.
   await reindexNodeChunks(supabase, {
     nodeId,
     articleId: art.id,
     spaceId,
     doc: target.content_json as { type: string; content?: never[] },
+    withEmbeddings: true,
   });
 
   await audit({

@@ -28,7 +28,9 @@ export default async function PreviaPage({
 }) {
   const { spaceId } = await params;
   const { edit } = await searchParams;
-  if (!(await hasPermission("content.view"))) notFound();
+  // Com o spaceId: sem ele has_permission só casa membership global, e um
+  // Editor restrito a este espaço levava notFound() na prévia do próprio espaço.
+  if (!(await hasPermission("content.view", spaceId))) notFound();
   // Quem só lê continua vendo a prévia; o modo edição depende de content.edit.
   const editavel = await hasPermission("content.edit", spaceId);
 

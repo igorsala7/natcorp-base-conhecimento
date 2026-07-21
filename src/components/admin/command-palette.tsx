@@ -26,6 +26,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,6 +60,7 @@ export function CommandPalette() {
     if (debounce.current) clearTimeout(debounce.current);
     if (query.trim().length < 2) {
       setHits([]);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -66,7 +68,8 @@ export function CommandPalette() {
     /* eslint-enable react-hooks/set-state-in-effect */
     debounce.current = setTimeout(async () => {
       const res = await searchContent(query);
-      setHits(res);
+      setHits(res.hits);
+      setError(res.error ?? null);
       setActive(0);
       setLoading(false);
     }, 150);
@@ -133,7 +136,11 @@ export function CommandPalette() {
         <div className="max-h-[50vh] overflow-auto p-2">
           {loading && <p className="px-3 py-4 text-sm text-text-muted">Buscando…</p>}
 
-          {!loading && query.trim().length >= 2 && hits.length === 0 && (
+          {!loading && error && (
+            <p className="px-3 py-4 text-sm text-red-600 dark:text-red-400">{error}</p>
+          )}
+
+          {!loading && !error && query.trim().length >= 2 && hits.length === 0 && (
             <p className="px-3 py-4 text-sm text-text-muted">
               Nada encontrado para “{query}”.
             </p>
