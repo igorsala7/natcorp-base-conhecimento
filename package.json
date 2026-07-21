@@ -14,6 +14,7 @@
     "bootstrap:owner": "tsx --env-file=.env.local scripts/bootstrap-owner.ts",
     "worker": "tsx --tsconfig worker/tsconfig.json --env-file=.env.local worker/index.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",
+    "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "test:e2e": "playwright test"
   },
   "repository": {

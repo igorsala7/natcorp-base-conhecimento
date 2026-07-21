@@ -20,7 +20,12 @@ export const PROVIDER_HELP: Record<ProviderKind, string> = {
   google: "aistudio.google.com → Get API key",
 };
 
-export type Purpose = "chat" | "embedding" | "import_structure" | "import_layout";
+export type Purpose =
+  | "chat"
+  | "embedding"
+  | "import_structure"
+  | "import_layout"
+  | "editor_text";
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
@@ -38,6 +43,11 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
     key: "import_layout",
     label: "Importação — layout",
     desc: "Reformata o texto em blocos ricos (Melhorar layout).",
+  },
+  {
+    key: "editor_text",
+    label: "Editor — texto",
+    desc: "Reescrever, expandir, resumir e mudar o tom no editor (com revisão).",
   },
 ];
 

@@ -74,6 +74,7 @@ const TIMEOUT_MS: Record<Purpose | "embedding_query", number> = {
   embedding_query: 15_000,
   import_structure: 90_000,
   import_layout: 120_000,
+  editor_text: 60_000,
 };
 
 /** `abortSignal` pronto para passar às funções do AI SDK. */

@@ -23,6 +23,7 @@ import {
   Minimize2,
   MoreHorizontal,
   Pencil,
+  PenLine,
   Sparkles,
   Wand2,
 } from "lucide-react";
@@ -59,8 +60,54 @@ import {
   unpublishNode,
   discardDraft,
   improveArticleLayout,
+  improveArticleText,
   reindexArticleEmbeddings,
+  type TextoAcao,
+  type TomAlvo,
 } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+
+/**
+ * Aplica a proposta da IA de texto no bloco: substitui o texto mantendo o
+ * tipo. Num parágrafo, quebras duplas viram parágrafos novos logo abaixo —
+ * "expandir" costuma devolver mais de um. Formatação inline do trecho antigo
+ * (negrito etc.) é substituída junto com o texto; o diálogo avisa.
+ */
+function aplicarTextoNoBloco(bs: Block[], id: string, proposta: string): Block[] {
+  const partes = proposta
+    .split(/\n{2,}/)
+    .map((p) => p.replace(/\n/g, " ").trim())
+    .filter(Boolean);
+  if (partes.length === 0) return bs;
+
+  const walk = (list: Block[]): Block[] =>
+    list.flatMap((b) => {
+      if (b.id === id && "text" in b) {
+        if (b.type === "paragraph" && partes.length > 1) {
+          return partes.map((p, i) =>
+            i === 0
+              ? { ...b, text: [{ text: p }] }
+              : ({ id: newId(), type: "paragraph", text: [{ text: p }] } as Block),
+          );
+        }
+        return [{ ...b, text: [{ text: partes.join(" ") }] } as Block];
+      }
+      if ("children" in b && b.children) {
+        return [{ ...b, children: walk(b.children) } as Block];
+      }
+      return [b];
+    });
+  return walk(bs);
+}
+
+/** Ações do menu "IA no texto" — separado do "Melhorar layout" de propósito. */
+const ACOES_IA_TEXTO: { acao: TextoAcao; tom?: TomAlvo; rotulo: string }[] = [
+  { acao: "reescrever", rotulo: "Reescrever com clareza" },
+  { acao: "expandir", rotulo: "Expandir (sem inventar)" },
+  { acao: "resumir", rotulo: "Resumir" },
+  { acao: "tom", tom: "formal", rotulo: "Tom formal" },
+  { acao: "tom", tom: "casual", rotulo: "Tom casual" },
+  { acao: "tom", tom: "tecnico", rotulo: "Tom técnico" },
+];
 
 function initialBlocks(initial: unknown): Block[] {
   const bs = normalizeDoc(initial).blocks;
@@ -130,9 +177,18 @@ function BlockEditorInner({
   const [showHistory, setShowHistory] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
+  const [showAiTexto, setShowAiTexto] = useState(false);
+  const [aiTextoBusy, setAiTextoBusy] = useState(false);
+  const [aiProposta, setAiProposta] = useState<{
+    blockId: string;
+    rotulo: string;
+    original: string;
+    proposta: string;
+  } | null>(null);
 
   const moreRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const aiTextoRef = useRef<HTMLDivElement>(null);
 
   // Desfazer/refazer vivem em `use-undo-redo` — compartilhados com o editor
   // inline da prévia. Aplicar histórico NÃO pula o autosave de propósito: o
@@ -162,6 +218,7 @@ function BlockEditorInner({
 
   useDismiss(moreRef, showMore, useCallback(() => setShowMore(false), []));
   useDismiss(previewRef, showPreviewMenu, useCallback(() => setShowPreviewMenu(false), []));
+  useDismiss(aiTextoRef, showAiTexto, useCallback(() => setShowAiTexto(false), []));
 
   // API de mutação compartilhada com o editor inline da prévia.
   const actions = useEditorActions({ setBlocks, setSelectedId, setAutoFocusId, setSlash });
@@ -329,6 +386,33 @@ function BlockEditorInner({
   function applyImprove() {
     if (proposed) setBlocks(proposed.blocks.length ? proposed.blocks : blocks);
     setProposed(null);
+  }
+
+  // ── IA no texto (separada do "Melhorar layout") ─────────────────────────
+  // Age no BLOCO selecionado; a resposta vira proposta lado a lado, nunca
+  // aplicação direta.
+  const aiTextoAlvo =
+    selectedId != null
+      ? (() => {
+          const b = findBlock(blocks, selectedId);
+          return b && "text" in b && blocksToText([b]).trim().length >= 8 ? b : null;
+        })()
+      : null;
+
+  async function onAiTexto(acao: TextoAcao, tom: TomAlvo | undefined, rotulo: string) {
+    if (!aiTextoAlvo) return;
+    setShowAiTexto(false);
+    setAiTextoBusy(true);
+    setMsg(null);
+    const original = blocksToText([aiTextoAlvo]).trim();
+    const res = await improveArticleText(nodeId, original, acao, tom);
+    setAiTextoBusy(false);
+    if (!res.ok) return setMsg(res.error);
+    setAiProposta({ blockId: aiTextoAlvo.id, rotulo, original, proposta: res.proposta });
+  }
+  function applyAiTexto() {
+    if (aiProposta) setBlocks((bs) => aplicarTextoNoBloco(bs, aiProposta.blockId, aiProposta.proposta));
+    setAiProposta(null);
   }
 
   async function onReindex() {
@@ -519,6 +603,42 @@ function BlockEditorInner({
           >
             {fullscreen ? <Minimize2 /> : <Maximize2 />}
           </Button>
+          {/* IA no TEXTO — botão próprio, separado do "Melhorar layout" (que
+              reformata sem reescrever). Aqui a IA propõe texto novo, e por
+              isso o fluxo termina num antes/depois com aceite manual. */}
+          <div ref={aiTextoRef} className="relative">
+            <Button
+              variant="ghost"
+              title={
+                aiTextoAlvo
+                  ? "IA no texto do bloco selecionado (reescrever, expandir, resumir, tom)"
+                  : "Selecione um bloco de texto para usar a IA"
+              }
+              aria-expanded={showAiTexto}
+              disabled={!aiTextoAlvo || aiTextoBusy}
+              onClick={() => setShowAiTexto((v) => !v)}
+            >
+              <PenLine className={aiTextoBusy ? "animate-pulse" : ""} />
+              <span className="hidden lg:inline">{aiTextoBusy ? "Propondo…" : "IA no texto"}</span>
+            </Button>
+            {showAiTexto && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2">
+                {ACOES_IA_TEXTO.map((a) => (
+                  <button
+                    key={a.rotulo}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"
+                    onClick={() => onAiTexto(a.acao, a.tom, a.rotulo)}
+                  >
+                    <PenLine className="size-4 text-text-muted" /> {a.rotulo}
+                  </button>
+                ))}
+                <p className="px-2 pb-1 pt-1.5 text-xs text-text-muted">
+                  A proposta aparece antes de ser aplicada.
+                </p>
+              </div>
+            )}
+          </div>
           <div ref={moreRef} className="relative">
             <Button variant="ghost" size="icon" title="Mais ações" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)}>
               <MoreHorizontal />
@@ -669,6 +789,43 @@ function BlockEditorInner({
       {showHistory && (
         <HistoryPanel nodeId={nodeId} canRestore={!!canRestore} onClose={() => setShowHistory(false)} />
       )}
+
+      <Dialog
+        open={!!aiProposta}
+        onClose={() => setAiProposta(null)}
+        size="lg"
+        title={aiProposta ? `IA no texto — ${aiProposta.rotulo}` : "IA no texto"}
+        description="Compare e decida. Nada é aplicado sem o seu aceite; a formatação em negrito/itálico do trecho antigo é substituída junto."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAiProposta(null)}>
+              Descartar
+            </Button>
+            <Button onClick={applyAiTexto}>Aplicar no bloco</Button>
+          </>
+        }
+      >
+        {aiProposta && (
+          <div className="grid max-h-[60vh] gap-3 overflow-auto sm:grid-cols-2">
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Antes
+              </p>
+              <p className="whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 text-sm leading-relaxed">
+                {aiProposta.original}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
+                Proposta
+              </p>
+              <p className="whitespace-pre-wrap rounded-lg border border-primary/40 bg-brand-purple-50 p-3 text-sm leading-relaxed dark:bg-brand-purple-950/30">
+                {aiProposta.proposta}
+              </p>
+            </div>
+          </div>
+        )}
+      </Dialog>
 
       <Dialog
         open={!!proposed}
