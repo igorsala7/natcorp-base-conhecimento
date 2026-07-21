@@ -8,15 +8,19 @@ import {
   buildContextBlock,
 } from "@/lib/ai/rag";
 import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { limitarHistorico } from "@/lib/ai/history";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export async function POST(req: NextRequest) {
-  const { spaceId, messages, conversationId } = (await req.json()) as {
+  const { spaceId, messages: messagesBrutas, conversationId } = (await req.json()) as {
     spaceId: string;
     messages: ChatMessage[];
     conversationId?: string;
   };
+  // Mesmo teto das rotas públicas. Aqui o chamador é interno e autenticado,
+  // mas o custo de tokens é o mesmo e o histórico vem do cliente.
+  const messages = limitarHistorico(messagesBrutas);
 
   if (!await hasAiKey()) {
     return Response.json({ error: "AI_API_KEY não configurada." }, { status: 400 });

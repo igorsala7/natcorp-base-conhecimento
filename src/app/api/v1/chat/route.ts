@@ -1,4 +1,5 @@
 import { streamText } from "ai";
+import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
-  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const messages = limitarHistorico(payload.messages);
   const question = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (!question.trim()) return json({ error: "Mensagem vazia." }, 400);
 
