@@ -44,18 +44,27 @@ async function setProgress(
   patch: Record<string, unknown>,
   logLine?: string,
 ) {
-  const update: Record<string, unknown> = { ...patch };
-  if (logLine) {
-    const { data } = await supabase
-      .from("import_jobs")
-      .select("log")
-      .eq("id", jobId)
-      .single();
-    const log = Array.isArray(data?.log) ? data.log : [];
-    update.log = [...log, { at: new Date().toISOString(), msg: logLine }];
+  if (Object.keys(patch).length) {
+    await supabase.from("import_jobs").update(patch).eq("id", jobId);
   }
-  await supabase.from("import_jobs").update(update).eq("id", jobId);
+  // Append pelo banco (`log || …`) em vez de read-modify-write no worker:
+  // duas escritas concorrentes perdiam linhas do log.
+  if (logLine) {
+    await supabase.rpc("import_job_log_append", { p_job_id: jobId, p_msg: logLine });
+  }
 }
+
+/** Registra uma linha só no log, sem mexer em status/progresso. */
+function logJob(jobId: string, msg: string) {
+  return setProgress(jobId, {}, msg);
+}
+
+/**
+ * Estados a partir dos quais faz sentido processar. Uma re-entrega do pg-boss
+ * de um job já em 'preview'/'done' sobrescreveria o result_tree que o usuário
+ * talvez já esteja revisando.
+ */
+const PROCESSAVEIS = new Set(["queued", "extracting", "inferring"]);
 
 async function processJob(jobId: string) {
   const { data: job } = await supabase
@@ -64,6 +73,11 @@ async function processJob(jobId: string) {
     .eq("id", jobId)
     .single();
   if (!job) throw new Error(`Job ${jobId} não encontrado`);
+
+  if (!PROCESSAVEIS.has(job.status)) {
+    console.log(`Job ${jobId} está em '${job.status}' — nada a fazer.`);
+    return;
+  }
 
   await setProgress(jobId, { status: "extracting", progress: 10 }, "Baixando arquivo");
   const { data: file, error: dlErr } = await supabase.storage
@@ -114,7 +128,12 @@ async function processJob(jobId: string) {
       .upload(path, bytes, { contentType: img.mime, upsert: true });
     const { data } = supabase.storage.from("assets").getPublicUrl(path);
     const url = error ? "" : data.publicUrl;
-    if (error) console.error(`Falha ao subir imagem ${checksum.slice(0, 8)}: ${error.message}`);
+    if (error) {
+      // Também no log do job: só no console, o usuário via a imagem sumida
+      // sem nenhuma explicação na tela.
+      console.error(`Falha ao subir imagem ${checksum.slice(0, 8)}: ${error.message}`);
+      await logJob(jobId, `Falha ao enviar uma imagem: ${error.message}`);
+    }
     porChecksum.set(checksum, url);
     imageUrls.push(url);
   }
@@ -176,19 +195,42 @@ async function main() {
   console.log("Worker de importação pronto. Aguardando jobs…");
 
   await boss.work("import", async (jobs) => {
-    const job = jobs[0];
-    if (!job) return;
-    const { jobId } = job.data as { jobId: string };
-    console.log(`Processando job ${jobId}`);
-    try {
-      await processJob(jobId);
-      console.log(`Job ${jobId} concluído (preview)`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`Job ${jobId} falhou:`, msg);
-      await setProgress(jobId, { status: "error", error: msg }, `Erro: ${msg}`);
+    // Itera o lote inteiro: `const job = jobs[0]` descartava em SILÊNCIO
+    // jobs[1..n] quando o pg-boss entregava mais de um, e eles nunca eram
+    // marcados como concluídos nem como erro.
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Processando job ${jobId}`);
+      try {
+        await processJob(jobId);
+        console.log(`Job ${jobId} concluído (preview)`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Job ${jobId} falhou:`, msg);
+        await setProgress(jobId, { status: "error", error: msg }, `Erro: ${msg}`);
+      }
     }
   });
+
+  // Parada graciosa: sem isso, um deploy ou Ctrl+C no meio de uma importação
+  // abandonava o job em 'extracting'/'inferring' para sempre — o cron
+  // fail_stale_import_jobs limpa depois, mas o usuário perdia a importação
+  // sem entender por quê. `wait: true` deixa o job em curso terminar.
+  let encerrando = false;
+  const encerrar = async (sinal: string) => {
+    if (encerrando) return;
+    encerrando = true;
+    console.log(`\n${sinal} recebido — terminando o job em curso antes de sair…`);
+    try {
+      await boss.stop({ wait: true });
+      console.log("Worker encerrado.");
+    } catch (e) {
+      console.error("Falha ao encerrar:", e);
+    }
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void encerrar("SIGTERM"));
+  process.on("SIGINT", () => void encerrar("SIGINT"));
 }
 
 main().catch((e) => {
