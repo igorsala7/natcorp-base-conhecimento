@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Plus, Settings } from "lucide-react";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { NewSpaceDialog } from "./new-space-dialog";
+import { controlClass } from "@/components/ui/input";
 
 /** Seletor de espaço + atalho de configurações + criação de espaço-cliente. */
 export function SpaceSwitcher({
@@ -55,7 +56,7 @@ export function SpaceSwitcher({
       <select
         value={currentId}
         onChange={(e) => irPara(e.target.value)}
-        className="h-8 flex-1 rounded-md border border-border bg-surface px-2 text-sm"
+        className={`${controlClass} h-8 flex-1 px-2`}
         aria-label="Espaço"
       >
         {spaces.map((s) => (

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Send, MessageSquare, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { controlClass } from "@/components/ui/input";
 import {
   listReviewComments,
   addReviewComment,
@@ -73,7 +74,7 @@ export function ReviewThread({ nodeId, canComment }: { nodeId: string; canCommen
             onChange={(e) => setBody(e.target.value)}
             rows={2}
             placeholder="Comentar para o revisor / editor…"
-            className="min-h-0 flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm focus:border-primary focus:outline-none"
+            className={`${controlClass} min-h-0 flex-1`}
           />
           <Button size="sm" onClick={add} disabled={busy || !body.trim()}>
             <Send className="size-4" />

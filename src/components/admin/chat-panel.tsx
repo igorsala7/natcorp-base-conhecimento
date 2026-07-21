@@ -6,6 +6,7 @@ import { ChevronRight, FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
+import { controlClass } from "@/components/ui/input";
 import { submitChatFeedback } from "@/app/(admin)/admin/(app)/assistente/actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
@@ -133,7 +134,7 @@ export function ChatPanel({
         <select
           value={spaceId}
           onChange={(e) => changeSpace(e.target.value)}
-          className="h-8 rounded-md border border-border bg-surface px-2 text-sm"
+          className={`${controlClass} h-8 w-auto px-2`}
           aria-label="Espaço"
         >
           {spaces.map((s) => (

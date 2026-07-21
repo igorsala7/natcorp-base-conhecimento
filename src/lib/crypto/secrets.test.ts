@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  isPlainSecret,
   encryptSecret,
   decryptSecret,
   tryDecryptSecret,
@@ -73,16 +74,43 @@ describe("encrypt/decrypt", () => {
     },
   );
 
-  it("sem a env, cifrar e decifrar falham com mensagem clara", () => {
+  // Concessão consciente ao ambiente de desenvolvimento: sem a chave-mestra o
+  // segredo é gravado em CLARO, com prefixo explícito, em vez de bloquear.
+  it("SEM a env, grava em texto simples com prefixo e faz a volta", () => {
     delete process.env.APP_ENCRYPTION_KEY;
     expect(hasEncryptionKey()).toBe(false);
-    expect(() => encryptSecret("x")).toThrow(/APP_ENCRYPTION_KEY/);
+    const guardado = encryptSecret("sk-proj-em-claro");
+    expect(guardado).toBe("plain:sk-proj-em-claro");
+    expect(isPlainSecret(guardado)).toBe(true);
+    expect(decryptSecret(guardado)).toBe("sk-proj-em-claro");
   });
 
-  it("env curta demais é recusada (senão a segurança seria de fachada)", () => {
+  it("env curta demais também cai no modo em claro (não finge segurança)", () => {
     process.env.APP_ENCRYPTION_KEY = "curta";
     expect(hasEncryptionKey()).toBe(false);
-    expect(() => encryptSecret("x")).toThrow(SecretError);
+    expect(isPlainSecret(encryptSecret("x"))).toBe(true);
+  });
+
+  // O caso que justifica `slice` em vez de `split(":")`.
+  it("segredo em claro com ':' no meio sobrevive inteiro", () => {
+    delete process.env.APP_ENCRYPTION_KEY;
+    const bicho = "user:pass:with:colons";
+    expect(decryptSecret(encryptSecret(bicho))).toBe(bicho);
+  });
+
+  it("segredo CIFRADO não é confundido com texto simples", () => {
+    const cifrado = encryptSecret("valor");
+    expect(cifrado.startsWith("v1:")).toBe(true);
+    expect(isPlainSecret(cifrado)).toBe(false);
+  });
+
+  // Compatibilidade nos dois sentidos: definir a env depois não invalida o que
+  // já foi gravado em claro.
+  it("segredo gravado em claro continua legível DEPOIS de definir a chave-mestra", () => {
+    delete process.env.APP_ENCRYPTION_KEY;
+    const antigo = encryptSecret("chave-antiga");
+    process.env.APP_ENCRYPTION_KEY = CHAVE;
+    expect(decryptSecret(antigo)).toBe("chave-antiga");
   });
 });
 

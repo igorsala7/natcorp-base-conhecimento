@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission, hasPermission } from "@/lib/auth/permissions";
 import { currentMaxLevel } from "@/lib/auth/roles";
 import { audit } from "@/lib/auth/audit";
-import { encryptSecret, hasEncryptionKey } from "@/lib/crypto/secrets";
+import { encryptSecret } from "@/lib/crypto/secrets";
 import { invalidateAiCache, resolveAi, languageModel, embeddingModel, embeddingCallOptions } from "@/lib/ai/config";
 import type { ProviderKind, Purpose } from "@/lib/ai/catalog";
 import { sendEmail } from "@/lib/email/send";
@@ -69,14 +69,9 @@ export async function saveProvider(input: {
   if (apiKey && apiKey.trim()) {
     const negado = await exigirOwner();
     if (negado) return { ok: false, error: negado };
-    if (!hasEncryptionKey()) {
-      return {
-        ok: false,
-        error: "APP_ENCRYPTION_KEY não configurada no servidor — sem ela não é possível guardar chaves.",
-      };
-    }
-    // A função no banco também exige nível 100: a checagem daqui existe para a
-    // mensagem ser clara, não como única barreira.
+    // Sem APP_ENCRYPTION_KEY o segredo é gravado em CLARO (prefixo `plain:`),
+    // por escolha do ambiente de desenvolvimento. A função no banco continua
+    // exigindo nível 100; a checagem daqui é só para a mensagem ser clara.
     const { error } = await supabase.rpc("set_ai_provider_key", {
       p_provider_id: id!,
       p_key_enc: encryptSecret(apiKey.trim()),
@@ -235,9 +230,6 @@ export async function saveEmailSettings(input: {
     if (!valor || !valor.trim()) continue;
     const negado = await exigirOwner();
     if (negado) return { ok: false, error: negado };
-    if (!hasEncryptionKey()) {
-      return { ok: false, error: "APP_ENCRYPTION_KEY não configurada no servidor." };
-    }
     const { error: e2 } = await supabase.rpc("set_email_secret", {
       p_campo: campo,
       p_valor_enc: encryptSecret(valor.trim()),

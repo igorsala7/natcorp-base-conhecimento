@@ -3,6 +3,7 @@
 import { createElement, useState } from "react";
 import { Ban, ChevronDown } from "lucide-react";
 import { ICONS, ICON_GROUPS } from "@/lib/blocks/icons";
+import { controlClass } from "@/components/ui/input";
 
 /** Renderiza um ícone do catálogo pela chave (createElement evita o aviso de
  *  "componente criado durante o render" do compilador do React). */
@@ -51,7 +52,7 @@ export function IconPicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar ícone…"
-              className="w-full rounded-md border border-border bg-bg px-2 py-1 text-xs outline-none focus:border-primary"
+              className={`${controlClass} w-full px-2 py-1 text-xs`}
             />
             <button
               type="button"

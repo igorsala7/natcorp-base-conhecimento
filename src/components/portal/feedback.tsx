@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { controlClass } from "@/components/ui/input";
 import { ThumbsDown, ThumbsUp, Sparkles, LifeBuoy } from "lucide-react";
 import { submitFeedback } from "@/app/(portal)/actions";
 
@@ -65,7 +66,8 @@ export function Feedback({ nodeId, supportUrl }: { nodeId: string; supportUrl?: 
         onChange={(e) => setComment(e.target.value)}
         rows={2}
         placeholder="O que faltou? (opcional)"
-        className="mt-2 w-full rounded-md border border-border bg-bg px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none"
+        aria-label="Como podemos melhorar esta página"
+        className={`${controlClass} mt-2`}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <button

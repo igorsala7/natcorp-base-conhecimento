@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 import { Input } from "@/components/ui/input";
 
 type Mode = "loading" | "enroll" | "challenge";
@@ -102,7 +103,7 @@ function MfaForm() {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-6">
+    <Surface elevation={1} padding="lg" className="rounded-xl">
       <h1 className="text-xl font-semibold tracking-tight">
         {mode === "challenge" ? "Verificação em duas etapas" : "Ativar 2FA"}
       </h1>
@@ -174,6 +175,6 @@ function MfaForm() {
           </Button>
         </form>
       )}
-    </div>
+    </Surface>
   );
 }

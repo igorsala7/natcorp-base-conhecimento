@@ -4,13 +4,17 @@
  * (2) LAYOUT: como a IA reformata o texto de um artigo em blocos ricos.
  *
  * IMPORTANTE (contrato técnico — mexer aqui sem mexer no schema quebra a saída):
- * - STRUCTURE recebe uma lista de seções JÁ EXTRAÍDAS, cada uma com um índice:
+ * - STRUCTURE recebe a ESTRUTURA ATUAL das seções já extraídas, com o nível de
+ *   cada uma indicado por RECUO (quatro espaços = um nível):
  *     [0] Título — trecho
- *     [1] Título — trecho
+ *     [1]     Subtítulo — trecho
  *   e devolve uma ÁRVORE de NÓS, onde cada nó referencia uma seção pelo seu
- *   `index` (com `title` opcional para corrigir o rótulo) e pode ter `children`
- *   (até 3 níveis). Um nó COM filhos vira DOCUMENTO (pasta/categoria); um nó
+ *   `index` (com `title` para corrigir o rótulo, ou null) e pode ter `children`
+ *   (até 4 níveis). Um nó COM filhos vira DOCUMENTO (pasta/categoria); um nó
  *   FOLHA vira ARTIGO. O conteúdo de cada seção é sempre preservado.
+ *   ⚠️ Esta passada SÓ RODA quando a árvore chega PLANA (`precisaAgruparComIa`
+ *   em tree.ts). Documento que já traz a própria hierarquia não passa por aqui:
+ *   medimos que a IA só piorava. Ao afrouxar aquele portão, meça de novo.
  * - LAYOUT devolve blocos do esquema FIXO `blocksSchema` (improve.ts). Só
  *   existem os blocos listados abaixo, com exatamente aqueles campos: o que
  *   vier fora disso é descartado na conversão. Por isso o prompt não pede
@@ -36,45 +40,41 @@ const ICON_KEYS = `
 - Comércio: cart, card, wallet, gift
 - Mídia: image, video, camera, play, download, upload, link, trash`;
 
-export const STRUCTURE_INSTRUCTIONS = `Você é um ARQUITETO DE INFORMAÇÃO montando a árvore de navegação da documentação de um sistema SaaS.
+export const STRUCTURE_INSTRUCTIONS = `Você é um ARQUITETO DE INFORMAÇÃO REVISANDO a árvore de navegação da documentação de um sistema SaaS.
 
-A origem é um documento técnico exportado de Word, PDF ou HTML — manual do sistema, guia do usuário, apostila de treinamento. Esse tipo de documento costuma ter: título principal, sumário/índice, capítulos, temas, categorias, procedimentos passo a passo, descrições de telas e campos, e mensagens de erro.
+A origem é um documento técnico exportado de Word, PDF ou HTML — manual do sistema, guia do usuário, apostila de treinamento.
 
 VOCÊ RECEBE
-- Uma lista de seções na ORDEM ORIGINAL do documento, cada uma como "[índice] Título — trecho".
-- O trecho serve SÓ para você entender o assunto e agrupar melhor; nunca o inclua na resposta.
+- A ESTRUTURA ATUAL das seções, na ordem original do documento, como "[índice] <recuo> Título — trecho".
+- O RECUO é o nível: quatro espaços = um nível abaixo. Uma seção recuada sob outra é FILHA dela.
+- "[sem corpo]" marca a seção que não tem texto próprio (só serve para agrupar).
+- O trecho serve só para você entender o assunto; nunca o inclua na resposta.
 
-VOCÊ DEVOLVE
-- Uma árvore de nós (máx. 3 níveis). Cada nó referencia UMA seção pelo seu "index" e pode ter "children".
-- Nó COM filhos = DOCUMENTO (pasta/categoria de navegação). Nó FOLHA = ARTIGO (página que se lê sozinha).
-- Use "title" apenas para limpar o rótulo (capitalização, remover numeração "1.2 ", cortes e quebras estranhas da extração) — sem mudar o sentido. Títulos curtos, claros e descritivos.
+ESSA ESTRUTURA NÃO É UM PALPITE
+Ela veio do PRÓPRIO documento: dos níveis de título (Título 1, Título 2…) do Word/HTML, ou do tamanho da fonte no PDF. O autor escreveu assim de propósito. Sua tarefa é CORRIGIR o que ficou claramente errado — NÃO reorganizar o manual do seu jeito.
 
-COMO DECIDIR: DOCUMENTO (pasta) ou ARTIGO (página)?
-- É DOCUMENTO quando a seção AGRUPA outras: capítulo, parte, módulo do sistema, área funcional ("Financeiro", "Cadastros", "Relatórios"), ou um título que sozinho não ensina nada.
-- É ARTIGO quando a seção RESOLVE UMA DÚVIDA sozinha: um procedimento ("Emitir nota fiscal"), a explicação de uma tela, de um campo, de um relatório, um conceito, uma FAQ.
-- Sinais de ARTIGO no texto: passo a passo numerado, "Como…", "Para…", descrição de campos de tela, exemplo prático, mensagem de erro.
-- Sinais de DOCUMENTO: um título seguido imediatamente de subtítulos; as palavras "Capítulo", "Parte", "Módulo", "Seção", "Apêndice", "Visão geral do módulo".
-- Uma seção GRANDE que cobre vários procedimentos distintos, e que já tem esses procedimentos como subseções, vira DOCUMENTO — os procedimentos viram os ARTIGOS.
-- Uma seção CURTA que já é uma resposta completa NÃO vira pasta, mesmo que venha logo antes de outras.
-- Prefira ARTIGOS autossuficientes e de tamanho razoável: quem chega pela busca precisa resolver o problema naquela página.
+REGRA PRINCIPAL: NA DÚVIDA, PRESERVE
+- Mantenha cada seção sob o MESMO pai em que ela está, salvo se houver um motivo explícito abaixo para mover.
+- Mudar de lugar uma seção que já estava correta é um ERRO, mesmo que o novo lugar pareça mais bonito. O leitor procura o conteúdo onde o manual o colocou.
+- NUNCA tire filhos de uma seção para "achatar": se "Fase do chamado" tem "Fases de análise" e "Fases de execução" dentro, elas continuam dentro.
+- NUNCA promova uma subseção a raiz. Só é raiz o que já era raiz.
 
-COMO INFERIR A HIERARQUIA (do mais forte para o mais fraco)
-1. NUMERAÇÃO: "1", "1.2", "1.2.3" indicam profundidade. "1.2" é filho de "1"; "1.2.3" é filho de "1.2". Respeite essa árvore.
-2. SUMÁRIO / ÍNDICE: é a melhor pista da estrutura pretendida pelo autor. Use-o para decidir o aninhamento — mas os NÓS vêm da lista de seções reais; NÃO crie nós para linhas do sumário que apenas repetem uma seção.
-3. PALAVRAS DE NÍVEL: "Capítulo", "Parte", "Módulo", "Seção", "Apêndice" sinalizam DOCUMENTOS. "Como…", "Passo a passo", "Exemplo", "Referência", "Erros comuns" sinalizam ARTIGOS.
-4. SEMÂNTICA: seções do mesmo assunto ficam sob um pai comum. Ex.: "Instalação no Windows" e "Instalação no Linux" viram filhas de "Instalação" — SE ela existir. Se não existir um pai natural, mantenha-as como irmãs; NÃO invente uma pasta.
+O QUE VOCÊ PODE (E DEVE) CORRIGIR
+1. RUÍDO DE EXPORTAÇÃO no meio da árvore: "Sumário", "Índice", capa, "Página X de Y", cabeçalho/rodapé repetido. Mova para o FIM do nível em que está — nunca para dentro de um capítulo de conteúdo.
+2. PASTA COM UM ÚNICO FILHO: promova o filho ao nível de cima, eliminando o nível inútil. (Não vale quando o pai tem corpo próprio.)
+3. SEÇÃO ÓRFÃ: uma seção que está na raiz mas obviamente pertence ao capítulo anterior (continuação do mesmo assunto, mesma numeração) volta para ele.
+4. PROFUNDIDADE ACIMA DE 4: só o que passar do quarto nível precisa subir. Ao subir uma seção, ela vira IRMÃ do antigo pai, ficando logo depois dele — NUNCA vai para a raiz e NUNCA se separa dos próprios irmãos.
+5. TÍTULO SUJO: use "title" APENAS para limpar (capitalização, numeração "1.2 ", quebras da extração). O título limpo precisa ser feito das MESMAS PALAVRAS do original — retirar, nunca acrescentar. Não descreva a seção, não acrescente contexto, não junte o trecho ao título. Na dúvida, devolva null e o original é mantido.
 
-BOAS PRÁTICAS
-- Máximo 3 níveis de profundidade.
-- A seção do TÍTULO DO MANUAL (geralmente o índice 0) deve ser o DOCUMENTO de topo que envolve o resto, quando fizer sentido.
-- Seções de abertura ("Introdução", "Visão geral", "Sobre", "Como usar este manual") ficam no TOPO do seu grupo (primeiro filho), nunca aninhadas sob uma seção irmã.
-- Uma pasta com um ÚNICO filho é ruído — promova o filho ao nível de cima.
-- Ordene os filhos na sequência lógica de leitura (geralmente a ordem original / a do sumário).
-- Ruído de exportação (capa, "Sumário", "Índice", cabeçalho/rodapé repetido, "Página X de Y") NÃO vira pasta: se aparecer como seção, posicione no fim.
+DOCUMENTO (pasta) ou ARTIGO (página)
+Isto é consequência da árvore, não uma decisão separada: nó COM filhos vira DOCUMENTO, nó FOLHA vira ARTIGO. Você só influencia isso ao mover seções — e mover exige um dos motivos acima.
+- Se uma seção tem corpo próprio E filhos, deixe como está: o corpo dela vira um artigo "Visão geral" dentro da pasta, automaticamente.
 
 REGRAS RÍGIDAS
 - Cada índice aparece EXATAMENTE UMA VEZ na árvore.
-- NÃO invente seções nem índices. NÃO descarte nenhuma seção — posicione TODAS (o que faltar é anexado ao final automaticamente, então não conte com isso: coloque tudo você mesmo).`;
+- NÃO invente seções nem índices. NÃO descarte nenhuma seção — posicione TODAS.
+- Máximo 4 níveis.
+- Preserve a ORDEM original entre irmãos, exceto no caso 1 (ruído vai para o fim).`;
 
 export const LAYOUT_INSTRUCTIONS = `Você é um EDITOR VISUAL de documentação técnica. Recebe o texto cru de UM artigo — extraído de Word, PDF ou HTML de um manual de sistema SaaS — e o REFORMATA em blocos ricos para o usuário ENTENDER o mais rápido possível.
 

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { updateSpaceSettings, clearSpaceEmbeddings } from "./actions";
 
@@ -97,7 +98,7 @@ export function SpaceSettingsForm({
             params.set("space", e.target.value);
             router.push(`/admin/configuracoes?${params.toString()}`);
           }}
-          className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
+          className={`${controlClass} h-9 w-auto px-2`}
           aria-label="Espaço"
         >
           {spaces.map((s) => (
@@ -108,7 +109,7 @@ export function SpaceSettingsForm({
 
       {msg && <p className="rounded-md border border-border bg-surface px-3 py-2 text-sm">{msg}</p>}
 
-      <div className="space-y-4 rounded-xl border border-border bg-surface p-5">
+      <Surface elevation={1} padding="lg" className="space-y-4 rounded-xl">
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-text-muted">Nome</span>
           <input className={controlClass} value={name} onChange={(e) => setName(e.target.value)} />
@@ -218,7 +219,7 @@ export function SpaceSettingsForm({
             </Button>
           </div>
         </div>
-      </div>
+      </Surface>
     </div>
   );
 }

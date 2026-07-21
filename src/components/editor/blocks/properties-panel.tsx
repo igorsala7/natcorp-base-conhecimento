@@ -16,6 +16,7 @@ import type {
 import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { IconPicker } from "./icon-picker";
 import type { EditorActions } from "./edit-types";
+import { controlClass } from "@/components/ui/input";
 
 const SCALE: SpaceScale[] = [0, 1, 2, 3, 4, 5, 6];
 const BGS: StyleBg[] = ["none", "purple", "pink", "blue", "gray", "dark"];
@@ -176,7 +177,7 @@ export function PropertiesPanel({
                         base[i] = Math.min(12, Math.max(1, Number(e.target.value) || 1));
                         setContainer({ ratios: base });
                       }}
-                      className="w-full rounded-md border border-border bg-bg px-1 py-1 text-center text-xs outline-none focus:border-primary"
+                      className={`${controlClass} w-full px-1`}
                     />
                   );
                 })}

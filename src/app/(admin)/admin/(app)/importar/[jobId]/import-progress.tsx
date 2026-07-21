@@ -99,7 +99,7 @@ export function ImportProgress({
 
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
           <div
-            className={`h-full transition-all duration-300 ${erro ? "bg-brand-pink-500" : "bg-primary"}`}
+            className={`h-full transition-all duration-300 ${erro ? "bg-red-600 dark:bg-red-500" : "bg-primary"}`}
             style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}
           />
         </div>

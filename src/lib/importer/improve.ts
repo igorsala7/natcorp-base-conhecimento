@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { generateObject } from "ai";
-import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { languageModel, hasAiKey } from "@/lib/ai/config";
 import { LAYOUT_INSTRUCTIONS } from "./prompts";
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
@@ -18,9 +18,13 @@ import { iconByKey } from "@/lib/blocks/icons";
 // (icon/ratios/divider) são baratos; blocos novos, nem tanto. Ao mexer aqui,
 // testar contra a API real antes de commitar.
 //
+// E use `.nullable()`, NUNCA `.optional()`: o modo estrito da OpenAI exige que
+// TODA propriedade esteja em `required`, então um campo opcional faz a chamada
+// inteira falhar com `invalid_json_schema` — e o erro só aparece em execução.
+//
 // `icon` é string livre (uma enum com ~75 ícones estouraria a gramática): a
 // chave é validada contra o catálogo no conversor e descartada se não existir.
-const iconField = z.string().optional();
+const iconField = z.string().nullable();
 
 // Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
 const leafOptions = [
@@ -36,7 +40,7 @@ const leafOptions = [
   z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
   z.object({
     kind: z.literal("code"),
-    language: z.string().optional(),
+    language: z.string().nullable(),
     code: z.string(),
   }),
   z.object({
@@ -67,15 +71,15 @@ const blocksSchema = z.object({
       z.object({
         kind: z.literal("columns"),
         columns: z.array(z.array(z.string())),
-        ratios: z.array(z.number()).optional(),
-        divider: z.boolean().optional(),
+        ratios: z.array(z.number()).nullable(),
+        divider: z.boolean().nullable(),
       }),
       // Banner/Hero = cabeçalho de destaque (título + subtítulo).
       z.object({
         kind: z.literal("hero"),
-        eyebrow: z.string().optional(),
+        eyebrow: z.string().nullable(),
         title: z.string(),
-        subtitle: z.string().optional(),
+        subtitle: z.string().nullable(),
         icon: iconField,
       }),
       // Grade de cards = itens paralelos com título + descrição curta.
@@ -108,7 +112,7 @@ function nonEmptyChildren(nodes: Block[]): Block[] {
 }
 
 /** Só aceita ícone que exista no catálogo (a IA manda string livre). */
-function iconStyles(icon: string | undefined): { styles: { icon: string } } | undefined {
+function iconStyles(icon: string | null | undefined): { styles: { icon: string } } | undefined {
   return icon && iconByKey(icon) ? { styles: { icon } } : undefined;
 }
 
@@ -194,7 +198,7 @@ function blockToBlock(b: LayoutBlock): Block {
         id: newId(),
         type: "cardGrid",
         data: { cols: b.cards.length === 2 || b.cards.length === 4 ? b.cards.length : 3 },
-        children: (b.cards.length ? b.cards : [{ title: "", text: "" }]).map((c) => ({
+        children: (b.cards.length ? b.cards : [{ title: "", text: "", icon: null }]).map((c) => ({
           id: newId(),
           type: "card",
           data: { icon: c.icon && iconByKey(c.icon) ? c.icon : "book", title: c.title, href: "" },
@@ -291,14 +295,14 @@ export async function improveLayout(
   plainText: string,
   images: ImageRef[] = [],
 ): Promise<ImproveResult> {
-  if (!await hasAiKey()) {
-    return { ok: false, error: "AI_API_KEY não configurada — preencha no .env.local." };
+  if (!await hasAiKey("import_layout")) {
+    return { ok: false, error: "Nenhuma IA configurada para \"Melhorar layout\" — cadastre em Sistema → IA." };
   }
   if (!plainText.trim()) return { ok: false, error: "Sem conteúdo para melhorar." };
 
   try {
     const { object } = await generateObject({
-      model: await chatModel(),
+      model: await languageModel("import_layout"),
       schema: blocksSchema,
       prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
     });

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Sparkles, Send, X, ThumbsUp, ThumbsDown, FileText } from "lucide-react";
+import { controlClass } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import { submitPortalChatFeedback } from "@/app/(portal)/actions";
 
@@ -264,7 +265,7 @@ export function AskAiPanel({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Escreva sua pergunta…"
             aria-label="Pergunta"
-            className="h-11 flex-1 rounded-lg border border-border bg-surface px-3 text-sm focus:border-primary focus:outline-none"
+            className={`${controlClass} h-11 flex-1`}
           />
           <button
             type="submit"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Surface } from "@/components/ui/surface";
 import { Copy, Check, ExternalLink, Globe, Lock, KeyRound, Download } from "lucide-react";
 
 /**
@@ -42,7 +43,7 @@ export function SpacePublicUrl({
   const VisIcon = vis.icon;
 
   return (
-    <div className="mb-3 rounded-lg border border-border bg-surface p-2.5 text-xs">
+    <Surface elevation={1} padding="sm" className="mb-3 text-xs">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="font-medium text-text-muted">
           {type === "global"
@@ -92,6 +93,6 @@ export function SpacePublicUrl({
           <Download className="size-3" /> Exportar (.zip)
         </a>
       )}
-    </div>
+    </Surface>
   );
 }

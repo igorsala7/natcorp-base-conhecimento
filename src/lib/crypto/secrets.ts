@@ -18,6 +18,15 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:
  */
 
 const VERSAO = "v1";
+/**
+ * Marcador de segredo NÃO cifrado.
+ *
+ * Existe para o produto funcionar sem `APP_ENCRYPTION_KEY` durante o
+ * desenvolvimento. É explícito de propósito: um segredo em claro fica
+ * reconhecível no banco, e a leitura sabe exatamente o que está lendo em vez de
+ * adivinhar formato. Nenhuma chave de API real começa com este prefixo.
+ */
+const PLANO = "plain";
 const ALGO = "aes-256-gcm";
 const IV_BYTES = 12; // recomendado para GCM
 const NOME_ENV = "APP_ENCRYPTION_KEY";
@@ -42,7 +51,12 @@ function chave(): Buffer {
   return createHash("sha256").update(bruta, "utf8").digest();
 }
 
-/** Há chave-mestra configurada? Use para desabilitar a UI com uma explicação. */
+/**
+ * Há chave-mestra configurada?
+ *
+ * NÃO bloqueia mais o cadastro de segredos — serve para a tela avisar que eles
+ * estão sendo guardados em claro.
+ */
 export function hasEncryptionKey(): boolean {
   const bruta = process.env[NOME_ENV];
   return Boolean(bruta && bruta.length >= 16);
@@ -51,8 +65,21 @@ export function hasEncryptionKey(): boolean {
 const b64 = (b: Buffer) => b.toString("base64url");
 const deB64 = (s: string) => Buffer.from(s, "base64url");
 
-/** Cifra um texto. Duas chamadas com o mesmo texto produzem saídas DIFERENTES. */
+/**
+ * Guarda um segredo.
+ *
+ * COM `APP_ENCRYPTION_KEY`: cifra em AES-256-GCM (duas chamadas com o mesmo
+ * texto produzem saídas diferentes).
+ * SEM a chave: grava em TEXTO SIMPLES com o prefixo `plain:`.
+ *
+ * O modo em claro é uma concessão consciente ao ambiente de desenvolvimento.
+ * A proteção de ACESSO continua valendo — `ai_provider_keys` e `email_secrets`
+ * não têm grant para nenhum papel comum, então o segredo segue inalcançável por
+ * SQL de aplicação. O que se perde é a proteção em repouso: quem obtiver um
+ * dump do banco lê a chave. Definir a env e salvar de novo já cifra.
+ */
 export function encryptSecret(plain: string): string {
+  if (!hasEncryptionKey()) return `${PLANO}:${plain}`;
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGO, chave(), iv);
   const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
@@ -64,7 +91,12 @@ export function encryptSecret(plain: string): string {
  * se a chave estiver errada — nunca devolve texto parcial.
  */
 export function decryptSecret(payload: string): string {
-  const partes = (payload ?? "").split(":");
+  const bruto = payload ?? "";
+  // Segredo gravado em claro: devolve o que vier depois do prefixo. `slice`
+  // e não `split`, porque o valor pode conter ":".
+  if (bruto.startsWith(`${PLANO}:`)) return bruto.slice(PLANO.length + 1);
+
+  const partes = bruto.split(":");
   if (partes.length !== 4 || partes[0] !== VERSAO) {
     throw new SecretError("Segredo em formato desconhecido.");
   }
@@ -78,6 +110,11 @@ export function decryptSecret(payload: string): string {
     // o log do admin; o que importa é a causa provável.
     throw new SecretError("Não foi possível decifrar: chave-mestra errada ou dado corrompido.");
   }
+}
+
+/** O segredo está guardado em claro? A tela usa para mostrar o aviso. */
+export function isPlainSecret(payload: string | null | undefined): boolean {
+  return !!payload && payload.startsWith(`${PLANO}:`);
 }
 
 /** Versão tolerante: devolve `null` em vez de lançar. */

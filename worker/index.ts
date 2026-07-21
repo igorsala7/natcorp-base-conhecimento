@@ -10,6 +10,7 @@ import ws from "ws";
 if (!globalThis.WebSocket) {
   (globalThis as unknown as { WebSocket: unknown }).WebSocket = ws;
 }
+import { createHash } from "node:crypto";
 import PgBoss from "pg-boss";
 import { createClient } from "@supabase/supabase-js";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
@@ -25,6 +26,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { autoRefreshToken: false, persistSession: false } },
 );
+
+/** `image/svg+xml` viraria a extensão "svg+xml" no split ingênuo do mime. */
+const EXT_POR_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+};
 
 async function setProgress(
   jobId: string,
@@ -67,17 +80,54 @@ async function processJob(jobId: string) {
   );
 
   // Sobe as imagens extraídas para o bucket de assets → URLs.
-  await setProgress(jobId, { progress: 50 }, `Extraídas ${extraction.images.length} imagens`);
+  const podadas = extraction.droppedChrome ?? 0;
+  await setProgress(
+    jobId,
+    { progress: 50 },
+    `Extraídas ${extraction.images.length} imagens` +
+      (podadas ? ` (${podadas} descartadas: repetidas em toda página, tratadas como cabeçalho/rodapé)` : "") +
+      (extraction.imagesCapped
+        ? ". ATENÇÃO: o documento tem mais imagens do que o limite por importação — as das últimas páginas ficaram de fora"
+        : ""),
+  );
+
+  // Deduplicação por checksum: o caminho no Storage É o hash do conteúdo, então
+  // o mesmo logo repetido — ou o mesmo arquivo reimportado — sobe uma única vez.
+  const porChecksum = new Map<string, string>();
   const imageUrls: string[] = [];
-  for (let i = 0; i < extraction.images.length; i++) {
-    const img = extraction.images[i]!;
-    const path = `${job.space_id}/import-${jobId}-${i}.${img.mime.split("/")[1] || "png"}`;
+  for (const img of extraction.images) {
+    if (img.url) {
+      imageUrls.push(img.url); // já é pública; não rehospedamos
+      continue;
+    }
     const bytes = Buffer.from(img.contentBase64, "base64");
+    const checksum = createHash("sha256").update(bytes).digest("hex");
+    const cache = porChecksum.get(checksum);
+    if (cache !== undefined) {
+      imageUrls.push(cache);
+      continue;
+    }
+    const ext = EXT_POR_MIME[img.mime] ?? "png";
+    const path = `${job.space_id}/img/${checksum}.${ext}`;
     const { error } = await supabase.storage
       .from("assets")
       .upload(path, bytes, { contentType: img.mime, upsert: true });
     const { data } = supabase.storage.from("assets").getPublicUrl(path);
-    imageUrls.push(error ? "" : data.publicUrl);
+    const url = error ? "" : data.publicUrl;
+    if (error) console.error(`Falha ao subir imagem ${checksum.slice(0, 8)}: ${error.message}`);
+    porChecksum.set(checksum, url);
+    imageUrls.push(url);
+  }
+  const enviadas = porChecksum.size;
+  if (extraction.images.length > 0) {
+    await setProgress(
+      jobId,
+      {},
+      `${enviadas} imagens enviadas ao Storage` +
+        (extraction.images.length > enviadas
+          ? ` (${extraction.images.length - enviadas} reaproveitadas por checksum)`
+          : ""),
+    );
   }
 
   await setProgress(jobId, { status: "inferring", progress: 65 }, "Inferindo estrutura");
@@ -87,8 +137,8 @@ async function processJob(jobId: string) {
   // heurística era usada). Se a IA falhar/indisponível, cai na heurística.
   let tree = heuristic;
   let usedAi = false;
-  if (await hasAiKey()) {
-    const refined = await refineStructureWithLLM(heuristic);
+  if (await hasAiKey("import_structure")) {
+    const { tree: refined, erro } = await refineStructureWithLLM(heuristic);
     if (refined && refined.length > 0) {
       tree = refined;
       usedAi = true;
@@ -96,10 +146,16 @@ async function processJob(jobId: string) {
     await setProgress(
       jobId,
       { progress: 85 },
-      usedAi ? "Estrutura reorganizada pela IA" : "IA indisponível — só heurística",
+      usedAi
+        ? "Estrutura agrupada pela IA"
+        : `Estrutura vinda do próprio documento${erro ? ` — ${erro}` : ""}`,
     );
   } else {
-    await setProgress(jobId, { progress: 85 }, "Sem IA — estrutura por heurística");
+    await setProgress(
+      jobId,
+      { progress: 85 },
+      "Sem IA configurada para Importação — estrutura por heurística",
+    );
   }
 
   await setProgress(

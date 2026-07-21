@@ -4,6 +4,7 @@ import type { Block, RichText as RT } from "@/lib/blocks/schema";
 import { RichText } from "../rich-text/rich-text";
 import { BlockIcon } from "../block-icon";
 import type { BlockEditProps } from "../edit-types";
+import { controlClass } from "@/components/ui/input";
 
 export function DividerBlock() {
   return <hr className="my-2 border-border" />;
@@ -50,7 +51,7 @@ export function ButtonBlock({ block, onChange }: BlockEditProps) {
       <select
         value={b.data.variant}
         onChange={(e) => onChange({ data: { ...b.data, variant: e.target.value as "primary" | "secondary" } } as Partial<Block>)}
-        className="rounded-md border border-border bg-surface px-2 py-1 text-xs outline-none"
+        className={`${controlClass} w-auto px-2 py-1 text-xs`}
       >
         <option value="primary">Primário</option>
         <option value="secondary">Secundário</option>

@@ -49,6 +49,20 @@ export function Dialog({
   const painelRef = useRef<HTMLDivElement>(null);
   const gatilhoRef = useRef<HTMLElement | null>(null);
 
+  /**
+   * `onClose` vive num ref para NÃO entrar nas dependências do efeito abaixo.
+   *
+   * Todo chamador passa uma arrow inline (`onClose={() => setX(false)}`), cuja
+   * identidade muda a cada render. Com ela nas deps, digitar uma letra
+   * (setState → render → nova função) fazia o efeito rodar de novo e devolver o
+   * foco ao primeiro campo — impossível escrever uma palavra inteira.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Depende SÓ de `open`: monta o foco preso uma vez por abertura.
   useEffect(() => {
     if (!open) return;
     gatilhoRef.current = document.activeElement as HTMLElement | null;
@@ -58,14 +72,18 @@ export function Dialog({
         'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
       ) ?? ([] as unknown as NodeListOf<HTMLElement>);
 
-    // Foco no primeiro controle útil (não no "fechar").
+    // Foco no primeiro CAMPO, quando houver — é o que a pessoa veio preencher.
+    // Sem campo, cai no primeiro focável que não seja o "fechar".
+    const campo = painelRef.current?.querySelector<HTMLElement>(
+      'input:not([disabled]),select:not([disabled]),textarea:not([disabled])',
+    );
     const alvos = foco();
-    (alvos[1] ?? alvos[0])?.focus();
+    (campo ?? alvos[1] ?? alvos[0])?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -90,7 +108,7 @@ export function Dialog({
       document.body.style.overflow = overflow;
       gatilhoRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

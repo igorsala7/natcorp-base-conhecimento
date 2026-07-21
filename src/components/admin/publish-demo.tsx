@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Surface } from "@/components/ui/surface";
 
 /**
  * Botão de demonstração da Fase 0.5: chama POST /api/demo/publish, que é
@@ -27,7 +28,7 @@ export function PublishDemo() {
   }
 
   return (
-    <div className="mt-8 rounded-lg border border-border bg-surface p-5">
+    <Surface elevation={1} padding="lg" className="mt-8">
       <h2 className="text-sm font-semibold">Teste de permissão (demo)</h2>
       <p className="mt-1 text-sm text-text-muted">
         Chama o endpoint protegido por <code>content.publish</code>. Serve para
@@ -49,6 +50,6 @@ export function PublishDemo() {
           </span>
         )}
       </div>
-    </div>
+    </Surface>
   );
 }

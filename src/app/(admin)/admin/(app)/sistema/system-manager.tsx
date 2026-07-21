@@ -100,10 +100,12 @@ export function SystemManager({
       </div>
 
       {!temChaveMestra && (
-        <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-          <strong className="font-medium">APP_ENCRYPTION_KEY não configurada no servidor.</strong>{" "}
-          Sem ela não é possível gravar chaves nem segredos. Defina no ambiente e reinicie — e
-          guarde-a bem: perdê-la inutiliza tudo que já foi cifrado.
+        <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+          <strong className="font-medium">Chaves guardadas em texto simples.</strong> Sem{" "}
+          <code>APP_ENCRYPTION_KEY</code> no servidor, as chaves de API ficam legíveis no banco —
+          quem obtiver um dump lê todas. O acesso segue restrito, mas <strong className="font-medium">
+          não use assim em produção</strong>. Ao definir a variável e salvar de novo, o segredo passa
+          a ser cifrado; nada precisa ser refeito.
         </p>
       )}
 
@@ -126,6 +128,7 @@ export function SystemManager({
           assignments={assignments}
           temChave={temChave}
           isOwner={isOwner}
+          temChaveMestra={temChaveMestra}
           pending={pending}
           run={run}
         />
@@ -143,6 +146,7 @@ function AbaIA({
   assignments,
   temChave,
   isOwner,
+  temChaveMestra,
   pending,
   run,
 }: {
@@ -150,6 +154,7 @@ function AbaIA({
   assignments: AssignmentRow[];
   temChave: Record<string, boolean>;
   isOwner: boolean;
+  temChaveMestra: boolean;
   pending: boolean;
   run: Run;
 }) {
@@ -270,7 +275,7 @@ function AbaIA({
               htmlFor="p-chave"
               hint={
                 isOwner
-                  ? `${PROVIDER_HELP[form.kind]}. Deixe em branco para manter a chave atual — ela nunca é exibida de volta.`
+                  ? `${PROVIDER_HELP[form.kind]}. Deixe em branco para manter a chave atual — ela nunca é exibida de volta.${temChaveMestra ? "" : " Atenção: será guardada em texto simples."}`
                   : "Somente o Owner pode ver ou alterar chaves."
               }
             >

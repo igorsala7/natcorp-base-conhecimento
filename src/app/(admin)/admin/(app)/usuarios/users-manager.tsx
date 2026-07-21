@@ -65,7 +65,7 @@ function InviteForm({
   return (
     <form
       action={action}
-      className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4"
+      className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4 shadow-1"
     >
       <Field
         label="E-mail"
