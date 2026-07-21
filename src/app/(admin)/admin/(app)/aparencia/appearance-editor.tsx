@@ -59,7 +59,11 @@ function paraGravar(t: TemaResolvido) {
       supportText: t.home.supportText,
       regions: t.home.regions,
     },
-    article: { related: t.article.related },
+    article: {
+      related: t.article.related,
+      fontSize: t.article.fontSize,
+      divider: t.article.divider,
+    },
     ...(t.supportUrl ? { supportUrl: t.supportUrl } : {}),
     ...(t.supportEmail ? { supportEmail: t.supportEmail } : {}),
   };
@@ -408,6 +412,99 @@ export function AppearanceEditor({
             />
           </Field>
 
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+            Leitura
+          </h2>
+
+          <SeletorEstilo
+            legenda="Tamanho da fonte"
+            valor={tema.article.fontSize}
+            onChange={(fontSize) =>
+              setTema((t) => ({ ...t, article: { ...t.article, fontSize } }))
+            }
+            opcoes={[
+              {
+                value: "compact",
+                rotulo: "Compacta",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2.5">
+                    <span className="h-1.5 w-10 rounded bg-text/70" />
+                    <span className="h-1 w-full rounded bg-text/25" />
+                    <span className="h-1 w-4/5 rounded bg-text/25" />
+                  </span>
+                ),
+              },
+              {
+                value: "normal",
+                rotulo: "Padrão",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2.5">
+                    <span className="h-2 w-12 rounded bg-text/70" />
+                    <span className="h-1 w-full rounded bg-text/25" />
+                    <span className="h-1 w-4/5 rounded bg-text/25" />
+                  </span>
+                ),
+              },
+              {
+                value: "large",
+                rotulo: "Ampla",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2.5">
+                    <span className="h-3 w-14 rounded bg-text/70" />
+                    <span className="h-1.5 w-full rounded bg-text/25" />
+                    <span className="h-1.5 w-4/5 rounded bg-text/25" />
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          <SeletorEstilo
+            legenda="Separação entre diretórios"
+            valor={tema.article.divider}
+            onChange={(divider) =>
+              setTema((t) => ({ ...t, article: { ...t.article, divider } }))
+            }
+            opcoes={[
+              {
+                value: "band",
+                rotulo: "Faixa",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2">
+                    <span className="flex h-4 flex-col justify-center gap-0.5 rounded-sm bg-brand-purple-50 px-1.5 dark:bg-brand-purple-950/40">
+                      <span className="h-1 w-8 rounded bg-primary/70" />
+                    </span>
+                    <span className="h-1 w-full rounded bg-text/25" />
+                  </span>
+                ),
+              },
+              {
+                value: "line",
+                rotulo: "Linha",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2">
+                    <span className="w-full border-t border-border-strong/60" />
+                    <span className="h-1 w-8 rounded bg-text/70" />
+                    <span className="h-1 w-full rounded bg-text/25" />
+                  </span>
+                ),
+              },
+              {
+                value: "space",
+                rotulo: "Só espaço",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1.5 bg-bg px-2">
+                    <span className="h-1 w-8 rounded bg-text/70" />
+                    <span className="h-1 w-full rounded bg-text/25" />
+                  </span>
+                ),
+              },
+            ]}
+          />
+
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -419,6 +516,20 @@ export function AppearanceEditor({
             />
             Mostrar &quot;Artigos relacionados&quot; no fim das páginas de leitura
           </label>
+          {dados.categorias[0] && (
+            <p className="text-xs text-text-muted">
+              A prévia ao lado é da home;{" "}
+              <a
+                href={dados.categorias[0].href}
+                target="_blank"
+                rel="noopener"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                abra uma página de leitura
+              </a>{" "}
+              para ver a tipografia aplicada (depois de salvar).
+            </p>
+          )}
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">

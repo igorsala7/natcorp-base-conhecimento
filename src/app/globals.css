@@ -216,6 +216,38 @@
   }
 
 
+  /* ── Escala tipográfica da LEITURA pública ─────────────────────────────
+     Definida pelo tema (Aparência → Leitura) e aplicada pelo wrapper
+     `.leitura[data-size]` da página de leitura. A hierarquia é sempre a
+     mesma: página > diretório > artigo > títulos do conteúdo > corpo — o
+     hero da IA (--l-hero) fica ABAIXO do título do artigo em toda escala.
+     Fora da .leitura (editor, prévia solta) as vars não existem e o
+     `.prose-portal` cai nos tamanhos originais via fallback. */
+  .leitura[data-size="compact"] {
+    --l-page: 1.5rem;
+    --l-section: 1.25rem;
+    --l-article: 1.125rem;
+    --l-h2: 1rem;
+    --l-h3: 0.9375rem;
+    --l-body: 0.9375rem;
+    --l-hero: 1rem;
+  }
+  .leitura[data-size="normal"] {
+    --l-page: 1.875rem;
+    --l-section: 1.5rem;
+    --l-article: 1.25rem;
+    --l-h2: 1.125rem;
+    --l-h3: 1rem;
+    --l-body: 1rem;
+    --l-hero: 1.125rem;
+  }
+  /* "large" é a escala ORIGINAL da página — os títulos usam os fallbacks. */
+  .leitura[data-size="large"] {
+    --l-page: var(--text-4xl);
+    --l-section: var(--text-3xl);
+    --l-article: var(--text-2xl);
+  }
+
   /* Leitura do portal: medida confortável e hierarquia clara. */
   .prose-portal {
     max-width: var(--measure);
@@ -224,7 +256,7 @@
      título do artigo (24px) — heading de conteúdo maior que o título que o
      contém é inversão de hierarquia, e é o que mais denuncia falta de sistema. */
   .prose-portal :where(h2) {
-    font-size: var(--text-2xl);
+    font-size: var(--l-h2, var(--text-2xl));
     font-weight: 600;
     line-height: 1.25;
     letter-spacing: -0.018em;
@@ -232,7 +264,7 @@
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(h3) {
-    font-size: var(--text-xl);
+    font-size: var(--l-h3, var(--text-xl));
     font-weight: 600;
     line-height: 1.3;
     letter-spacing: -0.014em;
@@ -240,7 +272,7 @@
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(h4) {
-    font-size: var(--text-lg);
+    font-size: var(--l-h3, var(--text-lg));
     font-weight: 600;
     line-height: 1.4;
     margin-top: 1.75em;
@@ -248,6 +280,7 @@
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(p, li) {
+    font-size: var(--l-body, 1rem);
     line-height: 1.75;
   }
   /* Ritmo vertical: parágrafos respiram, listas ficam coesas. */

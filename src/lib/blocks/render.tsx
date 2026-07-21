@@ -375,7 +375,11 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             </p>
           )}
           {title && (
-            <p className="mt-1.5 text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
+            /* Na leitura contínua, `--l-hero` (definida pelo wrapper .leitura)
+               segura o hero ABAIXO do título do artigo — um banner de conteúdo
+               maior que o título que o contém inverte a hierarquia da página.
+               Fora da leitura (editor, prévia solta) o fallback mantém 24→30px. */
+            <p className="mt-1.5 text-[length:var(--l-hero,1.5rem)] font-semibold leading-tight tracking-tight sm:text-[length:var(--l-hero,1.875rem)]">
               {title}
             </p>
           )}

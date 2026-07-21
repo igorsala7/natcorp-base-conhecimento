@@ -34,6 +34,7 @@ function percorrer(nodes: PreviewNode[], depth = 0): Item[] {
 }
 
 export function PreviewDoc({
+  fontSize = "normal",
   spaceId,
   spaceName,
   spaceSlug,
@@ -43,6 +44,8 @@ export function PreviewDoc({
   editavel,
   edicaoInicial,
 }: {
+  /** Escala tipográfica do tema — a prévia não pode mentir sobre a leitura. */
+  fontSize?: "compact" | "normal" | "large";
   spaceId: string;
   spaceName: string;
   spaceSlug: string;
@@ -194,8 +197,8 @@ export function PreviewDoc({
           </aside>
         )}
 
-        <main className="min-w-0 flex-1">
-          <h1 className="text-[length:var(--text-3xl)] font-semibold leading-tight">{spaceName}</h1>
+        <main className="leitura min-w-0 flex-1" data-size={fontSize}>
+          <h1 className="text-[length:var(--l-page,var(--text-3xl))] font-semibold leading-tight">{spaceName}</h1>
           <p className="mt-2 text-sm text-text-muted">
             {artigos.length} {artigos.length === 1 ? "artigo" : "artigos"} em leitura contínua.
           </p>
@@ -234,8 +237,8 @@ export function PreviewDoc({
                     <h2
                       className={
                         depth === 0
-                          ? "mt-1.5 text-[length:var(--text-3xl)] font-semibold leading-tight"
-                          : "mt-1.5 text-[length:var(--text-2xl)] font-semibold leading-tight"
+                          ? "mt-1.5 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight"
+                          : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                       }
                     >
                       {node.title}
@@ -255,7 +258,7 @@ export function PreviewDoc({
                   className="previa-alvo mt-12 scroll-mt-6"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[length:var(--text-2xl)] font-semibold leading-tight">
+                    <h3 className="text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight">
                       {node.title}
                     </h3>
                     {selo}

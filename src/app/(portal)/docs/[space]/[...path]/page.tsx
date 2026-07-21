@@ -145,7 +145,7 @@ export default async function DocsPage({
     return (
       <PortalShell space={space} tree={tree} activePath={activePath}>
         <Breadcrumbs spaceSlug={spaceSlug} crumbs={ancestorsOf(tree, node.id).slice(0, -1)} spaceName={space.name} />
-        <h1 className="mt-3 text-[length:var(--text-4xl)] font-semibold leading-[1.1]">
+        <h1 className="mt-3 text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">
           {node.title}
         </h1>
         <ul className="mt-8 divide-y divide-border">
@@ -250,9 +250,11 @@ export default async function DocsPage({
 
   return (
     <PortalShell space={space} tree={tree} activePath={activePath} toc={toc} activeNodeId={atual?.id ?? null}>
-      <article className="mx-auto max-w-prose">
+      {/* `.leitura` + data-size ligam a escala tipográfica do tema (Aparência →
+          Leitura). "large" reproduz a escala original via fallbacks. */}
+      <article className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
         <Breadcrumbs spaceSlug={spaceSlug} crumbs={crumbs} spaceName={space.name} />
-        <h1 className="mt-3 text-[length:var(--text-4xl)] font-semibold leading-[1.1]">{título}</h1>
+        <h1 className="mt-3 text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">{título}</h1>
         {/* Metadados como "eyebrow" discreto: informam sem competir com o título. */}
         <div className="mt-3 flex items-center gap-2 text-[0.8125rem] text-text-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -279,29 +281,46 @@ export default async function DocsPage({
         {sections.map((s, i) =>
           s.kind === "folder" ? (
             // Cabeçalho da subseção: dá o contexto de onde os próximos artigos
-            // vivem. Separação por ESPAÇO — a régua horizontal só entra na
-            // primeira profundidade, onde a virada de assunto é real.
+            // vivem. O ESTILO da separação entre diretórios de 1º nível vem do
+            // tema (Aparência → Leitura): faixa destacada, linha ou só espaço.
             <section
               key={s.node.id}
               id={s.anchor}
               className={
                 s.depth <= 1
-                  ? "mt-20 scroll-mt-20 border-t border-border pt-10 first:mt-12 first:border-0 first:pt-0"
+                  ? tema.article.divider === "line"
+                    ? "mt-20 scroll-mt-20 border-t border-border pt-10 first:mt-12 first:border-0 first:pt-0"
+                    : "mt-20 scroll-mt-20 first:mt-12"
                   : "mt-16 scroll-mt-20"
               }
             >
-              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Seção
-              </p>
-              <h2
-                className={
-                  s.depth <= 1
-                    ? "mt-1.5 text-[length:var(--text-3xl)] font-semibold leading-tight"
-                    : "mt-1.5 text-[length:var(--text-2xl)] font-semibold leading-tight"
-                }
-              >
-                {s.node.title}
-              </h2>
+              {s.depth <= 1 && tema.article.divider === "band" ? (
+                // Faixa com o fundo suave da marca: título de DIRETÓRIO nunca
+                // se confunde com título de conteúdo.
+                <div className="rounded-xl bg-brand-purple-50 px-5 py-4 dark:bg-brand-purple-950/30">
+                  <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+                    Seção
+                  </p>
+                  <h2 className="mt-1 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight">
+                    {s.node.title}
+                  </h2>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                    Seção
+                  </p>
+                  <h2
+                    className={
+                      s.depth <= 1
+                        ? "mt-1.5 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight"
+                        : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
+                    }
+                  >
+                    {s.node.title}
+                  </h2>
+                </>
+              )}
             </section>
           ) : (
             <section
@@ -310,7 +329,12 @@ export default async function DocsPage({
               data-article-id={s.node.id}
               className={i > 0 ? "mt-14 scroll-mt-20" : "mt-10 scroll-mt-20"}
             >
-              <h3 className="text-[length:var(--text-2xl)] font-semibold leading-tight">
+              {/* Fronteira entre ARTIGOS consecutivos: linha curta e sutil —
+                  sem ela, um artigo "vazava" no outro na leitura contínua. */}
+              {i > 0 && sections[i - 1]?.kind === "article" && (
+                <hr className="mb-14 w-16 border-border" />
+              )}
+              <h3 className="text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight">
                 {s.node.title}
               </h3>
               {s.updatedAt && (

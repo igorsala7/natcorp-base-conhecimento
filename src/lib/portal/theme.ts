@@ -151,6 +151,10 @@ export const ThemeSchema = z.object({
     .object({
       /** "Artigos relacionados" no fim das páginas de leitura. */
       related: z.boolean().optional(),
+      /** Escala tipográfica da leitura. `large` = a escala original. */
+      fontSize: z.enum(["compact", "normal", "large"]).optional(),
+      /** O que separa um diretório do outro na leitura contínua. */
+      divider: z.enum(["band", "line", "space"]).optional(),
     })
     .optional(),
   // Campos que já existiam — preservados.
@@ -175,7 +179,11 @@ export type TemaResolvido = {
     supportText: string;
     regions: { key: RegiaoKey; on: boolean }[];
   };
-  article: { related: boolean };
+  article: {
+    related: boolean;
+    fontSize: "compact" | "normal" | "large";
+    divider: "band" | "line" | "space";
+  };
   supportUrl: string | null;
   supportEmail: string | null;
 };
@@ -228,7 +236,12 @@ export function resolveTheme(raw: unknown): TemaResolvido {
       supportText: t.home?.supportText?.trim() || PADRAO.supportText,
       regions,
     },
-    article: { related: t.article?.related ?? true },
+    article: {
+      related: t.article?.related ?? true,
+      // O padrão NOVO é um degrau menor que a escala original ("large").
+      fontSize: t.article?.fontSize ?? "normal",
+      divider: t.article?.divider ?? "band",
+    },
     supportUrl: t.supportUrl || null,
     supportEmail: t.supportEmail || null,
   };

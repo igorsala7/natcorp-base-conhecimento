@@ -9,6 +9,7 @@ import {
   flattenPreview,
 } from "@/lib/content/preview";
 import { PreviewDoc } from "@/components/content/preview-doc";
+import { resolveTheme } from "@/lib/portal/theme";
 
 export const metadata: Metadata = { title: "Prévia da documentação" };
 
@@ -37,7 +38,7 @@ export default async function PreviaPage({
   const supabase = await createClient();
   const { data: space } = await supabase
     .from("spaces")
-    .select("id, name, slug")
+    .select("id, name, slug, theme")
     .eq("id", spaceId)
     .maybeSingle();
   if (!space) notFound();
@@ -49,9 +50,12 @@ export default async function PreviaPage({
     getPreviewSnippets(spaceId),
   ]);
 
+  const tema = resolveTheme(space.theme);
+
   return (
     <PreviewDoc
       spaceId={spaceId}
+      fontSize={tema.article.fontSize}
       spaceName={space.name}
       spaceSlug={space.slug}
       tree={tree}

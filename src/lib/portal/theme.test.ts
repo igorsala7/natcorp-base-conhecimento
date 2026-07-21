@@ -82,6 +82,18 @@ describe("resolveTheme", () => {
     expect(t.footer.links).toEqual([]);
     expect(t.footer.text).toBeNull();
     expect(t.article.related).toBe(true);
+    // Padrão de leitura: escala nova (menor) e faixa destacada entre diretórios.
+    expect(t.article.fontSize).toBe("normal");
+    expect(t.article.divider).toBe("band");
+  });
+
+  it("aceita fontSize/divider válidos; inválidos derrubam para o padrão", () => {
+    const ok = resolveTheme({ article: { fontSize: "large", divider: "line" } });
+    expect(ok.article.fontSize).toBe("large");
+    expect(ok.article.divider).toBe("line");
+    const invalido = resolveTheme({ article: { fontSize: "gigante" } });
+    expect(invalido.article.fontSize).toBe("normal");
+    expect(invalido.article.divider).toBe("band");
   });
 
   it("`featured` e `top` nascem desligadas (dependem de curadoria/feedback)", () => {
