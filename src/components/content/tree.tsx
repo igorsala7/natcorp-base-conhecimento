@@ -118,6 +118,9 @@ export function Tree({
       for (const n of list) {
         if (n.id === selectedId) {
           caminho.push(...trilha);
+          // Pasta selecionada abre junto: quem clicou nela quer ver o que
+          // há dentro, e o clique agora navega em vez de expandir.
+          if (n.type === "folder") caminho.push(n.id);
           return true;
         }
         if (acha(n.children, [...trilha, n.id])) return true;
@@ -582,7 +585,9 @@ export function Tree({
                     onCheck(item.id, e);
                     return;
                   }
-                  if (item.node.type === "article")
+                  // Pasta também tem tela (ícone/descrição do card, resumo);
+                  // expandir/recolher fica só na setinha.
+                  if (item.node.type === "article" || item.node.type === "folder")
                     router.push(`/admin/conteudo/${item.id}`, { scroll: false });
                   else toggle(item.id);
                 }}
