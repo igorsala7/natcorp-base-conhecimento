@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { registerView } from "@/app/(portal)/actions";
 import { useActiveArticle } from "./active-article";
 
@@ -43,6 +44,7 @@ export function ReadingScroll({
   const ctx = useActiveArticle();
   const setOnPage = ctx?.setOnPage;
   const setActiveId = ctx?.setActiveId;
+  const pathname = usePathname();
 
   // Publica os artigos desta página para a árvore lateral.
   useEffect(() => {
@@ -51,25 +53,81 @@ export function ReadingScroll({
     return () => setOnPage(new Map());
   }, [articles, setOnPage]);
 
-  // Posiciona no artigo pedido / resgata âncora antiga.
+  // `articles` muda de identidade a cada render do servidor; o efeito de
+  // posicionamento lê pela ref para não re-rolar num refresh qualquer.
+  // Sincronizada em efeito (não no render, regra do compilador) e DECLARADA
+  // antes do efeito de posicionamento — efeitos rodam na ordem, então a ref
+  // está fresca quando `posicionar` lê.
+  const articlesRef = useRef(articles);
   useEffect(() => {
-    const hash = decodeURIComponent(window.location.hash.slice(1));
-    if (hash) {
-      if (document.getElementById(hash)) return; // âncora válida: o browser já rolou
-      const atual = articles.find((a) => a.id === initialId);
-      const resgate = atual && document.getElementById(`${atual.anchor}--${hash}`);
-      if (resgate) {
-        resgate.scrollIntoView({ block: "start" });
+    articlesRef.current = articles;
+  }, [articles]);
+
+  // Voltar/avançar do navegador restaura o scroll sozinho — reposicionar por
+  // cima disso jogaria o leitor para o topo do artigo em vez de onde parou.
+  const navegacaoPop = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      navegacaoPop.current = true;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  /**
+   * Posiciona no alvo da navegação. Roda a CADA navegação (pathname/initialId),
+   * não só no mount: a busca navega client-side (`router.push`) e, na mesma
+   * rota dinâmica, o componente NÃO remonta — com o efeito preso no mount, o
+   * clique num resultado simplesmente não rolava a página.
+   *
+   * Também rola por conta própria mesmo quando a âncora existe: o scroll
+   * nativo de hash do App Router não é garantido em navegação client-side.
+   * Âncora ANTIGA/sem prefixo (`#instalacao`, e é o que a busca gera) é
+   * resgatada para `#<âncora-do-artigo>--instalacao`.
+   */
+  useEffect(() => {
+    const posicionar = () => {
+      if (navegacaoPop.current) {
+        navegacaoPop.current = false;
         return;
       }
-    }
-    // Sem âncora: se o artigo pedido não é o primeiro, rola até ele.
-    if (!initialId || articles[0]?.id === initialId) return;
-    const alvo = articles.find((a) => a.id === initialId);
-    const el = alvo && document.getElementById(alvo.anchor);
-    if (el) el.scrollIntoView({ block: "start" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      const lista = articlesRef.current;
+      const hash = decodeURIComponent(window.location.hash.slice(1));
+      if (hash) {
+        const direto = document.getElementById(hash);
+        if (direto) {
+          direto.scrollIntoView({ block: "start" });
+          return;
+        }
+        const atual = lista.find((a) => a.id === initialId);
+        const resgate = atual && document.getElementById(`${atual.anchor}--${hash}`);
+        if (resgate) {
+          resgate.scrollIntoView({ block: "start" });
+          return;
+        }
+      }
+      // Sem âncora: primeiro artigo fica no topo (o router já rola para lá);
+      // qualquer outro recebe o scroll até o título dele.
+      if (!initialId || lista[0]?.id === initialId) return;
+      const alvo = lista.find((a) => a.id === initialId);
+      const el = alvo && document.getElementById(alvo.anchor);
+      if (el) el.scrollIntoView({ block: "start" });
+    };
+
+    // Dois quadros: deixa o scroll-para-o-topo do próprio router acontecer
+    // primeiro — reposicionar depois dele garante que o alvo vence.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(posicionar);
+    });
+    // Clique em âncora dentro da MESMA página (TOC, link copiado).
+    window.addEventListener("hashchange", posicionar);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.removeEventListener("hashchange", posicionar);
+    };
+  }, [initialId, pathname]);
 
   // Scroll-spy: qual artigo está sendo lido.
   useEffect(() => {
