@@ -286,6 +286,20 @@
   .prose-portal :where(p, li) {
     line-height: 1.75;
   }
+  /* Citação sóbria (Apple): barra fina da marca, itálico, sem aspas
+     decorativas do plugin — citação não disputa com callout. */
+  .prose-portal :where(blockquote) {
+    border-left: 2px solid var(--color-primary);
+    padding-left: 1rem;
+    font-style: italic;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    quotes: none;
+  }
+  .prose-portal :where(blockquote p:first-of-type)::before,
+  .prose-portal :where(blockquote p:last-of-type)::after {
+    content: none;
+  }
   /* Ritmo vertical: parágrafos respiram, listas ficam coesas. */
   .prose-portal :where(p) {
     margin-top: 1.15em;

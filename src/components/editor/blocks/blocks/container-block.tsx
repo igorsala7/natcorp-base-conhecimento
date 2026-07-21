@@ -3,13 +3,28 @@
 import { Info, AlertTriangle, CheckCircle2, OctagonAlert, Plus, Minus } from "lucide-react";
 import type { Block, CalloutVariant, PanelBg } from "@/lib/blocks/schema";
 import { BlockIcon } from "../block-icon";
+import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
 import type { BlockEditProps } from "../edit-types";
 
+// MESMA paleta do render do portal (render.tsx) — a edição usava rosa onde o
+// leitor via âmbar/vermelho, e o editor não pode mentir sobre o resultado.
 const CALLOUT_META: Record<CalloutVariant, { icon: typeof Info; cls: string }> = {
-  info: { icon: Info, cls: "border-brand-blue-400 bg-brand-blue-50 dark:bg-brand-blue-950/30" },
-  warning: { icon: AlertTriangle, cls: "border-brand-pink-400 bg-brand-pink-50 dark:bg-brand-pink-950/30" },
-  success: { icon: CheckCircle2, cls: "border-brand-purple-400 bg-brand-purple-50 dark:bg-brand-purple-950/30" },
-  danger: { icon: OctagonAlert, cls: "border-brand-pink-500 bg-brand-pink-100 dark:bg-brand-pink-950/40" },
+  info: {
+    icon: Info,
+    cls: "border-brand-blue-500 bg-brand-blue-50/70 text-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
+  },
+  success: {
+    icon: CheckCircle2,
+    cls: "border-brand-purple-500 bg-brand-purple-50/70 text-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
+  },
+  warning: {
+    icon: AlertTriangle,
+    cls: "border-amber-500 bg-amber-50/70 text-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
+  },
+  danger: {
+    icon: OctagonAlert,
+    cls: "border-red-500 bg-red-50/70 text-red-900 dark:bg-red-950/25 dark:text-red-100",
+  },
 };
 
 /** Lista — usa <ul>/<ol> reais para o portal e o editor mostrarem o mesmo marcador. */
@@ -23,26 +38,29 @@ export function CalloutBlock({ block, onChange, children }: BlockEditProps) {
   const Icon = meta.icon;
   const escolhido = b.styles?.icon;
   return (
-    <div className={`flex gap-3 rounded-lg border-l-4 p-4 ${meta.cls}`}>
-      <div className="flex flex-col items-center gap-1">
+    /* Mesmo cabeçalho rotulado do portal (padrão Microsoft Learn); o select
+       fica invisível POR CIMA do rótulo — clicar no rótulo troca o tipo. */
+    <div className={`rounded-r-md border-l-[3px] px-4 py-3.5 ${meta.cls}`}>
+      <div className="relative flex w-fit items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em]">
         {escolhido ? (
-          <BlockIcon name={escolhido} className="size-5 shrink-0 text-primary" />
+          <BlockIcon name={escolhido} className="size-4 shrink-0" />
         ) : (
-          <Icon className="size-5 shrink-0" />
+          <Icon className="size-4 shrink-0" />
         )}
+        {CALLOUT_ROTULO[b.data.variant]}
         <select
           value={b.data.variant}
           onChange={(e) => onChange({ data: { variant: e.target.value as CalloutVariant } } as Partial<Block>)}
-          className="w-6 bg-transparent text-[0] outline-none"
+          className="absolute inset-0 cursor-pointer opacity-0"
           title="Tipo de destaque"
         >
-          <option value="info">Info</option>
+          <option value="info">Nota</option>
+          <option value="success">Dica</option>
           <option value="warning">Atenção</option>
-          <option value="success">Sucesso</option>
-          <option value="danger">Perigo</option>
+          <option value="danger">Cuidado</option>
         </select>
       </div>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="mt-1.5 min-w-0">{children}</div>
     </div>
   );
 }

@@ -97,6 +97,17 @@ export type BlockType =
 // Dados (payload) por tipo. Blocos sem payload omitem `data`.
 export type HeadingLevel = 1 | 2 | 3;
 export type CalloutVariant = "info" | "warning" | "success" | "danger";
+
+/**
+ * Rótulo do cabeçalho de cada variante de callout (padrão Microsoft Learn:
+ * NOTA/DICA/ATENÇÃO/CUIDADO). Fonte única — portal e editor mostram o mesmo.
+ */
+export const CALLOUT_ROTULO: Record<CalloutVariant, string> = {
+  info: "Nota",
+  success: "Dica",
+  warning: "Atenção",
+  danger: "Cuidado",
+};
 export type PanelBg = "purple" | "pink" | "blue" | "gray";
 export type HeroBg = "purple" | "blue" | "gray" | "dark";
 export type ButtonVariant = "primary" | "secondary";

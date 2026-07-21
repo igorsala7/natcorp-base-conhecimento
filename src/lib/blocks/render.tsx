@@ -9,6 +9,7 @@ import {
   OctagonAlert,
 } from "lucide-react";
 import { slugify } from "@/lib/content/slug";
+import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
 import { highlightCode } from "@/lib/content/highlight";
 import { PortalTabs } from "@/components/portal/tabs";
 import { CopyAnchor } from "@/components/portal/copy-anchor";
@@ -173,8 +174,18 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         <figure className="my-6 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt={alt} loading="lazy" decoding="async" className="mx-auto rounded-lg" />
-          {caption ? <figcaption className="mt-2 text-sm text-text-muted">{caption}</figcaption> : null}
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            className="mx-auto rounded-lg border border-border"
+          />
+          {caption ? (
+            <figcaption className="mt-2.5 text-[0.8125rem] leading-relaxed text-text-muted">
+              {caption}
+            </figcaption>
+          ) : null}
         </figure>
       );
     }
@@ -233,12 +244,17 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
 
     case "callout": {
       const base = CALLOUT[block.data.variant] ?? CALLOUT.info;
-      const cls = base.cls;
       const Icon = iconByKey(block.styles?.icon) ?? base.Icon;
       return (
-        <div className={`my-6 flex gap-3 rounded-r-md border-l-[3px] px-4 py-3.5 ${cls}`}>
-          <Icon className="mt-0.5 size-[18px] shrink-0" aria-hidden="true" />
-          <div className="min-w-0 flex-1 text-[0.9375rem] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+        /* Cabeçalho rotulado (padrão Microsoft Learn): o tipo do aviso vem
+           declarado — "Nota", "Dica", "Atenção", "Cuidado" — e o corpo abaixo.
+           Ícone sozinho obrigava o leitor a decodificar a cor. */
+        <div className={`my-6 rounded-r-md border-l-[3px] px-4 py-3.5 ${base.cls}`}>
+          <p className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em]">
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            {CALLOUT_ROTULO[block.data.variant] ?? CALLOUT_ROTULO.info}
+          </p>
+          <div className="mt-1.5 min-w-0 text-[0.9375rem] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {renderChildren(block.children, ctx)}
           </div>
         </div>
