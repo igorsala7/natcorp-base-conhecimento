@@ -8,15 +8,11 @@ import {
   Bot,
   CheckSquare,
   Code2,
-  Database,
-  FolderTree,
   LayoutDashboard,
   Library,
-  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
-  Settings,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -25,25 +21,30 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Agrupado pelo OBJETO da ação, não pela ferramenta: tudo que configura UMA
- * documentação (conteúdo, visual da página, preferências, chatbot) mora
- * junto em "Documentação" — antes estava espalhado por três grupos e achar
- * "onde mudo a landing?" exigia ler o menu inteiro.
+ * Agrupado pelo OBJETO da ação, não pela ferramenta. As áreas de UMA
+ * documentação (conteúdo, aparência, preferências, chatbot, prévia) NÃO têm
+ * item próprio: a porta de entrada é "Documentações", que lista cada uma com
+ * seus atalhos — dois caminhos no menu para o mesmo destino só disputariam
+ * atenção. `also` mantém o item aceso ao navegar para dentro dessas áreas.
  */
 const GRUPOS = [
   {
-    label: null, // Painel fica solto no topo: é o destino de volta.
-    items: [{ href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true }],
-  },
-  {
-    label: "Documentação",
+    label: null, // Soltos no topo: o retorno (Painel) e a porta de entrada.
     items: [
-      // A porta de entrada: todas as documentações, com atalhos e embeddings.
-      { href: "/admin/documentacoes", label: "Documentações", icon: Library, ready: true },
-      { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
-      { href: "/admin/aparencia", label: "Aparência", icon: Palette, ready: true },
-      { href: "/admin/configuracoes", label: "Preferências", icon: Settings, ready: true },
-      { href: "/admin/base-conhecimento", label: "Chatbot — arquivos", icon: Database, ready: true },
+      { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
+      {
+        href: "/admin/documentacoes",
+        label: "Documentações",
+        icon: Library,
+        ready: true,
+        also: [
+          "/admin/conteudo",
+          "/admin/aparencia",
+          "/admin/configuracoes",
+          "/admin/base-conhecimento",
+          "/admin/previa",
+        ],
+      },
     ],
   },
   {
@@ -175,8 +176,15 @@ export function Sidebar() {
                 ))}
               <div className="flex flex-col gap-0.5">
                 {grupo.items.map((item) => {
+                  // `also`: rotas-filhas acessadas de dentro de "Documentações"
+                  // (conteúdo, aparência…) mantêm o item de origem aceso — sem
+                  // isto, navegar pelo hub apagaria o menu inteiro.
+                  const emAlso =
+                    "also" in item && item.also.some((p) => pathname.startsWith(p));
                   const active =
-                    item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
+                    item.href === "/admin"
+                      ? pathname === "/admin"
+                      : pathname.startsWith(item.href) || emAlso;
                   const Icon = item.icon;
                   const base = cn(
                     "relative flex items-center rounded-md py-2 text-sm transition-colors",
