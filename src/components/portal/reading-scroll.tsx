@@ -1,7 +1,24 @@
 "use client";
 
 import { useEffect } from "react";
+import { registerView } from "@/app/(portal)/actions";
 import { useActiveArticle } from "./active-article";
+
+/**
+ * Conta a visualização UMA vez por sessão do navegador. `sessionStorage`
+ * indisponível (modo privado estrito) não impede a contagem — só a dedupe.
+ */
+function contarView(nodeId: string) {
+  try {
+    const chave = "kb.viewed";
+    const vistos: string[] = JSON.parse(sessionStorage.getItem(chave) ?? "[]");
+    if (vistos.includes(nodeId)) return;
+    sessionStorage.setItem(chave, JSON.stringify([...vistos, nodeId]));
+  } catch {
+    /* segue sem dedupe */
+  }
+  void registerView(nodeId);
+}
 
 export type PageArticle = { id: string; anchor: string; path: string };
 
@@ -65,6 +82,9 @@ export function ReadingScroll({
           const art = byAnchor.get(entry.target.id);
           if (!art) continue;
           setActiveId(art.id);
+          // A "visualização" é chegar de fato no artigo durante a leitura —
+          // o mesmo sinal do destaque na árvore, não o carregamento da página.
+          contarView(art.id);
           // Mantém a URL do artigo que está sendo lido (sem recarregar).
           const url = `/docs/${spaceSlug}/${art.path}`;
           if (window.location.pathname !== url) {

@@ -40,12 +40,20 @@ export default async function AnalisesPage() {
   }
   const supabase = await createClient();
 
-  const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }] = await Promise.all([
-    supabase.from("search_logs").select("query, results_count").order("created_at", { ascending: false }).limit(3000),
-    supabase.from("messages").select("role, feedback, latency_ms, content").eq("role", "assistant").order("created_at", { ascending: false }).limit(2000),
-    supabase.from("conversations").select("id", { count: "exact", head: true }),
-    supabase.from("article_feedback").select("node_id, helpful").order("created_at", { ascending: false }).limit(2000),
-  ]);
+  // Página dinâmica de admin: "hoje" é avaliado por requisição, de propósito —
+  // não há re-render de cliente para o valor divergir.
+  // eslint-disable-next-line react-hooks/purity
+  const corte90d = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+
+  const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }, { data: views }] =
+    await Promise.all([
+      supabase.from("search_logs").select("query, results_count").order("created_at", { ascending: false }).limit(3000),
+      supabase.from("messages").select("role, feedback, latency_ms, content").eq("role", "assistant").order("created_at", { ascending: false }).limit(2000),
+      supabase.from("conversations").select("id", { count: "exact", head: true }),
+      supabase.from("article_feedback").select("node_id, helpful").order("created_at", { ascending: false }).limit(2000),
+      // Últimos 90 dias de contadores diários (node_id, day, views).
+      supabase.from("article_views").select("node_id, day, views").gte("day", corte90d),
+    ]);
 
   const searchRows = searches ?? [];
   const totalSearches = searchRows.length;
@@ -66,10 +74,44 @@ export default async function AnalisesPage() {
   const notHelpful = fbRows.filter((f) => !f.helpful).length;
   // Artigos com mais "não ajudou".
   const negByNode = topBy(fbRows, (f) => f.node_id, (f) => !f.helpful, 6);
-  const negIds = negByNode.map(([id]) => id);
-  const titleById = new Map<string, string>();
-  if (negIds.length) {
-    const { data: nodes } = await supabase.from("nodes").select("id, title").in("id", negIds);
+
+  // Leitura (últimos 90 dias): total, mais vistos, e publicados sem visita.
+  const viewRows = views ?? [];
+  const totalViews = viewRows.reduce((n, v) => n + v.views, 0);
+  const viewsByNode = new Map<string, number>();
+  for (const v of viewRows) viewsByNode.set(v.node_id, (viewsByNode.get(v.node_id) ?? 0) + v.views);
+  const topViewed = [...viewsByNode.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Mais bem avaliados: % de "útil" com um mínimo de votos — o critério da
+  // região "Mais úteis" da home (a HubSpot chama de highest-rated).
+  const fbByNode = new Map<string, { up: number; total: number }>();
+  for (const f of fbRows) {
+    const cur = fbByNode.get(f.node_id) ?? { up: 0, total: 0 };
+    cur.total += 1;
+    if (f.helpful) cur.up += 1;
+    fbByNode.set(f.node_id, cur);
+  }
+  const bestRated = [...fbByNode.entries()]
+    .filter(([, s]) => s.total >= 3 && s.up / s.total >= 0.6)
+    .sort((a, b) => b[1].up / b[1].total - a[1].up / a[1].total || b[1].total - a[1].total)
+    .slice(0, 8);
+
+  const { data: publicados } = await supabase
+    .from("nodes")
+    .select("id, title")
+    .eq("type", "article")
+    .eq("status", "published")
+    .is("deleted_at", null)
+    .limit(2000);
+  const semVisita = (publicados ?? []).filter((n) => !viewsByNode.has(n.id)).slice(0, 8);
+
+  const idsComTitulo = [
+    ...new Set([...negByNode.map(([id]) => id), ...topViewed.map(([id]) => id), ...bestRated.map(([id]) => id)]),
+  ];
+  const titleById = new Map<string, string>((publicados ?? []).map((n) => [n.id, n.title]));
+  const faltando = idsComTitulo.filter((id) => !titleById.has(id));
+  if (faltando.length) {
+    const { data: nodes } = await supabase.from("nodes").select("id, title").in("id", faltando);
     for (const n of nodes ?? []) titleById.set(n.id, n.title);
   }
 
@@ -117,6 +159,45 @@ export default async function AnalisesPage() {
             hint={`${refusals} sem resposta na base`}
           />
         </div>
+      </section>
+
+      {/* Leitura */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-text-muted">Leitura (90 dias)</h2>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatCard label="Visualizações" value={totalViews} hint="1× por artigo por sessão" />
+          <StatCard label="Artigos vistos" value={viewsByNode.size} />
+          <StatCard
+            label="Publicados sem visita"
+            value={(publicados ?? []).length ? (publicados ?? []).length - viewsByNode.size : "—"}
+            hint="lacunas de descoberta"
+          />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <RankList
+            title="Mais vistos"
+            rows={topViewed.map(([id, n]) => [titleById.get(id) ?? id, n])}
+            empty="Ainda sem visualizações registradas."
+          />
+          <RankList
+            title="Mais bem avaliados (mín. 3 votos)"
+            rows={bestRated.map(([id, s]) => [
+              titleById.get(id) ?? id,
+              Math.round((s.up / s.total) * 100),
+            ])}
+            empty="Ainda sem artigos com votos suficientes."
+          />
+        </div>
+        {semVisita.length > 0 && viewsByNode.size > 0 && (
+          <div className="mt-3">
+            <RankList
+              title="Publicados que ninguém abriu nos últimos 90 dias"
+              rows={semVisita.map((n) => [n.title, 0])}
+              empty=""
+              accent
+            />
+          </div>
+        )}
       </section>
 
       {/* Feedback dos artigos */}

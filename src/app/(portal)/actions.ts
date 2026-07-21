@@ -16,6 +16,22 @@ import {
 } from "@/lib/portal/space-auth";
 import { portalRateLimitOk } from "@/lib/portal/rate-limit";
 
+/**
+ * Conta uma visualização de artigo (visitante anônimo).
+ *
+ * A validação de "artigo publicado de espaço alcançável" está DENTRO da RPC
+ * (`register_article_view`, SECURITY DEFINER); aqui só o rate limit por IP.
+ * Dedupe por sessão é no navegador — honesto o bastante para "mais vistos",
+ * sem cookie de rastreio.
+ */
+export async function registerView(nodeId: string): Promise<{ ok: boolean }> {
+  if (!nodeId) return { ok: false };
+  if (!(await portalRateLimitOk("view", 60))) return { ok: false };
+  const supabase = createPublicClient();
+  const { error } = await supabase.rpc("register_article_view", { p_node_id: nodeId });
+  return { ok: !error };
+}
+
 /** Registra feedback "Isso foi útil?" (visitante anônimo). */
 export async function submitFeedback(
   nodeId: string,

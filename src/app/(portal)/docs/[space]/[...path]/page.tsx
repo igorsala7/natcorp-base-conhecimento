@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
-import { Clock } from "lucide-react";
+import { ArrowRight, Clock } from "lucide-react";
 import {
   getPublicSpace,
   getPortalTree,
@@ -13,6 +13,7 @@ import {
   getPublicArticle,
   getPublicArticles,
   getPublicSnippets,
+  getRelatedArticles,
 } from "@/lib/portal/data";
 import { RenderBlocks, extractToc } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
@@ -111,7 +112,7 @@ export default async function DocsPage({
   }
 
   const activePath = path.join("/");
-  const { supportUrl } = spaceChrome(space);
+  const { supportUrl, tema } = spaceChrome(space);
 
   // LEITURA CONTÍNUA: a página é o DIRETÓRIO DE 1º NÍVEL com TODA a subárvore
   // dentro dele (artigos e subpastas, na ordem da árvore), num texto corrido só.
@@ -237,6 +238,16 @@ export default async function DocsPage({
   const crumbs = ancestorsOf(tree, groupRoot.id).slice(0, -1);
   const atual = node.type === "article" ? node : (artigos[0] ?? null);
 
+  // Relacionados: por similaridade com o CONJUNTO da página, cruzando com a
+  // árvore efetiva — só aparece o que este espaço realmente enxerga.
+  const naPagina = new Set(artigos.map((a) => a.id));
+  const relacionados = tema.article.related
+    ? (await getRelatedArticles(space.id, artigos.map((a) => a.id), db))
+        .map((r) => flattenPortalTree(tree).find((n) => n.id === r.node_id))
+        .filter((n): n is NonNullable<typeof n> => !!n && !naPagina.has(n.id))
+        .slice(0, 4)
+    : [];
+
   return (
     <PortalShell space={space} tree={tree} activePath={activePath} toc={toc} activeNodeId={atual?.id ?? null}>
       <article className="mx-auto max-w-prose">
@@ -318,6 +329,39 @@ export default async function DocsPage({
               <Feedback nodeId={s.node.id} supportUrl={supportUrl} />
             </section>
           ),
+        )}
+
+        {relacionados.length > 0 && (
+          <section aria-label="Artigos relacionados" className="mt-20 border-t border-border pt-8">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Artigos relacionados
+            </h2>
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {relacionados.map((r) => (
+                <li key={r.id}>
+                  <Link
+                    href={`/docs/${spaceSlug}/${r.slugPath.join("/")}`}
+                    className="group flex h-full items-center gap-3 rounded-lg border border-border bg-surface p-3.5 no-underline transition-shadow hover:shadow-2"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium leading-snug">
+                        {r.title}
+                      </span>
+                      {r.slugPath.length > 1 && (
+                        <span className="mt-0.5 block truncate text-xs text-text-muted">
+                          {ancestorsOf(tree, r.id)
+                            .slice(0, -1)
+                            .map((c) => c.title)
+                            .join(" › ")}
+                        </span>
+                      )}
+                    </span>
+                    <ArrowRight className="size-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transform-none" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         <nav className="mt-20 flex justify-between gap-4 border-t border-border pt-8 text-sm">
