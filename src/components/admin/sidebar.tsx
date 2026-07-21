@@ -11,6 +11,7 @@ import {
   Database,
   FolderTree,
   LayoutDashboard,
+  Library,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -24,9 +25,10 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Onze itens numa lista corrida viram uma parede — o olho não acha nada sem
- * ler tudo. Agrupados por intenção ("estou escrevendo" / "estou distribuindo"
- * / "estou administrando"), a varredura passa a ser por grupo.
+ * Agrupado pelo OBJETO da ação, não pela ferramenta: tudo que configura UMA
+ * documentação (conteúdo, visual da página, preferências, chatbot) mora
+ * junto em "Documentação" — antes estava espalhado por três grupos e achar
+ * "onde mudo a landing?" exigia ler o menu inteiro.
  */
 const GRUPOS = [
   {
@@ -34,21 +36,29 @@ const GRUPOS = [
     items: [{ href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true }],
   },
   {
-    label: "Conteúdo",
+    label: "Documentação",
     items: [
-      { href: "/admin/conteudo", label: "Documentação", icon: FolderTree, ready: true },
-      { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
+      // A porta de entrada: todas as documentações, com atalhos e embeddings.
+      { href: "/admin/documentacoes", label: "Documentações", icon: Library, ready: true },
+      { href: "/admin/conteudo", label: "Conteúdo", icon: FolderTree, ready: true },
+      { href: "/admin/aparencia", label: "Aparência", icon: Palette, ready: true },
+      { href: "/admin/configuracoes", label: "Preferências", icon: Settings, ready: true },
+      { href: "/admin/base-conhecimento", label: "Chatbot — arquivos", icon: Database, ready: true },
+    ],
+  },
+  {
+    label: "Fluxo de conteúdo",
+    items: [
       { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
+      { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
       { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
     ],
   },
   {
-    label: "Distribuição",
+    label: "Canais e análises",
     items: [
       { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
       { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
-      { href: "/admin/base-conhecimento", label: "Base do chatbot", icon: Database, ready: true },
-      { href: "/admin/aparencia", label: "Aparência", icon: Palette, ready: true },
       { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
     ],
   },
@@ -58,7 +68,6 @@ const GRUPOS = [
       { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
       { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
       { href: "/admin/sistema", label: "Sistema", icon: SlidersHorizontal, ready: true },
-      { href: "/admin/configuracoes", label: "Configurações", icon: Settings, ready: true },
     ],
   },
 ] as const;
