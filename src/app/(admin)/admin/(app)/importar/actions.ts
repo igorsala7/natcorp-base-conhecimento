@@ -82,6 +82,8 @@ async function insertProposed(
   node: ProposedNode,
   images: string[],
   prevPos: string | null,
+  /** Ids criados, na ordem — usados para desfazer se a materialização falhar. */
+  criados: string[],
 ): Promise<string> {
   const isFolder = node.children.length > 0;
   const type = isFolder ? "folder" : "article";
@@ -102,6 +104,7 @@ async function insertProposed(
     .select("id")
     .single();
   if (error || !created) throw new Error(error?.message ?? "insert falhou");
+  criados.push(created.id);
 
   if (!isFolder) {
     await supabase.from("articles").insert({
@@ -117,13 +120,22 @@ async function insertProposed(
       { title: "Visão geral", content: node.content, children: [] },
       images,
       null,
+      criados,
     );
   }
 
   // Filhos.
   let childPrev: string | null = node.content.length > 0 ? generateKeyBetween(null, null) : null;
   for (const child of node.children) {
-    childPrev = await insertProposed(supabase, spaceId, created.id, child, images, childPrev);
+    childPrev = await insertProposed(
+      supabase,
+      spaceId,
+      created.id,
+      child,
+      images,
+      childPrev,
+      criados,
+    );
   }
 
   return position;
@@ -185,7 +197,30 @@ export async function materializeImport(
   const images = stored?.images ?? [];
   if (tree.length === 0) return { ok: false, error: "Nada a importar." };
 
-  await supabase.from("import_jobs").update({ status: "importing" }).eq("id", jobId);
+  if (job.status !== "preview") {
+    return {
+      ok: false,
+      error:
+        job.status === "done"
+          ? "Esta importação já foi concluída."
+          : `Importação não está pronta para materializar (status: ${job.status}).`,
+    };
+  }
+
+  // Trava otimista: só um chamador consegue sair de 'preview'. Sem isso, duplo
+  // clique ou reload da página re-executava a inserção e duplicava a árvore.
+  const { data: travado } = await supabase
+    .from("import_jobs")
+    .update({ status: "importing" })
+    .eq("id", jobId)
+    .eq("status", "preview")
+    .select("id");
+  if (!travado?.length) {
+    return { ok: false, error: "Esta importação já está sendo materializada." };
+  }
+
+  // Tudo que for criado entra aqui, para poder ser desfeito se algo falhar no meio.
+  const criados: string[] = [];
 
   try {
     // Posição inicial = fim da lista de irmãos no destino.
@@ -221,17 +256,35 @@ export async function materializeImport(
         .select("id")
         .single();
       if (error || !folder) throw new Error(error?.message ?? "falha ao criar a pasta de destino");
+      criados.push(folder.id);
       rootParentId = folder.id;
     }
 
     let prev: string | null = await lastPosition(rootParentId);
     for (const node of tree) {
-      prev = await insertProposed(supabase, spaceId, rootParentId, node, images, prev);
+      prev = await insertProposed(supabase, spaceId, rootParentId, node, images, prev, criados);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await supabase.from("import_jobs").update({ status: "error", error: msg }).eq("id", jobId);
-    return { ok: false, error: `Falha ao materializar: ${msg}` };
+    // Desfaz o que já entrou: sem isso a árvore ficava pela metade e o usuário
+    // não tinha como distinguir o importado do preexistente. Ordem inversa da
+    // inserção = filhos antes dos pais.
+    let desfeitos = 0;
+    for (const id of [...criados].reverse()) {
+      const { error: delErro } = await supabase.from("nodes").delete().eq("id", id);
+      if (!delErro) desfeitos++;
+    }
+    const limpo = desfeitos === criados.length;
+    const parcial = limpo
+      ? ""
+      : ` Atenção: ${criados.length - desfeitos} de ${criados.length} nós não puderam ser removidos.`;
+    // Rollback completo → volta para 'preview' e o usuário pode tentar de novo
+    // sem duplicar nada. Rollback parcial → 'error', porque repetir duplicaria.
+    await supabase
+      .from("import_jobs")
+      .update({ status: limpo ? "preview" : "error", error: msg })
+      .eq("id", jobId);
+    return { ok: false, error: `Falha ao materializar: ${msg}.${parcial}` };
   }
 
   await supabase.from("import_jobs").update({ status: "done" }).eq("id", jobId);
