@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { generateObject } from "ai";
-import { languageModel, hasAiKey } from "@/lib/ai/config";
+import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { LAYOUT_INSTRUCTIONS } from "./prompts";
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
@@ -315,12 +315,19 @@ export async function improveLayout(
         model,
         schema: blocksSchema,
         prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + segmento,
+        abortSignal: aiTimeout("import_layout"),
       });
       propostos.push(...object.blocks);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
       const onde =
         segmentos.length > 1 ? ` (parte ${i + 1} de ${segmentos.length})` : "";
+      if (ehTimeout(e)) {
+        return {
+          ok: false,
+          error: `A IA não respondeu a tempo${onde}. Tente de novo ou configure um modelo mais rápido em Sistema → IA.`,
+        };
+      }
+      const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, error: `Falha da IA${onde}: ${msg}` };
     }
   }

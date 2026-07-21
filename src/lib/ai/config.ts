@@ -59,6 +59,38 @@ export function invalidateAiCache(): void {
   cache.clear();
 }
 
+/**
+ * Timeout por finalidade. Nenhuma chamada de IA passava `abortSignal`: um
+ * provedor lento travava a Server Action até o limite da plataforma, e o
+ * usuário só via a tela parada.
+ *
+ * Os valores refletem o trabalho de cada uma: embedding de uma pergunta é
+ * quase instantâneo e está no caminho crítico de toda busca do RAG; a
+ * reformatação de layout roda por segmento e pode levar dezenas de segundos.
+ */
+const TIMEOUT_MS: Record<Purpose | "embedding_query", number> = {
+  chat: 60_000,
+  embedding: 120_000,
+  embedding_query: 15_000,
+  import_structure: 90_000,
+  import_layout: 120_000,
+};
+
+/** `abortSignal` pronto para passar às funções do AI SDK. */
+export function aiTimeout(purpose: Purpose | "embedding_query"): AbortSignal {
+  return AbortSignal.timeout(TIMEOUT_MS[purpose]);
+}
+
+/** Mensagem honesta quando o erro foi timeout, e não falha do provedor. */
+export function ehTimeout(e: unknown): boolean {
+  return (
+    e instanceof Error &&
+    (e.name === "TimeoutError" ||
+      e.name === "AbortError" ||
+      e.message.includes("aborted"))
+  );
+}
+
 function doEnv(purpose: Purpose): ResolvedAi | null {
   if (purpose === "embedding") {
     const apiKey = process.env.EMBEDDING_API_KEY;

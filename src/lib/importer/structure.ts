@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { generateObject } from "ai";
-import { languageModel, hasAiKey } from "../ai/config";
+import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "../ai/config";
 import { STRUCTURE_INSTRUCTIONS } from "./prompts";
 import { tituloLimpo, precisaAgruparComIa, contarNos, profundidade } from "./tree";
 import type { ProposedNode, ContentItem } from "./tree";
@@ -124,6 +124,7 @@ export async function refineStructureWithLLM(
         "\n\nESTRUTURA ATUAL (índice, recuo = nível, título e trecho):\n" +
         listarSecoes(flat),
       schema: refineSchema,
+      abortSignal: aiTimeout("import_structure"),
     });
 
     const used = new Set<number>();
@@ -161,6 +162,11 @@ export async function refineStructureWithLLM(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Refino de estrutura falhou:", msg);
+    if (ehTimeout(e)) {
+      // `tree: null` faz o chamador manter a hierarquia heurística — o
+      // usuário precisa saber que foi isso, e não um refino que "não achou nada".
+      return { tree: null, erro: "a IA não respondeu a tempo; a hierarquia detectada no documento foi mantida" };
+    }
     return { tree: null, erro: msg.slice(0, 300) };
   }
 }

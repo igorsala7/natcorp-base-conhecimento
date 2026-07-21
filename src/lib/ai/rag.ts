@@ -4,7 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
-import { embeddingModel, embeddingCallOptions, hasEmbeddingKey } from "@/lib/ai/config";
+import {
+  embeddingModel,
+  embeddingCallOptions,
+  hasEmbeddingKey,
+  aiTimeout,
+} from "@/lib/ai/config";
 import {
   getEffectiveTreeAdmin,
   getEffectiveTreePublic,
@@ -106,9 +111,17 @@ async function retrieveWith(
         // Dimensão vai na CHAMADA neste SDK, não no modelo. Sem isto, um
         // modelo de 3072 devolveria vetor que a coluna vector(1536) recusa.
         providerOptions: await embeddingCallOptions(),
+        // Curto de propósito: está no caminho de TODA busca do RAG. Provedor
+        // lento aqui degrada para busca léxica em vez de travar a resposta.
+        abortSignal: aiTimeout("embedding_query"),
       });
       embedding = e;
-    } catch {
+    } catch (e) {
+      // Antes era um catch mudo: a busca virava só-léxica sem nenhum sinal.
+      console.error(
+        "[rag] embedding da pergunta falhou, caindo para busca léxica:",
+        e instanceof Error ? e.message : e,
+      );
       embedding = null;
     }
   }

@@ -1,6 +1,11 @@
 import "server-only";
 import { embedMany } from "ai";
-import { embeddingModel, embeddingCallOptions, hasEmbeddingKey } from "@/lib/ai/config";
+import {
+  embeddingModel,
+  embeddingCallOptions,
+  hasEmbeddingKey,
+  aiTimeout,
+} from "@/lib/ai/config";
 import type { createClient } from "@/lib/supabase/server";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText, richToText } from "@/lib/blocks/serialize";
@@ -74,6 +79,7 @@ export async function reindexNodeChunks(
         // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
         // `chunks.embedding` é vector(1536) e recusa outro tamanho.
         providerOptions: await embeddingCallOptions(),
+        abortSignal: aiTimeout("embedding"),
       });
       embeddings = e;
     } catch {
@@ -170,6 +176,7 @@ export async function reindexDocumentChunks(
         // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
         // `chunks.embedding` é vector(1536) e recusa outro tamanho.
         providerOptions: await embeddingCallOptions(),
+        abortSignal: aiTimeout("embedding"),
       });
       embeddings = e;
     } catch {

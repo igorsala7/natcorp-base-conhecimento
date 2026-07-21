@@ -8,7 +8,15 @@ import { requirePermission, hasPermission } from "@/lib/auth/permissions";
 import { currentMaxLevel } from "@/lib/auth/roles";
 import { audit } from "@/lib/auth/audit";
 import { encryptSecret } from "@/lib/crypto/secrets";
-import { invalidateAiCache, resolveAi, languageModel, embeddingModel, embeddingCallOptions } from "@/lib/ai/config";
+import {
+  invalidateAiCache,
+  resolveAi,
+  languageModel,
+  embeddingModel,
+  embeddingCallOptions,
+  aiTimeout,
+  ehTimeout,
+} from "@/lib/ai/config";
 import type { ProviderKind, Purpose } from "@/lib/ai/catalog";
 import { sendEmail } from "@/lib/email/send";
 
@@ -162,6 +170,7 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
         model: await embeddingModel(),
         value: "teste de conexão",
         providerOptions: await embeddingCallOptions(),
+        abortSignal: aiTimeout("embedding_query"),
       });
       // Dimensão errada aqui vira erro de INSERT lá na frente, artigo por
       // artigo — melhor descobrir agora.
@@ -176,12 +185,19 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
     const { text } = await generateText({
       model: await languageModel(purpose),
       prompt: "Responda apenas: ok",
+      abortSignal: aiTimeout("chat"),
     });
     return {
       ok: true,
       msg: `OK — ${cfg.kind}/${cfg.model} respondeu "${text.trim().slice(0, 40)}" (origem: ${cfg.origem}).`,
     };
   } catch (e) {
+    if (ehTimeout(e)) {
+      return {
+        ok: false,
+        error: "O provedor não respondeu dentro do tempo limite. Verifique a rede ou tente um modelo mais rápido.",
+      };
+    }
     // A mensagem CRUA do provedor é o que resolve o problema de quem configura
     // ("crédito insuficiente", "modelo inexistente", "chave inválida").
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
