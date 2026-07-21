@@ -388,23 +388,37 @@ export default async function DocsPage({
           </section>
         )}
 
-        <nav className="mt-20 flex justify-between gap-4 border-t border-border pt-8 text-sm">
+        {/* Anterior/Próximo em CARDS (Microsoft Learn): eyebrow + título com
+            alvo de clique generoso, no lugar de dois links soltos. */}
+        <nav
+          aria-label="Diretórios vizinhos"
+          className="mt-20 grid gap-3 border-t border-border pt-8 sm:grid-cols-2"
+        >
           {prevGroup ? (
             <Link
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
-              className="rounded-sm text-primary underline-offset-4 hover:underline"
+              className="group rounded-lg border border-border p-4 no-underline transition-colors hover:border-primary"
             >
-              ← {prevGroup.title}
+              <span className="block text-xs text-text-muted">← Anterior</span>
+              <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
+                {prevGroup.title}
+              </span>
             </Link>
           ) : (
-            <span />
+            <span className="hidden sm:block" />
           )}
           {nextGroup ? (
-            <Link href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`} className="text-right text-primary hover:underline">
-              {nextGroup.title} →
+            <Link
+              href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
+              className="group rounded-lg border border-border p-4 text-right no-underline transition-colors hover:border-primary"
+            >
+              <span className="block text-xs text-text-muted">Próximo →</span>
+              <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
+                {nextGroup.title}
+              </span>
             </Link>
           ) : (
-            <span />
+            <span className="hidden sm:block" />
           )}
         </nav>
 

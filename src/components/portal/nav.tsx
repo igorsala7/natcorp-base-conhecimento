@@ -75,7 +75,7 @@ export function PortalNav({
   }, [activeId, tree]);
 
   return (
-    <nav aria-label="Navegação da documentação" className="text-sm">
+    <nav aria-label="Navegação da documentação" className="text-[0.84375rem]">
       <NavList
         spaceSlug={spaceSlug}
         nodes={tree}
@@ -183,11 +183,13 @@ function NavList({
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 py-1.5 leading-snug transition-colors",
+                    // Hover com fundo na linha inteira (Microsoft Learn): o alvo
+                    // fica evidente sem depender só da cor do texto.
                     isActive
                       ? "font-semibold text-primary"
                       : node.type === "folder"
-                        ? "font-medium text-text hover:text-primary"
-                        : "text-text-muted hover:text-text",
+                        ? "font-medium text-text hover:bg-surface-2 hover:text-primary"
+                        : "text-text-muted hover:bg-surface-2 hover:text-text",
                   )}
                 >
                   <span className="truncate">{node.title}</span>
