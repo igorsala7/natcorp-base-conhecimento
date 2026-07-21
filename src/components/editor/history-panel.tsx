@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { RotateCcw, Lock, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { wordDiff, type DiffOp } from "@/lib/content/word-diff";
@@ -32,6 +33,7 @@ export function HistoryPanel({
 }) {
   const [versions, setVersions] = useState<ArticleVersion[]>([]);
   const [loading, setLoading] = useState(true);
+  const { confirmar, pedirTexto } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail>(null);
@@ -81,9 +83,18 @@ export function HistoryPanel({
   }
 
   async function saveNamed() {
-    const label = prompt("Rótulo da versão (ex.: Revisão jurídica jul/2026):");
+    const label = await pedirTexto({
+      title: "Salvar versão nomeada",
+      label: "Rótulo da versão",
+      placeholder: "Ex.: Revisão jurídica jul/2026",
+    });
     if (label === null) return;
-    const isProtected = confirm("Proteger esta versão? (imune à limpeza automática)");
+    const isProtected = await confirmar({
+      title: "Proteger esta versão?",
+      description: "Versão protegida fica imune à limpeza automática do histórico.",
+      confirmLabel: "Proteger",
+      cancelLabel: "Não proteger",
+    });
     setBusy(true);
     const r = await snapshotArticleVersion(nodeId, label, isProtected);
     setBusy(false);
@@ -92,9 +103,19 @@ export function HistoryPanel({
   }
 
   async function editLabel(v: ArticleVersion) {
-    const label = prompt("Rótulo:", v.label ?? "");
+    const label = await pedirTexto({
+      title: "Renomear versão",
+      label: "Rótulo",
+      initial: v.label ?? "",
+      required: false,
+    });
     if (label === null) return;
-    const isProtected = confirm("Proteger esta versão? OK = proteger, Cancelar = não.");
+    const isProtected = await confirmar({
+      title: "Proteger esta versão?",
+      description: "Versão protegida fica imune à limpeza automática do histórico.",
+      confirmLabel: "Proteger",
+      cancelLabel: "Não proteger",
+    });
     setBusy(true);
     const r = await renameArticleVersion(v.id, label, isProtected);
     setBusy(false);
@@ -103,8 +124,12 @@ export function HistoryPanel({
   }
 
   async function restore(v: ArticleVersion) {
-    if (!confirm(`Restaurar a v${v.version}? Isso cria uma nova versão com esse conteúdo (nada é perdido).`))
-      return;
+    const ok = await confirmar({
+      title: `Restaurar a v${v.version}`,
+      description: "A restauração cria uma versão NOVA com esse conteúdo — nada do histórico é perdido.",
+      confirmLabel: "Restaurar",
+    });
+    if (!ok) return;
     setBusy(true);
     const r = await restoreArticleVersion(nodeId, v.id);
     setBusy(false);

@@ -15,13 +15,15 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
-import { reindexSpaceEmbeddings } from "./actions";
+import { useConfirm } from "@/components/ui/confirm";
+import { deleteSpace, reindexSpaceEmbeddings } from "./actions";
 
 export type DocResumo = {
   id: string;
@@ -35,6 +37,9 @@ export type DocResumo = {
   pastas: number;
   chunksIndexados: number;
   canEdit: boolean;
+  canDelete: boolean;
+  /** Tem clientes herdando — a exclusão é travada até eles saírem. */
+  temClientes: boolean;
   publicBase: string;
 };
 
@@ -75,15 +80,43 @@ export function DocsHub({
   canCreate: boolean;
 }) {
   const router = useRouter();
+  const { confirmar } = useConfirm();
   const [criando, setCriando] = useState(false);
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  function gerarEmbeddings(doc: DocResumo) {
+  async function excluir(doc: DocResumo) {
+    const ok = await confirmar({
+      title: `Excluir "${doc.name}"`,
+      description:
+        `Exclusão DEFINITIVA e irreversível: ${doc.publicados + doc.rascunhos + doc.emRevisao} artigo(s) com todas as versões, ` +
+        `${doc.pastas} pasta(s), ${doc.chunksIndexados} trecho(s) indexado(s) (embeddings), os chatbots (chaves de widget), ` +
+        "os arquivos da base do chatbot, as conversas e as imagens do Storage. A página pública sai do ar agora. " +
+        "Só a trilha de auditoria permanece.",
+      tone: "danger",
+      confirmLabel: "Excluir definitivamente",
+      typeToConfirm: doc.name,
+    });
+    if (!ok) return;
+    setOcupado(doc.id);
+    setMsg((m) => ({ ...m, [doc.id]: "Excluindo…" }));
+    startTransition(async () => {
+      const r = await deleteSpace(doc.id);
+      setOcupado(null);
+      if (!r.ok) setMsg((m) => ({ ...m, [doc.id]: r.error }));
+      router.refresh();
+    });
+  }
+
+  async function gerarEmbeddings(doc: DocResumo) {
     const total = doc.publicados + doc.rascunhos + doc.emRevisao;
-    if (!confirm(`Gerar embeddings dos ${total} artigo(s) de "${doc.name}"? Pode levar minutos.`))
-      return;
+    const ok = await confirmar({
+      title: "Gerar embeddings",
+      description: `Gerar embeddings dos ${total} artigo(s) de "${doc.name}"? Pode levar minutos.`,
+      confirmLabel: "Gerar",
+    });
+    if (!ok) return;
     setOcupado(doc.id);
     setMsg((m) => ({ ...m, [doc.id]: "Gerando embeddings…" }));
     startTransition(async () => {
@@ -199,6 +232,21 @@ export function DocsHub({
                   >
                     <ExternalLink className="size-4 text-text-muted" /> Abrir página
                   </a>
+                )}
+                {d.canDelete && (
+                  <button
+                    type="button"
+                    disabled={ocupado === d.id || d.temClientes}
+                    title={
+                      d.temClientes
+                        ? "Há documentações de cliente herdando desta — exclua-as primeiro."
+                        : "Excluir esta documentação e TODOS os seus dados"
+                    }
+                    onClick={() => excluir(d)}
+                    className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-brand-pink-700/40 hover:text-brand-pink-700 disabled:opacity-40"
+                  >
+                    <Trash2 className="size-4" /> Excluir
+                  </button>
                 )}
               </div>
             </Surface>

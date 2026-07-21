@@ -14,6 +14,7 @@ const buttonVariants = cva(
           "bg-surface-2 text-text border border-border hover:bg-brand-gray-100 dark:hover:bg-brand-gray-800",
         ghost: "text-text hover:bg-surface-2",
         accent: "bg-accent text-accent-fg hover:opacity-90",
+        danger: "bg-brand-pink-700 text-white hover:bg-brand-pink-800 shadow-1",
       },
       size: {
         sm: "h-8 px-3",

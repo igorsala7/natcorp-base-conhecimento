@@ -16,6 +16,7 @@ import { Surface } from "@/components/ui/surface";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { IconPicker } from "@/components/editor/blocks/icon-picker";
+import { useConfirm } from "@/components/ui/confirm";
 import {
   changeSlug,
   renameNode,
@@ -67,6 +68,7 @@ export function FolderPanel({
   canPublish: boolean;
 }) {
   const router = useRouter();
+  const { confirmar } = useConfirm();
   const [title, setTitle] = useState(node.title);
   const [slug, setSlug] = useState(node.slug);
   const [icon, setIcon] = useState<string | undefined>(node.icon ?? undefined);
@@ -104,8 +106,13 @@ export function FolderPanel({
     });
   }
 
-  function publicarTudo() {
-    if (!confirm(`Publicar "${node.title}" e TODOS os artigos dentro?`)) return;
+  async function publicarTudo() {
+    const ok = await confirmar({
+      title: "Publicar tudo",
+      description: `Publicar "${node.title}" e TODOS os artigos dentro? O portal público muda agora.`,
+      confirmLabel: "Publicar",
+    });
+    if (!ok) return;
     setMsg(null);
     startAgir(async () => {
       const r = await publishSubtree(node.id);
@@ -114,11 +121,13 @@ export function FolderPanel({
     });
   }
 
-  function gerarEmbeddings() {
-    if (
-      !confirm(`Gerar embeddings de TODOS os artigos dentro de "${node.title}" (todos os níveis)?`)
-    )
-      return;
+  async function gerarEmbeddings() {
+    const ok = await confirmar({
+      title: "Gerar embeddings",
+      description: `Gerar embeddings de TODOS os artigos dentro de "${node.title}" (todos os níveis)? Pode levar minutos.`,
+      confirmLabel: "Gerar",
+    });
+    if (!ok) return;
     setMsg("Gerando embeddings…");
     startAgir(async () => {
       const r = await reindexSubtreeEmbeddings(node.id);

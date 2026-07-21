@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Plus, Trash2, Zap, Mail, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
@@ -159,6 +160,7 @@ function AbaIA({
   run: Run;
 }) {
   const [novo, setNovo] = useState(false);
+  const { confirmar } = useConfirm();
   const [form, setForm] = useState({
     id: "",
     name: "",
@@ -239,8 +241,14 @@ function AbaIA({
                           size="sm"
                           variant="ghost"
                           disabled={pending}
-                          onClick={() => {
-                            if (confirm(`Excluir "${p.name}"? As finalidades que o usam voltam para as variáveis de ambiente.`))
+                          onClick={async () => {
+                            if (
+                              await confirmar({
+                                title: "Excluir provedor",
+                                description: `Excluir "${p.name}"? As finalidades que o usam voltam para as variáveis de ambiente.`,
+                                tone: "danger",
+                              })
+                            )
                               run(() => deleteProvider(p.id));
                           }}
                         >

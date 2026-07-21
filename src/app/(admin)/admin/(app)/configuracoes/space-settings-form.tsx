@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { updateSpaceSettings, clearSpaceEmbeddings } from "./actions";
@@ -29,6 +30,7 @@ export function SpaceSettingsForm({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirmar } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(current.name);
   const [visibility, setVisibility] = useState(current.visibility);
@@ -39,15 +41,14 @@ export function SpaceSettingsForm({
   const [clearing, setClearing] = useState(false);
   const [clearMsg, setClearMsg] = useState<string | null>(null);
 
-  function clearEmbeddings() {
-    if (
-      !window.confirm(
-        `Limpar os embeddings de TODO o conteúdo de "${current.name}"?\n\n` +
-          "A busca por texto continua funcionando, mas a busca semântica e o assistente " +
-          "ficarão sem vetores até você gerar novamente.",
-      )
-    )
-      return;
+  async function clearEmbeddings() {
+    const ok = await confirmar({
+      title: "Limpar embeddings",
+      description: `Limpar os embeddings de TODO o conteúdo de "${current.name}"? A busca por texto continua funcionando, mas a busca semântica e o assistente ficarão sem vetores até você gerar novamente.`,
+      tone: "danger",
+      confirmLabel: "Limpar",
+    });
+    if (!ok) return;
     setClearing(true);
     setClearMsg(null);
     startTransition(async () => {

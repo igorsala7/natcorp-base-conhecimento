@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -31,6 +32,7 @@ export function ImportManager({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const { confirmar } = useConfirm();
   const [jobs, setJobs] = useState<ImportJobRow[]>(initialJobs);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -172,8 +174,16 @@ export function ImportManager({
                       <button
                         type="button"
                         className="rounded-sm text-xs text-text-muted transition-colors hover:text-red-600 dark:hover:text-red-400"
-                        onClick={() => {
-                          if (confirm("Remover esta importação?")) deleteImportJob(job.id);
+                        onClick={async () => {
+                          if (
+                            await confirmar({
+                              title: "Remover importação",
+                              description: "O relatório e o arquivo enviado desta importação são removidos. O conteúdo já importado para a árvore permanece.",
+                              tone: "danger",
+                              confirmLabel: "Remover",
+                            })
+                          )
+                            deleteImportJob(job.id);
                         }}
                       >
                         Remover

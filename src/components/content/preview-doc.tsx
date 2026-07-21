@@ -8,6 +8,7 @@ import type { Block } from "@/lib/blocks/schema";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { InlineArticleEditor } from "@/components/content/inline-article-editor";
 import { publishPendingDrafts } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
@@ -61,6 +62,7 @@ export function PreviewDoc({
   const artigos = itens.filter((i) => i.node.type === "article");
   const naoPublicados = itens.filter((i) => i.node.status !== "published").length;
 
+  const { confirmar } = useConfirm();
   const [modoEdicao, setModoEdicao] = useState(editavel && edicaoInicial);
   /** Qual artigo está aberto para edição — um por vez: montar N editores numa
    *  documentação inteira derrubaria a página. */
@@ -74,7 +76,13 @@ export function PreviewDoc({
   const comRascunho = rascunhos.size;
 
   async function publicarPendentes() {
-    if (!confirm(`Publicar ${comRascunho} alteração(ões) pendente(s)? O site público muda agora.`))
+    if (
+      !(await confirmar({
+        title: "Publicar alterações",
+        description: `Publicar ${comRascunho} alteração(ões) pendente(s)? O site público muda agora.`,
+        confirmLabel: "Publicar",
+      }))
+    )
       return;
     setPublicando(true);
     const res = await publishPendingDrafts(spaceId);

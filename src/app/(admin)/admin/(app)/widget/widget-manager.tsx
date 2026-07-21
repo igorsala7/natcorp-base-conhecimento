@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { Surface } from "@/components/ui/surface";
@@ -94,6 +95,7 @@ export function WidgetManager({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const { confirmar } = useConfirm();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
@@ -168,8 +170,16 @@ export function WidgetManager({
     });
   }
 
-  function regenerate(id: string) {
-    if (!confirm("Gerar uma nova chave? A chave atual para de funcionar imediatamente.")) return;
+  async function regenerate(id: string) {
+    if (
+      !(await confirmar({
+        title: "Gerar nova chave",
+        description: "A chave atual para de funcionar imediatamente — todo widget que a usa precisa ser atualizado.",
+        tone: "danger",
+        confirmLabel: "Gerar nova",
+      }))
+    )
+      return;
     startTransition(async () => {
       const r = await regenerateWidgetKey(id);
       setMsg(r.ok ? "Nova chave gerada." : r.error);
@@ -177,8 +187,15 @@ export function WidgetManager({
     });
   }
 
-  function remove(id: string) {
-    if (!confirm("Excluir esta chave? O widget que a usa deixará de funcionar.")) return;
+  async function remove(id: string) {
+    if (
+      !(await confirmar({
+        title: "Excluir chave",
+        description: "O widget que usa esta chave deixará de funcionar imediatamente.",
+        tone: "danger",
+      }))
+    )
+      return;
     startTransition(async () => {
       const r = await deleteWidgetKey(id);
       setMsg(r.ok ? "Chave excluída." : r.error);

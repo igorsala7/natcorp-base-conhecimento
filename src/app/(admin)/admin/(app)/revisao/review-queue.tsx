@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { EmptyState } from "@/components/ui/empty-state";
 import { approveReview, rejectReview, type ReviewItem } from "../conteudo/review-actions";
@@ -19,6 +20,7 @@ export function ReviewQueue({
   canReject: boolean;
 }) {
   const router = useRouter();
+  const { pedirTexto } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -29,8 +31,14 @@ export function ReviewQueue({
       router.refresh();
     });
   }
-  function reject(id: string) {
-    const c = prompt("Motivo da rejeição (enviado ao autor):");
+  async function reject(id: string) {
+    const c = await pedirTexto({
+      title: "Rejeitar publicação",
+      label: "Motivo da rejeição",
+      description: "O autor recebe este motivo junto com a devolução para rascunho.",
+      multiline: true,
+      confirmLabel: "Rejeitar",
+    });
     if (c === null) return;
     startTransition(async () => {
       const r = await rejectReview(id, c);

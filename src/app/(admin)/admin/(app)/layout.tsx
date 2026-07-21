@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/admin/sidebar";
 import { Topbar } from "@/components/admin/topbar";
 import { CommandPalette } from "@/components/admin/command-palette";
+import { ConfirmProvider } from "@/components/ui/confirm";
 import { createClient } from "@/lib/supabase/server";
 import { MFA_DISABLED, warnIfMfaDisabled } from "@/lib/auth/mfa-flag";
 
@@ -33,13 +34,15 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg text-text">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar email={user.email ?? ""} />
-        <main className="flex-1 overflow-auto p-6 md:p-8">{children}</main>
+    <ConfirmProvider>
+      <div className="flex h-dvh overflow-hidden bg-bg text-text">
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Topbar email={user.email ?? ""} />
+          <main className="flex-1 overflow-auto p-6 md:p-8">{children}</main>
+        </div>
+        <CommandPalette />
       </div>
-      <CommandPalette />
-    </div>
+    </ConfirmProvider>
   );
 }

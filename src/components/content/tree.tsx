@@ -27,6 +27,7 @@ import {
   moveNodesToParent,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { NodePropertiesDialog } from "./node-properties-dialog";
+import { useConfirm } from "@/components/ui/confirm";
 import { publishSubtree, reindexSubtreeEmbeddings } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   flatten,
@@ -53,6 +54,7 @@ export function Tree({
   selectedId?: string;
 }) {
   const router = useRouter();
+  const { confirmar, pedirTexto } = useConfirm();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const storageKey = `kb.treeCollapsed.${spaceId}`;
@@ -259,8 +261,12 @@ export function Tree({
               type="button"
               title="Nova pasta"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
-              onClick={() => {
-                const title = prompt("Nome da pasta:");
+              onClick={async () => {
+                const title = await pedirTexto({
+                  title: "Nova pasta",
+                  label: "Nome da pasta",
+                  placeholder: "Ex.: Cadastros",
+                });
                 if (title)
                   run(() =>
                     createNode({ spaceId, parentId: item.id, type: "folder", title }),
@@ -273,8 +279,12 @@ export function Tree({
               type="button"
               title="Novo artigo"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
-              onClick={() => {
-                const title = prompt("Título do artigo:");
+              onClick={async () => {
+                const title = await pedirTexto({
+                  title: "Novo artigo",
+                  label: "Título do artigo",
+                  placeholder: "Ex.: Como abrir um chamado",
+                });
                 if (title)
                   run(() =>
                     createNode({ spaceId, parentId: item.id, type: "article", title }),
@@ -287,8 +297,14 @@ export function Tree({
               type="button"
               title="Publicar tudo"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
-              onClick={() => {
-                if (confirm(`Publicar "${item.node.title}" e TODOS os artigos dentro?`))
+              onClick={async () => {
+                if (
+                  await confirmar({
+                    title: "Publicar tudo",
+                    description: `Publicar "${item.node.title}" e TODOS os artigos dentro? O portal público muda agora.`,
+                    confirmLabel: "Publicar",
+                  })
+                )
                   run(async () => {
                     const r = await publishSubtree(item.id);
                     return r.ok ? { ok: true } : { ok: false, error: r.error };
@@ -301,11 +317,13 @@ export function Tree({
               type="button"
               title="Gerar embeddings (pasta toda)"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  confirm(
-                    `Gerar embeddings de TODOS os artigos dentro de "${item.node.title}" (todos os níveis)?`,
-                  )
+                  await confirmar({
+                    title: "Gerar embeddings",
+                    description: `Gerar embeddings de TODOS os artigos dentro de "${item.node.title}" (todos os níveis)? Pode levar minutos.`,
+                    confirmLabel: "Gerar",
+                  })
                 )
                   startTransition(async () => {
                     setMessage("Gerando embeddings…");
@@ -335,8 +353,14 @@ export function Tree({
           type="button"
           title="Excluir"
           className="rounded p-1 text-text-muted hover:bg-surface hover:text-brand-pink-700"
-          onClick={() => {
-            if (confirm(`Excluir "${item.node.title}" e tudo dentro?`))
+          onClick={async () => {
+            if (
+              await confirmar({
+                title: "Excluir",
+                description: `Excluir "${item.node.title}" e tudo dentro? Vai para a lixeira e pode ser restaurado em 30 dias.`,
+                tone: "danger",
+              })
+            )
               run(() => deleteNode(item.id));
           }}
         >
@@ -431,11 +455,13 @@ export function Tree({
               type="button"
               className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
               title="Unificar os artigos selecionados em um só, na ordem da árvore"
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  confirm(
-                    `Unificar ${selectedArticles.length} artigos em um só? Os originais vão para a lixeira.`,
-                  )
+                  await confirmar({
+                    title: "Unificar artigos",
+                    description: `Unificar ${selectedArticles.length} artigos em um só, na ordem da árvore? Os originais vão para a lixeira.`,
+                    confirmLabel: "Unificar",
+                  })
                 ) {
                   const ids = selectedArticles;
                   run(async () => {
@@ -464,12 +490,14 @@ export function Tree({
             type="button"
             className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
             title="Gerar embeddings dos itens marcados, incluindo tudo abaixo na hierarquia"
-            onClick={() => {
+            onClick={async () => {
               const ids = [...checkedIds];
               if (
-                !confirm(
-                  `Gerar embeddings de ${ids.length} item(ns) selecionado(s), incluindo todo o conteúdo abaixo?`,
-                )
+                !(await confirmar({
+                  title: "Gerar embeddings",
+                  description: `Gerar embeddings de ${ids.length} item(ns) selecionado(s), incluindo todo o conteúdo abaixo? Pode levar minutos.`,
+                  confirmLabel: "Gerar",
+                }))
               )
                 return;
               startTransition(async () => {
@@ -490,8 +518,14 @@ export function Tree({
           <button
             type="button"
             className="rounded px-2 py-0.5 text-xs text-brand-pink-700 hover:bg-surface"
-            onClick={() => {
-              if (confirm(`Excluir ${checkedIds.size} item(ns) e tudo dentro?`)) {
+            onClick={async () => {
+              if (
+                await confirmar({
+                  title: "Excluir selecionados",
+                  description: `Excluir ${checkedIds.size} item(ns) e tudo dentro? Vão para a lixeira e podem ser restaurados em 30 dias.`,
+                  tone: "danger",
+                })
+              ) {
                 const ids = [...checkedIds];
                 run(async () => {
                   const r = await deleteNodes(ids);

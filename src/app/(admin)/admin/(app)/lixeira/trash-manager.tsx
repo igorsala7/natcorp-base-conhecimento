@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw, Trash2, FolderTree, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { EmptyState } from "@/components/ui/empty-state";
 import { restoreTrash, hardDeleteTrash, emptyTrash, type TrashItem } from "./actions";
@@ -16,6 +17,7 @@ export function TrashManager({
   canEmpty: boolean;
 }) {
   const router = useRouter();
+  const { confirmar } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -40,8 +42,16 @@ export function TrashManager({
           <Button
             variant="secondary"
             disabled={pending}
-            onClick={() => {
-              if (confirm("Esvaziar a lixeira? Isso exclui TUDO definitivamente e não pode ser desfeito."))
+            onClick={async () => {
+              if (
+                await confirmar({
+                  title: "Esvaziar lixeira",
+                  description: "Isso exclui TUDO definitivamente e não pode ser desfeito.",
+                  tone: "danger",
+                  confirmLabel: "Esvaziar",
+                  typeToConfirm: "esvaziar",
+                })
+              )
                 run(emptyTrash, (n) => `Lixeira esvaziada (${n} itens removidos).`);
             }}
           >
@@ -93,8 +103,14 @@ export function TrashManager({
                     variant="ghost"
                     disabled={pending}
                     title="Excluir definitivamente"
-                    onClick={() => {
-                      if (confirm(`Excluir "${it.title}" definitivamente? Não pode ser desfeito.`))
+                    onClick={async () => {
+                      if (
+                        await confirmar({
+                          title: "Excluir definitivamente",
+                          description: `Excluir "${it.title}" definitivamente? Não pode ser desfeito.`,
+                          tone: "danger",
+                        })
+                      )
                         run(() => hardDeleteTrash(it.id), (n) => `Excluído (${n} itens).`);
                     }}
                   >

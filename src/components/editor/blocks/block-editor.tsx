@@ -36,6 +36,7 @@ import { RenderBlocks } from "@/lib/blocks/render";
 import { moveBlock, findBlock } from "@/lib/blocks/tree-ops";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
 import { useDismiss } from "./use-dismiss";
 import { useEditorActions } from "./use-editor-actions";
@@ -155,6 +156,7 @@ function BlockEditorInner({
   canComment,
 }: BlockEditorProps) {
   const router = useRouter();
+  const { confirmar, pedirTexto } = useConfirm();
   const [blocks, setBlocks] = useState<Block[]>(() => initialBlocks(initialContent));
   // Conteúdo publicado atual (para "Descartar" reverter). Atualiza ao publicar.
   const publishedRef = useRef<Block[]>(initialBlocks(publishedContent ?? initialContent));
@@ -437,7 +439,13 @@ function BlockEditorInner({
     router.refresh();
   }
   async function onReject() {
-    const comment = prompt("Motivo da rejeição:");
+    const comment = await pedirTexto({
+      title: "Rejeitar publicação",
+      label: "Motivo da rejeição",
+      description: "O autor recebe este motivo junto com a devolução para rascunho.",
+      multiline: true,
+      confirmLabel: "Rejeitar",
+    });
     if (comment === null) return;
     const res = await rejectReview(nodeId, comment);
     if (!res.ok) return setMsg(res.error);
@@ -460,7 +468,13 @@ function BlockEditorInner({
 
   /** Descarta o rascunho e volta ao conteúdo publicado. */
   async function onDiscard() {
-    if (!window.confirm("Descartar as alterações não publicadas e voltar ao conteúdo publicado?")) return;
+    const ok = await confirmar({
+      title: "Descartar alterações",
+      description: "Descartar as alterações não publicadas e voltar ao conteúdo publicado?",
+      tone: "danger",
+      confirmLabel: "Descartar",
+    });
+    if (!ok) return;
     const res = await discardDraft(nodeId);
     if (!res.ok) return setMsg(res.error);
     pularProximo(); // reversão: não deve virar um novo rascunho

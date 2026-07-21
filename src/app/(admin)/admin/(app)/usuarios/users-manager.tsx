@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Input, controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +119,7 @@ export function UsersManager({
   actorLevel: number;
   can: Perms;
 }) {
+  const { confirmar } = useConfirm();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -309,11 +311,14 @@ export function UsersManager({
                               variant="ghost"
                               size="sm"
                               disabled={pending}
-                              onClick={() => {
+                              onClick={async () => {
                                 if (
-                                  confirm(
-                                    `Remover ${u.email}? Esta ação não pode ser desfeita.`,
-                                  )
+                                  await confirmar({
+                                    title: "Remover usuário",
+                                    description: `Remover ${u.email}? Esta ação não pode ser desfeita.`,
+                                    tone: "danger",
+                                    confirmLabel: "Remover",
+                                  })
                                 )
                                   run(() => removeUser(u.id));
                               }}

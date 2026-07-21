@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Folder, Link2, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/confirm";
 import type { EffectiveNode, Badge } from "@/lib/content/overlays";
 import {
   customizeNode,
@@ -39,6 +40,7 @@ export function ClientTree({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const { confirmar, pedirTexto } = useConfirm();
   const [msg, setMsg] = useState<string | null>(null);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -83,8 +85,16 @@ export function ClientTree({
               </button>
             )}
             <button className="text-xs text-text-muted hover:text-brand-pink-700" disabled={pending}
-              onClick={() => {
-                if (confirm("Reverter para o conteúdo global (descarta a customização)?"))
+              onClick={async () => {
+                if (
+                  await confirmar({
+                    title: "Reverter customização",
+                    description:
+                      "Reverter para o conteúdo global? A customização deste cliente é descartada.",
+                    tone: "danger",
+                    confirmLabel: "Reverter",
+                  })
+                )
                   run(() => revertOverlay(clientSpaceId, n.sourceId ?? ""));
               }}>
               Reverter
@@ -133,15 +143,23 @@ export function ClientTree({
     <div>
       <div className="mb-2 flex gap-2">
         <Button size="sm" variant="secondary" disabled={pending}
-          onClick={() => {
-            const title = prompt("Nome da pasta exclusiva:");
+          onClick={async () => {
+            const title = await pedirTexto({
+              title: "Nova pasta exclusiva",
+              label: "Nome da pasta",
+              description: "Existe só nesta documentação de cliente.",
+            });
             if (title) run(() => createExclusiveNode({ clientSpaceId, parentId: null, type: "folder", title }));
           }}>
           + Pasta
         </Button>
         <Button size="sm" variant="secondary" disabled={pending}
-          onClick={() => {
-            const title = prompt("Título do artigo exclusivo:");
+          onClick={async () => {
+            const title = await pedirTexto({
+              title: "Novo artigo exclusivo",
+              label: "Título do artigo",
+              description: "Existe só nesta documentação de cliente.",
+            });
             if (title) run(() => createExclusiveNode({ clientSpaceId, parentId: null, type: "article", title }));
           }}>
           + Artigo

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileUp, Trash2, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
@@ -37,6 +38,7 @@ function tamanho(b: number | null): string {
 export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRow[] }) {
   const router = useRouter();
   const supabase = createClient();
+  const { confirmar } = useConfirm();
   const [enviando, setEnviando] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -67,8 +69,13 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
     router.refresh();
   }
 
-  function excluir(row: KbRow) {
-    if (!confirm(`Excluir "${row.original_name}"? O chatbot deixa de consultá-lo.`)) return;
+  async function excluir(row: KbRow) {
+    const ok = await confirmar({
+      title: "Excluir arquivo",
+      description: `Excluir "${row.original_name}"? O chatbot deixa de consultá-lo imediatamente.`,
+      tone: "danger",
+    });
+    if (!ok) return;
     startTransition(async () => {
       const res = await deleteKnowledgeFile(row.id);
       if (!res.ok) setMsg(res.error);
