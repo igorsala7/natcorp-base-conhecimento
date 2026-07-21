@@ -125,11 +125,14 @@ export async function searchPortal(
   const slugById = new Map(flat.map((n) => [n.id, n.slugPath]));
   if (nodeIds.length === 0) return [];
 
-  const { data } = await db.rpc("hybrid_search_scoped", {
+  const { data, error } = await db.rpc("hybrid_search_scoped", {
     p_query: q,
     p_node_ids: nodeIds,
     p_limit: 12,
   });
+  // Erro engolido aqui já escondeu uma queda total da busca (permission
+  // denied virava "sem resultados") — o log é o que denuncia a diferença.
+  if (error) console.error("[searchPortal] hybrid_search_scoped falhou:", error.message);
   // A busca do portal é só de artigos: passa `p_node_ids` e a RLS do `anon`
   // exige nó publicado. O filtro abaixo é a terceira barreira — se um chunk de
   // arquivo chegasse aqui, viraria um resultado sem link para o leitor.
