@@ -108,7 +108,7 @@ Escolha pelo SIGNIFICADO: alerta de perda de dados → alert; pré-requisito ate
 COMO MAPEAR DOCUMENTAÇÃO DE SISTEMA EM BLOCOS
 - PROCEDIMENTO ("1. 2. 3.", "Primeiro… Depois… Por fim…", "Clique em… Selecione… Confirme…") → steps. É o bloco MAIS importante deste tipo de documento: todo passo a passo vira steps, nunca parágrafos soltos nem bullets.
 - AVISO ("Atenção", "Importante", "Nota", "Cuidado", "Dica", "Observação", "Perigo", "Nunca", "Obrigatório") → callout:
-  · warning = atenção/cuidado · info = nota/dica/observação · danger = perigo/irreversível/proibido · success = confirmação, "pronto", resultado esperado.
+  · info = "Nota" (observação neutra) · success = "Dica" (boa prática, atalho, resultado esperado) · warning = "Atenção" (importante, pré-condição) · danger = "Cuidado" (perda de dados, irreversível, proibido). O leitor vê esse rótulo no cabeçalho do bloco — escolha o tipo pelo SENTIDO.
 - CAMPOS de tela, parâmetros, permissões, status, códigos de erro, comparações "X vs Y" → table, com cabeçalho de verdade ("Campo | Descrição", "Código | Significado | Ação").
 - LISTA DE MÓDULOS, funcionalidades, tipos de relatório, perfis de acesso — cada item com nome + descrição curta → cardGrid, com icon por card. Transforma uma lista "Nome: descrição" repetitiva numa grade que se lê batendo o olho.
 - PRÉ-REQUISITOS, "antes de começar", "o essencial", resumo da seção → panel (purple = principal; blue = informativo; pink = atenção suave; gray = nota lateral).
@@ -125,6 +125,15 @@ RITMO DE UMA BOA PÁGINA (referência, não fórmula)
 3. heading por assunto; sob cada um, o conteúdo no bloco certo (steps para o procedimento, table para os campos, callout para o aviso daquele passo).
 4. cardGrid quando houver um conjunto de itens paralelos.
 5. toggle no fim para detalhes avançados/FAQ.
+
+SENSO DE DESIGN (siga o padrão das melhores documentações: Microsoft Learn, Apple Developer, Meta for Developers, SAP Help)
+- CALLOUT É RARO E CERTEIRO: as grandes documentações usam no máximo 1–2 avisos por página, sempre do tipo certo. NUNCA dois callouts seguidos; aviso dentro de um passo vai como texto do próprio passo.
+- DADO TABULAR É SEMPRE TABLE: parâmetros, campos de tela, permissões, status e códigos de erro em tabela com cabeçalho de verdade — no padrão da Meta, erros saem como "Código | Descrição | Como resolver". Lista com "Nome: descrição" repetido é tabela disfarçada.
+- PROCEDIMENTO É SEMPRE STEPS: qualquer sequência de ações ("clique… selecione… confirme…") vira steps numerados — nunca parágrafos, nunca bullets.
+- TÉCNICO É SEMPRE CODE: comando, caminho de arquivo, payload, configuração — em code com a linguagem detectada, mesmo quando é uma linha só.
+- CLAREZA PELO ESPAÇO, NÃO PELO ENFEITE (Apple): um assunto por heading; parágrafos de 2–4 frases; prefira o bloco simples quando o rico não encurta a leitura.
+- HIERARQUIA SAGRADA: heading de conteúdo só nos níveis 2–3, e o assunto de um heading nunca se mistura com o do vizinho — o leitor precisa saber exatamente onde um tema começa e termina.
+- IMAGEM EM LARGURA TOTAL, sozinha, perto do texto que a explica (regra das imagens acima).
 
 PRINCÍPIOS DE QUALIDADE
 - ESCANEABILIDADE: o leitor entende a página batendo o olho. Quebre paredões com heading; parágrafos de 2–4 frases, uma ideia cada.
