@@ -14,6 +14,7 @@ import {
   makeSpaceToken,
   SPACE_COOKIE_MAX_AGE,
 } from "@/lib/portal/space-auth";
+import { portalRateLimitOk } from "@/lib/portal/rate-limit";
 
 /** Registra feedback "Isso foi útil?" (visitante anônimo). */
 export async function submitFeedback(
@@ -21,6 +22,7 @@ export async function submitFeedback(
   helpful: boolean,
   comment?: string,
 ): Promise<{ ok: boolean }> {
+  if (!(await portalRateLimitOk("feedback", 20))) return { ok: false };
   const supabase = createPublicClient();
   const { error } = await supabase
     .from("article_feedback")
@@ -28,14 +30,38 @@ export async function submitFeedback(
   return { ok: !error };
 }
 
-/** Feedback 👍/👎 na última resposta do Ask-AI do portal. */
+/**
+ * Feedback 👍/👎 na última resposta do Ask-AI do portal.
+ *
+ * Roda com service-role, então o escopo é checado AQUI — igual a
+ * /api/v1/feedback já fazia. Antes bastava um conversationId qualquer para
+ * envenenar o feedback de conversas de outros espaços, ou até do admin.
+ * A conversa tem que ser deste espaço E desta sessão do navegador.
+ */
 export async function submitPortalChatFeedback(
   conversationId: string,
   value: 1 | -1,
+  spaceSlug: string,
+  sessionId: string,
 ): Promise<{ ok: boolean }> {
-  if (!conversationId) return { ok: false };
+  if (!conversationId || !spaceSlug || !sessionId) return { ok: false };
+  if (!(await portalRateLimitOk("chat-feedback", 30))) return { ok: false };
+
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space) return { ok: false };
+
   const { createAdminClient } = await import("@/lib/supabase/admin");
   const supabase = createAdminClient();
+
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id, space_id, session_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (!conv || conv.space_id !== space.id || conv.session_id !== sessionId) {
+    return { ok: false };
+  }
+
   const { data: last } = await supabase
     .from("messages")
     .select("id")
@@ -68,6 +94,9 @@ export async function searchPortal(
 ): Promise<PortalHit[]> {
   const q = query.trim();
   if (q.length < 2) return [];
+  // Teto generoso: a busca dispara a cada 150ms de digitação, então o limite
+  // precisa caber num uso legítimo intenso e ainda barrar script.
+  if (!(await portalRateLimitOk("search", 120))) return [];
   const access = await getPortalAccess(spaceSlug);
   if (!access || access.locked) return [];
   const { space, db } = access;
@@ -125,10 +154,22 @@ export async function verifySpacePassword(
     return { ok: false, error: "Espaço não encontrado." };
   }
   const supabase = createPublicClient();
-  const { data: valid } = await supabase.rpc("verify_space_password", {
+  const { data: valid, error } = await supabase.rpc("verify_space_password", {
     p_space_id: space.id,
     p_plain: password,
   });
+  // O teto de tentativas vive na própria RPC (ela é chamável direto no
+  // PostgREST); aqui só traduzimos para uma mensagem honesta em vez de deixar
+  // "Senha incorreta" mentir sobre o motivo.
+  if (error) {
+    const excedeu = error.message.includes("Muitas tentativas");
+    return {
+      ok: false,
+      error: excedeu
+        ? "Muitas tentativas. Aguarde um minuto e tente de novo."
+        : "Não foi possível verificar a senha.",
+    };
+  }
   if (valid !== true) return { ok: false, error: "Senha incorreta." };
 
   const store = await cookies();

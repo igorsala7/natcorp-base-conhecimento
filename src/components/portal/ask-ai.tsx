@@ -138,7 +138,12 @@ export function AskAiPanel({
     setMessages((prev) => prev.map((m, i) => (i === prev.length - 1 ? fn(m) : m)));
   }
   function giveFeedback(i: number, value: 1 | -1) {
-    void submitPortalChatFeedback(convRef.current ?? "", value);
+    void submitPortalChatFeedback(
+      convRef.current ?? "",
+      value,
+      spaceSlug,
+      sidRef.current ?? "",
+    );
     setMessages((prev) => prev.map((m, idx) => (idx === i ? { ...m, feedback: value } : m)));
   }
 

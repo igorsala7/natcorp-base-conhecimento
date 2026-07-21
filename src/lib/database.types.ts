@@ -1161,6 +1161,35 @@ export type Database = {
           },
         ]
       }
+      space_secrets: {
+        Row: {
+          password_hash: string
+          space_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          password_hash: string
+          space_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          password_hash?: string
+          space_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_secrets_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: true
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       space_slugs: {
         Row: {
           created_at: string
@@ -1195,7 +1224,6 @@ export type Database = {
           id: string
           name: string
           parent_space_id: string | null
-          password_hash: string | null
           slug: string
           theme: Json
           type: string
@@ -1208,7 +1236,6 @@ export type Database = {
           id?: string
           name: string
           parent_space_id?: string | null
-          password_hash?: string | null
           slug: string
           theme?: Json
           type?: string
@@ -1221,7 +1248,6 @@ export type Database = {
           id?: string
           name?: string
           parent_space_id?: string | null
-          password_hash?: string | null
           slug?: string
           theme?: Json
           type?: string
@@ -1412,7 +1438,9 @@ export type Database = {
         Args: { p_plain: string; p_space_id: string }
         Returns: undefined
       }
+      space_has_password: { Args: { p_space_id: string }; Returns: boolean }
       soft_delete_subtree: { Args: { p_node_id: string }; Returns: number }
+      storage_space_id: { Args: { p_name: string }; Returns: string | null }
       submit_for_review: { Args: { p_node_id: string }; Returns: undefined }
       subtree_ids: {
         Args: { p_node_id: string }

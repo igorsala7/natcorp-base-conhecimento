@@ -11,8 +11,14 @@ export function spaceCookieName(spaceId: string): string {
   return `kb_pw_${spaceId}`;
 }
 
+// Segredo próprio quando existir; senão a service-role, que é o que assinava
+// antes. Acoplar os dois significa que rotacionar a chave do banco desloga
+// todos os leitores — e que não há como invalidar sessões do portal sozinhas.
+const COOKIE_SECRET =
+  serverEnv.PORTAL_COOKIE_SECRET ?? serverEnv.SUPABASE_SERVICE_ROLE_KEY;
+
 function sign(payload: string): string {
-  return createHmac("sha256", serverEnv.SUPABASE_SERVICE_ROLE_KEY).update(payload).digest("hex");
+  return createHmac("sha256", COOKIE_SECRET).update(payload).digest("hex");
 }
 
 /** Gera o token `exp.sig` para o cookie do espaço. */

@@ -42,11 +42,11 @@ export default async function ConfiguracoesPage({
   if (!current) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
 
   const supabase = await createClient();
-  const { data: pw } = await supabase
-    .from("spaces")
-    .select("password_hash")
-    .eq("id", current.id)
-    .single();
+  // Só "tem senha?", nunca o hash: ele mora em space_secrets, que não tem grant
+  // para authenticated justamente para não sair por um select.
+  const { data: temSenha } = await supabase.rpc("space_has_password", {
+    p_space_id: current.id,
+  });
 
   // Quando veio do editor de um artigo, mostra o título dele na trilha.
   const editorNodeId = returnTo?.match(/^\/admin\/conteudo\/([0-9a-f-]{36})/i)?.[1] ?? null;
@@ -64,7 +64,7 @@ export default async function ConfiguracoesPage({
         visibility: current.visibility,
         custom_domain: current.custom_domain,
       }}
-      hasPassword={!!pw?.password_hash}
+      hasPassword={temSenha === true}
       siteUrl={env.NEXT_PUBLIC_SITE_URL}
     />
   );
