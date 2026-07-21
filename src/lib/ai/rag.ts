@@ -27,6 +27,13 @@ export type RetrievedSource = {
   /** Documento da base. Nulo quando a fonte é um artigo. */
   document_id: string | null;
   title: string;
+  /**
+   * O MANUAL de origem: título do diretório de 1º nível do artigo (numa
+   * documentação com 20 PDFs importados, é o nome do manual). Nulo quando o
+   * artigo está na raiz ou a fonte é um arquivo (o title já identifica).
+   * Vai para o bloco de contexto — é o que permite ao modelo NÃO misturar.
+   */
+  origin: string | null;
   heading_path: string | null;
   content: string;
   snippet: string | null; // trecho destacado (para busca)
@@ -56,17 +63,21 @@ async function spaceContext(
   const slug = space?.slug ?? "global";
 
   const basePathById = new Map<string, string>();
+  // Título do diretório de 1º nível de cada nó — o "manual" a que ele pertence.
+  const rootTitleById = new Map<string, string | null>();
   const nodeIds: string[] = [];
-  const walk = (list: EffectiveNode[], prefix: string[]) => {
+  const walk = (list: EffectiveNode[], prefix: string[], rootTitle: string | null) => {
     for (const n of list) {
       const p = [...prefix, n.slug];
       basePathById.set(n.id, `/docs/${slug}/${p.join("/")}`);
+      // Nó de 1º nível é o próprio manual: origem nula (o title já identifica).
+      rootTitleById.set(n.id, rootTitle);
       nodeIds.push(n.id);
-      walk(n.children, p);
+      walk(n.children, p, rootTitle ?? n.title);
     }
   };
-  walk(tree, []);
-  return { nodeIds, basePathById };
+  walk(tree, [], null);
+  return { nodeIds, basePathById, rootTitleById };
 }
 
 /**
@@ -84,10 +95,12 @@ async function retrieveWith(
 ): Promise<RetrievedSource[]> {
   const nodeIds: string[] = [];
   const basePathById = new Map<string, string>();
+  const rootTitleById = new Map<string, string | null>();
   for (const e of escopos) {
     const ctx = await spaceContext(supabase, e.spaceId, e.tree);
     nodeIds.push(...ctx.nodeIds);
     for (const [id, path] of ctx.basePathById) basePathById.set(id, path);
+    for (const [id, t] of ctx.rootTitleById) rootTitleById.set(id, t);
   }
 
   // Arquivos da base de conhecimento dos MESMOS espaços do escopo. Só os
@@ -160,6 +173,7 @@ async function retrieveWith(
         node_id: null,
         document_id: r.document_id,
         title: r.title ?? "Documento",
+        origin: null,
         heading_path: r.heading_path,
         content: r.content,
         snippet: r.snippet ?? null,
@@ -176,6 +190,7 @@ async function retrieveWith(
       node_id: r.node_id,
       document_id: null,
       title: r.title,
+      origin: rootTitleById.get(r.node_id) ?? null,
       heading_path: r.heading_path,
       content: r.content,
       snippet: r.snippet ?? null,
@@ -223,13 +238,20 @@ export async function retrievePublicContext(
   return retrieveWith(supabase, escopos, query, limit);
 }
 
-/** Monta o bloco de contexto numerado para o prompt. */
+/**
+ * Monta o bloco de contexto numerado para o prompt.
+ *
+ * Cada fonte declara o MANUAL de origem antes do título ("Manual X › Artigo").
+ * É esse rótulo que a regra anti-mistura do prompt referencia — sem ele, o
+ * modelo não teria como saber que dois trechos parecidos vêm de manuais
+ * diferentes.
+ */
 export function buildContextBlock(sources: RetrievedSource[]): string {
   return sources
-    .map(
-      (s) =>
-        `[${s.n}] ${s.title}${s.heading_path ? ` — ${s.heading_path}` : ""}\n${s.content}`,
-    )
+    .map((s) => {
+      const origem = s.origin && s.origin !== s.title ? `${s.origin} › ` : "";
+      return `[${s.n}] ${origem}${s.title}${s.heading_path ? ` — ${s.heading_path}` : ""}\n${s.content}`;
+    })
     .join("\n\n---\n\n");
 }
 
