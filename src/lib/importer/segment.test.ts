@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { segmentarTexto, contarPalavras } from "./segment";
+import { segmentarTexto, contarPalavras, contencaoDePalavras } from "./segment";
 
 /** Reconstrói o texto a partir dos segmentos, como a leitura humana faria. */
 const juntar = (segs: string[]) => segs.join("\n\n");
@@ -59,5 +59,31 @@ describe("contarPalavras", () => {
 
   it("conta acentuadas e números", () => {
     expect(contarPalavras("configuração 42 ação")).toBe(3);
+  });
+});
+
+describe("contencaoDePalavras — reformatar não pode reescrever", () => {
+  it("texto idêntico reorganizado = 1 (ordem e formato não contam)", () => {
+    const orig = "Para emitir o relatório, acesse o menu Relatórios e clique em Gerar.";
+    const reformatado = "ACESSE o menu Relatórios!\nClique em GERAR — para emitir o relatório.";
+    expect(contencaoDePalavras(orig, reformatado)).toBe(1);
+  });
+
+  it("paráfrase derruba a contenção mesmo mantendo o tamanho", () => {
+    const orig = "Para emitir o relatório, acesse o menu Relatórios e clique em Gerar.";
+    const reescrito = "Caso deseje produzir o documento, abra a aba correspondente e selecione Criar.";
+    expect(contencaoDePalavras(orig, reescrito)).toBeLessThan(0.5);
+  });
+
+  it("ignora acentos, caixa e marcadores de imagem", () => {
+    const orig = "Configuração inicial ⟦IMG:0⟧ do módulo";
+    const res = "configuracao inicial do MODULO";
+    expect(contencaoDePalavras(orig, res)).toBe(1);
+  });
+
+  it("descartar ruído pequeno (cabeçalho de página) passa no piso de 0.85", () => {
+    const corpo = Array.from({ length: 50 }, (_, i) => `palavra${i}`).join(" ");
+    const orig = `Página 3 de 40 ${corpo}`;
+    expect(contencaoDePalavras(orig, corpo)).toBeGreaterThan(0.85);
   });
 });

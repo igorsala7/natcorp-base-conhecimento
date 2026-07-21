@@ -5,7 +5,13 @@ import { LAYOUT_INSTRUCTIONS } from "./prompts";
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { iconByKey } from "@/lib/blocks/icons";
-import { segmentarTexto, contarPalavras, MINIMO_PALAVRAS } from "./segment";
+import {
+  segmentarTexto,
+  contarPalavras,
+  contencaoDePalavras,
+  MINIMO_PALAVRAS,
+  MINIMO_CONTENCAO,
+} from "./segment";
 import { blocksSchema, type LeafBlock, type LayoutBlock } from "./layout-schema";
 import { reinsertImages, type ImageRef } from "./reinsert-images";
 
@@ -196,12 +202,25 @@ export async function improveLayout(
   // palavras é sinal de que ela reescreveu — melhor recusar do que deixar o
   // usuário aplicar por cima do artigo e descobrir depois.
   const antes = contarPalavras(plainText);
-  const depois = contarPalavras(blocksToText(doc.blocks));
+  const textoDepois = blocksToText(doc.blocks);
+  const depois = contarPalavras(textoDepois);
   if (antes > 0 && depois < antes * MINIMO_PALAVRAS) {
     const perdido = Math.round((1 - depois / antes) * 100);
     return {
       ok: false,
       error: `A IA devolveu ${perdido}% menos texto que o original — parece resumo, não reformatação. Nada foi alterado.`,
+    };
+  }
+
+  // Contagem não pega PARÁFRASE (mesmo tamanho, palavras trocadas). Esta
+  // guarda exige que as palavras do original estejam no resultado — se a IA
+  // reescreveu, recusa e o conteúdo fica exatamente como estava.
+  const contencao = contencaoDePalavras(plainText, textoDepois);
+  if (contencao < MINIMO_CONTENCAO) {
+    const trocado = Math.round((1 - contencao) * 100);
+    return {
+      ok: false,
+      error: `A IA alterou ~${trocado}% das palavras do original — reformatar não pode reescrever. Nada foi alterado.`,
     };
   }
 

@@ -64,3 +64,40 @@ export function contarPalavras(text: string): number {
  * ("Atenção:" virando o título de um callout) sem deixar passar um resumo.
  */
 export const MINIMO_PALAVRAS = 0.8;
+
+/**
+ * Fração das palavras do ORIGINAL preservadas (com multiplicidade) no
+ * resultado. É a guarda de "reformata, não reescreve": contagem de palavras
+ * pega resumo, mas não pega PARÁFRASE — texto reescrito troca as palavras
+ * mantendo o tamanho. Comparação sem acento/caixa/pontuação; os marcadores
+ * ⟦IMG:n⟧ saem antes (o resultado os converte em blocos de imagem).
+ */
+export function contencaoDePalavras(original: string, resultado: string): number {
+  const tokenizar = (t: string) =>
+    t
+      .replace(/⟦IMG:\d+⟧/g, " ")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
+  const orig = tokenizar(original);
+  if (orig.length === 0) return 1;
+  const disponiveis = new Map<string, number>();
+  for (const w of tokenizar(resultado)) disponiveis.set(w, (disponiveis.get(w) ?? 0) + 1);
+  let mantidas = 0;
+  for (const w of orig) {
+    const n = disponiveis.get(w) ?? 0;
+    if (n > 0) {
+      mantidas++;
+      disponiveis.set(w, n - 1);
+    }
+  }
+  return mantidas / orig.length;
+}
+
+/**
+ * Piso de contenção: abaixo disto, a IA reescreveu — recusa. O prompt permite
+ * descartar ruído de extração (número de página, cabeçalho repetido), então o
+ * piso não é 1.0.
+ */
+export const MINIMO_CONTENCAO = 0.85;
