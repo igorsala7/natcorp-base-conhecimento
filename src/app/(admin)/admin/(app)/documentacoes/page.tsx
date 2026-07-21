@@ -49,13 +49,14 @@ export default async function DocumentacoesPage() {
 
   const docs: DocResumo[] = await Promise.all(
     spaces.map(async (s) => {
-      const [{ count: chunksIndexados }, canEdit] = await Promise.all([
+      const [{ count: chunksIndexados }, canEdit, canDelete] = await Promise.all([
         supabase
           .from("chunks")
           .select("id", { count: "exact", head: true })
           .eq("space_id", s.id)
           .not("embedding", "is", null),
         hasPermission("content.edit", s.id),
+        hasPermission("space.delete", s.id),
       ]);
       const c = porEspaco.get(s.id) ?? { publicados: 0, rascunhos: 0, emRevisao: 0, pastas: 0 };
       return {
@@ -67,6 +68,10 @@ export default async function DocumentacoesPage() {
         ...c,
         chunksIndexados: chunksIndexados ?? 0,
         canEdit,
+        canDelete,
+        // Cliente herdando desta? A exclusão é travada no banco; o aviso na
+        // tela evita a tentativa frustrada.
+        temClientes: spaces.some((x) => x.parent_space_id === s.id),
         publicBase: `${env.NEXT_PUBLIC_SITE_URL}/docs/${s.slug}`,
       };
     }),

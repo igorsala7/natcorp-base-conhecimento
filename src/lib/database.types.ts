@@ -1410,6 +1410,10 @@ export type Database = {
         Args: { p_job_id: string; p_msg: string }
         Returns: undefined
       }
+      delete_space_deep: {
+        Args: { p_space_id: string }
+        Returns: Json
+      }
       top_helpful_articles: {
         Args: { p_space_id: string; p_limit?: number }
         Returns: { node_id: string; helpful: number; total: number }[]
