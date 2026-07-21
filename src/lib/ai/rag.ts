@@ -198,8 +198,14 @@ export async function retrievePublicContext(
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
+  // O client admin precisa ir junto: sem ele getEffectiveTreePublic cai no
+  // cliente anon, e a policy nodes_public_read exige visibility='public' — o
+  // escopo voltava VAZIO justamente nos espaços privados vinculados à chave.
   const escopos = await Promise.all(
-    ids.map(async (spaceId) => ({ spaceId, tree: await getEffectiveTreePublic(spaceId) })),
+    ids.map(async (spaceId) => ({
+      spaceId,
+      tree: await getEffectiveTreePublic(spaceId, supabase),
+    })),
   );
   return retrieveWith(supabase, escopos, query, limit);
 }

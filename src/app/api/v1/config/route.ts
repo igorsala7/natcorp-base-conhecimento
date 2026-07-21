@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Origem não autorizada." }, { status: 403, headers: cors });
   }
   return Response.json(
-    { config: key.config, aiEnabled: hasAiKey() },
+    { config: key.config, aiEnabled: await hasAiKey() },
     { headers: cors },
   );
 }

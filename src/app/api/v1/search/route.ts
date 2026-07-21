@@ -47,7 +47,9 @@ export async function POST(req: NextRequest) {
   if (!query) return json({ error: "Consulta vazia." }, 400);
   const limit = Math.min(Math.max(payload.limit ?? 8, 1), 20);
 
-  const sources = await retrievePublicContext(key.space_id, query, limit);
+  // space_ids (união de widget_key_spaces), não space_id: a busca precisa
+  // enxergar as mesmas documentações que /api/v1/chat enxerga.
+  const sources = await retrievePublicContext(key.space_ids, query, limit);
   const results = sources.map((s) => ({
     title: s.title,
     heading_path: s.heading_path,
