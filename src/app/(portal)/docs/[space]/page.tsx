@@ -5,6 +5,8 @@ import {
   getPortalTree,
   getPortalAccess,
   flattenPortalTree,
+  getArticleExcerpts,
+  getTopHelpful,
   type PortalTreeNode,
 } from "@/lib/portal/data";
 import { PortalShell, spaceChrome } from "@/components/portal/shell";
@@ -55,37 +57,60 @@ export default async function SpaceHome({
 
   const categories = tree.filter((n) => n.type === "folder");
   const looseArticles = tree.filter((n) => n.type === "article");
-  const recent = flattenPortalTree(tree)
-    .filter((n) => n.type === "article")
+  const flat = flattenPortalTree(tree);
+  const artigos = flat.filter((n) => n.type === "article");
+  const recent = [...artigos]
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, 6);
 
   const { supportUrl, tema } = spaceChrome(space);
+  const href = (n: PortalTreeNode) => `/docs/${spaceSlug}/${n.slugPath.join("/")}`;
+
+  // Destaques: ids curados no tema → só os que ainda existem E estão
+  // publicados nesta árvore, na ordem escolhida no admin.
+  const porId = new Map(artigos.map((n) => [n.id, n]));
+  const idsDestaque = tema.home.featured.filter((id) => porId.has(id));
+  const excerpts = await getArticleExcerpts(idsDestaque, db);
+  const destaques = idsDestaque.map((id) => {
+    const n = porId.get(id)!;
+    return { id, title: n.title, href: href(n), excerpt: excerpts.get(id) ?? null };
+  });
+
+  // "Mais úteis": agregado de feedback via RPC (anon não lê a tabela crua).
+  const maisUteis = (await getTopHelpful(space.id, db))
+    .map((r) => porId.get(r.node_id))
+    .filter((n): n is PortalTreeNode => !!n)
+    .map((n) => ({ id: n.id, title: n.title, href: href(n) }));
 
   const dados: DadosHome = {
     spaceName: space.name,
     categorias: categories.map((f) => ({
       id: f.id,
       title: f.title,
-      href: `/docs/${spaceSlug}/${f.slugPath.join("/")}`,
+      href: href(f),
       artigos: countArticles(f),
+      icon: f.icon,
+      descricao: f.description,
     })),
     artigosSoltos: looseArticles.map((a) => ({
       id: a.id,
       title: a.title,
-      href: `/docs/${spaceSlug}/${a.slugPath.join("/")}`,
+      href: href(a),
+      icon: a.icon,
     })),
     recentes: recent.map((a) => ({
       id: a.id,
       title: a.title,
-      href: `/docs/${spaceSlug}/${a.slugPath.join("/")}`,
+      href: href(a),
       updatedAt: a.updated_at,
     })),
+    destaques,
+    maisUteis,
     supportUrl,
   };
 
   return (
-    <PortalShell space={space} tree={tree} activePath="" nav={false}>
+    <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
       <SpaceHomeView tema={tema} dados={dados} />
     </PortalShell>
   );

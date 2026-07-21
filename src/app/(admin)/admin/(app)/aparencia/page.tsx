@@ -2,11 +2,17 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
-import { getPortalTree, flattenPortalTree, type PortalTreeNode } from "@/lib/portal/data";
+import {
+  getPortalTree,
+  flattenPortalTree,
+  getArticleExcerpts,
+  getTopHelpful,
+  type PortalTreeNode,
+} from "@/lib/portal/data";
 import { resolveTheme } from "@/lib/portal/theme";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import type { DadosHome } from "@/components/portal/space-home";
-import { AppearanceEditor } from "./appearance-editor";
+import { AppearanceEditor, type ArtigoDisponivel } from "./appearance-editor";
 
 export const metadata: Metadata = { title: "Aparência" };
 
@@ -49,12 +55,29 @@ export default async function AparenciaPage({
   const tree = await getPortalTree(atual.id, supabase);
   const categorias = tree.filter((n) => n.type === "folder");
   const soltos = tree.filter((n) => n.type === "article");
-  const recentes = flattenPortalTree(tree)
-    .filter((n) => n.type === "article")
+  const artigos = flattenPortalTree(tree).filter((n) => n.type === "article");
+  const recentes = [...artigos]
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, 6);
 
   const href = (n: PortalTreeNode) => `/docs/${atual.slug}/${n.slugPath.join("/")}`;
+
+  // Catálogo para o seletor de destaques + excerpts dos já escolhidos.
+  const excerpts = await getArticleExcerpts(
+    tema.home.featured.filter((id) => artigos.some((a) => a.id === id)),
+    supabase,
+  );
+  const disponiveis: ArtigoDisponivel[] = artigos.map((a) => ({
+    id: a.id,
+    title: a.title,
+    href: href(a),
+  }));
+
+  const maisUteis = (await getTopHelpful(atual.id, supabase))
+    .map((r) => artigos.find((a) => a.id === r.node_id))
+    .filter((n): n is PortalTreeNode => !!n)
+    .map((n) => ({ id: n.id, title: n.title, href: href(n) }));
+
   const dados: DadosHome = {
     spaceName: atual.name,
     categorias: categorias.map((f) => ({
@@ -62,14 +85,21 @@ export default async function AparenciaPage({
       title: f.title,
       href: href(f),
       artigos: contarArtigos(f),
+      icon: f.icon,
+      descricao: f.description,
     })),
-    artigosSoltos: soltos.map((a) => ({ id: a.id, title: a.title, href: href(a) })),
+    artigosSoltos: soltos.map((a) => ({ id: a.id, title: a.title, href: href(a), icon: a.icon })),
     recentes: recentes.map((a) => ({
       id: a.id,
       title: a.title,
       href: href(a),
       updatedAt: a.updated_at,
     })),
+    destaques: tema.home.featured
+      .map((id) => disponiveis.find((d) => d.id === id))
+      .filter((d): d is ArtigoDisponivel => !!d)
+      .map((d) => ({ ...d, excerpt: excerpts.get(d.id) ?? null })),
+    maisUteis,
     supportUrl: tema.supportUrl ?? undefined,
   };
 
@@ -79,7 +109,7 @@ export default async function AparenciaPage({
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Aparência</h1>
           <p className="mt-1 text-sm text-text-muted">
-            Marca e layout da home pública desta documentação.
+            Marca e layout do portal público desta documentação.
           </p>
         </div>
         <div className="ml-auto">
@@ -94,6 +124,7 @@ export default async function AparenciaPage({
           temaSalvo={tema}
           promptSalvo={row?.chat_prompt ?? ""}
           dados={dados}
+          artigosDisponiveis={disponiveis}
         />
       </div>
     </div>

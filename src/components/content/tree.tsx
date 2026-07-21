@@ -15,19 +15,18 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CheckCircle2, FilePlus, FolderPlus, Link2, Pencil, Sparkles, Trash2 } from "lucide-react";
+import { CheckCircle2, FilePlus, FolderPlus, Pencil, Sparkles, Trash2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { Button } from "@/components/ui/button";
 import {
-  changeSlug,
   createNode,
   deleteNode,
   deleteNodes,
   mergeArticles,
   moveNode,
   moveNodesToParent,
-  renameNode,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
+import { NodePropertiesDialog } from "./node-properties-dialog";
 import { publishSubtree, reindexSubtreeEmbeddings } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   flatten,
@@ -64,6 +63,7 @@ export function Tree({
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | "folder" | "article">(null);
+  const [propsNode, setPropsNode] = useState<TreeNode | null>(null);
   const [sendToSpace, setSendToSpace] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [, startTransition] = useTransition();
@@ -322,25 +322,11 @@ export function Tree({
         )}
         <button
           type="button"
-          title="Renomear"
+          title="Propriedades (nome, URL, ícone, descrição)"
           className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
-          onClick={() => {
-            const title = prompt("Novo nome:", item.node.title);
-            if (title) run(() => renameNode(item.id, title));
-          }}
+          onClick={() => setPropsNode(item.node)}
         >
           <Pencil className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          title="Editar URL (cria redirect 301)"
-          className="rounded p-1 text-text-muted hover:bg-surface hover:text-text"
-          onClick={() => {
-            const slug = prompt("Novo slug (URL):", item.node.slug);
-            if (slug) run(() => changeSlug(item.id, slug));
-          }}
-        >
-          <Link2 className="size-3.5" />
         </button>
         <button
           type="button"
@@ -524,6 +510,17 @@ export function Tree({
         <p className="mb-2 rounded-md bg-brand-pink-50 px-2 py-1 text-xs text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
           {message}
         </p>
+      )}
+
+      {propsNode && (
+        <NodePropertiesDialog
+          node={propsNode}
+          onClose={() => setPropsNode(null)}
+          onDone={(m) => {
+            setMessage(m);
+            router.refresh();
+          }}
+        />
       )}
 
       {sendToSpace && (

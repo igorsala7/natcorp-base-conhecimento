@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ArrowUpRight, Menu, X } from "lucide-react";
 import { PortalNav } from "@/components/portal/nav";
 import type { PortalTreeNode } from "@/lib/portal/data";
+import type { ThemeLink } from "@/lib/portal/theme";
 
 /** Botão + drawer de navegação para telas pequenas (< lg). */
 export function PortalMobileNav({
   spaceSlug,
   tree,
   activePath,
+  links = [],
 }: {
   spaceSlug: string;
   tree: PortalTreeNode[];
   activePath: string;
+  /** Links do tema (cabeçalho) — no mobile eles moram no drawer. */
+  links?: ThemeLink[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -58,13 +62,33 @@ export function PortalMobileNav({
               </button>
             </div>
             <div className="flex-1 overflow-auto p-3">
-              <PortalNav
-                spaceSlug={spaceSlug}
-                tree={tree}
-                activePath={activePath}
-                onNavigate={() => setOpen(false)}
-              />
+              {tree.length > 0 && (
+                <PortalNav
+                  spaceSlug={spaceSlug}
+                  tree={tree}
+                  activePath={activePath}
+                  onNavigate={() => setOpen(false)}
+                />
+              )}
             </div>
+            {links.length > 0 && (
+              <nav aria-label="Links do site" className="border-t border-border p-3">
+                {links.map((l) => {
+                  const externo = /^https?:\/\//.test(l.url);
+                  return (
+                    <a
+                      key={`${l.label}-${l.url}`}
+                      href={l.url}
+                      {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      className="flex items-center gap-1 rounded-md px-2 py-2 text-sm text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                    >
+                      {l.label}
+                      {externo && <ArrowUpRight className="size-3.5 opacity-60" />}
+                    </a>
+                  );
+                })}
+              </nav>
+            )}
           </div>
         </div>
       )}

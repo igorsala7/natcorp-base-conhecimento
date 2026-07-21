@@ -12,11 +12,27 @@ import { Input, controlClass } from "@/components/ui/input";
 import { SpaceHomeView, type DadosHome } from "@/components/portal/space-home";
 import { escolherEEnviar } from "@/lib/content/upload";
 import { derivarVarianteEscura, derivarHover, contraste } from "@/lib/portal/brand-color";
-import { ROTULO_REGIAO, type RegiaoKey, type TemaResolvido } from "@/lib/portal/theme";
+import {
+  ROTULO_REGIAO,
+  type RegiaoKey,
+  type TemaResolvido,
+  type ThemeLink,
+} from "@/lib/portal/theme";
 import { updateSpaceTheme, updateSpaceChatPrompt } from "../configuracoes/actions";
+import { SeletorEstilo, LinksEditor, DestaquesPicker, type ArtigoDisponivel } from "./sections";
+
+export type { ArtigoDisponivel } from "./sections";
 
 /** Converte o tema resolvido de volta para o formato gravado. */
 function paraGravar(t: TemaResolvido) {
+  // Linha em branco (recém-adicionada e não preenchida) não é erro: some.
+  const limparLinks = (ls: ThemeLink[]) =>
+    ls
+      .map((l) => ({ label: l.label.trim(), url: l.url.trim() }))
+      .filter((l) => l.label && l.url);
+  const header = limparLinks(t.header.links);
+  const footer = limparLinks(t.footer.links);
+
   return {
     brand: {
       ...(t.brand.color ? { color: t.brand.color } : {}),
@@ -24,13 +40,26 @@ function paraGravar(t: TemaResolvido) {
       ...(t.brand.coverUrl ? { coverUrl: t.brand.coverUrl } : {}),
       coverHeight: t.brand.coverHeight,
     },
+    ...(header.length > 0 ? { header: { links: header } } : {}),
+    ...(t.footer.text || footer.length > 0
+      ? {
+          footer: {
+            ...(t.footer.text ? { text: t.footer.text } : {}),
+            ...(footer.length > 0 ? { links: footer } : {}),
+          },
+        }
+      : {}),
     home: {
       ...(t.home.title ? { title: t.home.title } : {}),
       subtitle: t.home.subtitle,
+      heroStyle: t.home.heroStyle,
+      categoriesStyle: t.home.categoriesStyle,
+      ...(t.home.featured.length > 0 ? { featured: t.home.featured } : {}),
       supportTitle: t.home.supportTitle,
       supportText: t.home.supportText,
       regions: t.home.regions,
     },
+    article: { related: t.article.related },
     ...(t.supportUrl ? { supportUrl: t.supportUrl } : {}),
     ...(t.supportEmail ? { supportEmail: t.supportEmail } : {}),
   };
@@ -85,6 +114,7 @@ export function AppearanceEditor({
   temaSalvo,
   promptSalvo,
   dados,
+  artigosDisponiveis,
 }: {
   spaceId: string;
   spaceSlug: string;
@@ -92,6 +122,8 @@ export function AppearanceEditor({
   /** `spaces.chat_prompt` — persona padrão do chatbot desta documentação. */
   promptSalvo: string;
   dados: DadosHome;
+  /** Artigos publicados do espaço — opções do seletor de destaques. */
+  artigosDisponiveis: ArtigoDisponivel[];
 }) {
   const [tema, setTema] = useState<TemaResolvido>(temaSalvo);
   const [pending, startTransition] = useTransition();
@@ -116,7 +148,7 @@ export function AppearanceEditor({
         const r2 = await updateSpaceChatPrompt(spaceId, prompt);
         if (!r2.ok) return setMsg(r2.error);
       }
-      setMsg("Salvo. A home pública já reflete a mudança.");
+      setMsg("Salvo. O portal público já reflete a mudança.");
     });
   }
 
@@ -137,6 +169,21 @@ export function AppearanceEditor({
   const cor = tema.brand.color;
   const contrasteClaro = cor ? contraste(cor, "#ffffff") : null;
   const corEscura = cor ? derivarVarianteEscura(cor) : null;
+  const corDe = cor ?? "#511C76";
+
+  // A prévia segue o RASCUNHO: os destaques saem dos ids escolhidos agora,
+  // não dos que estavam salvos quando a página carregou.
+  const dadosPreview: DadosHome = {
+    ...dados,
+    destaques: tema.home.featured
+      .map((id) => {
+        const a = artigosDisponiveis.find((x) => x.id === id);
+        if (!a) return null;
+        const salvo = (dados.destaques ?? []).find((d) => d.id === id);
+        return { ...a, excerpt: salvo?.excerpt ?? null };
+      })
+      .filter((d): d is NonNullable<typeof d> => !!d),
+  };
 
   return (
     <div className="flex flex-col gap-6 xl:flex-row">
@@ -200,7 +247,7 @@ export function AppearanceEditor({
           />
 
           <ImagemCampo
-            rotulo="Imagem do cabeçalho da home"
+            rotulo="Imagem de capa da home"
             valor={tema.brand.coverUrl}
             enviando={enviando === "cover"}
             onEnviar={() => {
@@ -222,8 +269,8 @@ export function AppearanceEditor({
             onLimpar={() => setBrand({ coverUrl: null })}
           />
 
-          {tema.brand.coverUrl && (
-            <Field label="Altura do cabeçalho" htmlFor="altura" hint="Entre 80 e 480 pixels.">
+          {tema.brand.coverUrl && tema.home.heroStyle !== "image" && (
+            <Field label="Altura da faixa de capa" htmlFor="altura" hint="Entre 80 e 480 pixels.">
               <input
                 id="altura"
                 type="range"
@@ -236,6 +283,176 @@ export function AppearanceEditor({
               />
             </Field>
           )}
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Layout</h2>
+
+          <SeletorEstilo
+            legenda="Abertura (título e busca)"
+            valor={tema.home.heroStyle}
+            onChange={(heroStyle) => setHome({ heroStyle })}
+            opcoes={[
+              {
+                value: "plain",
+                rotulo: "Limpa",
+                thumb: (
+                  <span className="flex size-full flex-col items-center justify-center gap-1 bg-bg">
+                    <span className="h-1 w-8 rounded bg-text/60" />
+                    <span className="h-2 w-12 rounded-sm border border-border bg-surface" />
+                  </span>
+                ),
+              },
+              {
+                value: "brand",
+                rotulo: "Cor da marca",
+                thumb: (
+                  <span
+                    className="flex size-full flex-col items-center justify-center gap-1"
+                    style={{
+                      backgroundImage: `linear-gradient(135deg, ${corDe}, color-mix(in oklab, ${corDe} 45%, #191036))`,
+                    }}
+                  >
+                    <span className="h-1 w-8 rounded bg-white/90" />
+                    <span className="h-2 w-12 rounded-sm bg-white" />
+                  </span>
+                ),
+              },
+              {
+                value: "image",
+                rotulo: "Imagem",
+                thumb: (
+                  <span
+                    className="flex size-full flex-col items-center justify-center gap-1"
+                    style={{
+                      backgroundColor: "#191036",
+                      backgroundImage: tema.brand.coverUrl
+                        ? `linear-gradient(rgba(21,13,38,.62), rgba(21,13,38,.62)), url(${tema.brand.coverUrl})`
+                        : undefined,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                    }}
+                  >
+                    <span className="h-1 w-8 rounded bg-white/90" />
+                    <span className="h-2 w-12 rounded-sm bg-white" />
+                  </span>
+                ),
+              },
+            ]}
+          />
+          {tema.home.heroStyle === "image" && !tema.brand.coverUrl && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Envie a imagem de capa acima — sem ela, a abertura usa a cor da marca.
+            </p>
+          )}
+
+          <SeletorEstilo
+            legenda="Categorias"
+            valor={tema.home.categoriesStyle}
+            onChange={(categoriesStyle) => setHome({ categoriesStyle })}
+            opcoes={[
+              {
+                value: "cards",
+                rotulo: "Cartões",
+                thumb: (
+                  <span className="grid size-full grid-cols-2 gap-1 bg-bg p-1.5">
+                    {[0, 1, 2, 3].map((i) => (
+                      <span key={i} className="flex items-center gap-1 rounded-sm border border-border bg-surface px-1">
+                        <span className="size-1.5 rounded-sm bg-primary/60" />
+                        <span className="h-1 flex-1 rounded bg-text/30" />
+                      </span>
+                    ))}
+                  </span>
+                ),
+              },
+              {
+                value: "tiles",
+                rotulo: "Blocos",
+                thumb: (
+                  <span className="grid size-full grid-cols-3 gap-1 bg-bg p-1.5">
+                    {[0, 1, 2].map((i) => (
+                      <span key={i} className="flex flex-col items-center justify-center gap-1 rounded-sm border border-border bg-surface">
+                        <span className="size-2 rounded-full bg-primary/60" />
+                        <span className="h-1 w-4 rounded bg-text/30" />
+                      </span>
+                    ))}
+                  </span>
+                ),
+              },
+              {
+                value: "list",
+                rotulo: "Lista",
+                thumb: (
+                  <span className="flex size-full flex-col justify-center gap-1 bg-bg px-2">
+                    {[0, 1, 2].map((i) => (
+                      <span key={i} className="flex items-center gap-1">
+                        <span className="size-1.5 rounded-sm bg-primary/60" />
+                        <span className="h-1 flex-1 rounded bg-text/30" />
+                      </span>
+                    ))}
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          <Field
+            label="Artigos em destaque"
+            htmlFor="destaques"
+            hint='Aparecem na região "Artigos em destaque" — ligue-a na lista de regiões abaixo.'
+          >
+            <DestaquesPicker
+              featured={tema.home.featured}
+              disponiveis={artigosDisponiveis}
+              onChange={(featured) => setHome({ featured })}
+            />
+          </Field>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={tema.article.related}
+              onChange={(e) =>
+                setTema((t) => ({ ...t, article: { ...t.article, related: e.target.checked } }))
+              }
+              className="size-4 accent-[var(--color-primary)]"
+            />
+            Mostrar &quot;Artigos relacionados&quot; no fim das páginas de leitura
+          </label>
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+            Cabeçalho e rodapé
+          </h2>
+          <Field
+            label="Links do cabeçalho"
+            htmlFor="links-header"
+            hint="Até 4 — ex.: seu site, abrir chamado, portal do cliente. No celular eles vão para o menu."
+          >
+            <LinksEditor
+              links={tema.header.links}
+              max={4}
+              onChange={(links) => setTema((t) => ({ ...t, header: { links } }))}
+            />
+          </Field>
+          <Field label="Texto do rodapé" htmlFor="footer-texto" hint="Ex.: © 2026 Sua Empresa.">
+            <Input
+              id="footer-texto"
+              value={tema.footer.text ?? ""}
+              maxLength={200}
+              onChange={(e) =>
+                setTema((t) => ({ ...t, footer: { ...t.footer, text: e.target.value || null } }))
+              }
+            />
+          </Field>
+          <Field label="Links do rodapé" htmlFor="links-footer" hint="Até 6.">
+            <LinksEditor
+              links={tema.footer.links}
+              max={6}
+              onChange={(links) => setTema((t) => ({ ...t, footer: { ...t.footer, links } }))}
+            />
+          </Field>
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
@@ -386,8 +603,10 @@ export function AppearanceEditor({
               : undefined
           }
         >
-          <div className="mx-auto max-w-3xl">
-            <SpaceHomeView tema={tema} dados={dados} />
+          {/* A home pública roda em contêiner largo (`width="wide"`); a prévia
+              acompanha para a faixa do hero e a grade de blocos respirarem. */}
+          <div className="mx-auto max-w-4xl">
+            <SpaceHomeView tema={tema} dados={dadosPreview} />
           </div>
         </div>
       </div>

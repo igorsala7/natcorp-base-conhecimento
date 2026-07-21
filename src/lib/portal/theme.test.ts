@@ -72,6 +72,56 @@ describe("resolveTheme", () => {
     const url = "https://abc.supabase.co/storage/v1/object/public/assets/space/capa.png";
     expect(resolveTheme({ brand: { coverUrl: url } }).brand.coverUrl).toBe(url);
   });
+
+  it("tema antigo (sem os campos novos) resolve com os padrões", () => {
+    const t = resolveTheme({ home: { title: "Docs" }, supportUrl: "https://s.exemplo" });
+    expect(t.home.heroStyle).toBe("plain");
+    expect(t.home.categoriesStyle).toBe("cards");
+    expect(t.home.featured).toEqual([]);
+    expect(t.header.links).toEqual([]);
+    expect(t.footer.links).toEqual([]);
+    expect(t.footer.text).toBeNull();
+    expect(t.article.related).toBe(true);
+  });
+
+  it("`featured` e `top` nascem desligadas (dependem de curadoria/feedback)", () => {
+    const t = resolveTheme({});
+    expect(regiaoAtiva(t, "featured")).toBe(false);
+    expect(regiaoAtiva(t, "top")).toBe(false);
+    // Num tema antigo que gravou regiões antes destas existirem, elas entram
+    // no fim e continuam desligadas.
+    const antigo = resolveTheme({ home: { regions: [{ key: "hero", on: true }] } });
+    expect(regiaoAtiva(antigo, "featured")).toBe(false);
+    expect(regiaoAtiva(antigo, "top")).toBe(false);
+  });
+
+  it("aceita heroStyle e categoriesStyle válidos", () => {
+    const t = resolveTheme({ home: { heroStyle: "brand", categoriesStyle: "tiles" } });
+    expect(t.home.heroStyle).toBe("brand");
+    expect(t.home.categoriesStyle).toBe("tiles");
+  });
+
+  it("links aceitam https e caminho relativo; rejeitam javascript: e //", () => {
+    const ok = resolveTheme({
+      header: { links: [{ label: "Site", url: "https://exemplo.com" }] },
+      footer: { links: [{ label: "Entrar", url: "/admin/login" }] },
+    });
+    expect(ok.header.links).toHaveLength(1);
+    expect(ok.footer.links).toHaveLength(1);
+
+    // Um link inválido invalida o tema inteiro → cai no padrão (links vazios).
+    // É o contrato: quem grava é o admin validado; o resolver nunca deixa
+    // passar um `javascript:` para a página pública.
+    for (const url of ["javascript:alert(1)", "//evil.example", "ftp://x", "data:text/html,x"]) {
+      const t = resolveTheme({ header: { links: [{ label: "x", url }] } });
+      expect(t.header.links).toEqual([]);
+    }
+  });
+
+  it("`featured` com id que não é uuid derruba para o padrão (lista vazia)", () => {
+    const t = resolveTheme({ home: { featured: ["não-é-uuid"] } });
+    expect(t.home.featured).toEqual([]);
+  });
 });
 
 describe("derivarVarianteEscura", () => {

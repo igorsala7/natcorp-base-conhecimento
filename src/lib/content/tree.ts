@@ -10,6 +10,7 @@ export type TreeNode = {
   slug: string;
   position: string;
   icon: string | null;
+  description: string | null;
   link_url: string | null;
   status: "draft" | "review" | "published";
   children: TreeNode[];
@@ -84,7 +85,7 @@ export async function listTree(spaceId: string): Promise<TreeNode[]> {
   const { data: rows } = await supabase
     .from("nodes")
     .select(
-      "id, space_id, parent_id, type, title, slug, position, icon, link_url, status",
+      "id, space_id, parent_id, type, title, slug, position, icon, description, link_url, status",
     )
     .eq("space_id", spaceId)
     .is("deleted_at", null)

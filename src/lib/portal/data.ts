@@ -76,6 +76,8 @@ export type PublicNode = {
   slug: string;
   position: string;
   link_url: string | null;
+  icon: string | null;
+  description: string | null;
   updated_at: string;
 };
 
@@ -125,7 +127,7 @@ export async function getPortalAccess(spaceSlug: string): Promise<PortalAccess |
 async function fetchPublishedNodes(spaceId: string, db: PortalDb): Promise<PublicNode[]> {
   const { data } = await db
     .from("nodes")
-    .select("id, parent_id, type, title, slug, position, link_url, updated_at")
+    .select("id, parent_id, type, title, slug, position, link_url, icon, description, updated_at")
     .eq("space_id", spaceId)
     .eq("status", "published")
     .is("deleted_at", null)
@@ -160,6 +162,8 @@ export async function getPortalTree(
         slug: n.slug,
         position: n.position,
         link_url: n.link_url,
+        icon: n.icon,
+        description: n.description,
         updated_at: n.updated_at,
         slugPath: [],
         children: toPortal(n.children),
@@ -255,6 +259,58 @@ export async function getPublicArticles(
       });
     }
   }
+  return out;
+}
+
+/**
+ * Artigos com melhor saldo de "isso foi útil?" do espaço (agregado via RPC
+ * SECURITY DEFINER — o leitor anônimo não enxerga a tabela de feedback crua).
+ * A página ainda cruza o resultado com a árvore efetiva; aqui é só o ranking.
+ */
+export async function getTopHelpful(
+  spaceId: string,
+  db: PortalDb = createPublicClient(),
+): Promise<{ node_id: string; helpful: number; total: number }[]> {
+  const { data, error } = await db.rpc("top_helpful_articles", {
+    p_space_id: spaceId,
+    p_limit: 6,
+  });
+  if (error) return [];
+  return (data ?? []) as { node_id: string; helpful: number; total: number }[];
+}
+
+/**
+ * Artigos relacionados aos da página (centroide dos embeddings já indexados;
+ * ver a migration `related_articles`). Vazio quando não há embeddings — a
+ * seção simplesmente não aparece.
+ */
+export async function getRelatedArticles(
+  spaceId: string,
+  nodeIds: string[],
+  db: PortalDb = createPublicClient(),
+): Promise<{ node_id: string; score: number }[]> {
+  if (nodeIds.length === 0) return [];
+  const { data, error } = await db.rpc("related_articles", {
+    p_node_ids: nodeIds,
+    p_space_id: spaceId,
+    p_limit: 4,
+  });
+  if (error) return [];
+  return (data ?? []) as { node_id: string; score: number }[];
+}
+
+/** Só os excerpts (para cards de destaque na home — sem carregar o conteúdo). */
+export async function getArticleExcerpts(
+  nodeIds: string[],
+  db: PortalDb = createPublicClient(),
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (nodeIds.length === 0) return out;
+  const { data } = await db
+    .from("articles")
+    .select("node_id, excerpt")
+    .in("node_id", nodeIds.slice(0, 50));
+  for (const a of data ?? []) out.set(a.node_id, a.excerpt);
   return out;
 }
 

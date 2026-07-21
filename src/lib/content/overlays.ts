@@ -19,6 +19,8 @@ export type EffectiveNode = {
   position: string;
   status: "draft" | "review" | "published";
   link_url: string | null;
+  icon: string | null;
+  description: string | null;
   updated_at: string;
   badge: Badge;
   hidden: boolean;
@@ -35,6 +37,8 @@ type NodeRow = {
   position: string;
   status: EffectiveNode["status"];
   link_url: string | null;
+  icon: string | null;
+  description: string | null;
   updated_at: string;
 };
 
@@ -57,7 +61,7 @@ async function resolveTree(
   if (!space) return [];
 
   const cols =
-    "id, space_id, parent_id, type, title, slug, position, status, link_url, updated_at";
+    "id, space_id, parent_id, type, title, slug, position, status, link_url, icon, description, updated_at";
 
   // Espaço próprio (global ou sem herança).
   if (space.type !== "client" || !space.parent_space_id) {

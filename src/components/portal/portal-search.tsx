@@ -11,12 +11,23 @@ const ASK_EVENT = "portal:open-ai";
 const RECENT_KEY = (slug: string) => `kb.portal.recent.${slug}`;
 
 /** Botão que abre o painel "Perguntar à IA". */
-export function AskTrigger({ label = "Perguntar à IA" }: { label?: string }) {
+export function AskTrigger({
+  label = "Perguntar à IA",
+  tone = "default",
+}: {
+  label?: string;
+  /** `band`: versão para fundo escuro/colorido (o hero com faixa da home). */
+  tone?: "default" | "band";
+}) {
   return (
     <button
       type="button"
       onClick={() => window.dispatchEvent(new CustomEvent(ASK_EVENT))}
-      className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-brand-purple-50 px-2.5 py-1.5 text-sm font-medium text-primary transition hover:bg-brand-purple-100 dark:bg-brand-purple-950/40 dark:hover:bg-brand-purple-950/60"
+      className={
+        tone === "band"
+          ? "flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/15 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-white/25"
+          : "flex items-center gap-1.5 rounded-lg border border-primary/40 bg-brand-purple-50 px-2.5 py-1.5 text-sm font-medium text-primary transition hover:bg-brand-purple-100 dark:bg-brand-purple-950/40 dark:hover:bg-brand-purple-950/60"
+      }
     >
       <SparklesMini />
       <span className="hidden sm:inline">{label}</span>

@@ -138,6 +138,55 @@ export async function renameNode(
   return { ok: true };
 }
 
+const metaSchema = z.object({
+  // Chave do catálogo de ícones (lucide); a validação de existência é na
+  // renderização, que ignora chave desconhecida — aqui só o formato.
+  icon: z.string().trim().max(60).nullable(),
+  description: z.string().trim().max(200).nullable(),
+});
+
+/** Ícone e descrição de um nó — o par que os cards da home pública exibem. */
+export async function updateNodeMeta(
+  id: string,
+  meta: { icon: string | null; description: string | null },
+): Promise<NodeActionResult> {
+  const parsed = metaSchema.safeParse(meta);
+  if (!parsed.success) return err("Dados inválidos.");
+
+  const supabase = await createClient();
+  const { data: node } = await supabase
+    .from("nodes")
+    .select("space_id, icon, description")
+    .eq("id", id)
+    .single();
+  if (!node) return err("Nó não encontrado.");
+  try {
+    await requirePermission("content.edit", node.space_id);
+  } catch {
+    return err("Sem permissão para editar.");
+  }
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({
+      icon: parsed.data.icon || null,
+      description: parsed.data.description || null,
+    })
+    .eq("id", id);
+  if (error) return err(`Falha: ${error.message}`);
+
+  await audit({
+    action: "content.update_meta",
+    entityType: "node",
+    entityId: id,
+    spaceId: node.space_id,
+    before: { icon: node.icon, description: node.description },
+    after: parsed.data,
+  });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
+}
+
 /**
  * Muda o slug de um nó e cria redirects 301 para os caminhos antigos do nó e
  * de toda a sua subárvore — URLs já compartilhadas nunca podem quebrar.

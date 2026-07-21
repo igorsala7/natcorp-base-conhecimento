@@ -105,6 +105,32 @@ export type Database = {
         }
         Relationships: []
       }
+      article_views: {
+        Row: {
+          day: string
+          node_id: string
+          views: number
+        }
+        Insert: {
+          day?: string
+          node_id: string
+          views?: number
+        }
+        Update: {
+          day?: string
+          node_id?: string
+          views?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_views_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       article_feedback: {
         Row: {
           comment: string | null
@@ -774,6 +800,7 @@ export type Database = {
         Row: {
           created_at: string
           deleted_at: string | null
+          description: string | null
           icon: string | null
           id: string
           link_url: string | null
@@ -792,6 +819,7 @@ export type Database = {
         Insert: {
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
           icon?: string | null
           id?: string
           link_url?: string | null
@@ -810,6 +838,7 @@ export type Database = {
         Update: {
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
           icon?: string | null
           id?: string
           link_url?: string | null
@@ -1376,6 +1405,18 @@ export type Database = {
           snippet: string
           title: string
         }[]
+      }
+      top_helpful_articles: {
+        Args: { p_space_id: string; p_limit?: number }
+        Returns: { node_id: string; helpful: number; total: number }[]
+      }
+      related_articles: {
+        Args: { p_node_ids: string[]; p_space_id: string; p_limit?: number }
+        Returns: { node_id: string; score: number }[]
+      }
+      register_article_view: {
+        Args: { p_node_id: string }
+        Returns: undefined
       }
       hybrid_search_scoped: {
         Args: {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import { ChevronRight, List } from "lucide-react";
+import { ArrowUpRight, ChevronRight, List } from "lucide-react";
+import type { ThemeLink } from "@/lib/portal/theme";
 import { PortalNav } from "@/components/portal/nav";
 import { ActiveArticleProvider } from "@/components/portal/active-article";
 import { PortalMobileNav } from "@/components/portal/mobile-nav";
@@ -41,6 +42,21 @@ export function spaceChrome(space: ShellSpace) {
   return { supportUrl, style, tema, temaClasse: cor ? "tema-espaco" : undefined };
 }
 
+/** Link do tema no cabeçalho/rodapé. Externo abre em nova aba, com ícone. */
+function ThemeLinkAnchor({ link, className }: { link: ThemeLink; className: string }) {
+  const externo = /^https?:\/\//.test(link.url);
+  return (
+    <a
+      href={link.url}
+      className={className}
+      {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
+      {link.label}
+      {externo && <ArrowUpRight className="size-3.5 opacity-60" />}
+    </a>
+  );
+}
+
 /** Casca do portal: header + nav (com drawer mobile) · conteúdo · TOC. */
 export function PortalShell({
   space,
@@ -48,6 +64,7 @@ export function PortalShell({
   activePath,
   toc,
   nav = true,
+  width = "prose",
   activeNodeId,
   children,
 }: {
@@ -62,12 +79,22 @@ export function PortalShell({
    * também chega aqui com `activePath` vazio e ali a árvore ajuda.
    */
   nav?: boolean;
+  /**
+   * Largura do conteúdo quando NÃO há árvore lateral: `prose` centraliza numa
+   * medida de leitura; `wide` dá espaço para a home respirar (faixa do hero e
+   * grade de categorias).
+   */
+  width?: "prose" | "wide";
   /** Artigo em foco — o atalho de edição cai direto nele na prévia. */
   activeNodeId?: string | null;
   children: React.ReactNode;
 }) {
   const { supportUrl, style, tema, temaClasse } = spaceChrome(space);
   const mostrarNav = nav && tree.length > 0;
+  // O drawer mobile também abre onde a árvore lateral está desligada (a home),
+  // desde que exista o que mostrar — senão os links do cabeçalho, escondidos
+  // em telas pequenas, ficariam inalcançáveis no celular.
+  const mostrarDrawer = mostrarNav || tema.header.links.length > 0;
 
   return (
     <div className={`min-h-dvh bg-bg text-text${temaClasse ? ` ${temaClasse}` : ""}`} style={style}>
@@ -77,8 +104,13 @@ export function PortalShell({
       <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/65">
         <div className="mx-auto flex h-14 max-w-[90rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
-            {mostrarNav && (
-              <PortalMobileNav spaceSlug={space.slug} tree={tree} activePath={activePath} />
+            {mostrarDrawer && (
+              <PortalMobileNav
+                spaceSlug={space.slug}
+                tree={mostrarNav ? tree : []}
+                activePath={activePath}
+                links={tema.header.links}
+              />
             )}
             <Link
               href={`/docs/${space.slug}`}
@@ -100,6 +132,17 @@ export function PortalShell({
             </Link>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {tema.header.links.length > 0 && (
+              <nav aria-label="Links do site" className="mr-2 hidden items-center gap-1 md:flex">
+                {tema.header.links.map((l) => (
+                  <ThemeLinkAnchor
+                    key={`${l.label}-${l.url}`}
+                    link={l}
+                    className="flex items-center gap-0.5 rounded-md px-2 py-1.5 text-sm text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                  />
+                ))}
+              </nav>
+            )}
             <SearchTrigger variant="header" />
             <AskTrigger />
             <ThemeToggle />
@@ -120,7 +163,15 @@ export function PortalShell({
 
           {/* Sem árvore, o conteúdo se centraliza numa medida legível em vez de
               esticar pelos 90rem do contêiner. */}
-          <main className={mostrarNav ? "min-w-0 flex-1" : "mx-auto min-w-0 w-full max-w-3xl"}>
+          <main
+            className={
+              mostrarNav
+                ? "min-w-0 flex-1"
+                : width === "wide"
+                  ? "mx-auto min-w-0 w-full max-w-5xl"
+                  : "mx-auto min-w-0 w-full max-w-3xl"
+            }
+          >
             {toc && toc.length > 0 && (
               <details className="mb-8 rounded-lg border border-border xl:hidden">
                 <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm font-medium text-text-muted">
@@ -145,6 +196,25 @@ export function PortalShell({
           )}
         </div>
       </ActiveArticleProvider>
+
+      {(tema.footer.text || tema.footer.links.length > 0) && (
+        <footer className="border-t border-border">
+          <div className="mx-auto flex max-w-[90rem] flex-col items-center justify-between gap-3 px-4 py-8 sm:flex-row sm:px-6 lg:px-8">
+            <p className="text-sm text-text-muted">{tema.footer.text ?? space.name}</p>
+            {tema.footer.links.length > 0 && (
+              <nav aria-label="Links do rodapé" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1">
+                {tema.footer.links.map((l) => (
+                  <ThemeLinkAnchor
+                    key={`${l.label}-${l.url}`}
+                    link={l}
+                    className="flex items-center gap-0.5 rounded-md px-2 py-1 text-sm text-text-muted transition-colors hover:text-text"
+                  />
+                ))}
+              </nav>
+            )}
+          </div>
+        </footer>
+      )}
 
       <PortalAssistant spaceSlug={space.slug} supportUrl={supportUrl} />
       {/* Só aparece para quem pode editar — a checagem é no navegador, então o
