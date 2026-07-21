@@ -248,9 +248,13 @@
     --l-article: var(--text-2xl);
   }
 
-  /* Leitura do portal: medida confortável e hierarquia clara. */
+  /* Leitura do portal: medida confortável e hierarquia clara.
+     O corpo é dimensionado AQUI (contêiner), nunca no <p>: o parágrafo precisa
+     continuar herdando, senão o tamanho por BLOCO (painel de propriedades do
+     editor, aplicado no wrapper) deixa de ter efeito — já quebrou uma vez. */
   .prose-portal {
     max-width: var(--measure);
+    font-size: var(--l-body, 1rem);
   }
   /* Escada de títulos do CORPO do artigo. Fica sempre um degrau abaixo do
      título do artigo (24px) — heading de conteúdo maior que o título que o
@@ -280,7 +284,6 @@
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(p, li) {
-    font-size: var(--l-body, 1rem);
     line-height: 1.75;
   }
   /* Ritmo vertical: parágrafos respiram, listas ficam coesas. */
