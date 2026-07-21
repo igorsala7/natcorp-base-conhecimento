@@ -182,7 +182,14 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "video": {
       const { provider, url } = block.data;
       if (provider === "upload")
-        return <video src={url} controls className="my-6 mx-auto rounded-lg" />;
+        return (
+          <video
+            src={url}
+            controls
+            preload="metadata"
+            className="my-6 mx-auto w-full max-w-full rounded-lg"
+          />
+        );
       let embed = url;
       if (provider === "youtube") {
         const id = url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1];
