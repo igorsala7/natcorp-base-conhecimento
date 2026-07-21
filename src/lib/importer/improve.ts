@@ -7,6 +7,7 @@ import { blocksToText } from "@/lib/blocks/serialize";
 import { iconByKey } from "@/lib/blocks/icons";
 import { segmentarTexto, contarPalavras, MINIMO_PALAVRAS } from "./segment";
 import { blocksSchema, type LeafBlock, type LayoutBlock } from "./layout-schema";
+import { reinsertImages, type ImageRef } from "./reinsert-images";
 
 /**
  * "Melhorar layout" (Fase 4, etapa 4). Um passe de LLM que REFORMATA texto cru
@@ -144,68 +145,9 @@ export type ImproveResult =
   | { ok: true; doc: BlockDoc }
   | { ok: false; error: string };
 
-export type ImageRef = { src: string; alt: string; caption: string };
-
-const IMG_TOKEN = "⟦IMG:";
-function imgBlock(im: ImageRef): Block {
-  return { id: newId(), type: "image", data: { src: im.src, alt: im.alt, caption: im.caption } };
-}
-
-/** Remove os marcadores ⟦IMG:n⟧ do texto de um bloco; retorna null se ficar vazio. */
-function stripTokens(block: Block): Block | null {
-  if (!("text" in block)) return block;
-  const text = block.text
-    .map((s) => ({ ...s, text: s.text.replace(/⟦IMG:\d+⟧/g, "") }))
-    .filter((s) => s.text.length > 0);
-  if (!text.map((s) => s.text).join("").trim()) return null;
-  return { ...block, text } as Block;
-}
-
-/**
- * Re-insere as imagens no lugar dos marcadores ⟦IMG:n⟧ que a IA preservou.
- * Qualquer imagem não colocada vai para o fim — nunca se perde uma imagem.
- */
-function reinsertImages(doc: BlockDoc, images: ImageRef[]): BlockDoc {
-  const placed = new Set<number>();
-
-  // Recursivo: o marcador pode estar DENTRO de uma coluna/painel — é assim que
-  // sai o layout "imagem à esquerda, texto à direita".
-  const walk = (list: Block[]): Block[] => {
-    const out: Block[] = [];
-    for (const block of list) {
-      const kids = "children" in block ? block.children : undefined;
-      if (kids && kids.length) {
-        const nextKids = walk(kids);
-        out.push(nextKids === kids ? block : ({ ...block, children: nextKids } as Block));
-        continue;
-      }
-      const text = "text" in block ? blocksToText([block]) : "";
-      if (!text.includes(IMG_TOKEN)) {
-        out.push(block);
-        continue;
-      }
-      const indices = [...text.matchAll(/⟦IMG:(\d+)⟧/g)].map((m) => Number(m[1]));
-      const cleaned = stripTokens(block);
-      if (cleaned && blocksToText([cleaned]).trim()) out.push(cleaned);
-      for (const i of indices) {
-        const im = images[i];
-        if (im?.src && !placed.has(i)) {
-          placed.add(i);
-          out.push(imgBlock(im));
-        }
-      }
-    }
-    return out;
-  };
-
-  const blocks = walk(doc.blocks);
-  // Rede de segurança: imagem que a IA esqueceu volta ao final do artigo.
-  images.forEach((im, i) => {
-    if (im?.src && !placed.has(i)) blocks.push(imgBlock(im));
-  });
-
-  return { version: 2, blocks: blocks.length ? blocks : [para("")] };
-}
+// A reinserção (com o içamento que garante imagem em largura total) mora em
+// `reinsert-images.ts`, puro e coberto por teste.
+export type { ImageRef } from "./reinsert-images";
 
 /** Reformata o texto puro em blocos ricos, preservando as imagens. Exige AI_API_KEY. */
 export async function improveLayout(

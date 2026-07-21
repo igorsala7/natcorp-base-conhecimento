@@ -5,6 +5,7 @@ export const STATUS_LABEL: Record<string, string> = {
   inferring: "Inferindo estrutura",
   preview: "Pronto para revisão",
   importing: "Importando",
+  improving: "Melhorando layout com IA",
   done: "Concluído",
   error: "Erro",
 };
@@ -16,6 +17,7 @@ export const STATUS_TONE: Record<string, "neutral" | "info" | "primary" | "dange
   inferring: "info",
   preview: "primary",
   importing: "info",
+  improving: "info",
   done: "neutral",
   error: "danger",
 };

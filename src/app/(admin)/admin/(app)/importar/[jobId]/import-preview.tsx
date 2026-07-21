@@ -138,6 +138,10 @@ export function ImportPreview({
   const [newFolderTitle, setNewFolderTitle] = useState(
     fileName.replace(/\.[^.]+$/, "").slice(0, 80),
   );
+  // A pergunta da confirmação: a IA já reformata o layout de TODOS os
+  // artigos? Nasce desligada — é um passe demorado e o autor pode preferir
+  // revisar o texto cru primeiro (dá para melhorar depois, pelo editor).
+  const [melhorarLayout, setMelhorarLayout] = useState(false);
 
   // Carrega as pastas da documentação escolhida (o nível onde vai pendurar).
   useEffect(() => {
@@ -153,12 +157,20 @@ export function ImportPreview({
 
   function confirm() {
     startTransition(async () => {
-      const res = await materializeImport(jobId, tree, {
-        spaceId,
-        parentId: parentId === "__root__" ? null : parentId,
-        newFolderTitle: useNewFolder ? newFolderTitle : null,
-      });
+      const res = await materializeImport(
+        jobId,
+        tree,
+        {
+          spaceId,
+          parentId: parentId === "__root__" ? null : parentId,
+          newFolderTitle: useNewFolder ? newFolderTitle : null,
+        },
+        { melhorarLayout },
+      );
       if (!res.ok) setMsg(res.error);
+      // Melhorando em segundo plano: permanece nesta página, que vira a tela
+      // de progresso da fase de layout. Sem melhoria: direto para a árvore.
+      else if (res.improving) router.refresh();
       else router.push(`/admin/conteudo?space=${spaceId}`);
     });
   }
@@ -260,6 +272,25 @@ export function ImportPreview({
                 className="mt-3"
               />
             )}
+          </div>
+
+          <div className="rounded-lg border border-border p-3">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={melhorarLayout}
+                onChange={(e) => setMelhorarLayout(e.target.checked)}
+                className="mt-1 accent-[var(--color-primary)]"
+              />
+              <span>
+                <span className="font-medium">Melhorar o layout com IA após importar</span>
+                <span className="block text-xs leading-relaxed text-text-muted">
+                  A IA reformata TODOS os artigos em blocos ricos (passos, avisos, tabelas) sem
+                  reescrever o texto — as imagens permanecem em largura total. Roda em segundo
+                  plano e pode levar alguns minutos; o progresso aparece nesta tela.
+                </span>
+              </span>
+            </label>
           </div>
         </div>
       </Dialog>

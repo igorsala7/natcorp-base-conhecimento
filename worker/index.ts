@@ -19,7 +19,10 @@ import {
   heuristicTree,
   refineStructureWithLLM,
 } from "../src/lib/importer/structure";
+import { improveLayout } from "../src/lib/importer/improve";
 import { hasAiKey } from "../src/lib/ai/config";
+import { normalizeDoc } from "../src/lib/blocks/convert";
+import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -188,10 +191,85 @@ async function processJob(jobId: string) {
   );
 }
 
+/**
+ * Fase 'improving': a IA reformata o layout de cada artigo importado
+ * (opção marcada na confirmação). Sequencial de propósito — mesmo motivo dos
+ * segmentos: rate limit do provedor e progresso legível.
+ *
+ * Falha em UM artigo não derruba a fase: o artigo fica como veio da extração
+ * (a rede de segurança do improveLayout também recusa resultado que perdeu
+ * texto) e a linha do log conta o motivo.
+ */
+async function processImprove(jobId: string, nodeIds: string[]) {
+  const { data: job } = await supabase
+    .from("import_jobs")
+    .select("status")
+    .eq("id", jobId)
+    .single();
+  // Re-entrega de um job já concluído não pode reformatar tudo de novo.
+  if (job?.status !== "improving") {
+    console.log(`Job ${jobId} não está em 'improving' (${job?.status}) — ignorando.`);
+    return;
+  }
+
+  let ok = 0;
+  let mantidos = 0;
+  for (const [i, nodeId] of nodeIds.entries()) {
+    const rotulo = `${i + 1}/${nodeIds.length}`;
+    const { data: node } = await supabase
+      .from("nodes")
+      .select("title")
+      .eq("id", nodeId)
+      .maybeSingle();
+    const { data: art } = await supabase
+      .from("articles")
+      .select("id, content_json")
+      .eq("node_id", nodeId)
+      .maybeSingle();
+    if (!art) {
+      mantidos++;
+      await logJob(jobId, `Layout ${rotulo}: artigo não encontrado — pulado.`);
+      continue;
+    }
+
+    const { text, images } = blocksToPlainWithImageMarkers(
+      normalizeDoc(art.content_json).blocks,
+    );
+    const res = await improveLayout(text, images);
+    if (res.ok) {
+      const texto = blocksToText(res.doc.blocks);
+      await supabase
+        .from("articles")
+        .update({
+          content_json: res.doc,
+          content_text: texto,
+          excerpt: texto.slice(0, 200),
+        })
+        .eq("id", art.id);
+      ok++;
+    } else {
+      // Mantém o conteúdo original — nada é pior do que veio.
+      mantidos++;
+      await logJob(jobId, `Layout ${rotulo}: "${node?.title ?? nodeId}" mantido como veio (${res.error})`);
+    }
+    await setProgress(jobId, {
+      progress: Math.round(((i + 1) / nodeIds.length) * 100),
+    });
+  }
+
+  await setProgress(
+    jobId,
+    { status: "done", progress: 100 },
+    `Layout melhorado em ${ok} artigo(s)` +
+      (mantidos ? `; ${mantidos} mantido(s) como veio.` : "."),
+  );
+}
+
 async function main() {
   const boss = new PgBoss({ ...parseDbConfig(), schema: "pgboss" });
   await boss.start();
   await boss.createQueue("import");
+  await boss.createQueue("import-improve");
   console.log("Worker de importação pronto. Aguardando jobs…");
 
   await boss.work("import", async (jobs) => {
@@ -208,6 +286,27 @@ async function main() {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Job ${jobId} falhou:`, msg);
         await setProgress(jobId, { status: "error", error: msg }, `Erro: ${msg}`);
+      }
+    }
+  });
+
+  await boss.work("import-improve", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId, nodeIds } = job.data as { jobId: string; nodeIds: string[] };
+      console.log(`Melhorando layout do job ${jobId} (${nodeIds?.length ?? 0} artigos)`);
+      try {
+        await processImprove(jobId, nodeIds ?? []);
+        console.log(`Job ${jobId} — layout concluído`);
+      } catch (e) {
+        // A árvore JÁ está importada: falhar aqui não pode marcar o job como
+        // 'error' (pareceria que a importação se perdeu). Conclui com aviso.
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Job ${jobId} — melhoria falhou:`, msg);
+        await setProgress(
+          jobId,
+          { status: "done", progress: 100 },
+          `Melhoria de layout interrompida: ${msg}. Os artigos mantêm o conteúdo importado.`,
+        );
       }
     }
   });

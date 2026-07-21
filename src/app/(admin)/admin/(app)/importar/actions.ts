@@ -6,12 +6,14 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { uniqueSlug } from "@/lib/content/unique-slug";
-import { enqueueImport } from "@/lib/jobs/boss";
+import { enqueueImport, enqueueImportImprove } from "@/lib/jobs/boss";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
 import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
 
-export type ImportResult = { ok: true; id?: string } | { ok: false; error: string };
+export type ImportResult =
+  | { ok: true; id?: string; improving?: boolean }
+  | { ok: false; error: string };
 
 /** Cria o job de importação (arquivo já subido ao bucket) e enfileira. */
 export async function createImportJob(input: {
@@ -156,6 +158,11 @@ export async function materializeImport(
   jobId: string,
   editedTree?: ProposedNode[],
   target?: ImportTarget,
+  opcoes?: {
+    /** Depois de criar a árvore, a IA reformata o layout de TODOS os artigos
+     *  (fase 'improving', no worker — pode levar minutos num documento grande). */
+    melhorarLayout?: boolean;
+  },
 ): Promise<ImportResult> {
   const supabase = await createClient();
   const { data: job } = await supabase
@@ -287,17 +294,54 @@ export async function materializeImport(
     return { ok: false, error: `Falha ao materializar: ${msg}.${parcial}` };
   }
 
-  await supabase.from("import_jobs").update({ status: "done" }).eq("id", jobId);
+  // Melhoria de layout: fase em segundo plano sobre os ARTIGOS criados.
+  // A árvore já está no lugar — se o worker estiver parado, nada se perde:
+  // o conteúdo fica como veio da extração.
+  let melhorando = false;
+  if (opcoes?.melhorarLayout && criados.length) {
+    const { data: artigos } = await supabase
+      .from("nodes")
+      .select("id")
+      .in("id", criados)
+      .eq("type", "article");
+    const nodeIds = (artigos ?? []).map((a) => a.id);
+    if (nodeIds.length) {
+      try {
+        await enqueueImportImprove(jobId, nodeIds);
+        await supabase
+          .from("import_jobs")
+          .update({ status: "improving", progress: 0 })
+          .eq("id", jobId);
+        await supabase.rpc("import_job_log_append", {
+          p_job_id: jobId,
+          p_msg: `Árvore criada. Melhorando o layout de ${nodeIds.length} artigo(s) com IA…`,
+        });
+        melhorando = true;
+      } catch {
+        // Fila indisponível não pode desfazer uma importação que DEU certo:
+        // segue como 'done' e o usuário melhora pelo editor se quiser.
+        melhorando = false;
+      }
+    }
+  }
+
+  if (!melhorando) {
+    await supabase.from("import_jobs").update({ status: "done" }).eq("id", jobId);
+  }
   await audit({
     action: "content.import_done",
     entityType: "import_job",
     entityId: jobId,
     spaceId,
-    after: { parentId: baseParentId, newFolder: target?.newFolderTitle ?? null },
+    after: {
+      parentId: baseParentId,
+      newFolder: target?.newFolderTitle ?? null,
+      melhorarLayout: !!opcoes?.melhorarLayout,
+    },
   });
   revalidatePath("/admin/conteudo");
   revalidatePath("/admin/importar");
-  return { ok: true };
+  return { ok: true, improving: melhorando };
 }
 
 /** Remove um job (e opcionalmente o arquivo). */

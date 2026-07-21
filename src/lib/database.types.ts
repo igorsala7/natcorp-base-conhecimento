@@ -1406,6 +1406,10 @@ export type Database = {
           title: string
         }[]
       }
+      import_job_log_append: {
+        Args: { p_job_id: string; p_msg: string }
+        Returns: undefined
+      }
       top_helpful_articles: {
         Args: { p_space_id: string; p_limit?: number }
         Returns: { node_id: string; helpful: number; total: number }[]

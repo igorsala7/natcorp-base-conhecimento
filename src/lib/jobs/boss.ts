@@ -14,6 +14,7 @@ async function getBoss(): Promise<PgBoss> {
       const boss = new PgBoss({ ...parseDbConfig(), schema: "pgboss" });
       await boss.start();
       await boss.createQueue("import");
+      await boss.createQueue("import-improve");
       return boss;
     })();
   }
@@ -23,4 +24,14 @@ async function getBoss(): Promise<PgBoss> {
 export async function enqueueImport(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("import", { jobId });
+}
+
+/**
+ * Melhoria de layout pós-importação: a IA reformata cada artigo criado.
+ * Os ids vão no payload — o job de importação já está 'done' para a árvore,
+ * e esta fase só toca os artigos listados.
+ */
+export async function enqueueImportImprove(jobId: string, nodeIds: string[]): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("import-improve", { jobId, nodeIds });
 }

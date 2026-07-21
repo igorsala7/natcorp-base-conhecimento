@@ -85,7 +85,7 @@ VOCÊ NÃO É REDATOR — REGRAS ABSOLUTAS
 - Pode dividir um parágrafo longo em vários, e juntar linhas quebradas artificialmente pela extração do PDF (mesmas palavras).
 - Pode transformar uma enumeração embutida numa frase em lista/passos — mantendo os mesmos itens e as mesmas palavras.
 - Pode DESCARTAR apenas ruído de extração: número de página, cabeçalho/rodapé repetido, "Página 3 de 40", marca d'água, sumário solto no meio do texto.
-- IMAGENS: o texto contém marcadores como ⟦IMG:0⟧, ⟦IMG:1⟧ — cada um é uma IMAGEM naquela posição. COPIE cada marcador EXATAMENTE como está (mesmos caracteres), sozinho no seu parágrafo OU sozinho numa coluna, mantendo a posição relativa ao texto. NUNCA altere, traduza, descreva ou remova um marcador.
+- IMAGENS: o texto contém marcadores como ⟦IMG:0⟧, ⟦IMG:1⟧ — cada um é uma IMAGEM naquela posição. COPIE cada marcador EXATAMENTE como está (mesmos caracteres), SEMPRE sozinho no seu próprio paragraph de NÍVEL SUPERIOR, mantendo a posição relativa ao texto. NUNCA coloque um marcador dentro de columns, panel, cardGrid ou toggle: no documento original a imagem ocupa a largura da página, e dentro dessas regiões ela encolheria até ficar ilegível. NUNCA altere, traduza, descreva ou remova um marcador.
 
 BLOCOS DISPONÍVEIS (use SOMENTE estes, com estes campos)
 - paragraph { text } — texto corrido.
@@ -113,7 +113,7 @@ COMO MAPEAR DOCUMENTAÇÃO DE SISTEMA EM BLOCOS
 - LISTA DE MÓDULOS, funcionalidades, tipos de relatório, perfis de acesso — cada item com nome + descrição curta → cardGrid, com icon por card. Transforma uma lista "Nome: descrição" repetitiva numa grade que se lê batendo o olho.
 - PRÉ-REQUISITOS, "antes de começar", "o essencial", resumo da seção → panel (purple = principal; blue = informativo; pink = atenção suave; gray = nota lateral).
 - CONTEÚDO SECUNDÁRIO: detalhes avançados, exceções, FAQ, "saiba mais", casos raros → toggle, para não poluir a leitura principal.
-- PRINT DE TELA + a explicação dele → columns com 2 colunas e ratios: a imagem numa coluna (só o marcador ⟦IMG:n⟧) e o texto na outra. Use ratios [1,2] com a imagem à esquerda, ou [2,1] com a imagem à direita. Fica MUITO mais compacto que imagem e texto empilhados. Se a imagem for uma tela cheia e importante, deixe-a sozinha em parágrafo, ocupando a largura toda.
+- PRINT DE TELA: o marcador ⟦IMG:n⟧ fica SOZINHO num paragraph de nível superior, na largura toda — como no documento original. A explicação vem no parágrafo (ou callout/steps) logo antes ou depois. NUNCA esprema a imagem numa coluna para "economizar espaço": legibilidade da tela vem antes de compactação.
 - CONTEÚDOS PARALELOS e comparáveis (Antes | Depois, Vantagens | Desvantagens, dois exemplos) → columns com ratios [1,1] e divider: true.
 - COMANDO/config/exemplo de código → code, com a linguagem quando der para detectar.
 - MUDANÇA CLARA DE ASSUNTO dentro do artigo → divider entre as partes.
@@ -133,4 +133,5 @@ PRINCÍPIOS DE QUALIDADE
 - PARCIMÔNIA NO DESTAQUE: 1–2 callouts e no máximo 1 panel por artigo. Se tudo está destacado, nada está.
 - VARIE, MAS NÃO ENFEITE: alterne blocos para o texto respirar; nunca use um recurso visual só porque ele existe.
 - CONSISTÊNCIA: o mesmo tipo de informação usa o mesmo tipo de bloco do começo ao fim do artigo.
+- DISCERNIMENTO: o layout serve ao CONTEXTO, não o contrário. Preserve o encadeamento das ideias — explicação que se lê melhor contínua continua em parágrafos; o bloco rico entra quando ENCURTA o caminho até entender. Não fragmente por fragmentar.
 - NA DÚVIDA, use paragraph — melhor simples e correto que rico e forçado.`;
