@@ -318,6 +318,9 @@ function BlockEditorInner({
   async function onImprove() {
     setImproving(true);
     setMsg(null);
+    // A IA lê do banco, não do estado local: sem o flush ela reformataria a
+    // última versão salva, ignorando o que está na tela (mesmo motivo do publicar).
+    await flush();
     const res = await improveArticleLayout(nodeId);
     setImproving(false);
     if (!res.ok) return setMsg(res.error);

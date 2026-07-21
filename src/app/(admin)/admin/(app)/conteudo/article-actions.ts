@@ -174,13 +174,15 @@ export async function improveArticleLayout(
     return { ok: false, error: "Sem permissão." };
   }
 
-  const { data: article } = await supabase
-    .from("articles")
-    .select("content_json")
-    .eq("node_id", nodeId)
-    .maybeSingle();
+  // Rascunho primeiro: num artigo publicado a edição vive em article_drafts, e
+  // ler content_json faria a IA reformatar a versão publicada — descartando
+  // tudo que o usuário acabou de escrever. Mesma precedência da página do editor.
+  const [{ data: draft }, { data: article }] = await Promise.all([
+    supabase.from("article_drafts").select("content_json").eq("node_id", nodeId).maybeSingle(),
+    supabase.from("articles").select("content_json").eq("node_id", nodeId).maybeSingle(),
+  ]);
   const { text, images } = blocksToPlainWithImageMarkers(
-    normalizeDoc(article?.content_json).blocks,
+    normalizeDoc(draft?.content_json ?? article?.content_json).blocks,
   );
   return improveLayout(text, images);
 }

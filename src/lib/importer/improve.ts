@@ -6,6 +6,7 @@ import { LAYOUT_INSTRUCTIONS } from "./prompts";
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { iconByKey } from "@/lib/blocks/icons";
+import { segmentarTexto, contarPalavras, MINIMO_PALAVRAS } from "./segment";
 
 /**
  * "Melhorar layout" (Fase 4, etapa 4). Um passe de LLM que REFORMATA texto cru
@@ -300,16 +301,44 @@ export async function improveLayout(
   }
   if (!plainText.trim()) return { ok: false, error: "Sem conteúdo para melhorar." };
 
-  try {
-    const { object } = await generateObject({
-      model: await languageModel("import_layout"),
-      schema: blocksSchema,
-      prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + plainText.slice(0, 12000),
-    });
-    const doc = blocksToDoc(object.blocks);
-    return { ok: true, doc: images.length ? reinsertImages(doc, images) : doc };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: `Falha da IA: ${msg}` };
+  const segmentos = segmentarTexto(plainText);
+  if (!segmentos.length) return { ok: false, error: "Sem conteúdo para melhorar." };
+
+  const model = await languageModel("import_layout");
+  const propostos: LayoutBlock[] = [];
+
+  // Sequencial de propósito: paralelizar aqui estoura o rate limit do provedor
+  // no primeiro artigo grande, e a ordem dos segmentos É a ordem do artigo.
+  for (const [i, segmento] of segmentos.entries()) {
+    try {
+      const { object } = await generateObject({
+        model,
+        schema: blocksSchema,
+        prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + segmento,
+      });
+      propostos.push(...object.blocks);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const onde =
+        segmentos.length > 1 ? ` (parte ${i + 1} de ${segmentos.length})` : "";
+      return { ok: false, error: `Falha da IA${onde}: ${msg}` };
+    }
   }
+
+  const doc = blocksToDoc(propostos);
+
+  // Rede de segurança: a IA deve REFORMATAR, não resumir. Perda grande de
+  // palavras é sinal de que ela reescreveu — melhor recusar do que deixar o
+  // usuário aplicar por cima do artigo e descobrir depois.
+  const antes = contarPalavras(plainText);
+  const depois = contarPalavras(blocksToText(doc.blocks));
+  if (antes > 0 && depois < antes * MINIMO_PALAVRAS) {
+    const perdido = Math.round((1 - depois / antes) * 100);
+    return {
+      ok: false,
+      error: `A IA devolveu ${perdido}% menos texto que o original — parece resumo, não reformatação. Nada foi alterado.`,
+    };
+  }
+
+  return { ok: true, doc: images.length ? reinsertImages(doc, images) : doc };
 }
