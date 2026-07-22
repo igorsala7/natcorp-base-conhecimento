@@ -56,6 +56,12 @@ import { PropertiesPanel } from "./properties-panel";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
 import { OptimizePanel } from "../optimize-panel";
+import {
+  LayoutQuestionsForm,
+  diretivasEscolhidas,
+} from "../layout-questions";
+import type { LayoutQuestion } from "@/lib/importer/question-schema";
+import { diretivasParaDirecao } from "@/lib/importer/question-schema";
 import { remixArticle, type RemixTipo } from "@/app/(admin)/admin/(app)/conteudo/generate-actions";
 import {
   listSnippets,
@@ -76,6 +82,7 @@ import {
   discardDraft,
   saveArticle,
   improveArticleLayout,
+  proposeArticleLayoutQuestions,
   improveArticleText,
   reindexArticleEmbeddings,
   type TextoAcao,
@@ -203,6 +210,8 @@ function BlockEditorInner({
   const [showOptimize, setShowOptimize] = useState(false);
   const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
   const [remixando, setRemixando] = useState<RemixTipo | null>(null);
+  const [layoutPerguntas, setLayoutPerguntas] = useState<LayoutQuestion[] | null>(null);
+  const [layoutRespostas, setLayoutRespostas] = useState<Record<string, number>>({});
   const [snippetsDisponiveis, setSnippetsDisponiveis] = useState<{ key: string; title: string }[]>([]);
 
   useEffect(() => {
@@ -425,7 +434,24 @@ function BlockEditorInner({
     // A IA lê do banco, não do estado local: sem o flush ela reformataria a
     // última versão salva, ignorando o que está na tela (mesmo motivo do publicar).
     await flush();
-    const res = await improveArticleLayout(nodeId);
+    // Fase 1 (interativa): a IA lê o texto e PERGUNTA antes de reformatar.
+    // Falha do passe de perguntas não bloqueia — cai no fluxo direto.
+    const q = await proposeArticleLayoutQuestions(nodeId);
+    setImproving(false);
+    if (q.ok && q.perguntas.length > 0) {
+      setLayoutPerguntas(q.perguntas);
+      setLayoutRespostas({});
+      return;
+    }
+    if (!q.ok) setMsg(`Análise indisponível (${q.error}) — reformatando sem perguntas.`);
+    await rodarImprove(undefined);
+  }
+
+  /** Fase 2: reformatação, com ou sem a direção do autor. */
+  async function rodarImprove(direcao: string | undefined) {
+    setLayoutPerguntas(null);
+    setImproving(true);
+    const res = await improveArticleLayout(nodeId, direcao);
     setImproving(false);
     if (!res.ok) return setMsg(res.error);
     setProposed(normalizeDoc(res.doc));
@@ -969,6 +995,48 @@ function BlockEditorInner({
       {showSchedule && (
         <ScheduleDialog nodeId={nodeId} spaceId={spaceId} onClose={() => setShowSchedule(false)} />
       )}
+
+      <Dialog
+        open={!!layoutPerguntas}
+        onClose={() => setLayoutPerguntas(null)}
+        size="lg"
+        title="Antes de reformatar, algumas escolhas"
+        description="A IA leu o artigo e encontrou pontos com mais de uma formatação possível. Suas respostas direcionam o resultado — o texto continua intocado."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLayoutPerguntas(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void rodarImprove(undefined)}
+              title="Reformatar já, sem responder (comportamento padrão)"
+            >
+              Aplicar sem perguntas
+            </Button>
+            <Button
+              disabled={Object.keys(layoutRespostas).length === 0}
+              onClick={() =>
+                void rodarImprove(
+                  diretivasParaDirecao(
+                    diretivasEscolhidas(layoutPerguntas ?? [], layoutRespostas),
+                  ),
+                )
+              }
+            >
+              Continuar com minhas escolhas
+            </Button>
+          </>
+        }
+      >
+        {layoutPerguntas && (
+          <LayoutQuestionsForm
+            perguntas={layoutPerguntas}
+            respostas={layoutRespostas}
+            onChange={setLayoutRespostas}
+          />
+        )}
+      </Dialog>
 
       <Dialog
         open={!!remix}

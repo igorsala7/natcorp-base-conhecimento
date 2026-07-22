@@ -206,7 +206,7 @@ async function processJob(jobId: string) {
 async function processImprove(jobId: string, nodeIds: string[]) {
   const { data: job } = await supabase
     .from("import_jobs")
-    .select("status")
+    .select("status, result_tree")
     .eq("id", jobId)
     .single();
   // Re-entrega de um job já concluído não pode reformatar tudo de novo.

@@ -8,7 +8,14 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import type { ProposedNode } from "@/lib/importer/structure";
-import { materializeImport } from "../actions";
+import { materializeImport, proposeImportLayoutQuestions } from "../actions";
+import {
+  LayoutQuestionsForm,
+  diretivasEscolhidas,
+} from "@/components/editor/layout-questions";
+import type { LayoutQuestion } from "@/lib/importer/question-schema";
+import { diretivasParaDirecao } from "@/lib/importer/question-schema";
+import { Loader2, Sparkles } from "lucide-react";
 import { listSpaceFolders } from "../../conteudo/space-actions";
 
 /** Remove um nó pelo caminho de índices, retornando uma nova árvore. */
@@ -142,6 +149,12 @@ export function ImportPreview({
   // artigos? Nasce desligada — é um passe demorado e o autor pode preferir
   // revisar o texto cru primeiro (dá para melhorar depois, pelo editor).
   const [melhorarLayout, setMelhorarLayout] = useState(false);
+  // Perguntas genéricas de layout (opcional): as diretivas escolhidas viram a
+  // direção do autor aplicada a TODOS os artigos na fase de melhoria.
+  const [perguntas, setPerguntas] = useState<LayoutQuestion[] | null>(null);
+  const [respostas, setRespostas] = useState<Record<string, number>>({});
+  const [analisando, setAnalisando] = useState(false);
+  const [mostrarPerguntas, setMostrarPerguntas] = useState(false);
 
   // Carrega as pastas da documentação escolhida (o nível onde vai pendurar).
   useEffect(() => {
@@ -165,7 +178,12 @@ export function ImportPreview({
           parentId: parentId === "__root__" ? null : parentId,
           newFolderTitle: useNewFolder ? newFolderTitle : null,
         },
-        { melhorarLayout },
+        {
+          melhorarLayout,
+          direcaoLayout: melhorarLayout
+            ? diretivasParaDirecao(diretivasEscolhidas(perguntas ?? [], respostas))
+            : undefined,
+        },
       );
       if (!res.ok) setMsg(res.error);
       // Melhorando em segundo plano: permanece nesta página, que vira a tela
@@ -294,8 +312,69 @@ export function ImportPreview({
                 </span>
               </span>
             </label>
+            {melhorarLayout && (
+              <div className="mt-3 border-t border-border pt-3">
+                <button
+                  type="button"
+                  disabled={analisando}
+                  onClick={async () => {
+                    if (perguntas) {
+                      setMostrarPerguntas(true);
+                      return;
+                    }
+                    setAnalisando(true);
+                    const r = await proposeImportLayoutQuestions(jobId);
+                    setAnalisando(false);
+                    if (r.ok && r.perguntas.length > 0) {
+                      setPerguntas(r.perguntas);
+                      setMostrarPerguntas(true);
+                    } else {
+                      setMsg(
+                        r.ok
+                          ? "A IA não encontrou escolhas a fazer — a melhoria segue com o padrão."
+                          : r.error,
+                      );
+                    }
+                  }}
+                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                  {analisando ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  {analisando
+                    ? "Analisando o documento…"
+                    : perguntas
+                      ? `Preferências de layout (${Object.keys(respostas).length}/${perguntas.length} respondidas)`
+                      : "Preferências de layout (IA) — opcional"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={mostrarPerguntas}
+        onClose={() => setMostrarPerguntas(false)}
+        size="lg"
+        title="Preferências de layout"
+        description="Escolhas GERAIS para o documento inteiro — a IA aplica em todos os artigos ao melhorar o layout. Sem resposta, vale o padrão."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setMostrarPerguntas(false)}>
+              Pular (usar o padrão)
+            </Button>
+            <Button onClick={() => setMostrarPerguntas(false)}>
+              Usar estas escolhas
+            </Button>
+          </>
+        }
+      >
+        {perguntas && (
+          <LayoutQuestionsForm perguntas={perguntas} respostas={respostas} onChange={setRespostas} />
+        )}
       </Dialog>
 
       {msg && (

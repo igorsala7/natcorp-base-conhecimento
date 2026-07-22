@@ -1,7 +1,7 @@
 import "server-only";
 import { generateObject } from "ai";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
-import { LAYOUT_INSTRUCTIONS } from "./prompts";
+import { LAYOUT_INSTRUCTIONS, CABECALHO_PREFERENCIAS } from "./prompts";
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { iconByKey } from "@/lib/blocks/icons";
@@ -159,6 +159,9 @@ export type { ImageRef } from "./reinsert-images";
 export async function improveLayout(
   plainText: string,
   images: ImageRef[] = [],
+  /** "Direção do autor": diretivas de FORMATO escolhidas nas perguntas de
+   *  layout (uma por linha). Repetida em cada segmento, de propósito. */
+  direcao?: string,
 ): Promise<ImproveResult> {
   if (!await hasAiKey("import_layout")) {
     return { ok: false, error: "Nenhuma IA configurada para \"Melhorar layout\" — cadastre em Sistema → IA." };
@@ -178,7 +181,11 @@ export async function improveLayout(
       const { object } = await generateObject({
         model,
         schema: blocksSchema,
-        prompt: LAYOUT_INSTRUCTIONS + "\n\nTEXTO:\n" + segmento,
+        prompt:
+          LAYOUT_INSTRUCTIONS +
+          (direcao ? `\n\n${CABECALHO_PREFERENCIAS}\n${direcao}` : "") +
+          "\n\nTEXTO:\n" +
+          segmento,
         abortSignal: aiTimeout("import_layout"),
       });
       propostos.push(...object.blocks);

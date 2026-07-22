@@ -10,6 +10,8 @@ import { enqueueImport, enqueueImportImprove } from "@/lib/jobs/boss";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
 import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
+import { proposeLayoutQuestions } from "@/lib/importer/questions";
+import type { LayoutQuestion } from "@/lib/importer/question-schema";
 
 export type ImportResult =
   | {
@@ -168,6 +170,8 @@ export async function materializeImport(
     /** Depois de criar a árvore, a IA reformata o layout de TODOS os artigos
      *  (fase 'improving', no worker — pode levar minutos num documento grande). */
     melhorarLayout?: boolean;
+    /** Direção do autor (diretivas das perguntas de layout, uma por linha). */
+    direcaoLayout?: string;
   },
 ): Promise<ImportResult> {
   const supabase = await createClient();
@@ -307,7 +311,12 @@ export async function materializeImport(
   await supabase
     .from("import_jobs")
     .update({
-      result_tree: { ...(stored ?? {}), destinoNodeId: rootParentId, destinoSpaceId: spaceId } as Json,
+      result_tree: {
+        ...(stored ?? {}),
+        destinoNodeId: rootParentId,
+        destinoSpaceId: spaceId,
+        ...(opcoes?.direcaoLayout ? { direcaoLayout: opcoes.direcaoLayout } : {}),
+      } as Json,
     })
     .eq("id", jobId);
 
@@ -379,4 +388,48 @@ export async function deleteImportJob(jobId: string): Promise<ImportResult> {
   await supabase.from("import_jobs").delete().eq("id", jobId);
   revalidatePath("/admin/importar");
   return { ok: true };
+}
+
+/**
+ * Perguntas GENÉRICAS de layout para a importação: a IA lê uma amostra do
+ * documento (títulos + primeiros parágrafos) e pergunta políticas que valerão
+ * para todos os artigos. As diretivas escolhidas viajam em
+ * materializeImport(opcoes.direcaoLayout) e chegam ao worker via result_tree.
+ */
+export async function proposeImportLayoutQuestions(
+  jobId: string,
+): Promise<
+  { ok: true; perguntas: LayoutQuestion[] } | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("import_jobs")
+    .select("space_id, result_tree")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return { ok: false, error: "Importação não encontrada." };
+  try {
+    await requirePermission("content.import", job.space_id);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const stored = job.result_tree as { tree?: ProposedNode[] } | null;
+  const tree = stored?.tree ?? [];
+
+  // Amostra: título de cada nó + primeiro parágrafo, até ~8k caracteres.
+  const partes: string[] = [];
+  let total = 0;
+  const anda = (nodes: ProposedNode[]) => {
+    for (const n of nodes) {
+      if (total > 8000) return;
+      const p = n.content.find((c) => c.type === "p") as { text: string } | undefined;
+      const trecho = `${n.title}\n${p?.text ?? ""}`;
+      partes.push(trecho);
+      total += trecho.length;
+      anda(n.children);
+    }
+  };
+  anda(tree);
+  const r = await proposeLayoutQuestions(partes.join("\n\n"), "generico");
+  return r.ok ? { ok: true, perguntas: r.perguntas } : r;
 }

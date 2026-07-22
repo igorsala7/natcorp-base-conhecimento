@@ -14,6 +14,7 @@ import {
 } from "@/lib/content/publish-core";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { improveLayout } from "@/lib/importer/improve";
+import { proposeLayoutQuestions } from "@/lib/importer/questions";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { isBlockDoc, BlockDocSchema } from "@/lib/blocks/schema";
 import { blocksToPlainWithImageMarkers } from "@/lib/blocks/serialize";
@@ -139,6 +140,7 @@ export async function discardDraft(nodeId: string): Promise<SaveResult> {
  */
 export async function improveArticleLayout(
   nodeId: string,
+  direcao?: string,
 ): Promise<{ ok: true; doc: object } | { ok: false; error: string }> {
   const supabase = await createClient();
   const spaceId = await spaceIdOfNode(supabase, nodeId);
@@ -159,7 +161,36 @@ export async function improveArticleLayout(
   const { text, images } = blocksToPlainWithImageMarkers(
     normalizeDoc(draft?.content_json ?? article?.content_json).blocks,
   );
-  return improveLayout(text, images);
+  return improveLayout(text, images, direcao);
+}
+
+/**
+ * Passe interativo do Melhorar layout: a IA lê o artigo (rascunho primeiro,
+ * como o improve) e devolve perguntas de formatação DETALHADAS, citando os
+ * trechos. As respostas viram a direção passada a improveArticleLayout.
+ */
+export async function proposeArticleLayoutQuestions(
+  nodeId: string,
+): Promise<
+  { ok: true; perguntas: import("@/lib/importer/question-schema").LayoutQuestion[] } | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const [{ data: draft }, { data: article }] = await Promise.all([
+    supabase.from("article_drafts").select("content_json").eq("node_id", nodeId).maybeSingle(),
+    supabase.from("articles").select("content_json").eq("node_id", nodeId).maybeSingle(),
+  ]);
+  const { text } = blocksToPlainWithImageMarkers(
+    normalizeDoc(draft?.content_json ?? article?.content_json).blocks,
+  );
+  const r = await proposeLayoutQuestions(text, "detalhado");
+  return r.ok ? { ok: true, perguntas: r.perguntas } : r;
 }
 
 export type TextoAcao = "reescrever" | "expandir" | "resumir" | "tom";

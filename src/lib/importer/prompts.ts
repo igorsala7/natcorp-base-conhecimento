@@ -144,3 +144,11 @@ PRINCÍPIOS DE QUALIDADE
 - CONSISTÊNCIA: o mesmo tipo de informação usa o mesmo tipo de bloco do começo ao fim do artigo.
 - DISCERNIMENTO: o layout serve ao CONTEXTO, não o contrário. Preserve o encadeamento das ideias — explicação que se lê melhor contínua continua em parágrafos; o bloco rico entra quando ENCURTA o caminho até entender. Não fragmente por fragmentar.
 - NA DÚVIDA, use paragraph — melhor simples e correto que rico e forçado.`;
+
+/**
+ * Cabeçalho da seção de PREFERÊNCIAS DO AUTOR (o improve injeta entre as
+ * instruções e o texto quando o autor respondeu às perguntas de layout).
+ * Precedência sobre as heurísticas de mapeamento; NUNCA sobre as regras
+ * absolutas de não reescrever.
+ */
+export const CABECALHO_PREFERENCIAS = `PREFERÊNCIAS DO AUTOR — estas escolhas têm precedência sobre as heurísticas de "COMO MAPEAR" e "SENSO DE DESIGN" acima, mas NUNCA autorizam reescrever, resumir ou omitir texto:`;
