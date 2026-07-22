@@ -120,9 +120,9 @@ export function ClientTree({
         const Icon = ICON[n.type];
         return (
           <li key={n.id} className="py-0.5">
-            <div className={cn("group flex items-center gap-2 rounded px-1 py-1 hover:bg-surface-2", n.hidden && "opacity-60")}>
-              <Icon className="size-4 shrink-0 text-text-muted" />
-              <span className="flex-1 truncate text-sm">{n.title}</span>
+            <div className={cn("group flex items-start gap-2 rounded px-1 py-1 hover:bg-surface-2", n.hidden && "opacity-60")}>
+              <Icon className="mt-0.5 size-4 shrink-0 text-text-muted" />
+              <span className="min-w-0 flex-1 text-[0.8125rem] leading-[1.45] [overflow-wrap:anywhere]">{n.title}</span>
               {n.badge !== "proprio" && (
                 <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", BADGE_STYLE[n.badge])}>
                   {BADGE_LABEL[n.badge]}

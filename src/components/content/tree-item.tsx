@@ -7,7 +7,6 @@ import {
   ChevronRight,
   FileText,
   Folder,
-  GripVertical,
   Link2,
   Minus,
 } from "lucide-react";
@@ -58,17 +57,21 @@ export function TreeItem({
   const Icon = ICONS[node.type];
 
   return (
+    // Linha no padrão dos portais de referência (Microsoft Learn / Apple):
+    // o título QUEBRA em várias linhas em vez de truncar, e as ações moram
+    // num overlay que só existe no hover — antes elas ficavam no fluxo e
+    // reservavam ~150px invisíveis em toda linha, o que cortava os títulos.
     <div
       ref={setNodeRef}
       data-node-id={id}
       style={{
         transform: CSS.Translate.toString(transform),
         transition,
-        paddingLeft: depth * indentationWidth + 8,
+        paddingLeft: depth * indentationWidth + 4,
         opacity: isDragging ? 0.4 : 1,
       }}
       className={cn(
-        "group flex items-center gap-1 rounded-md py-1 pr-2 text-sm",
+        "group relative flex items-start gap-1 rounded-md py-[3px] pr-1 text-[0.8125rem] leading-[1.45]",
         selected ? "bg-brand-purple-50 dark:bg-brand-purple-950/40" : "hover:bg-surface-2",
         checked && "bg-brand-purple-50 dark:bg-brand-purple-950/30",
         active && "ring-1 ring-ring",
@@ -82,20 +85,10 @@ export function TreeItem({
         aria-label="Selecionar"
         title="Selecionar (Shift para intervalo)"
         className={cn(
-          "size-3.5 shrink-0 accent-[var(--color-primary)]",
+          "mt-[3px] size-3.5 shrink-0 accent-[var(--color-primary)]",
           checked || anyChecked ? "" : "opacity-0 group-hover:opacity-100",
         )}
       />
-      <button
-        type="button"
-        className="cursor-grab touch-none text-text-muted opacity-0 group-hover:opacity-100"
-        aria-label="Arrastar"
-        title="Arrastar para mover"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="size-4" />
-      </button>
 
       {hasChildren ? (
         <button
@@ -103,32 +96,49 @@ export function TreeItem({
           onClick={onToggle}
           aria-label={collapsed ? "Expandir" : "Colapsar"}
           title={collapsed ? "Expandir" : "Recolher"}
-          className="text-text-muted"
+          className="mt-0.5 shrink-0 text-text-muted"
         >
           {collapsed ? (
-            <ChevronRight className="size-4" />
+            <ChevronRight className="size-3.5" />
           ) : (
-            <ChevronDown className="size-4" />
+            <ChevronDown className="size-3.5" />
           )}
         </button>
       ) : (
-        <span className="w-4" />
+        <span className="w-3.5 shrink-0" />
       )}
+
+      {/* O ícone do tipo É a alça de arrastar — o grip dedicado saiu, era
+          mais uma coluna roubando espaço do título. */}
+      <span
+        aria-label="Arrastar para mover"
+        title="Arrastar para mover"
+        className="mt-0.5 shrink-0 cursor-grab touch-none text-text-muted active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <Icon className="size-4" />
+      </span>
 
       <button
         type="button"
         onClick={onSelect}
         title="Clique para abrir · Shift+clique seleciona um intervalo · Ctrl/⌘+clique marca vários"
-        className="flex flex-1 items-center gap-2 truncate text-left"
+        className="min-w-0 flex-1 text-left [overflow-wrap:anywhere]"
       >
-        <Icon className="size-4 shrink-0 text-text-muted" />
-        <span className="truncate">{node.title}</span>
+        {node.title}
         {node.status === "published" && (
-          <span className="ml-1 size-1.5 shrink-0 rounded-full bg-primary" title="Publicado" />
+          <span
+            className="ml-1.5 inline-block size-1.5 rounded-full bg-primary align-middle"
+            title="Publicado"
+          />
         )}
       </button>
 
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+      {/* Mini-barra de ações: overlay com fundo próprio, aparece no hover ou
+          quando algum botão dela recebe foco pelo teclado. */}
+      <div className="pointer-events-none absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-md border border-border bg-surface px-0.5 py-0.5 opacity-0 shadow-1 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+      >
         {actions}
       </div>
     </div>

@@ -39,7 +39,9 @@ import { TreeItem } from "./tree-item";
 import { CopyToSpaceDialog } from "./copy-to-space-dialog";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
-const INDENT = 20;
+// Um degrau curto por nível (padrão Microsoft Learn): em árvores fundas a
+// indentação larga é quem come a largura do título.
+const INDENT = 14;
 
 /** O nó (ou algum descendente) é o `id`? Decide se a exclusão fecha o editor. */
 function subtreeTemId(n: TreeNode, id: string): boolean {
