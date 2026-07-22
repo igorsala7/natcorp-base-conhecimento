@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -37,11 +38,12 @@ import {
   PenLine,
   Sparkles,
   Wand2,
+  ArrowLeft,
 } from "lucide-react";
 import type { Block, BlockType, BlockDoc } from "@/lib/blocks/schema";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { newId } from "@/lib/blocks/schema";
-import { BLOCKS } from "@/lib/blocks/registry.meta";
+import { BLOCKS, slashBlocks } from "@/lib/blocks/registry.meta";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { moveBlock, findBlock, topAncestorId } from "@/lib/blocks/tree-ops";
@@ -685,7 +687,6 @@ function BlockEditorInner({
     const t = blocksToText(blocks).trim();
     return t ? t.split(/\s+/).length : 0;
   }, [blocks]);
-  const selected = selectedId ? findBlock(blocks, selectedId) : null;
   const noSnippets = useMemo(() => new Map<string, Block[]>(), []);
 
   return (
@@ -695,7 +696,14 @@ function BlockEditorInner({
     >
       {/* Cabeçalho */}
       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
-        <div className="min-w-0">
+        <Link
+          href="/admin/conteudo"
+          title="Voltar para a árvore de conteúdo"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
+        <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
           <span className="text-xs text-text-muted">
             {saveState === "saving"
@@ -960,13 +968,34 @@ function BlockEditorInner({
             onDragEnd={onDragEnd}
             onDragCancel={() => setDragPaleta(null)}
           >
-            <aside className="slim-scroll w-60 shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-3">
-              <BlockPalette
-                onAdd={paletteAdd}
-                snippets={snippetsDisponiveis}
-                onAddSnippet={paletteAddSnippet}
-              />
-            </aside>
+            {/* Com um painel direito aberto, a paleta vira trilho de ícones —
+                nunca dois trilhos largos comendo o canvas ao mesmo tempo. */}
+            {showChat || showOptimize ? (
+              <aside className="slim-scroll flex w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto rounded-lg border border-border bg-surface py-2">
+                {slashBlocks().map((m) => {
+                  const Icon = m.icon;
+                  return (
+                    <button
+                      key={m.type}
+                      type="button"
+                      title={`${m.label} — adicionar ao final`}
+                      onClick={() => paletteAdd(m.type)}
+                      className="flex size-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-brand-purple-50 hover:text-primary dark:hover:bg-brand-purple-950/40"
+                    >
+                      <Icon className="size-4" />
+                    </button>
+                  );
+                })}
+              </aside>
+            ) : (
+              <aside className="slim-scroll w-60 shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-3">
+                <BlockPalette
+                  onAdd={paletteAdd}
+                  snippets={snippetsDisponiveis}
+                  onAddSnippet={paletteAddSnippet}
+                />
+              </aside>
+            )}
             <div
               className="min-w-[26rem] flex-1 overflow-auto"
               onClick={() => setSelectedId(null)}

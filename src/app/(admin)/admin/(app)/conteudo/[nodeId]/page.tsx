@@ -161,7 +161,7 @@ export default async function EditarConteudoPage({
   ]);
 
   return (
-    <ContentShell aside={aside}>
+    <ContentShell aside={aside} defaultCollapsed>
       <BlockEditor
         nodeId={nodeId}
         spaceId={node.space_id}
