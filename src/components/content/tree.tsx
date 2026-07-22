@@ -37,7 +37,6 @@ import {
 } from "./tree-utils";
 import { TreeItem } from "./tree-item";
 import { CopyToSpaceDialog } from "./copy-to-space-dialog";
-import { ArticleWizard } from "./article-wizard";
 import { BUILTIN_TEMPLATES } from "@/lib/blocks/templates";
 import {
   getTemplateBlocks,
@@ -82,7 +81,6 @@ export function Tree({
   const [creating, setCreating] = useState<null | "folder" | "article">(null);
   const [propsNode, setPropsNode] = useState<TreeNode | null>(null);
   const [sendToSpace, setSendToSpace] = useState(false);
-  const [wizardAberto, setWizardAberto] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [templateSel, setTemplateSel] = useState("none");
   const [salvos, setSalvos] = useState<TemplateOption[]>([]);
@@ -313,6 +311,16 @@ export function Tree({
             </button>
             <button
               type="button"
+              title="Criar com IA dentro desta pasta (Estúdio)"
+              className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
+              onClick={() =>
+                router.push(`/admin/estudio?space=${spaceId}&parent=${item.id}&nova=1`)
+              }
+            >
+              <Wand2 className="size-3.5" />
+            </button>
+            <button
+              type="button"
               title="Publicar tudo"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
               onClick={async () => {
@@ -406,8 +414,13 @@ export function Tree({
           <Button size="sm" variant="secondary" onClick={() => { setCreating("article"); setDraftTitle(""); setTemplateSel("none"); void listSavedTemplates(spaceId).then(setSalvos); }}>
             <FilePlus className="size-4" /> Artigo
           </Button>
-          <Button size="sm" variant="secondary" title="Gerar um artigo com IA (tema → estrutura → rascunho)" onClick={() => setWizardAberto(true)}>
-            <Wand2 className="size-4" /> IA
+          <Button
+            size="sm"
+            variant="secondary"
+            title="Criar com IA: conversa com um editor que monta artigos e estrutura (Estúdio)"
+            onClick={() => router.push(`/admin/estudio?space=${spaceId}&nova=1`)}
+          >
+            <Wand2 className="size-4" /> Criar com IA
           </Button>
         </div>
         {creating && (
@@ -627,8 +640,6 @@ export function Tree({
           }}
         />
       )}
-
-      {wizardAberto && <ArticleWizard spaceId={spaceId} onClose={() => setWizardAberto(false)} />}
 
       {sendToSpace && (
         <CopyToSpaceDialog

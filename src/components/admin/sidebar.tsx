@@ -17,6 +17,7 @@ import {
   Trash2,
   Upload,
   Users,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ const GRUPOS = [
     label: "Fluxo de conteúdo",
     items: [
       { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
+      { href: "/admin/estudio", label: "Estúdio IA", icon: Wand2, ready: true },
       { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
       { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
     ],
