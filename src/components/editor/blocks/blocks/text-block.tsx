@@ -11,7 +11,7 @@ import type { BlockEditProps } from "../edit-types";
  */
 export function TextBlock({ block, onChange, ...rest }: BlockEditProps) {
   const b = block as Extract<Block, { type: "paragraph" | "quote" }>;
-  return (
+  const rich = (
     <RichText
       tag={b.type === "quote" ? "blockquote" : "p"}
       value={b.text}
@@ -23,6 +23,24 @@ export function TextBlock({ block, onChange, ...rest }: BlockEditProps) {
       onSlash={rest.onSlash}
       registerHandle={rest.registerHandle}
     />
+  );
+  if (b.type !== "quote") return rich;
+  return (
+    <>
+      {rich}
+      {/* Autor da referência: linha 12px em primária sob a citação. */}
+      <input
+        value={b.data?.author ?? ""}
+        onChange={(e) =>
+          onChange({
+            data: e.target.value.trim() ? { author: e.target.value } : undefined,
+          } as Partial<Block>)
+        }
+        placeholder="Autor (opcional)"
+        aria-label="Autor da citação"
+        className="mt-2 w-full bg-transparent text-xs font-medium text-primary outline-none placeholder:text-text-muted/60"
+      />
+    </>
   );
 }
 

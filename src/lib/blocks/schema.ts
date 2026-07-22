@@ -131,7 +131,17 @@ export type EmbedProvider =
 
 export type HeadingData = { level: HeadingLevel };
 export type CodeData = { language: string | null; code: string; filename?: string };
-export type ImageData = { src: string; alt: string; caption: string };
+export type ImageData = {
+  src: string;
+  alt: string;
+  caption: string;
+  /** Tamanho da referência: ausente = natural; wide = 36rem; medium = 24rem. */
+  size?: "wide" | "medium";
+};
+/** Autor/fonte exibido sob a citação (opcional). */
+export type QuoteData = { author?: string };
+/** Título curto do passo, acima do conteúdo livre (opcional). */
+export type StepData = { title?: string };
 export type VideoData = { provider: VideoProvider; url: string };
 /** Arquivo para download (upload no assets ou URL externa). `size` em bytes (0 = desconhecido). */
 export type FileData = { url: string; name: string; size: number };
@@ -185,7 +195,7 @@ export type Block =
   | (BlockBase & { type: "bulletList"; children: Block[] })
   | (BlockBase & { type: "orderedList"; children: Block[] })
   | (BlockBase & { type: "listItem"; text: RichText; children?: Block[] })
-  | (BlockBase & { type: "quote"; text: RichText })
+  | (BlockBase & { type: "quote"; text: RichText; data?: QuoteData })
   | (BlockBase & { type: "divider" })
   | (BlockBase & { type: "code"; data: CodeData })
   | (BlockBase & { type: "image"; data: ImageData })
@@ -195,7 +205,7 @@ export type Block =
   | (BlockBase & { type: "button"; data: ButtonData })
   | (BlockBase & { type: "callout"; data: CalloutData; children: Block[] })
   | (BlockBase & { type: "steps"; children: Block[] })
-  | (BlockBase & { type: "step"; children: Block[] })
+  | (BlockBase & { type: "step"; data?: StepData; children: Block[] })
   | (BlockBase & { type: "accordion"; children: Block[] })
   | (BlockBase & { type: "accordionItem"; data: AccordionItemData; children: Block[] })
   | (BlockBase & { type: "tabs"; children: Block[] })

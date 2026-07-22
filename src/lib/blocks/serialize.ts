@@ -209,11 +209,13 @@ function blockToMd(b: Block): string {
       return listToMd(children(b), false);
     case "orderedList":
       return listToMd(children(b), true);
-    case "quote":
-      return richToMarkdown(b.text)
+    case "quote": {
+      const md = richToMarkdown(b.text)
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n");
+      return b.data?.author?.trim() ? `${md}\n> — ${b.data.author.trim()}` : md;
+    }
     case "divider":
       return "---";
     case "code":
@@ -239,7 +241,10 @@ function blockToMd(b: Block): string {
       );
     case "steps":
       return children(b)
-        .map((s, i) => `${i + 1}. ${blockToMd(s).replace(/\n/g, "\n   ")}`)
+        .map((s, i) => {
+          const titulo = s.type === "step" && s.data?.title?.trim() ? `**${s.data.title.trim()}** — ` : "";
+          return `${i + 1}. ${titulo}${blockToMd(s).replace(/\n/g, "\n   ")}`;
+        })
         .join("\n");
     case "hero":
       return `# ${b.data.title}${b.data.subtitle ? `\n\n${b.data.subtitle}` : ""}`;

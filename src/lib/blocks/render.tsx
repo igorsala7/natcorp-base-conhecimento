@@ -158,6 +158,11 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
           <blockquote className="!m-0 !border-0 !p-0 font-medium leading-[1.6] not-italic !text-text">
             {renderRich(block.text)}
           </blockquote>
+          {block.data?.author?.trim() ? (
+            <figcaption className="mt-2 text-xs font-medium text-primary">
+              {block.data.author}
+            </figcaption>
+          ) : null}
         </figure>
       );
     case "divider":
@@ -205,7 +210,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     }
 
     case "image": {
-      const { src, alt, caption } = block.data;
+      const { src, alt, caption, size } = block.data;
       if (!src) return null;
       return (
         <figure className="my-5 text-center">
@@ -215,7 +220,9 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             alt={alt}
             loading="lazy"
             decoding="async"
-            className="mx-auto rounded-lg border border-border shadow-1"
+            className={`mx-auto rounded-lg border border-border shadow-1 ${
+              size === "wide" ? "w-full max-w-[36rem]" : size === "medium" ? "w-full max-w-[24rem]" : ""
+            }`}
           />
           {caption ? (
             <figcaption className="mt-2 text-center text-xs text-text-muted">{caption}</figcaption>
@@ -311,6 +318,9 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "step":
       return (
         <div className="relative pb-6 pl-11 last:pb-0 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-0 after:left-[15px] after:top-8 after:w-px after:bg-gradient-to-b after:from-brand-purple-300 after:to-brand-purple-100 last:after:hidden dark:before:ring-brand-purple-950 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950 [&>*:first-child]:mt-0 [&>*:first-child]:pt-1">
+          {block.data?.title?.trim() ? (
+            <div className="pt-1 text-sm font-semibold">{block.data.title}</div>
+          ) : null}
           {renderChildren(block.children, ctx)}
         </div>
       );

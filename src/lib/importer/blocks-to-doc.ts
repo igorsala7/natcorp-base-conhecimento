@@ -64,7 +64,12 @@ function leafToBlock(b: LeafBlock): Block {
       return {
         id: newId(),
         type: "steps",
-        children: b.items.map((t) => ({ id: newId(), type: "step", children: [para(t)] })),
+        children: b.items.map((item) => ({
+          id: newId(),
+          type: "step",
+          ...(item.titulo?.trim() ? { data: { title: item.titulo.trim() } } : {}),
+          children: [para(item.texto)],
+        })),
       };
     case "bullets":
       return {
@@ -96,7 +101,12 @@ function leafToBlock(b: LeafBlock): Block {
         ...miniEstilo(b.largura, b.posicao),
       };
     case "quote":
-      return { id: newId(), type: "quote", text: rt(b.text) };
+      return {
+        id: newId(),
+        type: "quote",
+        text: rt(b.text),
+        ...(b.autor?.trim() ? { data: { author: b.autor.trim() } } : {}),
+      };
     case "spacer":
       return { id: newId(), type: "spacer", data: { size: b.size } };
     case "button":

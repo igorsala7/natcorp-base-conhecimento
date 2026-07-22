@@ -181,12 +181,24 @@ export function StepsBlock({ children }: BlockEditProps) {
   return <div className="[counter-reset:step]">{children}</div>;
 }
 
-export function StepBlock({ children }: BlockEditProps) {
+export function StepBlock({ block, onChange, children }: BlockEditProps) {
+  const b = block as Extract<Block, { type: "step" }>;
   return (
     /* MESMA anatomia do portal: número 32px com anel roxo e conector em
        degradê. Aqui o conector fica sempre visível — no editor cada passo
        vive num wrapper próprio e o "último" não é irmão direto. */
     <div className="relative pb-6 pl-11 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-0 after:left-[15px] after:top-8 after:w-px after:bg-gradient-to-b after:from-brand-purple-300 after:to-brand-purple-100 dark:before:ring-brand-purple-950 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950">
+      <input
+        value={b.data?.title ?? ""}
+        onChange={(e) =>
+          onChange({
+            data: e.target.value.trim() ? { title: e.target.value } : undefined,
+          } as Partial<Block>)
+        }
+        placeholder="Título do passo (opcional)"
+        aria-label="Título do passo"
+        className="w-full bg-transparent pt-1 text-sm font-semibold outline-none placeholder:font-normal placeholder:text-text-muted/60"
+      />
       {children}
     </div>
   );

@@ -52,7 +52,11 @@ export const leafOptions = [
     text: z.string(),
     icon: iconField,
   }),
-  z.object({ kind: z.literal("steps"), items: z.array(z.string()) }),
+  z.object({
+    kind: z.literal("steps"),
+    /** titulo = rótulo CURTO do passo (palavras do próprio texto); null se o passo não tiver. */
+    items: z.array(z.object({ titulo: z.string().nullable(), texto: z.string() })),
+  }),
   z.object({ kind: z.literal("bullets"), items: z.array(z.string()) }),
   z.object({
     kind: z.literal("code"),
@@ -72,7 +76,12 @@ export const leafOptions = [
   // Lista de verificação (pré-requisitos, conferências).
   z.object({ kind: z.literal("checklist"), items: z.array(z.string()) }),
   // Citação/depoimento em destaque (vira o cartão de citação).
-  z.object({ kind: z.literal("quote"), text: z.string() }),
+  z.object({
+    kind: z.literal("quote"),
+    text: z.string(),
+    /** Autor/fonte da citação quando o texto indicar (ex.: nome após travessão "—" ou "segundo Fulano"); senão null. */
+    autor: z.string().nullable(),
+  }),
   // Respiro vertical deliberado entre assuntos — use com parcimônia.
   z.object({ kind: z.literal("spacer"), size: z.enum(["sm", "md", "lg"]) }),
   // Botão/CTA — a URL PRECISA constar do texto original (guarda descarta).

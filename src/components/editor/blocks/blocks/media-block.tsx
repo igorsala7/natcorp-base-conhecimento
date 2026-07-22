@@ -47,7 +47,38 @@ export function ImageBlock({ block, onChange, spaceId }: BlockEditProps) {
     // a publicada.
     <figure className="text-center">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={b.data.src} alt={b.data.alt} className="mx-auto rounded-lg border border-border shadow-1" />
+      <img
+        src={b.data.src}
+        alt={b.data.alt}
+        className={`mx-auto rounded-lg border border-border shadow-1 ${
+          b.data.size === "wide" ? "w-full max-w-[36rem]" : b.data.size === "medium" ? "w-full max-w-[24rem]" : ""
+        }`}
+      />
+      {/* Tamanhos da referência: natural / 36rem / 24rem. */}
+      <div className="mt-2 flex justify-center gap-1">
+        {(
+          [
+            [undefined, "Natural"],
+            ["wide", "Ampla"],
+            ["medium", "Média"],
+          ] as const
+        ).map(([valor, rotulo]) => (
+          <button
+            key={rotulo}
+            type="button"
+            onClick={() =>
+              onChange({ data: { ...b.data, size: valor } } as Partial<Block>)
+            }
+            className={`rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] transition-colors ${
+              b.data.size === valor
+                ? "bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
+                : "text-brand-gray-400 hover:text-text"
+            }`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
       <input
         value={b.data.caption}
         onChange={(e) => onChange({ data: { ...b.data, caption: e.target.value } } as Partial<Block>)}

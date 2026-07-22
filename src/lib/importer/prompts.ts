@@ -91,7 +91,7 @@ BLOCOS DISPONÍVEIS (use SOMENTE estes, com estes campos)
 - paragraph { text } — texto corrido.
 - heading { level: 2 ou 3, text } — subtítulo interno. O título do artigo já existe fora: NÃO o repita e NÃO use nível 1.
 - callout { variant: info | warning | success | danger | note, text, icon? } — aviso curto em destaque (note = observação neutra, violeta).
-- steps { items[] } — procedimento sequencial, um passo por item.
+- steps { items: [{titulo, texto}] } — procedimento sequencial, um passo por item; titulo = rótulo CURTO com palavras do próprio texto (null se o passo não tiver nome claro).
 - bullets { items[] } — lista de itens sem ordem.
 - checklist { items[] } — lista de VERIFICAÇÃO (pré-requisitos, conferências, "antes de começar"). Cada item carrega o texto INTEGRAL do original.
 - stats { items: [{ value, label }], largura?, posicao? } — cartões de indicadores/KPIs. Use APENAS quando o texto traz números de destaque, e SEMPRE mantendo a frase original num paragraph junto — stats RESUME visualmente, nunca substitui o texto.
