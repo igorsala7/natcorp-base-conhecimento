@@ -27,8 +27,21 @@ export default async function PreviewPage({
   if (!job) notFound();
 
   const stored = job.result_tree as
-    | { tree: ProposedNode[]; images: string[]; usedAi?: boolean }
+    | {
+        tree: ProposedNode[];
+        images: string[];
+        usedAi?: boolean;
+        destinoNodeId?: string | null;
+        destinoSpaceId?: string;
+      }
     | null;
+
+  // Para onde ir quando a importação (com melhoria de layout) terminar.
+  const doneHref = stored?.destinoNodeId
+    ? `/admin/conteudo/${stored.destinoNodeId}`
+    : stored?.destinoSpaceId
+      ? `/admin/conteudo?space=${stored.destinoSpaceId}`
+      : null;
 
   // Ainda processando (ou falhou): mostra o progresso + relatório ao vivo.
   if (!stored || job.status !== "preview") {
@@ -36,6 +49,7 @@ export default async function PreviewPage({
       <ImportProgress
         jobId={job.id}
         fileName={job.original_name ?? "documento"}
+        doneHref={doneHref}
         initial={{
           status: job.status,
           progress: job.progress ?? 0,

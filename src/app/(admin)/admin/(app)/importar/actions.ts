@@ -12,7 +12,13 @@ import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
 
 export type ImportResult =
-  | { ok: true; id?: string; improving?: boolean }
+  | {
+      ok: true;
+      id?: string;
+      improving?: boolean;
+      /** Onde o conteúdo entrou: o diretório criado/escolhido (null = raiz). */
+      destino?: { nodeId: string | null; spaceId: string };
+    }
   | { ok: false; error: string };
 
 /** Cria o job de importação (arquivo já subido ao bucket) e enfileira. */
@@ -228,6 +234,9 @@ export async function materializeImport(
 
   // Tudo que for criado entra aqui, para poder ser desfeito se algo falhar no meio.
   const criados: string[] = [];
+  // Onde o conteúdo vai pendurar: a pasta nova (se pedida) ou o pai escolhido.
+  // Fica fora do try porque o destino é gravado no job depois da inserção.
+  let rootParentId = baseParentId;
 
   try {
     // Posição inicial = fim da lista de irmãos no destino.
@@ -243,8 +252,6 @@ export async function materializeImport(
       const { data } = await q.maybeSingle();
       return data?.position ?? null;
     };
-
-    let rootParentId = baseParentId;
 
     // Opcional: cria a pasta que vai receber todo o conteúdo importado.
     const novaPasta = target?.newFolderTitle?.trim();
@@ -294,6 +301,16 @@ export async function materializeImport(
     return { ok: false, error: `Falha ao materializar: ${msg}.${parcial}` };
   }
 
+  // Guarda o DESTINO no job: é o que permite à tela de progresso levar o
+  // usuário ao diretório novo quando a melhoria de layout terminar.
+  const destino = { nodeId: rootParentId, spaceId };
+  await supabase
+    .from("import_jobs")
+    .update({
+      result_tree: { ...(stored ?? {}), destinoNodeId: rootParentId, destinoSpaceId: spaceId } as Json,
+    })
+    .eq("id", jobId);
+
   // Melhoria de layout: fase em segundo plano sobre os ARTIGOS criados.
   // A árvore já está no lugar — se o worker estiver parado, nada se perde:
   // o conteúdo fica como veio da extração.
@@ -341,7 +358,7 @@ export async function materializeImport(
   });
   revalidatePath("/admin/conteudo");
   revalidatePath("/admin/importar");
-  return { ok: true, improving: melhorando };
+  return { ok: true, improving: melhorando, destino };
 }
 
 /** Remove um job (e opcionalmente o arquivo). */

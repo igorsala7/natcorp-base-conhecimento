@@ -169,9 +169,12 @@ export function ImportPreview({
       );
       if (!res.ok) setMsg(res.error);
       // Melhorando em segundo plano: permanece nesta página, que vira a tela
-      // de progresso da fase de layout. Sem melhoria: direto para a árvore.
+      // de progresso da fase de layout (e navega ao destino quando terminar).
       else if (res.improving) router.refresh();
-      else router.push(`/admin/conteudo?space=${spaceId}`);
+      // Sem melhoria: direto para a PÁGINA DO DIRETÓRIO onde o conteúdo
+      // entrou (a pasta criada/escolhida), não para a árvore genérica.
+      else if (res.destino?.nodeId) router.push(`/admin/conteudo/${res.destino.nodeId}`);
+      else router.push(`/admin/conteudo?space=${res.destino?.spaceId ?? spaceId}`);
     });
   }
 

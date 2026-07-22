@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { STATUS_LABEL, isTerminal, parseLog, type ImportLogLine } from "../status";
 
@@ -14,16 +14,19 @@ type State = { status: string; progress: number; error: string | null; log: Impo
  * grava). Usa Realtime e, como rede de segurança, também faz polling — se o
  * Realtime não entregar (canal/RLS), a tela continua atualizando sozinha.
  * Ao ficar pronto (`preview`), dá refresh para a página server renderizar a
- * revisão.
+ * revisão; ao CONCLUIR (`done`), navega direto para o diretório que recebeu o
+ * conteúdo (`doneHref`) — 100% não pode terminar numa tela parada.
  */
 export function ImportProgress({
   jobId,
   fileName,
   initial,
+  doneHref,
 }: {
   jobId: string;
   fileName: string;
   initial: State;
+  doneHref?: string | null;
 }) {
   const router = useRouter();
   const [job, setJob] = useState<State>(initial);
@@ -47,10 +50,12 @@ export function ImportProgress({
         error: data.error,
         log: parseLog(data.log),
       });
-      // Chegou ao fim: recarrega a página (vai mostrar a revisão ou o erro).
+      // Chegou ao fim: concluído vai para o conteúdo importado; os demais
+      // recarregam a página (vai mostrar a revisão ou o erro).
       if (isTerminal(data.status) && !doneRef.current) {
         doneRef.current = true;
-        router.refresh();
+        if (data.status === "done" && doneHref) router.push(doneHref);
+        else router.refresh();
       }
     };
 
@@ -71,9 +76,10 @@ export function ImportProgress({
       clearInterval(timer);
       void supabase.removeChannel(channel);
     };
-  }, [jobId, initial.status, router]);
+  }, [jobId, initial.status, doneHref, router]);
 
   const erro = job.status === "error";
+  const pronto = job.status === "done";
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -90,6 +96,8 @@ export function ImportProgress({
         <div className="flex items-center gap-2 text-sm">
           {erro ? (
             <AlertTriangle className="size-4 text-brand-pink-700" />
+          ) : pronto ? (
+            <CheckCircle2 className="size-4 text-primary" />
           ) : (
             <Loader2 className="size-4 animate-spin text-primary" />
           )}
@@ -124,7 +132,18 @@ export function ImportProgress({
           </ol>
         )}
 
-        {!erro && (
+        {/* Revisita de um job já concluído: sem redirecionar ninguém à força,
+            mas o caminho para o resultado fica a um clique. */}
+        {pronto && doneHref && (
+          <Link
+            href={doneHref}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-fg shadow-1 transition-colors hover:bg-primary-hover"
+          >
+            Abrir o conteúdo importado <ArrowRight className="size-4" />
+          </Link>
+        )}
+
+        {!erro && !pronto && (
           <p className="mt-3 text-xs text-text-muted">
             Esta tela atualiza sozinha. O processamento roda no worker
             (<code>npm run worker</code>) — se nada avançar, verifique se ele está no ar.
