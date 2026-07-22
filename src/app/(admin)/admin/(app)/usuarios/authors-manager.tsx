@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PenLine, Plus, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { deleteAuthor, saveAuthor, type AuthorRow } from "./author-actions";
@@ -85,9 +87,12 @@ export function AuthorsManager({
       )}
 
       {authors.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-text-muted">
-          Nenhum perfil de autor ainda. Crie um para o nome aparecer nos artigos publicados.
-        </p>
+        <EmptyState
+          className="mt-3"
+          icon={UserRound}
+          title="Nenhum perfil de autor ainda"
+          description="Crie um para o nome aparecer nos artigos publicados."
+        />
       ) : (
         <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface">
           {authors.map((a) => (
@@ -104,9 +109,9 @@ export function AuthorsManager({
                 <p className="truncate text-sm font-medium">
                   {a.public_name}
                   {!a.active && (
-                    <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[0.6875rem] text-text-muted">
-                      inativo
-                    </span>
+                    <Badge tone="neutral" className="ml-2">
+                      Inativo
+                    </Badge>
                   )}
                 </p>
                 <p className="truncate text-xs text-text-muted">

@@ -3,12 +3,13 @@
 import { useMemo, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { UserPlus } from "lucide-react";
+import { Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Input, controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Segmented } from "@/components/ui/segmented";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import type { Role } from "@/lib/auth/roles";
 import type { UserRow } from "./page";
@@ -27,6 +28,12 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Ativo",
   invited: "Convidado",
   suspended: "Suspenso",
+};
+
+const STATUS_TONE: Record<string, BadgeTone> = {
+  active: "success",
+  invited: "info",
+  suspended: "danger",
 };
 
 function maxLevel(u: UserRow) {
@@ -151,12 +158,15 @@ export function UsersManager({
   return (
     <div className="mt-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Buscar por nome ou e-mail…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="max-w-xs"
-        />
+        <div className="relative w-full max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
+          <Input
+            placeholder="Buscar por nome ou e-mail…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
@@ -170,17 +180,16 @@ export function UsersManager({
             </option>
           ))}
         </select>
-        <select
+        <Segmented
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className={`${controlClass} h-10 w-auto`}
-          aria-label="Filtrar por status"
-        >
-          <option value="">Todos os status</option>
-          <option value="active">Ativo</option>
-          <option value="invited">Convidado</option>
-          <option value="suspended">Suspenso</option>
-        </select>
+          onChange={setStatusFilter}
+          options={[
+            { value: "", label: "Todos" },
+            { value: "active", label: "Ativo" },
+            { value: "invited", label: "Convidado" },
+            { value: "suspended", label: "Suspenso" },
+          ]}
+        />
         {can.invite && (
           <Button
             className="ml-auto"
@@ -244,7 +253,7 @@ export function UsersManager({
                     </div>
                   </Td>
                   <Td>
-                    <Badge tone={u.status === "suspended" ? "danger" : "neutral"}>
+                    <Badge tone={STATUS_TONE[u.status] ?? "neutral"}>
                       {STATUS_LABEL[u.status] ?? u.status}
                     </Badge>
                   </Td>

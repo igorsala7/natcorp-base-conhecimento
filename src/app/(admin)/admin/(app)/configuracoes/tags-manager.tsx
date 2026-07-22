@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { Merge, Pencil, Plus, Tag as TagIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
+import { Surface } from "@/components/ui/surface";
 import { useConfirm } from "@/components/ui/confirm";
 import {
   createTag,
@@ -51,7 +53,7 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
   const selecionadas = initial.filter((t) => marcadas.has(t.id));
 
   return (
-    <section className="rounded-lg border border-border bg-surface p-4">
+    <Surface elevation={1} padding="md">
       <div className="flex flex-wrap items-center gap-3">
         <TagIcon className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
@@ -104,9 +106,11 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
       )}
 
       {initial.length === 0 ? (
-        <p className="mt-3 text-sm text-text-muted">
-          Nenhuma tag ainda. Crie aqui, ou direto nas propriedades de um artigo.
-        </p>
+        <EmptyState
+          className="mt-3 px-4 py-8"
+          title="Nenhuma tag ainda"
+          description="Crie aqui, ou direto nas propriedades de um artigo."
+        />
       ) : (
         <ul className="mt-3 flex flex-wrap gap-2">
           {initial.map((t) => (
@@ -207,6 +211,6 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
           </select>
         </Field>
       </Dialog>
-    </section>
+    </Surface>
   );
 }

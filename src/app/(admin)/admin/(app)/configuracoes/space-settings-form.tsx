@@ -6,6 +6,7 @@ import { CheckCircle2, Globe, Lock, KeyRound, ShieldAlert, Sparkles, Eraser } fr
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
+import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { updateSpaceSettings, clearSpaceEmbeddings, verifyCustomDomain, type DomainCheck } from "./actions";
 
@@ -130,12 +131,12 @@ export function SpaceSettingsForm({
 
       <Surface elevation={1} padding="lg" className="space-y-4 rounded-xl">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text-muted">Nome</span>
+          <span className={`mb-1 ${eyebrowLabel}`}>Nome</span>
           <input className={controlClass} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
 
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text-muted">Endereço público</span>
+          <span className={`mb-1 ${eyebrowLabel}`}>Endereço público</span>
           <div className="flex items-center gap-1">
             <span className="shrink-0 text-sm text-text-muted">/docs/</span>
             <input
@@ -158,7 +159,7 @@ export function SpaceSettingsForm({
         </label>
 
         <div>
-          <span className="mb-1.5 block text-sm font-medium text-text-muted">Visibilidade</span>
+          <span className={`mb-1.5 ${eyebrowLabel}`}>Visibilidade</span>
           <div className="grid gap-2 sm:grid-cols-3">
             {VIS.map((v) => {
               const Icon = v.icon;
@@ -182,7 +183,7 @@ export function SpaceSettingsForm({
           {visibility === "password" && (
             <div className="mt-3 rounded-lg border border-border bg-bg p-3">
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-text-muted">
+                <span className={`mb-1 ${eyebrowLabel}`}>
                   {hasPassword ? "Nova senha (deixe em branco para manter)" : "Definir senha"}
                 </span>
                 <input
@@ -202,7 +203,7 @@ export function SpaceSettingsForm({
         </div>
 
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text-muted">Domínio personalizado (opcional)</span>
+          <span className={`mb-1 ${eyebrowLabel}`}>Domínio personalizado (opcional)</span>
           <input
             className={controlClass}
             placeholder="docs.cliente.com"
@@ -272,7 +273,7 @@ export function SpaceSettingsForm({
             início do caminho. Quem chegar de outro lugar vê a página bloqueada com a mensagem.
           </p>
           <label className="mt-3 block">
-            <span className="mb-1 block font-medium text-text-muted">
+            <span className={`mb-1 ${eyebrowLabel}`}>
               URLs permitidas (uma por linha; vazio = sem restrição)
             </span>
             <textarea
@@ -284,7 +285,7 @@ export function SpaceSettingsForm({
             />
           </label>
           <label className="mt-3 block">
-            <span className="mb-1 block font-medium text-text-muted">Mensagem da página bloqueada</span>
+            <span className={`mb-1 ${eyebrowLabel}`}>Mensagem da página bloqueada</span>
             <input
               value={msgBloqueio}
               onChange={(e) => setMsgBloqueio(e.target.value)}

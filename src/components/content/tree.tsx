@@ -17,7 +17,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CheckCircle2, FilePlus, FolderPlus, Pencil, Sparkles, Trash2, Wand2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { controlClass } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   createNode,
   deleteNode,
@@ -459,7 +462,7 @@ export function Tree({
               onChange={(e) => setDraftTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && setCreating(null)}
               placeholder={creating === "folder" ? "Nome da pasta" : "Título do artigo"}
-              className="h-7 min-w-0 flex-1 rounded border border-border bg-surface px-2 text-sm focus:border-primary focus:outline-none"
+              className={cn(controlClass, "h-7 min-w-0 flex-1 px-2 py-1")}
             />
             {creating === "article" && (
               <select
@@ -467,7 +470,7 @@ export function Tree({
                 onChange={(e) => setTemplateSel(e.target.value)}
                 aria-label="Modelo do artigo"
                 title="Modelo inicial do artigo"
-                className="h-7 max-w-36 shrink-0 rounded border border-border bg-surface px-1 text-xs focus:border-primary focus:outline-none"
+                className={cn(controlClass, "h-7 w-auto max-w-36 shrink-0 px-1 py-1 text-xs")}
               >
                 <option value="none">Em branco</option>
                 {BUILTIN_TEMPLATES.map((t) => (
@@ -482,9 +485,9 @@ export function Tree({
                 ))}
               </select>
             )}
-            <button type="submit" className="shrink-0 rounded bg-primary px-2 py-1 text-xs font-medium text-primary-fg">
+            <Button type="submit" size="sm" className="h-7 shrink-0">
               Criar
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => setCreating(null)}
@@ -501,7 +504,7 @@ export function Tree({
           <span className="font-medium text-primary">{checkedIds.size} selecionado(s)</span>
           <select
             defaultValue=""
-            className="h-7 rounded border border-border bg-surface px-1 text-xs"
+            className={cn(controlClass, "h-7 w-auto px-1 py-1 text-xs")}
             aria-label="Mover para"
             onChange={(e) => {
               const dest = e.target.value;
@@ -528,9 +531,10 @@ export function Tree({
               ))}
           </select>
           {selectedArticles.length >= 2 && (
-            <button
+            <Button
               type="button"
-              className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+              size="sm"
+              variant="ghost"
               title="Unificar os artigos selecionados em um só, na ordem da árvore"
               onClick={async () => {
                 if (
@@ -551,21 +555,23 @@ export function Tree({
               }}
             >
               Unificar ({selectedArticles.length})
-            </button>
+            </Button>
           )}
           {spaces.length > 1 && (
-            <button
+            <Button
               type="button"
-              className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+              size="sm"
+              variant="ghost"
               title="Copiar ou mover os itens marcados para outra documentação"
               onClick={() => setSendToSpace(true)}
             >
               Outra documentação
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             type="button"
-            className="rounded px-2 py-0.5 text-xs text-primary hover:bg-surface"
+            size="sm"
+            variant="ghost"
             title="Gerar embeddings dos itens marcados, incluindo tudo abaixo na hierarquia"
             onClick={async () => {
               const ids = [...checkedIds];
@@ -591,10 +597,11 @@ export function Tree({
             }}
           >
             Gerar embeddings
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="rounded px-2 py-0.5 text-xs text-brand-pink-700 hover:bg-surface"
+            size="sm"
+            variant="danger"
             onClick={async () => {
               if (
                 await confirmar({
@@ -617,15 +624,24 @@ export function Tree({
             }}
           >
             Excluir
-          </button>
-          <button type="button" className="ml-auto text-xs text-text-muted hover:text-text" onClick={clearSelection}>
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={clearSelection}>
             Limpar
-          </button>
+          </Button>
         </div>
       )}
 
       {message && (
-        <p className="mb-2 rounded-md bg-brand-pink-50 px-2 py-1 text-xs text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
+        <p
+          role="alert"
+          // A mesma faixa carrega sucesso ("Embeddings gerados…") e erro —
+          // o tom segue o conteúdo, não é sempre vermelho.
+          className={
+            /falha|erro|sem permiss|inválid|não é possível/i.test(message)
+              ? "mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              : "mb-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-muted"
+          }
+        >
           {message}
         </p>
       )}
@@ -655,9 +671,12 @@ export function Tree({
       )}
 
       {flat.length === 0 ? (
-        <p className="px-2 py-6 text-sm text-text-muted">
-          Árvore vazia. Crie uma pasta ou artigo para começar.
-        </p>
+        <EmptyState
+          className="mt-2"
+          icon={FolderPlus}
+          title="Árvore vazia"
+          description="Crie uma pasta ou artigo para começar."
+        />
       ) : (
         <DndContext
           // Id FIXO, obrigatório sob SSR: sem ele o dnd-kit deriva o

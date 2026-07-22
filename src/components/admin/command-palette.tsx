@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, FileText, Search } from "lucide-react";
 import { searchContent, type SearchHit } from "@/app/(admin)/admin/(app)/search-actions";
+import { eyebrowLabel } from "@/components/ui/field";
 
 const RECENT_KEY = "kb.recentSearches";
 
@@ -148,7 +149,7 @@ export function CommandPalette() {
 
           {!loading && query.trim().length < 2 && recent.length > 0 && (
             <div>
-              <div className="px-3 py-1 text-xs font-medium text-text-muted">
+              <div className={`${eyebrowLabel} px-3 py-1`}>
                 Buscas recentes
               </div>
               {recent.map((r) => (
@@ -167,7 +168,7 @@ export function CommandPalette() {
 
           {[...groups.entries()].map(([cat, list]) => (
             <div key={cat} className="mb-2">
-              <div className="px-3 py-1 text-xs font-medium text-text-muted">
+              <div className={`${eyebrowLabel} px-3 py-1`}>
                 {cat}
               </div>
               {list.map((hit) => {

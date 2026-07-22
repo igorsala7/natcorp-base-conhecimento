@@ -13,6 +13,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { Badge } from "@/components/ui/badge";
 import { Surface } from "@/components/ui/surface";
 
 export const metadata: Metadata = { title: "Painel" };
@@ -180,8 +181,10 @@ export default async function AdminHome() {
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{a.title}</p>
-                    <p className="text-xs text-text-muted">
-                      {a.status === "published" ? "Publicado" : "Rascunho"} ·{" "}
+                    <p className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
+                      <Badge tone={a.status === "published" ? "success" : "warning"}>
+                        {a.status === "published" ? "Publicado" : "Rascunho"}
+                      </Badge>
                       {a.views.toLocaleString("pt-BR")} visualizações
                     </p>
                   </div>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import { controlClass } from "@/components/ui/input";
+import { Surface } from "@/components/ui/surface";
 import { submitChatFeedback } from "@/app/(admin)/admin/(app)/assistente/actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
@@ -129,7 +130,7 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border">
+    <Surface elevation={1} padding="none" className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border p-2">
         <select
           value={spaceId}
@@ -147,15 +148,17 @@ export function ChatPanel({
         <span className="hidden text-xs text-text-muted sm:inline">
           Só responde com o conteúdo deste espaço.
         </span>
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="secondary"
+          className="ml-auto"
           onClick={resetConversation}
           disabled={messages.length === 0}
-          className="ml-auto rounded-md border border-border px-2 py-1 text-xs text-text-muted hover:border-primary hover:text-primary disabled:opacity-50"
           title="Começar uma conversa nova (limpa o histórico)"
         >
           Nova conversa
-        </button>
+        </Button>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto p-4">
@@ -286,6 +289,6 @@ export function ChatPanel({
           <Send className="size-4" />
         </Button>
       </div>
-    </div>
+    </Surface>
   );
 }

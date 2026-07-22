@@ -19,7 +19,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
+import { Surface } from "@/components/ui/surface";
 import { createClient } from "@/lib/supabase/client";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { EmbeddedBlockEditor } from "@/components/editor/blocks/embedded-editor";
@@ -305,7 +307,7 @@ export function Studio({
 
       <div className="mt-3 flex min-h-0 flex-1 gap-3">
         {/* CHAT */}
-        <section className="flex w-[26rem] shrink-0 flex-col rounded-lg border border-border bg-surface">
+        <Surface elevation={1} padding="none" className="flex w-[26rem] shrink-0 flex-col">
           <div className="flex-1 space-y-3 overflow-y-auto p-3">
             {msgs.length === 0 && (
               <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-relaxed text-text-muted">
@@ -396,10 +398,10 @@ export function Studio({
               <Send className="size-4" />
             </Button>
           </form>
-        </section>
+        </Surface>
 
         {/* PROPOSTA */}
-        <section className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-surface">
+        <Surface elevation={1} padding="none" className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Sparkles className="size-4 text-primary" />
             <h2 className="text-sm font-semibold">Proposta</h2>
@@ -422,9 +424,7 @@ export function Studio({
           <div className="flex min-h-0 flex-1">
             <div className="w-64 shrink-0 overflow-y-auto border-r border-border p-2">
               {proposal.length === 0 ? (
-                <p className="p-3 text-xs leading-relaxed text-text-muted">
-                  Nada proposto ainda.
-                </p>
+                <EmptyState className="px-3 py-8" title="Nada proposto ainda" />
               ) : (
                 proposal.map((n) => linhaNo(n, 0))
               )}
@@ -466,7 +466,7 @@ export function Studio({
               )}
             </div>
           </div>
-        </section>
+        </Surface>
       </div>
     </div>
   );

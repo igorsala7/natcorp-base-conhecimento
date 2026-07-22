@@ -5,6 +5,7 @@ import { getDefaultSpace, listTree } from "@/lib/content/tree";
 import { listSpaces } from "@/lib/content/spaces";
 import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
 import { env } from "@/lib/env";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ContentShell } from "@/components/content/content-shell";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { SpacePublicUrl } from "@/components/content/space-public-url";
@@ -13,23 +14,20 @@ import { ClientTree } from "@/components/content/client-tree";
 
 export const metadata: Metadata = { title: "Conteúdo" };
 
-function EmptyState() {
+function ConteudoVazio() {
   const tips = [
     { icon: MousePointer2, text: "Selecione um artigo na árvore ao lado para editá-lo." },
     { icon: FolderPlus, text: "Crie pastas e artigos com os botões no topo da árvore." },
     { icon: Sparkles, text: "No editor, tecle “/” para inserir qualquer bloco." },
   ];
   return (
-    <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border">
-      <div className="max-w-md p-8 text-center">
-        <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
-          <FileText className="size-6" />
-        </div>
-        <h2 className="mt-4 text-xl font-semibold tracking-tight">Comece a documentar</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          Organize a documentação em uma árvore de pastas e artigos.
-        </p>
-        <ul className="mx-auto mt-5 max-w-sm space-y-2 text-left">
+    <EmptyState
+      icon={FileText}
+      title="Comece a documentar"
+      description="Organize a documentação em uma árvore de pastas e artigos."
+      className="h-full justify-center rounded-xl"
+      action={
+        <ul className="mx-auto max-w-sm space-y-2 text-left">
           {tips.map((t) => {
             const Icon = t.icon;
             return (
@@ -40,8 +38,8 @@ function EmptyState() {
             );
           })}
         </ul>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
@@ -94,7 +92,7 @@ export default async function ConteudoPage({
     const eff = await getEffectiveTreeAdmin(current.id);
     return (
       <ContentShell aside={<>{switcher}<ClientTree clientSpaceId={current.id} nodes={eff} /></>}>
-        <EmptyState />
+        <ConteudoVazio />
       </ContentShell>
     );
   }
@@ -102,7 +100,7 @@ export default async function ConteudoPage({
   const tree = await listTree(current.id);
   return (
     <ContentShell aside={<>{switcher}<Tree spaceId={current.id} nodes={tree} spaces={spaces} /></>}>
-      <EmptyState />
+      <ConteudoVazio />
     </ContentShell>
   );
 }

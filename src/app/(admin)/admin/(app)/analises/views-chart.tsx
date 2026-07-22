@@ -2,7 +2,9 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
+import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
+import { Surface } from "@/components/ui/surface";
 
 type Ponto = { day: string; spaceId: string; views: number };
 
@@ -68,11 +70,9 @@ export function ViewsChart({
   const gridY = [0.5, 1].map((f) => Math.round(max * f));
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <Surface elevation={1} padding="md">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Visualizações por dia (90 dias)
-        </p>
+        <p className={eyebrowLabel}>Visualizações por dia (90 dias)</p>
         <div className="flex items-center gap-2">
           <select
             value={spaceId}
@@ -193,6 +193,6 @@ export function ViewsChart({
           </div>
         )}
       </div>
-    </div>
+    </Surface>
   );
 }

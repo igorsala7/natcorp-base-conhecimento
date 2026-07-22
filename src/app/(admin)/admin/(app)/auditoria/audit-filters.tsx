@@ -1,6 +1,9 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { controlClass } from "@/components/ui/input";
 
 export function AuditFilters({
   actors,
@@ -19,7 +22,7 @@ export function AuditFilters({
     router.push(`/admin/auditoria?${params.toString()}`);
   }
 
-  const cls = "h-8 rounded-md border border-border bg-surface px-2 text-sm";
+  const cls = cn(controlClass, "h-8 w-auto px-2 py-1");
   return (
     <div className="flex flex-wrap items-center gap-2">
       <select className={cls} value={sp.get("actor") ?? ""} onChange={(e) => set("actor", e.target.value)} aria-label="Ator">
@@ -37,13 +40,14 @@ export function AuditFilters({
       <input type="date" className={cls} value={sp.get("from") ?? ""} onChange={(e) => set("from", e.target.value)} aria-label="De" />
       <input type="date" className={cls} value={sp.get("to") ?? ""} onChange={(e) => set("to", e.target.value)} aria-label="Até" />
       {[...sp.keys()].length > 0 && (
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="ghost"
           onClick={() => router.push("/admin/auditoria")}
-          className="rounded-md border border-border px-2 py-1 text-xs text-text-muted hover:border-primary hover:text-primary"
         >
           Limpar
-        </button>
+        </Button>
       )}
     </div>
   );

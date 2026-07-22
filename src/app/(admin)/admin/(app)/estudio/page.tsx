@@ -6,6 +6,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { createStudioSession, listStudioSessions } from "./actions";
 
 export const metadata: Metadata = { title: "Estúdio IA" };
@@ -67,9 +68,12 @@ export default async function EstudioPage({
       </div>
 
       {sessoes.length === 0 ? (
-        <p className="mt-6 rounded-lg border border-dashed border-border p-6 text-sm text-text-muted">
-          Nenhuma conversa ainda. Comece uma e diga ao editor de IA o que você precisa documentar.
-        </p>
+        <EmptyState
+          className="mt-6"
+          icon={MessageSquarePlus}
+          title="Nenhuma conversa ainda"
+          description="Comece uma e diga ao editor de IA o que você precisa documentar."
+        />
       ) : (
         <ul className="mt-6 divide-y divide-border rounded-lg border border-border bg-surface">
           {sessoes.map((s) => (

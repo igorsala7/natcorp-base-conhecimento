@@ -4,9 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Link2, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/confirm";
-import type { EffectiveNode, Badge } from "@/lib/content/overlays";
+import type { EffectiveNode, Badge as BadgeKind } from "@/lib/content/overlays";
 import {
   customizeNode,
   hideNode,
@@ -16,14 +18,14 @@ import {
 
 const ICON = { folder: Folder, article: FileText, link: Link2, divider: Minus } as const;
 
-const BADGE_STYLE: Record<Badge, string> = {
-  proprio: "",
-  herdado: "bg-brand-gray-100 text-text-muted dark:bg-brand-gray-800",
-  customizado: "bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40",
-  oculto: "bg-brand-gray-100 text-text-muted line-through dark:bg-brand-gray-800",
-  exclusivo: "bg-brand-pink-50 text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300",
+const BADGE_TONE: Record<BadgeKind, BadgeTone> = {
+  proprio: "neutral",
+  herdado: "neutral",
+  customizado: "primary",
+  oculto: "warning",
+  exclusivo: "info",
 };
-const BADGE_LABEL: Record<Badge, string> = {
+const BADGE_LABEL: Record<BadgeKind, string> = {
   proprio: "",
   herdado: "Herdado",
   customizado: "Customizado",
@@ -63,7 +65,7 @@ export function ClientTree({
                 Customizar
               </button>
             )}
-            <button className="text-xs text-text-muted hover:text-text" disabled={pending}
+            <button className="text-xs text-text-muted hover:text-text hover:underline" disabled={pending}
               onClick={() => run(() => hideNode(clientSpaceId, n.id, true))}>
               Ocultar
             </button>
@@ -84,7 +86,7 @@ export function ClientTree({
                 Editar
               </button>
             )}
-            <button className="text-xs text-text-muted hover:text-brand-pink-700" disabled={pending}
+            <button className="text-xs text-text-muted hover:text-brand-pink-700 hover:underline" disabled={pending}
               onClick={async () => {
                 if (
                   await confirmar({
@@ -124,9 +126,7 @@ export function ClientTree({
               <Icon className="mt-0.5 size-4 shrink-0 text-text-muted" />
               <span className="min-w-0 flex-1 text-[0.8125rem] leading-[1.45] [overflow-wrap:anywhere]">{n.title}</span>
               {n.badge !== "proprio" && (
-                <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", BADGE_STYLE[n.badge])}>
-                  {BADGE_LABEL[n.badge]}
-                </span>
+                <Badge tone={BADGE_TONE[n.badge]}>{BADGE_LABEL[n.badge]}</Badge>
               )}
               <span className="flex items-center gap-2 opacity-0 group-hover:opacity-100">
                 {actions(n)}
@@ -171,7 +171,12 @@ export function ClientTree({
         </p>
       )}
       {nodes.length === 0 ? (
-        <p className="px-2 py-6 text-sm text-text-muted">Espaço vazio.</p>
+        <EmptyState
+          className="mt-2"
+          icon={Folder}
+          title="Espaço vazio"
+          description="Crie uma pasta ou artigo exclusivo para começar."
+        />
       ) : (
         render(nodes, 0)
       )}

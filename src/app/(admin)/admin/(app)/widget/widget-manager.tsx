@@ -7,9 +7,11 @@ import { IconPicker } from "@/components/editor/blocks/icon-picker";
 import { escolherEEnviar } from "@/lib/content/upload";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm";
+import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
-import { Field } from "@/components/ui/field";
+import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Surface } from "@/components/ui/surface";
 import {
   saveWidgetKey,
@@ -338,25 +340,20 @@ export function WidgetManager({
       {/* Lista de chaves */}
       <div className="space-y-3">
         {initialKeys.length === 0 && !draft && (
-          <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-text-muted">
-            Nenhuma chave ainda. Crie uma para gerar o snippet de embed.
-          </p>
+          <EmptyState
+            title="Nenhuma chave ainda"
+            description="Crie uma para gerar o snippet de embed."
+          />
         )}
         {initialKeys.map((k) => (
           <Surface key={k.id} elevation={1}>
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-medium">{k.name}</span>
-              <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-muted">
-                {spaceName.get(k.space_id) ?? "?"}
-              </span>
+              <Badge tone="primary">{spaceName.get(k.space_id) ?? "?"}</Badge>
               {k.active ? (
-                <span className="rounded-full bg-brand-purple-50 px-2 py-0.5 text-xs text-primary dark:bg-brand-purple-950/40">
-                  Ativa
-                </span>
+                <Badge tone="success">Ativa</Badge>
               ) : (
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-muted">
-                  Inativa
-                </span>
+                <Badge tone="neutral">Inativa</Badge>
               )}
               <span className="text-xs text-text-muted">{k.rate_limit}/min</span>
               <div className="ml-auto flex gap-2">
@@ -399,7 +396,7 @@ export function WidgetManager({
 
       {/* Editor */}
       {draft && (
-        <div className="rounded-lg border border-primary/40 bg-surface p-5">
+        <Surface elevation={1} padding="lg" className="border-primary/40">
           <h2 className="mb-4 text-lg font-semibold">
             {draft.id ? "Editar chave" : "Nova chave"}
           </h2>
@@ -428,7 +425,7 @@ export function WidgetManager({
             </Field>
 
             <fieldset>
-              <legend className="mb-1 block text-sm font-medium text-text">
+              <legend className={`mb-1 ${eyebrowLabel}`}>
                 O que este chatbot consulta
               </legend>
               <p className="mb-2 text-xs leading-relaxed text-text-muted">
@@ -507,7 +504,7 @@ export function WidgetManager({
             </div>
           </div>
 
-          <h3 className="mb-3 mt-6 text-sm font-semibold text-text-muted">Aparência</h3>
+          <h3 className={`mb-3 mt-6 ${eyebrowLabel}`}>Aparência</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Cor primária">
               <div className="flex items-center gap-2">
@@ -550,25 +547,10 @@ export function WidgetManager({
             </Button>
             <Button variant="ghost" onClick={() => setDraft(null)}>Cancelar</Button>
           </div>
-        </div>
+        </Surface>
       )}
 
       <ApiDocs siteUrl={siteUrl} />
-
-      <style jsx>{`
-        :global(.inp) {
-          width: 100%;
-          border-radius: 0.5rem;
-          border: 1px solid var(--color-border);
-          background: var(--color-bg);
-          padding: 0.5rem 0.65rem;
-          font-size: 0.875rem;
-        }
-        :global(.inp:focus) {
-          outline: none;
-          border-color: var(--color-primary);
-        }
-      `}</style>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
+import { eyebrowLabel } from "@/components/ui/field";
 import { QualityScanButton } from "./quality-scan-button";
 import { ViewsChart } from "./views-chart";
 import type { QualityIssue } from "@/lib/quality/audit-article";
@@ -152,7 +153,7 @@ export default async function AnalisesPage() {
 
       {/* Busca */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-text-muted">Busca</h2>
+        <h2 className={`mb-3 ${eyebrowLabel}`}>Busca</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Buscas registradas" value={totalSearches} />
           <StatCard label="Sem resultado" value={zeroSearches.length} hint="lacunas na documentação" />
@@ -174,7 +175,7 @@ export default async function AnalisesPage() {
 
       {/* Assistente */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-text-muted">Assistente (chat)</h2>
+        <h2 className={`mb-3 ${eyebrowLabel}`}>Assistente (chat)</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Conversas" value={convCount ?? 0} />
           <StatCard label="Respostas" value={answers} />
@@ -189,7 +190,7 @@ export default async function AnalisesPage() {
 
       {/* Leitura */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-text-muted">Leitura (90 dias)</h2>
+        <h2 className={`mb-3 ${eyebrowLabel}`}>Leitura (90 dias)</h2>
         <div className="mb-3">
           <ViewsChart pontos={pontosGrafico} spaces={spacesList ?? []} />
         </div>
@@ -231,7 +232,7 @@ export default async function AnalisesPage() {
 
       {/* Feedback dos artigos */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-text-muted">“Isso foi útil?” nos artigos</h2>
+        <h2 className={`mb-3 ${eyebrowLabel}`}>“Isso foi útil?” nos artigos</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard label="Úteis" value={helpful} />
           <StatCard label="Não úteis" value={notHelpful} />
@@ -255,7 +256,7 @@ export default async function AnalisesPage() {
       {/* Qualidade/SEO (varredura do worker: painel Otimizar em massa) */}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-text-muted">Qualidade da documentação</h2>
+          <h2 className={eyebrowLabel}>Qualidade da documentação</h2>
           <QualityScanButton spaces={spacesList ?? []} />
         </div>
         {qualityRows.length === 0 ? (

@@ -6,7 +6,8 @@ import { KeyRound, Plus, Trash2, Zap, Mail, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
-import { Field } from "@/components/ui/field";
+import { Segmented } from "@/components/ui/segmented";
+import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -81,24 +82,28 @@ export function SystemManager({
 
   return (
     <div className="mt-6">
-      <div role="tablist" className="flex gap-1 rounded-lg bg-surface-2 p-1">
-        {([
-          ["ia", "Inteligência artificial", Cpu],
-          ["email", "E-mail", Mail],
-        ] as const).map(([k, rotulo, Icon]) => (
-          <button
-            key={k}
-            role="tab"
-            aria-selected={aba === k}
-            onClick={() => setAba(k)}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
-              aba === k ? "bg-surface font-medium text-text shadow-1" : "text-text-muted hover:text-text"
-            }`}
-          >
-            <Icon className="size-4" /> {rotulo}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        value={aba}
+        onChange={setAba}
+        options={[
+          {
+            value: "ia",
+            label: (
+              <>
+                <Cpu /> Inteligência artificial
+              </>
+            ),
+          },
+          {
+            value: "email",
+            label: (
+              <>
+                <Mail /> E-mail
+              </>
+            ),
+          },
+        ]}
+      />
 
       {!temChaveMestra && (
         <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
@@ -174,9 +179,7 @@ function AbaIA({
     <div className="mt-5 space-y-6">
       <Surface elevation={1} padding="lg">
         <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
-            Provedores
-          </h2>
+          <h2 className={eyebrowLabel}>Provedores</h2>
           <Button size="sm" className="ml-auto" onClick={() => { setNovo(true); setForm({ id: "", name: "", kind: "openai", baseUrl: "", active: true, apiKey: "" }); }}>
             <Plus className="size-4" /> Novo provedor
           </Button>
@@ -206,15 +209,15 @@ function AbaIA({
                     <Td>{PROVIDER_LABEL[p.kind as ProviderKind] ?? p.kind}</Td>
                     <Td>
                       {temChave[p.id] ? (
-                        <Badge tone="primary">
+                        <Badge tone="success">
                           <KeyRound className="size-3" /> gravada
                         </Badge>
                       ) : (
-                        <Badge tone="warning">sem chave</Badge>
+                        <Badge tone="neutral">sem chave</Badge>
                       )}
                     </Td>
                     <Td>
-                      <Badge tone={p.active ? "neutral" : "danger"}>
+                      <Badge tone={p.active ? "success" : "neutral"}>
                         {p.active ? "Ativo" : "Inativo"}
                       </Badge>
                     </Td>
@@ -334,9 +337,7 @@ function AbaIA({
       </Surface>
 
       <Surface elevation={1} padding="lg" className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
-          Qual IA faz o quê
-        </h2>
+        <h2 className={eyebrowLabel}>Qual IA faz o quê</h2>
         <p className="text-xs leading-relaxed text-text-muted">
           Sem atribuição, a finalidade usa as variáveis de ambiente (o comportamento de sempre).
         </p>

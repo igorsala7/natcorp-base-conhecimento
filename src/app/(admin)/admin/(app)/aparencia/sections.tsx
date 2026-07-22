@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Search, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { eyebrowLabel } from "@/components/ui/field";
+import { addItemClass } from "@/components/ui/segmented";
 import { Input, controlClass } from "@/components/ui/input";
 import type { ThemeLink } from "@/lib/portal/theme";
 
@@ -26,7 +28,7 @@ export function SeletorEstilo<T extends string>({
 }) {
   return (
     <fieldset>
-      <legend className="mb-2 block text-sm font-medium text-text">{legenda}</legend>
+      <legend className={`mb-2 ${eyebrowLabel}`}>{legenda}</legend>
       <div className="grid grid-cols-3 gap-2">
         {opcoes.map((o) => (
           <label
@@ -103,13 +105,13 @@ export function LinksEditor({
         </div>
       ))}
       {links.length < max && (
-        <Button
-          variant="secondary"
-          size="sm"
+        <button
+          type="button"
+          className={addItemClass}
           onClick={() => onChange([...links, { label: "", url: "" }])}
         >
-          <Plus className="size-4" /> Adicionar link
-        </Button>
+          <Plus className="size-3.5" /> Adicionar link
+        </button>
       )}
     </div>
   );

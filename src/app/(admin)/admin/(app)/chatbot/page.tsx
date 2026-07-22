@@ -6,6 +6,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { env } from "@/lib/env";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
+import { Surface } from "@/components/ui/surface";
 import { KbUploadRow } from "./kb-upload-row";
 import { WidgetManager, type WidgetKeyRow } from "../widget/widget-manager";
 
@@ -87,7 +88,7 @@ export default async function ChatbotPage({
       </div>
 
       {/* Base de conhecimento do bot */}
-      <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface p-4">
+      <Surface elevation={1} padding="md" className="mt-6 flex flex-wrap items-center gap-3">
         <Database className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium">
@@ -117,7 +118,7 @@ export default async function ChatbotPage({
             <Palette className="size-4" /> Persona
           </Link>
         </div>
-      </div>
+      </Surface>
 
       {/* Chaves do widget desta documentação */}
       <div className="mt-6">
