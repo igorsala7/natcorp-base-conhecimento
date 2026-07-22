@@ -51,16 +51,16 @@
      Uma escala só. Antes havia 5 valores de raio soltos pelo código, o que
      tira a sensação de sistema — é o que mais denuncia UI improvisada. */
   --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 16px;
+  --radius-md: 8px; /* inputs, botões e chips (padrão Lumina) */
+  --radius-lg: 12px; /* blocos de conteúdo: callouts, imagens, cartões de arquivo */
+  --radius-xl: 16px; /* cartões e painéis grandes */
 
   /* ── Elevação ─────────────────────────────────────────────────────────
      Sombras curtas, difusas e de baixa opacidade, com viés roxo (o cinza
      puro deixa a marca "suja"). Três níveis, nunca mais que isso. */
-  --shadow-1: 0 1px 2px rgb(44 26 99 / 0.05), 0 1px 1px rgb(44 26 99 / 0.03);
-  --shadow-2: 0 4px 12px rgb(44 26 99 / 0.08), 0 1px 3px rgb(44 26 99 / 0.04);
-  --shadow-3: 0 16px 40px rgb(44 26 99 / 0.14), 0 2px 8px rgb(44 26 99 / 0.06);
+  --shadow-1: 0 1px 2px rgb(44 26 99 / 0.04), 0 4px 16px rgb(44 26 99 / 0.06); /* soft: cartões em repouso */
+  --shadow-2: 0 2px 4px rgb(44 26 99 / 0.05), 0 12px 32px rgb(44 26 99 / 0.1); /* lift: hover + flutuantes */
+  --shadow-3: 0 16px 40px rgb(44 26 99 / 0.16), 0 2px 8px rgb(44 26 99 / 0.06); /* modais */
 
   /* ── Movimento ────────────────────────────────────────────────────────
      Um ritmo só para a interface inteira. */
@@ -107,6 +107,15 @@
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  ::selection {
+    background: #ece5f2; /* brand.purple.50 */
+    color: #220c32; /* brand.purple.950 */
+  }
+  .dark ::selection {
+    background: #431862; /* brand.purple.800 */
+    color: #f4f3f6;
   }
 
   body {
@@ -539,4 +548,38 @@
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+/* Entrada Lumina: cards sobem 10px com ease "spring". Irmãos em grade usam
+   animationDelay escalonado (index * 60ms) via style inline. */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+}
+
+/* Scrollbar discreta para áreas com rolagem interna (paleta, código). */
+.slim-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.slim-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+}
+.slim-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
