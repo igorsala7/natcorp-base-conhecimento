@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Film, ImagePlus, Loader2 } from "lucide-react";
+import { FileUp, Film, ImagePlus, Loader2 } from "lucide-react";
 import type { Block } from "@/lib/blocks/schema";
 import { uploadToAssets } from "@/lib/content/upload";
+import { FileCardView } from "@/lib/blocks/render";
 import { detectEmbed, embedIframe, EMBED_LABELS } from "@/lib/blocks/embed";
 import type { BlockEditProps } from "../edit-types";
 
@@ -124,6 +125,110 @@ export function VideoBlock({ block, onChange, spaceId }: BlockEditProps) {
       {b.data.url && b.data.provider !== "upload" && (
         <p className="mt-1 text-xs text-text-muted">Vídeo será incorporado na publicação.</p>
       )}
+    </div>
+  );
+}
+
+/** Limite do arquivo para download (decisão de produto: 50 MB). */
+const FILE_MAX_MB = 50;
+
+export function FileBlock({ block, onChange, spaceId }: BlockEditProps) {
+  const b = block as Extract<Block, { type: "file" }>;
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [urlManual, setUrlManual] = useState("");
+
+  function pick() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setErro(null);
+      if (file.size > FILE_MAX_MB * 1024 * 1024) {
+        setErro(
+          `Arquivo com ${Math.round(file.size / 1024 / 1024)} MB — o limite é ${FILE_MAX_MB} MB.`,
+        );
+        return;
+      }
+      setBusy(true);
+      const url = await uploadToAssets(file, spaceId);
+      setBusy(false);
+      if (url) onChange({ data: { url, name: file.name, size: file.size } } as Partial<Block>);
+      else setErro("Falha no envio. Tente novamente.");
+    };
+    input.click();
+  }
+
+  function usarUrl() {
+    const url = urlManual.trim();
+    if (!/^https?:\/\//.test(url)) {
+      setErro("Cole uma URL http(s) válida.");
+      return;
+    }
+    setErro(null);
+    const nome = decodeURIComponent(url.split("/").pop()?.split("?")[0] ?? "") || "arquivo";
+    onChange({ data: { url, name: nome, size: 0 } } as Partial<Block>);
+  }
+
+  if (!b.data.url) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-surface-2 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={pick}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
+            {busy ? "Enviando…" : `Enviar arquivo (até ${FILE_MAX_MB} MB)`}
+          </button>
+          <span className="text-xs text-text-muted">ou</span>
+          <input
+            value={urlManual}
+            onChange={(e) => setUrlManual(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), usarUrl())}
+            placeholder="Cole a URL de um arquivo…"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+          {urlManual.trim() && (
+            <button
+              type="button"
+              onClick={usarUrl}
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
+            >
+              Usar URL
+            </button>
+          )}
+        </div>
+        {erro && <p className="mt-1.5 text-xs text-brand-pink-700">{erro}</p>}
+      </div>
+    );
+  }
+
+  return (
+    // O card é o MESMO do portal (FileCardView) — o editor não mente sobre o
+    // que o leitor vê; abaixo, só os controles de edição.
+    <div>
+      <FileCardView url={b.data.url} name={b.data.name} size={b.data.size} />
+      <div className="-mt-2 flex items-center gap-2">
+        <input
+          value={b.data.name}
+          onChange={(e) => onChange({ data: { ...b.data, name: e.target.value } } as Partial<Block>)}
+          aria-label="Nome de exibição do arquivo"
+          placeholder="Nome de exibição"
+          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-text-muted hover:border-border focus:border-ring focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => onChange({ data: { url: "", name: "", size: 0 } } as Partial<Block>)}
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-text-muted hover:text-brand-pink-700"
+        >
+          Substituir
+        </button>
+      </div>
+      {erro && <p className="mt-1 text-xs text-brand-pink-700">{erro}</p>}
     </div>
   );
 }

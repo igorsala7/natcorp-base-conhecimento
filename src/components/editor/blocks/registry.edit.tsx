@@ -5,7 +5,7 @@ import type { BlockType } from "@/lib/blocks/schema";
 import type { BlockEditProps } from "./edit-types";
 import { TextBlock, HeadingBlock } from "./blocks/text-block";
 import { CodeBlock, MermaidBlock } from "./blocks/code-block";
-import { ImageBlock, VideoBlock, EmbedBlock } from "./blocks/media-block";
+import { ImageBlock, VideoBlock, EmbedBlock, FileBlock } from "./blocks/media-block";
 import { TableBlock } from "./blocks/table-block";
 import {
   DividerBlock,
@@ -44,6 +44,7 @@ export const EDITORS = {
   code: CodeBlock,
   image: ImageBlock,
   video: VideoBlock,
+  file: FileBlock,
   embed: EmbedBlock,
   button: ButtonBlock,
   callout: CalloutBlock,

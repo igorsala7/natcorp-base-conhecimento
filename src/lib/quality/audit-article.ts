@@ -75,6 +75,10 @@ function walk(blocks: Block[], acc: Walk): void {
       case "card":
         if (b.data.href) acc.links.push({ blockId: b.id, href: b.data.href });
         break;
+      case "file":
+        // Download quebrado é tão ruim quanto link quebrado.
+        if (b.data.url) acc.links.push({ blockId: b.id, href: b.data.url });
+        break;
       case "table":
         for (const row of b.data.rows) {
           for (const cell of row) {

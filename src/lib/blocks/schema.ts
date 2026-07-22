@@ -73,6 +73,7 @@ export type BlockType =
   | "code"
   | "image"
   | "video"
+  | "file"
   | "embed"
   | "button"
   | "callout"
@@ -129,6 +130,8 @@ export type HeadingData = { level: HeadingLevel };
 export type CodeData = { language: string | null; code: string };
 export type ImageData = { src: string; alt: string; caption: string };
 export type VideoData = { provider: VideoProvider; url: string };
+/** Arquivo para download (upload no assets ou URL externa). `size` em bytes (0 = desconhecido). */
+export type FileData = { url: string; name: string; size: number };
 export type EmbedData = {
   provider: EmbedProvider;
   url: string;
@@ -178,6 +181,7 @@ export type Block =
   | (BlockBase & { type: "code"; data: CodeData })
   | (BlockBase & { type: "image"; data: ImageData })
   | (BlockBase & { type: "video"; data: VideoData })
+  | (BlockBase & { type: "file"; data: FileData })
   | (BlockBase & { type: "embed"; data: EmbedData })
   | (BlockBase & { type: "button"; data: ButtonData })
   | (BlockBase & { type: "callout"; data: CalloutData; children: Block[] })
@@ -267,7 +271,7 @@ export const BlockStylesSchema = z.object({
 
 const BLOCK_TYPES: [BlockType, ...BlockType[]] = [
   "paragraph", "heading", "bulletList", "orderedList", "listItem", "quote",
-  "divider", "code", "image", "video", "embed", "button", "callout", "steps",
+  "divider", "code", "image", "video", "file", "embed", "button", "callout", "steps",
   "step", "accordion", "accordionItem", "tabs", "tab", "toggle", "container",
   "column", "panel", "cardGrid", "card", "hero", "spacer", "table", "mermaid",
   "snippet",

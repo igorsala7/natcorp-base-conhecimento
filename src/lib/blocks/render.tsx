@@ -5,6 +5,8 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  Download,
+  FileDown,
   Info,
   OctagonAlert,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import { embedIframe } from "./embed";
 import { type Block, type RichText } from "./schema";
 import { richToText } from "./serialize";
 import { styleClass } from "./styles";
+import { formatarBytes, extensaoDoNome } from "./file-utils";
 import { iconByKey, ICON_IN_TITLE } from "./icons";
 
 type Ctx = {
@@ -223,6 +226,12 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
 
     case "embed":
       return renderEmbed(block);
+
+    case "file": {
+      const { url, name, size } = block.data;
+      if (!url) return null;
+      return <FileCardView url={url} name={name} size={size} />;
+    }
 
     case "button": {
       const { href, variant, label } = block.data;
@@ -603,6 +612,45 @@ export function extractToc(blocks: Block[], idPrefix = "", headingShift = 0): To
 }
 
 /** Renderiza um documento de blocos como React (Server Component). */
+/**
+ * Card de arquivo para download — usado pelo portal E pela prévia do editor
+ * (contrato WYSIWYG: um lugar só desenha o card). `size` 0 = tamanho oculto.
+ */
+export function FileCardView({ url, name, size }: { url: string; name: string; size: number }) {
+  const rotulo = name.trim() || url.split("/").pop() || "arquivo";
+  const tamanho = formatarBytes(size);
+  return (
+    <div className="my-5">
+      <a
+        href={url}
+        download
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group flex w-full max-w-md items-center gap-3.5 rounded-xl border border-border bg-surface p-3.5 no-underline transition-colors hover:border-primary"
+      >
+        <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-lg bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+          <FileDown className="size-4" aria-hidden />
+          <span className="mt-0.5 text-[0.5625rem] font-bold leading-none tracking-wide">
+            {extensaoDoNome(rotulo)}
+          </span>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-text group-hover:text-primary">
+            {rotulo}
+          </span>
+          <span className="block text-xs text-text-muted">
+            {tamanho ? `${tamanho} · ` : ""}Clique para baixar
+          </span>
+        </span>
+        <Download
+          className="size-4 shrink-0 text-text-muted transition-colors group-hover:text-primary"
+          aria-hidden
+        />
+      </a>
+    </div>
+  );
+}
+
 export function RenderBlocks({
   blocks,
   snippets,

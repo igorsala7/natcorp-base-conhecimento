@@ -8,6 +8,7 @@
  * Serialização (texto/markdown/html) fica centralizada em `serialize.ts`.
  */
 import {
+  FileDown,
   AlignLeft,
   Heading,
   List,
@@ -203,6 +204,17 @@ export const BLOCKS = {
     isVoid: true,
     transformableTo: [],
     defaultData: () => ({ id: newId(), type: "video", data: { provider: "youtube", url: "" } }),
+  },
+  file: {
+    type: "file",
+    label: "Arquivo (download)",
+    keywords: ["arquivo", "download", "anexo", "pdf", "planilha", "baixar"],
+    icon: FileDown,
+    category: "midia",
+    isContainer: false,
+    isVoid: true,
+    transformableTo: [],
+    defaultData: () => ({ id: newId(), type: "file", data: { url: "", name: "", size: 0 } }),
   },
   embed: {
     type: "embed",

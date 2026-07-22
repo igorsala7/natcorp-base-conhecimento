@@ -97,6 +97,8 @@ function blockToText(b: Block): string {
       return [b.data.title, childrenText(b)].filter(Boolean).join(" ");
     case "table":
       return b.data.rows.map((row) => row.map(richToText).join(" ")).join("\n");
+    case "file":
+      return b.data.name;
     case "divider":
     case "spacer":
     case "video":
@@ -216,6 +218,8 @@ function blockToMd(b: Block): string {
       return `![${b.data.alt}](${b.data.src})${b.data.caption ? `\n*${b.data.caption}*` : ""}`;
     case "video":
       return `[▶ vídeo](${b.data.url})`;
+    case "file":
+      return `[⬇ ${b.data.name || "arquivo"}](${b.data.url})`;
     case "embed":
       return b.data.provider === "raw" ? "" : `[${b.data.title || b.data.url}](${b.data.url})`;
     case "button":
@@ -321,6 +325,8 @@ function blockToHtml(b: Block): string {
     case "tabs":
     case "tab":
       return `<div>${childrenHtml(b)}</div>`;
+    case "file":
+      return `<p><a href="${b.data.url}" download>${escHtml(b.data.name || "arquivo")}</a></p>`;
     case "spacer":
     case "snippet":
     case "mermaid":
