@@ -15,7 +15,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CheckCircle2, FilePlus, FolderPlus, Pencil, Sparkles, Trash2 } from "lucide-react";
+import { CheckCircle2, FilePlus, FolderPlus, Pencil, Sparkles, Trash2, Wand2 } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +37,7 @@ import {
 } from "./tree-utils";
 import { TreeItem } from "./tree-item";
 import { CopyToSpaceDialog } from "./copy-to-space-dialog";
+import { ArticleWizard } from "./article-wizard";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
 // Um degrau curto por nível (padrão Microsoft Learn): em árvores fundas a
@@ -74,6 +75,7 @@ export function Tree({
   const [creating, setCreating] = useState<null | "folder" | "article">(null);
   const [propsNode, setPropsNode] = useState<TreeNode | null>(null);
   const [sendToSpace, setSendToSpace] = useState(false);
+  const [wizardAberto, setWizardAberto] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [, startTransition] = useTransition();
 
@@ -395,6 +397,9 @@ export function Tree({
           <Button size="sm" variant="secondary" onClick={() => { setCreating("article"); setDraftTitle(""); }}>
             <FilePlus className="size-4" /> Artigo
           </Button>
+          <Button size="sm" variant="secondary" title="Gerar um artigo com IA (tema → estrutura → rascunho)" onClick={() => setWizardAberto(true)}>
+            <Wand2 className="size-4" /> IA
+          </Button>
         </div>
         {creating && (
           <form
@@ -578,6 +583,8 @@ export function Tree({
           }}
         />
       )}
+
+      {wizardAberto && <ArticleWizard spaceId={spaceId} onClose={() => setWizardAberto(false)} />}
 
       {sendToSpace && (
         <CopyToSpaceDialog

@@ -25,7 +25,8 @@ export type Purpose =
   | "embedding"
   | "import_structure"
   | "import_layout"
-  | "editor_text";
+  | "editor_text"
+  | "editor_generate";
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
@@ -48,6 +49,11 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
     key: "editor_text",
     label: "Editor — texto",
     desc: "Reescrever, expandir, resumir e mudar o tom no editor (com revisão). Sem atribuição própria, usa o provedor do Chat.",
+  },
+  {
+    key: "editor_generate",
+    label: "Editor — gerar artigo",
+    desc: "Wizard \"Artigo com IA\" (outline e corpo) e remix (FAQ, resumo). Sem atribuição própria, usa o provedor do Chat.",
   },
 ];
 

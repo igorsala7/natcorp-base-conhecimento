@@ -54,6 +54,8 @@ import { PropertiesPanel } from "./properties-panel";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
 import { OptimizePanel } from "../optimize-panel";
+import { remixArticle, type RemixTipo } from "@/app/(admin)/admin/(app)/conteudo/generate-actions";
+import { createNode } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { ReviewThread } from "../review-thread";
 import {
   submitForReview,
@@ -64,6 +66,7 @@ import {
   publishNode,
   unpublishNode,
   discardDraft,
+  saveArticle,
   improveArticleLayout,
   improveArticleText,
   reindexArticleEmbeddings,
@@ -190,6 +193,8 @@ function BlockEditorInner({
   const [showHistory, setShowHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showOptimize, setShowOptimize] = useState(false);
+  const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
+  const [remixando, setRemixando] = useState<RemixTipo | null>(null);
   const [showMore, setShowMore] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const [showAiTexto, setShowAiTexto] = useState(false);
@@ -398,6 +403,40 @@ function BlockEditorInner({
     if (!res.ok) return setMsg(res.error);
     setProposed(normalizeDoc(res.doc));
   }
+  async function onRemix(tipo: RemixTipo) {
+    setRemixando(tipo);
+    setMsg(null);
+    await flush(); // remixa o que está na tela, não uma versão velha
+    const r = await remixArticle(nodeId, tipo);
+    setRemixando(null);
+    if (!r.ok) return setMsg(r.error);
+    setRemix({ tipo, blocks: r.data });
+  }
+
+  async function applyRemix() {
+    if (!remix) return;
+    if (remix.tipo === "tldr") {
+      // Resumo entra no TOPO do artigo em edição.
+      setBlocks([...remix.blocks, ...blocks]);
+      setRemix(null);
+      return;
+    }
+    // FAQ vira um artigo IRMÃO, rascunho.
+    const criado = await createNode({
+      spaceId,
+      parentId: null,
+      type: "article",
+      title: `FAQ — ${title}`,
+    });
+    if (!criado.ok || !criado.id) {
+      setMsg(!criado.ok ? criado.error : "Falha ao criar o artigo de FAQ.");
+      return;
+    }
+    await saveArticle(criado.id, { version: 2, blocks: remix.blocks });
+    setRemix(null);
+    router.push(`/admin/conteudo/${criado.id}`);
+  }
+
   function applyImprove() {
     if (proposed) setBlocks(proposed.blocks.length ? proposed.blocks : blocks);
     setProposed(null);
@@ -686,6 +725,12 @@ function BlockEditorInner({
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowOptimize(true); setShowProps(false); setShowMore(false); }} title="Auditoria de qualidade e SEO deste artigo">
                   <Gauge className="size-4 text-text-muted" /> Otimizar (qualidade/SEO)
                 </button>
+                <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("tldr"); setShowMore(false); }} title="Resumo executivo no topo do artigo (IA, com prévia)">
+                  <Wand2 className="size-4 text-text-muted" /> {remixando === "tldr" ? "Resumindo…" : "Resumo TL;DR (IA)"}
+                </button>
+                <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("faq"); setShowMore(false); }} title="Gera um artigo de FAQ a partir deste (IA, com prévia)">
+                  <Wand2 className="size-4 text-text-muted" /> {remixando === "faq" ? "Gerando FAQ…" : "Gerar FAQ (IA)"}
+                </button>
                 <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
                   <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
                 </button>
@@ -853,6 +898,37 @@ function BlockEditorInner({
       {showSchedule && (
         <ScheduleDialog nodeId={nodeId} spaceId={spaceId} onClose={() => setShowSchedule(false)} />
       )}
+
+      <Dialog
+        open={!!remix}
+        onClose={() => setRemix(null)}
+        size="lg"
+        title={remix?.tipo === "faq" ? "FAQ proposto" : "Resumo proposto"}
+        description={
+          remix?.tipo === "faq"
+            ? "Revise: ao aplicar, vira um NOVO artigo (rascunho) ao lado deste."
+            : "Revise: ao aplicar, o resumo entra no topo deste artigo."
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRemix(null)}>
+              Descartar
+            </Button>
+            <Button onClick={() => void applyRemix()}>
+              {remix?.tipo === "faq" ? "Criar artigo de FAQ" : "Inserir no topo"}
+            </Button>
+          </>
+        }
+      >
+        {remix && (
+          <div
+            className="leitura prose prose-neutral prose-portal max-h-[60vh] max-w-none overflow-auto dark:prose-invert"
+            data-size={readingSize}
+          >
+            <RenderBlocks blocks={remix.blocks} snippets={new Map()} headingShift={2} />
+          </div>
+        )}
+      </Dialog>
 
       <Dialog
         open={!!aiProposta}
