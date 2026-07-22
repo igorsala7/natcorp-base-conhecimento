@@ -125,7 +125,7 @@ function NavList({
   return (
     // Trilho de guia só nos níveis aninhados: no primeiro nível ele viraria
     // uma régua vertical inútil ao lado de tudo.
-    <ul className={cn("text-[0.8125rem]", depth > 0 && "ml-3 border-l border-border pl-2")}>
+    <ul className={cn("space-y-0.5 border-l border-border text-[0.8125rem]", depth > 0 && "ml-4")}>
       {nodes
         .filter((n) => n.type !== "divider")
         .map((node) => {
@@ -139,19 +139,17 @@ function NavList({
           const isOpen = open.has(node.id);
 
           return (
-            <li key={node.id} className="relative py-px">
-              {/* Estado ativo = barra + peso, não fundo colorido. Sobre o trilho
-                  aninhado a barra substitui a guia; no primeiro nível ela fica
-                  na margem. (padrão Apple Developer / Microsoft Learn) */}
-              {isActive && (
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute inset-y-1 w-0.5 rounded-full bg-primary",
-                    depth > 0 ? "-left-[9px]" : "-left-2",
-                  )}
-                />
+            <li
+              key={node.id}
+              className={cn(
+                // Rail da referência: a borda do item SOBREPÕE a linha-guia da
+                // lista (-ml-px); ativo pinta a borda, inativo mostra no hover.
+                "-ml-px border-l-2 pl-2",
+                isActive
+                  ? "border-primary"
+                  : "border-transparent hover:border-border-strong",
               )}
+            >
               <div className="flex items-center gap-0.5">
                 {hasChildren ? (
                   <button
@@ -182,14 +180,12 @@ function NavList({
                   }}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 py-1.5 leading-snug transition-colors",
-                    // Hover com fundo na linha inteira (Microsoft Learn): o alvo
-                    // fica evidente sem depender só da cor do texto.
+                    "flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1.5 leading-snug transition-colors",
                     isActive
                       ? "font-semibold text-primary"
                       : node.type === "folder"
-                        ? "font-medium text-text hover:bg-surface-2 hover:text-primary"
-                        : "text-text-muted hover:bg-surface-2 hover:text-text",
+                        ? "font-medium text-text hover:text-primary"
+                        : "text-text-muted hover:text-text",
                   )}
                 >
                   <span className="truncate">{node.title}</span>

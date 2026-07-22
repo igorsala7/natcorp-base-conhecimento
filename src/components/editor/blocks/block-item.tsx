@@ -142,7 +142,7 @@ const BlockItem = memo(function BlockItem({
         // fundo/borda/raio/padding com o styleClass do bloco (a disputa era o
         // bug de "propriedade não aplica": bg-surface/border-* do cartão
         // venciam a cascata sobre a escolha do usuário).
-        className={`rounded-md px-1 py-0.5 transition-all ${
+        className={`rounded-md px-1 transition-all ${
           selected
             ? "shadow-2 ring-2 ring-brand-purple-300 dark:ring-brand-purple-700"
             : "hover:shadow-1 hover:ring-1 hover:ring-border"

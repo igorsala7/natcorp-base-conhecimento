@@ -234,12 +234,13 @@
      `.prose-portal` cai nos tamanhos originais via fallback. */
   /* Escada no padrão de referência (corpo 15px na "normal"):
      compacta 14px · padrão 15px · ampla 17px. */
+  /* "normal" = a referência EXATA: corpo 15px/1.7, h2 20px, h3 16px. */
   .leitura[data-size="compact"] {
-    --l-page: 1.25rem;
+    --l-page: 1.375rem;
     --l-section: 1.125rem;
     --l-article: 1rem;
-    --l-h2: 0.9375rem;
-    --l-h3: 0.875rem;
+    --l-h2: 1.125rem;
+    --l-h3: 0.9375rem;
     --l-body: 0.875rem;
     --l-hero: 0.9375rem;
   }
@@ -247,8 +248,8 @@
     --l-page: 1.5rem;
     --l-section: 1.25rem;
     --l-article: 1.125rem;
-    --l-h2: 1.0625rem;
-    --l-h3: 0.9375rem;
+    --l-h2: 1.25rem;
+    --l-h3: 1rem;
     --l-body: 0.9375rem;
     --l-hero: 1.0625rem;
   }
@@ -256,8 +257,8 @@
     --l-page: 1.875rem;
     --l-section: 1.5rem;
     --l-article: 1.25rem;
-    --l-h2: 1.1875rem;
-    --l-h3: 1.0625rem;
+    --l-h2: 1.375rem;
+    --l-h3: 1.125rem;
     --l-body: 1.0625rem;
     --l-hero: 1.1875rem;
   }
@@ -274,28 +275,35 @@
      título do artigo (24px) — heading de conteúdo maior que o título que o
      contém é inversão de hierarquia, e é o que mais denuncia falta de sistema. */
   .prose-portal :where(h2) {
-    font-size: var(--l-h2, 1.0625rem);
+    font-size: var(--l-h2, 1.25rem);
     font-weight: 600;
     line-height: 1.25;
     letter-spacing: -0.018em;
-    margin-top: 2.25em;
+    /* Margens FIXAS da referência: mt-8 / mb-3. */
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
     scroll-margin-top: 5rem;
+  }
+  .prose-portal :where(h2:first-child) {
+    margin-top: 0;
   }
   /* h3 aqui é o H1 DO CONTEÚDO (headingShift=2): um degrau acima do corpo. */
   .prose-portal :where(h3) {
-    font-size: var(--l-h2, 1.0625rem);
+    font-size: var(--l-h2, 1.25rem);
     font-weight: 600;
     line-height: 1.3;
     letter-spacing: -0.014em;
-    margin-top: 2em;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(h4) {
-    font-size: var(--l-h3, 0.9375rem);
+    font-size: var(--l-h3, 1rem);
     font-weight: 600;
     line-height: 1.4;
-    margin-top: 1.75em;
-    margin-bottom: 0.5em;
+    /* Referência h3: mt-6 / mb-2. */
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
     scroll-margin-top: 5rem;
   }
   .prose-portal :where(p, li) {
@@ -315,10 +323,21 @@
   .prose-portal :where(blockquote p:last-of-type)::after {
     content: none;
   }
-  /* Ritmo compacto da referência: conteúdo cabe na tela com pouco scroll. */
+  /* Ritmo EXATO da referência: margem só embaixo, valor fixo. Como não há
+     margem no topo, não existe colapso — portal e editor (onde cada bloco
+     tem wrapper) ficam IDÊNTICOS sem regras separadas. */
   .prose-portal :where(p) {
-    margin-top: 0.875em;
-    margin-bottom: 0.875em;
+    margin-top: 0;
+    margin-bottom: 0.875rem;
+  }
+  .prose-portal :where(ul, ol) {
+    margin-top: 0;
+    margin-bottom: 0.875rem;
+    padding-left: 1.25rem;
+  }
+  .prose-portal :where(li) {
+    margin-top: 0;
+    margin-bottom: 0.25rem;
   }
   /* Links, negrito e código inline no padrão da referência. */
   .prose-portal :where(a):not(:where(.nao-prosa *)) {
@@ -358,46 +377,25 @@
      títulos na escala REAL do portal (que desloca H1→H3), nunca nos 36px
      do `prose` cru. Quem precisar de respiro usa a "Margem vertical" do
      painel de propriedades — espaçamento extra é escolha, não padrão. */
-  .editor-blocks :where(p),
-  .editor-blocks :where(li) {
-    line-height: 1.55;
-  }
-  .editor-blocks :where(p) {
-    margin-top: 0.3em;
-    margin-bottom: 0.3em;
-  }
-  .editor-blocks :where(ul, ol) {
-    margin-top: 0.3em;
-    margin-bottom: 0.3em;
-  }
-  .editor-blocks :where(li) {
-    margin-top: 0.125em;
-    margin-bottom: 0.125em;
-  }
+
   /* Espelho EXATO do portal com headingShift=2: H1→--l-h2, H2/H3→--l-h3.
      Se divergir daqui, o modo de edição mente sobre a leitura publicada. */
   .editor-blocks :where(h1) {
-    font-size: var(--l-h2, 1.0625rem);
+    font-size: var(--l-h2, 1.25rem);
     font-weight: 600;
     line-height: 1.3;
     letter-spacing: -0.018em;
-    margin: 1.1em 0 0.3em;
+    margin: 2rem 0 0.75rem;
   }
   .editor-blocks :where(h2) {
-    font-size: var(--l-h3, 0.9375rem);
-    margin: 1em 0 0.25em;
+    font-size: var(--l-h3, 1rem);
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
   }
   .editor-blocks :where(h3) {
-    font-size: var(--l-h3, 0.9375rem);
-    margin: 0.9em 0 0.2em;
-  }
-  .editor-blocks :where(blockquote) {
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
-  }
-  .editor-blocks :where(pre, figure, table) {
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
+    font-size: var(--l-h3, 1rem);
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
   }
 
   /* Etiqueta de linguagem do bloco de código. */

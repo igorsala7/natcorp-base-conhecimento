@@ -176,7 +176,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       const html = highlightCode(code, lang);
       return (
         /* Janela estilo terminal: 3 pontos + nome do arquivo + linguagem. */
-        <div className="code-window my-5 overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
+        <div className="code-window my-4 overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
           <div className="flex items-center justify-between border-b border-brand-gray-800 px-4 py-2">
             <div className="flex items-center gap-2">
               <span className="size-2.5 rounded-full bg-red-500/80" />
@@ -208,7 +208,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       const { src, alt, caption } = block.data;
       if (!src) return null;
       return (
-        <figure className="my-6 text-center">
+        <figure className="my-5 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
@@ -239,7 +239,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             src={url}
             controls
             preload="none"
-            className="my-6 mx-auto w-full max-w-full rounded-lg border border-border bg-black/90 shadow-1"
+            className="my-5 mx-auto w-full max-w-full rounded-lg border border-border bg-black/90 shadow-1"
           />
         );
       let embed = url;
@@ -251,7 +251,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         embed = id ? `https://player.vimeo.com/video/${id}` : url;
       }
       return (
-        <div className="relative my-6 aspect-video overflow-hidden rounded-lg border border-border shadow-1">
+        <div className="relative my-5 aspect-video overflow-hidden rounded-lg border border-border shadow-1">
           <iframe src={embed} className="absolute inset-0 size-full" allowFullScreen title="Vídeo" />
         </div>
       );
@@ -269,7 +269,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "button": {
       const { href, variant, label } = block.data;
       return (
-        <div className="my-4">
+        <div className="my-5">
           <a
             href={href}
             className={
@@ -291,7 +291,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         /* Anatomia da referência: cartão com quadrado de ícone + TÍTULO
            específico ("Limite de importação") ou o rótulo da variante. */
-        <div className={`my-5 flex gap-3 rounded-lg border p-4 ${base.cls}`}>
+        <div className={`my-4 flex gap-3 rounded-lg border p-4 ${base.cls}`}>
           <span
             aria-hidden="true"
             className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${base.iconWrap}`}
@@ -320,7 +320,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "accordion":
       /* Cartão ÚNICO da referência: itens separados por border-b. */
       return (
-        <div className="my-5 rounded-lg border border-border bg-surface px-5 shadow-1 [&>details]:border-b [&>details]:border-border [&>details:last-child]:border-b-0">
+        <div className="my-4 rounded-lg border border-border bg-surface px-5 shadow-1 [&>details]:border-b [&>details]:border-border [&>details:last-child]:border-b-0">
           {renderChildren(block.children, ctx)}
         </div>
       );
@@ -490,7 +490,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         // Rola dentro do próprio contêiner: uma tabela larga jamais pode fazer
         // a PÁGINA rolar na horizontal.
-        <div className="table-portal my-6 overflow-x-auto">
+        <div className="table-portal my-4 overflow-x-auto">
           <table>
             {head && (
               <thead>
@@ -655,7 +655,7 @@ function renderEmbed(block: Extract<Block, { type: "embed" }>): ReactNode {
   const frame = embedIframe(data);
   if (frame) {
     return (
-      <div className="relative my-6 overflow-hidden rounded-lg border border-border" style={{ aspectRatio: frame.aspect }}>
+      <div className="relative my-5 overflow-hidden rounded-lg border border-border" style={{ aspectRatio: frame.aspect }}>
         <iframe
           src={frame.src}
           title={frame.title}
@@ -717,7 +717,7 @@ export function FileCardView({ url, name, size }: { url: string; name: string; s
   const rotulo = name.trim() || url.split("/").pop() || "arquivo";
   const tamanho = formatarBytes(size);
   return (
-    <div className="my-5">
+    <div className="my-3">
       <a
         href={url}
         download
