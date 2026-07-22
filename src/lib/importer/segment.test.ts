@@ -65,8 +65,16 @@ describe("contarPalavras", () => {
 describe("contencaoDePalavras — reformatar não pode reescrever", () => {
   it("texto idêntico reorganizado = 1 (ordem e formato não contam)", () => {
     const orig = "Para emitir o relatório, acesse o menu Relatórios e clique em Gerar.";
-    const reformatado = "ACESSE o menu Relatórios!\nClique em GERAR — para emitir o relatório.";
+    const reformatado = "ACESSE o menu Relatórios!\nE clique em GERAR — para emitir o relatório.";
     expect(contencaoDePalavras(orig, reformatado)).toBe(1);
+  });
+
+  it("soltar uma palavra do original desconta, mas fica acima do piso", () => {
+    const orig = "Para emitir o relatório, acesse o menu Relatórios e clique em Gerar.";
+    const semUmaPalavra = "ACESSE o menu Relatórios!\nClique em GERAR — para emitir o relatório.";
+    const c = contencaoDePalavras(orig, semUmaPalavra);
+    expect(c).toBeLessThan(1);
+    expect(c).toBeGreaterThan(0.85);
   });
 
   it("paráfrase derruba a contenção mesmo mantendo o tamanho", () => {
