@@ -748,8 +748,11 @@ function BlockEditorInner({
           onClick={() => !preview && setSelectedId(null)}
           onContextMenu={onCanvasContextMenu}
         >
-          {/* min-h garante área clicável abaixo do último bloco */}
-          <div className="mx-auto min-h-full max-w-3xl pl-12">
+          {/* min-h garante área clicável abaixo do último bloco. A largura é a
+              MESMA medida de linha da leitura (max-w-prose = 65ch) + a calha
+              das alças: com max-w-3xl o texto quebrava em pontos diferentes e
+              imagens/regiões pareciam maiores do que a página publicada. */}
+          <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12">
             {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
                 pública); `.editor-blocks` compacta o ritmo só na edição — a
                 prévia usa o espaçamento idêntico ao do portal. */}

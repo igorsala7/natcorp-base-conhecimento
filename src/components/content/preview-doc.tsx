@@ -197,7 +197,10 @@ export function PreviewDoc({
           </aside>
         )}
 
-        <main className="leitura min-w-0 flex-1" data-size={fontSize}>
+        {/* MESMA medida de linha do portal (max-w-prose): sem o teto, a prévia
+            esticava o conteúdo na largura sobrando e imagens/regiões saíam
+            maiores do que a página publicada. */}
+        <main className="leitura mx-auto min-w-0 w-full max-w-prose flex-1" data-size={fontSize}>
           <h1 className="text-[length:var(--l-page,var(--text-3xl))] font-semibold leading-tight">{spaceName}</h1>
           <p className="mt-2 text-sm text-text-muted">
             {artigos.length} {artigos.length === 1 ? "artigo" : "artigos"} em leitura contínua.

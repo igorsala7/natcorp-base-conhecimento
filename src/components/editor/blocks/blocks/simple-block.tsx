@@ -77,7 +77,7 @@ export function HeroBlock({ block, onChange }: BlockEditProps) {
     onChange({ data: { ...b.data, ...patch } } as Partial<Block>);
   return (
     <div className={`rounded-xl border p-6 sm:p-8 ${bgClass[b.data.bg]}`}>
-      <BlockIcon name={b.styles?.icon} className={`mb-3 size-8 ${dark ? "text-white/80" : "text-primary"}`} />
+      <BlockIcon name={b.styles?.icon} className={`mb-3 size-7 ${dark ? "text-white/80" : "text-primary"}`} />
       <div className="mb-2 flex gap-1">
         {HERO_BG.map((bg) => (
           <button
@@ -93,19 +93,21 @@ export function HeroBlock({ block, onChange }: BlockEditProps) {
         value={b.data.eyebrow}
         onChange={(e) => set({ eyebrow: e.target.value })}
         placeholder="Rótulo (opcional)"
-        className={`block w-full bg-transparent text-xs font-semibold uppercase tracking-wide outline-none ${dark ? "text-white/70 placeholder:text-white/40" : "text-primary"}`}
+        className={`block w-full bg-transparent text-[0.6875rem] font-semibold uppercase tracking-[0.08em] outline-none ${dark ? "text-white/70 placeholder:text-white/40" : "text-primary"}`}
       />
+      {/* Mesmo tamanho do portal (--l-hero): o título do banner no canvas
+          media 30px enquanto a leitura mostrava 16 — o editor mentia. */}
       <input
         value={b.data.title}
         onChange={(e) => set({ title: e.target.value })}
         placeholder="Título do banner"
-        className="mt-1.5 block w-full bg-transparent text-2xl font-semibold leading-tight tracking-tight outline-none sm:text-3xl"
+        className="mt-1.5 block w-full bg-transparent text-[length:var(--l-hero,1rem)] font-semibold leading-tight tracking-tight outline-none sm:text-[length:var(--l-hero,1.125rem)]"
       />
       <input
         value={b.data.subtitle}
         onChange={(e) => set({ subtitle: e.target.value })}
         placeholder="Subtítulo (opcional)"
-        className={`mt-2 block w-full bg-transparent outline-none ${dark ? "text-white/80 placeholder:text-white/40" : "text-text-muted"}`}
+        className={`mt-2.5 block w-full bg-transparent outline-none ${dark ? "text-white/80 placeholder:text-white/40" : "text-text-muted"}`}
       />
     </div>
   );

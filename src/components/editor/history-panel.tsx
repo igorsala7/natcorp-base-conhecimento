@@ -230,8 +230,17 @@ export function HistoryPanel({
               </p>
             )}
             {detail?.mode === "view" && (
-              <article className="prose prose-neutral max-w-none dark:prose-invert">
-                <RenderBlocks blocks={normalizeDoc(detail.content).blocks} snippets={new Map()} />
+              // Mesmo contexto tipográfico da leitura (escala + deslocamento
+              // de títulos) — a versão antiga não pode parecer outro produto.
+              <article
+                className="leitura prose prose-neutral prose-portal max-w-none dark:prose-invert"
+                data-size="normal"
+              >
+                <RenderBlocks
+                  blocks={normalizeDoc(detail.content).blocks}
+                  snippets={new Map()}
+                  headingShift={2}
+                />
               </article>
             )}
             {detail?.mode === "diff" && (

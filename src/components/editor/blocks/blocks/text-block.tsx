@@ -32,7 +32,9 @@ export function HeadingBlock({ block, onChange, ...rest }: BlockEditProps) {
   const level = b.data.level;
   return (
     <div className="group/heading relative">
-      <div className="absolute -left-14 top-1 hidden gap-0.5 group-focus-within/heading:flex">
+      {/* Chip à DIREITA com fundo próprio: ancorado em -left-14 ele avançava
+          por cima das primeiras letras do título ao ganhar foco. */}
+      <div className="absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 gap-0.5 rounded-md border border-border bg-surface p-0.5 shadow-1 group-focus-within/heading:flex">
         {([1, 2, 3] as HeadingLevel[]).map((l) => (
           <button
             key={l}

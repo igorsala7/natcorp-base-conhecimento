@@ -254,7 +254,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             <Icon className="size-4 shrink-0" aria-hidden="true" />
             {CALLOUT_ROTULO[block.data.variant] ?? CALLOUT_ROTULO.info}
           </p>
-          <div className="mt-1.5 min-w-0 text-[0.9375rem] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <div className="mt-1.5 min-w-0 text-[length:var(--l-body,0.875rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {renderChildren(block.children, ctx)}
           </div>
         </div>
