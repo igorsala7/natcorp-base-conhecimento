@@ -201,6 +201,44 @@ export type Database = {
           },
         ]
       }
+      article_templates: {
+        Row: {
+          blocks: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          space_id: string
+        }
+        Insert: {
+          blocks?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          space_id: string
+        }
+        Update: {
+          blocks?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_templates_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       article_versions: {
         Row: {
           article_id: string

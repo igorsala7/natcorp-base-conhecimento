@@ -38,6 +38,13 @@ import {
 import { TreeItem } from "./tree-item";
 import { CopyToSpaceDialog } from "./copy-to-space-dialog";
 import { ArticleWizard } from "./article-wizard";
+import { BUILTIN_TEMPLATES } from "@/lib/blocks/templates";
+import {
+  getTemplateBlocks,
+  listSavedTemplates,
+  type TemplateOption,
+} from "@/app/(admin)/admin/(app)/conteudo/template-actions";
+import { saveArticle } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 
 // Um degrau curto por nível (padrão Microsoft Learn): em árvores fundas a
@@ -77,6 +84,8 @@ export function Tree({
   const [sendToSpace, setSendToSpace] = useState(false);
   const [wizardAberto, setWizardAberto] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  const [templateSel, setTemplateSel] = useState("none");
+  const [salvos, setSalvos] = useState<TemplateOption[]>([]);
   const [, startTransition] = useTransition();
 
   const sensors = useSensors(
@@ -394,7 +403,7 @@ export function Tree({
           <Button size="sm" variant="secondary" onClick={() => { setCreating("folder"); setDraftTitle(""); }}>
             <FolderPlus className="size-4" /> Pasta
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => { setCreating("article"); setDraftTitle(""); }}>
+          <Button size="sm" variant="secondary" onClick={() => { setCreating("article"); setDraftTitle(""); setTemplateSel("none"); void listSavedTemplates(spaceId).then(setSalvos); }}>
             <FilePlus className="size-4" /> Artigo
           </Button>
           <Button size="sm" variant="secondary" title="Gerar um artigo com IA (tema → estrutura → rascunho)" onClick={() => setWizardAberto(true)}>
@@ -406,7 +415,21 @@ export function Tree({
             onSubmit={(e) => {
               e.preventDefault();
               const title = draftTitle.trim();
-              if (title) run(() => createNode({ spaceId, parentId: null, type: creating, title }));
+              const tipo = creating;
+              const modelo = templateSel;
+              if (title && tipo) {
+                run(async () => {
+                  const r = await createNode({ spaceId, parentId: null, type: tipo, title });
+                  if (r.ok && r.id && tipo === "article" && modelo !== "none") {
+                    // Modelo escolhido: aplica os blocos e abre direto no editor.
+                    const builtin = BUILTIN_TEMPLATES.find((t) => `builtin:${t.key}` === modelo);
+                    const blocks = builtin ? builtin.blocks() : await getTemplateBlocks(modelo);
+                    if (blocks.length) await saveArticle(r.id, { version: 2, blocks });
+                    router.push(`/admin/conteudo/${r.id}`);
+                  }
+                  return r;
+                });
+              }
               setCreating(null);
               setDraftTitle("");
             }}
@@ -425,6 +448,27 @@ export function Tree({
               placeholder={creating === "folder" ? "Nome da pasta" : "Título do artigo"}
               className="h-7 min-w-0 flex-1 rounded border border-border bg-surface px-2 text-sm focus:border-primary focus:outline-none"
             />
+            {creating === "article" && (
+              <select
+                value={templateSel}
+                onChange={(e) => setTemplateSel(e.target.value)}
+                aria-label="Modelo do artigo"
+                title="Modelo inicial do artigo"
+                className="h-7 max-w-36 shrink-0 rounded border border-border bg-surface px-1 text-xs focus:border-primary focus:outline-none"
+              >
+                <option value="none">Em branco</option>
+                {BUILTIN_TEMPLATES.map((t) => (
+                  <option key={t.key} value={`builtin:${t.key}`}>
+                    {t.name}
+                  </option>
+                ))}
+                {salvos.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button type="submit" className="shrink-0 rounded bg-primary px-2 py-1 text-xs font-medium text-primary-fg">
               Criar
             </button>

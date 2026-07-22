@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -21,6 +21,8 @@ import {
   CalendarClock,
   Gauge,
   Keyboard,
+  LayoutTemplate,
+  Repeat2,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -55,6 +57,12 @@ import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
 import { OptimizePanel } from "../optimize-panel";
 import { remixArticle, type RemixTipo } from "@/app/(admin)/admin/(app)/conteudo/generate-actions";
+import {
+  listSnippets,
+  saveArticleAsTemplate,
+  saveBlocksAsSnippet,
+} from "@/app/(admin)/admin/(app)/conteudo/template-actions";
+import { insertAfter as insertBlockAfter } from "@/lib/blocks/tree-ops";
 import { createNode } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { ReviewThread } from "../review-thread";
 import {
@@ -195,6 +203,15 @@ function BlockEditorInner({
   const [showOptimize, setShowOptimize] = useState(false);
   const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
   const [remixando, setRemixando] = useState<RemixTipo | null>(null);
+  const [snippetsDisponiveis, setSnippetsDisponiveis] = useState<{ key: string; title: string }[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void listSnippets(spaceId).then((sn) => alive && setSnippetsDisponiveis(sn));
+    return () => {
+      alive = false;
+    };
+  }, [spaceId]);
   const [showMore, setShowMore] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const [showAiTexto, setShowAiTexto] = useState(false);
@@ -263,6 +280,16 @@ function BlockEditorInner({
     } else {
       actions.insertAfter(target.id, type);
     }
+  }
+
+  function onSlashSnippet(key: string) {
+    const target = slash;
+    setSlash(null);
+    if (!target) return;
+    const nb: Block = { id: newId(), type: "snippet", data: { snippetKey: key } };
+    if (target.id === null) setBlocks((bs) => [...bs, nb]);
+    else setBlocks((bs) => insertBlockAfter(bs, target.id!, nb));
+    setSelectedId(nb.id);
   }
 
   /** Botão direito na área em branco do canvas → menu de blocos no cursor. */
@@ -403,6 +430,34 @@ function BlockEditorInner({
     if (!res.ok) return setMsg(res.error);
     setProposed(normalizeDoc(res.doc));
   }
+  async function onSalvarModelo() {
+    const nome = await pedirTexto({
+      title: "Salvar como modelo",
+      label: "Nome do modelo",
+      description: "O conteúdo atual vira ponto de partida para novos artigos desta documentação.",
+      initial: title,
+    });
+    if (!nome) return;
+    await flush();
+    const r = await saveArticleAsTemplate(nodeId, nome, null);
+    setMsg(r.ok ? null : r.error);
+  }
+
+  async function onSalvarSnippet() {
+    if (!selectedId) return;
+    const alvo = findBlock(blocks, selectedId);
+    if (!alvo) return;
+    const nome = await pedirTexto({
+      title: "Salvar bloco como snippet",
+      label: "Nome do snippet",
+      description: "Trecho reutilizável por transclusão: editar o snippet atualiza TODOS os artigos que o usam. Insira pelo menu \"/\".",
+    });
+    if (!nome) return;
+    const r = await saveBlocksAsSnippet(spaceId, nome, [alvo]);
+    setMsg(r.ok ? null : r.error);
+    if (r.ok) setSnippetsDisponiveis(await listSnippets(spaceId));
+  }
+
   async function onRemix(tipo: RemixTipo) {
     setRemixando(tipo);
     setMsg(null);
@@ -731,6 +786,14 @@ function BlockEditorInner({
                 <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("faq"); setShowMore(false); }} title="Gera um artigo de FAQ a partir deste (IA, com prévia)">
                   <Wand2 className="size-4 text-text-muted" /> {remixando === "faq" ? "Gerando FAQ…" : "Gerar FAQ (IA)"}
                 </button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { void onSalvarModelo(); setShowMore(false); }} title="Este artigo vira um modelo para novos artigos">
+                  <LayoutTemplate className="size-4 text-text-muted" /> Salvar como modelo
+                </button>
+                {selectedId && (
+                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { void onSalvarSnippet(); setShowMore(false); }} title="O bloco selecionado vira um snippet reutilizável (editar nele atualiza em todos os artigos)">
+                    <Repeat2 className="size-4 text-text-muted" /> Salvar bloco como snippet
+                  </button>
+                )}
                 <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
                   <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
                 </button>
@@ -873,7 +936,15 @@ function BlockEditorInner({
         <span className="tabular-nums">{words} palavra{words === 1 ? "" : "s"}</span>
       </div>
 
-      {slash && <SlashMenu rect={slash.rect} onSelect={onSlashSelect} onClose={() => setSlash(null)} />}
+      {slash && (
+        <SlashMenu
+          rect={slash.rect}
+          onSelect={onSlashSelect}
+          onClose={() => setSlash(null)}
+          snippets={snippetsDisponiveis}
+          onSelectSnippet={onSlashSnippet}
+        />
+      )}
 
       {ctxMenu && (
         <BlockContextMenu

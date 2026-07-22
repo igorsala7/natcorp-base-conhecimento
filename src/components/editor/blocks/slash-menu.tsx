@@ -8,12 +8,15 @@ type Props = {
   rect: DOMRect;
   onSelect: (type: BlockType) => void;
   onClose: () => void;
+  /** Snippets da documentação — inserir trecho reutilizável por NOME. */
+  snippets?: { key: string; title: string }[];
+  onSelectSnippet?: (key: string) => void;
 };
 
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-export function SlashMenu({ rect, onSelect, onClose }: Props) {
+export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnippet }: Props) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -37,11 +40,23 @@ export function SlashMenu({ rect, onSelect, onClose }: Props) {
     items: filtered.filter((b) => b.category === cat.key),
   })).filter((g) => g.items.length > 0 || g.cat.comingSoon);
 
-  const flat = groups.flatMap((g) => g.items);
+  const snippetsFiltrados = useMemo(() => {
+    const q = norm(query.trim());
+    if (!q) return snippets;
+    return snippets.filter((sn) => norm(sn.title).includes(q));
+  }, [snippets, query]);
+
+  // Itens "planos" para navegação por teclado: blocos primeiro, snippets no fim.
+  const flat: ({ kind: "block"; type: BlockType } | { kind: "snippet"; key: string })[] = [
+    ...groups.flatMap((g) => g.items.map((b) => ({ kind: "block" as const, type: b.type }))),
+    ...snippetsFiltrados.map((sn) => ({ kind: "snippet" as const, key: sn.key })),
+  ];
 
   function choose(i: number) {
     const item = flat[i];
-    if (item) onSelect(item.type);
+    if (!item) return;
+    if (item.kind === "block") onSelect(item.type);
+    else onSelectSnippet?.(item.key);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -129,6 +144,33 @@ export function SlashMenu({ rect, onSelect, onClose }: Props) {
                 })}
             </div>
           ))}
+          {snippetsFiltrados.length > 0 && (
+            <div>
+              <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+                Snippets (reutilizáveis)
+              </p>
+              {snippetsFiltrados.map((sn) => {
+                flatIndex++;
+                const i = flatIndex;
+                return (
+                  <button
+                    key={sn.key}
+                    type="button"
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => choose(i)}
+                    className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm ${
+                      active === i ? "bg-surface-2" : ""
+                    }`}
+                  >
+                    <span className="flex size-7 items-center justify-center rounded-md border border-dashed border-border text-[10px] font-semibold">
+                      ↺
+                    </span>
+                    {sn.title}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {flat.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-text-muted">Nenhum bloco encontrado.</p>
           )}
