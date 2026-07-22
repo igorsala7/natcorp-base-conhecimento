@@ -88,10 +88,14 @@ export function WidgetManager({
   spaces,
   initialKeys,
   siteUrl,
+  fixedSpaceId,
 }: {
   spaces: SpaceOpt[];
   initialKeys: WidgetKeyRow[];
   siteUrl: string;
+  /** Modo "chatbot desta documentação": chave nova nasce neste espaço e a
+   *  documentação dona fica travada (a página /admin/chatbot usa isso). */
+  fixedSpaceId?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -120,14 +124,15 @@ export function WidgetManager({
 
   function newDraft() {
     setMsg(null);
+    const dona = fixedSpaceId ?? spaces[0]?.id ?? "";
     setDraft({
-      spaceId: spaces[0]?.id ?? "",
+      spaceId: dona,
       name: "Widget",
       allowedOrigins: "",
       rateLimit: 30,
       active: true,
       // Nasce enxergando só a documentação dona; ampliar é escolha explícita.
-      scopeSpaceIds: [spaces[0]?.id ?? ""].filter(Boolean),
+      scopeSpaceIds: [dona].filter(Boolean),
       systemPrompt: "",
       primaryColor: COR_PADRAO,
       title: "Assistente",
@@ -303,7 +308,7 @@ export function WidgetManager({
               <select
                 className={controlClass}
                 value={draft.spaceId}
-                disabled={!!draft.id}
+                disabled={!!draft.id || !!fixedSpaceId}
                 onChange={(e) =>
                   setDraft({
                     ...draft,

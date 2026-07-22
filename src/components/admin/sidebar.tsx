@@ -42,6 +42,7 @@ const GRUPOS = [
           "/admin/aparencia",
           "/admin/configuracoes",
           "/admin/base-conhecimento",
+          "/admin/chatbot",
           "/admin/previa",
         ],
       },
