@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
-import { ArrowRight, Clock } from "lucide-react";
+import { ArrowRight, Clock, Eye } from "lucide-react";
 import {
   getPublicSpace,
   getPortalTree,
@@ -237,10 +237,22 @@ export default async function DocsPage({
         ],
   );
 
+  const formatarViews = (v: number) =>
+    v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} mil` : String(v);
+
   const minutes = Math.max(
     1,
     Math.round(artigoSections.reduce((n, s) => n + wordCount(blocksToText(s.blocks)), 0) / 200),
   );
+
+  // Total de visualizações dos artigos desta página (RLS pública já filtra).
+  const { data: viewsRows } = artigoSections.length
+    ? await db
+        .from("article_views")
+        .select("views")
+        .in("node_id", artigoSections.map((s) => s.node.id))
+    : { data: [] as { views: number }[] };
+  const totalViews = (viewsRows ?? []).reduce((n, r) => n + r.views, 0);
 
   // Paginação: o diretório de 1º NÍVEL seguinte/anterior que tenha conteúdo.
   const temArtigo = (n: (typeof tree)[number]): boolean =>
@@ -286,6 +298,17 @@ export default async function DocsPage({
           <span>
             {artigoSections.length} {artigoSections.length === 1 ? "artigo" : "artigos"}
           </span>
+          {totalViews > 0 && (
+            <>
+              <span aria-hidden="true" className="opacity-40">
+                ·
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Eye className="size-3.5" /> {formatarViews(totalViews)}{" "}
+                {totalViews === 1 ? "visualização" : "visualizações"}
+              </span>
+            </>
+          )}
         </div>
 
         <ReadingScroll
@@ -459,9 +482,9 @@ export default async function DocsPage({
           {prevGroup ? (
             <Link
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
-              className="group rounded-lg border border-border p-4 no-underline transition-colors hover:border-primary"
+              className="group rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-xs text-text-muted">← Anterior</span>
+              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-text-muted">← Anterior</span>
               <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
                 {prevGroup.title}
               </span>
@@ -472,9 +495,9 @@ export default async function DocsPage({
           {nextGroup ? (
             <Link
               href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
-              className="group rounded-lg border border-border p-4 text-right no-underline transition-colors hover:border-primary"
+              className="group rounded-lg border border-border bg-surface p-4 text-right no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-xs text-text-muted">Próximo →</span>
+              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-text-muted">Próximo →</span>
               <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
                 {nextGroup.title}
               </span>

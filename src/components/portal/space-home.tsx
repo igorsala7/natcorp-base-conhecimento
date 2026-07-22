@@ -247,13 +247,13 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
               Categorias
             </h2>
             <ul className="grid gap-3 sm:grid-cols-2">
-              {dados.categorias.map((c) => (
-                <li key={c.id}>
+              {dados.categorias.map((c, i) => (
+                <li key={c.id} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up">
                   <Link
                     href={c.href}
-                    className="group flex items-start gap-3.5 rounded-lg border border-border bg-surface p-4 no-underline transition-shadow hover:shadow-2"
+                    className="group flex h-full items-start gap-3.5 rounded-lg border border-border bg-surface p-4 no-underline transition-all hover:-translate-y-0.5 hover:border-brand-purple-300 hover:shadow-2 motion-reduce:transform-none dark:hover:border-brand-purple-700"
                   >
-                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+                    <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-purple-50 to-brand-purple-100 text-primary transition-colors group-hover:from-brand-purple-500 group-hover:to-brand-purple-800 group-hover:text-white dark:from-brand-purple-950/60 dark:to-brand-purple-900/60 dark:text-brand-purple-300">
                       <IconeDoNo chave={c.icon} fallback={Folder} className="size-[18px]" />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -296,15 +296,18 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
             <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
               Mais úteis
             </h2>
-            <ul className="divide-y divide-border">
-              {maisUteis.map((a) => (
+            <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+              {maisUteis.map((a, i) => (
                 <li key={a.id}>
                   <Link
                     href={a.href}
-                    className="-mx-3 flex items-center gap-3 rounded-md px-3 py-3 no-underline transition-colors hover:bg-surface-2"
+                    className="flex items-center gap-3.5 px-4 py-3 no-underline transition-colors hover:bg-brand-purple-50/50 dark:hover:bg-brand-purple-950/25"
                   >
-                    <ThumbsUp className="size-4 shrink-0 text-primary" />
-                    <span className="truncate text-sm">{a.title}</span>
+                    <span className="w-5 shrink-0 text-center font-mono text-sm font-bold text-text-muted/60">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{a.title}</span>
+                    <ThumbsUp className="size-3.5 shrink-0 text-primary" />
                   </Link>
                 </li>
               ))}
@@ -327,12 +330,15 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                     href={a.href}
                     className="-mx-3 flex items-center justify-between gap-3 rounded-md px-3 py-3 no-underline transition-colors hover:bg-surface-2"
                   >
-                    <span className="truncate text-sm">{a.title}</span>
+                    <span className="min-w-0 truncate text-sm font-medium">{a.title}</span>
                     <time
                       dateTime={new Date(a.updatedAt).toISOString()}
-                      className="shrink-0 text-xs tabular-nums text-text-muted"
+                      className="shrink-0 text-xs text-text-muted"
                     >
-                      {new Date(a.updatedAt).toLocaleDateString("pt-BR")}
+                      {new Date(a.updatedAt).toLocaleDateString("pt-BR", {
+                        day: "2-digit",
+                        month: "long",
+                      })}
                     </time>
                   </Link>
                 </li>
@@ -414,10 +420,30 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
             return (
               <section
                 key="abertura"
-                className="mb-4 overflow-hidden rounded-2xl px-6 py-14 text-center sm:mb-8 sm:px-10 sm:py-16"
+                className="relative mb-4 overflow-hidden rounded-2xl px-6 py-14 text-center sm:mb-8 sm:px-10 sm:py-16"
                 style={faixaCss}
               >
-                <div className="mx-auto max-w-2xl">{aberturaConteudo}</div>
+                {/* Tratamento Lumina: grade de linhas sutil + brilhos difusos —
+                    o gradiente/imagem por espaço segue mandando no fundo. */}
+                <div aria-hidden className="pointer-events-none absolute inset-0">
+                  <div className="absolute -top-32 left-1/4 size-72 rounded-full bg-white/10 blur-3xl" />
+                  <div className="absolute -bottom-20 -right-20 size-80 rounded-full bg-white/[0.07] blur-3xl" />
+                  <div
+                    className="absolute inset-0 opacity-[0.35]"
+                    style={{
+                      backgroundImage:
+                        "linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)",
+                      backgroundSize: "36px 36px",
+                    }}
+                  />
+                </div>
+                <div className="relative mx-auto max-w-2xl">
+                  <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400 motion-reduce:animate-none" />
+                    Central de ajuda · {dados.spaceName}
+                  </p>
+                  {aberturaConteudo}
+                </div>
               </section>
             );
           }
