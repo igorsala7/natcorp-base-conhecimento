@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import { GeistMono } from "geist/font/mono";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 
 /**
@@ -12,6 +11,14 @@ const inter = Inter({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
+});
+
+/* Mono da REFERÊNCIA (JetBrains Mono). A var mantém o nome antigo para não
+   tocar em todos os consumidores. */
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-geist-mono",
 });
 import { env } from "@/lib/env";
 import "./globals.css";
@@ -34,7 +41,7 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       // Variáveis de fonte expostas para o Tailwind (--font-sans / --font-mono).
-      className={`${inter.variable} ${GeistMono.variable}`}
+      className={`${inter.variable} ${jetbrains.variable}`}
       suppressHydrationWarning
     >
       <body>

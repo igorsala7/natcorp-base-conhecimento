@@ -286,9 +286,11 @@ export default async function DocsPage({
           Leitura). "large" reproduz a escala original via fallbacks. */}
       <article className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
         <Breadcrumbs spaceSlug={spaceSlug} crumbs={crumbs} spaceName={space.name} />
-        <h1 className="mt-3 text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">{título}</h1>
+        <h1 className="mt-3 text-[length:var(--l-page,1.5rem)] font-bold leading-[1.15] tracking-tight sm:text-[length:calc(var(--l-page,1.5rem)+0.25rem)]">
+          {título}
+        </h1>
         {/* Metadados como "eyebrow" discreto: informam sem competir com o título. */}
-        <div className="mt-3 flex items-center gap-2 text-[0.8125rem] text-text-muted">
+        <div className="mb-6 mt-3 flex items-center gap-2 border-b border-border pb-6 text-[0.8125rem] text-text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Clock className="size-3.5" /> {minutes} min de leitura
           </span>
