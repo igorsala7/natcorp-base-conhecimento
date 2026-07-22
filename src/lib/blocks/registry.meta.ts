@@ -33,6 +33,8 @@ import {
   Workflow,
   Puzzle,
   type LucideIcon,
+  CheckSquare,
+  BarChart3,
 } from "lucide-react";
 import {
   type Block,
@@ -117,7 +119,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: true,
     isVoid: false,
-    transformableTo: ["orderedList"],
+    transformableTo: ["orderedList", "checklist"],
     defaultData: () => ({
       id: newId(),
       type: "bulletList",
@@ -132,7 +134,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: true,
     isVoid: false,
-    transformableTo: ["bulletList"],
+    transformableTo: ["bulletList", "checklist"],
     defaultData: () => ({
       id: newId(),
       type: "orderedList",
@@ -508,6 +510,41 @@ export const BLOCKS = {
     isVoid: true,
     transformableTo: [],
     defaultData: () => ({ id: newId(), type: "snippet", data: { snippetKey: "" } }),
+  },
+  checklist: {
+    type: "checklist",
+    label: "Checklist",
+    keywords: ["checklist", "verificacao", "tarefas", "todo", "checkbox"],
+    icon: CheckSquare,
+    category: "basico",
+    isContainer: false,
+    isVoid: false,
+    transformableTo: ["bulletList", "orderedList"],
+    defaultData: () => ({
+      id: newId(),
+      type: "checklist",
+      data: { items: [{ id: newId(), text: [], checked: false }] },
+    }),
+  },
+  stats: {
+    type: "stats",
+    label: "Indicadores (KPIs)",
+    keywords: ["indicadores", "kpi", "metricas", "stats", "numeros"],
+    icon: BarChart3,
+    category: "layout",
+    isContainer: false,
+    isVoid: true,
+    transformableTo: [],
+    defaultData: () => ({
+      id: newId(),
+      type: "stats",
+      data: {
+        items: [
+          { id: newId(), value: "100%", label: "Indicador", trend: "Descrição do indicador" },
+          { id: newId(), value: "24/7", label: "Outro indicador", trend: "Descrição do indicador" },
+        ],
+      },
+    }),
   },
 } satisfies Record<BlockType, BlockMeta>;
 

@@ -93,6 +93,8 @@ BLOCOS DISPONÍVEIS (use SOMENTE estes, com estes campos)
 - callout { variant: info | warning | success | danger, text, icon? } — aviso curto em destaque.
 - steps { items[] } — procedimento sequencial, um passo por item.
 - bullets { items[] } — lista de itens sem ordem.
+- checklist { items[] } — lista de VERIFICAÇÃO (pré-requisitos, conferências, "antes de começar"). Cada item carrega o texto INTEGRAL do original.
+- stats { items: [{ value, label }] } — cartões de indicadores/KPIs. Use APENAS quando o texto traz números de destaque, e SEMPRE mantendo a frase original num paragraph junto — stats RESUME visualmente, nunca substitui o texto.
 - code { language?, code } — comando, configuração, JSON, SQL, caminho de arquivo.
 - table { rows[][] } — a PRIMEIRA linha é o cabeçalho; cada linha é um array de células.
 - divider { } — separa dois assuntos distintos dentro do artigo.
@@ -130,6 +132,7 @@ SENSO DE DESIGN (siga o padrão das melhores documentações: Microsoft Learn, A
 - CALLOUT É RARO E CERTEIRO: as grandes documentações usam no máximo 1–2 avisos por página, sempre do tipo certo. NUNCA dois callouts seguidos; aviso dentro de um passo vai como texto do próprio passo.
 - DADO TABULAR É SEMPRE TABLE: parâmetros, campos de tela, permissões, status e códigos de erro em tabela com cabeçalho de verdade — no padrão da Meta, erros saem como "Código | Descrição | Como resolver". Lista com "Nome: descrição" repetido é tabela disfarçada.
 - PROCEDIMENTO É SEMPRE STEPS: qualquer sequência de ações ("clique… selecione… confirme…") vira steps numerados — nunca parágrafos, nunca bullets.
+- PRÉ-REQUISITOS E CONFERÊNCIAS viram checklist (não bullets): "antes de começar, confira…" é o sinal.
 - TÉCNICO É SEMPRE CODE: comando, caminho de arquivo, payload, configuração — em code com a linguagem detectada, mesmo quando é uma linha só.
 - CLAREZA PELO ESPAÇO, NÃO PELO ENFEITE (Apple): um assunto por heading; parágrafos de 2–4 frases; prefira o bloco simples quando o rico não encurta a leitura.
 - HIERARQUIA SAGRADA: heading de conteúdo só nos níveis 2–3, e o assunto de um heading nunca se mistura com o do vizinho — o leitor precisa saber exatamente onde um tema começa e termina.

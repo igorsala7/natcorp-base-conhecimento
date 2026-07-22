@@ -99,6 +99,10 @@ function blockToText(b: Block): string {
       return b.data.rows.map((row) => row.map(richToText).join(" ")).join("\n");
     case "file":
       return b.data.name;
+    case "checklist":
+      return b.data.items.map((i) => richToText(i.text)).join("\n");
+    case "stats":
+      return b.data.items.map((i) => [i.value, i.label, i.trend].filter(Boolean).join(" ")).join("\n");
     case "divider":
     case "spacer":
     case "video":
@@ -244,6 +248,14 @@ function blockToMd(b: Block): string {
     }
     case "toggle":
       return `**${b.data.title}**\n\n` + childrenMd(b);
+    case "checklist":
+      return b.data.items
+        .map((i) => `- [${i.checked ? "x" : " "}] ${richToMarkdown(i.text)}`)
+        .join("\n");
+    case "stats":
+      return b.data.items
+        .map((i) => `**${i.value}** ${i.label}${i.trend ? ` — ${i.trend}` : ""}`)
+        .join("\n");
     case "spacer":
     case "snippet":
       return "";
@@ -327,6 +339,14 @@ function blockToHtml(b: Block): string {
       return `<div>${childrenHtml(b)}</div>`;
     case "file":
       return `<p><a href="${b.data.url}" download>${escHtml(b.data.name || "arquivo")}</a></p>`;
+    case "checklist":
+      return `<ul>${b.data.items
+        .map((i) => `<li>[${i.checked ? "x" : " "}] ${richToHtml(i.text)}</li>`)
+        .join("")}</ul>`;
+    case "stats":
+      return `<ul>${b.data.items
+        .map((i) => `<li><strong>${escHtml(i.value)}</strong> ${escHtml(i.label)}</li>`)
+        .join("")}</ul>`;
     case "spacer":
     case "snippet":
     case "mermaid":

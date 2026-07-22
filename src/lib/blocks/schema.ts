@@ -93,11 +93,13 @@ export type BlockType =
   | "spacer"
   | "table"
   | "mermaid"
-  | "snippet";
+  | "snippet"
+  | "checklist"
+  | "stats";
 
 // Dados (payload) por tipo. Blocos sem payload omitem `data`.
 export type HeadingLevel = 1 | 2 | 3;
-export type CalloutVariant = "info" | "warning" | "success" | "danger";
+export type CalloutVariant = "info" | "warning" | "success" | "danger" | "note";
 
 /**
  * Rótulo do cabeçalho de cada variante de callout (padrão Microsoft Learn:
@@ -108,6 +110,7 @@ export const CALLOUT_ROTULO: Record<CalloutVariant, string> = {
   success: "Dica",
   warning: "Atenção",
   danger: "Cuidado",
+  note: "Observação",
 };
 export type PanelBg = "purple" | "pink" | "blue" | "gray";
 export type HeroBg = "purple" | "blue" | "gray" | "dark";
@@ -127,7 +130,7 @@ export type EmbedProvider =
   | "raw";
 
 export type HeadingData = { level: HeadingLevel };
-export type CodeData = { language: string | null; code: string };
+export type CodeData = { language: string | null; code: string; filename?: string };
 export type ImageData = { src: string; alt: string; caption: string };
 export type VideoData = { provider: VideoProvider; url: string };
 /** Arquivo para download (upload no assets ou URL externa). `size` em bytes (0 = desconhecido). */
@@ -163,6 +166,12 @@ export type HeroData = {
 export type SpacerData = { size: SpacerSize };
 export type TableData = { rows: RichText[][]; hasHeader: boolean };
 export type MermaidData = { code: string };
+/** Item de checklist: texto RICO (negrito/código/link) como as células da tabela. */
+export type ChecklistItem = { id: string; text: RichText; checked: boolean };
+export type ChecklistData = { items: ChecklistItem[] };
+/** Indicadores/KPIs: cartões de valor + rótulo + detalhe. */
+export type StatItem = { id: string; value: string; label: string; trend: string };
+export type StatsData = { items: StatItem[] };
 export type SnippetData = { snippetKey: string };
 
 // Bloco base comum a todos.
@@ -201,7 +210,9 @@ export type Block =
   | (BlockBase & { type: "spacer"; data: SpacerData })
   | (BlockBase & { type: "table"; data: TableData })
   | (BlockBase & { type: "mermaid"; data: MermaidData })
-  | (BlockBase & { type: "snippet"; data: SnippetData });
+  | (BlockBase & { type: "snippet"; data: SnippetData })
+  | (BlockBase & { type: "checklist"; data: ChecklistData })
+  | (BlockBase & { type: "stats"; data: StatsData });
 
 export type BlockDoc = { version: 2; blocks: Block[] };
 
@@ -274,7 +285,7 @@ const BLOCK_TYPES: [BlockType, ...BlockType[]] = [
   "divider", "code", "image", "video", "file", "embed", "button", "callout", "steps",
   "step", "accordion", "accordionItem", "tabs", "tab", "toggle", "container",
   "column", "panel", "cardGrid", "card", "hero", "spacer", "table", "mermaid",
-  "snippet",
+  "snippet", "checklist", "stats",
 ];
 
 type ZodBlock = {

@@ -53,6 +53,22 @@ function leafToBlock(b: LeafBlock): Block {
       };
     case "code":
       return { id: newId(), type: "code", data: { language: b.language ?? null, code: b.code } };
+    case "checklist":
+      return {
+        id: newId(),
+        type: "checklist",
+        data: {
+          items: b.items.map((t) => ({ id: newId(), text: rt(t), checked: false })),
+        },
+      };
+    case "stats":
+      return {
+        id: newId(),
+        type: "stats",
+        data: {
+          items: b.items.map((i) => ({ id: newId(), value: i.value, label: i.label, trend: "" })),
+        },
+      };
     case "table":
       return {
         id: newId(),

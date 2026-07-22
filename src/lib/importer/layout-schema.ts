@@ -54,6 +54,13 @@ export const leafOptions = [
   }),
   // Divisória: separa blocos de assunto dentro do artigo.
   z.object({ kind: z.literal("divider") }),
+  // Lista de verificação (pré-requisitos, conferências).
+  z.object({ kind: z.literal("checklist"), items: z.array(z.string()) }),
+  // Indicadores/KPIs: valor + rótulo por cartão.
+  z.object({
+    kind: z.literal("stats"),
+    items: z.array(z.object({ value: z.string(), label: z.string() })),
+  }),
 ] as const;
 
 export type LeafBlock = z.infer<(typeof leafOptions)[number]>;

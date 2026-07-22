@@ -2,6 +2,7 @@
 
 import type { ComponentType } from "react";
 import type { BlockType } from "@/lib/blocks/schema";
+import { ChecklistBlock, StatsBlock } from "./blocks/checklist-block";
 import type { BlockEditProps } from "./edit-types";
 import { TextBlock, HeadingBlock } from "./blocks/text-block";
 import { CodeBlock, MermaidBlock } from "./blocks/code-block";
@@ -65,4 +66,6 @@ export const EDITORS = {
   table: TableBlock,
   mermaid: MermaidBlock,
   snippet: SnippetBlock,
+  checklist: ChecklistBlock,
+  stats: StatsBlock,
 } satisfies Record<BlockType, ComponentType<BlockEditProps>>;

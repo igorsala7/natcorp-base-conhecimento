@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, AlertTriangle, CheckCircle2, OctagonAlert, Plus, Minus } from "lucide-react";
+import { Info, AlertTriangle, CheckCircle2, Lightbulb, OctagonAlert, Plus, Minus } from "lucide-react";
 import type { Block, CalloutVariant, PanelBg } from "@/lib/blocks/schema";
 import { BlockIcon } from "../block-icon";
 import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
@@ -24,6 +24,10 @@ const CALLOUT_META: Record<CalloutVariant, { icon: typeof Info; cls: string }> =
   danger: {
     icon: OctagonAlert,
     cls: "border-red-500 bg-red-50/70 text-red-900 dark:bg-red-950/25 dark:text-red-100",
+  },
+  note: {
+    icon: Lightbulb,
+    cls: "border-violet-500 bg-violet-50/70 text-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
   },
 };
 

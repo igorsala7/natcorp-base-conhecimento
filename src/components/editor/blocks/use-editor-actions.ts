@@ -18,6 +18,24 @@ import type { EditorActions } from "./edit-types";
 
 /** Converte um bloco para outro tipo, preservando o texto quando possível. */
 export function changeType(block: Block, type: BlockType): Block {
+  // Lista ↔ checklist convertem ITEM A ITEM (não texto corrido).
+  if (block.type === "checklist" && (type === "bulletList" || type === "orderedList")) {
+    return {
+      id: block.id,
+      type,
+      children: block.data.items.map((i) => ({ id: i.id, type: "listItem" as const, text: i.text })),
+    } as Block;
+  }
+  if ((block.type === "bulletList" || block.type === "orderedList") && type === "checklist") {
+    const items = (block.children ?? [])
+      .filter((c): c is Extract<Block, { type: "listItem" }> => c.type === "listItem")
+      .map((c) => ({ id: c.id, text: c.text, checked: false }));
+    return {
+      id: block.id,
+      type: "checklist" as const,
+      data: { items: items.length ? items : [{ id: newId(), text: [], checked: false }] },
+    } as Block;
+  }
   const base = { ...BLOCKS[type].defaultData(), id: block.id } as Block;
   const srcText = "text" in block && block.text.length ? block.text : undefined;
   const fallback =

@@ -3,12 +3,15 @@ import DOMPurify from "isomorphic-dompurify";
 import {
   AlertTriangle,
   BookOpen,
+  Check,
   CheckCircle2,
   ChevronDown,
   Download,
   FileDown,
   Info,
+  Lightbulb,
   OctagonAlert,
+  Quote as QuoteIcon,
 } from "lucide-react";
 import { slugify } from "@/lib/content/slug";
 import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
@@ -149,25 +152,55 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         </li>
       );
     case "quote":
-      return <blockquote>{renderRich(block.text)}</blockquote>;
+      return (
+        <figure className="my-5 rounded-lg border border-brand-purple-100 bg-brand-purple-50/50 p-5 dark:border-brand-purple-900 dark:bg-brand-purple-950/30">
+          <QuoteIcon className="mb-2 size-5 text-brand-purple-300" aria-hidden="true" />
+          <blockquote className="!m-0 !border-0 !p-0 font-medium not-italic !text-text">
+            {renderRich(block.text)}
+          </blockquote>
+        </figure>
+      );
     case "divider":
-      return <hr />;
+      return (
+        <div className="my-7 flex items-center gap-3" role="separator">
+          <span className="h-px flex-1 bg-border" />
+          <span className="size-1.5 rounded-full bg-border-strong" />
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      );
 
     case "code": {
       const code = block.data.code;
       const lang = block.data.language ?? undefined;
+      const filename = block.data.filename;
       const html = highlightCode(code, lang);
       return (
-        <pre>
-          {/* Barra de linguagem discreta, no lugar onde todo dev já procura. */}
-          {lang && <span className="code-lang">{lang}</span>}
-          <CodeCopy code={code} />
-          {html ? (
-            <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
-          ) : (
-            <code>{code}</code>
-          )}
-        </pre>
+        /* Janela estilo terminal: 3 pontos + nome do arquivo + linguagem. */
+        <div className="code-window my-5 overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
+          <div className="flex items-center justify-between border-b border-brand-gray-800 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <span className="size-2.5 rounded-full bg-red-500/80" />
+              <span className="size-2.5 rounded-full bg-amber-500/80" />
+              <span className="size-2.5 rounded-full bg-emerald-500/80" />
+              {filename && (
+                <span className="ml-2 font-mono text-xs text-brand-gray-400">{filename}</span>
+              )}
+            </div>
+            {lang && (
+              <span className="font-mono text-[0.625rem] uppercase tracking-wider text-brand-gray-500">
+                {lang}
+              </span>
+            )}
+          </div>
+          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !pt-4">
+            <CodeCopy code={code} />
+            {html ? (
+              <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
+            ) : (
+              <code>{code}</code>
+            )}
+          </pre>
+        </div>
       );
     }
 
@@ -182,7 +215,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             alt={alt}
             loading="lazy"
             decoding="async"
-            className="mx-auto rounded-lg border border-border"
+            className="mx-auto rounded-lg border border-border shadow-1"
           />
           {caption ? (
             <figcaption className="mt-2.5 text-[0.8125rem] leading-relaxed text-text-muted">
@@ -241,8 +274,8 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             href={href}
             className={
               variant === "secondary"
-                ? "inline-flex items-center rounded-md border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium no-underline"
-                : "inline-flex items-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-fg no-underline hover:bg-primary-hover"
+                ? "inline-flex items-center gap-2 rounded-md border border-brand-purple-200 bg-surface px-5 py-2.5 text-sm font-semibold text-primary no-underline shadow-1 transition-all hover:border-brand-purple-400 hover:bg-brand-purple-50 dark:border-brand-purple-800 dark:hover:bg-brand-purple-950/40"
+                : "inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-fg no-underline shadow-1 transition-all hover:bg-primary-hover hover:shadow-2"
             }
           >
             {label}
@@ -271,10 +304,10 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     }
 
     case "steps":
-      return <div className="my-4 [counter-reset:step]">{renderChildren(block.children, ctx)}</div>;
+      return <div className="my-5 [counter-reset:step]">{renderChildren(block.children, ctx)}</div>;
     case "step":
       return (
-        <div className="relative mb-4 border-l-2 border-border pb-1 pl-8 [counter-increment:step] before:absolute before:left-[-13px] before:top-0 before:flex before:size-6 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-xs before:font-semibold before:text-primary-fg before:content-[counter(step)] [&>*:first-child]:mt-0">
+        <div className="relative mb-6 pb-1 pl-11 last:mb-0 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-[-1.25rem] after:left-[15px] after:top-9 after:w-px after:bg-gradient-to-b after:from-brand-purple-200 after:to-brand-purple-50 last:after:hidden dark:before:ring-brand-purple-950/40 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950/40 [&>*:first-child]:mt-0">
           {renderChildren(block.children, ctx)}
         </div>
       );
@@ -471,6 +504,45 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "mermaid":
       return <MermaidView code={block.data.code} />;
 
+    case "checklist":
+      return (
+        <ul className="nao-prosa my-4 list-none space-y-2 !pl-0">
+          {block.data.items.map((item) => (
+            <li key={item.id} className="flex items-start gap-2.5 text-[length:var(--l-body,0.9375rem)]">
+              <span
+                aria-hidden="true"
+                className={`mt-0.5 flex size-[1.125rem] shrink-0 items-center justify-center rounded border ${
+                  item.checked
+                    ? "border-primary bg-primary text-primary-fg"
+                    : "border-border-strong bg-surface"
+                }`}
+              >
+                {item.checked && <Check className="size-3" />}
+              </span>
+              <span className={item.checked ? "text-text-muted line-through" : ""}>
+                {renderRich(item.text)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      );
+
+    case "stats":
+      return (
+        <div className="nao-prosa my-5 grid gap-3 sm:grid-cols-3">
+          {block.data.items.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-lg border border-border bg-gradient-to-b from-surface to-surface-2 p-4 shadow-1"
+            >
+              <p className="!m-0 text-2xl font-bold tracking-tight text-primary">{item.value}</p>
+              <p className="!mb-0 !mt-1 text-sm font-semibold">{item.label}</p>
+              {item.trend && <p className="!mb-0 !mt-0.5 text-xs text-text-muted">{item.trend}</p>}
+            </div>
+          ))}
+        </div>
+      );
+
     case "snippet": {
       const blocks = ctx.snippets.get(block.data.snippetKey);
       if (!blocks) return null;
@@ -543,6 +615,10 @@ const CALLOUT = {
   danger: {
     Icon: OctagonAlert,
     cls: "border-red-500 bg-red-50/70 text-red-900 dark:bg-red-950/25 dark:text-red-100",
+  },
+  note: {
+    Icon: Lightbulb,
+    cls: "border-violet-500 bg-violet-50/70 text-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
   },
 } as const;
 
