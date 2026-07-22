@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Builds de VERIFICAÇÃO (CI local, agente) podem apontar para outro
+  // diretório: `NEXT_DIST_DIR=.next-verify npm run build`. Sem isso, um
+  // `next build` rodado enquanto o `next dev` está de pé sobrescreve o
+  // `.next` em uso e mistura chunks — a página passa a hidratar com bundle
+  // antigo contra HTML novo (erro real que aconteceu).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: {
     // Falhas de tipo quebram o build (regra da spec: tipos são fonte da verdade).
     ignoreBuildErrors: false,
