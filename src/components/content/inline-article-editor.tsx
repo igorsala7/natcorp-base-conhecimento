@@ -134,7 +134,9 @@ export function InlineArticleEditor({
         </div>
 
         <div
-          className="prose prose-neutral prose-portal max-w-none dark:prose-invert"
+          // `editor-blocks`: na edição cada bloco tem wrapper próprio e as
+          // margens não colapsam — sem isto o espaçamento dobra (ver globals).
+          className="editor-blocks prose prose-neutral prose-portal max-w-none dark:prose-invert"
           onClick={() => setSelectedId(null)}
         >
           <div className="pl-10">

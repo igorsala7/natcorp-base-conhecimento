@@ -407,7 +407,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
                segura o hero ABAIXO do título do artigo — um banner de conteúdo
                maior que o título que o contém inverte a hierarquia da página.
                Fora da leitura (editor, prévia solta) o fallback mantém 24→30px. */
-            <p className="mt-1.5 text-[length:var(--l-hero,1.5rem)] font-semibold leading-tight tracking-tight sm:text-[length:var(--l-hero,1.875rem)]">
+            <p className="mt-1.5 text-[length:var(--l-hero,1rem)] font-semibold leading-tight tracking-tight sm:text-[length:var(--l-hero,1.125rem)]">
               {title}
             </p>
           )}

@@ -21,9 +21,12 @@ const RADIUS: Record<string, string> = {
   none: "", sm: "rounded-sm", md: "rounded-md", lg: "rounded-lg", xl: "rounded-xl", "2xl": "rounded-2xl",
 };
 const ALIGN: Record<string, string> = { left: "text-left", center: "text-center", right: "text-right" };
+/** Escala deslocada UM degrau abaixo do Tailwind: em documentação o "base"
+ *  precisa valer 14px ("sm"), e assim por diante — os rótulos do painel
+ *  continuam os mesmos, só o tamanho real encolhe. */
 const FONT: Record<string, string> = {
-  xs: "text-xs", sm: "text-sm", base: "text-base", lg: "text-lg",
-  xl: "text-xl", "2xl": "text-2xl", "3xl": "text-3xl",
+  xs: "text-[0.6875rem]", sm: "text-xs", base: "text-sm", lg: "text-base",
+  xl: "text-lg", "2xl": "text-xl", "3xl": "text-2xl",
 };
 const BORDER_W: Record<number, string> = { 0: "", 1: "border", 2: "border-2", 4: "border-4", 8: "border-8" };
 const BORDER_C: Record<string, string> = {

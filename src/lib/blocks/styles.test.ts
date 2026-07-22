@@ -8,8 +8,11 @@ describe("styleClass", () => {
     expect(styleClass({})).toBe("");
   });
 
-  it("tamanho da fonte e alinhamento", () => {
-    expect(styleClass({ fontSize: "2xl", align: "center" })).toContain("text-2xl");
+  it("tamanho da fonte sai UM degrau abaixo do rótulo (escala de documentação)", () => {
+    // "base" vale o sm do Tailwind (14px), e assim por diante — o rótulo do
+    // painel promete o papel do texto, não o pixel do Tailwind.
+    expect(styleClass({ fontSize: "base" })).toContain("text-sm");
+    expect(styleClass({ fontSize: "2xl", align: "center" })).toContain("text-xl");
     expect(styleClass({ fontSize: "2xl", align: "center" })).toContain("text-center");
   });
 
