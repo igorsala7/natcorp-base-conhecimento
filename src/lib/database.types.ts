@@ -1468,6 +1468,73 @@ export type Database = {
           },
         ]
       }
+      subscription_runs: {
+        Row: {
+          frequency: string
+          last_run_at: string
+          space_id: string
+        }
+        Insert: {
+          frequency: string
+          last_run_at?: string
+          space_id: string
+        }
+        Update: {
+          frequency?: string
+          last_run_at?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_runs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscriptions: {
+        Row: {
+          confirmed_at: string | null
+          created_at: string
+          email: string
+          frequency: string
+          id: string
+          space_id: string
+          token: string
+          unsubscribed_at: string | null
+        }
+        Insert: {
+          confirmed_at?: string | null
+          created_at?: string
+          email: string
+          frequency?: string
+          id?: string
+          space_id: string
+          token?: string
+          unsubscribed_at?: string | null
+        }
+        Update: {
+          confirmed_at?: string | null
+          created_at?: string
+          email?: string
+          frequency?: string
+          id?: string
+          space_id?: string
+          token?: string
+          unsubscribed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tags: {
         Row: {
           created_at: string

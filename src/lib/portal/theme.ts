@@ -23,6 +23,7 @@ export const REGIOES = [
   "top",
   "recent",
   "support",
+  "subscribe",
 ] as const;
 export type RegiaoKey = (typeof REGIOES)[number];
 
@@ -38,6 +39,7 @@ export const ROTULO_REGIAO: Record<RegiaoKey, string> = {
   top: "Mais úteis (por feedback)",
   recent: "Recentemente atualizados",
   support: "Bloco de suporte",
+  subscribe: "Receber novidades (e-mail)",
 };
 
 /**
@@ -45,7 +47,8 @@ export const ROTULO_REGIAO: Record<RegiaoKey, string> = {
  * ganha um vazio; `featured` porque depende de curadoria; `top` porque sem
  * feedback acumulado a lista seria ruído.
  */
-const DESLIGADAS_PADRAO = new Set<RegiaoKey>(["cover", "featured", "top"]);
+// `subscribe` nasce desligada: depende do envio de e-mail estar configurado.
+const DESLIGADAS_PADRAO = new Set<RegiaoKey>(["cover", "featured", "top", "subscribe"]);
 
 /** Como a abertura (título/busca/IA) é apresentada. */
 export const HERO_STYLES = ["plain", "brand", "image"] as const;

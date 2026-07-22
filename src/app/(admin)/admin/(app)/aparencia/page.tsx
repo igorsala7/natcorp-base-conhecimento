@@ -80,6 +80,7 @@ export default async function AparenciaPage({
 
   const dados: DadosHome = {
     spaceName: atual.name,
+    spaceSlug: atual.slug,
     categorias: categorias.map((f) => ({
       id: f.id,
       title: f.title,

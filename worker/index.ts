@@ -25,6 +25,7 @@ import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
 import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-core";
 import { scanSpaceQuality } from "../src/lib/quality/scan";
+import { processDigests } from "../src/lib/subscriptions/digest";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -321,6 +322,10 @@ async function main() {
   await boss.createQueue("import-improve");
   await boss.createQueue("scheduled-publish");
   await boss.createQueue("quality-scan");
+  await boss.createQueue("digests");
+  // Digests de assinaturas: tick de 15 min (instant sai no próximo tick;
+  // daily/weekly têm gate de horário dentro do processador).
+  await boss.schedule("digests", "*/15 * * * *");
   // Cron do próprio pg-boss: um tick por minuto, singleton (não acumula).
   await boss.schedule("scheduled-publish", "* * * * *");
   console.log("Worker de importação pronto. Aguardando jobs…");
@@ -335,6 +340,18 @@ async function main() {
       } catch (e) {
         console.error("Varredura de qualidade falhou:", e instanceof Error ? e.message : e);
       }
+    }
+  });
+
+  await boss.work("digests", async () => {
+    try {
+      const r = await processDigests(
+        supabase,
+        process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3008",
+      );
+      if (r.enviados) console.log(`Digests enviados: ${r.enviados}`);
+    } catch (e) {
+      console.error("Digests falharam:", e instanceof Error ? e.message : e);
     }
   });
 

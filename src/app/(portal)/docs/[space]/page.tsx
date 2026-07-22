@@ -150,6 +150,7 @@ export default async function SpaceHome({
 
   const dados: DadosHome = {
     spaceName: space.name,
+    spaceSlug: space.slug,
     categorias: categories.map((f) => ({
       id: f.id,
       title: f.title,

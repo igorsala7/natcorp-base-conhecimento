@@ -4,6 +4,7 @@ import { Folder, FileText, LifeBuoy, ArrowRight, Star, ThumbsUp } from "lucide-r
 import { SearchTrigger, AskTrigger } from "@/components/portal/portal-search";
 import { ICONS } from "@/lib/blocks/icons";
 import { regiaoAtiva, type TemaResolvido, type RegiaoKey } from "@/lib/portal/theme";
+import { SubscribeForm } from "@/components/portal/subscribe-form";
 
 /**
  * A home pública de uma documentação, como componente PURO.
@@ -28,6 +29,8 @@ export type DestaqueHome = ItemHome & { excerpt: string | null };
 
 export type DadosHome = {
   spaceName: string;
+  /** Slug do espaço — a região de inscrição envia para a API com ele. */
+  spaceSlug: string;
   categorias: CategoriaHome[];
   artigosSoltos: ArtigoSoltoHome[];
   recentes: RecenteHome[];
@@ -359,6 +362,9 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
             </div>
           </section>
         );
+      case "subscribe":
+        if (!ligada("subscribe")) return null;
+        return <SubscribeForm key={key} spaceSlug={dados.spaceSlug} />;
     }
   };
 
