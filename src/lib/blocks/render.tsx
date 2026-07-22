@@ -263,7 +263,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             <Icon className="size-4 shrink-0" aria-hidden="true" />
             {CALLOUT_ROTULO[block.data.variant] ?? CALLOUT_ROTULO.info}
           </p>
-          <div className="mt-1.5 min-w-0 text-[length:var(--l-body,0.875rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <div className="mt-1.5 min-w-0 text-[length:var(--l-body,0.9375rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {renderChildren(block.children, ctx)}
           </div>
         </div>
@@ -416,7 +416,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
                segura o hero ABAIXO do título do artigo — um banner de conteúdo
                maior que o título que o contém inverte a hierarquia da página.
                Fora da leitura (editor, prévia solta) o fallback mantém 24→30px. */
-            <p className="mt-1.5 text-[length:var(--l-hero,1rem)] font-semibold leading-tight tracking-tight sm:text-[length:var(--l-hero,1.125rem)]">
+            <p className="mt-1.5 text-[length:var(--l-hero,1.0625rem)] font-semibold leading-tight tracking-tight sm:text-[length:var(--l-hero,1.1875rem)]">
               {title}
             </p>
           )}
