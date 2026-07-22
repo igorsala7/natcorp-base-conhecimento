@@ -1512,6 +1512,56 @@ export type Database = {
           },
         ]
       }
+      studio_sessions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          materiais: Json
+          messages: Json
+          proposal: Json
+          space_id: string
+          status: string
+          target: Json
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          materiais?: Json
+          messages?: Json
+          proposal?: Json
+          space_id: string
+          status?: string
+          target?: Json
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          materiais?: Json
+          messages?: Json
+          proposal?: Json
+          space_id?: string
+          status?: string
+          target?: Json
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "studio_sessions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscription_runs: {
         Row: {
           frequency: string
