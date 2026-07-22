@@ -15,6 +15,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.start();
       await boss.createQueue("import");
       await boss.createQueue("import-improve");
+      await boss.createQueue("quality-scan");
       return boss;
     })();
   }
@@ -34,4 +35,10 @@ export async function enqueueImport(jobId: string): Promise<void> {
 export async function enqueueImportImprove(jobId: string, nodeIds: string[]): Promise<void> {
   const boss = await getBoss();
   await boss.send("import-improve", { jobId, nodeIds });
+}
+
+/** Varredura de qualidade/SEO de uma documentação (painel Otimizar em massa). */
+export async function enqueueQualityScan(spaceId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("quality-scan", { spaceId });
 }

@@ -24,6 +24,7 @@ import { hasAiKey } from "../src/lib/ai/config";
 import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
 import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-core";
+import { scanSpaceQuality } from "../src/lib/quality/scan";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -319,9 +320,23 @@ async function main() {
   await boss.createQueue("import");
   await boss.createQueue("import-improve");
   await boss.createQueue("scheduled-publish");
+  await boss.createQueue("quality-scan");
   // Cron do próprio pg-boss: um tick por minuto, singleton (não acumula).
   await boss.schedule("scheduled-publish", "* * * * *");
   console.log("Worker de importação pronto. Aguardando jobs…");
+
+  await boss.work("quality-scan", async (jobs) => {
+    for (const job of jobs) {
+      const { spaceId } = job.data as { spaceId: string };
+      console.log(`Varredura de qualidade do espaço ${spaceId}…`);
+      try {
+        const r = await scanSpaceQuality(supabase, spaceId);
+        console.log(`Qualidade: ${r.artigos} artigo(s), ${r.issues} issue(s).`);
+      } catch (e) {
+        console.error("Varredura de qualidade falhou:", e instanceof Error ? e.message : e);
+      }
+    }
+  });
 
   await boss.work("scheduled-publish", async () => {
     try {

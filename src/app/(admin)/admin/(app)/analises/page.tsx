@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
+import { QualityScanButton } from "./quality-scan-button";
+import type { QualityIssue } from "@/lib/quality/audit-article";
 
 export const metadata: Metadata = { title: "Análises" };
 
@@ -45,7 +47,7 @@ export default async function AnalisesPage() {
   // eslint-disable-next-line react-hooks/purity
   const corte90d = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
 
-  const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }, { data: views }] =
+  const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }, { data: views }, { data: quality }, { data: spacesList }] =
     await Promise.all([
       supabase.from("search_logs").select("query, results_count").order("created_at", { ascending: false }).limit(3000),
       supabase.from("messages").select("role, feedback, latency_ms, content").eq("role", "assistant").order("created_at", { ascending: false }).limit(2000),
@@ -53,6 +55,8 @@ export default async function AnalisesPage() {
       supabase.from("article_feedback").select("node_id, helpful").order("created_at", { ascending: false }).limit(2000),
       // Últimos 90 dias de contadores diários (node_id, day, views).
       supabase.from("article_views").select("node_id, day, views").gte("day", corte90d),
+      supabase.from("quality_reports").select("node_id, space_id, issues, score, run_at").order("score", { ascending: false }),
+      supabase.from("spaces").select("id, name").order("name"),
     ]);
 
   const searchRows = searches ?? [];
@@ -114,6 +118,19 @@ export default async function AnalisesPage() {
     const { data: nodes } = await supabase.from("nodes").select("id, title").in("id", faltando);
     for (const n of nodes ?? []) titleById.set(n.id, n.title);
   }
+
+  // Qualidade: agregados da última varredura (issues por impacto).
+  const qualityRows = quality ?? [];
+  const porImpacto = { alto: 0, medio: 0, baixo: 0 };
+  for (const q of qualityRows) {
+    for (const issue of (q.issues as unknown as QualityIssue[]) ?? []) {
+      porImpacto[issue.impacto] += 1;
+    }
+  }
+  const ultimaVarredura = qualityRows.reduce<string | null>(
+    (max, q) => (max && max > q.run_at ? max : q.run_at),
+    null,
+  );
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -220,6 +237,42 @@ export default async function AnalisesPage() {
               accent
             />
           </div>
+        )}
+      </section>
+
+      {/* Qualidade/SEO (varredura do worker: painel Otimizar em massa) */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-text-muted">Qualidade da documentação</h2>
+          <QualityScanButton spaces={spacesList ?? []} />
+        </div>
+        {qualityRows.length === 0 ? (
+          <Surface elevation={1}>
+            <p className="text-sm text-text-muted">
+              Nenhuma varredura ainda. Escolha a documentação e clique em “Analisar qualidade” —
+              o worker audita descrição, alt de imagens, títulos e links (internos e externos).
+            </p>
+          </Surface>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Artigos analisados" value={qualityRows.length} hint={ultimaVarredura ? `Última varredura: ${new Date(ultimaVarredura).toLocaleString("pt-BR")}` : undefined} />
+              <StatCard label="Impacto alto" value={porImpacto.alto} />
+              <StatCard label="Impacto médio" value={porImpacto.medio} />
+              <StatCard label="Impacto baixo" value={porImpacto.baixo} />
+            </div>
+            <div className="mt-3">
+              <RankList
+                title="Artigos com mais pontos de atenção"
+                rows={qualityRows
+                  .filter((q) => q.score > 0)
+                  .slice(0, 8)
+                  .map((q) => [titleById.get(q.node_id) ?? q.node_id, q.score])}
+                empty="Nenhum problema encontrado — documentação em ordem."
+                accent
+              />
+            </div>
+          </>
         )}
       </section>
     </div>

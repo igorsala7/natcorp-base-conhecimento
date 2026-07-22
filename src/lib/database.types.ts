@@ -834,6 +834,27 @@ export type Database = {
           },
         ]
       }
+      link_checks: {
+        Row: {
+          checked_at: string
+          ok: boolean | null
+          status: number | null
+          url: string
+        }
+        Insert: {
+          checked_at?: string
+          ok?: boolean | null
+          status?: number | null
+          url: string
+        }
+        Update: {
+          checked_at?: string
+          ok?: boolean | null
+          status?: number | null
+          url?: string
+        }
+        Relationships: []
+      }
       node_tags: {
         Row: {
           node_id: string
@@ -1401,6 +1422,48 @@ export type Database = {
             columns: ["widget_key_id"]
             isOneToOne: false
             referencedRelation: "widget_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quality_reports: {
+        Row: {
+          id: string
+          issues: Json
+          node_id: string
+          run_at: string
+          score: number
+          space_id: string
+        }
+        Insert: {
+          id?: string
+          issues?: Json
+          node_id: string
+          run_at?: string
+          score?: number
+          space_id: string
+        }
+        Update: {
+          id?: string
+          issues?: Json
+          node_id?: string
+          run_at?: string
+          score?: number
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quality_reports_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: true
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_reports_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]

@@ -19,6 +19,7 @@ import {
   Eye,
   History,
   CalendarClock,
+  Gauge,
   Keyboard,
   Maximize2,
   Minimize2,
@@ -52,6 +53,7 @@ import { ShortcutsHelp } from "./shortcuts-help";
 import { PropertiesPanel } from "./properties-panel";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
+import { OptimizePanel } from "../optimize-panel";
 import { ReviewThread } from "../review-thread";
 import {
   submitForReview,
@@ -134,6 +136,8 @@ type BlockEditorProps = {
   /** Escala de leitura do tema da documentação (Aparência → Leitura) — o
    *  canvas edita no MESMO tamanho em que o portal exibe. */
   readingSize?: "compact" | "normal" | "large";
+  /** Meta description do nó (auditoria do painel Otimizar). */
+  nodeDescription?: string | null;
 };
 
 /** Provider do "RichText ativo" para a barra do topo formatar a seleção. */
@@ -160,6 +164,7 @@ function BlockEditorInner({
   canReview,
   canComment,
   readingSize = "normal",
+  nodeDescription,
 }: BlockEditorProps) {
   const router = useRouter();
   const { confirmar, pedirTexto } = useConfirm();
@@ -184,6 +189,7 @@ function BlockEditorInner({
   const [linkCopied, setLinkCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showOptimize, setShowOptimize] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const [showAiTexto, setShowAiTexto] = useState(false);
@@ -677,6 +683,9 @@ function BlockEditorInner({
                     <CalendarClock className="size-4 text-text-muted" /> Agendar publicação
                   </button>
                 )}
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowOptimize(true); setShowProps(false); setShowMore(false); }} title="Auditoria de qualidade e SEO deste artigo">
+                  <Gauge className="size-4 text-text-muted" /> Otimizar (qualidade/SEO)
+                </button>
                 <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
                   <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
                 </button>
@@ -794,7 +803,23 @@ function BlockEditorInner({
             </div>
           </div>
         </div>
-        {!preview && selected && showProps && (
+        {!preview && showOptimize && (
+          <OptimizePanel
+            nodeId={nodeId}
+            spaceId={spaceId}
+            title={title}
+            description={nodeDescription ?? null}
+            blocks={blocks}
+            onSelectBlock={(id) => {
+              actions.select(id);
+              document
+                .querySelector(`[data-block-id="${id}"]`)
+                ?.scrollIntoView({ block: "center", behavior: "smooth" });
+            }}
+            onClose={() => setShowOptimize(false)}
+          />
+        )}
+        {!preview && selected && showProps && !showOptimize && (
           <PropertiesPanel block={selected} actions={actions} onClose={() => setShowProps(false)} />
         )}
       </div>

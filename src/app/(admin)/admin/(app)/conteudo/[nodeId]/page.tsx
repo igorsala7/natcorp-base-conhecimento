@@ -177,6 +177,7 @@ export default async function EditarConteudoPage({
         canReview={canApprove || canReject}
         canComment={canComment}
         readingSize={resolveTheme(nodeSpace?.theme).article.fontSize}
+        nodeDescription={node.description}
       />
     </ContentShell>
   );
