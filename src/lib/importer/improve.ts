@@ -1,7 +1,7 @@
 import "server-only";
 import { generateObject } from "ai";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
-import { LAYOUT_INSTRUCTIONS, CABECALHO_PREFERENCIAS } from "./prompts";
+import { LAYOUT_INSTRUCTIONS, CABECALHO_PREFERENCIAS, PADRAO_DE_ARTIGO } from "./prompts";
 import type { BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { blocksToDoc, filtrarButtonsSemUrl } from "./blocks-to-doc";
@@ -59,7 +59,7 @@ export async function improveLayout(
         model,
         schema: blocksSchema,
         prompt:
-          LAYOUT_INSTRUCTIONS +
+          LAYOUT_INSTRUCTIONS + "\n\n" + PADRAO_DE_ARTIGO +
           (direcao ? `\n\n${CABECALHO_PREFERENCIAS}\n${direcao}` : "") +
           "\n\nTEXTO:\n" +
           segmento,

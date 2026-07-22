@@ -10,6 +10,7 @@ import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { studioTurnSchema } from "@/lib/ai/studio-schema";
 import { blocksSchema } from "@/lib/importer/layout-schema";
 import { blocksToDoc, filtrarButtonsSemUrl } from "@/lib/importer/blocks-to-doc";
+import { PADRAO_DE_ARTIGO } from "@/lib/importer/prompts";
 import { extractDocument } from "@/lib/importer/extract";
 import { generateKeyBetween } from "fractional-indexing";
 import { uniqueSlug } from "@/lib/content/unique-slug";
@@ -341,6 +342,8 @@ export async function studioGenerateBody(
       schema: blocksSchema,
       abortSignal: aiTimeout("editor_generate"),
       prompt: `Escreva o CORPO do artigo de documentação "${no.titulo}" em blocos ricos, português do Brasil.
+
+${PADRAO_DE_ARTIGO}
 
 CONTEXTO DA PROPOSTA (não repita conteúdo de outros artigos):
 ${resumoDaProposta(proposal)}

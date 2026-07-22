@@ -422,7 +422,10 @@
   .table-portal th {
     text-align: left;
     font-weight: 600;
-    color: var(--color-text);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
     background: var(--color-surface-2);
     padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--color-border);
@@ -433,6 +436,10 @@
     border-bottom: 1px solid var(--color-border);
     vertical-align: top;
     line-height: 1.6;
+  }
+  /* Zebra da referência: linhas pares com fundo suave. */
+  .table-portal tbody tr:nth-child(even) td {
+    background: color-mix(in oklab, var(--color-surface-2) 55%, transparent);
   }
   .table-portal tr:last-child td {
     border-bottom: 0;

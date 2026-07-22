@@ -52,7 +52,7 @@ function leafToBlock(b: LeafBlock): Block {
       return {
         id: newId(),
         type: "callout",
-        data: { variant: b.variant },
+        data: { variant: b.variant, ...(b.titulo?.trim() ? { title: b.titulo.trim() } : {}) },
         children: [para(b.text)],
         ...iconStyles(b.icon),
       };

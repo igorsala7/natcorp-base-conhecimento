@@ -47,6 +47,8 @@ export const leafOptions = [
   z.object({
     kind: z.literal("callout"),
     variant: z.enum(["info", "warning", "success", "danger", "note"]),
+    /** Título ESPECÍFICO do aviso ("Limite de importação"); null = rótulo do tipo. */
+    titulo: z.string().nullable(),
     text: z.string(),
     icon: iconField,
   }),

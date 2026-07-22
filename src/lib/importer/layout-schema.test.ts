@@ -41,7 +41,7 @@ describe("layout-schema (JSON Schema para o provedor)", () => {
       blocks: [
         { kind: "heading", level: 2, text: "Título" },
         { kind: "paragraph", text: "Um parágrafo." },
-        { kind: "callout", variant: "info", text: "Atenção.", icon: "info" },
+        { kind: "callout", variant: "info", titulo: null, text: "Atenção.", icon: "info" },
         { kind: "steps", items: ["Primeiro", "Segundo"] },
         { kind: "code", language: "ts", code: "const a = 1;", filename: null },
         { kind: "panel", bg: "purple", items: ["Um destaque."], icon: null },

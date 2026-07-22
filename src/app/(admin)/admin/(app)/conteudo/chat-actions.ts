@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { editorChatSchema, type EditorChatTurn } from "@/lib/ai/editor-chat-schema";
+import { PADRAO_DE_ARTIGO } from "@/lib/importer/prompts";
 
 /**
  * Turno do CHAT DO EDITOR: o autor conversa e a IA responde com OPERAÇÕES
@@ -72,6 +73,9 @@ COMO RESPONDER:
 - Pedido genérico de "melhorar/reescrever o texto" de um trecho → "ferramenta": "melhorar_texto" (o autor escolhe o subtipo: reescrever, expandir, resumir, tom).
 - Faltou contexto ou a interpretação é incerta (inclusive sobre CÓDIGO citado) → "perguntas" com 2-4 opções e exemplo aplicado; confirme antes de afirmar comportamento.
 - "mensagem" sempre descreve o que você fez ou precisa.
+- Ao INSERIR seções/blocos, siga o PADRÃO DE ARTIGO abaixo (composição dos artigos-modelo).
+
+${PADRAO_DE_ARTIGO}
 
 LISTA DE BLOCOS (id → conteúdo):
 ${parsed.data.resumoDoc || "(artigo vazio)"}

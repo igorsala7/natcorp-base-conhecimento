@@ -8,26 +8,31 @@ import type { BlockEditProps } from "../edit-types";
 
 // MESMA paleta do render do portal (render.tsx) — a edição usava rosa onde o
 // leitor via âmbar/vermelho, e o editor não pode mentir sobre o resultado.
-const CALLOUT_META: Record<CalloutVariant, { icon: typeof Info; cls: string }> = {
+const CALLOUT_META: Record<CalloutVariant, { icon: typeof Info; cls: string; iconWrap: string }> = {
   info: {
     icon: Info,
-    cls: "border-brand-blue-500 bg-brand-blue-50/70 text-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
+    cls: "border-brand-blue-200 bg-brand-blue-50/70 text-brand-blue-900 dark:border-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
+    iconWrap: "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/60 dark:text-brand-blue-300",
   },
   success: {
     icon: CheckCircle2,
-    cls: "border-brand-purple-500 bg-brand-purple-50/70 text-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
+    cls: "border-brand-purple-200 bg-brand-purple-50/70 text-brand-purple-900 dark:border-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
+    iconWrap: "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/60 dark:text-brand-purple-300",
   },
   warning: {
     icon: AlertTriangle,
-    cls: "border-amber-500 bg-amber-50/70 text-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
+    cls: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
+    iconWrap: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300",
   },
   danger: {
     icon: OctagonAlert,
-    cls: "border-red-500 bg-red-50/70 text-red-900 dark:bg-red-950/25 dark:text-red-100",
+    cls: "border-red-200 bg-red-50/70 text-red-900 dark:border-red-900 dark:bg-red-950/25 dark:text-red-100",
+    iconWrap: "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300",
   },
   note: {
     icon: Lightbulb,
-    cls: "border-violet-500 bg-violet-50/70 text-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
+    cls: "border-violet-200 bg-violet-50/70 text-violet-900 dark:border-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
+    iconWrap: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300",
   },
 };
 
@@ -42,29 +47,44 @@ export function CalloutBlock({ block, onChange, children }: BlockEditProps) {
   const Icon = meta.icon;
   const escolhido = b.styles?.icon;
   return (
-    /* Mesmo cabeçalho rotulado do portal (padrão Microsoft Learn); o select
-       fica invisível POR CIMA do rótulo — clicar no rótulo troca o tipo. */
-    <div className={`rounded-r-md border-l-[3px] px-4 py-3.5 ${meta.cls}`}>
-      <div className="relative flex w-fit items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em]">
+    /* Anatomia do portal (WYSIWYG): quadrado de ícone + TÍTULO editável.
+       O select fica invisível POR CIMA do ícone — clicar nele troca o tipo. */
+    <div className={`my-1 flex gap-3 rounded-lg border p-4 ${meta.cls}`}>
+      <span
+        className={`relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${meta.iconWrap}`}
+      >
         {escolhido ? (
-          <BlockIcon name={escolhido} className="size-4 shrink-0" />
+          <BlockIcon name={escolhido} className="size-4" />
         ) : (
-          <Icon className="size-4 shrink-0" />
+          <Icon className="size-4" />
         )}
-        {CALLOUT_ROTULO[b.data.variant]}
         <select
           value={b.data.variant}
-          onChange={(e) => onChange({ data: { variant: e.target.value as CalloutVariant } } as Partial<Block>)}
+          onChange={(e) =>
+            onChange({ data: { ...b.data, variant: e.target.value as CalloutVariant } } as Partial<Block>)
+          }
           className="absolute inset-0 cursor-pointer opacity-0"
-          title="Tipo de destaque"
+          title="Tipo de destaque (clique para trocar)"
         >
           <option value="info">Nota</option>
           <option value="success">Dica</option>
           <option value="warning">Atenção</option>
           <option value="danger">Cuidado</option>
+          <option value="note">Observação</option>
         </select>
+      </span>
+      <div className="min-w-0 flex-1">
+        <input
+          value={b.data.title ?? ""}
+          onChange={(e) =>
+            onChange({ data: { ...b.data, title: e.target.value || undefined } } as Partial<Block>)
+          }
+          placeholder={CALLOUT_ROTULO[b.data.variant]}
+          title="Título do destaque (vazio = rótulo do tipo)"
+          className="w-full bg-transparent text-sm font-semibold outline-none placeholder:opacity-60"
+        />
+        <div className="mt-1 min-w-0">{children}</div>
       </div>
-      <div className="mt-1.5 min-w-0">{children}</div>
     </div>
   );
 }

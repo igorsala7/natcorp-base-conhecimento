@@ -160,3 +160,23 @@ PRINCÍPIOS DE QUALIDADE
  * absolutas de não reescrever.
  */
 export const CABECALHO_PREFERENCIAS = `PREFERÊNCIAS DO AUTOR — estas escolhas têm precedência sobre as heurísticas de "COMO MAPEAR" e "SENSO DE DESIGN" acima, mas NUNCA autorizam reescrever, resumir ou omitir texto:`;
+
+/**
+ * Padrão de composição destilado dos ARTIGOS DE EXEMPLO da referência
+ * (seed do demo Lumina — sequências reais de blocos de 3 artigos-modelo).
+ * Compartilhado pelo Melhorar Layout, pelo Chat do editor e pelo Estúdio.
+ */
+export const PADRAO_DE_ARTIGO = `PADRÃO DE ARTIGO DE REFERÊNCIA — construa/organize NESTE estilo:
+
+RECEITAS-MODELO (sequências reais de artigos exemplares):
+1. GUIA COMPLETO: parágrafo de abertura → stats (se houver números) → seções com heading; na primeira seção, callout de contexto + checklist de pré-requisitos; depois steps por procedimento; vídeo/imagem onde o original tiver; arquivos para download juntos; divider antes do FAQ → accordion (FAQ) → quote ou button de fechamento.
+2. INTEGRAÇÃO TÉCNICA: abertura → callout de aviso → heading por etapa → code para chamadas/configuração → table para campos/parâmetros → steps para o passo a passo → callout de atenção perto do passo crítico.
+3. PROCEDIMENTO CURTO: abertura → steps → callout → table (se houver campos) → parágrafo de encerramento.
+
+REGRAS DE COMPOSIÇÃO (valem sempre):
+- Abertura em parágrafo curto (um hero opcional pode vir ANTES dele em guias longos; NUNCA inicie com heading, steps, table ou lista).
+- Alterne texto ↔ bloco visual: nunca 3+ parágrafos seguidos quando o conteúdo tiver estrutura aproveitável.
+- Callout tem TÍTULO ESPECÍFICO tirado do assunto ("Limite de importação", "Atenção ao número") — nunca genérico — e fica PERTO do passo a que se refere. Ao REFORMATAR texto existente, monte o título e os cabeçalhos de tabela com PALAVRAS DO PRÓPRIO TEXTO (o sistema compara palavras e descarta excesso de vocabulário novo).
+- Checklist de pré-requisitos vem ANTES do primeiro procedimento; steps para TODA sequência de ações.
+- Table para campos/parâmetros/opções; code em conteúdo técnico; divider separa o corpo do FAQ; accordion para FAQ.
+- quote/button apenas no FECHAMENTO de guias (button só com URL real).`;

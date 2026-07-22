@@ -218,7 +218,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             className="mx-auto rounded-lg border border-border shadow-1"
           />
           {caption ? (
-            <figcaption className="mt-2.5 text-[0.8125rem] leading-relaxed text-text-muted">
+            <figcaption className="mt-2 text-center text-xs leading-relaxed text-text-muted">
               {caption}
             </figcaption>
           ) : null}
@@ -239,7 +239,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             src={url}
             controls
             preload="none"
-            className="my-6 mx-auto w-full max-w-full rounded-lg bg-black/90"
+            className="my-6 mx-auto w-full max-w-full rounded-lg border border-border bg-black/90 shadow-1"
           />
         );
       let embed = url;
@@ -251,7 +251,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         embed = id ? `https://player.vimeo.com/video/${id}` : url;
       }
       return (
-        <div className="relative my-6 aspect-video overflow-hidden rounded-lg">
+        <div className="relative my-6 aspect-video overflow-hidden rounded-lg border border-border shadow-1">
           <iframe src={embed} className="absolute inset-0 size-full" allowFullScreen title="Vídeo" />
         </div>
       );
@@ -287,17 +287,22 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     case "callout": {
       const base = CALLOUT[block.data.variant] ?? CALLOUT.info;
       const Icon = iconByKey(block.styles?.icon) ?? base.Icon;
+      const titulo = block.data.title?.trim() || (CALLOUT_ROTULO[block.data.variant] ?? CALLOUT_ROTULO.info);
       return (
-        /* Cabeçalho rotulado (padrão Microsoft Learn): o tipo do aviso vem
-           declarado — "Nota", "Dica", "Atenção", "Cuidado" — e o corpo abaixo.
-           Ícone sozinho obrigava o leitor a decodificar a cor. */
-        <div className={`my-6 rounded-r-md border-l-[3px] px-4 py-3.5 ${base.cls}`}>
-          <p className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em]">
-            <Icon className="size-4 shrink-0" aria-hidden="true" />
-            {CALLOUT_ROTULO[block.data.variant] ?? CALLOUT_ROTULO.info}
-          </p>
-          <div className="mt-1.5 min-w-0 text-[length:var(--l-body,0.9375rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            {renderChildren(block.children, ctx)}
+        /* Anatomia da referência: cartão com quadrado de ícone + TÍTULO
+           específico ("Limite de importação") ou o rótulo da variante. */
+        <div className={`my-5 flex gap-3 rounded-lg border p-4 ${base.cls}`}>
+          <span
+            aria-hidden="true"
+            className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${base.iconWrap}`}
+          >
+            <Icon className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="!m-0 text-sm font-semibold">{titulo}</p>
+            <div className="mt-1 min-w-0 text-[length:var(--l-body,0.9375rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+              {renderChildren(block.children, ctx)}
+            </div>
           </div>
         </div>
       );
@@ -313,16 +318,27 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       );
 
     case "accordion":
-      return <div className="my-4 space-y-1">{renderChildren(block.children, ctx)}</div>;
+      /* Cartão ÚNICO da referência: itens separados por border-b. */
+      return (
+        <div className="my-5 rounded-lg border border-border bg-surface px-5 shadow-1 [&>details]:border-b [&>details]:border-border [&>details:last-child]:border-b-0">
+          {renderChildren(block.children, ctx)}
+        </div>
+      );
     case "accordionItem": {
       const ItemIcon = iconByKey(block.styles?.icon);
       return (
-        <details className="overflow-hidden rounded-md border border-border">
-          <summary className="flex cursor-pointer list-none items-center gap-2 bg-surface-2 px-3.5 py-2.5 text-sm font-medium transition-colors hover:text-primary">
-            {ItemIcon && <ItemIcon className="size-4 shrink-0 text-primary" />}
-            {block.data.title}
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-3.5 text-left text-sm font-medium transition-colors hover:text-primary">
+            <span className="flex min-w-0 items-center gap-2">
+              {ItemIcon && <ItemIcon className="size-4 shrink-0 text-primary" />}
+              {block.data.title}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className="size-4 shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none"
+            />
           </summary>
-          <div className="px-3.5 py-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <div className="pb-4 text-[length:var(--l-body,0.9375rem)] leading-relaxed text-text-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {renderChildren(block.children, ctx)}
           </div>
         </details>
@@ -602,23 +618,28 @@ function renderContainer(block: Extract<Block, { type: "container" }>, ctx: Ctx)
 const CALLOUT = {
   info: {
     Icon: Info,
-    cls: "border-brand-blue-500 bg-brand-blue-50/70 text-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
+    cls: "border-brand-blue-200 bg-brand-blue-50/70 text-brand-blue-900 dark:border-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
+    iconWrap: "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/60 dark:text-brand-blue-300",
   },
   success: {
     Icon: CheckCircle2,
-    cls: "border-brand-purple-500 bg-brand-purple-50/70 text-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
+    cls: "border-brand-purple-200 bg-brand-purple-50/70 text-brand-purple-900 dark:border-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
+    iconWrap: "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/60 dark:text-brand-purple-300",
   },
   warning: {
     Icon: AlertTriangle,
-    cls: "border-amber-500 bg-amber-50/70 text-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
+    cls: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
+    iconWrap: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300",
   },
   danger: {
     Icon: OctagonAlert,
-    cls: "border-red-500 bg-red-50/70 text-red-900 dark:bg-red-950/25 dark:text-red-100",
+    cls: "border-red-200 bg-red-50/70 text-red-900 dark:border-red-900 dark:bg-red-950/25 dark:text-red-100",
+    iconWrap: "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300",
   },
   note: {
     Icon: Lightbulb,
-    cls: "border-violet-500 bg-violet-50/70 text-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
+    cls: "border-violet-200 bg-violet-50/70 text-violet-900 dark:border-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
+    iconWrap: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300",
   },
 } as const;
 

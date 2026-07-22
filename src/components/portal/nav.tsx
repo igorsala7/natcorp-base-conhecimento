@@ -125,7 +125,7 @@ function NavList({
   return (
     // Trilho de guia só nos níveis aninhados: no primeiro nível ele viraria
     // uma régua vertical inútil ao lado de tudo.
-    <ul className={cn(depth > 0 && "ml-3 border-l border-border pl-2")}>
+    <ul className={cn("text-[0.8125rem]", depth > 0 && "ml-3 border-l border-border pl-2")}>
       {nodes
         .filter((n) => n.type !== "divider")
         .map((node) => {

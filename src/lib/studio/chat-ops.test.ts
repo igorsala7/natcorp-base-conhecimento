@@ -83,7 +83,7 @@ describe("aplicarOpsNoDoc", () => {
 
   it("inserir_topo entra no início", () => {
     const r = aplicarOpsNoDoc(doc, [
-      op({ op: "inserir_topo", blocks: [{ kind: "callout", variant: "info", text: "Resumo", icon: null }] }),
+      op({ op: "inserir_topo", blocks: [{ kind: "callout", variant: "info", titulo: null, text: "Resumo", icon: null }] }),
     ]);
     expect(r.blocks[0]?.type).toBe("callout");
   });

@@ -233,7 +233,10 @@ function blockToMd(b: Block): string {
     case "table":
       return tableToMd(b.data.rows);
     case "callout":
-      return `> **[${b.data.variant.toUpperCase()}]**\n` + childrenMd(b).split("\n").map((l) => `> ${l}`).join("\n");
+      return (
+        `> **[${(b.data.title ?? b.data.variant).toUpperCase()}]**\n` +
+        childrenMd(b).split("\n").map((l) => `> ${l}`).join("\n")
+      );
     case "steps":
       return children(b)
         .map((s, i) => `${i + 1}. ${blockToMd(s).replace(/\n/g, "\n   ")}`)

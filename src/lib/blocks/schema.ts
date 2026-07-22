@@ -144,7 +144,7 @@ export type EmbedData = {
   description?: string;
 };
 export type ButtonData = { label: string; href: string; variant: ButtonVariant };
-export type CalloutData = { variant: CalloutVariant };
+export type CalloutData = { variant: CalloutVariant; title?: string };
 export type AccordionItemData = { title: string };
 export type TabData = { label: string };
 export type ToggleData = { title: string };
