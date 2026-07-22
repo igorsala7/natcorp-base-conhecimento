@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listRoles, currentMaxLevel } from "@/lib/auth/roles";
 import { UsersManager } from "./users-manager";
+import { AuthorsManager } from "./authors-manager";
+import { listAuthors } from "./author-actions";
 
 export const metadata: Metadata = { title: "Usuários" };
 
@@ -99,6 +101,15 @@ export default async function UsuariosPage() {
         roles={roles}
         actorLevel={actorLevel}
         can={{ invite: canInvite, manage: canManage, suspend: canSuspend }}
+      />
+
+      <AuthorsManager
+        authors={await listAuthors()}
+        users={users.map((u) => ({
+          id: u.id,
+          label: u.full_name ? `${u.full_name} (${u.email ?? "sem e-mail"})` : (u.email ?? u.id),
+        }))}
+        canManage={canManage}
       />
     </div>
   );

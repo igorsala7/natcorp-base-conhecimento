@@ -105,6 +105,44 @@ export type Database = {
         }
         Relationships: []
       }
+      author_profiles: {
+        Row: {
+          active: boolean
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          id: string
+          public_name: string
+          slug: string
+        }
+        Insert: {
+          active?: boolean
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          id: string
+          public_name: string
+          slug: string
+        }
+        Update: {
+          active?: boolean
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          id?: string
+          public_name?: string
+          slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "author_profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       article_views: {
         Row: {
           day: string
@@ -796,8 +834,39 @@ export type Database = {
           },
         ]
       }
+      node_tags: {
+        Row: {
+          node_id: string
+          tag_id: string
+        }
+        Insert: {
+          node_id: string
+          tag_id: string
+        }
+        Update: {
+          node_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "node_tags_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "node_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nodes: {
         Row: {
+          author_id: string | null
           created_at: string
           deleted_at: string | null
           description: string | null
@@ -817,6 +886,7 @@ export type Database = {
           visibility: string | null
         }
         Insert: {
+          author_id?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -836,6 +906,7 @@ export type Database = {
           visibility?: string | null
         }
         Update: {
+          author_id?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -1321,6 +1392,38 @@ export type Database = {
             columns: ["widget_key_id"]
             isOneToOne: false
             referencedRelation: "widget_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slug: string
+          space_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slug: string
+          space_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]

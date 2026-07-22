@@ -299,6 +299,95 @@ export async function getRelatedArticles(
   return (data ?? []) as { node_id: string; score: number }[];
 }
 
+export type ArticleByline = {
+  author: { name: string; slug: string; avatar: string | null } | null;
+  tags: { name: string; slug: string }[];
+};
+
+/**
+ * Autor público e tags de cada artigo (para a linha de assinatura da leitura).
+ * Uma consulta por tabela, nunca por artigo — a leitura contínua renderiza
+ * dezenas de artigos de uma vez.
+ */
+export async function getArticleBylines(
+  nodeIds: string[],
+  db: PortalDb = createPublicClient(),
+): Promise<Map<string, ArticleByline>> {
+  const out = new Map<string, ArticleByline>();
+  if (nodeIds.length === 0) return out;
+  const ids = nodeIds.slice(0, 200);
+  const [{ data: nodes }, { data: links }] = await Promise.all([
+    db.from("nodes").select("id, author_id").in("id", ids),
+    db.from("node_tags").select("node_id, tag_id").in("node_id", ids),
+  ]);
+
+  const authorIds = [...new Set((nodes ?? []).map((n) => n.author_id).filter(Boolean))] as string[];
+  const tagIds = [...new Set((links ?? []).map((l) => l.tag_id))];
+  const [{ data: authors }, { data: tags }] = await Promise.all([
+    authorIds.length
+      ? db.from("author_profiles").select("id, public_name, slug, avatar_url").in("id", authorIds)
+      : Promise.resolve({ data: [] as { id: string; public_name: string; slug: string; avatar_url: string | null }[] }),
+    tagIds.length
+      ? db.from("tags").select("id, name, slug").in("id", tagIds)
+      : Promise.resolve({ data: [] as { id: string; name: string; slug: string }[] }),
+  ]);
+
+  const autorPorId = new Map((authors ?? []).map((a) => [a.id, a]));
+  const tagPorId = new Map((tags ?? []).map((t) => [t.id, t]));
+  const tagsPorNo = new Map<string, { name: string; slug: string }[]>();
+  for (const l of links ?? []) {
+    const t = tagPorId.get(l.tag_id);
+    if (!t) continue;
+    tagsPorNo.set(l.node_id, [...(tagsPorNo.get(l.node_id) ?? []), { name: t.name, slug: t.slug }]);
+  }
+  for (const n of nodes ?? []) {
+    const a = n.author_id ? autorPorId.get(n.author_id) : null;
+    out.set(n.id, {
+      author: a ? { name: a.public_name, slug: a.slug, avatar: a.avatar_url } : null,
+      tags: (tagsPorNo.get(n.id) ?? []).sort((x, y) => x.name.localeCompare(y.name)),
+    });
+  }
+  return out;
+}
+
+/**
+ * Filtro da home: ids de artigos com a tag (`?tag=`) ou do autor (`?autor=`).
+ * Devolve também o rótulo do filtro para o título da listagem; null quando o
+ * slug não existe na documentação.
+ */
+export async function getFilterArticleIds(
+  spaceId: string,
+  filtro: { tag?: string; autor?: string },
+  db: PortalDb = createPublicClient(),
+): Promise<{ label: string; nodeIds: Set<string> } | null> {
+  if (filtro.tag) {
+    const { data: tag } = await db
+      .from("tags")
+      .select("id, name")
+      .eq("space_id", spaceId)
+      .eq("slug", filtro.tag)
+      .maybeSingle();
+    if (!tag) return null;
+    const { data: links } = await db.from("node_tags").select("node_id").eq("tag_id", tag.id);
+    return { label: tag.name, nodeIds: new Set((links ?? []).map((l) => l.node_id)) };
+  }
+  if (filtro.autor) {
+    const { data: autor } = await db
+      .from("author_profiles")
+      .select("id, public_name")
+      .eq("slug", filtro.autor)
+      .maybeSingle();
+    if (!autor) return null;
+    const { data: nodes } = await db
+      .from("nodes")
+      .select("id")
+      .eq("space_id", spaceId)
+      .eq("author_id", autor.id);
+    return { label: autor.public_name, nodeIds: new Set((nodes ?? []).map((n) => n.id)) };
+  }
+  return null;
+}
+
 /** Só os excerpts (para cards de destaque na home — sem carregar o conteúdo). */
 export async function getArticleExcerpts(
   nodeIds: string[],

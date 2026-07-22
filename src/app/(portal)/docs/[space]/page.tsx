@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, FileText } from "lucide-react";
 import {
   getPublicSpace,
   getPortalTree,
@@ -7,6 +9,7 @@ import {
   flattenPortalTree,
   getArticleExcerpts,
   getTopHelpful,
+  getFilterArticleIds,
   type PortalTreeNode,
 } from "@/lib/portal/data";
 import { PortalShell, spaceChrome } from "@/components/portal/shell";
@@ -42,8 +45,10 @@ function countArticles(node: PortalTreeNode): number {
 
 export default async function SpaceHome({
   params,
+  searchParams,
 }: {
   params: Promise<{ space: string }>;
+  searchParams: Promise<{ tag?: string; autor?: string }>;
 }) {
   const { space: spaceSlug } = await params;
   const access = await getPortalAccess(spaceSlug);
@@ -54,6 +59,67 @@ export default async function SpaceHome({
   // Slug aposentada → 301 para a atual (ver `resolvePortalSpace`).
   if (space.slug !== spaceSlug) permanentRedirect(`/docs/${space.slug}`);
   const tree = await getPortalTree(space.id, db);
+
+  // Filtro por tag/autor (`?tag=` / `?autor=`): troca a home pela listagem de
+  // artigos correspondentes — sem rota nova, sem conflitar com [...path].
+  const { tag, autor } = await searchParams;
+  if (tag || autor) {
+    const filtro = await getFilterArticleIds(space.id, { tag, autor }, db);
+    const artigosFiltrados = filtro
+      ? flattenPortalTree(tree).filter((n) => n.type === "article" && filtro.nodeIds.has(n.id))
+      : [];
+    const { tema } = spaceChrome(space);
+    return (
+      <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
+        <div className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
+          <Link
+            href={`/docs/${spaceSlug}`}
+            className="inline-flex items-center gap-1.5 text-sm text-text-muted no-underline hover:text-primary"
+          >
+            <ArrowLeft className="size-4" /> {space.name}
+          </Link>
+          <p className="mt-5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+            {tag ? "Tag" : "Autor"}
+          </p>
+          <h1 className="mt-1 text-[length:var(--l-page,var(--text-3xl))] font-semibold leading-tight">
+            {filtro?.label ?? (tag ?? autor)}
+          </h1>
+          <p className="mt-2 text-sm text-text-muted">
+            {artigosFiltrados.length}{" "}
+            {artigosFiltrados.length === 1 ? "artigo publicado" : "artigos publicados"}
+          </p>
+          {artigosFiltrados.length === 0 ? (
+            <p className="mt-8 rounded-lg border border-dashed border-border p-6 text-sm text-text-muted">
+              Nada por aqui — o conteúdo pode ter sido movido ou despublicado.
+            </p>
+          ) : (
+            <ul className="mt-6 space-y-2">
+              {artigosFiltrados.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={`/docs/${spaceSlug}/${a.slugPath.join("/")}`}
+                    className="group flex items-center gap-3 rounded-lg border border-border bg-surface p-3.5 no-underline transition-shadow hover:shadow-2"
+                  >
+                    <FileText className="size-4 shrink-0 text-text-muted group-hover:text-primary" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium group-hover:text-primary">
+                        {a.title}
+                      </span>
+                      {a.slugPath.length > 1 && (
+                        <span className="block truncate text-xs text-text-muted">
+                          {a.slugPath.slice(0, -1).join(" › ")}
+                        </span>
+                      )}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </PortalShell>
+    );
+  }
 
   const categories = tree.filter((n) => n.type === "folder");
   const looseArticles = tree.filter((n) => n.type === "article");

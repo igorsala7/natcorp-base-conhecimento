@@ -14,6 +14,7 @@ import {
   getPublicArticles,
   getPublicSnippets,
   getRelatedArticles,
+  getArticleBylines,
 } from "@/lib/portal/data";
 import { RenderBlocks, extractToc } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
@@ -238,6 +239,9 @@ export default async function DocsPage({
   const crumbs = ancestorsOf(tree, groupRoot.id).slice(0, -1);
   const atual = node.type === "article" ? node : (artigos[0] ?? null);
 
+  // Assinaturas: autor público e tags de cada artigo, numa consulta só.
+  const bylines = await getArticleBylines(artigos.map((a) => a.id), db);
+
   // Relacionados: por similaridade com o CONJUNTO da página, cruzando com a
   // árvore efetiva — só aparece o que este espaço realmente enxerga.
   const naPagina = new Set(artigos.map((a) => a.id));
@@ -337,12 +341,54 @@ export default async function DocsPage({
               <h3 className="text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight">
                 {s.node.title}
               </h3>
-              {s.updatedAt && (
-                <p className="mt-1.5 text-xs text-text-muted">
-                  Atualizado em{" "}
-                  <time dateTime={new Date(s.updatedAt).toISOString()}>
-                    {new Date(s.updatedAt).toLocaleDateString("pt-BR")}
-                  </time>
+              {(s.updatedAt || bylines.get(s.node.id)?.author) && (
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
+                  {bylines.get(s.node.id)?.author && (
+                    <>
+                      <span className="inline-flex items-center gap-1.5">
+                        {bylines.get(s.node.id)!.author!.avatar ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={bylines.get(s.node.id)!.author!.avatar!}
+                            alt=""
+                            className="size-4 rounded-full object-cover"
+                          />
+                        ) : null}
+                        <Link
+                          href={`/docs/${spaceSlug}?autor=${bylines.get(s.node.id)!.author!.slug}`}
+                          className="text-text-muted no-underline hover:text-primary"
+                        >
+                          {bylines.get(s.node.id)!.author!.name}
+                        </Link>
+                      </span>
+                      {s.updatedAt && (
+                        <span aria-hidden="true" className="opacity-40">
+                          ·
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {s.updatedAt && (
+                    <span>
+                      Atualizado em{" "}
+                      <time dateTime={new Date(s.updatedAt).toISOString()}>
+                        {new Date(s.updatedAt).toLocaleDateString("pt-BR")}
+                      </time>
+                    </span>
+                  )}
+                </p>
+              )}
+              {(bylines.get(s.node.id)?.tags.length ?? 0) > 0 && (
+                <p className="mt-2 flex flex-wrap gap-1.5">
+                  {bylines.get(s.node.id)!.tags.map((t) => (
+                    <Link
+                      key={t.slug}
+                      href={`/docs/${spaceSlug}?tag=${t.slug}`}
+                      className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] text-text-muted no-underline transition-colors hover:border-primary hover:text-primary"
+                    >
+                      {t.name}
+                    </Link>
+                  ))}
                 </p>
               )}
               {/* headingShift=2: o H1 do conteúdo vira H3 — um degrau ABAIXO do

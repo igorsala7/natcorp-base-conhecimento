@@ -6,6 +6,8 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { env } from "@/lib/env";
 import { SpaceSettingsForm } from "./space-settings-form";
+import { TagsManager } from "./tags-manager";
+import { listTags } from "../conteudo/tag-actions";
 
 export const metadata: Metadata = { title: "Configurações" };
 
@@ -54,19 +56,26 @@ export default async function ConfiguracoesPage({
     ? await supabase.from("nodes").select("title").eq("id", editorNodeId).maybeSingle()
     : { data: null };
 
+  const tags = await listTags(current.id);
+
   const form = (
-    <SpaceSettingsForm
-      spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
-      current={{
-        id: current.id,
-        name: current.name,
-        slug: current.slug,
-        visibility: current.visibility,
-        custom_domain: current.custom_domain,
-      }}
-      hasPassword={temSenha === true}
-      siteUrl={env.NEXT_PUBLIC_SITE_URL}
-    />
+    <>
+      <SpaceSettingsForm
+        spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
+        current={{
+          id: current.id,
+          name: current.name,
+          slug: current.slug,
+          visibility: current.visibility,
+          custom_domain: current.custom_domain,
+        }}
+        hasPassword={temSenha === true}
+        siteUrl={env.NEXT_PUBLIC_SITE_URL}
+      />
+      <div className="mx-auto mt-6 max-w-2xl">
+        <TagsManager spaceId={current.id} initial={tags} />
+      </div>
+    </>
   );
 
   if (!returnTo) return form;
