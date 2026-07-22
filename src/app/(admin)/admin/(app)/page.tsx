@@ -132,8 +132,8 @@ export default async function AdminHome() {
             >
               <Surface
                 elevation={1}
-                padding="lg"
-                className="relative h-full overflow-hidden transition-shadow hover:shadow-2"
+                padding="none"
+                className="relative h-full overflow-hidden rounded-xl p-5 shadow-1 transition-shadow hover:shadow-2"
               >
                 <div
                   aria-hidden
@@ -147,8 +147,8 @@ export default async function AdminHome() {
                 <div className="text-2xl font-bold leading-none tracking-tight tabular-nums">
                   {c.value}
                 </div>
-                <div className="mt-1 text-sm font-medium">{c.label}</div>
-                <div className="mt-0.5 text-xs text-text-muted">{c.detail}</div>
+                <div className="mt-0.5 text-sm font-medium text-text-muted">{c.label}</div>
+                <div className="mt-0.5 text-xs text-brand-gray-400">{c.detail}</div>
               </Surface>
             </Link>
           );
@@ -177,7 +177,7 @@ export default async function AdminHome() {
                 <Link
                   key={a.id}
                   href={`/admin/conteudo/${a.id}`}
-                  className="flex items-center gap-4 border-b border-border px-5 py-3 transition-colors last:border-b-0 hover:bg-brand-purple-50/40 dark:hover:bg-brand-purple-950/20"
+                  className="flex items-center gap-4 border-b border-border px-5 py-3.5 transition-colors last:border-b-0 hover:bg-brand-purple-50/40 dark:hover:bg-brand-purple-950/20"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{a.title}</p>

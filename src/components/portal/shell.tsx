@@ -119,7 +119,7 @@ gtag('config', '${tema.tracking.ga4}');`}
 
       {/* Cabeçalho leve: hairline apenas, sem sombra — quem separa é o ar. */}
       <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/65">
-        <div className="mx-auto flex h-14 max-w-[90rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-14 max-w-[80rem] items-center justify-between gap-3 px-6">
           <div className="flex min-w-0 items-center gap-2">
             {mostrarDrawer && (
               <PortalMobileNav
@@ -169,28 +169,44 @@ gtag('config', '${tema.tracking.ga4}');`}
 
       {/* Provider client: liga o scroll do conteúdo ao destaque na árvore. */}
       <ActiveArticleProvider>
-        <div className="mx-auto flex max-w-[90rem] gap-8 px-4 py-10 sm:px-6 lg:gap-12 lg:px-8 lg:py-14">
+        {/* Grid da página de artigo (referência): 220px | minmax(0,1fr) | 200px
+            com gap de 2rem. Abaixo de lg o grid desliga e o conteúdo vira
+            coluna única — a navegação continua acessível pelo drawer mobile.
+            As colunas laterais só entram no template quando existem. */}
+        <div
+          className={`mx-auto max-w-[80rem] px-6 py-8${
+            mostrarNav || (toc && toc.length > 0)
+              ? ` lg:grid lg:gap-8 ${
+                  mostrarNav && toc && toc.length > 0
+                    ? "lg:grid-cols-[220px_minmax(0,1fr)_200px]"
+                    : mostrarNav
+                      ? "lg:grid-cols-[220px_minmax(0,1fr)]"
+                      : "lg:grid-cols-[minmax(0,1fr)_200px]"
+                }`
+              : ""
+          }`}
+        >
           {mostrarNav && (
-            <aside className="hidden w-60 shrink-0 lg:block xl:w-64">
-              <div className="sticky top-14 max-h-[calc(100dvh-3.5rem)] overflow-y-auto py-4 pr-2">
+            <aside className="hidden lg:block">
+              <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto pr-2">
                 <PortalNav spaceSlug={space.slug} tree={tree} activePath={activePath} />
               </div>
             </aside>
           )}
 
           {/* Sem árvore, o conteúdo se centraliza numa medida legível em vez de
-              esticar pelos 90rem do contêiner. */}
+              esticar pelos 80rem do contêiner. */}
           <main
             className={
               mostrarNav
-                ? "min-w-0 flex-1"
+                ? "min-w-0"
                 : width === "wide"
                   ? "mx-auto min-w-0 w-full max-w-5xl"
                   : "mx-auto min-w-0 w-full max-w-3xl"
             }
           >
             {toc && toc.length > 0 && (
-              <details className="mb-8 rounded-lg border border-border xl:hidden">
+              <details className="mb-8 rounded-lg border border-border lg:hidden">
                 <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm font-medium text-text-muted">
                   <List className="size-4" /> Nesta página
                 </summary>
@@ -203,10 +219,10 @@ gtag('config', '${tema.tracking.ga4}');`}
           </main>
 
           {toc && toc.length > 0 && (
-            <aside className="hidden w-56 shrink-0 xl:block">
+            <aside className="hidden lg:block">
               {/* max-h + scroll: sem isto, um índice longo estoura a viewport
                   e os últimos itens ficam inalcançáveis. */}
-              <div className="sticky top-14 max-h-[calc(100dvh-3.5rem)] overflow-y-auto py-4">
+              <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto">
                 <Toc items={toc} />
               </div>
             </aside>
@@ -216,7 +232,7 @@ gtag('config', '${tema.tracking.ga4}');`}
 
       {(tema.footer.text || tema.footer.links.length > 0) && (
         <footer className="border-t border-border">
-          <div className="mx-auto flex max-w-[90rem] flex-col items-center justify-between gap-3 px-4 py-8 sm:flex-row sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-[80rem] flex-col items-center justify-between gap-3 px-6 py-8 sm:flex-row">
             <p className="text-sm text-text-muted">{tema.footer.text ?? space.name}</p>
             {tema.footer.links.length > 0 && (
               <nav aria-label="Links do rodapé" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1">
@@ -241,35 +257,45 @@ gtag('config', '${tema.tracking.ga4}');`}
   );
 }
 
-/** Trilha de navegação (breadcrumbs). */
+/** Trilha de navegação (breadcrumbs). `current` é a página atual, sem link. */
 export function Breadcrumbs({
   spaceSlug,
   spaceName,
   crumbs,
+  current,
 }: {
   spaceSlug: string;
   spaceName: string;
   crumbs: PortalTreeNode[];
+  current?: string;
 }) {
   return (
     <nav
       aria-label="Trilha"
-      className="flex flex-wrap items-center gap-1 text-[0.8125rem] text-text-muted"
+      className="mb-5 flex flex-wrap items-center gap-1.5 text-xs text-text-muted"
     >
-      <Link href={`/docs/${spaceSlug}`} className="rounded-sm transition-colors hover:text-text">
+      <Link href={`/docs/${spaceSlug}`} className="rounded-sm transition-colors hover:text-primary">
         {spaceName}
       </Link>
       {crumbs.map((c) => (
-        <span key={c.id} className="flex items-center gap-1">
-          <ChevronRight className="size-3.5 opacity-50" />
+        <span key={c.id} className="flex items-center gap-1.5">
+          <ChevronRight className="size-3 text-brand-gray-300 dark:text-brand-gray-600" />
           <Link
             href={`/docs/${spaceSlug}/${c.slugPath.join("/")}`}
-            className="rounded-sm transition-colors hover:text-text"
+            className="rounded-sm transition-colors hover:text-primary"
           >
             {c.title}
           </Link>
         </span>
       ))}
+      {current && (
+        <span className="flex items-center gap-1.5">
+          <ChevronRight className="size-3 text-brand-gray-300 dark:text-brand-gray-600" />
+          <span aria-current="page" className="font-semibold text-text">
+            {current}
+          </span>
+        </span>
+      )}
     </nav>
   );
 }

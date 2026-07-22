@@ -26,41 +26,47 @@ export function Feedback({ nodeId, supportUrl }: { nodeId: string; supportUrl?: 
 
   if (state === "done") {
     return (
-      <p className="mt-4 text-right text-xs text-text-muted/70">Obrigado pelo retorno!</p>
+      <div className="mt-10 rounded-xl border border-border bg-surface p-5 text-center shadow-1">
+        <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+          Obrigado pelo retorno!
+        </p>
+      </div>
     );
   }
 
-  // Discreto de propósito: na leitura contínua isto se repete a cada artigo,
-  // então é só uma linha leve no rodapé da seção — sem borda, sem caixa.
+  // Cartão centrado da referência: pergunta + botões Sim/Não, com o hover
+  // "semáforo" (verde no sim, rosa no não) antecipando o significado do clique.
   if (state === "idle") {
     return (
-      <div className="mt-4 flex items-center justify-end gap-1 text-xs text-text-muted/70">
-        <span>Isso foi útil?</span>
-        <button
-          type="button"
-          onClick={yes}
-          aria-label="Sim, esta página foi útil"
-          title="Sim, foi útil"
-          className="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-surface-2 hover:text-primary"
-        >
-          <ThumbsUp className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={no}
-          aria-label="Não, esta página não foi útil"
-          title="Não foi útil"
-          className="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-surface-2 hover:text-primary"
-        >
-          <ThumbsDown className="size-3.5" />
-        </button>
+      <div className="mt-10 rounded-xl border border-border bg-surface p-5 text-center shadow-1">
+        <p className="text-sm font-semibold">Isso foi útil?</p>
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={yes}
+            aria-label="Sim, esta página foi útil"
+            title="Sim, foi útil"
+            className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:border-emerald-900 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+          >
+            <ThumbsUp className="size-3.5" /> Sim
+          </button>
+          <button
+            type="button"
+            onClick={no}
+            aria-label="Não, esta página não foi útil"
+            title="Não foi útil"
+            className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:hover:border-rose-900 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+          >
+            <ThumbsDown className="size-3.5" /> Não
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-border p-3">
-      <p className="text-xs font-medium text-text-muted">Como podemos melhorar esta página?</p>
+    <div className="mt-10 rounded-xl border border-border bg-surface p-5 shadow-1">
+      <p className="text-sm font-semibold">Como podemos melhorar esta página?</p>
       <textarea
         value={comment}
         onChange={(e) => setComment(e.target.value)}

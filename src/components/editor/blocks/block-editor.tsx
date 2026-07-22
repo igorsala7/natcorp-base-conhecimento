@@ -694,8 +694,8 @@ function BlockEditorInner({
       onKeyDown={onRootKeyDown}
       className={fullscreen ? "fixed inset-0 z-40 flex flex-col overflow-hidden bg-bg p-4 md:p-8" : "flex h-full flex-col"}
     >
-      {/* Cabeçalho */}
-      <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+      {/* Cabeçalho (barra superior Lumina: sticky, translúcida com blur) */}
+      <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-surface/90 px-6 py-3 backdrop-blur-lg">
         <Link
           href="/admin/conteudo"
           title="Voltar para a árvore de conteúdo"
@@ -705,7 +705,7 @@ function BlockEditorInner({
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
-          <span className="text-xs text-text-muted">
+          <span className="text-[11px] text-brand-gray-400">
             {saveState === "saving"
               ? "Salvando…"
               : saveState === "error"
@@ -718,6 +718,9 @@ function BlockEditorInner({
                       ? "Em revisão"
                       : "Rascunho"}
           </span>
+          {saveState === "saved" && (
+            <span className="ml-2 text-[11px] font-semibold text-emerald-600">Salvo</span>
+          )}
           {hasDraft && (
             <span
               className="ml-2 rounded-full bg-brand-pink-50 px-2 py-0.5 text-[11px] font-medium text-brand-pink-700 dark:bg-brand-pink-950/40"
@@ -942,7 +945,7 @@ function BlockEditorInner({
           icon={nodeIcon ?? null}
         />
       )}
-      <div className="mt-3 flex min-h-0 flex-1 gap-4">
+      <div className="mt-3 flex min-h-0 flex-1 gap-6">
         {preview ? (
           <div className="flex-1 overflow-auto">
             <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12">
@@ -988,7 +991,7 @@ function BlockEditorInner({
                 })}
               </aside>
             ) : (
-              <aside className="slim-scroll w-60 shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-3">
+              <aside className="slim-scroll sticky top-20 max-h-[calc(100vh-6rem)] w-60 shrink-0 overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-1">
                 <BlockPalette
                   onAdd={paletteAdd}
                   snippets={snippetsDisponiveis}
@@ -1008,9 +1011,10 @@ function BlockEditorInner({
               <div className="mx-auto min-h-full max-w-[calc(65ch+3rem+3rem)] rounded-xl border border-border bg-surface p-8 pl-12 shadow-1">
                 {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
                     pública); `.editor-blocks` compacta o ritmo só na edição — a
-                    prévia usa o espaçamento idêntico ao do portal. */}
+                    prévia usa o espaçamento idêntico ao do portal. A lista de
+                    blocos é uma coluna com gap-1.5 (catálogo Lumina). */}
                 <div
-                  className="leitura prose prose-neutral prose-portal editor-blocks max-w-none dark:prose-invert"
+                  className="leitura prose prose-neutral prose-portal editor-blocks flex max-w-none flex-col gap-1.5 dark:prose-invert"
                   data-size={readingSize}
                 >
                   <BlockList
@@ -1254,7 +1258,7 @@ function CanvasEndZone({ vazio }: { vazio: boolean }) {
   return (
     <div
       ref={setNodeRef}
-      className={`mb-6 mt-4 flex h-20 items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors ${
+      className={`mt-4 flex h-20 items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors ${
         isOver
           ? "border-brand-purple-400 bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
           : "border-border text-text-muted"

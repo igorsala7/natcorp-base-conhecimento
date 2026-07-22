@@ -10,7 +10,7 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
     <div className="overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
       <div className="flex items-center justify-between gap-2 border-b border-brand-gray-800 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="size-2.5 shrink-0 rounded-full bg-red-500/80" />
+          <span className="size-2.5 shrink-0 rounded-full bg-rose-500/80" />
           <span className="size-2.5 shrink-0 rounded-full bg-amber-500/80" />
           <span className="size-2.5 shrink-0 rounded-full bg-emerald-500/80" />
           <input
@@ -19,14 +19,14 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
               onChange({ data: { ...b.data, filename: e.target.value || undefined } } as Partial<Block>)
             }
             placeholder="nome do arquivo (opcional)"
-            className="ml-2 min-w-0 flex-1 bg-transparent font-mono text-xs text-brand-gray-300 outline-none placeholder:text-brand-gray-600"
+            className="ml-2 min-w-0 flex-1 bg-transparent font-mono text-xs text-brand-gray-400 outline-none placeholder:text-brand-gray-600"
           />
         </div>
         <input
           value={b.data.language ?? ""}
           onChange={(e) => onChange({ data: { ...b.data, language: e.target.value || null } } as Partial<Block>)}
           placeholder="linguagem"
-          className="w-24 shrink-0 bg-transparent text-right font-mono text-[0.625rem] uppercase tracking-wider text-brand-gray-500 outline-none placeholder:normal-case placeholder:text-brand-gray-600"
+          className="w-24 shrink-0 bg-transparent text-right font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500 outline-none placeholder:normal-case placeholder:text-brand-gray-600"
         />
       </div>
       <textarea
@@ -35,7 +35,7 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
         placeholder="Cole ou escreva o código…"
         spellCheck={false}
         rows={Math.max(3, b.data.code.split("\n").length)}
-        className="w-full resize-none bg-transparent p-4 font-mono text-[0.8125rem] leading-relaxed text-brand-gray-100 outline-none placeholder:text-brand-gray-600"
+        className="w-full resize-none bg-transparent p-4 font-mono text-[13px] leading-[1.6] text-brand-gray-100 outline-none placeholder:text-brand-gray-600"
       />
     </div>
   );

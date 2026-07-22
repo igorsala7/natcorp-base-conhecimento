@@ -32,13 +32,14 @@ export function ButtonBlock({ block, onChange }: BlockEditProps) {
   const b = block as Extract<Block, { type: "button" }>;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
+      {/* Prévia com o MESMO acabamento do portal (px-5 py-2.5, semibold). */}
       <input
         value={b.data.label}
         onChange={(e) => onChange({ data: { ...b.data, label: e.target.value } } as Partial<Block>)}
         placeholder="Texto do botão"
-        className={`rounded-md px-4 py-2 text-sm font-medium outline-none ${
+        className={`rounded-md px-5 py-2.5 text-sm font-semibold shadow-1 outline-none ${
           b.data.variant === "secondary"
-            ? "border border-border bg-surface-2"
+            ? "border border-brand-purple-200 bg-surface text-primary dark:border-brand-purple-800"
             : "bg-primary text-primary-fg placeholder:text-primary-fg/60"
         }`}
       />

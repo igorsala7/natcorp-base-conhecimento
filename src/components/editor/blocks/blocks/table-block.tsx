@@ -22,7 +22,7 @@ export function TableBlock({ block, onChange }: BlockEditProps) {
   const delCol = () => cols > 1 && set(rows.map((row) => row.slice(0, -1)));
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="overflow-x-auto rounded-lg border border-border shadow-1">
       <table className="w-full border-collapse text-sm">
         <tbody>
           {rows.map((row, r) => (

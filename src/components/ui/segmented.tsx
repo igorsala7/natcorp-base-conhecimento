@@ -35,7 +35,7 @@ export function Segmented<T extends string>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
+            "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
             value === o.value
               ? "bg-surface text-text shadow-1"
               : "text-text-muted hover:text-text",
@@ -53,4 +53,4 @@ export { eyebrowLabel as luminaLabel } from "@/components/ui/field";
 
 /** Botão tracejado "adicionar item" (listas editáveis do editor). */
 export const addItemClass =
-  "inline-flex items-center gap-1.5 rounded-md border border-dashed border-primary/50 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-brand-purple-50 dark:hover:bg-brand-purple-950/40";
+  "inline-flex items-center gap-1.5 rounded-md border border-dashed border-brand-purple-300 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-brand-purple-50 dark:border-brand-purple-700 dark:hover:bg-brand-purple-950/40";

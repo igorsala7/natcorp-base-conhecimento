@@ -44,11 +44,11 @@ export function Toc({ items }: { items: TocItem[] }) {
               href={`#${item.id}`}
               aria-current={active === item.id ? "location" : undefined}
               className={cn(
-                "-ml-px block border-l-2 py-1.5 text-[0.8125rem] leading-snug transition-colors",
+                "-ml-px block border-l-2 py-1 text-[0.8125rem] leading-[1.4] transition-colors",
                 item.level === 3 ? "pl-6" : "pl-3",
                 active === item.id
                   ? "border-primary font-medium text-primary"
-                  : "border-transparent text-text-muted hover:border-brand-gray-300 hover:text-text dark:hover:border-brand-gray-700",
+                  : "border-transparent text-text-muted hover:border-brand-gray-300 hover:text-primary dark:hover:border-brand-gray-700",
               )}
             >
               {item.text}

@@ -73,11 +73,14 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
     tema.home.heroStyle === "image" && !tema.brand.coverUrl ? "brand" : tema.home.heroStyle;
   const comFaixa = heroStyle !== "plain" && abertura;
   const corDe = tema.brand.color ?? "#511C76";
+  // Gradiente da referência: gray-950 → gray-900 → shade ~900 da cor da marca
+  // do espaço (o color-mix aproxima o purple-900 quando a cor é a padrão).
+  // A cor continua vindo do tema — só a estrutura do gradiente é fixa.
   const faixaCss: CSSProperties | undefined =
     heroStyle === "brand"
       ? {
-          backgroundColor: corDe,
-          backgroundImage: `linear-gradient(135deg, ${corDe}, color-mix(in oklab, ${corDe} 45%, #191036))`,
+          backgroundColor: "#141119",
+          backgroundImage: `linear-gradient(to bottom right, #141119, #201D26, color-mix(in oklab, ${corDe} 55%, #141119))`,
         }
       : heroStyle === "image"
         ? {
@@ -156,23 +159,27 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
         const estilo = tema.home.categoriesStyle;
 
         if (estilo === "list") {
+          // Linhas da referência: divisor fraco entre elas, tinta da marca no
+          // hover e título que "acende" em roxo junto.
           return (
             <section key={key} className="mt-16 first:mt-0">
               <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
                 Categorias
               </h2>
-              <ul className="divide-y divide-border">
+              <ul className="divide-y divide-brand-gray-100 dark:divide-brand-gray-800">
                 {dados.categorias.map((c) => (
                   <li key={c.id}>
                     <Link
                       href={c.href}
-                      className="-mx-3 flex items-center gap-3 rounded-md px-3 py-3 no-underline transition-colors hover:bg-surface-2"
+                      className="group flex items-center gap-4 px-6 py-4 no-underline transition-colors hover:bg-brand-purple-50/50 dark:hover:bg-brand-purple-950/25"
                     >
                       <IconeDoNo chave={c.icon} fallback={Folder} className="size-4 shrink-0 text-primary" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{c.title}</span>
+                        <span className="block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
+                          {c.title}
+                        </span>
                         {c.descricao && (
-                          <span className="block truncate text-[0.8125rem] text-text-muted">
+                          <span className="line-clamp-1 block text-xs text-text-muted">
                             {c.descricao}
                           </span>
                         )}
@@ -187,10 +194,12 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                   <li key={a.id}>
                     <Link
                       href={a.href}
-                      className="-mx-3 flex items-center gap-3 rounded-md px-3 py-3 no-underline transition-colors hover:bg-surface-2"
+                      className="group flex items-center gap-4 px-6 py-4 no-underline transition-colors hover:bg-brand-purple-50/50 dark:hover:bg-brand-purple-950/25"
                     >
                       <IconeDoNo chave={a.icon} fallback={FileText} className="size-4 shrink-0 text-text-muted" />
-                      <span className="min-w-0 flex-1 truncate font-medium">{a.title}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
+                        {a.title}
+                      </span>
                     </Link>
                   </li>
                 ))}
@@ -241,6 +250,8 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
         }
 
         // "cards" — o padrão de sempre, agora com ícone da pasta e descrição.
+        // Anatomia da referência: ícone 40px com gradiente que INVERTE no
+        // hover, nome, descrição em 2 linhas e a contagem com seta que anda.
         return (
           <section key={key} className="mt-16 first:mt-0">
             <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
@@ -251,20 +262,25 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 <li key={c.id} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up">
                   <Link
                     href={c.href}
-                    className="group flex h-full items-start gap-3.5 rounded-lg border border-border bg-surface p-4 no-underline transition-all hover:-translate-y-0.5 hover:border-brand-purple-300 hover:shadow-2 motion-reduce:transform-none dark:hover:border-brand-purple-700"
+                    className="group flex h-full items-start gap-3.5 rounded-xl border border-border bg-surface p-5 no-underline shadow-1 transition-all hover:-translate-y-0.5 hover:border-brand-purple-300 hover:shadow-2 motion-reduce:transform-none dark:hover:border-brand-purple-700"
                   >
-                    <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-purple-50 to-brand-purple-100 text-primary transition-colors group-hover:from-brand-purple-500 group-hover:to-brand-purple-800 group-hover:text-white dark:from-brand-purple-950/60 dark:to-brand-purple-900/60 dark:text-brand-purple-300">
+                    <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-purple-50 to-brand-purple-100 text-primary transition-colors group-hover:from-brand-purple-500 group-hover:to-brand-purple-700 group-hover:text-white dark:from-brand-purple-950/60 dark:to-brand-purple-900/60 dark:text-brand-purple-300">
                       <IconeDoNo chave={c.icon} fallback={Folder} className="size-[18px]" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium leading-snug">{c.title}</span>
-                      <span className="mt-0.5 line-clamp-2 block text-[0.8125rem] leading-relaxed text-text-muted">
-                        {c.descricao ?? (
-                          <span className="tabular-nums">{c.artigos} artigo(s)</span>
-                        )}
+                      <span className="block truncate text-base font-semibold leading-snug transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
+                        {c.title}
+                      </span>
+                      {c.descricao && (
+                        <span className="mt-0.5 line-clamp-2 block text-sm leading-relaxed text-text-muted">
+                          {c.descricao}
+                        </span>
+                      )}
+                      <span className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-primary">
+                        <span className="tabular-nums">{c.artigos} artigo(s)</span>
+                        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none" />
                       </span>
                     </span>
-                    <ArrowRight className="mt-2.5 size-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transform-none" />
                   </Link>
                 </li>
               ))}
@@ -272,7 +288,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 <li key={a.id}>
                   <Link
                     href={a.href}
-                    className="group flex items-center gap-3.5 rounded-lg border border-border bg-surface p-4 no-underline transition-shadow hover:shadow-2"
+                    className="group flex items-center gap-3.5 rounded-xl border border-border bg-surface p-5 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-surface-2 text-text-muted">
                       <IconeDoNo chave={a.icon} fallback={FileText} className="size-[18px]" />
@@ -379,7 +395,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
       {ligada("hero") && (
         <>
           <h1
-            className={`text-[length:var(--text-4xl)] font-semibold leading-[1.1] ${
+            className={`text-[length:var(--text-3xl)] font-bold leading-[1.1] tracking-tight ${
               comFaixa ? "text-white" : ""
             }`}
           >
@@ -423,11 +439,18 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 className="relative mb-4 overflow-hidden rounded-2xl px-6 py-14 text-center sm:mb-8 sm:px-10 sm:py-16"
                 style={faixaCss}
               >
-                {/* Tratamento Lumina: grade de linhas sutil + brilhos difusos —
-                    o gradiente/imagem por espaço segue mandando no fundo. */}
+                {/* Tratamento Lumina: grade de linhas sutil + 2 brilhos radiais
+                    de 18rem na cor da marca a 25% — o gradiente/imagem por
+                    espaço segue mandando no fundo. */}
                 <div aria-hidden className="pointer-events-none absolute inset-0">
-                  <div className="absolute -top-32 left-1/4 size-72 rounded-full bg-white/10 blur-3xl" />
-                  <div className="absolute -bottom-20 -right-20 size-80 rounded-full bg-white/[0.07] blur-3xl" />
+                  <div
+                    className="absolute -top-32 left-1/4 size-72 rounded-full blur-3xl"
+                    style={{ backgroundColor: `color-mix(in srgb, ${corDe} 25%, transparent)` }}
+                  />
+                  <div
+                    className="absolute -bottom-20 -right-20 size-72 rounded-full blur-3xl"
+                    style={{ backgroundColor: `color-mix(in srgb, ${corDe} 25%, transparent)` }}
+                  />
                   <div
                     className="absolute inset-0 opacity-[0.35]"
                     style={{

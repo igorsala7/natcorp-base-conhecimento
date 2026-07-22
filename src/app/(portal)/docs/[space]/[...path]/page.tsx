@@ -160,20 +160,27 @@ export default async function DocsPage({
     return (
       <PortalShell space={space} tree={tree} activePath={activePath}>
       {originSetter}
-        <Breadcrumbs spaceSlug={spaceSlug} crumbs={ancestorsOf(tree, node.id).slice(0, -1)} spaceName={space.name} />
-        <h1 className="mt-3 text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">
+        <Breadcrumbs
+          spaceSlug={spaceSlug}
+          crumbs={ancestorsOf(tree, node.id).slice(0, -1)}
+          spaceName={space.name}
+          current={node.title}
+        />
+        <h1 className="text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">
           {node.title}
         </h1>
-        <ul className="mt-8 divide-y divide-border">
+        <ul className="mt-8 divide-y divide-brand-gray-100 dark:divide-brand-gray-800">
           {node.children
             .filter((c) => c.type !== "divider")
             .map((c) => (
               <li key={c.id}>
                 <Link
                   href={`/docs/${spaceSlug}/${c.slugPath.join("/")}`}
-                  className="-mx-3 block rounded-md px-3 py-3 transition-colors hover:bg-surface-2"
+                  className="group flex items-center gap-4 px-6 py-4 no-underline transition-colors hover:bg-brand-purple-50/50 dark:hover:bg-brand-purple-950/25"
                 >
-                  {c.title}
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
+                    {c.title}
+                  </span>
                 </Link>
               </li>
             ))}
@@ -285,8 +292,8 @@ export default async function DocsPage({
       {/* `.leitura` + data-size ligam a escala tipográfica do tema (Aparência →
           Leitura). "large" reproduz a escala original via fallbacks. */}
       <article className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
-        <Breadcrumbs spaceSlug={spaceSlug} crumbs={crumbs} spaceName={space.name} />
-        <h1 className="mt-3 text-[length:var(--l-page,1.5rem)] font-bold leading-[1.15] tracking-tight sm:text-[length:calc(var(--l-page,1.5rem)+0.25rem)]">
+        <Breadcrumbs spaceSlug={spaceSlug} crumbs={crumbs} spaceName={space.name} current={título} />
+        <h1 className="text-[length:var(--l-page,1.5rem)] font-bold leading-[1.15] tracking-tight sm:text-[length:calc(var(--l-page,1.5rem)+0.25rem)]">
           {título}
         </h1>
         {/* Metadados como "eyebrow" discreto: informam sem competir com o título. */}
@@ -477,35 +484,32 @@ export default async function DocsPage({
 
         {/* Anterior/Próximo em CARDS (Microsoft Learn): eyebrow + título com
             alvo de clique generoso, no lugar de dois links soltos. */}
-        <nav
-          aria-label="Diretórios vizinhos"
-          className="mt-20 grid gap-3 border-t border-border pt-8 sm:grid-cols-2"
-        >
+        <nav aria-label="Diretórios vizinhos" className="mt-6 grid grid-cols-2 gap-3">
           {prevGroup ? (
             <Link
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-text-muted">← Anterior</span>
-              <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
+              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-brand-gray-400">← Anterior</span>
+              <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {prevGroup.title}
               </span>
             </Link>
           ) : (
-            <span className="hidden sm:block" />
+            <span aria-hidden="true" />
           )}
           {nextGroup ? (
             <Link
               href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 text-right no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-text-muted">Próximo →</span>
-              <span className="mt-1 block truncate font-medium transition-colors group-hover:text-primary">
+              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-brand-gray-400">Próximo →</span>
+              <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {nextGroup.title}
               </span>
             </Link>
           ) : (
-            <span className="hidden sm:block" />
+            <span aria-hidden="true" />
           )}
         </nav>
 

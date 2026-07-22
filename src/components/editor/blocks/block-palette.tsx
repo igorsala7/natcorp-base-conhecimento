@@ -26,7 +26,7 @@ export function BlockPalette({
 
   return (
     <div className="space-y-4">
-      <p className="rounded-md border border-brand-purple-100 bg-brand-purple-50/60 px-3 py-2.5 text-[0.6875rem] leading-relaxed text-brand-purple-900 dark:border-brand-purple-900 dark:bg-brand-purple-950/40 dark:text-brand-purple-200">
+      <p className="rounded-md border border-brand-purple-100 bg-brand-purple-50/60 px-3 py-2.5 text-[11px] leading-[1.6] text-brand-purple-800 dark:border-brand-purple-900 dark:bg-brand-purple-950/40 dark:text-brand-purple-200">
         <strong>Arraste</strong> um bloco para o artigo ou <strong>clique</strong> para
         adicioná-lo ao final.
       </p>
@@ -85,7 +85,7 @@ export function BlockPalette({
                 </IconBox>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-semibold">{sn.title}</span>
-                  <span className="block truncate text-[0.625rem] text-text-muted">
+                  <span className="block truncate text-[10px] text-brand-gray-400">
                     {sn.key}
                   </span>
                 </span>
@@ -109,7 +109,7 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
 
 function IconBox({ children }: { children: React.ReactNode }) {
   return (
-    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-text-muted shadow-1 transition-colors group-hover:border-brand-purple-300 group-hover:text-primary">
+    <span className="flex size-7 shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-text-muted shadow-1 transition-colors group-hover:border-brand-purple-300 group-hover:text-primary">
       {children}
     </span>
   );
@@ -139,7 +139,7 @@ function PaletteItem({ meta, onAdd }: { meta: BlockMeta; onAdd: (t: BlockType) =
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-semibold">{meta.label}</span>
         {meta.description && (
-          <span className="block truncate text-[0.625rem] text-text-muted">
+          <span className="block truncate text-[10px] text-brand-gray-400">
             {meta.description}
           </span>
         )}

@@ -50,7 +50,7 @@
   /* ── Forma ────────────────────────────────────────────────────────────
      Uma escala só. Antes havia 5 valores de raio soltos pelo código, o que
      tira a sensação de sistema — é o que mais denuncia UI improvisada. */
-  --radius-sm: 4px;
+  --radius-sm: 6px; /* radius-sm da referência Lumina (caixas de checklist, code inline) */
   --radius-md: 8px; /* inputs, botões e chips (padrão Lumina) */
   --radius-lg: 12px; /* blocos de conteúdo: callouts, imagens, cartões de arquivo */
   --radius-xl: 16px; /* cartões e painéis grandes */
@@ -367,11 +367,15 @@
   .prose-portal :where(code):not(:where(pre code)) {
     font-size: 0.8125em;
     background: var(--color-surface-2);
-    color: var(--color-primary);
+    color: var(--color-primary); /* brand.purple.700 no tema padrão (referência) */
     padding: 0.125rem 0.375rem;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
     font-weight: 500;
+  }
+  /* No escuro a referência sobe um tom (brand.purple.300 = primary-hover). */
+  .dark .prose-portal :where(code):not(:where(pre code)) {
+    color: var(--color-primary-hover);
   }
   /* Bloco de código com realce (lowlight/highlight.js) já estilizado em base. */
   .prose-portal :where(pre) {
@@ -431,22 +435,23 @@
     font-weight: 600;
     font-size: var(--text-xs);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.025em;
     color: var(--color-text-muted);
     background: var(--color-surface-2);
-    padding: 0.625rem 0.875rem;
+    padding: 0.625rem 1rem;
     border-bottom: 1px solid var(--color-border);
     white-space: nowrap;
   }
   .table-portal td {
-    padding: 0.625rem 0.875rem;
-    border-bottom: 1px solid var(--color-border);
+    padding: 0.625rem 1rem;
+    /* Borda mais fraca que a do cabeçalho (referência): só um fio de apoio. */
+    border-bottom: 1px solid color-mix(in oklab, var(--color-border) 60%, transparent);
     vertical-align: top;
     line-height: 1.6;
   }
   /* Zebra da referência: linhas pares com fundo suave. */
   .table-portal tbody tr:nth-child(even) td {
-    background: color-mix(in oklab, var(--color-surface-2) 55%, transparent);
+    background: color-mix(in oklab, var(--color-surface-2) 50%, transparent);
   }
   .table-portal tr:last-child td {
     border-bottom: 0;

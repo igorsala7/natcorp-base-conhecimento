@@ -49,15 +49,19 @@ export function SearchTrigger({
 }) {
   const open = () => window.dispatchEvent(new CustomEvent(OPEN_EVENT));
   if (variant === "hero") {
+    // Variante grande do hero: borda white/20 (vive sobre a faixa escura) e
+    // anel de foco de 4px em white/25 no lugar do outline padrão.
     return (
       <button
         type="button"
         onClick={open}
-        className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3.5 text-left text-text-muted transition-shadow hover:shadow-2"
+        className="flex w-full items-center gap-3 rounded-lg border border-white/20 bg-surface px-5 py-3.5 text-left text-text-muted shadow-2 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/25"
       >
         <Search className="size-5 shrink-0" />
         <span className="flex-1 text-base">{placeholder}</span>
-        <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-xs sm:inline">⌘K</kbd>
+        <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-brand-gray-400 sm:inline">
+          ⌘K
+        </kbd>
       </button>
     );
   }
@@ -66,11 +70,13 @@ export function SearchTrigger({
       type="button"
       onClick={open}
       aria-label="Buscar"
-      className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm text-text-muted transition hover:border-primary hover:text-text"
+      className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm text-text-muted shadow-1 transition hover:border-brand-purple-300 focus-visible:border-brand-purple-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-purple-100 dark:hover:border-brand-purple-700 dark:focus-visible:border-brand-purple-700 dark:focus-visible:ring-brand-purple-900"
     >
       <Search className="size-4" />
       <span className="hidden sm:inline">Buscar</span>
-      <kbd className="hidden rounded border border-border px-1 text-[11px] sm:inline">⌘K</kbd>
+      <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-brand-gray-400 sm:inline">
+        ⌘K
+      </kbd>
     </button>
   );
 }
@@ -208,7 +214,7 @@ export function PortalAssistant({
             className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
             onClick={() => setOpen(false)}
           />
-          <div className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-3 motion-safe:animate-[scalein_150ms_ease-out]">
+          <div className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2 motion-safe:animate-[scalein_150ms_ease-out]">
             <div className="flex items-center gap-3 border-b border-border px-4">
               <Search className="size-5 shrink-0 text-text-muted" />
               <input
@@ -220,15 +226,15 @@ export function PortalAssistant({
                 aria-label="Buscar"
                 className="h-14 flex-1 bg-transparent text-base outline-none placeholder:text-text-muted"
               />
-              <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-xs text-text-muted sm:inline">
+              <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-brand-gray-400 sm:inline">
                 Esc
               </kbd>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto p-2">
+            <div className="min-h-0 flex-1 overflow-auto">
               {/* Sem termo → buscas recentes */}
               {term.length < 2 && recent.length > 0 && (
-                <div className="px-2 py-1">
+                <div className="px-3 py-2">
                   <p className="mb-1 text-xs font-medium text-text-muted">Buscas recentes</p>
                   {recent.map((r) => (
                     <button
@@ -243,36 +249,37 @@ export function PortalAssistant({
                 </div>
               )}
               {term.length < 2 && recent.length === 0 && (
-                <p className="px-3 py-8 text-center text-sm text-text-muted">
+                <p className="px-4 py-5 text-center text-sm text-text-muted">
                   Digite para buscar nesta documentação.
                 </p>
               )}
 
               {/* Carregando */}
               {term.length >= 2 && loading && (
-                <div className="space-y-2 p-2">
+                <div className="space-y-2 p-3">
                   {[0, 1, 2].map((i) => (
                     <div key={i} className="h-12 animate-pulse rounded-lg bg-surface-2" />
                   ))}
                 </div>
               )}
 
-              {/* Resultados */}
+              {/* Resultados: linhas de sangria total com divisor fraco entre
+                  elas (o último item fica sem), como no dropdown da referência. */}
               {term.length >= 2 && !loading && hits.length > 0 && (
-                <ul>
+                <ul className="divide-y divide-brand-gray-100 dark:divide-brand-gray-800">
                   {hits.map((h, i) => (
                     <li key={h.node_id + i}>
                       <button
                         type="button"
                         onMouseEnter={() => setActive(i)}
                         onClick={() => go(h)}
-                        className={`flex w-full items-start gap-3 rounded-lg px-2 py-2.5 text-left ${
-                          i === active ? "bg-brand-purple-50 dark:bg-brand-purple-950/40" : ""
+                        className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${
+                          i === active ? "bg-brand-purple-50/60 dark:bg-brand-purple-950/30" : ""
                         }`}
                       >
                         <FileText className="mt-0.5 size-4 shrink-0 text-text-muted" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{h.title}</span>
+                          <span className="block truncate text-sm font-semibold">{h.title}</span>
                           {h.heading_path && (
                             <span className="block truncate text-xs text-text-muted">
                               {h.heading_path}
@@ -297,7 +304,7 @@ export function PortalAssistant({
 
               {/* Sem resultado → Ask-AI + contato */}
               {term.length >= 2 && !loading && hits.length === 0 && (
-                <div className="p-3 text-center">
+                <div className="px-4 py-5 text-center">
                   <p className="text-sm text-text-muted">
                     Nenhum resultado para <span className="font-medium text-text">“{term}”</span>.
                   </p>

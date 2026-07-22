@@ -29,10 +29,11 @@ export function ImageBlock({ block, onChange, spaceId }: BlockEditProps) {
 
   if (!b.data.src) {
     return (
+      /* Placeholder de mídia da referência: 160px, tracejado grosso, cinza. */
       <button
         type="button"
         onClick={pick}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-surface-2 py-8 text-sm text-text-muted hover:border-primary hover:text-primary"
+        className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-surface-2 text-sm text-brand-gray-400 hover:border-primary hover:text-primary"
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
         {busy ? "Enviando…" : "Enviar imagem"}
@@ -41,16 +42,17 @@ export function ImageBlock({ block, onChange, spaceId }: BlockEditProps) {
   }
 
   return (
-    // Espelha o render do portal (moldura, tamanho natural, legenda 13px) —
-    // o clamp de altura fazia a imagem parecer menor do que a publicada.
+    // Espelha o render do portal (moldura com sombra, tamanho natural,
+    // legenda 12px) — o clamp de altura fazia a imagem parecer menor do que
+    // a publicada.
     <figure className="text-center">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={b.data.src} alt={b.data.alt} className="mx-auto rounded-lg border border-border" />
+      <img src={b.data.src} alt={b.data.alt} className="mx-auto rounded-lg border border-border shadow-1" />
       <input
         value={b.data.caption}
         onChange={(e) => onChange({ data: { ...b.data, caption: e.target.value } } as Partial<Block>)}
         placeholder="Legenda (opcional)"
-        className="mt-2.5 w-full bg-transparent text-center text-[0.8125rem] text-text-muted outline-none"
+        className="mt-2 w-full bg-transparent text-center text-xs text-text-muted outline-none"
       />
     </figure>
   );

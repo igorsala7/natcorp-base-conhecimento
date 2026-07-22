@@ -75,7 +75,7 @@ const BlockItem = memo(function BlockItem({
       ref={setNodeRef}
       data-block-id={block.id}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={`block-row group relative ${isDragging ? "opacity-40" : ""}`}
+      className={`block-row group relative ${isDragging ? "z-30" : ""}`}
       onClick={(e) => {
         e.stopPropagation();
         actions.select(block.id);
@@ -88,11 +88,16 @@ const BlockItem = memo(function BlockItem({
         onContextMenu(block, e.clientX, e.clientY);
       }}
     >
-      <div className="block-handle absolute -left-11 top-0 flex items-center">
+      <div
+        className="block-handle absolute -left-7 top-1/2 flex -translate-y-1/2 items-center"
+        // Selecionado também mostra a alça (o CSS de hover em globals tem
+        // especificidade maior que utilitária — daí o estilo inline).
+        style={selected ? { opacity: 1 } : undefined}
+      >
         <button
           type="button"
           aria-label="Arrastar bloco"
-          className="flex size-6 cursor-grab items-center justify-center rounded text-text-muted hover:bg-surface-2 active:cursor-grabbing"
+          className="flex h-7 w-5 cursor-grab items-center justify-center rounded-sm text-brand-gray-300 transition-colors hover:bg-surface-2 active:cursor-grabbing dark:text-brand-gray-600"
           {...attributes}
           {...listeners}
         >
@@ -101,14 +106,19 @@ const BlockItem = memo(function BlockItem({
         <BlockMenu block={block} actions={actions} />
       </div>
 
-      {selected && (
-        <div
-          className={`absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5 shadow-2 ${
-            depth > 0 ? "right-1 top-1" : "-top-3 right-2"
-          }`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span className="flex items-center gap-1 px-1.5 text-[0.625rem] font-bold uppercase tracking-wide text-text-muted">
+      {/* Pill de controle: invisível em repouso, aparece no HOVER do cartão e
+          fica fixa no selecionado (catálogo Lumina). */}
+      <div
+        className={`absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5 shadow-2 transition-opacity ${
+          depth > 0 ? "right-1 top-1" : "-top-3 right-3"
+        } ${
+          selected
+            ? "opacity-100"
+            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+          <span className="flex items-center gap-1 px-1.5 text-[10px] font-bold uppercase tracking-[0.05em] text-brand-gray-400">
             <Meta.icon className="size-3.5" />
             {Meta.label}
           </span>
@@ -134,18 +144,19 @@ const BlockItem = memo(function BlockItem({
           >
             <Trash2 className="size-3.5" />
           </BarBtn>
-        </div>
-      )}
+      </div>
 
       <div
-        // Chrome do cartão: SÓ ring + sombra — utilitárias que NÃO disputam
-        // fundo/borda/raio/padding com o styleClass do bloco (a disputa era o
-        // bug de "propriedade não aplica": bg-surface/border-* do cartão
-        // venciam a cascata sobre a escolha do usuário).
-        className={`rounded-md px-1 transition-all ${
-          selected
-            ? "shadow-2 ring-2 ring-brand-purple-300 dark:ring-brand-purple-700"
-            : "hover:shadow-1 hover:ring-1 hover:ring-border"
+        // Chrome do cartão (catálogo Lumina) vive NESTE wrapper externo; o
+        // styleClass do bloco fica no div interno limpo logo abaixo. Misturar
+        // os dois era o bug de "propriedade não aplica": bg/borda do cartão
+        // venciam a cascata sobre a escolha do usuário.
+        className={`rounded-lg border px-4 py-2 transition-all ${
+          isDragging
+            ? "border-brand-purple-400 opacity-90 shadow-2"
+            : selected
+              ? "border-brand-purple-300 bg-surface shadow-2 ring-2 ring-brand-purple-100 dark:ring-brand-purple-900"
+              : "border-transparent hover:border-border hover:bg-surface hover:shadow-1"
         }`}
       >
       <div className={styleClass(block.styles) || undefined}>
@@ -167,9 +178,10 @@ const BlockItem = memo(function BlockItem({
       </div>
       {selected && propsAberto && (
         /* Faixa de propriedades DENTRO do cartão (padrão da referência):
-           a prévia acima atualiza a cada mudança. */
+           a prévia acima atualiza a cada mudança. Margens negativas alinham a
+           faixa às bordas do cartão (px-4/py-2). */
         <div
-          className="not-prose mt-2 rounded-md border border-border bg-surface-2 px-4 py-4"
+          className="not-prose -mx-4 -mb-2 mt-2 rounded-b-lg border-t border-border bg-surface-2/60 p-4"
           onClick={(e) => e.stopPropagation()}
         >
           <p className="mb-3 text-[0.625rem] font-bold uppercase tracking-wide text-text-muted">
@@ -241,9 +253,9 @@ function BarBtn({
       type="button"
       title={title}
       onClick={onClick}
-      className={`flex size-6 items-center justify-center rounded text-text-muted transition-colors ${
+      className={`flex size-6 items-center justify-center rounded-sm text-text-muted transition-colors ${
         danger
-          ? "hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+          ? "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
           : "hover:bg-surface-2 hover:text-text"
       }`}
     >

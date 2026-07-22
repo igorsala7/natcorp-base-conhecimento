@@ -304,14 +304,19 @@ function RankList({
   accent?: boolean;
 }) {
   return (
-    <Surface elevation={1}>
-      <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-text-muted">{title}</p>
+    <Surface elevation={1} padding="none" className="overflow-hidden">
+      <p className="border-b border-border px-5 py-3.5 text-xs font-medium uppercase tracking-wider text-text-muted">
+        {title}
+      </p>
       {rows.length === 0 ? (
-        <p className="text-sm text-text-muted">{empty}</p>
+        <p className="px-5 py-4 text-sm text-text-muted">{empty}</p>
       ) : (
-        <ul className="space-y-1.5">
+        <ul>
           {rows.map(([q, n]) => (
-            <li key={q} className="flex items-center gap-2 text-sm">
+            <li
+              key={q}
+              className="flex items-center gap-4 border-b border-border px-5 py-3.5 text-sm transition-colors last:border-b-0 hover:bg-brand-purple-50/40 dark:hover:bg-brand-purple-950/20"
+            >
               <span className="min-w-0 flex-1 truncate">{q}</span>
               <Badge tone={accent ? "accent" : "neutral"} className="tabular-nums">
                 {n}

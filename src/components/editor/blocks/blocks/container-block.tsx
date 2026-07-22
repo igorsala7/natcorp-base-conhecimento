@@ -6,33 +6,34 @@ import { BlockIcon } from "../block-icon";
 import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
 import type { BlockEditProps } from "../edit-types";
 
-// MESMA paleta do render do portal (render.tsx) — a edição usava rosa onde o
-// leitor via âmbar/vermelho, e o editor não pode mentir sobre o resultado.
+// MESMA paleta do render do portal (render.tsx) — tons semânticos literais da
+// referência (info=sky, success=emerald, warning=amber, danger=rose,
+// note=violet). O editor não pode mentir sobre o resultado.
 const CALLOUT_META: Record<CalloutVariant, { icon: typeof Info; cls: string; iconWrap: string }> = {
   info: {
     icon: Info,
-    cls: "border-brand-blue-200 bg-brand-blue-50/70 text-brand-blue-900 dark:border-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
-    iconWrap: "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/60 dark:text-brand-blue-300",
+    cls: "border-sky-200 bg-sky-50/70 dark:border-sky-900 dark:bg-sky-950/30",
+    iconWrap: "bg-sky-100 text-sky-600 dark:bg-sky-900/60 dark:text-sky-400",
   },
   success: {
     icon: CheckCircle2,
-    cls: "border-brand-purple-200 bg-brand-purple-50/70 text-brand-purple-900 dark:border-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
-    iconWrap: "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/60 dark:text-brand-purple-300",
+    cls: "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/30",
+    iconWrap: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/60 dark:text-emerald-400",
   },
   warning: {
     icon: AlertTriangle,
-    cls: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
-    iconWrap: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300",
+    cls: "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/30",
+    iconWrap: "bg-amber-100 text-amber-600 dark:bg-amber-900/60 dark:text-amber-400",
   },
   danger: {
     icon: OctagonAlert,
-    cls: "border-red-200 bg-red-50/70 text-red-900 dark:border-red-900 dark:bg-red-950/25 dark:text-red-100",
-    iconWrap: "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300",
+    cls: "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/30",
+    iconWrap: "bg-rose-100 text-rose-600 dark:bg-rose-900/60 dark:text-rose-400",
   },
   note: {
     icon: Lightbulb,
-    cls: "border-violet-200 bg-violet-50/70 text-violet-900 dark:border-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
-    iconWrap: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300",
+    cls: "border-violet-200 bg-violet-50/70 dark:border-violet-900 dark:bg-violet-950/30",
+    iconWrap: "bg-violet-100 text-violet-600 dark:bg-violet-900/60 dark:text-violet-400",
   },
 };
 
@@ -81,9 +82,9 @@ export function CalloutBlock({ block, onChange, children }: BlockEditProps) {
           }
           placeholder={CALLOUT_ROTULO[b.data.variant]}
           title="Título do destaque (vazio = rótulo do tipo)"
-          className="w-full bg-transparent text-sm font-semibold outline-none placeholder:opacity-60"
+          className="w-full bg-transparent text-sm font-semibold text-text outline-none placeholder:opacity-60"
         />
-        <div className="mt-1 min-w-0">{children}</div>
+        <div className="mt-0.5 min-w-0">{children}</div>
       </div>
     </div>
   );
@@ -182,7 +183,10 @@ export function StepsBlock({ children }: BlockEditProps) {
 
 export function StepBlock({ children }: BlockEditProps) {
   return (
-    <div className="relative mb-2 border-l-2 border-border pb-1 pl-8 [counter-increment:step] before:absolute before:left-[-13px] before:top-0 before:flex before:size-6 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-xs before:font-semibold before:text-primary-fg before:content-[counter(step)]">
+    /* MESMA anatomia do portal: número 32px com anel roxo e conector em
+       degradê. Aqui o conector fica sempre visível — no editor cada passo
+       vive num wrapper próprio e o "último" não é irmão direto. */
+    <div className="relative pb-6 pl-11 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-0 after:left-[15px] after:top-8 after:w-px after:bg-gradient-to-b after:from-brand-purple-300 after:to-brand-purple-100 dark:before:ring-brand-purple-950 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950">
       {children}
     </div>
   );

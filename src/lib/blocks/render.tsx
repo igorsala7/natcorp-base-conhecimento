@@ -155,7 +155,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         <figure className="my-5 rounded-lg border border-brand-purple-100 bg-brand-purple-50/50 p-5 dark:border-brand-purple-900 dark:bg-brand-purple-950/30">
           <QuoteIcon className="mb-2 size-5 text-brand-purple-300" aria-hidden="true" />
-          <blockquote className="!m-0 !border-0 !p-0 font-medium not-italic !text-text">
+          <blockquote className="!m-0 !border-0 !p-0 font-medium leading-[1.6] not-italic !text-text">
             {renderRich(block.text)}
           </blockquote>
         </figure>
@@ -179,7 +179,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         <div className="code-window my-4 overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
           <div className="flex items-center justify-between border-b border-brand-gray-800 px-4 py-2">
             <div className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-red-500/80" />
+              <span className="size-2.5 rounded-full bg-rose-500/80" />
               <span className="size-2.5 rounded-full bg-amber-500/80" />
               <span className="size-2.5 rounded-full bg-emerald-500/80" />
               {filename && (
@@ -187,17 +187,17 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               )}
             </div>
             {lang && (
-              <span className="font-mono text-[0.625rem] uppercase tracking-wider text-brand-gray-500">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500">
                 {lang}
               </span>
             )}
           </div>
-          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !pt-4">
+          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !bg-transparent !p-4 font-mono text-[13px] leading-[1.6] !text-brand-gray-100">
             <CodeCopy code={code} />
             {html ? (
-              <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
+              <code className="hljs text-brand-gray-100" dangerouslySetInnerHTML={{ __html: html }} />
             ) : (
-              <code>{code}</code>
+              <code className="text-brand-gray-100">{code}</code>
             )}
           </pre>
         </div>
@@ -218,9 +218,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             className="mx-auto rounded-lg border border-border shadow-1"
           />
           {caption ? (
-            <figcaption className="mt-2 text-center text-xs leading-relaxed text-text-muted">
-              {caption}
-            </figcaption>
+            <figcaption className="mt-2 text-center text-xs text-text-muted">{caption}</figcaption>
           ) : null}
         </figure>
       );
@@ -299,8 +297,8 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
             <Icon className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="!m-0 text-sm font-semibold">{titulo}</p>
-            <div className="mt-1 min-w-0 text-[length:var(--l-body,0.9375rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <p className="!mb-0.5 !mt-0 text-sm font-semibold text-text">{titulo}</p>
+            <div className="min-w-0 text-[length:var(--l-body,0.9375rem)] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               {renderChildren(block.children, ctx)}
             </div>
           </div>
@@ -312,7 +310,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return <div className="my-5 [counter-reset:step]">{renderChildren(block.children, ctx)}</div>;
     case "step":
       return (
-        <div className="relative mb-6 pb-1 pl-11 last:mb-0 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-[-1.25rem] after:left-[15px] after:top-9 after:w-px after:bg-gradient-to-b after:from-brand-purple-200 after:to-brand-purple-50 last:after:hidden dark:before:ring-brand-purple-950/40 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950/40 [&>*:first-child]:mt-0">
+        <div className="relative pb-6 pl-11 last:pb-0 [counter-increment:step] before:absolute before:left-0 before:top-0 before:z-10 before:flex before:size-8 before:items-center before:justify-center before:rounded-full before:bg-primary before:text-sm before:font-semibold before:text-primary-fg before:shadow-1 before:ring-4 before:ring-brand-purple-50 before:content-[counter(step)] after:absolute after:bottom-0 after:left-[15px] after:top-8 after:w-px after:bg-gradient-to-b after:from-brand-purple-300 after:to-brand-purple-100 last:after:hidden dark:before:ring-brand-purple-950 dark:after:from-brand-purple-800 dark:after:to-brand-purple-950 [&>*:first-child]:mt-0 [&>*:first-child]:pt-1">
           {renderChildren(block.children, ctx)}
         </div>
       );
@@ -338,7 +336,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               className="size-4 shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none"
             />
           </summary>
-          <div className="pb-4 text-[length:var(--l-body,0.9375rem)] leading-relaxed text-text-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <div className="pb-4 text-sm leading-[1.6] text-text-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             {renderChildren(block.children, ctx)}
           </div>
         </details>
@@ -490,7 +488,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         // Rola dentro do próprio contêiner: uma tabela larga jamais pode fazer
         // a PÁGINA rolar na horizontal.
-        <div className="table-portal my-4 overflow-x-auto">
+        <div className="table-portal my-4 overflow-x-auto rounded-lg border border-border shadow-1">
           <table>
             {head && (
               <thead>
@@ -524,10 +522,10 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
       return (
         <ul className="nao-prosa my-4 list-none space-y-2 !pl-0">
           {block.data.items.map((item) => (
-            <li key={item.id} className="flex items-start gap-2.5 text-[length:var(--l-body,0.9375rem)]">
+            <li key={item.id} className="flex items-start gap-2.5 text-sm">
               <span
                 aria-hidden="true"
-                className={`mt-0.5 flex size-[1.125rem] shrink-0 items-center justify-center rounded border ${
+                className={`mt-0.5 flex size-[1.125rem] shrink-0 items-center justify-center rounded-sm border ${
                   item.checked
                     ? "border-primary bg-primary text-primary-fg"
                     : "border-border-strong bg-surface"
@@ -549,7 +547,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
           {block.data.items.map((item) => (
             <div
               key={item.id}
-              className="rounded-lg border border-border bg-gradient-to-b from-surface to-surface-2 p-4 shadow-1"
+              className="rounded-lg border border-border bg-gradient-to-b from-surface to-surface-2/60 p-4 shadow-1"
             >
               <p className="!m-0 text-2xl font-bold tracking-tight text-primary">{item.value}</p>
               <p className="!mb-0 !mt-1 text-sm font-semibold">{item.label}</p>
@@ -608,38 +606,37 @@ function renderContainer(block: Extract<Block, { type: "container" }>, ctx: Ctx)
 }
 
 /**
- * Callouts: borda-guia à esquerda + fundo bem tênue (padrão Microsoft Learn /
- * SAP Help). Nada de bloco saturado — o leitor precisa continuar lendo.
- *
- * `warning` e `danger` saem da paleta da marca de propósito: em rosa os dois
- * ficariam indistinguíveis, e "cuidado" vs. "pare" é compreensão, não enfeite.
- * A cor nunca carrega o significado sozinha — o ícone sempre acompanha.
+ * Callouts nos tons semânticos LITERAIS da referência Lumina:
+ * info=sky · success=emerald · warning=amber · danger=rose · note=violet.
+ * O título fica em texto pleno; o tom vive na borda, no fundo tênue e no
+ * quadrado do ícone. A cor nunca carrega o significado sozinha — o ícone
+ * sempre acompanha.
  */
 const CALLOUT = {
   info: {
     Icon: Info,
-    cls: "border-brand-blue-200 bg-brand-blue-50/70 text-brand-blue-900 dark:border-brand-blue-900 dark:bg-brand-blue-950/30 dark:text-brand-blue-100",
-    iconWrap: "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/60 dark:text-brand-blue-300",
+    cls: "border-sky-200 bg-sky-50/70 dark:border-sky-900 dark:bg-sky-950/30",
+    iconWrap: "bg-sky-100 text-sky-600 dark:bg-sky-900/60 dark:text-sky-400",
   },
   success: {
     Icon: CheckCircle2,
-    cls: "border-brand-purple-200 bg-brand-purple-50/70 text-brand-purple-900 dark:border-brand-purple-900 dark:bg-brand-purple-950/30 dark:text-brand-purple-100",
-    iconWrap: "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/60 dark:text-brand-purple-300",
+    cls: "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/30",
+    iconWrap: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/60 dark:text-emerald-400",
   },
   warning: {
     Icon: AlertTriangle,
-    cls: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100",
-    iconWrap: "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300",
+    cls: "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/30",
+    iconWrap: "bg-amber-100 text-amber-600 dark:bg-amber-900/60 dark:text-amber-400",
   },
   danger: {
     Icon: OctagonAlert,
-    cls: "border-red-200 bg-red-50/70 text-red-900 dark:border-red-900 dark:bg-red-950/25 dark:text-red-100",
-    iconWrap: "bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300",
+    cls: "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/30",
+    iconWrap: "bg-rose-100 text-rose-600 dark:bg-rose-900/60 dark:text-rose-400",
   },
   note: {
     Icon: Lightbulb,
-    cls: "border-violet-200 bg-violet-50/70 text-violet-900 dark:border-violet-900 dark:bg-violet-950/25 dark:text-violet-100",
-    iconWrap: "bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300",
+    cls: "border-violet-200 bg-violet-50/70 dark:border-violet-900 dark:bg-violet-950/30",
+    iconWrap: "bg-violet-100 text-violet-600 dark:bg-violet-900/60 dark:text-violet-400",
   },
 } as const;
 
@@ -723,26 +720,27 @@ export function FileCardView({ url, name, size }: { url: string; name: string; s
         download
         target="_blank"
         rel="noopener noreferrer"
-        className="group flex w-full max-w-md items-center gap-3.5 rounded-xl border border-border bg-surface p-3.5 no-underline transition-colors hover:border-primary"
+        className="group flex w-full max-w-md items-center gap-4 rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
       >
-        <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-lg bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
+        <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-md bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
           <FileDown className="size-4" aria-hidden />
           <span className="mt-0.5 text-[0.5625rem] font-bold leading-none tracking-wide">
             {extensaoDoNome(rotulo)}
           </span>
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-text group-hover:text-primary">
-            {rotulo}
-          </span>
+          <span className="block truncate text-sm font-semibold text-text">{rotulo}</span>
           <span className="block text-xs text-text-muted">
             {tamanho ? `${tamanho} · ` : ""}Clique para baixar
           </span>
         </span>
-        <Download
-          className="size-4 shrink-0 text-text-muted transition-colors group-hover:text-primary"
+        {/* No hover do CARTÃO o botão inverte: borda+fundo primários, seta branca. */}
+        <span
           aria-hidden
-        />
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-brand-gray-400 transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-fg"
+        >
+          <Download className="size-4" />
+        </span>
       </a>
     </div>
   );

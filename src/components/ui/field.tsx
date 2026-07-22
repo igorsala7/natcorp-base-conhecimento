@@ -47,7 +47,7 @@ export function Field({
       {hint && !error && (
         <p
           id={htmlFor ? `${htmlFor}-hint` : undefined}
-          className="text-xs leading-relaxed text-text-muted"
+          className="mt-1.5 text-xs leading-relaxed text-text-muted"
         >
           {hint}
         </p>
@@ -56,7 +56,7 @@ export function Field({
         <p
           id={htmlFor ? `${htmlFor}-erro` : undefined}
           role="alert"
-          className="text-xs font-medium text-red-600 dark:text-red-400"
+          className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400"
         >
           {error}
         </p>
@@ -65,9 +65,10 @@ export function Field({
   );
 
   // Sem htmlFor: o label envolve o controle (associação implícita).
+  // O espaçamento rótulo→controle vem do mb-1 do próprio eyebrowLabel.
   if (!htmlFor) {
     return (
-      <label className={cn("block space-y-1.5", className)}>
+      <label className={cn("block", className)}>
         <span className={eyebrowLabel}>{Rotulo}</span>
         {children}
         {auxiliar}
@@ -76,7 +77,7 @@ export function Field({
   }
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={className}>
       <label htmlFor={htmlFor} className={eyebrowLabel}>
         {Rotulo}
       </label>
@@ -88,7 +89,11 @@ export function Field({
 
 /** Label de formulário no padrão da referência: eyebrow em caps discreto. */
 export const eyebrowLabel =
-  "block text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted";
+  "mb-1 block text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+
+/** Eyebrow de seção: menor, mais pesado e mais espaçado que o rótulo. */
+export const eyebrow =
+  "text-[10px] font-bold uppercase tracking-[0.1em] text-brand-gray-400";
 
 /** Ids de `aria-describedby` para ligar o input ao hint/erro do `Field`. */
 export function fieldAria(id: string, opts: { hint?: boolean; error?: boolean }) {

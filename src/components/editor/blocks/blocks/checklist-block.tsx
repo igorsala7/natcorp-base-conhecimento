@@ -20,14 +20,14 @@ export function ChecklistBlock({ block, onChange }: BlockEditProps) {
   return (
     <div className="my-2 space-y-2">
       {items.map((item) => (
-        <div key={item.id} className="group/item flex items-start gap-2.5">
+        <div key={item.id} className="group/item flex items-start gap-2.5 text-sm">
           <button
             type="button"
             aria-label={item.checked ? "Desmarcar" : "Marcar"}
             onClick={() =>
               set(items.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)))
             }
-            className={`mt-1 flex size-[1.125rem] shrink-0 items-center justify-center rounded border transition-colors ${
+            className={`mt-0.5 flex size-[1.125rem] shrink-0 items-center justify-center rounded-sm border transition-colors ${
               item.checked
                 ? "border-primary bg-primary text-primary-fg"
                 : "border-border-strong bg-surface hover:border-primary"
@@ -83,7 +83,7 @@ export function StatsBlock({ block, onChange }: BlockEditProps) {
         {items.map((item) => (
           <div
             key={item.id}
-            className="group/item relative rounded-lg border border-border bg-gradient-to-b from-surface to-surface-2 p-4 shadow-1"
+            className="group/item relative rounded-lg border border-border bg-gradient-to-b from-surface to-surface-2/60 p-4 shadow-1"
           >
             <input
               value={item.value}
