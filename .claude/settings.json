@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(src/**)",
+      "Edit(src/**)",
+      "Edit(tests/**)",
+      "Bash(npm run *)",
+      "Bash(git commit *)",
+      "Bash(git status)"
+    ],
+    "additionalDirectories": ["../lib-compartilhada"]
+  }
+}
