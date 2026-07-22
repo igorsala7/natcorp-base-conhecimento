@@ -16,7 +16,19 @@ const configSchema = z.object({
   primaryColor: z.string().max(32).optional(),
   title: z.string().max(60).optional(),
   welcome: z.string().max(500).optional(),
-  avatarUrl: z.string().url().max(500).optional().or(z.literal("")),
+  avatarUrl: z
+    .string()
+    .max(2000)
+    .refine(
+      // http(s) OU o SVG do ícone escolhido no editor (data URI) — nada de
+      // javascript:/blob: num src que o widget injeta no site do cliente.
+      (v) => /^https?:\/\//.test(v) || v.startsWith("data:image/svg+xml"),
+      "Use uma URL https ou escolha um ícone.",
+    )
+    .optional()
+    .or(z.literal("")),
+  /** Chave do catálogo de ícones — só para o editor reabrir mostrando a seleção. */
+  avatarIcon: z.string().max(60).optional().or(z.literal("")),
   suggestions: z.array(z.string().max(120)).max(6).optional(),
   position: z.enum(["right", "left"]).optional(),
 });

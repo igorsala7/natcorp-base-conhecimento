@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Bot, ImagePlus } from "lucide-react";
+import { ICONS } from "@/lib/blocks/icons";
+import { IconPicker } from "@/components/editor/blocks/icon-picker";
+import { escolherEEnviar } from "@/lib/content/upload";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
@@ -31,6 +35,7 @@ export type WidgetKeyRow = {
     title?: string;
     welcome?: string;
     avatarUrl?: string;
+    avatarIcon?: string;
     suggestions?: string[];
     position?: "right" | "left";
   } | null;
@@ -60,6 +65,7 @@ type Draft = {
   title: string;
   welcome: string;
   avatarUrl: string;
+  avatarIcon: string;
   suggestions: string;
   position: "right" | "left";
 };
@@ -79,9 +85,104 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     title: c.title ?? "Assistente",
     welcome: c.welcome ?? "Olá! Como posso ajudar com a documentação?",
     avatarUrl: c.avatarUrl ?? "",
+    avatarIcon: c.avatarIcon ?? "",
     suggestions: (c.suggestions ?? []).join("\n"),
     position: c.position ?? "right",
   };
+}
+
+
+/**
+ * Avatar do widget: ÍCONE do catálogo (vira SVG branco em data URI — o
+ * cabeçalho do widget é colorido) ou IMAGEM enviada ao Storage. Os dois
+ * caminhos terminam no MESMO campo `avatarUrl` que o widget.js já consome —
+ * zero mudança no bundle embutido nos sites dos clientes.
+ */
+function AvatarDoWidget({
+  draft,
+  setDraft,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [enviando, setEnviando] = useState(false);
+  const Icone = draft.avatarIcon ? ICONS[draft.avatarIcon] : null;
+
+  // O SVG do ícone escolhido só existe no DOM DEPOIS do render — o data URI é
+  // lido daqui, não construído à mão (fica sempre fiel ao catálogo).
+  useEffect(() => {
+    if (!draft.avatarIcon || !svgRef.current) return;
+    const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svgRef.current.outerHTML)}`;
+    if (draft.avatarUrl !== uri) setDraft({ ...draft, avatarUrl: uri });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.avatarIcon]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Prévia no mesmo contexto do widget: círculo sobre fundo escuro. */}
+      <span
+        className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-purple-700"
+        aria-hidden
+      >
+        {draft.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={draft.avatarUrl} alt="" className="size-7 rounded-full object-cover" />
+        ) : (
+          <Bot className="size-5 text-white/80" />
+        )}
+      </span>
+
+      <div className="min-w-40 flex-1">
+        <IconPicker
+          value={draft.avatarIcon || undefined}
+          onChange={(key) =>
+            setDraft({
+              ...draft,
+              avatarIcon: key ?? "",
+              // Limpar o ícone limpa o avatar; escolher um novo é concluído
+              // pelo efeito acima, quando o SVG existir no DOM.
+              ...(key ? {} : { avatarUrl: "" }),
+            })
+          }
+        />
+      </div>
+
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        disabled={enviando || !draft.spaceId}
+        onClick={() => {
+          setEnviando(true);
+          escolherEEnviar(draft.spaceId, (url) => {
+            setEnviando(false);
+            if (url) setDraft({ ...draft, avatarUrl: url, avatarIcon: "" });
+          });
+        }}
+      >
+        <ImagePlus className="size-4" /> {enviando ? "Enviando…" : "Enviar imagem"}
+      </Button>
+
+      {draft.avatarUrl && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setDraft({ ...draft, avatarUrl: "", avatarIcon: "" })}
+        >
+          Remover
+        </Button>
+      )}
+
+      {/* Fonte do data URI: o ícone renderizado de verdade, invisível. */}
+      {Icone && (
+        <span className="hidden" aria-hidden>
+          <Icone ref={svgRef} color="#ffffff" strokeWidth={2} width={24} height={24} />
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function WidgetManager({
@@ -138,6 +239,7 @@ export function WidgetManager({
       title: "Assistente",
       welcome: "Olá! Como posso ajudar com a documentação?",
       avatarUrl: "",
+      avatarIcon: "",
       suggestions: "",
       position: "right",
     });
@@ -160,6 +262,7 @@ export function WidgetManager({
         title: draft.title,
         welcome: draft.welcome,
         avatarUrl: draft.avatarUrl || undefined,
+        avatarIcon: draft.avatarIcon || undefined,
         suggestions: draft.suggestions.split("\n").map((s) => s.trim()).filter(Boolean),
         position: draft.position,
       },
@@ -430,8 +533,8 @@ export function WidgetManager({
                 <option value="left">Esquerda</option>
               </select>
             </Field>
-            <Field label="Avatar (URL, opcional)">
-              <input className={controlClass} value={draft.avatarUrl} onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })} />
+            <Field label="Avatar do widget (opcional)">
+              <AvatarDoWidget draft={draft} setDraft={setDraft} />
             </Field>
             <Field label="Mensagem de boas-vindas">
               <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
