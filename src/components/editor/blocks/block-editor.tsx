@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Eye,
   History,
+  CalendarClock,
   Keyboard,
   Maximize2,
   Minimize2,
@@ -50,6 +51,7 @@ import { BlockContextMenu } from "./block-context-menu";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { PropertiesPanel } from "./properties-panel";
 import { HistoryPanel } from "../history-panel";
+import { ScheduleDialog } from "../schedule-dialog";
 import { ReviewThread } from "../review-thread";
 import {
   submitForReview,
@@ -181,6 +183,7 @@ function BlockEditorInner({
   const [reindexing, setReindexing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const [showAiTexto, setShowAiTexto] = useState(false);
@@ -669,6 +672,11 @@ function BlockEditorInner({
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowHistory(true); setShowMore(false); }}>
                   <History className="size-4 text-text-muted" /> Histórico de versões
                 </button>
+                {canPublish && (
+                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowSchedule(true); setShowMore(false); }} title="Publicar/despublicar em data e hora marcadas">
+                    <CalendarClock className="size-4 text-text-muted" /> Agendar publicação
+                  </button>
+                )}
                 <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
                   <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
                 </button>
@@ -815,6 +823,10 @@ function BlockEditorInner({
 
       {showHistory && (
         <HistoryPanel nodeId={nodeId} canRestore={!!canRestore} onClose={() => setShowHistory(false)} />
+      )}
+
+      {showSchedule && (
+        <ScheduleDialog nodeId={nodeId} spaceId={spaceId} onClose={() => setShowSchedule(false)} />
       )}
 
       <Dialog

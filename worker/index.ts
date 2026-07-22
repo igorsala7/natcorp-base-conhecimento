@@ -23,6 +23,7 @@ import { improveLayout } from "../src/lib/importer/improve";
 import { hasAiKey } from "../src/lib/ai/config";
 import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
+import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-core";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -265,12 +266,70 @@ async function processImprove(jobId: string, nodeIds: string[]) {
   );
 }
 
+/**
+ * Publicações agendadas vencidas: executa a MESMA lógica do publicar manual
+ * (rascunho → oficial, snapshot, embeddings) e o despublicar com redirect.
+ * Roda pelo cron do pg-boss a cada minuto; cada nó falha isolado.
+ */
+async function processScheduled(): Promise<void> {
+  const agora = new Date().toISOString();
+
+  const { data: paraPublicar } = await supabase
+    .from("nodes")
+    .select("id, space_id, title")
+    .lte("publish_at", agora)
+    .neq("status", "published")
+    .is("deleted_at", null)
+    .limit(50);
+  for (const n of paraPublicar ?? []) {
+    try {
+      const r = await publishNodeCore(supabase, n.id, n.space_id, "Publicação agendada");
+      if (!r.ok) throw new Error(r.error);
+      console.log(`Agendado publicado: "${n.title}" (${n.id})`);
+    } catch (e) {
+      // Zera o agendamento mesmo na falha: repetir a cada minuto para sempre
+      // só encheria o log — o autor vê o artigo ainda em rascunho e reage.
+      await supabase.from("nodes").update({ publish_at: null }).eq("id", n.id);
+      console.error(`Agendado FALHOU ao publicar ${n.id}:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  const { data: paraDespublicar } = await supabase
+    .from("nodes")
+    .select("id, space_id, title, unpublish_redirect_to")
+    .lte("unpublish_at", agora)
+    .eq("status", "published")
+    .is("deleted_at", null)
+    .limit(50);
+  for (const n of paraDespublicar ?? []) {
+    try {
+      const r = await unpublishNodeCore(supabase, n.id, n.space_id, n.unpublish_redirect_to);
+      if (!r.ok) throw new Error(r.error);
+      console.log(`Agendado despublicado: "${n.title}" (${n.id})`);
+    } catch (e) {
+      await supabase.from("nodes").update({ unpublish_at: null }).eq("id", n.id);
+      console.error(`Agendado FALHOU ao despublicar ${n.id}:`, e instanceof Error ? e.message : e);
+    }
+  }
+}
+
 async function main() {
   const boss = new PgBoss({ ...parseDbConfig(), schema: "pgboss" });
   await boss.start();
   await boss.createQueue("import");
   await boss.createQueue("import-improve");
+  await boss.createQueue("scheduled-publish");
+  // Cron do próprio pg-boss: um tick por minuto, singleton (não acumula).
+  await boss.schedule("scheduled-publish", "* * * * *");
   console.log("Worker de importação pronto. Aguardando jobs…");
+
+  await boss.work("scheduled-publish", async () => {
+    try {
+      await processScheduled();
+    } catch (e) {
+      console.error("Varredura de agendados falhou:", e instanceof Error ? e.message : e);
+    }
+  });
 
   await boss.work("import", async (jobs) => {
     // Itera o lote inteiro: `const job = jobs[0]` descartava em SILÊNCIO

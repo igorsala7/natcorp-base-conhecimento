@@ -3,6 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -132,6 +133,18 @@ export function TreeItem({
             className="ml-1.5 inline-block size-1.5 rounded-full bg-primary align-middle"
             title="Publicado"
           />
+        )}
+        {(node.publish_at || node.unpublish_at) && (
+          <span
+            className="ml-1.5 inline-block align-middle text-brand-pink-700"
+            title={
+              node.publish_at
+                ? `Publica em ${new Date(node.publish_at).toLocaleString("pt-BR")}`
+                : `Despublica em ${new Date(node.unpublish_at!).toLocaleString("pt-BR")}`
+            }
+          >
+            <CalendarClock aria-label="Publicação agendada" className="size-3" />
+          </span>
         )}
       </button>
 

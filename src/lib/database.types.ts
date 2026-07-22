@@ -869,6 +869,9 @@ export type Database = {
           author_id: string | null
           created_at: string
           deleted_at: string | null
+          publish_at: string | null
+          unpublish_at: string | null
+          unpublish_redirect_to: string | null
           description: string | null
           icon: string | null
           id: string
@@ -889,6 +892,9 @@ export type Database = {
           author_id?: string | null
           created_at?: string
           deleted_at?: string | null
+          publish_at?: string | null
+          unpublish_at?: string | null
+          unpublish_redirect_to?: string | null
           description?: string | null
           icon?: string | null
           id?: string
@@ -909,6 +915,9 @@ export type Database = {
           author_id?: string | null
           created_at?: string
           deleted_at?: string | null
+          publish_at?: string | null
+          unpublish_at?: string | null
+          unpublish_redirect_to?: string | null
           description?: string | null
           icon?: string | null
           id?: string

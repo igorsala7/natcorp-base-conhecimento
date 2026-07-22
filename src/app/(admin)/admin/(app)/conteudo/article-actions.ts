@@ -6,50 +6,23 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { reindexNodeChunks } from "@/lib/content/chunk";
+import {
+  commitDraftIfAny,
+  extractText,
+  publishNodeCore,
+  unpublishNodeCore,
+} from "@/lib/content/publish-core";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { improveLayout } from "@/lib/importer/improve";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { isBlockDoc, BlockDocSchema } from "@/lib/blocks/schema";
-import { blocksToText, blocksToPlainWithImageMarkers } from "@/lib/blocks/serialize";
+import { blocksToPlainWithImageMarkers } from "@/lib/blocks/serialize";
 import type { Json } from "@/lib/database.types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 export type SaveDraftResult =
   | { ok: true; hasDraft: boolean }
   | { ok: false; error: string };
-
-/** Extrai texto puro do documento (blocos v2 ou TipTap legado). */
-function extractText(doc: unknown): string {
-  return blocksToText(normalizeDoc(doc).blocks);
-}
-
-/**
- * Se houver rascunho pendente (tabela `article_drafts`), promove-o a
- * `content_json` (a versão oficial), recalcula texto/excerpt e apaga o rascunho.
- * Retorna se comitou algo. Usado ao publicar/aprovar/despublicar.
- */
-async function commitDraftIfAny(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  nodeId: string,
-): Promise<boolean> {
-  const { data: draft } = await supabase
-    .from("article_drafts")
-    .select("content_json")
-    .eq("node_id", nodeId)
-    .maybeSingle();
-  if (!draft) return false;
-  const text = extractText(draft.content_json);
-  await supabase
-    .from("articles")
-    .update({
-      content_json: draft.content_json,
-      content_text: text,
-      excerpt: text.slice(0, 200),
-    })
-    .eq("node_id", nodeId);
-  await supabase.from("article_drafts").delete().eq("node_id", nodeId);
-  return true;
-}
 
 async function spaceIdOfNode(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -276,39 +249,10 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
     return { ok: false, error: "Sem permissão para publicar." };
   }
 
-  // Rascunho pendente vira o conteúdo oficial ANTES do snapshot/reindex.
-  await commitDraftIfAny(supabase, nodeId);
-
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from("nodes")
-    .update({ status: "published", published_at: now })
-    .eq("id", nodeId);
-  if (error) return { ok: false, error: `Falha: ${error.message}` };
-
-  await supabase
-    .from("articles")
-    .update({ published_at: now })
-    .eq("node_id", nodeId);
-
-  // Snapshot obrigatório a cada publicação (histórico append-only).
-  await supabase.rpc("create_article_version", { p_node_id: nodeId, p_label: "Publicação" });
-
-  // Reindexa com embeddings ao publicar (spec: reindex disparado na publicação).
-  const { data: art } = await supabase
-    .from("articles")
-    .select("id, content_json")
-    .eq("node_id", nodeId)
-    .maybeSingle();
-  if (art) {
-    await reindexNodeChunks(supabase, {
-      nodeId,
-      articleId: art.id,
-      spaceId,
-      doc: art.content_json as { type: string; content?: never[] },
-      withEmbeddings: true,
-    });
-  }
+  // Núcleo compartilhado com o agendador do worker: rascunho → oficial,
+  // snapshot de versão e reindex com embeddings.
+  const core = await publishNodeCore(supabase, nodeId, spaceId);
+  if (!core.ok) return core;
 
   await audit({
     action: "content.publish",
@@ -465,14 +409,8 @@ export async function unpublishNode(nodeId: string): Promise<SaveResult> {
     return { ok: false, error: "Sem permissão para despublicar." };
   }
 
-  // Preserva edições pendentes: o rascunho vira o conteúdo do artigo (agora rascunho).
-  await commitDraftIfAny(supabase, nodeId);
-
-  const { error } = await supabase
-    .from("nodes")
-    .update({ status: "draft", published_at: null })
-    .eq("id", nodeId);
-  if (error) return { ok: false, error: `Falha: ${error.message}` };
+  const core = await unpublishNodeCore(supabase, nodeId, spaceId, null);
+  if (!core.ok) return core;
 
   await audit({
     action: "content.unpublish",
@@ -560,4 +498,94 @@ export async function publishPendingDrafts(
   });
   revalidatePath("/admin/conteudo");
   return { ok: true, count };
+}
+
+/** Estado de agendamento de um nó (para o diálogo "Agendar…"). */
+export async function getSchedule(nodeId: string): Promise<{
+  publishAt: string | null;
+  unpublishAt: string | null;
+  redirectTo: string | null;
+}> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("nodes")
+    .select("publish_at, unpublish_at, unpublish_redirect_to")
+    .eq("id", nodeId)
+    .maybeSingle();
+  return {
+    publishAt: data?.publish_at ?? null,
+    unpublishAt: data?.unpublish_at ?? null,
+    redirectTo: data?.unpublish_redirect_to ?? null,
+  };
+}
+
+/** Artigos publicados do espaço (destinos possíveis do redirect ao despublicar). */
+export async function listPublishedArticles(
+  spaceId: string,
+): Promise<{ id: string; title: string }[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("nodes")
+    .select("id, title")
+    .eq("space_id", spaceId)
+    .eq("type", "article")
+    .eq("status", "published")
+    .is("deleted_at", null)
+    .order("title");
+  return data ?? [];
+}
+
+/**
+ * Agenda (ou cancela, com null) publicação e despublicação. O worker executa
+ * a cada minuto com a MESMA lógica do publicar manual. Exige content.publish —
+ * agendar É publicar, só que com data marcada.
+ */
+export async function setSchedule(
+  nodeId: string,
+  input: { publishAt: string | null; unpublishAt: string | null; redirectTo: string | null },
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.publish", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão para agendar publicação." };
+  }
+
+  const instante = (v: string | null, rotulo: string): string | null | { erro: string } => {
+    if (!v) return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return { erro: `${rotulo}: data inválida.` };
+    if (d.getTime() < Date.now() - 60_000) return { erro: `${rotulo}: escolha um horário futuro.` };
+    return d.toISOString();
+  };
+  const pub = instante(input.publishAt, "Publicar");
+  if (pub && typeof pub === "object") return { ok: false, error: pub.erro };
+  const unpub = instante(input.unpublishAt, "Despublicar");
+  if (unpub && typeof unpub === "object") return { ok: false, error: unpub.erro };
+  if (pub && unpub && unpub <= pub)
+    return { ok: false, error: "Despublicar precisa vir depois de publicar." };
+  if (input.redirectTo && input.redirectTo === nodeId)
+    return { ok: false, error: "O redirect não pode apontar para o próprio artigo." };
+
+  const { error } = await supabase
+    .from("nodes")
+    .update({
+      publish_at: pub,
+      unpublish_at: unpub,
+      unpublish_redirect_to: unpub ? input.redirectTo : null,
+    })
+    .eq("id", nodeId);
+  if (error) return { ok: false, error: `Falha: ${error.message}` };
+
+  await audit({
+    action: "content.schedule",
+    entityType: "node",
+    entityId: nodeId,
+    spaceId,
+    after: { publish_at: pub, unpublish_at: unpub, redirect_to: unpub ? input.redirectTo : null },
+  });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
 }
