@@ -58,9 +58,14 @@ export default async function EditarConteudoPage({
     .from("nodes")
     .select("id, title, slug, icon, description, parent_id, status, type, space_id")
     .eq("id", nodeId)
+    // Nó na lixeira não tem tela de edição: sem este filtro, apagar o nó
+    // aberto deixava o editor exibindo o conteúdo excluído.
+    .is("deleted_at", null)
     .single();
 
-  if (!node) notFound();
+  // Excluído ou inexistente → volta para a árvore (um 404 no admin só
+  // confunde: o caminho normal até aqui é um clique que acabou de valer).
+  if (!node) redirect("/admin/conteudo");
   // Link e divisória não têm tela — só existem na árvore.
   if (node.type !== "article" && node.type !== "folder") redirect("/admin/conteudo");
 

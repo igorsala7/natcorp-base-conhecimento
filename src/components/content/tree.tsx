@@ -41,6 +41,11 @@ import type { SpaceInfo } from "@/lib/content/spaces";
 
 const INDENT = 20;
 
+/** O nó (ou algum descendente) é o `id`? Decide se a exclusão fecha o editor. */
+function subtreeTemId(n: TreeNode, id: string): boolean {
+  return n.id === id || n.children.some((c) => subtreeTemId(c, id));
+}
+
 export function Tree({
   spaceId,
   nodes,
@@ -360,8 +365,16 @@ export function Tree({
                 description: `Excluir "${item.node.title}" e tudo dentro? Vai para a lixeira e pode ser restaurado em 30 dias.`,
                 tone: "danger",
               })
-            )
-              run(() => deleteNode(item.id));
+            ) {
+              // O nó aberto na área de edição foi junto? Sai da rota dele —
+              // senão o editor continuava exibindo o conteúdo excluído.
+              const fechaEditor = !!selectedId && subtreeTemId(item.node, selectedId);
+              run(async () => {
+                const r = await deleteNode(item.id);
+                if (r.ok && fechaEditor) router.push("/admin/conteudo", { scroll: false });
+                return r;
+              });
+            }
           }}
         >
           <Trash2 className="size-3.5" />
@@ -527,9 +540,13 @@ export function Tree({
                 })
               ) {
                 const ids = [...checkedIds];
+                const fechaEditor =
+                  !!selectedId &&
+                  flat.some((i) => ids.includes(i.id) && subtreeTemId(i.node, selectedId));
                 run(async () => {
                   const r = await deleteNodes(ids);
                   clearSelection();
+                  if (r.ok && fechaEditor) router.push("/admin/conteudo", { scroll: false });
                   return r;
                 });
               }
