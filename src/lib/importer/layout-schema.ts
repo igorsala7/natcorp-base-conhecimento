@@ -30,13 +30,23 @@ import { z } from "zod";
  */
 const iconField = z.string().nullable();
 
+/**
+ * Mini-estilo (largura + posição) — SÓ em table/stats. O sistema completo de
+ * propriedades vive na op `estilizar` do chat do editor: anexar um objeto de
+ * estilo a todas as opções triplicaria a gramática (mina 1 do cabeçalho).
+ */
+const larguraField = z
+  .enum(["cheia", "metade", "terco", "dois-tercos", "tres-quartos"])
+  .nullable();
+const posicaoField = z.enum(["esquerda", "centro", "direita"]).nullable();
+
 // Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
 export const leafOptions = [
   z.object({ kind: z.literal("paragraph"), text: z.string() }),
   z.object({ kind: z.literal("heading"), level: z.number().min(2).max(3), text: z.string() }),
   z.object({
     kind: z.literal("callout"),
-    variant: z.enum(["info", "warning", "success", "danger"]),
+    variant: z.enum(["info", "warning", "success", "danger", "note"]),
     text: z.string(),
     icon: iconField,
   }),
@@ -46,20 +56,31 @@ export const leafOptions = [
     kind: z.literal("code"),
     language: z.string().nullable(),
     code: z.string(),
+    filename: z.string().nullable(),
   }),
   z.object({
     kind: z.literal("table"),
     // primeira linha = cabeçalho; cada linha é um array de células (texto).
     rows: z.array(z.array(z.string())),
+    largura: larguraField,
+    posicao: posicaoField,
   }),
   // Divisória: separa blocos de assunto dentro do artigo.
   z.object({ kind: z.literal("divider") }),
   // Lista de verificação (pré-requisitos, conferências).
   z.object({ kind: z.literal("checklist"), items: z.array(z.string()) }),
+  // Citação/depoimento em destaque (vira o cartão de citação).
+  z.object({ kind: z.literal("quote"), text: z.string() }),
+  // Respiro vertical deliberado entre assuntos — use com parcimônia.
+  z.object({ kind: z.literal("spacer"), size: z.enum(["sm", "md", "lg"]) }),
+  // Botão/CTA — a URL PRECISA constar do texto original (guarda descarta).
+  z.object({ kind: z.literal("button"), label: z.string(), url: z.string() }),
   // Indicadores/KPIs: valor + rótulo por cartão.
   z.object({
     kind: z.literal("stats"),
     items: z.array(z.object({ value: z.string(), label: z.string() })),
+    largura: larguraField,
+    posicao: posicaoField,
   }),
 ] as const;
 
@@ -97,6 +118,11 @@ export const blocksSchema = z.object({
       z.object({
         kind: z.literal("cardGrid"),
         cards: z.array(z.object({ title: z.string(), text: z.string(), icon: iconField })),
+      }),
+      // Acordeão/FAQ = perguntas e respostas dobráveis (título + texto).
+      z.object({
+        kind: z.literal("accordion"),
+        items: z.array(z.object({ titulo: z.string(), texto: z.string() })),
       }),
       // Toggle = bloco recolhível para conteúdo secundário/opcional.
       z.object({

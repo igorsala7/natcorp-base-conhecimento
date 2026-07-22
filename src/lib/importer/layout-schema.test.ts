@@ -43,16 +43,19 @@ describe("layout-schema (JSON Schema para o provedor)", () => {
         { kind: "paragraph", text: "Um parágrafo." },
         { kind: "callout", variant: "info", text: "Atenção.", icon: "info" },
         { kind: "steps", items: ["Primeiro", "Segundo"] },
-        { kind: "code", language: "ts", code: "const a = 1;" },
+        { kind: "code", language: "ts", code: "const a = 1;", filename: null },
         { kind: "panel", bg: "purple", items: ["Um destaque."], icon: null },
         { kind: "columns", columns: [["esq"], ["dir"]], ratios: [1, 2], divider: null },
         { kind: "hero", eyebrow: null, title: "Seção", subtitle: null, icon: null },
         { kind: "cardGrid", cards: [{ title: "A", text: "a", icon: null }] },
         { kind: "toggle", title: "Detalhes", items: ["escondido"], icon: null },
-        { kind: "table", rows: [["A", "B"], ["1", "2"]] },
+        { kind: "table", rows: [["A", "B"], ["1", "2"]], largura: null, posicao: null },
+        { kind: "quote", text: "Documentar é cuidar." },
+        { kind: "spacer", size: "md" },
+        { kind: "accordion", items: [{ titulo: "Como instalar?", texto: "Baixe o pacote." }] },
         { kind: "divider" },
       ],
     };
-    expect(blocksSchema.parse(doc).blocks).toHaveLength(12);
+    expect(blocksSchema.parse(doc).blocks).toHaveLength(15);
   });
 });

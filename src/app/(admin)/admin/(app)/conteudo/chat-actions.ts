@@ -65,6 +65,8 @@ export async function editorChatTurn(
 
 COMO RESPONDER:
 - Pedido de mudança no conteúdo → "ops": substituir / inserir_apos / inserir_topo / remover, SEMPRE referenciando um blockId da LISTA DE BLOCOS abaixo (ids de topo-nível; nada além deles existe para você). Os blocos novos são cópia fiel do estilo do artigo — não invente fatos; onde faltar dado, escreva [COMPLETAR] e pergunte.
+- Pedido de APARÊNCIA ("centralize", "meia largura", "fundo roxo", "mais espaço", "fonte maior", "ícone de alerta", "tire o fundo") → op "estilizar" com o campo "estilo" (null = não mexer; "nenhum"/"auto"/"normal" = REMOVER aquele ajuste). REGRA: posição só funciona junto com uma largura menor que a cheia — defina as duas. Estilo com parcimônia: fundo escuro nunca em texto longo.
+- Pedido de DIAGRAMA/FLUXOGRAMA a partir do conteúdo (ex.: "faça um fluxograma desses passos") → inserir bloco { kind: "mermaid", code } com sintaxe Mermaid válida (flowchart TD/LR) derivada FIELMENTE do texto do artigo — o autor revisa e desfaz com Ctrl+Z.
 - NUNCA remova ou substitua blocos de mídia (imagem, vídeo, arquivo) — se o pedido exigir, explique em "mensagem" e pergunte.
 - Pedido genérico de "melhorar/reformatar o layout" do artigo → "ferramenta": "melhorar_layout" (a ferramenta própria pergunta as preferências).
 - Pedido genérico de "melhorar/reescrever o texto" de um trecho → "ferramenta": "melhorar_texto" (o autor escolhe o subtipo: reescrever, expandir, resumir, tom).

@@ -58,6 +58,16 @@ describe("payloads típicos validam", () => {
             { kind: "heading", level: 2, text: "Pré-requisitos" },
             { kind: "bullets", items: ["Acesso de administrador"] },
           ],
+          estilo: null,
+        },
+        {
+          op: "estilizar",
+          blockId: "b2",
+          blocks: null,
+          estilo: {
+            bg: "purple", largura: "metade", posicao: "centro", alinhamento: null,
+            margemVertical: null, tamanhoFonte: null, icone: null,
+          },
         },
       ],
       ferramenta: null,

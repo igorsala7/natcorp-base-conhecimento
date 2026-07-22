@@ -19,6 +19,7 @@ const op = (o: Partial<EditorChatOp>): EditorChatOp => ({
   op: "inserir_apos",
   blockId: null,
   blocks: null,
+  estilo: null,
   ...o,
 });
 
@@ -85,6 +86,68 @@ describe("aplicarOpsNoDoc", () => {
       op({ op: "inserir_topo", blocks: [{ kind: "callout", variant: "info", text: "Resumo", icon: null }] }),
     ]);
     expect(r.blocks[0]?.type).toBe("callout");
+  });
+});
+
+describe("op estilizar", () => {
+  it("mescla estilo no bloco de topo (largura+posição+fundo) — mídia incluída", () => {
+    const r = aplicarOpsNoDoc(doc, [
+      op({
+        op: "estilizar",
+        blockId: "img",
+        estilo: {
+          bg: null, largura: "metade", posicao: "centro", alinhamento: null,
+          margemVertical: null, tamanhoFonte: null, icone: null,
+        },
+      }),
+    ]);
+    expect(r.aplicadas).toBe(1);
+    const img = r.blocks.find((b) => b.id === "img")!;
+    expect(img.styles).toMatchObject({ width: "half", justify: "center" });
+  });
+
+  it("sentinelas removem chaves; posição sem largura gera aviso", () => {
+    const base = aplicarOpsNoDoc(doc, [
+      op({
+        op: "estilizar",
+        blockId: "b2",
+        estilo: {
+          bg: "purple", largura: "metade", posicao: null, alinhamento: "centro",
+          margemVertical: "grande", tamanhoFonte: "lg", icone: null,
+        },
+      }),
+    ]).blocks;
+    const limpo = aplicarOpsNoDoc(base, [
+      op({
+        op: "estilizar",
+        blockId: "b2",
+        estilo: {
+          bg: "nenhum", largura: "auto", posicao: null, alinhamento: "nenhum",
+          margemVertical: "nenhuma", tamanhoFonte: "normal", icone: null,
+        },
+      }),
+    ]);
+    const b2 = limpo.blocks.find((b) => b.id === "b2")!;
+    expect(b2.styles).toBeUndefined();
+
+    const aviso = aplicarOpsNoDoc(doc, [
+      op({
+        op: "estilizar",
+        blockId: "b2",
+        estilo: {
+          bg: null, largura: null, posicao: "centro", alinhamento: null,
+          margemVertical: null, tamanhoFonte: null, icone: null,
+        },
+      }),
+    ]);
+    expect(aviso.ignoradas.some((m) => m.includes("largura"))).toBe(true);
+  });
+
+  it("mermaid do chat converte em bloco de diagrama", () => {
+    const r = aplicarOpsNoDoc(doc, [
+      op({ op: "inserir_apos", blockId: "b1", blocks: [{ kind: "mermaid", code: "graph TD;A-->B;" }] }),
+    ]);
+    expect(r.blocks[1]?.type).toBe("mermaid");
   });
 });
 

@@ -90,13 +90,17 @@ VOCÊ NÃO É REDATOR — REGRAS ABSOLUTAS
 BLOCOS DISPONÍVEIS (use SOMENTE estes, com estes campos)
 - paragraph { text } — texto corrido.
 - heading { level: 2 ou 3, text } — subtítulo interno. O título do artigo já existe fora: NÃO o repita e NÃO use nível 1.
-- callout { variant: info | warning | success | danger, text, icon? } — aviso curto em destaque.
+- callout { variant: info | warning | success | danger | note, text, icon? } — aviso curto em destaque (note = observação neutra, violeta).
 - steps { items[] } — procedimento sequencial, um passo por item.
 - bullets { items[] } — lista de itens sem ordem.
 - checklist { items[] } — lista de VERIFICAÇÃO (pré-requisitos, conferências, "antes de começar"). Cada item carrega o texto INTEGRAL do original.
-- stats { items: [{ value, label }] } — cartões de indicadores/KPIs. Use APENAS quando o texto traz números de destaque, e SEMPRE mantendo a frase original num paragraph junto — stats RESUME visualmente, nunca substitui o texto.
-- code { language?, code } — comando, configuração, JSON, SQL, caminho de arquivo.
-- table { rows[][] } — a PRIMEIRA linha é o cabeçalho; cada linha é um array de células.
+- stats { items: [{ value, label }], largura?, posicao? } — cartões de indicadores/KPIs. Use APENAS quando o texto traz números de destaque, e SEMPRE mantendo a frase original num paragraph junto — stats RESUME visualmente, nunca substitui o texto.
+- quote { text } — citação ou depoimento em destaque (vira cartão de citação).
+- spacer { size: sm | md | lg } — respiro vertical deliberado entre assuntos. Com MUITA parcimônia (no máximo 1-2 por artigo).
+- accordion { items: [{ titulo, texto }] } — perguntas e respostas dobráveis. Perfeito para FAQ e listas de "erro comum → solução".
+- button { label, url } — botão de ação. SÓ é permitido quando a URL consta LITERALMENTE do texto original (o sistema descarta botões com URL que não esteja no texto).
+- code { language?, code, filename? } — comando, configuração, JSON, SQL; "filename" quando o texto NOMEIA o arquivo (ex.: "no config.json…").
+- table { rows[][], largura?, posicao? } — a PRIMEIRA linha é o cabeçalho. "largura" (cheia|metade|terco|dois-tercos|tres-quartos) + "posicao" (esquerda|centro|direita) encolhem/posicionam tabelas PEQUENAS (2-3 colunas curtas); tabelas largas ficam sem largura.
 - divider { } — separa dois assuntos distintos dentro do artigo.
 - panel { bg: purple | blue | pink | gray, items[], icon? } — caixa colorida com a informação-chave.
 - columns { columns: [[...]], ratios?, divider? } — região dividida lado a lado. Cada coluna é uma lista de parágrafos. "ratios" é a proporção das divisões (ex.: [1,2]); "divider": true desenha a linha entre elas.
@@ -133,6 +137,7 @@ SENSO DE DESIGN (siga o padrão das melhores documentações: Microsoft Learn, A
 - DADO TABULAR É SEMPRE TABLE: parâmetros, campos de tela, permissões, status e códigos de erro em tabela com cabeçalho de verdade — no padrão da Meta, erros saem como "Código | Descrição | Como resolver". Lista com "Nome: descrição" repetido é tabela disfarçada.
 - PROCEDIMENTO É SEMPRE STEPS: qualquer sequência de ações ("clique… selecione… confirme…") vira steps numerados — nunca parágrafos, nunca bullets.
 - PRÉ-REQUISITOS E CONFERÊNCIAS viram checklist (não bullets): "antes de começar, confira…" é o sinal.
+- FAQ E "PROBLEMA → SOLUÇÃO" viram accordion; citação/depoimento vira quote; link de ação escrito no texto pode virar button (URL idêntica).
 - TÉCNICO É SEMPRE CODE: comando, caminho de arquivo, payload, configuração — em code com a linguagem detectada, mesmo quando é uma linha só.
 - CLAREZA PELO ESPAÇO, NÃO PELO ENFEITE (Apple): um assunto por heading; parágrafos de 2–4 frases; prefira o bloco simples quando o rico não encurta a leitura.
 - HIERARQUIA SAGRADA: heading de conteúdo só nos níveis 2–3, e o assunto de um heading nunca se mistura com o do vizinho — o leitor precisa saber exatamente onde um tema começa e termina.

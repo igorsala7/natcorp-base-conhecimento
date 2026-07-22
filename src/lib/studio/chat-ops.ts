@@ -22,7 +22,69 @@ export type ChatOpsResultado = {
 };
 
 function paraBlocos(op: EditorChatOp): Block[] {
-  return (op.blocks ?? []).map((b) => blockToBlock(b));
+  return (op.blocks ?? []).map((b) =>
+    // Mermaid é vocabulário SÓ do chat — converte aqui, sem ampliar o
+    // conversor compartilhado com o improve.
+    b.kind === "mermaid"
+      ? { id: newId(), type: "mermaid" as const, data: { code: b.code } }
+      : blockToBlock(b),
+  );
+}
+
+/** Espelho IA do painel de Propriedades: op estilizar → BlockStyles. */
+const LARGURA = {
+  cheia: "full",
+  metade: "half",
+  terco: "third",
+  "dois-tercos": "twoThirds",
+  "tres-quartos": "threeQuarters",
+} as const;
+const POSICAO = { esquerda: "left", centro: "center", direita: "right" } as const;
+const MARGEM = { pequena: 2, media: 4, grande: 6 } as const;
+
+type Estilo = NonNullable<EditorChatOp["estilo"]>;
+
+export function mesclarEstilo(
+  atual: Block["styles"],
+  estilo: Estilo,
+): { styles: Block["styles"]; avisos: string[] } {
+  const s: Record<string, unknown> = { ...(atual ?? {}) };
+  const avisos: string[] = [];
+  // null = não mexe; sentinela ("nenhum"/"auto"/"normal") = apaga a chave.
+  if (estilo.bg) {
+    if (estilo.bg === "nenhum") delete s.bgColor;
+    else s.bgColor = estilo.bg;
+  }
+  if (estilo.largura) {
+    if (estilo.largura === "auto") delete s.width;
+    else s.width = LARGURA[estilo.largura];
+  }
+  if (estilo.posicao) {
+    if (estilo.posicao === "nenhuma") delete s.justify;
+    else s.justify = POSICAO[estilo.posicao];
+  }
+  if (estilo.alinhamento) {
+    if (estilo.alinhamento === "nenhum") delete s.align;
+    else s.align = POSICAO[estilo.alinhamento];
+  }
+  if (estilo.margemVertical) {
+    if (estilo.margemVertical === "nenhuma") delete s.marginY;
+    else s.marginY = MARGEM[estilo.margemVertical];
+  }
+  if (estilo.tamanhoFonte) {
+    if (estilo.tamanhoFonte === "normal") delete s.fontSize;
+    else s.fontSize = estilo.tamanhoFonte;
+  }
+  if (estilo.icone) {
+    if (estilo.icone === "nenhum") delete s.icon;
+    else s.icon = estilo.icone;
+  }
+  // Posição só tem efeito visual com largura restrita (styleClass ignora sem
+  // width ≠ auto/full) — avisa em vez de silêncio.
+  if (s.justify && (!s.width || s.width === "full")) {
+    avisos.push("Posição só tem efeito com uma largura menor que a cheia — defina a largura também.");
+  }
+  return { styles: Object.keys(s).length ? (s as Block["styles"]) : undefined, avisos };
 }
 
 export function aplicarOpsNoDoc(blocks: Block[], ops: EditorChatOp[]): ChatOpsResultado {
@@ -50,6 +112,29 @@ export function aplicarOpsNoDoc(blocks: Block[], ops: EditorChatOp[]): ChatOpsRe
 
     if (op.op === "remover") {
       atual = [...atual.slice(0, i), ...atual.slice(i + 1)];
+      aplicadas += 1;
+      continue;
+    }
+
+    if (op.op === "estilizar") {
+      if (!op.estilo) {
+        ignoradas.push("estilizar sem estilo.");
+        continue;
+      }
+      const alvo = atual[i]!;
+      const r = mesclarEstilo(alvo.styles, op.estilo);
+      atual = [
+        ...atual.slice(0, i),
+        { ...alvo, ...(r.styles ? { styles: r.styles } : {}) },
+        ...atual.slice(i + 1),
+      ];
+      // styles undefined precisa REMOVER a chave do bloco (spread não apaga).
+      if (!r.styles) {
+        const semStyles = { ...atual[i]! };
+        delete (semStyles as { styles?: unknown }).styles;
+        atual = [...atual.slice(0, i), semStyles as Block, ...atual.slice(i + 1)];
+      }
+      ignoradas.push(...r.avisos);
       aplicadas += 1;
       continue;
     }

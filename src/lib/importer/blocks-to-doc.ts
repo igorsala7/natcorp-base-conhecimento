@@ -18,6 +18,27 @@ function nonEmptyChildren(nodes: Block[]): Block[] {
   return nodes.length ? nodes : [para("")];
 }
 
+/** Mini-estilo (largura/posição) de table/stats → BlockStyles. */
+const LARGURA_MAPA = {
+  cheia: "full",
+  metade: "half",
+  terco: "third",
+  "dois-tercos": "twoThirds",
+  "tres-quartos": "threeQuarters",
+} as const;
+const POSICAO_MAPA = { esquerda: "left", centro: "center", direita: "right" } as const;
+
+function miniEstilo(
+  largura: keyof typeof LARGURA_MAPA | null,
+  posicao: keyof typeof POSICAO_MAPA | null,
+): { styles: NonNullable<Block["styles"]> } | undefined {
+  const styles: Record<string, string> = {};
+  if (largura && LARGURA_MAPA[largura]) styles.width = LARGURA_MAPA[largura];
+  // posição só tem efeito com largura restrita (styleClass ignora sem width).
+  if (posicao && styles.width && styles.width !== "full") styles.justify = POSICAO_MAPA[posicao];
+  return Object.keys(styles).length ? { styles: styles as NonNullable<Block["styles"]> } : undefined;
+}
+
 /** Só aceita ícone que exista no catálogo (a IA manda string livre). */
 function iconStyles(icon: string | null | undefined): { styles: { icon: string } } | undefined {
   return icon && iconByKey(icon) ? { styles: { icon } } : undefined;
@@ -52,7 +73,11 @@ function leafToBlock(b: LeafBlock): Block {
         children: b.items.map((t) => ({ id: newId(), type: "listItem", text: rt(t) })),
       };
     case "code":
-      return { id: newId(), type: "code", data: { language: b.language ?? null, code: b.code } };
+      return {
+        id: newId(),
+        type: "code",
+        data: { language: b.language ?? null, code: b.code, ...(b.filename ? { filename: b.filename } : {}) },
+      };
     case "checklist":
       return {
         id: newId(),
@@ -68,6 +93,17 @@ function leafToBlock(b: LeafBlock): Block {
         data: {
           items: b.items.map((i) => ({ id: newId(), value: i.value, label: i.label, trend: "" })),
         },
+        ...miniEstilo(b.largura, b.posicao),
+      };
+    case "quote":
+      return { id: newId(), type: "quote", text: rt(b.text) };
+    case "spacer":
+      return { id: newId(), type: "spacer", data: { size: b.size } };
+    case "button":
+      return {
+        id: newId(),
+        type: "button",
+        data: { label: b.label, href: b.url, variant: "primary" },
       };
     case "table":
       return {
@@ -77,6 +113,7 @@ function leafToBlock(b: LeafBlock): Block {
           hasHeader: true,
           rows: b.rows.filter((r) => r.length > 0).map((row) => row.map((cell) => rt(cell))),
         },
+        ...miniEstilo(b.largura, b.posicao),
       };
   }
 }
@@ -128,6 +165,20 @@ export function blockToBlock(b: LayoutBlock): Block {
           children: [para(c.text)],
         })),
       };
+    case "accordion":
+      return {
+        id: newId(),
+        type: "accordion",
+        children: (b.items.length ? b.items : [{ titulo: "", texto: "" }]).map((item) => ({
+          id: newId(),
+          type: "accordionItem" as const,
+          data: { title: item.titulo },
+          // Vários parágrafos por item: divide em linhas em branco.
+          children: nonEmptyChildren(
+            item.texto.split(/\n{2,}/).filter((t) => t.trim()).map(para),
+          ),
+        })),
+      };
     case "toggle":
       return {
         id: newId(),
@@ -146,3 +197,18 @@ export function blocksToDoc(blocks: LayoutBlock[]): BlockDoc {
   return { version: 2, blocks: out.length ? out : [para("")] };
 }
 
+
+/**
+ * Guarda contra URL alucinada: as guardas de contenção do improve medem
+ * original⊂resultado — palavras EXTRAS passam de graça, então um button com
+ * URL inventada não seria barrado. Aqui é determinístico: botão cuja URL não
+ * consta do texto-base é descartado.
+ */
+export function filtrarButtonsSemUrl<T extends { kind: string }>(
+  blocks: T[],
+  textoBase: string,
+): T[] {
+  return blocks.filter(
+    (b) => b.kind !== "button" || textoBase.includes((b as { url?: string }).url ?? ""),
+  );
+}

@@ -9,7 +9,7 @@ import { audit } from "@/lib/auth/audit";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { studioTurnSchema } from "@/lib/ai/studio-schema";
 import { blocksSchema } from "@/lib/importer/layout-schema";
-import { blocksToDoc } from "@/lib/importer/blocks-to-doc";
+import { blocksToDoc, filtrarButtonsSemUrl } from "@/lib/importer/blocks-to-doc";
 import { extractDocument } from "@/lib/importer/extract";
 import { generateKeyBetween } from "fractional-indexing";
 import { uniqueSlug } from "@/lib/content/unique-slug";
@@ -350,9 +350,10 @@ DECISÕES DA CONVERSA (respeite-as):
 ${messages || "(nenhuma)"}
 ${diretivas ? `\nDIRETRIZES DE FORMATO:\n${diretivas}` : ""}
 
-Regras: NÃO inclua o título do artigo; comece com um parágrafo de abertura; use tabela para pares rótulo-valor, steps para procedimentos, callout com parcimônia, code para trechos técnicos.`,
+Regras: NÃO inclua o título do artigo; comece com um parágrafo de abertura; use tabela para pares rótulo-valor, steps para procedimentos, callout com parcimônia, code para trechos técnicos. Estilo visual: deixe largura/posicao como null — o padrão da casa já formata; só defina se uma DIRETRIZ pedir explicitamente. NUNCA crie button a menos que a URL exata conste dos MATERIAIS (o sistema descarta).`,
     });
-    const doc = blocksToDoc(object.blocks);
+    // O estúdio não tem as guardas do improve — a de URL vale igual.
+    const doc = blocksToDoc(filtrarButtonsSemUrl(object.blocks, materiais));
     const nova = aplicarPatch(proposal, { kind: "doc", tmpId, doc });
     const { error } = await ctx.supabase
       .from("studio_sessions")

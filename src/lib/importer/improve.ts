@@ -4,7 +4,7 @@ import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { LAYOUT_INSTRUCTIONS, CABECALHO_PREFERENCIAS } from "./prompts";
 import type { BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
-import { blocksToDoc } from "./blocks-to-doc";
+import { blocksToDoc, filtrarButtonsSemUrl } from "./blocks-to-doc";
 import {
   segmentarTexto,
   contarPalavras,
@@ -65,7 +65,7 @@ export async function improveLayout(
           segmento,
         abortSignal: aiTimeout("import_layout"),
       });
-      propostos.push(...object.blocks);
+      propostos.push(...filtrarButtonsSemUrl(object.blocks, plainText));
     } catch (e) {
       const onde =
         segmentos.length > 1 ? ` (parte ${i + 1} de ${segmentos.length})` : "";
