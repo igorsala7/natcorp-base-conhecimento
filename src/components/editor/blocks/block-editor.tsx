@@ -129,6 +129,9 @@ type BlockEditorProps = {
   canPublish?: boolean;
   canReview?: boolean;
   canComment?: boolean;
+  /** Escala de leitura do tema da documentação (Aparência → Leitura) — o
+   *  canvas edita no MESMO tamanho em que o portal exibe. */
+  readingSize?: "compact" | "normal" | "large";
 };
 
 /** Provider do "RichText ativo" para a barra do topo formatar a seleção. */
@@ -154,6 +157,7 @@ function BlockEditorInner({
   canPublish,
   canReview,
   canComment,
+  readingSize = "normal",
 }: BlockEditorProps) {
   const router = useRouter();
   const { confirmar, pedirTexto } = useConfirm();
@@ -746,9 +750,15 @@ function BlockEditorInner({
         >
           {/* min-h garante área clicável abaixo do último bloco */}
           <div className="mx-auto min-h-full max-w-3xl pl-12">
-            <div className="prose prose-neutral prose-portal max-w-none dark:prose-invert">
+            {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
+                pública); `.editor-blocks` compacta o ritmo só na edição — a
+                prévia usa o espaçamento idêntico ao do portal. */}
+            <div
+              className={`leitura prose prose-neutral prose-portal max-w-none dark:prose-invert ${preview ? "" : "editor-blocks"}`}
+              data-size={readingSize}
+            >
               {preview ? (
-                <RenderBlocks blocks={blocks} snippets={noSnippets} />
+                <RenderBlocks blocks={blocks} snippets={noSnippets} headingShift={2} />
               ) : (
                 <DndContext
                   // Id fixo pelo mesmo motivo da árvore (ver `content/tree.tsx`).
@@ -857,8 +867,11 @@ function BlockEditorInner({
         }
       >
         {proposed && (
-          <div className="prose prose-neutral prose-portal max-h-[60vh] max-w-none overflow-auto dark:prose-invert">
-            <RenderBlocks blocks={proposed.blocks} snippets={new Map()} />
+          <div
+            className="leitura prose prose-neutral prose-portal max-h-[60vh] max-w-none overflow-auto dark:prose-invert"
+            data-size={readingSize}
+          >
+            <RenderBlocks blocks={proposed.blocks} snippets={new Map()} headingShift={2} />
           </div>
         )}
       </Dialog>

@@ -12,6 +12,7 @@ import { Tree } from "@/components/content/tree";
 import { ClientTree } from "@/components/content/client-tree";
 import { FolderPanel, type FolderStats } from "@/components/content/folder-panel";
 import { BlockEditor } from "@/components/editor/blocks/block-editor";
+import { resolveTheme } from "@/lib/portal/theme";
 
 export const metadata: Metadata = { title: "Editar conteúdo" };
 
@@ -74,7 +75,7 @@ export default async function EditarConteudoPage({
   const [{ data: nodeSpace }, slugPaths, ownTree] = await Promise.all([
     supabase
       .from("spaces")
-      .select("id, slug, name, type, visibility")
+      .select("id, slug, name, type, visibility, theme")
       .eq("id", node.space_id)
       .single(),
     slugPathsOf(node.space_id),
@@ -175,6 +176,7 @@ export default async function EditarConteudoPage({
         canPublish={canPublish}
         canReview={canApprove || canReject}
         canComment={canComment}
+        readingSize={resolveTheme(nodeSpace?.theme).article.fontSize}
       />
     </ContentShell>
   );

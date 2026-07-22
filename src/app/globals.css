@@ -311,6 +311,53 @@
     padding-top: 2.25rem;
   }
 
+  /* ── Canvas de EDIÇÃO (.editor-blocks) ─────────────────────────────────
+     No editor cada bloco vive num wrapper próprio, então as margens de <p>
+     não colapsam como no portal — o mesmo CSS dobraria o espaçamento. Aqui
+     o ritmo é de ferramenta (Notion/Linear): denso, entrelinha 1.55 e
+     títulos na escala REAL do portal (que desloca H1→H3), nunca nos 36px
+     do `prose` cru. Quem precisar de respiro usa a "Margem vertical" do
+     painel de propriedades — espaçamento extra é escolha, não padrão. */
+  .editor-blocks :where(p),
+  .editor-blocks :where(li) {
+    line-height: 1.55;
+  }
+  .editor-blocks :where(p) {
+    margin-top: 0.3em;
+    margin-bottom: 0.3em;
+  }
+  .editor-blocks :where(ul, ol) {
+    margin-top: 0.3em;
+    margin-bottom: 0.3em;
+  }
+  .editor-blocks :where(li) {
+    margin-top: 0.125em;
+    margin-bottom: 0.125em;
+  }
+  .editor-blocks :where(h1) {
+    font-size: var(--l-article, 1.25rem);
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.018em;
+    margin: 1.1em 0 0.3em;
+  }
+  .editor-blocks :where(h2) {
+    font-size: var(--l-h2, 1.125rem);
+    margin: 1em 0 0.25em;
+  }
+  .editor-blocks :where(h3) {
+    font-size: var(--l-h3, 1rem);
+    margin: 0.9em 0 0.2em;
+  }
+  .editor-blocks :where(blockquote) {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+  .editor-blocks :where(pre, figure, table) {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+
   /* Etiqueta de linguagem do bloco de código. */
   .code-lang {
     position: absolute;
