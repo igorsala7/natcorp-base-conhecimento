@@ -21,6 +21,7 @@ import {
   CalendarClock,
   Gauge,
   Keyboard,
+  MessageSquareText,
   LayoutTemplate,
   Repeat2,
   Maximize2,
@@ -56,6 +57,7 @@ import { PropertiesPanel } from "./properties-panel";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
 import { OptimizePanel } from "../optimize-panel";
+import { EditorChat } from "../editor-chat";
 import {
   LayoutQuestionsForm,
   diretivasEscolhidas,
@@ -208,6 +210,7 @@ function BlockEditorInner({
   const [showHistory, setShowHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showOptimize, setShowOptimize] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
   const [remixando, setRemixando] = useState<RemixTipo | null>(null);
   const [layoutPerguntas, setLayoutPerguntas] = useState<LayoutQuestion[] | null>(null);
@@ -803,6 +806,9 @@ function BlockEditorInner({
                     <CalendarClock className="size-4 text-text-muted" /> Agendar publicação
                   </button>
                 )}
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowChat(true); setShowOptimize(false); setShowProps(false); setShowMore(false); }} title="Converse com a IA: ela altera o artigo em tempo real (Ctrl+Z desfaz)">
+                  <MessageSquareText className="size-4 text-text-muted" /> Chat IA (editar conversando)
+                </button>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowOptimize(true); setShowProps(false); setShowMore(false); }} title="Auditoria de qualidade e SEO deste artigo">
                   <Gauge className="size-4 text-text-muted" /> Otimizar (qualidade/SEO)
                 </button>
@@ -937,7 +943,22 @@ function BlockEditorInner({
             </div>
           </div>
         </div>
-        {!preview && showOptimize && (
+        {!preview && showChat && (
+          <EditorChat
+            nodeId={nodeId}
+            blocks={blocks}
+            onApplyBlocks={(novo) => setBlocks(novo)}
+            onMelhorarLayout={() => void onImprove()}
+            temBlocoDeTextoSelecionado={!!aiTextoAlvo}
+            acoesTexto={ACOES_IA_TEXTO.map((a) => ({
+              rotulo: a.rotulo,
+              onClick: () => void onAiTexto(a.acao, a.tom, a.rotulo),
+            }))}
+            onAcaoTexto={() => undefined}
+            onClose={() => setShowChat(false)}
+          />
+        )}
+        {!preview && !showChat && showOptimize && (
           <OptimizePanel
             nodeId={nodeId}
             spaceId={spaceId}
@@ -953,7 +974,7 @@ function BlockEditorInner({
             onClose={() => setShowOptimize(false)}
           />
         )}
-        {!preview && selected && showProps && !showOptimize && (
+        {!preview && !showChat && selected && showProps && !showOptimize && (
           <PropertiesPanel block={selected} actions={actions} onClose={() => setShowProps(false)} />
         )}
       </div>
