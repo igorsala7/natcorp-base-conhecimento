@@ -99,7 +99,7 @@ export function MetadataCard({
         />
       </div>
       <div className="min-w-0">
-        <span className={luminaLabel}>Slug (URL)</span>
+        <span className={`mb-1 ${luminaLabel}`}>Slug (URL)</span>
         <div className="flex items-center gap-1.5">
           <input
             value={slugLocal}

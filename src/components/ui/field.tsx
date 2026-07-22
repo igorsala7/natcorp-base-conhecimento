@@ -68,7 +68,7 @@ export function Field({
   if (!htmlFor) {
     return (
       <label className={cn("block space-y-1.5", className)}>
-        <span className="block text-sm font-medium text-text">{Rotulo}</span>
+        <span className={eyebrowLabel}>{Rotulo}</span>
         {children}
         {auxiliar}
       </label>
@@ -77,7 +77,7 @@ export function Field({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={htmlFor} className="block text-sm font-medium text-text">
+      <label htmlFor={htmlFor} className={eyebrowLabel}>
         {Rotulo}
       </label>
       {children}
@@ -85,6 +85,10 @@ export function Field({
     </div>
   );
 }
+
+/** Label de formulário no padrão da referência: eyebrow em caps discreto. */
+export const eyebrowLabel =
+  "block text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted";
 
 /** Ids de `aria-describedby` para ligar o input ao hint/erro do `Field`. */
 export function fieldAria(id: string, opts: { hint?: boolean; error?: boolean }) {

@@ -48,9 +48,8 @@ export function Segmented<T extends string>({
   );
 }
 
-/** Rótulo de formulário no padrão Lumina (eyebrow em caps). */
-export const luminaLabel =
-  "mb-1 block text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted";
+/** Rótulo de formulário no padrão Lumina (fonte única no Field). */
+export { eyebrowLabel as luminaLabel } from "@/components/ui/field";
 
 /** Botão tracejado "adicionar item" (listas editáveis do editor). */
 export const addItemClass =
