@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { QualityScanButton } from "./quality-scan-button";
+import { ViewsChart } from "./views-chart";
 import type { QualityIssue } from "@/lib/quality/audit-article";
 
 export const metadata: Metadata = { title: "Análises" };
@@ -102,7 +103,7 @@ export default async function AnalisesPage() {
 
   const { data: publicados } = await supabase
     .from("nodes")
-    .select("id, title")
+    .select("id, title, space_id")
     .eq("type", "article")
     .eq("status", "published")
     .is("deleted_at", null)
@@ -118,6 +119,14 @@ export default async function AnalisesPage() {
     const { data: nodes } = await supabase.from("nodes").select("id, title").in("id", faltando);
     for (const n of nodes ?? []) titleById.set(n.id, n.title);
   }
+
+  // Série do gráfico: (dia, documentação, views). Nó que saiu do ar entre a
+  // visita e agora fica de fora — o gráfico é sobre o portal como ele está.
+  const spaceByNode = new Map((publicados ?? []).map((n) => [n.id, n.space_id]));
+  const pontosGrafico = viewRows.flatMap((v) => {
+    const spaceId = spaceByNode.get(v.node_id);
+    return spaceId ? [{ day: v.day, spaceId, views: v.views }] : [];
+  });
 
   // Qualidade: agregados da última varredura (issues por impacto).
   const qualityRows = quality ?? [];
@@ -181,6 +190,9 @@ export default async function AnalisesPage() {
       {/* Leitura */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-text-muted">Leitura (90 dias)</h2>
+        <div className="mb-3">
+          <ViewsChart pontos={pontosGrafico} spaces={spacesList ?? []} />
+        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Visualizações" value={totalViews} hint="1× por artigo por sessão" />
           <StatCard label="Artigos vistos" value={viewsByNode.size} />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Script from "next/script";
 import type { CSSProperties } from "react";
 import { ArrowUpRight, ChevronRight, List } from "lucide-react";
 import type { ThemeLink } from "@/lib/portal/theme";
@@ -98,6 +99,22 @@ export function PortalShell({
 
   return (
     <div className={`min-h-dvh bg-bg text-text${temaClasse ? ` ${temaClasse}` : ""}`} style={style}>
+      {/* GA4 por documentação (Aparência → Integrações). Só o Measurement ID,
+          validado no schema do tema — snippet livre nunca entra (XSS). */}
+      {tema.tracking.ga4 && (
+        <>
+          <Script
+            src={`https://www.googletagmanager.com/gtag/js?id=${tema.tracking.ga4}`}
+            strategy="afterInteractive"
+          />
+          <Script id="ga4-init" strategy="afterInteractive">
+            {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${tema.tracking.ga4}');`}
+          </Script>
+        </>
+      )}
       <ReadingProgress />
 
       {/* Cabeçalho leve: hairline apenas, sem sombra — quem separa é o ar. */}

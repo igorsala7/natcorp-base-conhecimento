@@ -157,6 +157,18 @@ export const ThemeSchema = z.object({
       divider: z.enum(["band", "line", "space"]).optional(),
     })
     .optional(),
+  /** Integrações de rastreio do portal. Só o Measurement ID do GA4 —
+   *  snippet livre de script é vetor de XSS e não entra no tema. */
+  tracking: z
+    .object({
+      ga4: z
+        .string()
+        .trim()
+        .regex(/^G-[A-Z0-9]{4,20}$/)
+        .nullable()
+        .optional(),
+    })
+    .optional(),
   // Campos que já existiam — preservados.
   supportUrl: z.string().trim().optional(),
   supportEmail: z.string().trim().optional(),
@@ -184,6 +196,7 @@ export type TemaResolvido = {
     fontSize: "compact" | "normal" | "large";
     divider: "band" | "line" | "space";
   };
+  tracking: { ga4: string | null };
   supportUrl: string | null;
   supportEmail: string | null;
 };
@@ -242,6 +255,7 @@ export function resolveTheme(raw: unknown): TemaResolvido {
       fontSize: t.article?.fontSize ?? "normal",
       divider: t.article?.divider ?? "band",
     },
+    tracking: { ga4: t.tracking?.ga4 ?? null },
     supportUrl: t.supportUrl || null,
     supportEmail: t.supportEmail || null,
   };

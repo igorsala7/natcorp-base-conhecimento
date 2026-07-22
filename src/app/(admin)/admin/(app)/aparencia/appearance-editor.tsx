@@ -64,6 +64,7 @@ function paraGravar(t: TemaResolvido) {
       fontSize: t.article.fontSize,
       divider: t.article.divider,
     },
+    ...(t.tracking.ga4 ? { tracking: { ga4: t.tracking.ga4 } } : {}),
     ...(t.supportUrl ? { supportUrl: t.supportUrl } : {}),
     ...(t.supportEmail ? { supportEmail: t.supportEmail } : {}),
   };
@@ -618,6 +619,30 @@ export function AppearanceEditor({
               value={prompt}
               placeholder="Ex.: Você é o suporte do Produto Alfa. Responda de forma objetiva e sempre indique o artigo."
               onChange={(e) => setPrompt(e.target.value)}
+              className={controlClass}
+            />
+          </Field>
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+            Integrações
+          </h2>
+          <Field
+            label="Google Analytics 4 — Measurement ID"
+            htmlFor="ga4-id"
+            hint="Formato G-XXXXXXX. Vazio desliga. Só o ID — script livre não entra no portal."
+          >
+            <input
+              id="ga4-id"
+              value={tema.tracking.ga4 ?? ""}
+              placeholder="G-ABC123XYZ"
+              onChange={(e) =>
+                setTema((t) => ({
+                  ...t,
+                  tracking: { ga4: e.target.value.trim().toUpperCase() || null },
+                }))
+              }
               className={controlClass}
             />
           </Field>
