@@ -11,6 +11,7 @@ import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { BlockIcon } from "./block-icon";
 import { EDITORS } from "./registry.edit";
 import { BlockMenu } from "./block-menu";
+import { BlockPropertiesForm } from "./properties-panel";
 import type { EditorActions } from "./edit-types";
 
 type ItemProps = {
@@ -21,8 +22,10 @@ type ItemProps = {
   spaceId: string;
   /** Abre o menu de contexto (botão direito) para este bloco. */
   onContextMenu: (block: Block, x: number, y: number) => void;
-  /** Abre o painel de Propriedades (estilos) — quando o dono oferece um. */
+  /** Alterna o formulário de Propriedades no cartão — quando o dono oferece. */
   onProperties?: () => void;
+  /** Formulário de propriedades visível no bloco selecionado. */
+  propsAberto?: boolean;
   /** Profundidade na árvore: filhos usam a barra de controle INTERNA (a
    *  externa seria cortada por wrappers com overflow-hidden). */
   depth?: number;
@@ -40,6 +43,7 @@ const BlockItem = memo(function BlockItem({
   spaceId,
   onContextMenu,
   onProperties,
+  propsAberto = false,
   depth = 0,
 }: ItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
@@ -57,6 +61,7 @@ const BlockItem = memo(function BlockItem({
       spaceId={spaceId}
       onContextMenu={onContextMenu}
       onProperties={onProperties}
+      propsAberto={propsAberto}
       depth={depth + 1}
     />
   ) : undefined;
@@ -133,12 +138,17 @@ const BlockItem = memo(function BlockItem({
       )}
 
       <div
-        className={`rounded-md border px-1 py-0.5 transition-all ${
+        // Chrome do cartão: SÓ ring + sombra — utilitárias que NÃO disputam
+        // fundo/borda/raio/padding com o styleClass do bloco (a disputa era o
+        // bug de "propriedade não aplica": bg-surface/border-* do cartão
+        // venciam a cascata sobre a escolha do usuário).
+        className={`rounded-md px-1 py-0.5 transition-all ${
           selected
-            ? "border-brand-purple-300 bg-surface shadow-2 ring-2 ring-brand-purple-100 dark:border-brand-purple-700 dark:ring-brand-purple-900/50"
-            : "border-transparent hover:border-border hover:bg-surface hover:shadow-1"
-        } ${styleClass(block.styles)}`}
+            ? "shadow-2 ring-2 ring-brand-purple-300 dark:ring-brand-purple-700"
+            : "hover:shadow-1 hover:ring-1 hover:ring-border"
+        }`}
       >
+      <div className={styleClass(block.styles) || undefined}>
         {/* Ícone da região — os blocos com título o desenham junto do título. */}
         {!ICON_IN_TITLE.has(block.type) && (
           <BlockIcon name={block.styles?.icon} className="mb-2 size-5 text-primary" />
@@ -155,6 +165,20 @@ const BlockItem = memo(function BlockItem({
           {childrenNode}
         </Editor>
       </div>
+      {selected && propsAberto && (
+        /* Faixa de propriedades DENTRO do cartão (padrão da referência):
+           a prévia acima atualiza a cada mudança. */
+        <div
+          className="not-prose mt-2 rounded-md border border-border bg-surface-2 px-4 py-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="mb-3 text-[0.625rem] font-bold uppercase tracking-wide text-text-muted">
+            Propriedades — {Meta.label}
+          </p>
+          <BlockPropertiesForm block={block} actions={actions} />
+        </div>
+      )}
+      </div>
     </Wrapper>
   );
 });
@@ -167,6 +191,7 @@ export function BlockList({
   spaceId,
   onContextMenu,
   onProperties,
+  propsAberto = false,
   depth = 0,
 }: {
   blocks: Block[];
@@ -176,6 +201,7 @@ export function BlockList({
   spaceId: string;
   onContextMenu: (block: Block, x: number, y: number) => void;
   onProperties?: () => void;
+  propsAberto?: boolean;
   depth?: number;
 }) {
   return (
@@ -190,6 +216,7 @@ export function BlockList({
           spaceId={spaceId}
           onContextMenu={onContextMenu}
           onProperties={onProperties}
+          propsAberto={propsAberto}
           depth={depth}
         />
       ))}

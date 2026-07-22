@@ -77,7 +77,7 @@ export function MetadataCard({
   }
 
   return (
-    <div className="mb-4 grid gap-4 rounded-lg border border-border bg-surface p-5 shadow-1 lg:grid-cols-[2fr_1fr]">
+    <div className="mb-3 grid gap-4 rounded-lg border border-border bg-surface p-4 shadow-1 lg:grid-cols-[2fr_1fr]">
       <div className="min-w-0 space-y-2">
         <input
           value={titulo}
@@ -86,7 +86,7 @@ export function MetadataCard({
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           placeholder="Título do artigo"
           aria-label="Título do artigo"
-          className="w-full border-0 bg-transparent text-2xl font-semibold tracking-tight text-text placeholder:text-text-muted/50 focus:outline-none"
+          className="w-full border-0 bg-transparent text-xl font-semibold tracking-tight text-text placeholder:text-text-muted/50 focus:outline-none"
         />
         <input
           value={desc}

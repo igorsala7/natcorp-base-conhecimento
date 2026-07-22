@@ -1,6 +1,5 @@
 "use client";
 
-import { X } from "lucide-react";
 import type {
   Block,
   BlockStyles,
@@ -13,7 +12,6 @@ import type {
   StyleRadius,
   StyleWidth,
 } from "@/lib/blocks/schema";
-import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { IconPicker } from "./icon-picker";
 import type { EditorActions } from "./edit-types";
 import { controlClass } from "@/components/ui/input";
@@ -60,14 +58,17 @@ const RATIO_PRESETS: { label: string; hint: string; ratios: number[] }[] = [
   { label: "3 : 1", hint: "Bem estreita à direita", ratios: [3, 1] },
 ];
 
-export function PropertiesPanel({
+/**
+ * Formulário de propriedades do bloco — renderizado DENTRO do cartão do
+ * bloco selecionado (faixa abaixo do conteúdo, padrão da referência), não
+ * mais num painel lateral. A prévia acima atualiza a cada mudança.
+ */
+export function BlockPropertiesForm({
   block,
   actions,
-  onClose,
 }: {
   block: Block;
   actions: EditorActions;
-  onClose: () => void;
 }) {
   const styles = block.styles ?? {};
   const isContainer = block.type === "container";
@@ -103,18 +104,7 @@ export function PropertiesPanel({
   };
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-border bg-surface">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div>
-          <h3 className="text-sm font-semibold">Propriedades</h3>
-          <p className="text-xs text-text-muted">{BLOCKS[block.type].label}</p>
-        </div>
-        <button type="button" onClick={onClose} className="rounded p-1 text-text-muted hover:bg-surface-2">
-          <X className="size-4" />
-        </button>
-      </div>
-
-      <div className="space-y-5 overflow-auto p-4">
+    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
         {/* ── Divisões da região (container) ───────────────────────────── */}
         {isContainer && containerData && (
           <Section title="Divisões da região">
@@ -372,8 +362,7 @@ export function PropertiesPanel({
             </div>
           </Field>
         </Section>
-      </div>
-    </aside>
+    </div>
   );
 }
 

@@ -61,7 +61,6 @@ import { ActiveRichTextProvider, useActiveRichText } from "./rich-text/active";
 import { SlashMenu } from "./slash-menu";
 import { BlockContextMenu } from "./block-context-menu";
 import { ShortcutsHelp } from "./shortcuts-help";
-import { PropertiesPanel } from "./properties-panel";
 import { MetadataCard } from "../metadata-card";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
@@ -224,6 +223,7 @@ function BlockEditorInner({
   const [showSchedule, setShowSchedule] = useState(false);
   const [showOptimize, setShowOptimize] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
   const [remixando, setRemixando] = useState<RemixTipo | null>(null);
   const [layoutPerguntas, setLayoutPerguntas] = useState<LayoutQuestion[] | null>(null);
@@ -811,6 +811,11 @@ function BlockEditorInner({
                 >
                   <BookOpen className="size-4 text-text-muted" /> Prévia na documentação
                 </a>
+                {status !== "review" && (
+                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowReview((v) => !v); setShowMore(false); }} title="Mostrar/ocultar os comentários de revisão deste artigo">
+                    <MessageSquareText className="size-4 text-text-muted" /> Comentários de revisão
+                  </button>
+                )}
                 <button type="button" disabled={improving} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onImprove(); setShowMore(false); }} title="Reformatar o texto em blocos ricos (IA)">
                   <Wand2 className="size-4 text-text-muted" /> {improving ? "Melhorando…" : "Melhorar layout"}
                 </button>
@@ -905,12 +910,16 @@ function BlockEditorInner({
         <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{msg ?? erroSalvar}</p>
       )}
 
-      <details className="mt-2 rounded-lg border border-border" open={status === "review"}>
-        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-text-muted">Revisão e comentários</summary>
-        <div className="border-t border-border p-3">
-          <ReviewThread nodeId={nodeId} canComment={!!canComment} />
-        </div>
-      </details>
+      {/* Só ocupa o topo quando o artigo está em revisão (ou aberto pelo menu
+          Mais ações) — fora disso é uma faixa morta empurrando o canvas. */}
+      {(status === "review" || showReview) && (
+        <details className="mt-2 rounded-lg border border-border" open>
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-text-muted">Revisão e comentários</summary>
+          <div className="border-t border-border p-3">
+            <ReviewThread nodeId={nodeId} canComment={!!canComment} />
+          </div>
+        </details>
+      )}
 
       {/* Corpo: canvas + painel de propriedades. O canvas usa o MESMO contexto
           tipográfico do portal (.prose prose-portal) para o que se edita
@@ -925,7 +934,7 @@ function BlockEditorInner({
           icon={nodeIcon ?? null}
         />
       )}
-      <div className="mt-4 flex min-h-0 flex-1 gap-4">
+      <div className="mt-3 flex min-h-0 flex-1 gap-4">
         {preview ? (
           <div className="flex-1 overflow-auto">
             <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12">
@@ -959,16 +968,15 @@ function BlockEditorInner({
               />
             </aside>
             <div
-              className="flex-1 overflow-auto"
+              className="min-w-[26rem] flex-1 overflow-auto"
               onClick={() => setSelectedId(null)}
               onContextMenu={onCanvasContextMenu}
             >
-              {/* min-h garante área clicável abaixo do último bloco. A largura é a
-                  MESMA medida de linha da leitura (max-w-prose = 65ch) + a calha
-                  das alças: com max-w-3xl o texto quebrava em pontos diferentes e
-                  imagens/regiões pareciam maiores do que a página publicada.
-                  pt-4: folga para a barra de controle do primeiro bloco. */}
-              <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12 pt-4">
+              {/* CARTÃO BRANCO da referência: os blocos vivem num card com a
+                  calha das alças (pl-12) DENTRO dele. A medida de linha segue a
+                  da leitura (65ch) + calha + p-8 — mesmo ponto de quebra do
+                  portal. min-h garante área clicável abaixo do último bloco. */}
+              <div className="mx-auto min-h-full max-w-[calc(65ch+3rem+3rem)] rounded-xl border border-border bg-surface p-8 pl-12 shadow-1">
                 {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
                     pública); `.editor-blocks` compacta o ritmo só na edição — a
                     prévia usa o espaçamento idêntico ao do portal. */}
@@ -984,7 +992,8 @@ function BlockEditorInner({
                     autoFocusId={autoFocusId}
                     spaceId={spaceId}
                     onContextMenu={(block, x, y) => setCtxMenu({ block, x, y })}
-                    onProperties={() => setShowProps(true)}
+                    onProperties={() => setShowProps((v) => !v)}
+                    propsAberto={showProps}
                   />
                 </div>
                 <CanvasEndZone vazio={blocks.length === 0} />
@@ -1030,9 +1039,6 @@ function BlockEditorInner({
             }}
             onClose={() => setShowOptimize(false)}
           />
-        )}
-        {!preview && !showChat && selected && showProps && !showOptimize && (
-          <PropertiesPanel block={selected} actions={actions} onClose={() => setShowProps(false)} />
         )}
       </div>
 
