@@ -186,6 +186,20 @@ export type FlatBlock = {
 };
 
 /** Achata a árvore para o SortableContext (todos os níveis). */
+/** Id do ancestral de NÍVEL RAIZ de um bloco (o próprio, se já for raiz). */
+export function topAncestorId(blocks: Block[], id: string): string | null {
+  const flat = flattenBlocks(blocks);
+  const porId = new Map(flat.map((f) => [f.id, f]));
+  let atual = porId.get(id);
+  if (!atual) return null;
+  while (atual.parentId) {
+    const pai = porId.get(atual.parentId);
+    if (!pai) break;
+    atual = pai;
+  }
+  return atual.id;
+}
+
 export function flattenBlocks(
   blocks: Block[],
   parentId: string | null = null,

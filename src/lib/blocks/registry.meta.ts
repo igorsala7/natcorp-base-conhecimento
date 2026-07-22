@@ -45,17 +45,18 @@ import {
 
 export type BlockCategory =
   | "basico"
-  | "layout"
   | "midia"
-  | "avancado"
+  | "layout"
+  | "interativo"
   | "integracao"
-  | "importar"
   | "dados";
 
 export type BlockMeta = {
   type: BlockType;
   label: string;
   keywords: string[];
+  /** Linha de apoio exibida na paleta lateral (blocos filhos podem omitir). */
+  description?: string;
   icon: LucideIcon;
   category: BlockCategory;
   isContainer: boolean;
@@ -64,14 +65,13 @@ export type BlockMeta = {
   defaultData: () => Block;
 };
 
-// Categorias na ordem em que aparecem no slash menu.
+// Grupos na ordem em que aparecem na paleta e no slash menu (padrão Lumina).
 export const CATEGORIES: { key: BlockCategory; label: string; comingSoon?: boolean }[] = [
-  { key: "basico", label: "Básicos" },
-  { key: "layout", label: "Layout" },
-  { key: "midia", label: "Mídia / Embeds" },
-  { key: "avancado", label: "Avançados" },
+  { key: "basico", label: "Texto" },
+  { key: "midia", label: "Mídia" },
+  { key: "layout", label: "Estrutura" },
+  { key: "interativo", label: "Interativo" },
   { key: "integracao", label: "Integrações" },
-  { key: "importar", label: "Importar" },
   { key: "dados", label: "Base de Dados", comingSoon: true },
 ];
 
@@ -92,6 +92,7 @@ export const BLOCKS = {
   paragraph: {
     type: "paragraph",
     label: "Texto",
+    description: "Texto corrido com formatação rica",
     keywords: ["paragrafo", "texto", "p"],
     icon: AlignLeft,
     category: "basico",
@@ -103,6 +104,7 @@ export const BLOCKS = {
   heading: {
     type: "heading",
     label: "Título",
+    description: "Organize o artigo em seções navegáveis",
     keywords: ["heading", "titulo", "h1", "h2", "h3", "cabecalho"],
     icon: Heading,
     category: "basico",
@@ -114,6 +116,7 @@ export const BLOCKS = {
   bulletList: {
     type: "bulletList",
     label: "Lista",
+    description: "Lista de itens sem ordem",
     keywords: ["lista", "bullet", "marcadores", "ul"],
     icon: List,
     category: "basico",
@@ -129,6 +132,7 @@ export const BLOCKS = {
   orderedList: {
     type: "orderedList",
     label: "Lista numerada",
+    description: "Sequência numerada simples",
     keywords: ["lista", "numerada", "ol", "ordenada"],
     icon: ListOrdered,
     category: "basico",
@@ -155,6 +159,7 @@ export const BLOCKS = {
   quote: {
     type: "quote",
     label: "Citação",
+    description: "Trecho ou depoimento em destaque",
     keywords: ["citacao", "quote", "blockquote"],
     icon: Quote,
     category: "basico",
@@ -166,9 +171,10 @@ export const BLOCKS = {
   divider: {
     type: "divider",
     label: "Divisória",
+    description: "Separação visual entre assuntos",
     keywords: ["divisoria", "linha", "hr", "separador"],
     icon: Minus,
-    category: "basico",
+    category: "layout",
     isContainer: false,
     isVoid: true,
     transformableTo: [],
@@ -177,9 +183,10 @@ export const BLOCKS = {
   code: {
     type: "code",
     label: "Código",
+    description: "Trecho de código com destaque",
     keywords: ["codigo", "code", "snippet"],
     icon: Code2,
-    category: "avancado",
+    category: "midia",
     isContainer: false,
     isVoid: false,
     transformableTo: [],
@@ -188,6 +195,7 @@ export const BLOCKS = {
   image: {
     type: "image",
     label: "Imagem",
+    description: "Upload ou URL, com legenda",
     keywords: ["imagem", "image", "foto", "figura"],
     icon: ImageIcon,
     category: "midia",
@@ -199,6 +207,7 @@ export const BLOCKS = {
   video: {
     type: "video",
     label: "Vídeo",
+    description: "YouTube, Vimeo ou arquivo enviado",
     keywords: ["video", "youtube", "vimeo"],
     icon: Video,
     category: "midia",
@@ -210,6 +219,7 @@ export const BLOCKS = {
   file: {
     type: "file",
     label: "Arquivo (download)",
+    description: "Cartão de download de anexo",
     keywords: ["arquivo", "download", "anexo", "pdf", "planilha", "baixar"],
     icon: FileDown,
     category: "midia",
@@ -221,6 +231,7 @@ export const BLOCKS = {
   embed: {
     type: "embed",
     label: "Embed",
+    description: "Loom, Figma, Maps, PDF e outros",
     keywords: ["embed", "iframe", "figma", "maps", "loom", "gist", "pdf", "twitter"],
     icon: Globe,
     category: "integracao",
@@ -232,9 +243,10 @@ export const BLOCKS = {
   button: {
     type: "button",
     label: "Botão",
+    description: "Chamada para ação com link",
     keywords: ["botao", "button", "cta", "acao"],
     icon: MousePointerClick,
-    category: "avancado",
+    category: "interativo",
     isContainer: false,
     isVoid: true,
     transformableTo: [],
@@ -247,9 +259,10 @@ export const BLOCKS = {
   callout: {
     type: "callout",
     label: "Destaque",
+    description: "Nota, dica, atenção ou cuidado",
     keywords: ["callout", "aviso", "destaque", "nota", "atencao"],
     icon: Info,
-    category: "avancado",
+    category: "basico",
     isContainer: true,
     isVoid: false,
     transformableTo: ["paragraph"],
@@ -263,9 +276,10 @@ export const BLOCKS = {
   steps: {
     type: "steps",
     label: "Passo a passo",
+    description: "Passo a passo numerado",
     keywords: ["passos", "steps", "procedimento", "tutorial"],
     icon: ListChecks,
-    category: "avancado",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -280,7 +294,7 @@ export const BLOCKS = {
     label: "Passo",
     keywords: ["passo", "step"],
     icon: ListChecks,
-    category: "avancado",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -289,9 +303,10 @@ export const BLOCKS = {
   accordion: {
     type: "accordion",
     label: "Acordeão",
+    description: "Perguntas e respostas expansíveis",
     keywords: ["accordion", "acordeao", "faq", "recolhivel"],
     icon: ChevronDown,
-    category: "layout",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -306,7 +321,7 @@ export const BLOCKS = {
     label: "Item de acordeão",
     keywords: ["accordion", "item"],
     icon: ChevronDown,
-    category: "layout",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -320,9 +335,10 @@ export const BLOCKS = {
   tabs: {
     type: "tabs",
     label: "Abas",
+    description: "Conteúdo alternado por abas",
     keywords: ["tabs", "abas"],
     icon: PanelTop,
-    category: "layout",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -340,7 +356,7 @@ export const BLOCKS = {
     label: "Aba",
     keywords: ["tab", "aba"],
     icon: PanelTop,
-    category: "layout",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -349,9 +365,10 @@ export const BLOCKS = {
   toggle: {
     type: "toggle",
     label: "Recolhível",
+    description: "Bloco recolhível para detalhes",
     keywords: ["toggle", "recolhivel", "detalhes", "spoiler"],
     icon: ChevronDown,
-    category: "layout",
+    category: "interativo",
     isContainer: true,
     isVoid: false,
     transformableTo: [],
@@ -365,6 +382,7 @@ export const BLOCKS = {
   container: {
     type: "container",
     label: "Colunas",
+    description: "Região dividida lado a lado",
     keywords: ["colunas", "container", "grid", "layout", "columns"],
     icon: Columns3,
     category: "layout",
@@ -395,6 +413,7 @@ export const BLOCKS = {
   panel: {
     type: "panel",
     label: "Painel",
+    description: "Caixa colorida de destaque",
     keywords: ["painel", "panel", "caixa", "destaque"],
     icon: PanelTop,
     category: "layout",
@@ -411,6 +430,7 @@ export const BLOCKS = {
   cardGrid: {
     type: "cardGrid",
     label: "Grade de cards",
+    description: "Grade de cartões com ícone",
     keywords: ["cards", "grade", "grid", "cardgrid"],
     icon: LayoutGrid,
     category: "layout",
@@ -445,6 +465,7 @@ export const BLOCKS = {
   hero: {
     type: "hero",
     label: "Banner (Hero)",
+    description: "Banner de abertura do artigo",
     keywords: ["hero", "banner", "capa", "cabecalho"],
     icon: Sparkles,
     category: "layout",
@@ -460,6 +481,7 @@ export const BLOCKS = {
   spacer: {
     type: "spacer",
     label: "Espaçador",
+    description: "Respiro vertical controlado",
     keywords: ["espaco", "spacer", "vazio"],
     icon: Space,
     category: "layout",
@@ -471,9 +493,10 @@ export const BLOCKS = {
   table: {
     type: "table",
     label: "Tabela",
+    description: "Dados tabulares comparativos",
     keywords: ["tabela", "table", "grade"],
     icon: TableIcon,
-    category: "avancado",
+    category: "midia",
     isContainer: false,
     isVoid: false,
     transformableTo: [],
@@ -492,9 +515,10 @@ export const BLOCKS = {
   mermaid: {
     type: "mermaid",
     label: "Diagrama (Mermaid)",
+    description: "Diagramas de fluxo e decisão",
     keywords: ["mermaid", "diagrama", "fluxograma"],
     icon: Workflow,
-    category: "avancado",
+    category: "midia",
     isContainer: false,
     isVoid: false,
     transformableTo: [],
@@ -503,6 +527,7 @@ export const BLOCKS = {
   snippet: {
     type: "snippet",
     label: "Snippet reutilizável",
+    description: "Conteúdo reutilizado entre artigos",
     keywords: ["snippet", "transclusao", "reutilizavel"],
     icon: Puzzle,
     category: "integracao",
@@ -514,6 +539,7 @@ export const BLOCKS = {
   checklist: {
     type: "checklist",
     label: "Checklist",
+    description: "Verificações com caixas de marcar",
     keywords: ["checklist", "verificacao", "tarefas", "todo", "checkbox"],
     icon: CheckSquare,
     category: "basico",
@@ -529,6 +555,7 @@ export const BLOCKS = {
   stats: {
     type: "stats",
     label: "Indicadores (KPIs)",
+    description: "Cartões de métricas e KPIs",
     keywords: ["indicadores", "kpi", "metricas", "stats", "numeros"],
     icon: BarChart3,
     category: "layout",

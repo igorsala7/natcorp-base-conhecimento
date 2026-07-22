@@ -3,10 +3,11 @@
 import { memo } from "react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, GripVertical, Settings2, Trash2 } from "lucide-react";
 import type { Block } from "@/lib/blocks/schema";
 import { styleClass } from "@/lib/blocks/styles";
 import { ICON_IN_TITLE } from "@/lib/blocks/icons";
+import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { BlockIcon } from "./block-icon";
 import { EDITORS } from "./registry.edit";
 import { BlockMenu } from "./block-menu";
@@ -20,6 +21,11 @@ type ItemProps = {
   spaceId: string;
   /** Abre o menu de contexto (botão direito) para este bloco. */
   onContextMenu: (block: Block, x: number, y: number) => void;
+  /** Abre o painel de Propriedades (estilos) — quando o dono oferece um. */
+  onProperties?: () => void;
+  /** Profundidade na árvore: filhos usam a barra de controle INTERNA (a
+   *  externa seria cortada por wrappers com overflow-hidden). */
+  depth?: number;
 };
 
 function childrenOf(block: Block): Block[] | undefined {
@@ -33,9 +39,12 @@ const BlockItem = memo(function BlockItem({
   autoFocusId,
   spaceId,
   onContextMenu,
+  onProperties,
+  depth = 0,
 }: ItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Editor = EDITORS[block.type];
+  const Meta = BLOCKS[block.type];
   const selected = selectedId === block.id;
   const kids = childrenOf(block);
 
@@ -47,6 +56,8 @@ const BlockItem = memo(function BlockItem({
       autoFocusId={autoFocusId}
       spaceId={spaceId}
       onContextMenu={onContextMenu}
+      onProperties={onProperties}
+      depth={depth + 1}
     />
   ) : undefined;
 
@@ -85,7 +96,49 @@ const BlockItem = memo(function BlockItem({
         <BlockMenu block={block} actions={actions} />
       </div>
 
-      <div className={`rounded-md px-1 py-0.5 ${selected ? "ring-1 ring-primary/40" : ""} ${styleClass(block.styles)}`}>
+      {selected && (
+        <div
+          className={`absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5 shadow-2 ${
+            depth > 0 ? "right-1 top-1" : "-top-3 right-2"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="flex items-center gap-1 px-1.5 text-[0.625rem] font-bold uppercase tracking-wide text-text-muted">
+            <Meta.icon className="size-3.5" />
+            {Meta.label}
+          </span>
+          <span className="mx-0.5 h-4 w-px bg-border" />
+          <BarBtn title="Mover para cima (⌥⇧↑)" onClick={() => actions.move(block.id, -1)}>
+            <ArrowUp className="size-3.5" />
+          </BarBtn>
+          <BarBtn title="Mover para baixo (⌥⇧↓)" onClick={() => actions.move(block.id, 1)}>
+            <ArrowDown className="size-3.5" />
+          </BarBtn>
+          <BarBtn title="Duplicar (⌘D)" onClick={() => actions.duplicate(block.id)}>
+            <Copy className="size-3.5" />
+          </BarBtn>
+          {onProperties && (
+            <BarBtn title="Propriedades do bloco" onClick={onProperties}>
+              <Settings2 className="size-3.5" />
+            </BarBtn>
+          )}
+          <BarBtn
+            title="Excluir (⌘⇧⌫)"
+            danger
+            onClick={() => actions.remove(block.id)}
+          >
+            <Trash2 className="size-3.5" />
+          </BarBtn>
+        </div>
+      )}
+
+      <div
+        className={`rounded-md border px-1 py-0.5 transition-all ${
+          selected
+            ? "border-brand-purple-300 bg-surface shadow-2 ring-2 ring-brand-purple-100 dark:border-brand-purple-700 dark:ring-brand-purple-900/50"
+            : "border-transparent hover:border-border hover:bg-surface hover:shadow-1"
+        } ${styleClass(block.styles)}`}
+      >
         {/* Ícone da região — os blocos com título o desenham junto do título. */}
         {!ICON_IN_TITLE.has(block.type) && (
           <BlockIcon name={block.styles?.icon} className="mb-2 size-5 text-primary" />
@@ -113,6 +166,8 @@ export function BlockList({
   autoFocusId,
   spaceId,
   onContextMenu,
+  onProperties,
+  depth = 0,
 }: {
   blocks: Block[];
   actions: EditorActions;
@@ -120,6 +175,8 @@ export function BlockList({
   autoFocusId: string | null;
   spaceId: string;
   onContextMenu: (block: Block, x: number, y: number) => void;
+  onProperties?: () => void;
+  depth?: number;
 }) {
   return (
     <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
@@ -132,8 +189,38 @@ export function BlockList({
           autoFocusId={autoFocusId}
           spaceId={spaceId}
           onContextMenu={onContextMenu}
+          onProperties={onProperties}
+          depth={depth}
         />
       ))}
     </SortableContext>
+  );
+}
+
+/** Botão 24px da barra de controle flutuante. */
+function BarBtn({
+  title,
+  onClick,
+  danger,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={`flex size-6 items-center justify-center rounded text-text-muted transition-colors ${
+        danger
+          ? "hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+          : "hover:bg-surface-2 hover:text-text"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

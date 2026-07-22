@@ -178,6 +178,8 @@ export default async function EditarConteudoPage({
         canComment={canComment}
         readingSize={resolveTheme(nodeSpace?.theme).article.fontSize}
         nodeDescription={node.description}
+        nodeSlug={node.slug}
+        nodeIcon={node.icon}
       />
     </ContentShell>
   );

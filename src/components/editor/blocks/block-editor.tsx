@@ -4,22 +4,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   closestCenter,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   BookOpen,
   Check,
-  ChevronDown,
   Copy,
   ExternalLink,
   Eye,
   History,
   CalendarClock,
   Gauge,
+  GripVertical,
   Keyboard,
   MessageSquareText,
   LayoutTemplate,
@@ -38,8 +44,9 @@ import { newId } from "@/lib/blocks/schema";
 import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { RenderBlocks } from "@/lib/blocks/render";
-import { moveBlock, findBlock } from "@/lib/blocks/tree-ops";
+import { moveBlock, findBlock, topAncestorId } from "@/lib/blocks/tree-ops";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Dialog } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
@@ -48,12 +55,14 @@ import { useEditorActions } from "./use-editor-actions";
 import { useUndoRedo } from "./use-undo-redo";
 import { useAutosaveArticle } from "./use-autosave-article";
 import { BlockList } from "./block-item";
+import { BlockPalette } from "./block-palette";
 import { EditorToolbar } from "./editor-toolbar";
 import { ActiveRichTextProvider, useActiveRichText } from "./rich-text/active";
 import { SlashMenu } from "./slash-menu";
 import { BlockContextMenu } from "./block-context-menu";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { PropertiesPanel } from "./properties-panel";
+import { MetadataCard } from "../metadata-card";
 import { HistoryPanel } from "../history-panel";
 import { ScheduleDialog } from "../schedule-dialog";
 import { OptimizePanel } from "../optimize-panel";
@@ -156,6 +165,8 @@ type BlockEditorProps = {
   /** Escala de leitura do tema da documentação (Aparência → Leitura) — o
    *  canvas edita no MESMO tamanho em que o portal exibe. */
   readingSize?: "compact" | "normal" | "large";
+  nodeSlug?: string;
+  nodeIcon?: string | null;
   /** Meta description do nó (auditoria do painel Otimizar). */
   nodeDescription?: string | null;
 };
@@ -185,6 +196,8 @@ function BlockEditorInner({
   canComment,
   readingSize = "normal",
   nodeDescription,
+  nodeSlug,
+  nodeIcon,
 }: BlockEditorProps) {
   const router = useRouter();
   const { confirmar, pedirTexto } = useConfirm();
@@ -225,7 +238,6 @@ function BlockEditorInner({
     };
   }, [spaceId]);
   const [showMore, setShowMore] = useState(false);
-  const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const [showAiTexto, setShowAiTexto] = useState(false);
   const [aiTextoBusy, setAiTextoBusy] = useState(false);
   const [aiProposta, setAiProposta] = useState<{
@@ -236,7 +248,6 @@ function BlockEditorInner({
   } | null>(null);
 
   const moreRef = useRef<HTMLDivElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
   const aiTextoRef = useRef<HTMLDivElement>(null);
 
   // Desfazer/refazer vivem em `use-undo-redo` — compartilhados com o editor
@@ -253,6 +264,9 @@ function BlockEditorInner({
   );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Rótulo do chip flutuante durante o arrasto DA PALETA (o sort de blocos já
+  // move o próprio nó — só o arrasto de paleta usa DragOverlay).
+  const [dragPaleta, setDragPaleta] = useState<string | null>(null);
   const activeRT = useActiveRichText();
 
   // Autosave (debounce + semântica de rascunho) em `use-autosave-article`.
@@ -266,7 +280,6 @@ function BlockEditorInner({
   } = useAutosaveArticle(nodeId, blocks, { hasDraftInicial: !!initialHasDraft });
 
   useDismiss(moreRef, showMore, useCallback(() => setShowMore(false), []));
-  useDismiss(previewRef, showPreviewMenu, useCallback(() => setShowPreviewMenu(false), []));
   useDismiss(aiTextoRef, showAiTexto, useCallback(() => setShowAiTexto(false), []));
 
   // API de mutação compartilhada com o editor inline da prévia.
@@ -424,11 +437,59 @@ function BlockEditorInner({
     if (rect) actions.openSlash(id, rect);
   }
 
+  /** Arrasto de PALETA mira onde o ponteiro está (a zona final perderia por
+   *  distância-de-centro); o sort de blocos segue no closestCenter, cego à
+   *  zona final (senão soltar "perto do fim" jogaria o bloco para lá). */
+  const colisaoEditor: CollisionDetection = useCallback((args) => {
+    if (args.active.data.current?.fromPalette) {
+      const dentro = pointerWithin(args);
+      return dentro.length ? dentro : rectIntersection(args);
+    }
+    return closestCenter({
+      ...args,
+      droppableContainers: args.droppableContainers.filter((c) => c.id !== "canvas-end"),
+    });
+  }, []);
+
+  function onDragStart(e: DragStartEvent) {
+    const data = e.active.data.current;
+    if (data?.fromPalette) setDragPaleta(BLOCKS[data.blockType as BlockType].label);
+  }
+
   function onDragEnd(e: DragEndEvent) {
+    setDragPaleta(null);
     const { active, over } = e;
-    if (over && active.id !== over.id) {
+    const data = active.data.current;
+    if (data?.fromPalette) {
+      if (!over) return;
+      const nb = BLOCKS[data.blockType as BlockType].defaultData();
+      setBlocks((bs) => {
+        if (over.id === "canvas-end") return [...bs, nb];
+        // Solto sobre um bloco (mesmo aninhado): entra ANTES do ancestral de topo.
+        const topo = topAncestorId(bs, String(over.id));
+        const i = topo ? bs.findIndex((b) => b.id === topo) : -1;
+        return i < 0 ? [...bs, nb] : [...bs.slice(0, i), nb, ...bs.slice(i)];
+      });
+      setSelectedId(nb.id);
+      setAutoFocusId(nb.id);
+      return;
+    }
+    if (over && active.id !== over.id && over.id !== "canvas-end") {
       setBlocks((bs) => moveBlock(bs, String(active.id), String(over.id)));
     }
+  }
+
+  /** Clique na paleta: adiciona ao fim, já selecionado (padrão da referência). */
+  function paletteAdd(type: BlockType) {
+    const nb = BLOCKS[type].defaultData();
+    setBlocks((bs) => [...bs, nb]);
+    setSelectedId(nb.id);
+    setAutoFocusId(nb.id);
+  }
+  function paletteAddSnippet(key: string) {
+    const nb: Block = { id: newId(), type: "snippet", data: { snippetKey: key } };
+    setBlocks((bs) => [...bs, nb]);
+    setSelectedId(nb.id);
   }
 
   async function onImprove() {
@@ -635,7 +696,7 @@ function BlockEditorInner({
       {/* Cabeçalho */}
       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
           <span className="text-xs text-text-muted">
             {saveState === "saving"
               ? "Salvando…"
@@ -677,72 +738,17 @@ function BlockEditorInner({
         <div className="flex items-center gap-2">
           {/* Um botão só para as duas prévias. Em prévia individual ele NÃO
               abre a lista: vira a saída, senão o modo vira um beco. */}
-          {preview ? (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setPreview(false)}
-              title="Voltar a editar"
-            >
-              <Pencil /> <span className="hidden sm:inline">Editar</span>
-            </Button>
-          ) : (
-            <div ref={previewRef} className="relative">
-              <Button
-                variant="secondary"
-                size="sm"
-                aria-expanded={showPreviewMenu}
-                aria-haspopup="menu"
-                onClick={() => setShowPreviewMenu((v) => !v)}
-                title="Ver como fica publicado"
-              >
-                <Eye /> <span className="hidden sm:inline">Prévia</span>
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-              {showPreviewMenu && (
-                <div
-                  role="menu"
-                  className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-border bg-surface p-1.5 shadow-2"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"
-                    onClick={() => {
-                      setPreview(true);
-                      setSelectedId(null);
-                      setShowPreviewMenu(false);
-                    }}
-                  >
-                    <Eye className="mt-0.5 size-4 shrink-0 text-text-muted" />
-                    <span>
-                      <span className="block font-medium">Individual</span>
-                      <span className="block text-xs text-text-muted">
-                        Só este artigo, aqui mesmo.
-                      </span>
-                    </span>
-                  </button>
-                  {/* Nova aba: conferir não pode custar perder o que se edita. */}
-                  <a
-                    role="menuitem"
-                    href={`/admin/previa/${spaceId}#${ancoraDePrevia(nodeId)}`}
-                    target="_blank"
-                    rel="noopener"
-                    className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"
-                    onClick={() => setShowPreviewMenu(false)}
-                  >
-                    <BookOpen className="mt-0.5 size-4 shrink-0 text-text-muted" />
-                    <span>
-                      <span className="block font-medium">Na documentação</span>
-                      <span className="block text-xs text-text-muted">
-                        Este artigo dentro do todo, incluindo o que não foi publicado.
-                      </span>
-                    </span>
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
+          <Segmented
+            value={preview ? "previa" : "editor"}
+            onChange={(v) => {
+              setPreview(v === "previa");
+              if (v === "previa") setSelectedId(null);
+            }}
+            options={[
+              { value: "editor", label: <><Pencil /> Editor</>, title: "Voltar a editar" },
+              { value: "previa", label: <><Eye /> Prévia</>, title: "Ver como fica publicado (⌘⇧P)" },
+            ]}
+          />
           {/* Alterna no MESMO lugar: em tela cheia o botão é a saída. */}
           <Button
             variant="ghost"
@@ -795,6 +801,16 @@ function BlockEditorInner({
             </Button>
             {showMore && (
               <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2">
+                <a
+                  href={`/admin/previa/${spaceId}#${ancoraDePrevia(nodeId)}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"
+                  onClick={() => setShowMore(false)}
+                  title="Este artigo dentro do todo, incluindo o que não foi publicado"
+                >
+                  <BookOpen className="size-4 text-text-muted" /> Prévia na documentação
+                </a>
                 <button type="button" disabled={improving} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onImprove(); setShowMore(false); }} title="Reformatar o texto em blocos ricos (IA)">
                   <Wand2 className="size-4 text-text-muted" /> {improving ? "Melhorando…" : "Melhorar layout"}
                 </button>
@@ -899,35 +915,66 @@ function BlockEditorInner({
       {/* Corpo: canvas + painel de propriedades. O canvas usa o MESMO contexto
           tipográfico do portal (.prose prose-portal) para o que se edita
           aparecer idêntico ao que o usuário final vê. */}
-      <div className="mt-4 flex min-h-0 flex-1">
-        <div
-          className="flex-1 overflow-auto"
-          onClick={() => !preview && setSelectedId(null)}
-          onContextMenu={onCanvasContextMenu}
-        >
-          {/* min-h garante área clicável abaixo do último bloco. A largura é a
-              MESMA medida de linha da leitura (max-w-prose = 65ch) + a calha
-              das alças: com max-w-3xl o texto quebrava em pontos diferentes e
-              imagens/regiões pareciam maiores do que a página publicada. */}
-          <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12">
-            {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
-                pública); `.editor-blocks` compacta o ritmo só na edição — a
-                prévia usa o espaçamento idêntico ao do portal. */}
-            <div
-              className={`leitura prose prose-neutral prose-portal max-w-none dark:prose-invert ${preview ? "" : "editor-blocks"}`}
-              data-size={readingSize}
-            >
-              {preview ? (
+      {!preview && nodeSlug !== undefined && (
+        <MetadataCard
+          key={`${title}:${nodeSlug}:${nodeDescription ?? ""}`}
+          nodeId={nodeId}
+          title={title}
+          slug={nodeSlug}
+          description={nodeDescription ?? null}
+          icon={nodeIcon ?? null}
+        />
+      )}
+      <div className="mt-4 flex min-h-0 flex-1 gap-4">
+        {preview ? (
+          <div className="flex-1 overflow-auto">
+            <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12">
+              <div
+                className="leitura prose prose-neutral prose-portal max-w-none dark:prose-invert"
+                data-size={readingSize}
+              >
                 <RenderBlocks blocks={blocks} snippets={noSnippets} headingShift={2} />
-              ) : (
-                <DndContext
-                  // Id fixo pelo mesmo motivo da árvore (ver `content/tree.tsx`).
-                  // Precisa ser DIFERENTE do dela: as duas convivem na mesma
-                  // página do editor.
-                  id="dnd-editor-blocos"
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={onDragEnd}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* DndContext acima da bifurcação paleta/canvas: os draggables da
+             paleta e os sortables dos blocos vivem no MESMO contexto — é o
+             que permite arrastar da paleta para dentro do artigo. */
+          <DndContext
+            // Id fixo pelo mesmo motivo da árvore (ver `content/tree.tsx`).
+            // Precisa ser DIFERENTE do dela: as duas convivem na mesma página.
+            id="dnd-editor-blocos"
+            sensors={sensors}
+            collisionDetection={colisaoEditor}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragCancel={() => setDragPaleta(null)}
+          >
+            <aside className="slim-scroll w-60 shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-3">
+              <BlockPalette
+                onAdd={paletteAdd}
+                snippets={snippetsDisponiveis}
+                onAddSnippet={paletteAddSnippet}
+              />
+            </aside>
+            <div
+              className="flex-1 overflow-auto"
+              onClick={() => setSelectedId(null)}
+              onContextMenu={onCanvasContextMenu}
+            >
+              {/* min-h garante área clicável abaixo do último bloco. A largura é a
+                  MESMA medida de linha da leitura (max-w-prose = 65ch) + a calha
+                  das alças: com max-w-3xl o texto quebrava em pontos diferentes e
+                  imagens/regiões pareciam maiores do que a página publicada.
+                  pt-4: folga para a barra de controle do primeiro bloco. */}
+              <div className="mx-auto min-h-full max-w-[calc(65ch+3rem)] pl-12 pt-4">
+                {/* `leitura` + data-size ligam a escala do tema (a MESMA da página
+                    pública); `.editor-blocks` compacta o ritmo só na edição — a
+                    prévia usa o espaçamento idêntico ao do portal. */}
+                <div
+                  className="leitura prose prose-neutral prose-portal editor-blocks max-w-none dark:prose-invert"
+                  data-size={readingSize}
                 >
                   <BlockList
                     key={revisao}
@@ -937,12 +984,22 @@ function BlockEditorInner({
                     autoFocusId={autoFocusId}
                     spaceId={spaceId}
                     onContextMenu={(block, x, y) => setCtxMenu({ block, x, y })}
+                    onProperties={() => setShowProps(true)}
                   />
-                </DndContext>
-              )}
+                </div>
+                <CanvasEndZone vazio={blocks.length === 0} />
+              </div>
             </div>
-          </div>
-        </div>
+            <DragOverlay>
+              {dragPaleta && (
+                <span className="inline-flex items-center gap-2 rounded-md border border-brand-purple-300 bg-surface px-3 py-2 text-sm font-semibold text-primary shadow-2">
+                  <GripVertical className="size-4 text-brand-purple-400" />
+                  {dragPaleta}
+                </span>
+              )}
+            </DragOverlay>
+          </DndContext>
+        )}
         {!preview && showChat && (
           <EditorChat
             nodeId={nodeId}
@@ -1151,6 +1208,26 @@ function BlockEditorInner({
           </div>
         )}
       </Dialog>
+    </div>
+  );
+}
+
+/** Zona de soltura final do canvas (padrão Lumina): alvo GRANDE para o
+ *  arrasto de paleta + convite quando o documento está vazio. */
+function CanvasEndZone({ vazio }: { vazio: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: "canvas-end" });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mb-6 mt-4 flex h-20 items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors ${
+        isOver
+          ? "border-brand-purple-400 bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
+          : "border-border text-text-muted"
+      }`}
+    >
+      {vazio
+        ? "Comece arrastando blocos da paleta ao lado para montar o artigo"
+        : "Solte aqui para adicionar ao final do artigo"}
     </div>
   );
 }
