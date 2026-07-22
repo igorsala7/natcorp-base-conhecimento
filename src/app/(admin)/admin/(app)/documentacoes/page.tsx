@@ -49,15 +49,20 @@ export default async function DocumentacoesPage() {
 
   const docs: DocResumo[] = await Promise.all(
     spaces.map(async (s) => {
-      const [{ count: chunksIndexados }, canEdit, canDelete] = await Promise.all([
-        supabase
-          .from("chunks")
-          .select("id", { count: "exact", head: true })
-          .eq("space_id", s.id)
-          .not("embedding", "is", null),
-        hasPermission("content.edit", s.id),
-        hasPermission("space.delete", s.id),
-      ]);
+      const [{ count: chunksIndexados }, { count: arquivosBot }, canEdit, canDelete] =
+        await Promise.all([
+          supabase
+            .from("chunks")
+            .select("id", { count: "exact", head: true })
+            .eq("space_id", s.id)
+            .not("embedding", "is", null),
+          supabase
+            .from("knowledge_documents")
+            .select("id", { count: "exact", head: true })
+            .eq("space_id", s.id),
+          hasPermission("content.edit", s.id),
+          hasPermission("space.delete", s.id),
+        ]);
       const c = porEspaco.get(s.id) ?? { publicados: 0, rascunhos: 0, emRevisao: 0, pastas: 0 };
       return {
         id: s.id,
@@ -67,6 +72,7 @@ export default async function DocumentacoesPage() {
         visibility: s.visibility,
         ...c,
         chunksIndexados: chunksIndexados ?? 0,
+        arquivosBot: arquivosBot ?? 0,
         canEdit,
         canDelete,
         // Cliente herdando desta? A exclusão é travada no banco; o aviso na

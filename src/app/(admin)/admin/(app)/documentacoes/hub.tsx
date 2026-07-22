@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Bot,
   Database,
   ExternalLink,
   Eye,
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
+import { KbUploadButton } from "@/components/admin/kb-upload-button";
 import { useConfirm } from "@/components/ui/confirm";
 import { deleteSpace, reindexSpaceEmbeddings } from "./actions";
 
@@ -36,6 +38,8 @@ export type DocResumo = {
   emRevisao: number;
   pastas: number;
   chunksIndexados: number;
+  /** Arquivos na base de conhecimento do chatbot. */
+  arquivosBot: number;
   canEdit: boolean;
   canDelete: boolean;
   /** Tem clientes herdando — a exclusão é travada até eles saírem. */
@@ -201,6 +205,24 @@ export function DocsHub({
                   </Button>
                 )}
               </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
+                <Database className="size-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 text-sm">
+                  <strong className="font-medium tabular-nums">{d.arquivosBot}</strong>{" "}
+                  <span className="text-text-muted">
+                    documento(s) na base de conhecimento do chatbot
+                  </span>
+                </span>
+                {d.canEdit && (
+                  <KbUploadButton
+                    spaceId={d.id}
+                    onDone={(resumo) => {
+                      setMsg((m) => ({ ...m, [d.id]: resumo }));
+                      router.refresh();
+                    }}
+                  />
+                )}
+              </div>
               {msg[d.id] && (
                 <p role="status" className="-mt-2 text-xs text-text-muted">
                   {msg[d.id]}
@@ -217,7 +239,7 @@ export function DocsHub({
                 <Atalho href={`/admin/configuracoes?space=${d.id}`} icon={Settings}>
                   Preferências
                 </Atalho>
-                <Atalho href={`/admin/base-conhecimento?space=${d.id}`} icon={Database}>
+                <Atalho href={`/admin/chatbot?space=${d.id}`} icon={Bot}>
                   Chatbot
                 </Atalho>
                 <Atalho href={`/admin/previa/${d.id}`} icon={Eye}>
