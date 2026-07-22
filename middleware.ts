@@ -1,7 +1,13 @@
 import type { NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { resolveCustomDomain } from "@/lib/portal/custom-domain";
 
 export async function middleware(request: NextRequest) {
+  // Domínio próprio de documentação: reescreve para /docs/<slug>/… ANTES da
+  // sessão — portal público não depende de cookie de sessão.
+  const custom = await resolveCustomDomain(request);
+  if (custom) return custom;
+
   return updateSession(request);
 }
 

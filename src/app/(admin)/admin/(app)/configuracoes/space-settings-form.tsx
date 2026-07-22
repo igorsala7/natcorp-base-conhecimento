@@ -2,12 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
+import { CheckCircle2, Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
-import { updateSpaceSettings, clearSpaceEmbeddings } from "./actions";
+import { updateSpaceSettings, clearSpaceEmbeddings, verifyCustomDomain, type DomainCheck } from "./actions";
 
 type Current = {
   id: string;
@@ -39,6 +39,8 @@ export function SpaceSettingsForm({
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [dns, setDns] = useState<DomainCheck | null>(null);
+  const [verificando, setVerificando] = useState(false);
   const [clearMsg, setClearMsg] = useState<string | null>(null);
 
   async function clearEmbeddings() {
@@ -192,9 +194,57 @@ export function SpaceSettingsForm({
             onChange={(e) => setCustomDomain(e.target.value)}
           />
           <span className="mt-1 block text-xs text-text-muted">
-            Sem domínio, a URL pública é <code>{siteUrl}/docs/{current.slug}</code>. O apontamento DNS do domínio é configurado à parte.
+            Sem domínio, a URL pública é <code>{siteUrl}/docs/{current.slug}</code>. Com domínio
+            apontado, o portal desta documentação responde na raiz dele.
           </span>
         </label>
+
+        {customDomain.trim() && (
+          <div className="rounded-lg border border-border p-4 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 font-semibold">
+                <Globe className="size-4 text-text-muted" /> Conexão do domínio
+              </h2>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={verificando}
+                onClick={() => {
+                  setVerificando(true);
+                  void verifyCustomDomain(current.id).then((r) => {
+                    setDns(r);
+                    setVerificando(false);
+                  });
+                }}
+              >
+                {verificando ? "Verificando…" : dns ? "Verificar novamente" : "Verificar DNS"}
+              </Button>
+            </div>
+            {dns?.estado === "ok" && (
+              <p className="mt-2 flex items-center gap-1.5 text-primary">
+                <CheckCircle2 className="size-4" /> Conectado — CNAME aponta para {dns.alvo}.
+              </p>
+            )}
+            {dns?.estado === "apontando-errado" && (
+              <p className="mt-2 text-brand-pink-700">
+                O CNAME aponta para <code>{dns.alvo}</code>, mas deveria apontar para{" "}
+                <code>{dns.esperado}</code>.
+              </p>
+            )}
+            {dns?.estado === "nao-encontrado" && (
+              <p className="mt-2 text-text-muted">
+                Registro ainda não encontrado. Crie um CNAME de{" "}
+                <code>{customDomain.trim()}</code> para <code>{dns.esperado}</code> — a propagação
+                pode levar até 48h.
+              </p>
+            )}
+            <p className="mt-2 text-xs text-text-muted">
+              No seu provedor DNS: CNAME <code>{customDomain.trim()}</code> →{" "}
+              <code>{new URL(siteUrl).host}</code>. O certificado SSL depende da hospedagem deste
+              portal (fora do app).
+            </p>
+          </div>
+        )}
 
         <div className="flex justify-end">
           <Button onClick={save} disabled={pending}>

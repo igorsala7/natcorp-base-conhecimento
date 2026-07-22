@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { ThemeSchema } from "@/lib/portal/theme";
 import { validarSlugEspaco } from "@/lib/content/slug";
+import { env } from "@/lib/env";
 import type { Json } from "@/lib/database.types";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
@@ -224,4 +225,45 @@ export async function updateSpaceChatPrompt(
   });
   revalidatePath("/admin/aparencia");
   return { ok: true };
+}
+
+export type DomainCheck =
+  | { estado: "sem-dominio" }
+  | { estado: "ok"; alvo: string }
+  | { estado: "apontando-errado"; alvo: string; esperado: string }
+  | { estado: "nao-encontrado"; esperado: string };
+
+/**
+ * Verificação de DNS do domínio próprio (padrão HubSpot: estados claros +
+ * botão "Verificar novamente"). Espera um CNAME apontando para o host deste
+ * portal. Propagação pode levar até 48h — o estado "não encontrado" não é
+ * necessariamente erro de configuração.
+ */
+export async function verifyCustomDomain(spaceId: string): Promise<DomainCheck> {
+  try {
+    await requirePermission("space.manage", spaceId);
+  } catch {
+    return { estado: "sem-dominio" };
+  }
+  const supabase = await createClient();
+  const { data: space } = await supabase
+    .from("spaces")
+    .select("custom_domain")
+    .eq("id", spaceId)
+    .maybeSingle();
+  const dominio = space?.custom_domain?.trim();
+  if (!dominio) return { estado: "sem-dominio" };
+
+  const esperado = new URL(env.NEXT_PUBLIC_SITE_URL).host.split(":")[0]!.toLowerCase();
+  const { resolveCname } = await import("node:dns/promises");
+  try {
+    const alvos = await resolveCname(dominio);
+    const alvo = alvos[0]?.replace(/\.$/, "").toLowerCase() ?? "";
+    if (alvos.some((a) => a.replace(/\.$/, "").toLowerCase() === esperado)) {
+      return { estado: "ok", alvo };
+    }
+    return { estado: "apontando-errado", alvo, esperado };
+  } catch {
+    return { estado: "nao-encontrado", esperado };
+  }
 }
