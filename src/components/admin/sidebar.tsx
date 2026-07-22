@@ -138,7 +138,7 @@ export function Sidebar() {
         onFocusCapture={abrir}
         onBlurCapture={agendarFechar}
         className={cn(
-          "absolute inset-y-0 left-0 z-30 flex flex-col border-r border-border bg-surface",
+          "absolute inset-y-0 left-0 z-30 flex flex-col border-r border-brand-gray-800 bg-brand-gray-950 text-brand-gray-100",
           "transition-[width] duration-base ease-out motion-reduce:transition-none",
           expandida ? "w-60" : "w-16",
           // Só sombra quando flutua sobre o conteúdo; fixada, ela faz parte do
@@ -148,19 +148,24 @@ export function Sidebar() {
       >
         <div
           className={cn(
-            "flex h-14 items-center border-b border-border",
-            collapsed ? "justify-center px-2" : "gap-2 px-5",
+            "flex h-14 items-center border-b border-brand-gray-800/80",
+            collapsed ? "justify-center px-2" : "gap-2.5 px-5",
           )}
         >
           <div
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-fg text-sm font-bold"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-brand-purple-500 to-brand-purple-800 text-sm font-bold text-white shadow-1"
             aria-hidden
           >
             N
           </div>
           {!collapsed && (
-            <span className="flex-1 truncate text-sm font-semibold tracking-tight">
-              Base de Conhecimento
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-sm font-bold text-white">
+                Base de Conhecimento
+              </span>
+              <span className="block text-[0.625rem] font-medium uppercase tracking-widest text-brand-gray-500">
+                Studio
+              </span>
             </span>
           )}
         </div>
@@ -171,9 +176,9 @@ export function Sidebar() {
               {grupo.label &&
                 (collapsed ? (
                   // Recolhida não há espaço para o rótulo: o grupo vira um traço.
-                  <div className="mx-2 mb-2 border-t border-border" aria-hidden="true" />
+                  <div className="mx-2 mb-2 border-t border-brand-gray-800" aria-hidden="true" />
                 ) : (
-                  <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
+                  <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-brand-gray-500">
                     {grupo.label}
                   </p>
                 ))}
@@ -198,7 +203,7 @@ export function Sidebar() {
                     return (
                       <span
                         key={item.href}
-                        className={cn(base, "cursor-not-allowed text-text-muted opacity-60")}
+                        className={cn(base, "cursor-not-allowed text-brand-gray-500 opacity-60")}
                         title={
                           collapsed ? `${item.label} — em fase futura` : "Disponível em fase futura"
                         }
@@ -218,8 +223,8 @@ export function Sidebar() {
                       className={cn(
                         base,
                         active
-                          ? "bg-brand-purple-50 font-semibold text-primary dark:bg-brand-purple-950/40"
-                          : "font-medium text-text hover:bg-surface-2",
+                          ? "bg-brand-purple-500/15 font-semibold text-brand-purple-300 ring-1 ring-inset ring-brand-purple-500/30"
+                          : "font-medium text-brand-gray-400 hover:bg-white/5 hover:text-brand-gray-100",
                       )}
                     >
                       {/* Barra + peso além do fundo: o estado ativo não pode
@@ -227,7 +232,7 @@ export function Sidebar() {
                       {active && (
                         <span
                           aria-hidden="true"
-                          className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-primary"
+                          className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-brand-purple-400"
                         />
                       )}
                       <Icon className="size-4 shrink-0" />
@@ -248,7 +253,7 @@ export function Sidebar() {
           aria-pressed={pinned}
           title={pinned ? "Desafixar menu (recolhe sozinho)" : "Fixar menu aberto"}
           className={cn(
-            "flex items-center border-t border-border p-3 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text",
+            "flex items-center border-t border-brand-gray-800/80 p-3 text-xs text-brand-gray-500 transition-colors hover:bg-white/5 hover:text-brand-gray-200",
             collapsed ? "justify-center" : "gap-2",
           )}
         >

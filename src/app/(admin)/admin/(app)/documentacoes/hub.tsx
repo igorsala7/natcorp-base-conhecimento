@@ -151,10 +151,16 @@ export function DocsHub({
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {docs.map((d) => {
+        {docs.map((d, i) => {
           const vis = VISIBILIDADE[d.visibility];
           return (
-            <Surface key={d.id} elevation={1} padding="lg" className="flex flex-col gap-4">
+            <Surface
+              key={d.id}
+              elevation={1}
+              padding="lg"
+              style={{ animationDelay: `${i * 60}ms` }}
+              className="animate-fade-up flex flex-col gap-4 transition-shadow hover:shadow-2"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h2 className="truncate text-lg font-semibold tracking-tight">{d.name}</h2>
