@@ -68,6 +68,8 @@ export default async function ConfiguracoesPage({
           slug: current.slug,
           visibility: current.visibility,
           custom_domain: current.custom_domain,
+          access_referrers: current.access_referrers,
+          access_denied_message: current.access_denied_message,
         }}
         hasPassword={temSenha === true}
         siteUrl={env.NEXT_PUBLIC_SITE_URL}

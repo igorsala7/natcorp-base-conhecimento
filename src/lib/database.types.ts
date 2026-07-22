@@ -1386,6 +1386,8 @@ export type Database = {
       }
       spaces: {
         Row: {
+          access_denied_message: string | null
+          access_referrers: string[] | null
           chat_prompt: string | null
           created_at: string
           custom_domain: string | null
@@ -1398,6 +1400,8 @@ export type Database = {
           visibility: string
         }
         Insert: {
+          access_denied_message?: string | null
+          access_referrers?: string[] | null
           chat_prompt?: string | null
           created_at?: string
           custom_domain?: string | null
@@ -1410,6 +1414,8 @@ export type Database = {
           visibility?: string
         }
         Update: {
+          access_denied_message?: string | null
+          access_referrers?: string[] | null
           chat_prompt?: string | null
           created_at?: string
           custom_domain?: string | null

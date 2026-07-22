@@ -64,13 +64,16 @@ const schema = z.object({
     .or(z.literal("")),
   // Opcional: define/atualiza a senha (só quando visibility='password').
   password: z.string().min(4).max(200).optional().or(z.literal("")),
+  /** URLs de origem permitidas (Referer) — vazio = sem restrição. */
+  accessReferrers: z.array(z.string().trim().url().max(300)).max(10).optional(),
+  accessDeniedMessage: z.string().trim().max(300).optional(),
 });
 
 /** Atualiza nome, visibilidade e domínio do espaço. Exige space.manage. */
 export async function updateSpaceSettings(input: unknown): Promise<SettingsResult> {
   const parsed = schema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-  const { spaceId, name, slug, visibility, customDomain, password } = parsed.data;
+  const { spaceId, name, slug, visibility, customDomain, password, accessReferrers, accessDeniedMessage } = parsed.data;
 
   try {
     await requirePermission("space.manage", spaceId);
@@ -90,7 +93,7 @@ export async function updateSpaceSettings(input: unknown): Promise<SettingsResul
   }
   const { data: before } = await supabase
     .from("spaces")
-    .select("name, visibility, custom_domain, slug")
+    .select("name, visibility, custom_domain, slug, access_referrers, access_denied_message")
     .eq("id", spaceId)
     .single();
 
@@ -106,12 +109,15 @@ export async function updateSpaceSettings(input: unknown): Promise<SettingsResul
   }
 
   const domain = (customDomain ?? "").trim() || null;
+  const referrers = (accessReferrers ?? []).filter(Boolean);
   const { error } = await supabase
     .from("spaces")
     .update({
       name: name.trim(),
       visibility,
       custom_domain: domain,
+      access_referrers: referrers.length ? referrers : null,
+      access_denied_message: accessDeniedMessage?.trim() || null,
       ...(novaSlug ? { slug: novaSlug } : {}),
     })
     .eq("id", spaceId);
@@ -139,7 +145,13 @@ export async function updateSpaceSettings(input: unknown): Promise<SettingsResul
     entityId: spaceId,
     spaceId,
     before,
-    after: { name, visibility, custom_domain: domain, ...(novaSlug ? { slug: novaSlug } : {}) },
+    after: {
+      name,
+      visibility,
+      custom_domain: domain,
+      access_referrers: referrers.length ? referrers : null,
+      ...(novaSlug ? { slug: novaSlug } : {}),
+    },
   });
   revalidatePath("/admin/configuracoes");
   revalidatePath("/admin/conteudo");

@@ -1,11 +1,13 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createPublicClient } from "@/lib/supabase/public";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
 import { getEffectiveTreePublic } from "@/lib/content/overlays";
 import { spaceCookieName, verifySpaceToken } from "@/lib/portal/space-auth";
+import { origemPermitida, originCookieName, temRestricaoDeOrigem } from "@/lib/portal/origin-gate";
+import { env } from "@/lib/env";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import type { Block } from "@/lib/blocks/schema";
 
@@ -22,6 +24,10 @@ export type PortalSpace = PublicSpace & {
   visibility: "public" | "password";
   type: string;
   parent_space_id: string | null;
+  /** Restrição de acesso por origem (Referer) — null/vazio = livre. */
+  access_referrers: string[] | null;
+  access_denied_message: string | null;
+  custom_domain: string | null;
 };
 
 /**
@@ -33,7 +39,9 @@ export async function resolvePortalSpace(spaceSlug: string): Promise<PortalSpace
   const supabase = createAdminClient();
   let { data } = await supabase
     .from("spaces")
-    .select("id, slug, name, theme, visibility, type, parent_space_id")
+    .select(
+      "id, slug, name, theme, visibility, type, parent_space_id, access_referrers, access_denied_message, custom_domain",
+    )
     .eq("slug", spaceSlug)
     .in("visibility", ["public", "password"])
     .maybeSingle();
@@ -50,7 +58,9 @@ export async function resolvePortalSpace(spaceSlug: string): Promise<PortalSpace
     if (!hist) return null;
     const { data: porId } = await supabase
       .from("spaces")
-      .select("id, slug, name, theme, visibility, type, parent_space_id")
+      .select(
+        "id, slug, name, theme, visibility, type, parent_space_id, access_referrers, access_denied_message, custom_domain",
+      )
       .eq("id", hist.space_id)
       .in("visibility", ["public", "password"])
       .maybeSingle();
@@ -65,6 +75,9 @@ export async function resolvePortalSpace(spaceSlug: string): Promise<PortalSpace
     visibility: data.visibility as "public" | "password",
     type: data.type,
     parent_space_id: data.parent_space_id,
+    access_referrers: data.access_referrers,
+    access_denied_message: data.access_denied_message,
+    custom_domain: data.custom_domain,
   };
 }
 
@@ -102,14 +115,23 @@ export async function getPublicSpace(
 }
 
 export type PortalAccess =
-  | { space: PortalSpace; locked: true; db: null }
-  | { space: PortalSpace; locked: false; db: PortalDb };
+  | { space: PortalSpace; locked: true; reason: "password" | "origin"; db: null }
+  | {
+      space: PortalSpace;
+      locked: false;
+      db: PortalDb;
+      /** Liberado pelo Referer mas ainda sem cookie: a página persiste via action. */
+      grantOriginCookie: boolean;
+    };
 
 /**
  * Resolve o acesso do portal a um espaço:
  * - público → cliente anon (RLS);
  * - com senha → se o cookie assinado for válido, cliente service-role; senão
  *   `locked` (a página mostra o formulário de senha);
+ * - com restrição de ORIGEM → libera por cookie assinado OU pelo Referer
+ *   (origem/prefixo das URLs configuradas; navegação interna sempre passa);
+ *   senão `locked` com reason "origin" (página bloqueada com o tema);
  * - privado/inexistente → null (404).
  */
 export async function getPortalAccess(spaceSlug: string): Promise<PortalAccess | null> {
@@ -117,10 +139,31 @@ export async function getPortalAccess(spaceSlug: string): Promise<PortalAccess |
   if (!space) return null;
   if (space.visibility === "password") {
     const token = (await cookies()).get(spaceCookieName(space.id))?.value;
-    if (!verifySpaceToken(space.id, token)) return { space, locked: true, db: null };
-    return { space, locked: false, db: createAdminClient() };
+    if (!verifySpaceToken(space.id, token))
+      return { space, locked: true, reason: "password", db: null };
+    return { space, locked: false, db: createAdminClient(), grantOriginCookie: false };
   }
-  return { space, locked: false, db: createPublicClient() };
+
+  if (temRestricaoDeOrigem(space.access_referrers)) {
+    const jar = await cookies();
+    const token = jar.get(originCookieName(space.id))?.value;
+    if (verifySpaceToken(space.id, token)) {
+      return { space, locked: false, db: createPublicClient(), grantOriginCookie: false };
+    }
+    const referer = (await headers()).get("referer");
+    const selfHosts = [
+      new URL(env.NEXT_PUBLIC_SITE_URL).host.split(":")[0]!,
+      ...(space.custom_domain ? [space.custom_domain] : []),
+    ];
+    if (origemPermitida(referer, space.access_referrers ?? [], selfHosts)) {
+      // Sem cookie ainda: a página monta o setter invisível que o grava via
+      // action (Server Component não pode escrever cookie durante o render).
+      return { space, locked: false, db: createPublicClient(), grantOriginCookie: true };
+    }
+    return { space, locked: true, reason: "origin", db: null };
+  }
+
+  return { space, locked: false, db: createPublicClient(), grantOriginCookie: false };
 }
 
 /** Todos os nós publicados do espaço (flat), ordenados por posição. */

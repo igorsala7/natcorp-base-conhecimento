@@ -89,7 +89,7 @@ export default async function DocumentacoesPage() {
     <div className="mx-auto max-w-5xl">
       <DocsHub
         docs={docs}
-        spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug, type: s.type, parent_space_id: s.parent_space_id, visibility: s.visibility, custom_domain: s.custom_domain }))}
+        spaces={spaces}
         canCreate={canCreate}
       />
     </div>

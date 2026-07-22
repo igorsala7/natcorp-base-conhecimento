@@ -15,6 +15,9 @@ import {
 import { PortalShell, spaceChrome } from "@/components/portal/shell";
 import { SpaceHomeView, type DadosHome } from "@/components/portal/space-home";
 import { PasswordGate } from "@/components/portal/password-gate";
+import { OriginGate } from "@/components/portal/origin-gate";
+import { OriginCookieSetter } from "@/components/portal/origin-cookie-setter";
+import { makeSpaceToken } from "@/lib/portal/space-auth";
 
 export async function generateMetadata({
   params,
@@ -53,8 +56,18 @@ export default async function SpaceHome({
   const { space: spaceSlug } = await params;
   const access = await getPortalAccess(spaceSlug);
   if (!access) notFound();
-  if (access.locked) return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  if (access.locked) {
+    // Dois motivos de bloqueio: senha (formulário) e origem (página com o
+    // tema e a mensagem parametrizada — não há o que digitar).
+    if (access.reason === "origin") return <OriginGate space={access.space} />;
+    return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  }
   const { space, db } = access;
+  // Liberado pelo Referer mas ainda sem cookie: o setter invisível persiste a
+  // liberação (7 dias) — recarregar e abrir em nova aba continuam funcionando.
+  const originSetter = access.grantOriginCookie ? (
+    <OriginCookieSetter spaceSlug={space.slug} token={makeSpaceToken(space.id)} />
+  ) : null;
 
   // Slug aposentada → 301 para a atual (ver `resolvePortalSpace`).
   if (space.slug !== spaceSlug) permanentRedirect(`/docs/${space.slug}`);
@@ -71,6 +84,7 @@ export default async function SpaceHome({
     const { tema } = spaceChrome(space);
     return (
       <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
+      {originSetter}
         <div className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
           <Link
             href={`/docs/${spaceSlug}`}
@@ -178,6 +192,7 @@ export default async function SpaceHome({
 
   return (
     <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
+      {originSetter}
       <SpaceHomeView tema={tema} dados={dados} />
     </PortalShell>
   );

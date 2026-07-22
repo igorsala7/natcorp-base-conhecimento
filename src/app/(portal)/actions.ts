@@ -9,9 +9,11 @@ import {
   flattenPortalTree,
 } from "@/lib/portal/data";
 import { slugify } from "@/lib/content/slug";
+import { originCookieName } from "@/lib/portal/origin-gate";
 import {
   spaceCookieName,
   makeSpaceToken,
+  verifySpaceToken,
   SPACE_COOKIE_MAX_AGE,
 } from "@/lib/portal/space-auth";
 import { portalRateLimitOk } from "@/lib/portal/rate-limit";
@@ -193,6 +195,28 @@ export async function verifySpacePassword(
 
   const store = await cookies();
   store.set(spaceCookieName(space.id), makeSpaceToken(space.id), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SPACE_COOKIE_MAX_AGE,
+  });
+  return { ok: true };
+}
+
+/**
+ * Persiste a liberação por ORIGEM: a página validou o Referer e emitiu um
+ * token assinado; aqui só conferimos a assinatura e gravamos o cookie — o
+ * cliente nunca fabrica um token válido sem o segredo do servidor.
+ */
+export async function persistOriginCookie(
+  spaceSlug: string,
+  token: string,
+): Promise<{ ok: boolean }> {
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space || !verifySpaceToken(space.id, token)) return { ok: false };
+  const store = await cookies();
+  store.set(originCookieName(space.id), makeSpaceToken(space.id), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

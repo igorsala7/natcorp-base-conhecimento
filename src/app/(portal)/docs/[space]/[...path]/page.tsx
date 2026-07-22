@@ -22,6 +22,9 @@ import { blocksToText } from "@/lib/blocks/serialize";
 import { PortalShell, Breadcrumbs, spaceChrome } from "@/components/portal/shell";
 import { SearchTrigger, AskTrigger } from "@/components/portal/portal-search";
 import { PasswordGate } from "@/components/portal/password-gate";
+import { OriginGate } from "@/components/portal/origin-gate";
+import { OriginCookieSetter } from "@/components/portal/origin-cookie-setter";
+import { makeSpaceToken } from "@/lib/portal/space-auth";
 import { Feedback } from "@/components/portal/feedback";
 import { ReadingScroll } from "@/components/portal/reading-scroll";
 
@@ -66,8 +69,18 @@ export default async function DocsPage({
   const { space: spaceSlug, path } = await params;
   const access = await getPortalAccess(spaceSlug);
   if (!access) notFound();
-  if (access.locked) return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  if (access.locked) {
+    // Dois motivos de bloqueio: senha (formulário) e origem (página com o
+    // tema e a mensagem parametrizada — não há o que digitar).
+    if (access.reason === "origin") return <OriginGate space={access.space} />;
+    return <PasswordGate spaceSlug={spaceSlug} spaceName={access.space.name} />;
+  }
   const { space, db } = access;
+  // Liberado pelo Referer mas ainda sem cookie: o setter invisível persiste a
+  // liberação (7 dias) — recarregar e abrir em nova aba continuam funcionando.
+  const originSetter = access.grantOriginCookie ? (
+    <OriginCookieSetter spaceSlug={space.slug} token={makeSpaceToken(space.id)} />
+  ) : null;
 
   // A URL veio com uma slug APOSENTADA: 301 para a atual, preservando o
   // caminho. É o que impede um link já compartilhado de morrer.
@@ -89,6 +102,7 @@ export default async function DocsPage({
     // Página inexistente → resposta amigável (com busca/IA), não um beco sem saída.
     return (
       <PortalShell space={space} tree={tree} activePath="">
+      {originSetter}
         <div className="mx-auto max-w-md py-16 text-center">
           <p className="text-sm font-medium uppercase tracking-wide text-text-muted">404</p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight">Página não encontrada</h1>
@@ -145,6 +159,7 @@ export default async function DocsPage({
   if (artigos.length === 0) {
     return (
       <PortalShell space={space} tree={tree} activePath={activePath}>
+      {originSetter}
         <Breadcrumbs spaceSlug={spaceSlug} crumbs={ancestorsOf(tree, node.id).slice(0, -1)} spaceName={space.name} />
         <h1 className="mt-3 text-[length:var(--l-page,var(--text-4xl))] font-semibold leading-[1.1]">
           {node.title}
@@ -254,6 +269,7 @@ export default async function DocsPage({
 
   return (
     <PortalShell space={space} tree={tree} activePath={activePath} toc={toc} activeNodeId={atual?.id ?? null}>
+      {originSetter}
       {/* `.leitura` + data-size ligam a escala tipográfica do tema (Aparência →
           Leitura). "large" reproduz a escala original via fallbacks. */}
       <article className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Globe, Lock, KeyRound, Sparkles, Eraser } from "lucide-react";
+import { CheckCircle2, Globe, Lock, KeyRound, ShieldAlert, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
@@ -15,6 +15,8 @@ type Current = {
   slug: string;
   visibility: "public" | "private" | "password";
   custom_domain: string | null;
+  access_referrers: string[] | null;
+  access_denied_message: string | null;
 };
 
 export function SpaceSettingsForm({
@@ -41,6 +43,8 @@ export function SpaceSettingsForm({
   const [clearing, setClearing] = useState(false);
   const [dns, setDns] = useState<DomainCheck | null>(null);
   const [verificando, setVerificando] = useState(false);
+  const [origens, setOrigens] = useState((current.access_referrers ?? []).join("\n"));
+  const [msgBloqueio, setMsgBloqueio] = useState(current.access_denied_message ?? "");
   const [clearMsg, setClearMsg] = useState<string | null>(null);
 
   async function clearEmbeddings() {
@@ -71,7 +75,19 @@ export function SpaceSettingsForm({
       return;
     }
     startTransition(async () => {
-      const r = await updateSpaceSettings({ spaceId: current.id, name, slug, visibility, customDomain, password });
+      const r = await updateSpaceSettings({
+        spaceId: current.id,
+        name,
+        slug,
+        visibility,
+        customDomain,
+        password,
+        accessReferrers: origens
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
+        accessDeniedMessage: msgBloqueio,
+      });
       setMsg(r.ok ? "Configurações salvas." : r.error);
       if (r.ok) {
         setPassword("");
@@ -245,6 +261,44 @@ export function SpaceSettingsForm({
             </p>
           </div>
         )}
+
+        <div className="rounded-lg border border-border p-4 text-sm">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <ShieldAlert className="size-4 text-text-muted" /> Acesso por origem
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">
+            Com URLs abaixo, a documentação só abre para quem VEM delas (ex.: o portal do
+            colaborador). Parâmetros variáveis não atrapalham: a comparação é pela origem e pelo
+            início do caminho. Quem chegar de outro lugar vê a página bloqueada com a mensagem.
+          </p>
+          <label className="mt-3 block">
+            <span className="mb-1 block font-medium text-text-muted">
+              URLs permitidas (uma por linha; vazio = sem restrição)
+            </span>
+            <textarea
+              rows={3}
+              value={origens}
+              onChange={(e) => setOrigens(e.target.value)}
+              placeholder={"https://www.natcorp.com.br/apex/f?p=200"}
+              className={controlClass}
+            />
+          </label>
+          <label className="mt-3 block">
+            <span className="mb-1 block font-medium text-text-muted">Mensagem da página bloqueada</span>
+            <input
+              value={msgBloqueio}
+              onChange={(e) => setMsgBloqueio(e.target.value)}
+              maxLength={300}
+              placeholder="Acesso restrito apenas através do portal do colaborador."
+              className={controlClass}
+            />
+          </label>
+          <p className="mt-2 text-xs text-text-muted">
+            Nota técnica: entre sites, o navegador costuma enviar só a ORIGEM (https://host) no
+            Referer — o caminho é verificado quando disponível. Após o primeiro acesso válido, o
+            leitor fica liberado por 7 dias neste navegador.
+          </p>
+        </div>
 
         <div className="flex justify-end">
           <Button onClick={save} disabled={pending}>
