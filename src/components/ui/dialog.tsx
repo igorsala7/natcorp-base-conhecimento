@@ -124,7 +124,9 @@ export function Dialog({
         aria-labelledby="dialog-titulo"
         aria-describedby={description ? "dialog-descricao" : undefined}
         className={cn(
-          "flex w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-3",
+          // max-h-full = viewport menos o padding do scrim: o diálogo nunca
+          // passa da tela; quem rola é o CORPO (header e footer ficam fixos).
+          "flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-3",
           "motion-safe:animate-[scalein_150ms_var(--ease-out)]",
           SIZES[size],
           className,
@@ -154,10 +156,14 @@ export function Dialog({
           </div>
         </div>
 
-        {children && <div className={bodyClassName ?? "px-6 py-4"}>{children}</div>}
+        {children && (
+          <div className={cn("slim-scroll min-h-0 flex-1 overflow-y-auto", bodyClassName ?? "px-6 py-4")}>
+            {children}
+          </div>
+        )}
 
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2 px-6 pb-5 pt-1">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-6 pb-5 pt-1">
             {footer}
           </div>
         )}
