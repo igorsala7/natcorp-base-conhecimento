@@ -31,7 +31,7 @@ import {
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { NodePropertiesDialog } from "./node-properties-dialog";
 import { useConfirm } from "@/components/ui/confirm";
-import { publishSubtree, reindexSubtreeEmbeddings } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   flatten,
   getProjection,
@@ -346,25 +346,9 @@ export function Tree({
               type="button"
               title="Gerar embeddings (pasta toda)"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
-              onClick={async () => {
-                if (
-                  await confirmar({
-                    title: "Gerar embeddings",
-                    description: `Gerar embeddings de TODOS os artigos dentro de "${item.node.title}" (todos os níveis)? Pode levar minutos.`,
-                    confirmLabel: "Gerar",
-                  })
-                )
-                  startTransition(async () => {
-                    setMessage("Gerando embeddings…");
-                    const r = await reindexSubtreeEmbeddings(item.id);
-                    setMessage(
-                      r.ok
-                        ? `Embeddings gerados: ${r.count} artigo(s).`
-                        : (r.error ?? "Falha."),
-                    );
-                    router.refresh();
-                  });
-              }}
+              onClick={() =>
+                router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${item.id}`)
+              }
             >
               <Sparkles className="size-3.5" />
             </button>
@@ -572,29 +556,8 @@ export function Tree({
             type="button"
             size="sm"
             variant="ghost"
-            title="Gerar embeddings dos itens marcados, incluindo tudo abaixo na hierarquia"
-            onClick={async () => {
-              const ids = [...checkedIds];
-              if (
-                !(await confirmar({
-                  title: "Gerar embeddings",
-                  description: `Gerar embeddings de ${ids.length} item(ns) selecionado(s), incluindo todo o conteúdo abaixo? Pode levar minutos.`,
-                  confirmLabel: "Gerar",
-                }))
-              )
-                return;
-              startTransition(async () => {
-                setMessage("Gerando embeddings…");
-                let total = 0;
-                for (const id of ids) {
-                  const r = await reindexSubtreeEmbeddings(id);
-                  if (r.ok) total += r.count;
-                }
-                setMessage(`Embeddings gerados: ${total} artigo(s).`);
-                clearSelection();
-                router.refresh();
-              });
-            }}
+            title="Abrir a gestão de embeddings desta documentação"
+            onClick={() => router.push(`/admin/importar?tab=embeddings&space=${spaceId}`)}
           >
             Gerar embeddings
           </Button>

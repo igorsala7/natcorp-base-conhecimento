@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { InlineArticleEditor } from "@/components/content/inline-article-editor";
+import { ImageLightbox } from "@/components/portal/image-lightbox";
 import { publishPendingDrafts } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
 import type { PreviewNode, PreviewArticle } from "@/lib/content/preview";
@@ -35,6 +36,7 @@ function percorrer(nodes: PreviewNode[], depth = 0): Item[] {
 
 export function PreviewDoc({
   fontSize = "normal",
+  divider = "band",
   spaceId,
   spaceName,
   spaceSlug,
@@ -46,6 +48,8 @@ export function PreviewDoc({
 }: {
   /** Escala tipográfica do tema — a prévia não pode mentir sobre a leitura. */
   fontSize?: "compact" | "normal" | "large";
+  /** Estilo do separador de seção do tema — a prévia usa o MESMO do portal. */
+  divider?: "band" | "line" | "space";
   spaceId: string;
   spaceName: string;
   spaceSlug: string;
@@ -201,10 +205,14 @@ export function PreviewDoc({
             esticava o conteúdo na largura sobrando e imagens/regiões saíam
             maiores do que a página publicada. */}
         <main className="leitura mx-auto min-w-0 w-full max-w-prose flex-1" data-size={fontSize}>
-          <h1 className="text-[length:var(--l-page,var(--text-3xl))] font-semibold leading-tight">{spaceName}</h1>
+          <h1 className="text-[length:var(--l-page,1.5rem)] font-bold leading-[1.15] tracking-tight sm:text-[length:calc(var(--l-page,1.5rem)+0.25rem)]">
+            {spaceName}
+          </h1>
           <p className="mt-2 text-sm text-text-muted">
             {artigos.length} {artigos.length === 1 ? "artigo" : "artigos"} em leitura contínua.
           </p>
+          {/* Clicar numa imagem amplia — igual ao portal publicado. */}
+          <ImageLightbox />
 
           {itens.length === 0 ? (
             <EmptyState
@@ -214,38 +222,58 @@ export function PreviewDoc({
               description="Crie um diretório ou artigo na árvore para ver a prévia aqui."
             />
           ) : (
-            itens.map(({ node, depth }) => {
+            itens.map(({ node, depth }, i) => {
               const info = STATUS[node.status];
               const selo = node.status !== "published" && info && (
                 <Badge tone={info.tom}>{info.rotulo}</Badge>
               );
 
               if (node.type === "folder") {
+                // MESMO cabeçalho de seção do portal: faixa/linha/só espaço vem do
+                // tema (Aparência → Leitura). A prévia tem de ser fiel ao publicado.
                 return (
                   <section
                     key={node.id}
                     id={ancora(node)}
                     className={
-                      depth === 0
-                        ? "mt-16 scroll-mt-6 border-t border-border pt-10 first:mt-10 first:border-0 first:pt-0"
-                        : "mt-12 scroll-mt-6"
+                      depth <= 1
+                        ? divider === "line"
+                          ? "mt-[40px] scroll-mt-6 border-t border-border pt-10 first:border-0 first:pt-0"
+                          : "mt-[40px] scroll-mt-6"
+                        : "mt-[40px] scroll-mt-6"
                     }
                   >
-                    <div className="flex items-center gap-2">
-                      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                        Seção
-                      </p>
-                      {selo}
-                    </div>
-                    <h2
-                      className={
-                        depth === 0
-                          ? "mt-1.5 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight"
-                          : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
-                      }
-                    >
-                      {node.title}
-                    </h2>
+                    {depth <= 1 && divider === "band" ? (
+                      <div className="rounded-xl bg-brand-purple-50 px-5 py-4 dark:bg-brand-purple-950/30">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+                            Seção
+                          </p>
+                          {selo}
+                        </div>
+                        <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
+                          {node.title}
+                        </h2>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                            Seção
+                          </p>
+                          {selo}
+                        </div>
+                        <h2
+                          className={
+                            depth <= 1
+                              ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
+                              : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
+                          }
+                        >
+                          {node.title}
+                        </h2>
+                      </>
+                    )}
                   </section>
                 );
               }
@@ -258,28 +286,43 @@ export function PreviewDoc({
                 <section
                   key={node.id}
                   id={ancora(node)}
-                  className="previa-alvo mt-12 scroll-mt-6"
+                  className="previa-alvo mt-[30px] scroll-mt-6"
                 >
+                  {/* Fronteira fina entre ARTIGOS consecutivos — idêntica ao portal. */}
+                  {i > 0 && itens[i - 1]?.node.type === "article" && (
+                    <hr className="mb-10 w-full border-border/60" />
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight">
-                      {node.title}
-                    </h3>
+                    <h3 className="text-[1.6rem] font-bold leading-tight">{node.title}</h3>
                     {selo}
                     {rascunhos.has(node.id) && <Badge tone="primary">Edição pendente</Badge>}
-                    <div className="ml-auto flex items-center gap-3">
-                      {modoEdicao && editandoId !== node.id && (
-                        <Button size="sm" variant="secondary" onClick={() => setEditandoId(node.id)}>
-                          <Pencil className="size-4" /> Editar
-                        </Button>
-                      )}
-                      <Link
-                        href={`/admin/conteudo/${node.id}`}
-                        className="text-xs text-primary underline-offset-4 hover:underline"
-                      >
-                        Editor completo
-                      </Link>
-                    </div>
+                    {/* Ferramentas de edição só no modo Editar: em leitura pura a
+                        prévia fica limpa, como a página publicada. */}
+                    {modoEdicao && (
+                      <div className="ml-auto flex items-center gap-3">
+                        {editandoId !== node.id && (
+                          <Button size="sm" variant="secondary" onClick={() => setEditandoId(node.id)}>
+                            <Pencil className="size-4" /> Editar
+                          </Button>
+                        )}
+                        <Link
+                          href={`/admin/conteudo/${node.id}`}
+                          className="text-xs text-primary underline-offset-4 hover:underline"
+                        >
+                          Editor completo
+                        </Link>
+                      </div>
+                    )}
                   </div>
+                  {/* Mesma linha de "Atualizado em" do portal (caso sem autor). */}
+                  {artigo?.updatedAt && (
+                    <p className="mt-1.5 text-xs text-text-muted">
+                      Atualizado em{" "}
+                      <time dateTime={new Date(artigo.updatedAt).toISOString()}>
+                        {new Date(artigo.updatedAt).toLocaleDateString("pt-BR")}
+                      </time>
+                    </p>
+                  )}
 
                   {modoEdicao && editandoId === node.id ? (
                     <div className="mt-5">

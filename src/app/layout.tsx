@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
+import { ThemeScript } from "@/components/theme-script";
 
 /**
  * Inter — grotesca neutra, padrão de documentação enterprise. Servida pelo
@@ -45,6 +46,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body>
+        {/* Anti-FOUC: injeta o script de tema no HTML pelo servidor, fora da
+            árvore reconciliada no cliente (evita o aviso do React 19.2). */}
+        <ThemeScript />
         <Providers>{children}</Providers>
       </body>
     </html>

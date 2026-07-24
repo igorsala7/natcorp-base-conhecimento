@@ -105,6 +105,39 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_usage: {
+        Row: {
+          created_at: string
+          id: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          provider: string
+          purpose: string
+          total_tokens: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          model: string
+          output_tokens?: number
+          provider: string
+          purpose: string
+          total_tokens?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          provider?: string
+          purpose?: string
+          total_tokens?: number
+        }
+        Relationships: []
+      }
       author_profiles: {
         Row: {
           active: boolean
@@ -318,6 +351,8 @@ export type Database = {
           content_json: Json
           content_text: string | null
           cover_image: string | null
+          embedding_context: string | null
+          embedding_context_hash: string | null
           excerpt: string | null
           id: string
           meta: Json
@@ -332,6 +367,8 @@ export type Database = {
           content_json?: Json
           content_text?: string | null
           cover_image?: string | null
+          embedding_context?: string | null
+          embedding_context_hash?: string | null
           excerpt?: string | null
           id?: string
           meta?: Json
@@ -346,6 +383,8 @@ export type Database = {
           content_json?: Json
           content_text?: string | null
           cover_image?: string | null
+          embedding_context?: string | null
+          embedding_context_hash?: string | null
           excerpt?: string | null
           id?: string
           meta?: Json
@@ -459,7 +498,11 @@ export type Database = {
           article_id: string | null
           content: string
           document_id: string | null
+          embedded_at: string | null
+          embedded_by: string | null
           embedding: string | null
+          embedding_model: string | null
+          embedding_provider: string | null
           heading_path: string | null
           id: string
           node_id: string | null
@@ -471,7 +514,11 @@ export type Database = {
           article_id?: string | null
           content: string
           document_id?: string | null
+          embedded_at?: string | null
+          embedded_by?: string | null
           embedding?: string | null
+          embedding_model?: string | null
+          embedding_provider?: string | null
           heading_path?: string | null
           id?: string
           node_id?: string | null
@@ -482,8 +529,12 @@ export type Database = {
         Update: {
           article_id?: string | null
           document_id?: string | null
+          embedded_at?: string | null
+          embedded_by?: string | null
           content?: string
           embedding?: string | null
+          embedding_model?: string | null
+          embedding_provider?: string | null
           heading_path?: string | null
           id?: string
           node_id?: string | null
@@ -584,6 +635,7 @@ export type Database = {
           smtp_port: number | null
           smtp_secure: boolean
           smtp_user: string | null
+          template: Json | null
           transport: string
           updated_at: string
           updated_by: string | null
@@ -596,6 +648,7 @@ export type Database = {
           smtp_port?: number | null
           smtp_secure?: boolean
           smtp_user?: string | null
+          template?: Json | null
           transport?: string
           updated_at?: string
           updated_by?: string | null
@@ -608,11 +661,62 @@ export type Database = {
           smtp_port?: number | null
           smtp_secure?: boolean
           smtp_user?: string | null
+          template?: Json | null
           transport?: string
           updated_at?: string
           updated_by?: string | null
         }
         Relationships: []
+      }
+      embedding_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          done: number
+          error: string | null
+          id: string
+          progress: number
+          scope: string
+          space_id: string
+          status: string
+          target_id: string | null
+          total: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          id?: string
+          progress?: number
+          scope: string
+          space_id: string
+          status?: string
+          target_id?: string | null
+          total?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          id?: string
+          progress?: number
+          scope?: string
+          space_id?: string
+          status?: string
+          target_id?: string | null
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "embedding_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       import_jobs: {
         Row: {
@@ -735,6 +839,8 @@ export type Database = {
           chunk_count: number
           created_at: string
           created_by: string | null
+          embedding_context: string | null
+          embedding_context_hash: string | null
           error: string | null
           id: string
           mime: string | null
@@ -748,6 +854,8 @@ export type Database = {
           chunk_count?: number
           created_at?: string
           created_by?: string | null
+          embedding_context?: string | null
+          embedding_context_hash?: string | null
           error?: string | null
           id?: string
           mime?: string | null
@@ -761,6 +869,8 @@ export type Database = {
           chunk_count?: number
           created_at?: string
           created_by?: string | null
+          embedding_context?: string | null
+          embedding_context_hash?: string | null
           error?: string | null
           id?: string
           mime?: string | null
@@ -1669,6 +1779,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
+          kind: string
           name: string
           public_key: string
           rate_limit: number
@@ -1682,6 +1793,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          kind?: string
           name?: string
           public_key: string
           rate_limit?: number
@@ -1695,6 +1807,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          kind?: string
           name?: string
           public_key?: string
           rate_limit?: number
@@ -1762,6 +1875,23 @@ export type Database = {
         Args: { p_node_id: string }
         Returns: undefined
       }
+      embeddings_report: {
+        Args: { p_space_id?: string | null }
+        Returns: {
+          origin_kind: string
+          origin_id: string
+          title: string
+          space_id: string
+          space_name: string
+          chunk_count: number
+          embedded_count: number
+          provider: string | null
+          model: string | null
+          embedded_at: string | null
+          embedded_by: string | null
+          status: string | null
+        }[]
+      }
       hybrid_search_scoped: {
         Args: {
           p_document_ids?: string[]
@@ -1783,6 +1913,17 @@ export type Database = {
       ai_provider_has_key: {
         Args: { p_provider_id: string }
         Returns: boolean
+      }
+      ai_usage_report: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          provider: string
+          model: string
+          input_tokens: number
+          output_tokens: number
+          total_tokens: number
+          calls: number
+        }[]
       }
       set_ai_provider_key: {
         Args: { p_key_enc: string; p_provider_id: string }

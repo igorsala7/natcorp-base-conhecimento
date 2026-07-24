@@ -2,18 +2,28 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getDefaultSpace } from "@/lib/content/tree";
-import { ImportManager, type ImportJobRow } from "./import-manager";
+import { listSpaces } from "@/lib/content/spaces";
+import { ImportarTabs } from "./importar-tabs";
+import type { ImportJobRow } from "./import-manager";
+import { listEmbeddingsReport } from "./embeddings-actions";
 
 export const metadata: Metadata = { title: "Importar" };
 
-export default async function ImportarPage() {
-  const canImport = await hasPermission("content.import");
-  if (!canImport) {
+export default async function ImportarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; space?: string; node?: string }>;
+}) {
+  const [canImport, canEmbed] = await Promise.all([
+    hasPermission("content.import"),
+    hasPermission("embeddings.reindex"),
+  ]);
+  if (!canImport && !canEmbed) {
     return (
       <div className="mx-auto max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight">Importar</h1>
         <p className="mt-2 text-text-muted">
-          Você não tem permissão para importar conteúdo.
+          Você não tem permissão para importar conteúdo ou gerenciar embeddings.
         </p>
       </div>
     );
@@ -25,23 +35,41 @@ export default async function ImportarPage() {
   }
 
   const supabase = await createClient();
-  const { data: jobs } = await supabase
-    .from("import_jobs")
-    .select("id, original_name, status, progress, error, created_at")
-    .eq("space_id", space.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const jobs = canImport
+    ? (
+        await supabase
+          .from("import_jobs")
+          .select("id, original_name, status, progress, error, created_at")
+          .eq("space_id", space.id)
+          .order("created_at", { ascending: false })
+          .limit(50)
+      ).data ?? []
+    : [];
+  const report = canEmbed ? await listEmbeddingsReport() : [];
+  const spaces = canEmbed ? (await listSpaces()).map((s) => ({ id: s.id, name: s.name })) : [];
+  const embJobs = canEmbed
+    ? (
+        await supabase
+          .from("embedding_jobs")
+          .select("id, space_id, scope, status, total, done, progress, error, created_at")
+          .in("status", ["queued", "running"])
+          .order("created_at", { ascending: false })
+      ).data ?? []
+    : [];
+  const { tab, space: spaceSel, node: nodeSel } = await searchParams;
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Importar documentos</h1>
-      <p className="mt-1 text-sm text-text-muted">
-        PDF, DOCX, HTML ou Markdown viram uma árvore de artigos após sua revisão.
-      </p>
-      <ImportManager
-        spaceId={space.id}
-        initialJobs={(jobs ?? []) as ImportJobRow[]}
-      />
-    </div>
+    <ImportarTabs
+      canImport={canImport}
+      canEmbed={canEmbed}
+      spaceId={space.id}
+      spaces={spaces}
+      initialJobs={jobs as ImportJobRow[]}
+      report={report}
+      embJobs={embJobs}
+      initialTab={tab}
+      initialSpaceId={spaceSel}
+      initialNodeId={nodeSel}
+    />
   );
 }

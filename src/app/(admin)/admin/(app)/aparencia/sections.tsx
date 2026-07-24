@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { eyebrowLabel } from "@/components/ui/field";
 import { addItemClass } from "@/components/ui/segmented";
 import { Input, controlClass } from "@/components/ui/input";
-import type { ThemeLink } from "@/lib/portal/theme";
+import {
+  SOCIAL_NETWORKS,
+  ROTULO_REDE,
+  type ThemeLink,
+  type ThemeSocial,
+  type SocialNetwork,
+} from "@/lib/portal/theme";
 
 /** Artigo publicado do espaço, para o seletor de destaques. */
 export type ArtigoDisponivel = { id: string; title: string; href: string };
@@ -111,6 +117,73 @@ export function LinksEditor({
           onClick={() => onChange([...links, { label: "", url: "" }])}
         >
           <Plus className="size-3.5" /> Adicionar link
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Placeholder de URL por rede — orienta o formato certo (mailto/wa.me/perfil). */
+function placeholderRede(net: SocialNetwork): string {
+  if (net === "email") return "mailto:contato@empresa.com";
+  if (net === "whatsapp") return "https://wa.me/5511999999999";
+  if (net === "website") return "https://suaempresa.com";
+  return "https://…/seu-perfil";
+}
+
+/** Editor das redes sociais do rodapé — {rede, URL}. */
+export function SocialEditor({
+  social,
+  max,
+  onChange,
+}: {
+  social: ThemeSocial[];
+  max: number;
+  onChange: (social: ThemeSocial[]) => void;
+}) {
+  const set = (i: number, patch: Partial<ThemeSocial>) =>
+    onChange(social.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+
+  return (
+    <div className="space-y-2">
+      {social.map((s, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <select
+            value={s.network}
+            onChange={(e) => set(i, { network: e.target.value as SocialNetwork })}
+            aria-label={`Rede social ${i + 1}`}
+            className={`${controlClass} w-32 shrink-0`}
+          >
+            {SOCIAL_NETWORKS.map((n) => (
+              <option key={n} value={n}>
+                {ROTULO_REDE[n]}
+              </option>
+            ))}
+          </select>
+          <Input
+            value={s.url}
+            onChange={(e) => set(i, { url: e.target.value })}
+            placeholder={placeholderRede(s.network)}
+            aria-label={`Endereço da rede ${i + 1}`}
+            className="min-w-0 flex-1"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Remover rede social"
+            onClick={() => onChange(social.filter((_, j) => j !== i))}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+      {social.length < max && (
+        <button
+          type="button"
+          className={addItemClass}
+          onClick={() => onChange([...social, { network: "instagram", url: "" }])}
+        >
+          <Plus className="size-3.5" /> Adicionar rede social
         </button>
       )}
     </div>

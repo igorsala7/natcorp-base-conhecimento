@@ -66,6 +66,13 @@ export function ReadingScroll({
   // Voltar/avançar do navegador restaura o scroll sozinho — reposicionar por
   // cima disso jogaria o leitor para o topo do artigo em vez de onde parou.
   const navegacaoPop = useRef(false);
+
+  // O scroll-spy sincroniza a URL com `history.replaceState` ao trocar de seção.
+  // No Next 16 (API nativa de History) isso ATUALIZA `usePathname()`, o que
+  // re-dispararia o efeito de posicionamento e jogaria o leitor de volta para o
+  // artigo aberto a cada rolagem entre seções. Esta marca faz o posicionamento
+  // ignorar a mudança de URL que ele mesmo (o spy) causou.
+  const spySync = useRef(false);
   useEffect(() => {
     const onPop = () => {
       navegacaoPop.current = true;
@@ -89,6 +96,12 @@ export function ReadingScroll({
     const posicionar = () => {
       if (navegacaoPop.current) {
         navegacaoPop.current = false;
+        return;
+      }
+      // Mudança de URL vinda do próprio scroll-spy: não reposiciona (senão a
+      // rolagem entre seções te devolveria ao artigo aberto).
+      if (spySync.current) {
+        spySync.current = false;
         return;
       }
       const lista = articlesRef.current;
@@ -146,6 +159,9 @@ export function ReadingScroll({
           // Mantém a URL do artigo que está sendo lido (sem recarregar).
           const url = `/docs/${spaceSlug}/${art.path}`;
           if (window.location.pathname !== url) {
+            // Avisa o efeito de posicionamento para ele ignorar ESTA troca de
+            // URL (no Next 16 o replaceState mexe no usePathname).
+            spySync.current = true;
             window.history.replaceState(null, "", url);
           }
           break;

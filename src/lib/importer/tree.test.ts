@@ -6,6 +6,8 @@ import {
   precisaAgruparComIa,
   contarNos,
   profundidade,
+  contentToInput,
+  nodesComConteudo,
 } from "./tree";
 import type { ProposedNode } from "./tree";
 import type { Extraction, ExtractedBlock } from "./extract";
@@ -162,5 +164,51 @@ describe("heuristicTree", () => {
       { type: "p", text: "mais" },
       { type: "img", image: 1 },
     ]);
+  });
+});
+
+describe("contentToInput", () => {
+  const no = (content: ProposedNode["content"]): ProposedNode => ({ title: "x", content, children: [] });
+
+  it("junta parágrafos e marca imagens com índice LOCAL, resolvendo URLs globais", () => {
+    const { text, images } = contentToInput(
+      no([
+        { type: "p", text: "Primeiro" },
+        { type: "img", image: 2 }, // índice global 2
+        { type: "p", text: "Segundo" },
+        { type: "img", image: 0 }, // índice global 0
+      ]).content,
+      ["u0", "u1", "u2"],
+    );
+    expect(text).toBe("Primeiro\n\n⟦IMG:0⟧\n\nSegundo\n\n⟦IMG:1⟧");
+    expect(images).toEqual([
+      { src: "u2", alt: "", caption: "" },
+      { src: "u0", alt: "", caption: "" },
+    ]);
+  });
+
+  it("URL ausente vira string vazia (não quebra)", () => {
+    const { images } = contentToInput(no([{ type: "img", image: 9 }]).content, []);
+    expect(images[0]!.src).toBe("");
+  });
+});
+
+describe("nodesComConteudo", () => {
+  it("devolve, em pré-ordem, só os nós com conteúdo (referências mutáveis)", () => {
+    const tree: ProposedNode[] = [
+      {
+        title: "Pasta",
+        content: [{ type: "p", text: "intro" }], // pasta com corpo entra
+        children: [
+          { title: "Vazia", content: [], children: [] }, // sem conteúdo, fora
+          { title: "Artigo", content: [{ type: "p", text: "corpo" }], children: [] },
+        ],
+      },
+    ];
+    const alvo = nodesComConteudo(tree);
+    expect(alvo.map((n) => n.title)).toEqual(["Pasta", "Artigo"]);
+    // referência, não cópia — mutar reflete na árvore
+    alvo[0]!.blocks = { version: 2, blocks: [] };
+    expect(tree[0]!.blocks).toBeDefined();
   });
 });

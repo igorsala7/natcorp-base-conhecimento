@@ -19,23 +19,22 @@ type GateSpace = {
 export function OriginGate({ space }: { space: GateSpace }) {
   const { style, tema, temaClasse } = spaceChrome(space);
 
-  // Mesma lógica de faixa da home (brand/image; "plain" ganha o gradiente da
-  // marca — a página bloqueada sem NENHUMA cor pareceria um erro do servidor).
-  const heroStyle =
-    tema.home.heroStyle === "image" && !tema.brand.coverUrl ? "brand" : tema.home.heroStyle;
-  const corDe = tema.brand.color ?? "#511C76";
-  const faixaCss: CSSProperties =
-    heroStyle === "image"
-      ? {
-          backgroundColor: "#191036",
-          backgroundImage: `linear-gradient(rgba(21,13,38,0.62), rgba(21,13,38,0.62)), url(${tema.brand.coverUrl})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }
-      : {
-          backgroundColor: corDe,
-          backgroundImage: `linear-gradient(135deg, ${corDe}, color-mix(in oklab, ${corDe} 45%, #191036))`,
-        };
+  // Mesma faixa da home: imagem quando há capa; senão a cor da abertura
+  // (a escolhida no tema ou a da marca). A página bloqueada sem NENHUMA cor
+  // pareceria um erro do servidor, então "plain" também ganha a cor.
+  const usaImagem = tema.home.heroStyle === "image" && !!tema.brand.coverUrl;
+  const corAbertura = tema.home.heroColor ?? tema.brand.color ?? "#511C76";
+  const faixaCss: CSSProperties = usaImagem
+    ? {
+        backgroundColor: "#191036",
+        backgroundImage: `linear-gradient(rgba(21,13,38,0.62), rgba(21,13,38,0.62)), url(${tema.brand.coverUrl})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : {
+        backgroundColor: corAbertura,
+        backgroundImage: `linear-gradient(135deg, ${corAbertura}, color-mix(in oklab, ${corAbertura} 45%, #191036))`,
+      };
 
   const mensagem =
     space.access_denied_message?.trim() ||

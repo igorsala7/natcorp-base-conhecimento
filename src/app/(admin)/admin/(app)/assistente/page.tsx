@@ -1,12 +1,25 @@
 import type { Metadata } from "next";
+import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { hasAiKey } from "@/lib/ai/config";
-import { ChatPanel } from "@/components/admin/chat-panel";
+import { SpaceSwitcher } from "@/components/content/space-switcher";
+import { AssistantWorkbench } from "./assistente-workbench";
 
 export const metadata: Metadata = { title: "Assistente" };
 
-export default async function AssistentePage() {
+/**
+ * Assistente da documentação: parametrizar a persona (system prompt) E testar no
+ * chat, tudo pela documentação selecionada. A persona vive em `spaces.chat_prompt`
+ * (a mesma que o Ask-AI do portal e os widgets usam pela cascata).
+ */
+export default async function AssistentePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ space?: string }>;
+}) {
+  // Ver a página (e testar) exige content.view; editar a persona exige
+  // space.manage — verificado por documentação abaixo.
   if (!(await hasPermission("content.view"))) {
     return (
       <div className="mx-auto max-w-2xl">
@@ -15,18 +28,50 @@ export default async function AssistentePage() {
       </div>
     );
   }
+
   const spaces = await listSpaces();
+  const { space } = await searchParams;
+  const atual = spaces.find((s) => s.id === space) ?? spaces[0];
+  if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
+
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("spaces")
+    .select("chat_prompt")
+    .eq("id", atual.id)
+    .maybeSingle();
+
+  const [canEdit, aiReady] = await Promise.all([
+    hasPermission("space.manage", atual.id),
+    hasAiKey(),
+  ]);
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-6.5rem)] max-w-3xl flex-col">
-      <div className="mb-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Assistente</h1>
-        <p className="text-sm text-text-muted">
-          Responde com base na documentação do espaço selecionado, com citações.
-          {!await hasAiKey() && " (Configure AI_API_KEY para ativar.)"}
-        </p>
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Assistente</h1>
+          <p className="mt-1 text-sm text-text-muted">
+            Ajuste a persona do assistente desta documentação e teste no chat ao lado — as
+            respostas usam só o conteúdo dela, com citações.
+            {!aiReady && " Configure a IA em Sistema para ativar."}
+          </p>
+        </div>
+        <div className="ml-auto">
+          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
+        </div>
       </div>
-      <ChatPanel spaces={spaces} aiReady={await hasAiKey()} />
+
+      <div className="mt-6">
+        {/* key por documentação: trocar de doc reinicia o rascunho e o chat. */}
+        <AssistantWorkbench
+          key={atual.id}
+          spaceId={atual.id}
+          chatPromptSalvo={row?.chat_prompt ?? ""}
+          canEdit={canEdit}
+          aiReady={aiReady}
+        />
+      </div>
     </div>
   );
 }

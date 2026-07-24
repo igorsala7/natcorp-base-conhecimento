@@ -60,10 +60,14 @@ export function contarPalavras(text: string): number {
 
 /**
  * Fração mínima de palavras que a saída precisa manter em relação à entrada.
- * Reformatar preserva o texto; 0,8 dá folga para a IA fundir rótulos soltos
- * ("Atenção:" virando o título de um callout) sem deixar passar um resumo.
+ *
+ * Voltou para 0,85 (jul/2026): o afrouxamento para 0,7 deixou a IA OMITIR
+ * parágrafos/títulos na importação (revisão do usuário pegou conteúdo faltando).
+ * Preservar o conteúdo vence a folga de reformatação — quando a IA encolhe
+ * demais, cai para "parágrafos fiéis", que não perdem nada. Um resumo real cai
+ * bem abaixo de 0,85, então a rede continua deixando passar reformatação honesta.
  */
-export const MINIMO_PALAVRAS = 0.8;
+export const MINIMO_PALAVRAS = 0.85;
 
 /**
  * Fração das palavras do ORIGINAL preservadas (com multiplicidade) no
@@ -96,8 +100,41 @@ export function contencaoDePalavras(original: string, resultado: string): number
 }
 
 /**
+ * Parágrafos do ORIGINAL que sumiram da saída — a IA "esqueceu" um trecho
+ * inteiro. É a revisão de completude por parágrafo: a rede de contenção acima
+ * é global (85% das palavras), então um único parágrafo solto (10% do texto)
+ * passa despercebido. Aqui cada parágrafo é conferido isolado — se quase
+ * nenhuma das suas palavras aparece no resultado, ele foi omitido e volta ao
+ * artigo (como a rede das imagens em [[reinsertImages]]). Só pega OMISSÃO, não
+ * reformatação: parágrafo virado em tabela/passos ainda tem suas palavras na
+ * saída, então não é sinalizado.
+ */
+export function paragrafosAusentes(original: string, resultado: string): string[] {
+  const tokenizar = (t: string) =>
+    t
+      .replace(/⟦IMG:\d+⟧/g, " ")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
+  const naSaida = new Set(tokenizar(resultado));
+  return original
+    .split(/\n{2,}/)
+    .map((p) => p.replace(/⟦IMG:\d+⟧/g, "").trim())
+    .filter((p) => {
+      const toks = tokenizar(p);
+      if (toks.length < 6) return false; // ignora linhas curtas (títulos soltos, "#", legendas)
+      const presentes = toks.filter((w) => naSaida.has(w)).length;
+      return presentes / toks.length < 0.35; // <35% das palavras na saída → sumiu
+    });
+}
+
+/**
  * Piso de contenção: abaixo disto, a IA reescreveu — recusa. O prompt permite
  * descartar ruído de extração (número de página, cabeçalho repetido), então o
  * piso não é 1.0.
+ *
+ * Voltou para 0,85 (jul/2026): junto com MINIMO_PALAVRAS, protege contra a IA
+ * que OMITE ou PARAFRASEIA conteúdo na importação. Ver [[MINIMO_PALAVRAS]].
  */
 export const MINIMO_CONTENCAO = 0.85;

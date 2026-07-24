@@ -69,27 +69,94 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
   // com véu escuro). O véu é fixo e opaco o bastante para o texto branco
   // passar de 4,5:1 sobre QUALQUER imagem — contraste garantido por projeto,
   // não pela sorte da foto.
+  // Sem imagem de capa, "image" recai na cor (senão a faixa ficaria sem fundo).
   const heroStyle =
-    tema.home.heroStyle === "image" && !tema.brand.coverUrl ? "brand" : tema.home.heroStyle;
+    tema.home.heroStyle === "image" && !tema.brand.coverUrl ? "color" : tema.home.heroStyle;
   const comFaixa = heroStyle !== "plain" && abertura;
-  const corDe = tema.brand.color ?? "#511C76";
-  // Gradiente da referência: gray-950 → gray-900 → shade ~900 da cor da marca
-  // do espaço (o color-mix aproxima o purple-900 quando a cor é a padrão).
-  // A cor continua vindo do tema — só a estrutura do gradiente é fixa.
+  const corDe = tema.brand.color ?? "#511C76"; // cor do site (links, brilhos)
+  const corAbertura = tema.home.heroColor ?? corDe; // fundo da abertura
+  const textura = tema.home.heroTexture;
+  // Fundo da faixa: a IMAGEM mantém o tratamento escuro da referência; a COR usa
+  // a cor escolhida como fundo real, com um leve escurecimento no rodapé para o
+  // texto branco continuar legível (o "gradiente" troca isso por um degradê).
   const faixaCss: CSSProperties | undefined =
-    heroStyle === "brand"
+    heroStyle === "image"
       ? {
-          backgroundColor: "#141119",
-          backgroundImage: `linear-gradient(to bottom right, #141119, #201D26, color-mix(in oklab, ${corDe} 55%, #141119))`,
+          backgroundColor: "#191036",
+          backgroundImage: `linear-gradient(rgba(21,13,38,0.62), rgba(21,13,38,0.62)), url(${tema.brand.coverUrl})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
         }
-      : heroStyle === "image"
-        ? {
-            backgroundColor: "#191036",
-            backgroundImage: `linear-gradient(rgba(21,13,38,0.62), rgba(21,13,38,0.62)), url(${tema.brand.coverUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }
+      : heroStyle === "color"
+        ? textura === "gradient"
+          ? {
+              backgroundColor: corAbertura,
+              backgroundImage: `linear-gradient(135deg, ${corAbertura}, color-mix(in oklab, ${corAbertura} 45%, #0b0a12))`,
+            }
+          : {
+              backgroundColor: corAbertura,
+              backgroundImage: `linear-gradient(rgba(0,0,0,0.04), rgba(0,0,0,0.22))`,
+            }
         : undefined;
+
+  // Overlay de textura sobre o fundo. `grid` = grade + brilhos (padrão da
+  // referência); `dots`/`noise` = padrões; `gradient`/`none` = sem overlay (o
+  // fundo já resolve). Ruído é um data-URI SVG (auto-contido, CSP ok).
+  const brilhos = (cor: string) => (
+    <>
+      <div
+        className="absolute -top-32 left-1/4 size-72 rounded-full blur-3xl"
+        style={{ backgroundColor: `color-mix(in srgb, ${cor} 30%, transparent)` }}
+      />
+      <div
+        className="absolute -bottom-20 -right-20 size-72 rounded-full blur-3xl"
+        style={{ backgroundColor: `color-mix(in srgb, ${cor} 30%, transparent)` }}
+      />
+    </>
+  );
+  const grade = (
+    <div
+      className="absolute inset-0 opacity-[0.35]"
+      style={{
+        backgroundImage:
+          "linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)",
+        backgroundSize: "36px 36px",
+      }}
+    />
+  );
+  const RUIDO =
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+  const aberturaOverlay = !comFaixa
+    ? null
+    : heroStyle === "image"
+      ? (
+          <>
+            {brilhos(corDe)}
+            {grade}
+          </>
+        )
+      : textura === "grid"
+        ? (
+            <>
+              {brilhos("#ffffff")}
+              {grade}
+            </>
+          )
+        : textura === "dots"
+          ? (
+              <div
+                className="absolute inset-0 opacity-50"
+                style={{
+                  backgroundImage: "radial-gradient(rgba(255,255,255,0.22) 1.3px, transparent 1.3px)",
+                  backgroundSize: "18px 18px",
+                }}
+              />
+            )
+          : textura === "noise"
+            ? (
+                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: RUIDO }} />
+              )
+            : null;
 
   const secao = (key: RegiaoKey) => {
     switch (key) {
@@ -392,6 +459,16 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
 
   const aberturaConteudo = (
     <>
+      {/* Logo na abertura (opcional): acima do título e abaixo do rótulo
+          "Central de ajuda". Sem logo ou sem a opção, não ocupa espaço. */}
+      {tema.home.heroLogo && tema.brand.logoUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={tema.brand.logoUrl}
+          alt=""
+          className="mx-auto mb-5 h-16 w-auto max-w-[14rem] object-contain"
+        />
+      )}
       {ligada("hero") && (
         <>
           <h1
@@ -439,26 +516,10 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 className="relative mb-4 overflow-hidden rounded-2xl px-6 py-14 text-center sm:mb-8 sm:px-10 sm:py-16"
                 style={faixaCss}
               >
-                {/* Tratamento Lumina: grade de linhas sutil + 2 brilhos radiais
-                    de 18rem na cor da marca a 25% — o gradiente/imagem por
-                    espaço segue mandando no fundo. */}
+                {/* Textura escolhida na Aparência (grade/pontos/ruído/gradiente).
+                    O fundo (`faixaCss`) já mandou na cor; aqui é só o detalhe. */}
                 <div aria-hidden className="pointer-events-none absolute inset-0">
-                  <div
-                    className="absolute -top-32 left-1/4 size-72 rounded-full blur-3xl"
-                    style={{ backgroundColor: `color-mix(in srgb, ${corDe} 25%, transparent)` }}
-                  />
-                  <div
-                    className="absolute -bottom-20 -right-20 size-72 rounded-full blur-3xl"
-                    style={{ backgroundColor: `color-mix(in srgb, ${corDe} 25%, transparent)` }}
-                  />
-                  <div
-                    className="absolute inset-0 opacity-[0.35]"
-                    style={{
-                      backgroundImage:
-                        "linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)",
-                      backgroundSize: "36px 36px",
-                    }}
-                  />
+                  {aberturaOverlay}
                 </div>
                 <div className="relative mx-auto max-w-2xl">
                   <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">

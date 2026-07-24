@@ -317,12 +317,16 @@ export async function reindexArticleEmbeddings(
     .maybeSingle();
   if (!art) return { ok: false, error: "Artigo não encontrado." };
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   await reindexNodeChunks(supabase, {
     nodeId,
     articleId: art.id,
     spaceId,
     doc: art.content_json as { type: string; content?: never[] },
     withEmbeddings: true,
+    embeddedBy: user?.id ?? null,
   });
   await audit({ action: "content.reindex", entityType: "node", entityId: nodeId, spaceId });
   return { ok: true };
@@ -344,6 +348,9 @@ export async function reindexSubtreeEmbeddings(
     return { ok: false, error: "Sem permissão." };
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { data: subtree } = await supabase.rpc("subtree_ids", { p_node_id: nodeId });
   const articleIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
   let count = 0;
@@ -360,6 +367,7 @@ export async function reindexSubtreeEmbeddings(
       spaceId,
       doc: art.content_json as { type: string; content?: never[] },
       withEmbeddings: true,
+      embeddedBy: user?.id ?? null,
     });
     count += 1;
   }

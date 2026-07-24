@@ -66,6 +66,7 @@ export async function ingestKnowledgeFile(input: {
       spaceId,
       blocks,
       withEmbeddings: true,
+      embeddedBy: user?.id ?? null,
     });
 
     if (count === 0) {
@@ -97,7 +98,7 @@ export async function ingestKnowledgeFile(input: {
     spaceId,
     after: { original_name: originalName },
   });
-  revalidatePath("/admin/base-conhecimento");
+  revalidatePath("/admin/importar");
   return { ok: true };
 }
 
@@ -130,6 +131,6 @@ export async function deleteKnowledgeFile(id: string): Promise<KbResult> {
     spaceId: doc.space_id,
     before: { original_name: doc.original_name },
   });
-  revalidatePath("/admin/base-conhecimento");
+  revalidatePath("/admin/importar");
   return { ok: true };
 }

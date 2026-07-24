@@ -38,12 +38,12 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   {
     key: "import_structure",
     label: "Importação — estrutura",
-    desc: "Monta a árvore de documentos e artigos a partir do arquivo.",
+    desc: "Monta a árvore de documentos e artigos a partir do arquivo. Com a leitura por IA ligada, precisa de um modelo com VISÃO (lê o PDF/páginas).",
   },
   {
     key: "import_layout",
     label: "Importação — layout",
-    desc: "Reformata o texto em blocos ricos (Melhorar layout).",
+    desc: "Gera/reformata o conteúdo em blocos ricos. Com a leitura por IA ligada, é quem escreve o conteúdo de cada artigo.",
   },
   {
     key: "editor_text",
@@ -57,11 +57,49 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   },
 ];
 
-/** Modelos de chat sugeridos. Texto livre continua aceito na tela. */
+/**
+ * Modelos de LINGUAGEM sugeridos (chat e todas as finalidades de texto:
+ * importação, editor). Texto livre continua aceito na tela — esta lista é só a
+ * sugestão do datalist. TODOS aceitam entrada de IMAGEM/PDF (necessário para a
+ * leitura por IA na importação). Atual em jul/2026; conferir na doc do provedor
+ * ao adicionar novos.
+ */
 export const CHAT_MODELS: Record<ProviderKind, string[]> = {
-  anthropic: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
-  openai: ["gpt-4o", "gpt-4o-mini"],
-  google: ["gemini-2.0-flash", "gemini-1.5-pro"],
+  anthropic: [
+    // Atuais
+    "claude-fable-5",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+    // Ainda disponíveis (geração anterior)
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+  ],
+  openai: [
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+    "gpt-5.4",
+    "gpt-5.4-pro",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+  ],
+  google: [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-lite",
+  ],
 };
 
 /**
@@ -74,7 +112,9 @@ export const CHAT_MODELS: Record<ProviderKind, string[]> = {
 export const EMBEDDING_MODELS: Record<ProviderKind, string[]> = {
   // A Anthropic não tem API de embeddings própria.
   anthropic: [],
-  openai: ["text-embedding-3-small", "text-embedding-3-large"],
+  // Só modelos que entregam 1536 dims (nativo ou por parâmetro). Não incluir os
+  // que fixam outra dimensão (ex.: text-embedding-004, 768) — não cabem na coluna.
+  openai: ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"],
   google: ["gemini-embedding-001"],
 };
 
@@ -82,11 +122,12 @@ export const EMBEDDING_DIM = 1536;
 
 /**
  * O modelo precisa que a dimensão seja pedida explicitamente?
- * `text-embedding-3-small` já é 1536 nativo; os demais são maiores e aceitam
- * truncagem via parâmetro.
+ * `text-embedding-3-small` e `text-embedding-ada-002` já são 1536 NATIVOS e NÃO
+ * aceitam o parâmetro `dimensions` (pedi-lo neles quebra a chamada). Os demais
+ * são maiores e aceitam truncagem via parâmetro (`dimensions`/`outputDimensionality`).
  */
 export function precisaDimensoes(model: string): boolean {
-  return model !== "text-embedding-3-small";
+  return model !== "text-embedding-3-small" && model !== "text-embedding-ada-002";
 }
 
 /** O provedor serve para esta finalidade? */

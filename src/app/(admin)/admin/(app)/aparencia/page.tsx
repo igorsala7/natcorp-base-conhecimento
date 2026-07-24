@@ -45,7 +45,7 @@ export default async function AparenciaPage({
   const supabase = await createClient();
   const { data: row } = await supabase
     .from("spaces")
-    .select("theme, chat_prompt")
+    .select("theme")
     .eq("id", atual.id)
     .maybeSingle();
   const tema = resolveTheme(row?.theme);
@@ -123,7 +123,6 @@ export default async function AparenciaPage({
           spaceId={atual.id}
           spaceSlug={atual.slug}
           temaSalvo={tema}
-          promptSalvo={row?.chat_prompt ?? ""}
           dados={dados}
           artigosDisponiveis={disponiveis}
         />

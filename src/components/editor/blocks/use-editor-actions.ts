@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, type Dispatch, type SetStateAction } from "react";
-import type { Block, BlockType } from "@/lib/blocks/schema";
+import type { Block, BlockType, RichText } from "@/lib/blocks/schema";
 import { newId } from "@/lib/blocks/schema";
 import { BLOCKS } from "@/lib/blocks/registry.meta";
-import { blocksToText } from "@/lib/blocks/serialize";
+import { blocksToText, richToText } from "@/lib/blocks/serialize";
 import {
   patchBlock,
   removeBlock,
@@ -16,9 +16,70 @@ import {
 } from "@/lib/blocks/tree-ops";
 import type { EditorActions } from "./edit-types";
 
-/** Converte um bloco para outro tipo, preservando o texto quando possível. */
+/** Junta várias linhas de RichText num só, separadas por quebra de linha. */
+function juntarLinhas(linhas: RichText[]): RichText {
+  const out: RichText = [];
+  linhas.forEach((l, i) => {
+    if (i > 0) out.push({ text: "\n" });
+    out.push(...l);
+  });
+  return out;
+}
+
+/** Une as células de uma linha de tabela num só RichText. */
+function juntarCelulas(row: RichText[]): RichText {
+  const out: RichText = [];
+  row.forEach((c, i) => {
+    if (i > 0 && c.length) out.push({ text: "  " });
+    out.push(...c);
+  });
+  return out;
+}
+
+/**
+ * Extrai o conteúdo de QUALQUER bloco de texto como LINHAS de RichText (uma
+ * entrada por item/linha). Preserva as marcas quando a origem já é RichText
+ * (texto/título/citação/lista/checklist); tabela/código/contêiner viram texto.
+ */
+function linhasDe(block: Block): RichText[] {
+  if ("text" in block) return block.text.length ? [block.text] : [];
+  switch (block.type) {
+    case "bulletList":
+    case "orderedList":
+      return (block.children ?? [])
+        .filter((c): c is Extract<Block, { type: "listItem" }> => c.type === "listItem")
+        .map((c) => c.text);
+    case "checklist":
+      return block.data.items.map((i) => i.text);
+    case "table":
+      return block.data.rows.map((row) => juntarCelulas(row));
+    case "code":
+      return block.data.code.split("\n").map((l) => (l ? [{ text: l }] : []));
+    case "hero":
+      return [block.data.eyebrow, block.data.title, block.data.subtitle]
+        .map((t) => t?.trim())
+        .filter((t): t is string => !!t)
+        .map((t) => [{ text: t }]);
+    default: {
+      const txt = "children" in block ? blocksToText(block.children ?? []) : "";
+      return txt ? txt.split("\n").map((l) => [{ text: l }]) : [];
+    }
+  }
+}
+
+const listItemDe = (text: RichText): Block => ({ id: newId(), type: "listItem", text }) as Block;
+const paragrafoDe = (text: RichText): Block => ({ id: newId(), type: "paragraph", text }) as Block;
+// Wrappers SÓ-FILHO dos layouts (o conteúdo entra num parágrafo dentro deles).
+const stepDe = (text: RichText): Block => ({ id: newId(), type: "step", children: [paragrafoDe(text)] }) as Block;
+const cardDe = (text: RichText): Block =>
+  ({ id: newId(), type: "card", data: { icon: "", title: "", href: "" }, children: [paragrafoDe(text)] }) as Block;
+const columnDe = (text: RichText): Block => ({ id: newId(), type: "column", children: [paragrafoDe(text)] }) as Block;
+
+/** Converte um bloco para outro tipo, PRESERVANDO o conteúdo (só entre blocos de texto). */
 export function changeType(block: Block, type: BlockType): Block {
-  // Lista ↔ checklist convertem ITEM A ITEM (não texto corrido).
+  if (block.type === type) return block;
+
+  // Lista ↔ checklist: item a item, preservando os ids (undo/estabilidade).
   if (block.type === "checklist" && (type === "bulletList" || type === "orderedList")) {
     return {
       id: block.id,
@@ -36,14 +97,43 @@ export function changeType(block: Block, type: BlockType): Block {
       data: { items: items.length ? items : [{ id: newId(), text: [], checked: false }] },
     } as Block;
   }
+
+  const linhas = linhasDe(block);
   const base = { ...BLOCKS[type].defaultData(), id: block.id } as Block;
-  const srcText = "text" in block && block.text.length ? block.text : undefined;
-  const fallback =
-    !srcText && "children" in block ? [{ text: blocksToText(block.children ?? []) }] : undefined;
-  const text = srcText ?? fallback;
-  if (text && "text" in base) return { ...base, text } as Block;
-  if (srcText && "children" in base)
-    return { ...base, children: [{ id: newId(), type: "paragraph", text: srcText }] } as Block;
+
+  if (type === "code") {
+    return { ...base, data: { language: null, code: linhas.map(richToText).join("\n") } } as Block;
+  }
+  if (type === "table") {
+    const rows = linhas.length ? linhas.map((l) => [l]) : [[[] as RichText]];
+    return { ...base, data: { hasHeader: false, rows } } as Block;
+  }
+  if (type === "bulletList" || type === "orderedList") {
+    return { ...base, children: (linhas.length ? linhas : [[]]).map(listItemDe) } as Block;
+  }
+  if (type === "checklist") {
+    const items = (linhas.length ? linhas : [[]]).map((l) => ({ id: newId(), text: l, checked: false }));
+    return { ...base, data: { items } } as Block;
+  }
+  // Layouts com filhos SÓ-FILHO (step/card/column) — o texto vai num parágrafo
+  // dentro de cada wrapper. `hero` (void) recebe o texto em title/subtitle.
+  if (type === "steps") return { ...base, children: (linhas.length ? linhas : [[]]).map(stepDe) } as Block;
+  if (type === "cardGrid") return { ...base, children: (linhas.length ? linhas : [[]]).map(cardDe) } as Block;
+  if (type === "container") {
+    const cols = (linhas.length ? linhas : [[]]).map(columnDe);
+    while (cols.length < 2) cols.push(columnDe([])); // "Colunas" exige ao menos 2
+    return { ...base, data: { columns: cols.length }, children: cols } as Block;
+  }
+  if (type === "hero") {
+    const title = richToText(linhas[0] ?? []) || "Título";
+    const subtitle = linhas.slice(1).map(richToText).join(" ");
+    return { ...base, data: { eyebrow: "", title, subtitle, bg: "purple" } } as Block;
+  }
+  if ("text" in base) return { ...base, text: juntarLinhas(linhas) } as Block;
+  if ("children" in base) {
+    // callout/toggle → parágrafos-filho, mantendo o data padrão (variante/título).
+    return { ...base, children: (linhas.length ? linhas : [[]]).map(paragrafoDe) } as Block;
+  }
   return base;
 }
 

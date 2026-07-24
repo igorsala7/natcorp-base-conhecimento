@@ -26,6 +26,14 @@ export function Providers({ children }: { children: ReactNode }) {
       defaultTheme="system"
       enableSystem
       disableTransitionOnChange
+      // O next-themes injeta AQUI (componente client) um <script> anti-FOUC
+      // executável. No React 19.2 isso dispara "Encountered a script tag while
+      // rendering React component". Marcamos esse script como bloco-de-dados
+      // (type não-executável) — a exata exceção que o React checa
+      // (isScriptDataBlock) — então o aviso some e o script vira inerte. O
+      // anti-FOUC de verdade roda no <script> server-rendered do RootLayout
+      // (ver src/app/layout.tsx).
+      scriptProps={{ type: "application/json" }}
     >
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </ThemeProvider>

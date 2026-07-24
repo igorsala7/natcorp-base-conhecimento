@@ -50,9 +50,19 @@ export const ROTULO_REGIAO: Record<RegiaoKey, string> = {
 // `subscribe` nasce desligada: depende do envio de e-mail estar configurado.
 const DESLIGADAS_PADRAO = new Set<RegiaoKey>(["cover", "featured", "top", "subscribe"]);
 
-/** Como a abertura (título/busca/IA) é apresentada. */
-export const HERO_STYLES = ["plain", "brand", "image"] as const;
+/** Como a abertura (título/busca/IA) é apresentada. Opções do editor. */
+export const HERO_STYLES = ["plain", "color", "image"] as const;
 export type HeroStyle = (typeof HERO_STYLES)[number];
+/**
+ * Aceitos na leitura: inclui o legado `"brand"` (antes do seletor de cor
+ * separar cor+textura). `resolveTheme` mapeia `"brand" → "color"` — sem isto,
+ * o enum rejeitaria o valor salvo e derrubaria o tema inteiro para o padrão.
+ */
+const HERO_STYLES_ACEITOS = ["plain", "brand", "color", "image"] as const;
+
+/** Textura/efeito do fundo colorido da abertura. */
+export const HERO_TEXTURES = ["none", "grid", "dots", "noise", "gradient"] as const;
+export type HeroTexture = (typeof HERO_TEXTURES)[number];
 
 /** Como a lista de categorias é apresentada. */
 export const CATEGORIES_STYLES = ["cards", "tiles", "list"] as const;
@@ -105,6 +115,40 @@ const LinkSchema = z.object({
 });
 export type ThemeLink = z.infer<typeof LinkSchema>;
 
+/** Redes sociais suportadas no rodapé (ícone + URL). */
+export const SOCIAL_NETWORKS = [
+  "instagram", "facebook", "linkedin", "x", "youtube",
+  "whatsapp", "tiktok", "github", "email", "website",
+] as const;
+export type SocialNetwork = (typeof SOCIAL_NETWORKS)[number];
+export const ROTULO_REDE: Record<SocialNetwork, string> = {
+  instagram: "Instagram", facebook: "Facebook", linkedin: "LinkedIn", x: "X (Twitter)",
+  youtube: "YouTube", whatsapp: "WhatsApp", tiktok: "TikTok", github: "GitHub",
+  email: "E-mail", website: "Site",
+};
+
+/** URL de rede social: http(s), mailto: (e-mail) ou tel:. */
+function urlDeRedeSocial(url: string): boolean {
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      return !!new URL(url);
+    } catch {
+      return false;
+    }
+  }
+  return /^(mailto:|tel:)/i.test(url);
+}
+
+const SocialSchema = z.object({
+  network: z.enum(SOCIAL_NETWORKS),
+  url: z
+    .string()
+    .trim()
+    .min(1)
+    .refine(urlDeRedeSocial, "Use https://…, mailto:… (e-mail) ou tel:… (telefone)."),
+});
+export type ThemeSocial = z.infer<typeof SocialSchema>;
+
 const RegiaoSchema = z.object({
   key: z.enum(REGIOES),
   on: z.boolean(),
@@ -128,19 +172,33 @@ export const ThemeSchema = z.object({
     .object({
       /** Links extras no topo do portal (site, ticket, portal do cliente…). */
       links: z.array(LinkSchema).max(4).optional(),
+      /** Mostrar o nome do espaço ao lado do logo. */
+      showTitle: z.boolean().optional(),
+      /** Altura da barra superior em px — o logo cresce junto. */
+      height: z.number().int().min(48).max(120).optional(),
     })
     .optional(),
   footer: z
     .object({
-      text: z.string().max(200).optional(),
+      text: z.string().max(280).optional(),
       links: z.array(LinkSchema).max(6).optional(),
+      social: z.array(SocialSchema).max(10).optional(),
     })
     .optional(),
   home: z
     .object({
       title: z.string().max(120).optional(),
       subtitle: z.string().max(300).optional(),
-      heroStyle: z.enum(HERO_STYLES).optional(),
+      heroStyle: z.enum(HERO_STYLES_ACEITOS).optional(),
+      /** Cor de fundo da abertura quando `heroStyle="color"`. null = usar a cor da marca. */
+      heroColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "Use uma cor no formato #RRGGBB.")
+        .nullable()
+        .optional(),
+      heroTexture: z.enum(HERO_TEXTURES).optional(),
+      /** Repetir o logo (o do cabeçalho) na abertura, acima do título. */
+      heroLogo: z.boolean().optional(),
       categoriesStyle: z.enum(CATEGORIES_STYLES).optional(),
       /** Artigos escolhidos à mão para a região "destaques" (ids de nodes). */
       featured: z.array(z.string().uuid()).max(6).optional(),
@@ -182,12 +240,16 @@ export type SpaceTheme = z.infer<typeof ThemeSchema>;
 /** Tema resolvido: todos os campos presentes, regiões completas e ordenadas. */
 export type TemaResolvido = {
   brand: { color: string | null; logoUrl: string | null; coverUrl: string | null; coverHeight: number };
-  header: { links: ThemeLink[] };
-  footer: { text: string | null; links: ThemeLink[] };
+  header: { links: ThemeLink[]; showTitle: boolean; height: number };
+  footer: { text: string | null; links: ThemeLink[]; social: ThemeSocial[] };
   home: {
     title: string | null;
     subtitle: string;
     heroStyle: HeroStyle;
+    /** null = usar a cor da marca (`brand.color`). */
+    heroColor: string | null;
+    heroTexture: HeroTexture;
+    heroLogo: boolean;
     categoriesStyle: CategoriesStyle;
     featured: string[];
     supportTitle: string;
@@ -209,6 +271,7 @@ const PADRAO = {
   supportTitle: "Não encontrou o que procurava?",
   supportText: "Pergunte à IA com base nesta documentação ou fale com o suporte.",
   coverHeight: 200,
+  headerHeight: 56,
   regioesPadrao: REGIOES.map((key) => ({ key, on: !DESLIGADAS_PADRAO.has(key) })),
 };
 
@@ -233,6 +296,13 @@ export function resolveTheme(raw: unknown): TemaResolvido {
   });
   const regions = [...gravadas, ...PADRAO.regioesPadrao.filter((r) => !vistas.has(r.key))];
 
+  // Legado: "brand" (fundo colorido simples) vira "color" + textura "grid",
+  // preservando o visual de quem já tinha a abertura na cor da marca.
+  const heroBruto = t.home?.heroStyle;
+  const heroStyle: HeroStyle = heroBruto === "brand" ? "color" : (heroBruto ?? "plain");
+  const heroTexture: HeroTexture =
+    t.home?.heroTexture ?? (heroBruto === "brand" ? "grid" : "none");
+
   return {
     brand: {
       color: t.brand?.color ?? null,
@@ -240,12 +310,23 @@ export function resolveTheme(raw: unknown): TemaResolvido {
       coverUrl: t.brand?.coverUrl || null,
       coverHeight: t.brand?.coverHeight ?? PADRAO.coverHeight,
     },
-    header: { links: t.header?.links ?? [] },
-    footer: { text: t.footer?.text?.trim() || null, links: t.footer?.links ?? [] },
+    header: {
+      links: t.header?.links ?? [],
+      showTitle: t.header?.showTitle ?? true,
+      height: t.header?.height ?? PADRAO.headerHeight,
+    },
+    footer: {
+      text: t.footer?.text?.trim() || null,
+      links: t.footer?.links ?? [],
+      social: t.footer?.social ?? [],
+    },
     home: {
       title: t.home?.title?.trim() || null,
       subtitle: t.home?.subtitle?.trim() || PADRAO.subtitle,
-      heroStyle: t.home?.heroStyle ?? "plain",
+      heroStyle,
+      heroColor: t.home?.heroColor ?? null,
+      heroTexture,
+      heroLogo: t.home?.heroLogo ?? false,
       categoriesStyle: t.home?.categoriesStyle ?? "cards",
       featured: t.home?.featured ?? [],
       supportTitle: t.home?.supportTitle?.trim() || PADRAO.supportTitle,

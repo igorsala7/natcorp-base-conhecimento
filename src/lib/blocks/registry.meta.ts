@@ -81,7 +81,29 @@ export const COMING_SOON: { label: string; keywords: string[]; icon: LucideIcon;
   { label: "Bases de Dados Sincronizadas", keywords: ["sync", "externo", "integração"], icon: Puzzle, category: "dados" },
 ];
 
-const TEXT_TRANSFORMS: BlockType[] = ["paragraph", "heading", "quote", "callout"];
+/**
+ * Todos os blocos que ACEITAM TEXTO — os alvos possíveis do "Transformar em".
+ * (Mídia/void — imagem, vídeo, link, botão, divisor… — ficam de fora, com
+ * `transformableTo: []`, então o dropdown de conversão nem aparece neles.)
+ */
+export const TEXT_CONVERT_TARGETS: BlockType[] = [
+  "paragraph",
+  "heading",
+  "quote",
+  "bulletList",
+  "orderedList",
+  "checklist",
+  "callout",
+  "code",
+  "table",
+  "toggle",
+  "steps",
+  "hero",
+  "cardGrid",
+  "container",
+];
+/** Os alvos de um bloco de texto = todos os de texto menos ele mesmo. */
+const alvosTexto = (self: BlockType): BlockType[] => TEXT_CONVERT_TARGETS.filter((t) => t !== self);
 
 // Fábricas de bloco padrão (id novo a cada chamada).
 function para(): Block {
@@ -98,7 +120,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: false,
     isVoid: false,
-    transformableTo: TEXT_TRANSFORMS,
+    transformableTo: alvosTexto("paragraph"),
     defaultData: para,
   },
   heading: {
@@ -110,7 +132,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: false,
     isVoid: false,
-    transformableTo: ["paragraph", "quote"],
+    transformableTo: alvosTexto("heading"),
     defaultData: () => ({ id: newId(), type: "heading", text: [], data: { level: 2 } }),
   },
   bulletList: {
@@ -122,7 +144,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: true,
     isVoid: false,
-    transformableTo: ["orderedList", "checklist"],
+    transformableTo: alvosTexto("bulletList"),
     defaultData: () => ({
       id: newId(),
       type: "bulletList",
@@ -138,7 +160,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: true,
     isVoid: false,
-    transformableTo: ["bulletList", "checklist"],
+    transformableTo: alvosTexto("orderedList"),
     defaultData: () => ({
       id: newId(),
       type: "orderedList",
@@ -165,7 +187,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: false,
     isVoid: false,
-    transformableTo: ["paragraph", "heading"],
+    transformableTo: alvosTexto("quote"),
     defaultData: () => ({ id: newId(), type: "quote", text: [] }),
   },
   divider: {
@@ -189,7 +211,7 @@ export const BLOCKS = {
     category: "midia",
     isContainer: false,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("code"),
     defaultData: () => ({ id: newId(), type: "code", data: { language: null, code: "" } }),
   },
   image: {
@@ -265,7 +287,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: true,
     isVoid: false,
-    transformableTo: ["paragraph"],
+    transformableTo: alvosTexto("callout"),
     defaultData: () => ({
       id: newId(),
       type: "callout",
@@ -282,7 +304,7 @@ export const BLOCKS = {
     category: "interativo",
     isContainer: true,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("steps"),
     defaultData: () => ({
       id: newId(),
       type: "steps",
@@ -371,7 +393,7 @@ export const BLOCKS = {
     category: "interativo",
     isContainer: true,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("toggle"),
     defaultData: () => ({
       id: newId(),
       type: "toggle",
@@ -388,7 +410,7 @@ export const BLOCKS = {
     category: "layout",
     isContainer: true,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("container"),
     defaultData: () => ({
       id: newId(),
       type: "container",
@@ -436,7 +458,7 @@ export const BLOCKS = {
     category: "layout",
     isContainer: true,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("cardGrid"),
     defaultData: () => ({
       id: newId(),
       type: "cardGrid",
@@ -471,7 +493,7 @@ export const BLOCKS = {
     category: "layout",
     isContainer: false,
     isVoid: true,
-    transformableTo: [],
+    transformableTo: alvosTexto("hero"),
     defaultData: () => ({
       id: newId(),
       type: "hero",
@@ -499,7 +521,7 @@ export const BLOCKS = {
     category: "midia",
     isContainer: false,
     isVoid: false,
-    transformableTo: [],
+    transformableTo: alvosTexto("table"),
     defaultData: () => ({
       id: newId(),
       type: "table",
@@ -545,7 +567,7 @@ export const BLOCKS = {
     category: "basico",
     isContainer: false,
     isVoid: false,
-    transformableTo: ["bulletList", "orderedList"],
+    transformableTo: alvosTexto("checklist"),
     defaultData: () => ({
       id: newId(),
       type: "checklist",

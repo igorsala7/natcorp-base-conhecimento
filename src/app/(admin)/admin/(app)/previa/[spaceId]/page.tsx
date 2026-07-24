@@ -56,6 +56,7 @@ export default async function PreviaPage({
     <PreviewDoc
       spaceId={spaceId}
       fontSize={tema.article.fontSize}
+      divider={tema.article.divider}
       spaceName={space.name}
       spaceSlug={space.slug}
       tree={tree}

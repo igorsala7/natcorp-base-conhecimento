@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Database, Palette } from "lucide-react";
+import { Bot, Database } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
@@ -8,7 +8,9 @@ import { env } from "@/lib/env";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { Surface } from "@/components/ui/surface";
 import { KbUploadRow } from "./kb-upload-row";
-import { WidgetManager, type WidgetKeyRow } from "../widget/widget-manager";
+import type { WidgetKeyRow } from "../widget/widget-manager";
+import type { ApiKeyRow } from "../widget/api-key-manager";
+import { ChatbotTabs } from "./chatbot-tabs";
 
 export const metadata: Metadata = { title: "Chatbot" };
 
@@ -54,13 +56,29 @@ export default async function ChatbotPage({
   const { data: keys } = await supabase
     .from("widget_keys")
     .select(
-      "id, space_id, name, public_key, allowed_origins, rate_limit, active, config, system_prompt, created_at",
+      "id, space_id, name, public_key, allowed_origins, rate_limit, active, config, system_prompt, kind, created_at",
     )
     .order("created_at", { ascending: false });
   const daDocumentacao = (keys ?? []).filter(
     (k) =>
       k.space_id === atual.id || (escopoPorChave.get(k.id) ?? []).includes(atual.id),
   );
+
+  const widgetKeys = daDocumentacao
+    .filter((k) => k.kind !== "api")
+    .map((k) => ({ ...k, scope_space_ids: escopoPorChave.get(k.id) ?? [k.space_id] })) as WidgetKeyRow[];
+  const apiKeys = daDocumentacao
+    .filter((k) => k.kind === "api")
+    .map((k) => ({
+      id: k.id,
+      space_id: k.space_id,
+      name: k.name,
+      public_key: k.public_key,
+      allowed_origins: k.allowed_origins,
+      rate_limit: k.rate_limit,
+      active: k.active,
+      created_at: k.created_at,
+    })) as ApiKeyRow[];
 
   const [{ count: arquivos }, { count: prontos }] = await Promise.all([
     supabase
@@ -105,35 +123,29 @@ export default async function ChatbotPage({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <KbUploadRow spaceId={atual.id} />
           <Link
-            href={`/admin/base-conhecimento?space=${atual.id}`}
+            href={`/admin/importar?tab=embeddings&space=${atual.id}`}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm transition-colors hover:border-primary hover:text-primary"
           >
             Gerenciar arquivos
           </Link>
           <Link
-            href={`/admin/aparencia?space=${atual.id}`}
+            href={`/admin/assistente?space=${atual.id}`}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary"
             title="A persona da documentação vale como padrão para chaves sem persona própria"
           >
-            <Palette className="size-4" /> Persona
+            <Bot className="size-4" /> Persona
           </Link>
         </div>
       </Surface>
 
-      {/* Chaves do widget desta documentação */}
-      <div className="mt-6">
-        <WidgetManager
-          spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
-          initialKeys={
-            daDocumentacao.map((k) => ({
-              ...k,
-              scope_space_ids: escopoPorChave.get(k.id) ?? [k.space_id],
-            })) as WidgetKeyRow[]
-          }
-          siteUrl={env.NEXT_PUBLIC_SITE_URL}
-          fixedSpaceId={atual.id}
-        />
-      </div>
+      {/* Widget (embutir) e API (REST), separados por aba */}
+      <ChatbotTabs
+        widgetKeys={widgetKeys}
+        apiKeys={apiKeys}
+        spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
+        siteUrl={env.NEXT_PUBLIC_SITE_URL}
+        fixedSpaceId={atual.id}
+      />
     </div>
   );
 }

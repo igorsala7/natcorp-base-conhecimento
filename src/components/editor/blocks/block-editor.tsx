@@ -11,10 +11,9 @@ import {
   useSensor,
   useSensors,
   closestCenter,
-  pointerWithin,
-  rectIntersection,
   type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -36,7 +35,9 @@ import {
   MoreHorizontal,
   Pencil,
   PenLine,
+  Redo2,
   Sparkles,
+  Undo2,
   Wand2,
   ArrowLeft,
 } from "lucide-react";
@@ -58,7 +59,7 @@ import { useUndoRedo } from "./use-undo-redo";
 import { useAutosaveArticle } from "./use-autosave-article";
 import { BlockList } from "./block-item";
 import { BlockPalette } from "./block-palette";
-import { EditorToolbar } from "./editor-toolbar";
+import { BlockInspector } from "./block-inspector";
 import { ActiveRichTextProvider, useActiveRichText } from "./rich-text/active";
 import { SlashMenu } from "./slash-menu";
 import { BlockContextMenu } from "./block-context-menu";
@@ -96,7 +97,6 @@ import {
   improveArticleLayout,
   proposeArticleLayoutQuestions,
   improveArticleText,
-  reindexArticleEmbeddings,
   type TextoAcao,
   type TomAlvo,
 } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
@@ -211,7 +211,6 @@ function BlockEditorInner({
   const [slash, setSlash] = useState<{ id: string | null; rect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ block: Block; x: number; y: number } | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showProps, setShowProps] = useState(true);
 
   const [status, setStatus] = useState(initialStatus);
   const [msg, setMsg] = useState<string | null>(null);
@@ -219,7 +218,6 @@ function BlockEditorInner({
   const [proposed, setProposed] = useState<BlockDoc | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [preview, setPreview] = useState(false);
-  const [reindexing, setReindexing] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
@@ -269,6 +267,12 @@ function BlockEditorInner({
   // Rótulo do chip flutuante durante o arrasto DA PALETA (o sort de blocos já
   // move o próprio nó — só o arrasto de paleta usa DragOverlay).
   const [dragPaleta, setDragPaleta] = useState<string | null>(null);
+  // Onde a linha de inserção aparece ao arrastar um bloco da paleta (soltar
+  // ENTRE blocos): o id do bloco de topo alvo e se é ABAIXO dele.
+  const [dropLinha, setDropLinha] = useState<{ id: string; abaixo: boolean } | null>(null);
+  // Ids dos blocos de TOPO (para a colisão da paleta mirar só o nível raiz).
+  const rootIdsRef = useRef<Set<string>>(new Set());
+  rootIdsRef.current = new Set(blocks.map((b) => b.id));
   const activeRT = useActiveRichText();
 
   // Autosave (debounce + semântica de rascunho) em `use-autosave-article`.
@@ -426,26 +430,18 @@ function BlockEditorInner({
     }
   }
 
-  // ── Ações da barra de ferramentas ───────────────────────────────────────
-  /** Insere depois do bloco selecionado (ou no fim, se nada estiver selecionado). */
-  function toolbarInsert(type: BlockType) {
-    const target = selectedId ?? blocks[blocks.length - 1]?.id;
-    if (target) actions.insertAfter(target, type);
-  }
-  function toolbarMoreBlocks() {
-    const id = selectedId ?? blocks[blocks.length - 1]?.id;
-    if (!id) return;
-    const rect = document.querySelector(`[data-block-id="${id}"]`)?.getBoundingClientRect();
-    if (rect) actions.openSlash(id, rect);
-  }
-
-  /** Arrasto de PALETA mira onde o ponteiro está (a zona final perderia por
-   *  distância-de-centro); o sort de blocos segue no closestCenter, cego à
-   *  zona final (senão soltar "perto do fim" jogaria o bloco para lá). */
+  /** Arrasto de PALETA mira SÓ os blocos de TOPO (+ zona final) — assim solta
+   *  ENTRE dois blocos (antes/depois pelo ponto médio). O sort de blocos segue
+   *  no closestCenter, cego à zona final (senão soltar "perto do fim" jogaria
+   *  o bloco para lá). */
   const colisaoEditor: CollisionDetection = useCallback((args) => {
     if (args.active.data.current?.fromPalette) {
-      const dentro = pointerWithin(args);
-      return dentro.length ? dentro : rectIntersection(args);
+      return closestCenter({
+        ...args,
+        droppableContainers: args.droppableContainers.filter(
+          (c) => c.id === "canvas-end" || rootIdsRef.current.has(String(c.id)),
+        ),
+      });
     }
     return closestCenter({
       ...args,
@@ -458,19 +454,38 @@ function BlockEditorInner({
     if (data?.fromPalette) setDragPaleta(BLOCKS[data.blockType as BlockType].label);
   }
 
+  /** Solto ABAIXO do bloco alvo? (metade de baixo → insere depois dele). */
+  function ladoAbaixo(e: DragEndEvent | DragOverEvent): boolean {
+    const a = e.active.rect.current.translated;
+    const o = e.over?.rect;
+    if (!a || !o) return false;
+    return a.top + a.height / 2 > o.top + o.height / 2;
+  }
+
+  function onDragOver(e: DragOverEvent) {
+    const { active, over } = e;
+    if (!active.data.current?.fromPalette || !over || over.id === "canvas-end") {
+      setDropLinha(null);
+      return;
+    }
+    setDropLinha({ id: String(over.id), abaixo: ladoAbaixo(e) });
+  }
+
   function onDragEnd(e: DragEndEvent) {
     setDragPaleta(null);
+    setDropLinha(null);
     const { active, over } = e;
     const data = active.data.current;
     if (data?.fromPalette) {
       if (!over) return;
       const nb = BLOCKS[data.blockType as BlockType].defaultData();
+      const abaixo = ladoAbaixo(e);
       setBlocks((bs) => {
         if (over.id === "canvas-end") return [...bs, nb];
-        // Solto sobre um bloco (mesmo aninhado): entra ANTES do ancestral de topo.
-        const topo = topAncestorId(bs, String(over.id));
-        const i = topo ? bs.findIndex((b) => b.id === topo) : -1;
-        return i < 0 ? [...bs, nb] : [...bs.slice(0, i), nb, ...bs.slice(i)];
+        const i = bs.findIndex((b) => b.id === over.id);
+        if (i < 0) return [...bs, nb];
+        const pos = abaixo ? i + 1 : i;
+        return [...bs.slice(0, pos), nb, ...bs.slice(pos)];
       });
       setSelectedId(nb.id);
       setAutoFocusId(nb.id);
@@ -481,16 +496,24 @@ function BlockEditorInner({
     }
   }
 
-  /** Clique na paleta: adiciona ao fim, já selecionado (padrão da referência). */
+  /** Insere `nb` LOGO APÓS o bloco de topo selecionado (senão, no fim). */
+  function inserirAposSelecionado(bs: Block[], nb: Block): Block[] {
+    if (!selectedId) return [...bs, nb];
+    const topo = topAncestorId(bs, selectedId) ?? selectedId;
+    const i = bs.findIndex((b) => b.id === topo);
+    return i < 0 ? [...bs, nb] : [...bs.slice(0, i + 1), nb, ...bs.slice(i + 1)];
+  }
+
+  /** Clique na paleta: entra após o bloco selecionado (ou no fim), já selecionado. */
   function paletteAdd(type: BlockType) {
     const nb = BLOCKS[type].defaultData();
-    setBlocks((bs) => [...bs, nb]);
+    setBlocks((bs) => inserirAposSelecionado(bs, nb));
     setSelectedId(nb.id);
     setAutoFocusId(nb.id);
   }
   function paletteAddSnippet(key: string) {
     const nb: Block = { id: newId(), type: "snippet", data: { snippetKey: key } };
-    setBlocks((bs) => [...bs, nb]);
+    setBlocks((bs) => inserirAposSelecionado(bs, nb));
     setSelectedId(nb.id);
   }
 
@@ -616,12 +639,10 @@ function BlockEditorInner({
     setAiProposta(null);
   }
 
-  async function onReindex() {
-    setReindexing(true);
-    setMsg(null);
-    const res = await reindexArticleEmbeddings(nodeId);
-    setReindexing(false);
-    setMsg(res.ok ? "Embeddings gerados — o assistente já usa este artigo." : res.error);
+  function onReindex() {
+    // A geração vive na aba Embeddings da Importar (job em background com
+    // progresso). Abrimos já apontando para este artigo.
+    router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${nodeId}`);
   }
 
   async function onSubmitReview() {
@@ -747,6 +768,19 @@ function BlockEditorInner({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Desfazer/refazer moram no cabeçalho desde que a barra superior de
+              edição saiu (formatar/inserir/propriedades foram para a paleta e o
+              painel direito). */}
+          {!preview && (
+            <div className="flex items-center gap-0.5">
+              <Button variant="ghost" size="icon" title="Desfazer (⌘Z)" disabled={!podeHistorico.desfazer} onClick={desfazer}>
+                <Undo2 />
+              </Button>
+              <Button variant="ghost" size="icon" title="Refazer (⌘⇧Z)" disabled={!podeHistorico.refazer} onClick={refazer}>
+                <Redo2 />
+              </Button>
+            </div>
+          )}
           {/* Um botão só para as duas prévias. Em prévia individual ele NÃO
               abre a lista: vira a saída, senão o modo vira um beco. */}
           <Segmented
@@ -838,10 +872,10 @@ function BlockEditorInner({
                     <CalendarClock className="size-4 text-text-muted" /> Agendar publicação
                   </button>
                 )}
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowChat(true); setShowOptimize(false); setShowProps(false); setShowMore(false); }} title="Converse com a IA: ela altera o artigo em tempo real (Ctrl+Z desfaz)">
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowChat(true); setShowOptimize(false); setShowMore(false); }} title="Converse com a IA: ela altera o artigo em tempo real (Ctrl+Z desfaz)">
                   <MessageSquareText className="size-4 text-text-muted" /> Chat IA (editar conversando)
                 </button>
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowOptimize(true); setShowProps(false); setShowMore(false); }} title="Auditoria de qualidade e SEO deste artigo">
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowOptimize(true); setShowChat(false); setShowMore(false); }} title="Auditoria de qualidade e SEO deste artigo">
                   <Gauge className="size-4 text-text-muted" /> Otimizar (qualidade/SEO)
                 </button>
                 <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("tldr"); setShowMore(false); }} title="Resumo executivo no topo do artigo (IA, com prévia)">
@@ -858,8 +892,8 @@ function BlockEditorInner({
                     <Repeat2 className="size-4 text-text-muted" /> Salvar bloco como snippet
                   </button>
                 )}
-                <button type="button" disabled={reindexing} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onReindex(); setShowMore(false); }}>
-                  <Sparkles className="size-4 text-text-muted" /> {reindexing ? "Gerando embeddings…" : "Gerar embeddings"}
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { onReindex(); setShowMore(false); }}>
+                  <Sparkles className="size-4 text-text-muted" /> Gerar embeddings
                 </button>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowShortcuts(true); setShowMore(false); }}>
                   <Keyboard className="size-4 text-text-muted" /> Atalhos do teclado
@@ -893,29 +927,6 @@ function BlockEditorInner({
           )}
         </div>
       </div>
-
-      <EditorToolbar
-        hasSelection={!!selectedId}
-        canUndo={podeHistorico.desfazer}
-        canRedo={podeHistorico.refazer}
-        onUndo={desfazer}
-        onRedo={refazer}
-        preview={preview}
-        onFormat={(mark) => activeRT?.current?.toggleMark(mark)}
-        onLink={() => activeRT?.current?.link()}
-        onInsert={toolbarInsert}
-        onTransform={(t) => selectedId && actions.transform(selectedId, t)}
-        onTransformHeading={(l) => selectedId && actions.transformHeading(selectedId, l)}
-        onMoreBlocks={toolbarMoreBlocks}
-        onDuplicate={() => selectedId && actions.duplicate(selectedId)}
-        onDelete={() => selectedId && actions.remove(selectedId)}
-        onProperties={() => setShowProps(true)}
-        onTogglePreview={() => {
-          setPreview((p) => !p);
-          setSelectedId(null);
-        }}
-        onShortcuts={() => setShowShortcuts(true)}
-      />
 
       {(msg ?? erroSalvar) && (
         <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{msg ?? erroSalvar}</p>
@@ -968,8 +979,12 @@ function BlockEditorInner({
             sensors={sensors}
             collisionDetection={colisaoEditor}
             onDragStart={onDragStart}
+            onDragOver={onDragOver}
             onDragEnd={onDragEnd}
-            onDragCancel={() => setDragPaleta(null)}
+            onDragCancel={() => {
+              setDragPaleta(null);
+              setDropLinha(null);
+            }}
           >
             {/* Com um painel direito aberto, a paleta vira trilho de ícones —
                 nunca dois trilhos largos comendo o canvas ao mesmo tempo. */}
@@ -1025,8 +1040,7 @@ function BlockEditorInner({
                     autoFocusId={autoFocusId}
                     spaceId={spaceId}
                     onContextMenu={(block, x, y) => setCtxMenu({ block, x, y })}
-                    onProperties={() => setShowProps((v) => !v)}
-                    propsAberto={showProps}
+                    dropLinha={dropLinha}
                   />
                 </div>
                 <CanvasEndZone vazio={blocks.length === 0} />
@@ -1073,6 +1087,20 @@ function BlockEditorInner({
             onClose={() => setShowOptimize(false)}
           />
         )}
+        {/* Painel de PROPRIEDADES na direita — abre ao selecionar um bloco (e
+            cede a vez para Chat/Otimizar quando algum deles está aberto). */}
+        {!preview && !showChat && !showOptimize && selectedId && (() => {
+          const sel = findBlock(blocks, selectedId);
+          return sel ? (
+            <BlockInspector
+              block={sel}
+              actions={actions}
+              onFormat={(mark) => activeRT?.current?.toggleMark(mark)}
+              onLink={() => activeRT?.current?.link()}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : null;
+        })()}
       </div>
 
       <div className="mt-2 flex items-center justify-end border-t border-border pt-2 text-xs text-text-muted">
@@ -1096,10 +1124,7 @@ function BlockEditorInner({
           y={ctxMenu.y}
           actions={actions}
           onClose={() => setCtxMenu(null)}
-          onProperties={() => {
-            setSelectedId(ctxMenu.block.id);
-            setShowProps(true);
-          }}
+          onProperties={() => setSelectedId(ctxMenu.block.id)}
         />
       )}
 

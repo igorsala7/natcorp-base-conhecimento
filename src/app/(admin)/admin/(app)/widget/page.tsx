@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { env } from "@/lib/env";
-import { WidgetManager, type WidgetKeyRow } from "./widget-manager";
+import type { WidgetKeyRow } from "./widget-manager";
+import type { ApiKeyRow } from "./api-key-manager";
+import { ChatbotTabs } from "../chatbot/chatbot-tabs";
 
 export const metadata: Metadata = { title: "Widget e API" };
 
@@ -29,7 +31,7 @@ export default async function WidgetPage() {
   const { data: keys } = await supabase
     .from("widget_keys")
     .select(
-      "id, space_id, name, public_key, allowed_origins, rate_limit, active, config, system_prompt, created_at",
+      "id, space_id, name, public_key, allowed_origins, rate_limit, active, config, system_prompt, kind, created_at",
     )
     .order("created_at", { ascending: false });
 
@@ -45,14 +47,38 @@ export default async function WidgetPage() {
     ]);
   }
 
+  const widgetKeys = (keys ?? [])
+    .filter((k) => k.kind !== "api")
+    .map((k) => ({ ...k, scope_space_ids: escopoPorChave.get(k.id) ?? [k.space_id] })) as WidgetKeyRow[];
+  const apiKeys = (keys ?? [])
+    .filter((k) => k.kind === "api")
+    .map((k) => ({
+      id: k.id,
+      space_id: k.space_id,
+      name: k.name,
+      public_key: k.public_key,
+      allowed_origins: k.allowed_origins,
+      rate_limit: k.rate_limit,
+      active: k.active,
+      created_at: k.created_at,
+    })) as ApiKeyRow[];
+
   return (
-    <WidgetManager
-      spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
-      initialKeys={(keys ?? []).map((k) => ({
-        ...k,
-        scope_space_ids: escopoPorChave.get(k.id) ?? [k.space_id],
-      })) as WidgetKeyRow[]}
-      siteUrl={env.NEXT_PUBLIC_SITE_URL}
-    />
+    <div className="mx-auto max-w-5xl">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Widget e API</h1>
+        <p className="mt-1 text-sm text-text-muted">
+          Chaves para <strong className="font-medium">embutir o chat</strong> num site (Widget) e para{" "}
+          <strong className="font-medium">acesso programático</strong> aos endpoints REST (API) — de todas as
+          documentações.
+        </p>
+      </div>
+      <ChatbotTabs
+        widgetKeys={widgetKeys}
+        apiKeys={apiKeys}
+        spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
+        siteUrl={env.NEXT_PUBLIC_SITE_URL}
+      />
+    </div>
   );
 }

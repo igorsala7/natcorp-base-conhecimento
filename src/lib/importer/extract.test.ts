@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractDocument } from "./extract";
+import { extractDocument, podarChromeDePaginas } from "./extract";
 
 /**
  * O manual real que motivou estes testes tinha 33 `<img>` em data URI, todas
@@ -111,5 +111,90 @@ describe("poda de mobília de página", () => {
     expect(ex.images).toHaveLength(1);
     expect(ex.images[0]!.contentBase64).toBe(outra);
     expect(ex.droppedChrome).toBe(4);
+  });
+});
+
+describe("poda de cabeçalho/rodapé/paginação do PDF", () => {
+  const TITULOS = ["Cadastro de Clientes", "Emissão de Notas", "Relatórios gerenciais", "Controle de estoque", "Configurações"];
+  const corpo = (pg: number) =>
+    `Parágrafo de corpo da página ${pg} com conteúdo longo o bastante para nunca ser confundido com mobília de página.`;
+  // Cada página: cabeçalho corrido (curto), título de corpo (único), parágrafo
+  // longo, rodapé corrido e paginação — o layout típico de um PDF de manual.
+  const paginas = (n: number) =>
+    Array.from({ length: n }, (_, p) => {
+      const pg = p + 1;
+      return [
+        { text: "Manual do Sistema NatCorp", page: pg },
+        { text: TITULOS[p] ?? `Tema ${pg}`, page: pg },
+        { text: corpo(pg), page: pg },
+        { text: "Confidencial — uso interno", page: pg },
+        { text: `Página ${pg} de ${n}`, page: pg },
+      ];
+    }).flat();
+
+  it("remove cabeçalho, rodapé corrido e paginação, preservando o corpo", () => {
+    const { lines, dropped } = podarChromeDePaginas(paginas(5), 5);
+    const textos = lines.map((l) => l.text);
+    expect(textos).not.toContain("Manual do Sistema NatCorp"); // cabeçalho
+    expect(textos).not.toContain("Confidencial — uso interno"); // rodapé corrido
+    expect(textos.some((t) => /^Página/.test(t))).toBe(false); // paginação
+    // Título e corpo reais ficam.
+    expect(textos).toContain("Relatórios gerenciais");
+    expect(textos.some((t) => t.includes("Parágrafo de corpo da página 3"))).toBe(true);
+    expect(dropped).toBe(3 * 5); // 3 linhas de mobília × 5 páginas
+    expect(lines).toHaveLength(2 * 5); // sobram título + corpo
+  });
+
+  it("remove um cabeçalho-TABELA de várias linhas + rodapé de site (o caso do PDF real)", () => {
+    // Cabeçalho de 4 fragmentos (título, seção, "Página: N", "Data: …") repetido
+    // em toda página, com rodapé de URL — como no manual do Chamado Interno.
+    const HEADINGS = ["Área de Atendimento", "Cadastro de Responsável", "Tipos de Atendimento", "Fases do Chamado", "Relatórios", "Gráficos"];
+    const paginas = Array.from({ length: 6 }, (_, p) => {
+      const pg = p + 1;
+      return [
+        { text: "Chamado Interno", page: pg },
+        { text: "Orientação", page: pg },
+        { text: `Página: ${pg}`, page: pg },
+        { text: "Data: 29/12/2023", page: pg },
+        { text: HEADINGS[p] ?? `Seção ${pg}`, page: pg },
+        { text: `Corpo específico e longo da página ${pg}, descrevendo um procedimento sem se repetir em outras.`, page: pg },
+        { text: "WWW.NATCORP.COM.BR", page: pg },
+      ];
+    }).flat();
+    const textos = podarChromeDePaginas(paginas, 6).lines.map((l) => l.text);
+    // As 4 linhas do cabeçalho-tabela e o rodapé somem.
+    expect(textos).not.toContain("Chamado Interno");
+    expect(textos).not.toContain("Orientação");
+    expect(textos.some((t) => /^Página:/.test(t))).toBe(false);
+    expect(textos.some((t) => /^Data:/.test(t))).toBe(false);
+    expect(textos).not.toContain("WWW.NATCORP.COM.BR");
+    // O título de seção e o corpo reais ficam.
+    expect(textos).toContain("Tipos de Atendimento");
+    expect(textos.some((t) => t.includes("Corpo específico e longo da página 3"))).toBe(true);
+  });
+
+  it("é conservador: não age com menos de 3 páginas", () => {
+    const curto = paginas(2);
+    const { lines, dropped } = podarChromeDePaginas(curto, 2);
+    expect(dropped).toBe(0);
+    expect(lines).toHaveLength(curto.length);
+  });
+
+  it("não confunde número no MEIO da página com paginação", () => {
+    const linhas = Array.from({ length: 4 }, (_, p) => {
+      const pg = p + 1;
+      const HEAD = ["Cadastros", "Chamados", "Relatórios", "Gráficos"][p]!;
+      return [
+        { text: "Cabeçalho fixo da empresa", page: pg }, // mobília
+        { text: HEAD, page: pg }, // título único → banda para aqui
+        { text: "42", page: pg }, // número de conteúdo, no miolo
+        { text: `Parágrafo de corpo longo e exclusivo da página ${pg}, com texto suficiente para ultrapassar o limite de caracteres da mobília e jamais ser confundido com ela.`, page: pg },
+        { text: "Rodapé fixo do documento", page: pg }, // mobília
+      ];
+    }).flat();
+    const textos = podarChromeDePaginas(linhas, 4).lines.map((l) => l.text);
+    expect(textos).toContain("42"); // sobrevive: está no miolo
+    expect(textos).not.toContain("Cabeçalho fixo da empresa");
+    expect(textos).not.toContain("Rodapé fixo do documento");
   });
 });

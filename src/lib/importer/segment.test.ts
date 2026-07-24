@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { segmentarTexto, contarPalavras, contencaoDePalavras } from "./segment";
+import {
+  segmentarTexto,
+  contarPalavras,
+  contencaoDePalavras,
+  paragrafosAusentes,
+} from "./segment";
 
 /** Reconstrói o texto a partir dos segmentos, como a leitura humana faria. */
 const juntar = (segs: string[]) => segs.join("\n\n");
@@ -93,5 +98,43 @@ describe("contencaoDePalavras — reformatar não pode reescrever", () => {
     const corpo = Array.from({ length: 50 }, (_, i) => `palavra${i}`).join(" ");
     const orig = `Página 3 de 40 ${corpo}`;
     expect(contencaoDePalavras(orig, corpo)).toBeGreaterThan(0.85);
+  });
+});
+
+describe("paragrafosAusentes — revisão de completude por parágrafo", () => {
+  const p1 = "Para emitir a nota fiscal, acesse o menu Financeiro e clique em Faturamento.";
+  const p2 = "O sistema abre a tela de emissão com os campos de cliente, produto e valor total.";
+  const p3 = "Confirme os dados e pressione o botão Gerar para concluir o processo por completo.";
+
+  it("nada faltando quando a saída contém todos os parágrafos", () => {
+    const orig = [p1, p2, p3].join("\n\n");
+    const saida = [p3, p1, p2].join("\n\n"); // reordenado/reformatado
+    expect(paragrafosAusentes(orig, saida)).toEqual([]);
+  });
+
+  it("pega o parágrafo do meio que a IA omitiu (a rede global de 85% deixaria passar)", () => {
+    const orig = [p1, p2, p3].join("\n\n");
+    const saida = [p1, p3].join("\n\n"); // p2 sumiu
+    const faltando = paragrafosAusentes(orig, saida);
+    expect(faltando).toHaveLength(1);
+    expect(faltando[0]).toBe(p2);
+  });
+
+  it("reformatação (parágrafo virou passos) não é falso positivo", () => {
+    const orig = p1 + "\n\n" + p2;
+    // p2 espalhado em blocos, mas com as MESMAS palavras presentes na saída
+    const saida = `${p1}\n\ntela de emissão:\n- cliente\n- produto\n- valor total\nabre o sistema com esses campos`;
+    expect(paragrafosAusentes(orig, saida)).toEqual([]);
+  });
+
+  it("ignora linhas curtas (títulos soltos) — não são conteúdo de parágrafo", () => {
+    const orig = "Financeiro\n\n" + p1;
+    const saida = p1; // o heading curto "Financeiro" sumiu, mas é ignorado
+    expect(paragrafosAusentes(orig, saida)).toEqual([]);
+  });
+
+  it("ignora marcadores de imagem ao comparar", () => {
+    const orig = `⟦IMG:0⟧ ${p1}`;
+    expect(paragrafosAusentes(orig, p1)).toEqual([]);
   });
 });

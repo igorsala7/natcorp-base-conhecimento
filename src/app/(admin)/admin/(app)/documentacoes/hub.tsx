@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
 import { KbUploadButton } from "@/components/admin/kb-upload-button";
 import { useConfirm } from "@/components/ui/confirm";
-import { deleteSpace, reindexSpaceEmbeddings } from "./actions";
+import { deleteSpace } from "./actions";
 
 export type DocResumo = {
   id: string;
@@ -113,25 +113,10 @@ export function DocsHub({
     });
   }
 
-  async function gerarEmbeddings(doc: DocResumo) {
-    const total = doc.publicados + doc.rascunhos + doc.emRevisao;
-    const ok = await confirmar({
-      title: "Gerar embeddings",
-      description: `Gerar embeddings dos ${total} artigo(s) de "${doc.name}"? Pode levar minutos.`,
-      confirmLabel: "Gerar",
-    });
-    if (!ok) return;
-    setOcupado(doc.id);
-    setMsg((m) => ({ ...m, [doc.id]: "Gerando embeddings…" }));
-    startTransition(async () => {
-      const r = await reindexSpaceEmbeddings(doc.id);
-      setOcupado(null);
-      setMsg((m) => ({
-        ...m,
-        [doc.id]: r.ok ? `Embeddings gerados: ${r.count} artigo(s).` : r.error,
-      }));
-      router.refresh();
-    });
+  function gerarEmbeddings(doc: DocResumo) {
+    // A geração vive na aba Embeddings da Importar (job em background com
+    // progresso). Abrimos já apontando para esta documentação.
+    router.push(`/admin/importar?tab=embeddings&space=${doc.id}`);
   }
 
   return (
@@ -201,13 +186,8 @@ export function DocsHub({
                   </span>
                 </span>
                 {d.canEdit && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={ocupado === d.id}
-                    onClick={() => gerarEmbeddings(d)}
-                  >
-                    {ocupado === d.id ? "Gerando…" : "Gerar embeddings"}
+                  <Button variant="secondary" size="sm" onClick={() => gerarEmbeddings(d)}>
+                    Gerar embeddings
                   </Button>
                 )}
               </div>

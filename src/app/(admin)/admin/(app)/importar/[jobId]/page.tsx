@@ -31,6 +31,8 @@ export default async function PreviewPage({
         tree: ProposedNode[];
         images: string[];
         usedAi?: boolean;
+        /** Passa B rodou: os artigos já vêm com blocos ricos. */
+        usedAiContent?: boolean;
         destinoNodeId?: string | null;
         destinoSpaceId?: string;
       }
@@ -70,6 +72,7 @@ export default async function PreviewPage({
       tree={stored.tree}
       images={stored.images}
       usedAi={stored.usedAi ?? false}
+      conteudoRico={stored.usedAiContent ?? false}
       spaces={spaces.map((s) => ({ id: s.id, name: s.name, type: s.type }))}
       defaultSpaceId={job.space_id}
     />

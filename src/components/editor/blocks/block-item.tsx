@@ -1,9 +1,9 @@
 "use client";
 
-import { memo } from "react";
+import { Fragment, memo } from "react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, Copy, GripVertical, Settings2, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, GripVertical, Trash2 } from "lucide-react";
 import type { Block } from "@/lib/blocks/schema";
 import { styleClass } from "@/lib/blocks/styles";
 import { ICON_IN_TITLE } from "@/lib/blocks/icons";
@@ -11,7 +11,6 @@ import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { BlockIcon } from "./block-icon";
 import { EDITORS } from "./registry.edit";
 import { BlockMenu } from "./block-menu";
-import { BlockPropertiesForm } from "./properties-panel";
 import type { EditorActions } from "./edit-types";
 
 type ItemProps = {
@@ -22,10 +21,6 @@ type ItemProps = {
   spaceId: string;
   /** Abre o menu de contexto (botão direito) para este bloco. */
   onContextMenu: (block: Block, x: number, y: number) => void;
-  /** Alterna o formulário de Propriedades no cartão — quando o dono oferece. */
-  onProperties?: () => void;
-  /** Formulário de propriedades visível no bloco selecionado. */
-  propsAberto?: boolean;
   /** Profundidade na árvore: filhos usam a barra de controle INTERNA (a
    *  externa seria cortada por wrappers com overflow-hidden). */
   depth?: number;
@@ -42,8 +37,6 @@ const BlockItem = memo(function BlockItem({
   autoFocusId,
   spaceId,
   onContextMenu,
-  onProperties,
-  propsAberto = false,
   depth = 0,
 }: ItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
@@ -60,8 +53,6 @@ const BlockItem = memo(function BlockItem({
       autoFocusId={autoFocusId}
       spaceId={spaceId}
       onContextMenu={onContextMenu}
-      onProperties={onProperties}
-      propsAberto={propsAberto}
       depth={depth + 1}
     />
   ) : undefined;
@@ -132,11 +123,6 @@ const BlockItem = memo(function BlockItem({
           <BarBtn title="Duplicar (⌘D)" onClick={() => actions.duplicate(block.id)}>
             <Copy className="size-3.5" />
           </BarBtn>
-          {onProperties && (
-            <BarBtn title="Propriedades do bloco" onClick={onProperties}>
-              <Settings2 className="size-3.5" />
-            </BarBtn>
-          )}
           <BarBtn
             title="Excluir (⌘⇧⌫)"
             danger
@@ -176,20 +162,6 @@ const BlockItem = memo(function BlockItem({
           {childrenNode}
         </Editor>
       </div>
-      {selected && propsAberto && (
-        /* Faixa de propriedades DENTRO do cartão (padrão da referência):
-           a prévia acima atualiza a cada mudança. Margens negativas alinham a
-           faixa às bordas do cartão (px-4/py-2). */
-        <div
-          className="not-prose -mx-4 -mb-2 mt-2 rounded-b-lg border-t border-border bg-surface-2/60 p-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="mb-3 text-[0.625rem] font-bold uppercase tracking-wide text-text-muted">
-            Propriedades — {Meta.label}
-          </p>
-          <BlockPropertiesForm block={block} actions={actions} />
-        </div>
-      )}
       </div>
     </Wrapper>
   );
@@ -202,9 +174,8 @@ export function BlockList({
   autoFocusId,
   spaceId,
   onContextMenu,
-  onProperties,
-  propsAberto = false,
   depth = 0,
+  dropLinha,
 }: {
   blocks: Block[];
   actions: EditorActions;
@@ -212,28 +183,37 @@ export function BlockList({
   autoFocusId: string | null;
   spaceId: string;
   onContextMenu: (block: Block, x: number, y: number) => void;
-  onProperties?: () => void;
-  propsAberto?: boolean;
   depth?: number;
+  /** Linha de inserção (arrasto da paleta) — só no nível raiz. */
+  dropLinha?: { id: string; abaixo: boolean } | null;
 }) {
   return (
     <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-      {blocks.map((b) => (
-        <BlockItem
-          key={b.id}
-          block={b}
-          actions={actions}
-          selectedId={selectedId}
-          autoFocusId={autoFocusId}
-          spaceId={spaceId}
-          onContextMenu={onContextMenu}
-          onProperties={onProperties}
-          propsAberto={propsAberto}
-          depth={depth}
-        />
-      ))}
+      {blocks.map((b) => {
+        const linha = depth === 0 && dropLinha?.id === b.id ? dropLinha : null;
+        return (
+          <Fragment key={b.id}>
+            {linha && !linha.abaixo && <LinhaDrop />}
+            <BlockItem
+              block={b}
+              actions={actions}
+              selectedId={selectedId}
+              autoFocusId={autoFocusId}
+              spaceId={spaceId}
+              onContextMenu={onContextMenu}
+              depth={depth}
+            />
+            {linha && linha.abaixo && <LinhaDrop />}
+          </Fragment>
+        );
+      })}
     </SortableContext>
   );
+}
+
+/** A linha que mostra ONDE o bloco arrastado da paleta vai entrar. */
+function LinhaDrop() {
+  return <div aria-hidden className="my-0.5 h-1 rounded-full bg-primary" />;
 }
 
 /** Botão 24px da barra de controle flutuante. */

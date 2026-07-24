@@ -2,8 +2,11 @@
 
 import { createElement, useState } from "react";
 import { Ban, ChevronDown } from "lucide-react";
-import { ICONS, ICON_GROUPS } from "@/lib/blocks/icons";
+import { ICONS, ICON_GROUPS, ICON_KEYWORDS } from "@/lib/blocks/icons";
 import { controlClass } from "@/components/ui/input";
+
+/** Minúsculas e SEM acento — a busca casa "código" com a keyword "codigo". */
+const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
 /** Renderiza um ícone do catálogo pela chave (createElement evita o aviso de
  *  "componente criado durante o render" do compilador do React). */
@@ -24,10 +27,14 @@ export function IconPicker({
   const [query, setQuery] = useState("");
   const hasIcon = !!(value && ICONS[value]);
 
-  const q = query.trim().toLowerCase();
+  const q = normalizar(query.trim());
   const groups = ICON_GROUPS.map((g) => ({
     ...g,
-    keys: g.keys.filter((k) => ICONS[k] && (!q || k.toLowerCase().includes(q))),
+    keys: g.keys.filter(
+      (k) =>
+        ICONS[k] &&
+        (!q || normalizar(k).includes(q) || (ICON_KEYWORDS[k] ?? "").includes(q)),
+    ),
   })).filter((g) => g.keys.length > 0);
 
   return (

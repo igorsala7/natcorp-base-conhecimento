@@ -7,6 +7,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission, PermissionError } from "@/lib/auth/permissions";
 import { currentMaxLevel } from "@/lib/auth/roles";
 import { sendEmail } from "@/lib/email/send";
+import { loadEmailWrapper } from "@/lib/email/template";
+import { emailButton, emailParagraph } from "@/lib/blocks/email-html";
 import { audit } from "@/lib/auth/audit";
 import { env } from "@/lib/env";
 
@@ -107,13 +109,20 @@ export async function inviteUser(
   const link = linkData.properties?.action_link ?? "";
   let envio = "";
   if (link) {
+    const wrap = await loadEmailWrapper();
+    const corpo =
+      emailParagraph(
+        "Você foi convidado para acessar a Base de Conhecimento. Clique no botão abaixo para definir sua senha e entrar.",
+      ) +
+      emailButton("Definir senha e entrar", link) +
+      emailParagraph(
+        `Se o botão não funcionar, copie e cole este endereço no navegador:<br>${link}`,
+        { muted: true, small: true },
+      );
     const r = await sendEmail({
       to: email,
       subject: "Você foi convidado para a Base de Conhecimento",
-      html:
-        `<p>Você foi convidado para acessar a Base de Conhecimento.</p>` +
-        `<p><a href="${link}">Clique aqui para definir sua senha e entrar</a>.</p>` +
-        `<p style="color:#666;font-size:12px">Se o botão não funcionar, copie este endereço: ${link}</p>`,
+      html: wrap(corpo),
       text: `Você foi convidado para a Base de Conhecimento. Acesse: ${link}`,
     });
     envio = r.ok ? " E-mail enviado." : ` (E-mail não enviado: ${r.reason})`;

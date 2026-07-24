@@ -41,6 +41,8 @@ const upsertSchema = z.object({
   rateLimit: z.number().int().min(1).max(600),
   active: z.boolean(),
   config: configSchema,
+  /** 'widget' = embutir o chat num site; 'api' = acesso REST /api/v1/*. */
+  kind: z.enum(["widget", "api"]).default("widget"),
   /** Documentações que este chatbot pode consultar (além da dona). */
   scopeSpaceIds: z.array(z.string().uuid()).max(50).default([]),
   /** Persona deste chatbot. Vazio = herda a da documentação dona. */
@@ -79,7 +81,7 @@ async function gravarEscopo(
 export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult> {
   const parsed = upsertSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Dados inválidos." };
-  const { id, spaceId, name, allowedOrigins, rateLimit, active, config, scopeSpaceIds, systemPrompt } =
+  const { id, spaceId, name, allowedOrigins, rateLimit, active, config, kind, scopeSpaceIds, systemPrompt } =
     parsed.data;
 
   try {
@@ -108,6 +110,7 @@ export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult>
     if (erroEscopo) return { ok: false, error: erroEscopo };
     await audit({ action: "widget.update", entityType: "widget_key", entityId: id, spaceId });
     revalidatePath("/admin/widget");
+    revalidatePath("/admin/chatbot");
     return { ok: true, id };
   }
 
@@ -119,6 +122,7 @@ export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult>
     .insert({
       space_id: spaceId,
       name,
+      kind,
       public_key: generatePublicKey(),
       allowed_origins: origins,
       rate_limit: rateLimit,
@@ -134,6 +138,7 @@ export async function saveWidgetKey(input: unknown): Promise<WidgetActionResult>
   if (erroEscopo) return { ok: false, error: erroEscopo };
   await audit({ action: "widget.create", entityType: "widget_key", entityId: created.id, spaceId });
   revalidatePath("/admin/widget");
+  revalidatePath("/admin/chatbot");
   return { ok: true, id: created.id };
 }
 
@@ -158,6 +163,7 @@ export async function regenerateWidgetKey(id: string): Promise<WidgetActionResul
   if (error) return { ok: false, error: `Falha: ${error.message}` };
   await audit({ action: "widget.regenerate", entityType: "widget_key", entityId: id, spaceId: row.space_id });
   revalidatePath("/admin/widget");
+  revalidatePath("/admin/chatbot");
   return { ok: true, id };
 }
 
@@ -179,5 +185,6 @@ export async function deleteWidgetKey(id: string): Promise<WidgetActionResult> {
   if (error) return { ok: false, error: `Falha: ${error.message}` };
   await audit({ action: "widget.delete", entityType: "widget_key", entityId: id, spaceId: row.space_id });
   revalidatePath("/admin/widget");
+  revalidatePath("/admin/chatbot");
   return { ok: true };
 }

@@ -13,10 +13,12 @@ import { limitarHistorico } from "@/lib/ai/history";
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export async function POST(req: NextRequest) {
-  const { spaceId, messages: messagesBrutas, conversationId } = (await req.json()) as {
+  const { spaceId, messages: messagesBrutas, conversationId, promptOverride } = (await req.json()) as {
     spaceId: string;
     messages: ChatMessage[];
     conversationId?: string;
+    /** Persona de RASCUNHO (não salva) — a página Assistente testa antes de salvar. */
+    promptOverride?: string;
   };
   // Mesmo teto das rotas públicas. Aqui o chamador é interno e autenticado,
   // mas o custo de tokens é o mesmo e o histórico vem do cliente.
@@ -40,12 +42,21 @@ export async function POST(req: NextRequest) {
 
   // Assistente do admin: mesma persona que o leitor vê, para o que se testa
   // aqui corresponder ao que o público recebe.
-  const { data: espaco } = await supabase
-    .from("spaces")
-    .select("chat_prompt")
-    .eq("id", spaceId)
-    .maybeSingle();
-  const systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
+  // Se o body TROUXE `promptOverride` (página Assistente testando antes de
+  // salvar), ele vence o banco — SEM persistir e SEM pular as REGRAS_ABSOLUTAS
+  // (a cascata segue acrescentando citar fonte / não inventar). Rascunho vazio =
+  // testar o padrão do produto. Sem o campo → lê a persona salva do espaço.
+  let systemPrompt: string;
+  if (promptOverride !== undefined) {
+    systemPrompt = buildSystemPrompt({ promptDoEspaco: promptOverride.trim() || null });
+  } else {
+    const { data: espaco } = await supabase
+      .from("spaces")
+      .select("chat_prompt")
+      .eq("id", spaceId)
+      .maybeSingle();
+    systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
+  }
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:
   // uma conversationId de OUTRO espaço é descartada — nunca cruza espaços.

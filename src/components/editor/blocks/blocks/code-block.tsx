@@ -8,26 +8,22 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
   return (
     /* Janela estilo terminal — o MESMO chrome do portal (WYSIWYG). */
     <div className="overflow-hidden rounded-lg border border-brand-gray-800 bg-brand-gray-950 shadow-1">
+      {/* Linguagem e nome do arquivo agora vivem no painel de propriedades —
+          aqui só o cabeçalho da janela (WYSIWYG). */}
       <div className="flex items-center justify-between gap-2 border-b border-brand-gray-800 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="size-2.5 shrink-0 rounded-full bg-rose-500/80" />
           <span className="size-2.5 shrink-0 rounded-full bg-amber-500/80" />
           <span className="size-2.5 shrink-0 rounded-full bg-emerald-500/80" />
-          <input
-            value={b.data.filename ?? ""}
-            onChange={(e) =>
-              onChange({ data: { ...b.data, filename: e.target.value || undefined } } as Partial<Block>)
-            }
-            placeholder="nome do arquivo (opcional)"
-            className="ml-2 min-w-0 flex-1 bg-transparent font-mono text-xs text-brand-gray-400 outline-none placeholder:text-brand-gray-600"
-          />
+          {b.data.filename && (
+            <span className="ml-2 min-w-0 truncate font-mono text-xs text-brand-gray-400">{b.data.filename}</span>
+          )}
         </div>
-        <input
-          value={b.data.language ?? ""}
-          onChange={(e) => onChange({ data: { ...b.data, language: e.target.value || null } } as Partial<Block>)}
-          placeholder="linguagem"
-          className="w-24 shrink-0 bg-transparent text-right font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500 outline-none placeholder:normal-case placeholder:text-brand-gray-600"
-        />
+        {b.data.language && (
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500">
+            {b.data.language}
+          </span>
+        )}
       </div>
       <textarea
         value={b.data.code}

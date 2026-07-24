@@ -23,6 +23,9 @@ export async function reindexSpaceEmbeddings(
   }
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { data: nodes } = await supabase
     .from("nodes")
     .select("id")
@@ -44,6 +47,7 @@ export async function reindexSpaceEmbeddings(
       spaceId,
       doc: art.content_json,
       withEmbeddings: true,
+      embeddedBy: user?.id ?? null,
     });
     count += 1;
   }

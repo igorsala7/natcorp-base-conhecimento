@@ -108,9 +108,18 @@ describe("resolveTheme", () => {
   });
 
   it("aceita heroStyle e categoriesStyle válidos", () => {
-    const t = resolveTheme({ home: { heroStyle: "brand", categoriesStyle: "tiles" } });
-    expect(t.home.heroStyle).toBe("brand");
+    const t = resolveTheme({ home: { heroStyle: "color", categoriesStyle: "tiles" } });
+    expect(t.home.heroStyle).toBe("color");
     expect(t.home.categoriesStyle).toBe("tiles");
+  });
+
+  it("legado: heroStyle 'brand' vira 'color' com textura 'grid' (visual preservado)", () => {
+    const t = resolveTheme({ home: { heroStyle: "brand" } });
+    expect(t.home.heroStyle).toBe("color");
+    expect(t.home.heroTexture).toBe("grid");
+    // 'color' novo, sem textura salva, nasce sem textura (fundo chapado).
+    const novo = resolveTheme({ home: { heroStyle: "color" } });
+    expect(novo.home.heroTexture).toBe("none");
   });
 
   it("links aceitam https e caminho relativo; rejeitam javascript: e //", () => {

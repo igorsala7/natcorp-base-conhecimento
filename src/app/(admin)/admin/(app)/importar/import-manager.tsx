@@ -35,6 +35,7 @@ export function ImportManager({
   const { confirmar } = useConfirm();
   const [jobs, setJobs] = useState<ImportJobRow[]>(initialJobs);
   const [uploading, setUploading] = useState(false);
+  const [progressoUp, setProgressoUp] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   // Realtime: acompanha progresso dos jobs deste espaço.
@@ -84,25 +85,33 @@ export function ImportManager({
     };
   }, [hasActive, spaceId, supabase]);
 
-  async function onFile(file: File) {
+  // Vários arquivos de uma vez: envia e enfileira UM a UM (o worker também
+  // processa um de cada vez). A ordem de seleção vira a ordem da fila.
+  async function onFiles(files: File[]) {
     setUploading(true);
     setMsg(null);
-    const path = `${spaceId}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-    const { error } = await supabase.storage.from("imports").upload(path, file);
-    if (error) {
-      setMsg(`Falha no upload: ${error.message}`);
-      setUploading(false);
-      return;
+    const erros: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]!;
+      setProgressoUp(files.length > 1 ? `Enviando ${i + 1} de ${files.length}: ${file.name}` : "Enviando…");
+      const path = `${spaceId}/${Date.now()}-${i}-${file.name.replace(/[^\w.-]/g, "_")}`;
+      const { error } = await supabase.storage.from("imports").upload(path, file);
+      if (error) {
+        erros.push(`"${file.name}": falha no upload — ${error.message}`);
+        continue;
+      }
+      const res = await createImportJob({
+        spaceId,
+        sourceFile: path,
+        originalName: file.name,
+        mime: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+      if (!res.ok) erros.push(`"${file.name}": ${res.error}`);
     }
-    const res = await createImportJob({
-      spaceId,
-      sourceFile: path,
-      originalName: file.name,
-      mime: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-    if (!res.ok) setMsg(res.error);
+    setProgressoUp(null);
     setUploading(false);
+    if (erros.length) setMsg(erros.join(" · "));
   }
 
   return (
@@ -110,17 +119,20 @@ export function ImportManager({
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-10 text-center hover:border-primary">
         <Upload className="size-6 text-text-muted" />
         <span className="text-sm font-medium">
-          {uploading ? "Enviando…" : "Clique para escolher um arquivo"}
+          {uploading ? (progressoUp ?? "Enviando…") : "Clique para escolher arquivos"}
         </span>
-        <span className="text-xs text-text-muted">PDF, DOCX, HTML, Markdown</span>
+        <span className="text-xs text-text-muted">
+          PDF, DOCX, HTML, Markdown — pode escolher vários (processa um de cada vez)
+        </span>
         <input
           type="file"
+          multiple
           accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt"
           className="hidden"
           disabled={uploading}
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onFile(f);
+            const fs = e.target.files ? Array.from(e.target.files) : [];
+            if (fs.length) void onFiles(fs);
             e.target.value = "";
           }}
         />
@@ -143,7 +155,7 @@ export function ImportManager({
           <EmptyState
             icon={Upload}
             title="Nenhuma importação ainda"
-            description="Envie um PDF, DOCX, HTML, Markdown ou ZIP acima. O processamento roda em segundo plano e você acompanha o progresso aqui."
+            description="Envie um ou vários arquivos (PDF, DOCX, HTML, Markdown) acima. São processados um de cada vez, em segundo plano, e você acompanha o progresso aqui."
           />
         ) : (
           <Surface elevation={1} padding="none" className="overflow-hidden">

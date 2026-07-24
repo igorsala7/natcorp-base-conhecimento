@@ -26,47 +26,43 @@ export function Feedback({ nodeId, supportUrl }: { nodeId: string; supportUrl?: 
 
   if (state === "done") {
     return (
-      <div className="mt-10 rounded-xl border border-border bg-surface p-5 text-center shadow-1">
-        <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-          Obrigado pelo retorno!
-        </p>
-      </div>
+      <p className="mt-12 border-t border-border pt-5 text-sm text-text-muted">
+        Obrigado pelo retorno!
+      </p>
     );
   }
 
-  // Cartão centrado da referência: pergunta + botões Sim/Não, com o hover
-  // "semáforo" (verde no sim, rosa no não) antecipando o significado do clique.
+  // Linha discreta, alinhada à leitura — não compete com o conteúdo. O hover
+  // "semáforo" (verde no sim, rosa no não) antecipa o significado do clique.
   if (state === "idle") {
     return (
-      <div className="mt-10 rounded-xl border border-border bg-surface p-5 text-center shadow-1">
-        <p className="text-sm font-semibold">Isso foi útil?</p>
-        <div className="mt-3 flex items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={yes}
-            aria-label="Sim, esta página foi útil"
-            title="Sim, foi útil"
-            className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:border-emerald-900 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
-          >
-            <ThumbsUp className="size-3.5" /> Sim
-          </button>
-          <button
-            type="button"
-            onClick={no}
-            aria-label="Não, esta página não foi útil"
-            title="Não foi útil"
-            className="flex items-center gap-2 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:hover:border-rose-900 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
-          >
-            <ThumbsDown className="size-3.5" /> Não
-          </button>
-        </div>
+      <div className="mt-12 flex flex-wrap items-center gap-1 border-t border-border pt-5 text-sm text-text-muted">
+        <span className="mr-1">Isso foi útil?</span>
+        <button
+          type="button"
+          onClick={yes}
+          aria-label="Sim, esta página foi útil"
+          title="Sim, foi útil"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+        >
+          <ThumbsUp className="size-4" /> Sim
+        </button>
+        <button
+          type="button"
+          onClick={no}
+          aria-label="Não, esta página não foi útil"
+          title="Não foi útil"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+        >
+          <ThumbsDown className="size-4" /> Não
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="mt-10 rounded-xl border border-border bg-surface p-5 shadow-1">
-      <p className="text-sm font-semibold">Como podemos melhorar esta página?</p>
+    <div className="mt-12 border-t border-border pt-5">
+      <p className="text-sm text-text-muted">Como podemos melhorar esta página?</p>
       <textarea
         value={comment}
         onChange={(e) => setComment(e.target.value)}

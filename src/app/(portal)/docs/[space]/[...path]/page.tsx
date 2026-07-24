@@ -16,7 +16,7 @@ import {
   getRelatedArticles,
   getArticleBylines,
 } from "@/lib/portal/data";
-import { RenderBlocks, extractToc } from "@/lib/blocks/render";
+import { RenderBlocks } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { PortalShell, Breadcrumbs, spaceChrome } from "@/components/portal/shell";
@@ -27,6 +27,7 @@ import { OriginCookieSetter } from "@/components/portal/origin-cookie-setter";
 import { makeSpaceToken } from "@/lib/portal/space-auth";
 import { Feedback } from "@/components/portal/feedback";
 import { ReadingScroll } from "@/components/portal/reading-scroll";
+import { ImageLightbox } from "@/components/portal/image-lightbox";
 
 type Params = { space: string; path: string[] };
 function wordCount(text: string): number {
@@ -230,19 +231,11 @@ export default async function DocsPage({
 
   const artigoSections = sections.filter((s) => s.kind === "article");
 
-  // Índice: pastas (nível 2) e artigos (nível 3). Com poucos artigos ainda cabe
-  // listar os títulos internos; com muitos, o índice viraria uma parede.
-  const detalharTitulos = artigoSections.length <= 12;
-  const toc = sections.flatMap((s) =>
-    s.kind === "folder"
-      ? [{ id: s.anchor, text: s.node.title, level: 2 }]
-      : [
-          { id: s.anchor, text: s.node.title, level: 3 },
-          ...(detalharTitulos
-            ? extractToc(s.blocks, s.prefix, 2).map((t) => ({ ...t, level: 3 }))
-            : []),
-        ],
-  );
+  // "Nesta página": SÓ os atalhos dos DIRETÓRIOS desta página (as seções de
+  // pasta) — não os artigos nem os subtítulos internos.
+  const toc = sections
+    .filter((s) => s.kind === "folder")
+    .map((s) => ({ id: s.anchor, text: s.node.title, level: 2 }));
 
   const formatarViews = (v: number) =>
     v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} mil` : String(v);
@@ -329,6 +322,8 @@ export default async function DocsPage({
             path: s.node.slugPath.join("/"),
           }))}
         />
+        {/* Clicar numa imagem do conteúdo amplia em tela cheia (ver melhor). */}
+        <ImageLightbox />
 
         {sections.map((s, i) =>
           s.kind === "folder" ? (
@@ -341,9 +336,9 @@ export default async function DocsPage({
               className={
                 s.depth <= 1
                   ? tema.article.divider === "line"
-                    ? "mt-20 scroll-mt-20 border-t border-border pt-10 first:mt-12 first:border-0 first:pt-0"
-                    : "mt-20 scroll-mt-20 first:mt-12"
-                  : "mt-16 scroll-mt-20"
+                    ? "mt-[40px] scroll-mt-20 border-t border-border pt-10 first:border-0 first:pt-0"
+                    : "mt-[40px] scroll-mt-20"
+                  : "mt-[40px] scroll-mt-20"
               }
             >
               {s.depth <= 1 && tema.article.divider === "band" ? (
@@ -353,7 +348,8 @@ export default async function DocsPage({
                   <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
                     Seção
                   </p>
-                  <h2 className="mt-1 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight">
+                  {/* Título de seção ~2x o corpo. */}
+                  <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
                     {s.node.title}
                   </h2>
                 </div>
@@ -365,7 +361,7 @@ export default async function DocsPage({
                   <h2
                     className={
                       s.depth <= 1
-                        ? "mt-1.5 text-[length:var(--l-section,var(--text-3xl))] font-semibold leading-tight"
+                        ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
                         : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                     }
                   >
@@ -379,14 +375,14 @@ export default async function DocsPage({
               key={s.node.id}
               id={s.anchor}
               data-article-id={s.node.id}
-              className={i > 0 ? "mt-14 scroll-mt-20" : "mt-10 scroll-mt-20"}
+              className="mt-[30px] scroll-mt-20"
             >
-              {/* Fronteira entre ARTIGOS consecutivos: linha curta e sutil —
-                  sem ela, um artigo "vazava" no outro na leitura contínua. */}
+              {/* Fronteira entre ARTIGOS consecutivos: linha FINA e DISCRETA em
+                  toda a largura — sem ela, um artigo "vazava" no outro. */}
               {i > 0 && sections[i - 1]?.kind === "article" && (
-                <hr className="mb-14 w-16 border-border" />
+                <hr className="mb-10 w-full border-border/60" />
               )}
-              <h3 className="text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight">
+              <h3 className="text-[1.6rem] font-bold leading-tight">
                 {s.node.title}
               </h3>
               {(s.updatedAt || bylines.get(s.node.id)?.author) && (

@@ -18,8 +18,8 @@ import {
   type TemaResolvido,
   type ThemeLink,
 } from "@/lib/portal/theme";
-import { updateSpaceTheme, updateSpaceChatPrompt } from "../configuracoes/actions";
-import { SeletorEstilo, LinksEditor, DestaquesPicker, type ArtigoDisponivel } from "./sections";
+import { updateSpaceTheme } from "../configuracoes/actions";
+import { SeletorEstilo, LinksEditor, SocialEditor, DestaquesPicker, type ArtigoDisponivel } from "./sections";
 
 export type { ArtigoDisponivel } from "./sections";
 
@@ -32,6 +32,9 @@ function paraGravar(t: TemaResolvido) {
       .filter((l) => l.label && l.url);
   const header = limparLinks(t.header.links);
   const footer = limparLinks(t.footer.links);
+  const social = t.footer.social
+    .map((s) => ({ network: s.network, url: s.url.trim() }))
+    .filter((s) => s.url);
 
   return {
     brand: {
@@ -40,12 +43,17 @@ function paraGravar(t: TemaResolvido) {
       ...(t.brand.coverUrl ? { coverUrl: t.brand.coverUrl } : {}),
       coverHeight: t.brand.coverHeight,
     },
-    ...(header.length > 0 ? { header: { links: header } } : {}),
-    ...(t.footer.text || footer.length > 0
+    header: {
+      showTitle: t.header.showTitle,
+      height: t.header.height,
+      ...(header.length > 0 ? { links: header } : {}),
+    },
+    ...(t.footer.text || footer.length > 0 || social.length > 0
       ? {
           footer: {
             ...(t.footer.text ? { text: t.footer.text } : {}),
             ...(footer.length > 0 ? { links: footer } : {}),
+            ...(social.length > 0 ? { social } : {}),
           },
         }
       : {}),
@@ -53,6 +61,9 @@ function paraGravar(t: TemaResolvido) {
       ...(t.home.title ? { title: t.home.title } : {}),
       subtitle: t.home.subtitle,
       heroStyle: t.home.heroStyle,
+      ...(t.home.heroColor ? { heroColor: t.home.heroColor } : {}),
+      heroTexture: t.home.heroTexture,
+      heroLogo: t.home.heroLogo,
       categoriesStyle: t.home.categoriesStyle,
       ...(t.home.featured.length > 0 ? { featured: t.home.featured } : {}),
       supportTitle: t.home.supportTitle,
@@ -117,15 +128,12 @@ export function AppearanceEditor({
   spaceId,
   spaceSlug,
   temaSalvo,
-  promptSalvo,
   dados,
   artigosDisponiveis,
 }: {
   spaceId: string;
   spaceSlug: string;
   temaSalvo: TemaResolvido;
-  /** `spaces.chat_prompt` — persona padrão do chatbot desta documentação. */
-  promptSalvo: string;
   dados: DadosHome;
   /** Artigos publicados do espaço — opções do seletor de destaques. */
   artigosDisponiveis: ArtigoDisponivel[];
@@ -134,26 +142,29 @@ export function AppearanceEditor({
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [enviando, setEnviando] = useState<"logo" | "cover" | null>(null);
-  const [prompt, setPrompt] = useState(promptSalvo);
 
-  const sujo = JSON.stringify(tema) !== JSON.stringify(temaSalvo) || prompt !== promptSalvo;
+  const sujo = JSON.stringify(tema) !== JSON.stringify(temaSalvo);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const setBrand = (patch: Partial<TemaResolvido["brand"]>) =>
     setTema((t) => ({ ...t, brand: { ...t.brand, ...patch } }));
   const setHome = (patch: Partial<TemaResolvido["home"]>) =>
     setTema((t) => ({ ...t, home: { ...t.home, ...patch } }));
+  const setHeader = (patch: Partial<TemaResolvido["header"]>) =>
+    setTema((t) => ({ ...t, header: { ...t.header, ...patch } }));
 
   function salvar() {
     setMsg(null);
     startTransition(async () => {
-      const res = await updateSpaceTheme(spaceId, paraGravar(tema));
-      if (!res.ok) return setMsg(res.error);
-      if (prompt !== promptSalvo) {
-        const r2 = await updateSpaceChatPrompt(spaceId, prompt);
-        if (!r2.ok) return setMsg(r2.error);
+      // Um erro lançado (não retornado) por uma action dentro da transição sobe
+      // até a raiz e apaga a tela. O try/catch mantém a falha na própria página.
+      try {
+        const res = await updateSpaceTheme(spaceId, paraGravar(tema));
+        if (!res.ok) return setMsg(res.error);
+        setMsg("Salvo. O portal público já reflete a mudança.");
+      } catch (e) {
+        setMsg(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
       }
-      setMsg("Salvo. O portal público já reflete a mudança.");
     });
   }
 
@@ -175,6 +186,13 @@ export function AppearanceEditor({
   const contrasteClaro = cor ? contraste(cor, "#ffffff") : null;
   const corEscura = cor ? derivarVarianteEscura(cor) : null;
   const corDe = cor ?? "#511C76";
+  // Cor da abertura: a escolhida no seletor ou, sem ela, a cor da marca.
+  const corAbertura = tema.home.heroColor ?? corDe;
+  const contrasteAbertura = contraste(corAbertura, "#ffffff");
+  // O <input type="color"> é controlado e EXIGE um #rrggbb válido; um hex sendo
+  // digitado ("#5") passaria como valor inválido. Cai na cor da marca até
+  // completar, sem quebrar o input.
+  const corAberturaInput = /^#[0-9a-f]{6}$/i.test(corAbertura) ? corAbertura : (cor ?? "#511C76");
 
   // A prévia segue o RASCUNHO: os destaques saem dos ids escolhidos agora,
   // não dos que estavam salvos quando a página carregou.
@@ -191,7 +209,10 @@ export function AppearanceEditor({
   };
 
   return (
-    <div className="flex flex-col gap-6 xl:flex-row">
+    // Rolagem normal da página: as duas colunas fluem juntas. `items-start`
+    // impede a coluna da prévia de esticar (senão sobra uma faixa em branco
+    // embaixo da caixa). Sem sticky — nada fica "fixo" enquanto a página rola.
+    <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
       {/* ── Formulário ─────────────────────────────────────────────── */}
       <div className="w-full shrink-0 space-y-5 xl:w-96">
         <Surface elevation={1} padding="lg" className="space-y-4">
@@ -291,6 +312,42 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Cabeçalho</h2>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={tema.header.showTitle}
+              onChange={(e) => setHeader({ showTitle: e.target.checked })}
+              className="size-4 accent-[var(--color-primary)]"
+            />
+            Mostrar o nome ao lado do logo
+          </label>
+
+          <Field
+            label="Altura da barra superior"
+            htmlFor="altura-barra"
+            hint="Entre 48 e 120 pixels — o logo cresce junto para ganhar destaque."
+          >
+            <div className="flex items-center gap-3">
+              <input
+                id="altura-barra"
+                type="range"
+                min={48}
+                max={120}
+                step={2}
+                value={tema.header.height}
+                onChange={(e) => setHeader({ height: Number(e.target.value) })}
+                className="w-full accent-[var(--color-primary)]"
+              />
+              <span className="w-12 shrink-0 text-right text-xs tabular-nums text-text-muted">
+                {tema.header.height}px
+              </span>
+            </div>
+          </Field>
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Layout</h2>
 
           <SeletorEstilo
@@ -309,13 +366,13 @@ export function AppearanceEditor({
                 ),
               },
               {
-                value: "brand",
-                rotulo: "Cor da marca",
+                value: "color",
+                rotulo: "Cor",
                 thumb: (
                   <span
                     className="flex size-full flex-col items-center justify-center gap-1"
                     style={{
-                      backgroundImage: `linear-gradient(135deg, ${corDe}, color-mix(in oklab, ${corDe} 45%, #191036))`,
+                      backgroundImage: `linear-gradient(135deg, ${corAbertura}, color-mix(in oklab, ${corAbertura} 45%, #191036))`,
                     }}
                   >
                     <span className="h-1 w-8 rounded bg-white/90" />
@@ -347,8 +404,131 @@ export function AppearanceEditor({
           />
           {tema.home.heroStyle === "image" && !tema.brand.coverUrl && (
             <p className="text-xs text-amber-700 dark:text-amber-300">
-              Envie a imagem de capa acima — sem ela, a abertura usa a cor da marca.
+              Envie a imagem de capa acima — sem ela, a abertura usa a cor.
             </p>
+          )}
+
+          {tema.home.heroStyle === "color" && (
+            <div className="space-y-4 rounded-lg border border-border bg-surface-2/40 p-3">
+              <Field label="Cor da abertura" htmlFor="cor-abertura" hint="Independente da cor da marca do site.">
+                <div className="flex items-center gap-2">
+                  <input
+                    id="cor-abertura"
+                    type="color"
+                    value={corAberturaInput}
+                    onChange={(e) => setHome({ heroColor: e.target.value })}
+                    className="h-10 w-14 cursor-pointer rounded-md border border-border-strong bg-surface p-1"
+                  />
+                  <Input
+                    value={tema.home.heroColor ?? ""}
+                    onChange={(e) => setHome({ heroColor: e.target.value || null })}
+                    placeholder={cor ?? "#511C76"}
+                    aria-label="Cor da abertura em hexadecimal"
+                    className="flex-1"
+                  />
+                  {tema.home.heroColor && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Usar a cor da marca"
+                      onClick={() => setHome({ heroColor: null })}
+                    >
+                      <RotateCcw className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              </Field>
+              {contrasteAbertura < 4.5 && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                  Esta cor mede {contrasteAbertura.toFixed(2)}:1 com o texto branco da abertura — abaixo
+                  de 4,5:1. Uma cor mais escura deixa o título e a busca mais legíveis.
+                </p>
+              )}
+
+              <SeletorEstilo
+                legenda="Textura"
+                valor={tema.home.heroTexture}
+                onChange={(heroTexture) => setHome({ heroTexture })}
+                opcoes={[
+                  {
+                    value: "none",
+                    rotulo: "Nenhuma",
+                    thumb: <span className="block size-full" style={{ backgroundColor: corAbertura }} />,
+                  },
+                  {
+                    value: "grid",
+                    rotulo: "Grade",
+                    thumb: (
+                      <span
+                        className="block size-full"
+                        style={{
+                          backgroundColor: corAbertura,
+                          backgroundImage:
+                            "linear-gradient(rgba(255,255,255,0.25) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.25) 1px, transparent 1px)",
+                          backgroundSize: "10px 10px",
+                        }}
+                      />
+                    ),
+                  },
+                  {
+                    value: "dots",
+                    rotulo: "Pontinhos",
+                    thumb: (
+                      <span
+                        className="block size-full"
+                        style={{
+                          backgroundColor: corAbertura,
+                          backgroundImage: "radial-gradient(rgba(255,255,255,0.5) 1.2px, transparent 1.2px)",
+                          backgroundSize: "8px 8px",
+                        }}
+                      />
+                    ),
+                  },
+                  {
+                    value: "noise",
+                    rotulo: "Ruído",
+                    thumb: (
+                      <span
+                        className="block size-full"
+                        style={{
+                          backgroundColor: corAbertura,
+                          backgroundImage:
+                            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")",
+                        }}
+                      />
+                    ),
+                  },
+                  {
+                    value: "gradient",
+                    rotulo: "Gradiente",
+                    thumb: (
+                      <span
+                        className="block size-full"
+                        style={{
+                          backgroundImage: `linear-gradient(135deg, ${corAbertura}, color-mix(in oklab, ${corAbertura} 45%, #0b0a12))`,
+                        }}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </div>
+          )}
+
+          <label
+            className={`flex items-center gap-2 text-sm ${tema.brand.logoUrl ? "" : "opacity-60"}`}
+          >
+            <input
+              type="checkbox"
+              checked={tema.home.heroLogo && !!tema.brand.logoUrl}
+              disabled={!tema.brand.logoUrl}
+              onChange={(e) => setHome({ heroLogo: e.target.checked })}
+              className="size-4 accent-[var(--color-primary)]"
+            />
+            Mostrar o logo na abertura (acima do título)
+          </label>
+          {!tema.brand.logoUrl && (
+            <p className="text-xs text-text-muted">Envie um logo em “Marca” para habilitar.</p>
           )}
 
           <SeletorEstilo
@@ -545,17 +725,35 @@ export function AppearanceEditor({
             <LinksEditor
               links={tema.header.links}
               max={4}
-              onChange={(links) => setTema((t) => ({ ...t, header: { links } }))}
+              onChange={(links) => setHeader({ links })}
             />
           </Field>
-          <Field label="Texto do rodapé" htmlFor="footer-texto" hint="Ex.: © 2026 Sua Empresa.">
-            <Input
+          <Field
+            label="Descrição do rodapé"
+            htmlFor="footer-texto"
+            hint="Uma linha institucional sobre a empresa (o © com o ano e o nome já aparecem sozinhos)."
+          >
+            <textarea
               id="footer-texto"
               value={tema.footer.text ?? ""}
-              maxLength={200}
+              maxLength={280}
+              rows={2}
+              placeholder="Ex.: Soluções inteligentes de RH para a sua empresa."
               onChange={(e) =>
                 setTema((t) => ({ ...t, footer: { ...t.footer, text: e.target.value || null } }))
               }
+              className={`${controlClass} resize-none`}
+            />
+          </Field>
+          <Field
+            label="Redes sociais"
+            htmlFor="footer-redes"
+            hint="Ícones no rodapé. Cole o endereço do perfil (ou mailto:/wa.me para e-mail e WhatsApp)."
+          >
+            <SocialEditor
+              social={tema.footer.social}
+              max={10}
+              onChange={(social) => setTema((t) => ({ ...t, footer: { ...t.footer, social } }))}
             />
           </Field>
           <Field label="Links do rodapé" htmlFor="links-footer" hint="Até 6.">
@@ -599,26 +797,6 @@ export function AppearanceEditor({
               rows={2}
               value={tema.home.supportText}
               onChange={(e) => setHome({ supportText: e.target.value })}
-              className={controlClass}
-            />
-          </Field>
-        </Surface>
-
-        <Surface elevation={1} padding="lg" className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
-            Assistente
-          </h2>
-          <Field
-            label="Persona do chatbot desta documentação"
-            htmlFor="chat-prompt"
-            hint="Vale para o Ask-AI do portal e para os chatbots desta documentação que não tenham persona própria. As regras de citar fontes e não responder por conhecimento próprio continuam valendo."
-          >
-            <textarea
-              id="chat-prompt"
-              rows={4}
-              value={prompt}
-              placeholder="Ex.: Você é o suporte do Produto Alfa. Responda de forma objetiva e sempre indique o artigo."
-              onChange={(e) => setPrompt(e.target.value)}
               className={controlClass}
             />
           </Field>
@@ -690,14 +868,7 @@ export function AppearanceEditor({
             {pending ? "Salvando…" : "Salvar aparência"}
           </Button>
           {sujo && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setTema(temaSalvo);
-                setPrompt(promptSalvo);
-              }}
-              disabled={pending}
-            >
+            <Button variant="ghost" onClick={() => setTema(temaSalvo)} disabled={pending}>
               Descartar
             </Button>
           )}

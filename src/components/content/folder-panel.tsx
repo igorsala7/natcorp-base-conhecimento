@@ -22,10 +22,7 @@ import {
   renameNode,
   updateNodeMeta,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
-import {
-  publishSubtree,
-  reindexSubtreeEmbeddings,
-} from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 
 export type FolderStats = {
   publicados: number;
@@ -121,18 +118,10 @@ export function FolderPanel({
     });
   }
 
-  async function gerarEmbeddings() {
-    const ok = await confirmar({
-      title: "Gerar embeddings",
-      description: `Gerar embeddings de TODOS os artigos dentro de "${node.title}" (todos os níveis)? Pode levar minutos.`,
-      confirmLabel: "Gerar",
-    });
-    if (!ok) return;
-    setMsg("Gerando embeddings…");
-    startAgir(async () => {
-      const r = await reindexSubtreeEmbeddings(node.id);
-      setMsg(r.ok ? `Embeddings gerados: ${r.count} artigo(s).` : r.error);
-    });
+  function gerarEmbeddings() {
+    // A geração vive na aba Embeddings da Importar (job em background com
+    // progresso). Abrimos já apontando para esta pasta.
+    router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${node.id}`);
   }
 
   const IconePreview = (icon && ICONS[icon]) || Folder;

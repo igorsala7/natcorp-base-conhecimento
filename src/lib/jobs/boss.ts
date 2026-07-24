@@ -16,6 +16,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("import");
       await boss.createQueue("import-improve");
       await boss.createQueue("quality-scan");
+      await boss.createQueue("embeddings-generate");
       return boss;
     })();
   }
@@ -41,4 +42,10 @@ export async function enqueueImportImprove(jobId: string, nodeIds: string[]): Pr
 export async function enqueueQualityScan(spaceId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("quality-scan", { spaceId });
+}
+
+/** Geração de embeddings em segundo plano (com progresso via embedding_jobs). */
+export async function enqueueEmbeddings(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("embeddings-generate", { jobId });
 }

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Link2, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Link2, Loader2 } from "lucide-react";
 import { renameNode, changeSlug, updateNodeMeta } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { luminaLabel } from "@/components/ui/segmented";
 
@@ -33,6 +33,7 @@ export function MetadataCard({
   const [slugLocal, setSlugLocal] = useState(slug);
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
+  const [colapsado, setColapsado] = useState(false);
   const [pendente, startTransition] = useTransition();
 
   function flash() {
@@ -76,8 +77,26 @@ export function MetadataCard({
     });
   }
 
+  // Recolhido: só uma faixa fina com o título — ganha altura para a edição.
+  if (colapsado) {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 shadow-1">
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{titulo || "Sem título"}</span>
+        <button
+          type="button"
+          onClick={() => setColapsado(false)}
+          title="Expandir título, descrição e slug"
+          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-primary"
+        >
+          <ChevronDown className="size-3.5" /> Título e detalhes
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="mb-3 grid gap-4 rounded-lg border border-border bg-surface p-4 shadow-1 lg:grid-cols-[2fr_1fr]">
+    <div className="mb-3 rounded-lg border border-border bg-surface p-4 shadow-1">
+      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <div className="min-w-0 space-y-2">
         <input
           value={titulo}
@@ -133,6 +152,17 @@ export function MetadataCard({
           )}
         </p>
         {erro && <p className="mt-1 text-xs font-medium text-red-600">{erro}</p>}
+      </div>
+      </div>
+      <div className="mt-2 flex justify-center border-t border-border pt-1.5">
+        <button
+          type="button"
+          onClick={() => setColapsado(true)}
+          title="Recolher para ganhar espaço de edição"
+          className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-primary"
+        >
+          <ChevronUp className="size-3.5" /> Recolher
+        </button>
       </div>
     </div>
   );

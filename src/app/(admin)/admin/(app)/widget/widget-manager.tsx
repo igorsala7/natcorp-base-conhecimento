@@ -317,12 +317,13 @@ export function WidgetManager({
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Widget e API</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Widgets</h1>
           <p className="mt-1 text-sm text-text-muted">
-            Chaves públicas para embutir o chat da documentação em qualquer site.
+            Chaves públicas para embutir o chat da documentação em qualquer site (Shadow DOM,
+            allowlist de origem, rate limit).
           </p>
         </div>
-        <Button onClick={newDraft}>Nova chave</Button>
+        <Button onClick={newDraft}>Novo Widget</Button>
       </div>
 
       {msg && (

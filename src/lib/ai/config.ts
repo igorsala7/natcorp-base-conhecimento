@@ -1,4 +1,11 @@
 import "server-only";
+import {
+  wrapLanguageModel,
+  wrapEmbeddingModel,
+  type LanguageModelMiddleware,
+  type EmbeddingModelMiddleware,
+} from "ai";
+import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/provider";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -191,6 +198,97 @@ function instanciar(cfg: ResolvedAi) {
   }
 }
 
+/**
+ * Registro de consumo (tokens de envio/recebimento) por provedor e modelo.
+ *
+ * Fire-and-forget e à prova de falhas: gravar o consumo NUNCA pode derrubar a
+ * chamada de IA. Reusa o mesmo service-role que `doBanco` já usa aqui — a
+ * tabela `ai_usage` só tem policy de leitura (a escrita passa por fora do RLS).
+ */
+function logUsage(row: {
+  provider: ProviderKind;
+  model: string;
+  purpose: Purpose;
+  input: number;
+  output: number;
+}): void {
+  try {
+    const supabase = createAdminClient();
+    void supabase
+      .from("ai_usage")
+      .insert({
+        provider: row.provider,
+        model: row.model,
+        purpose: row.purpose,
+        input_tokens: row.input,
+        output_tokens: row.output,
+        total_tokens: row.input + row.output,
+      })
+      .then(undefined, () => {});
+  } catch {
+    // Nunca propagar: o registro é secundário à resposta da IA.
+  }
+}
+
+/** No nível da spec V3, o uso vem aninhado; o total não existe pronto. */
+function tokensDe(usage: LanguageModelV3Usage): { input: number; output: number } {
+  return {
+    input: usage.inputTokens?.total ?? 0,
+    output: usage.outputTokens?.total ?? 0,
+  };
+}
+
+/**
+ * Envolve o modelo de linguagem para registrar o consumo — num ponto único,
+ * cobrindo chat, importador, editor e busca. `cfg`/`purpose` ficam presos no
+ * fecho no momento do wrap (o modelo é reinstanciado a cada chamada).
+ */
+function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purpose: Purpose) {
+  const registrar = (usage: LanguageModelV3Usage) => {
+    const { input, output } = tokensDe(usage);
+    logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output });
+  };
+  const middleware: LanguageModelMiddleware = {
+    specificationVersion: "v3",
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+      registrar(result.usage);
+      return result;
+    },
+    wrapStream: async ({ doStream }) => {
+      const { stream, ...rest } = await doStream();
+      const transformed = stream.pipeThrough(
+        new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
+          transform(chunk, controller) {
+            if (chunk.type === "finish") registrar(chunk.usage);
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      return { stream: transformed, ...rest };
+    },
+  };
+  return wrapLanguageModel({ model, middleware });
+}
+
+/** Middleware de registro para embeddings — só há tokens de ENTRADA (envio). */
+function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    wrapEmbed: async ({ doEmbed }) => {
+      const result = await doEmbed();
+      logUsage({
+        provider: cfg.kind,
+        model: cfg.model,
+        purpose: "embedding",
+        input: result.usage?.tokens ?? 0,
+        output: 0,
+      });
+      return result;
+    },
+  };
+}
+
 /** Modelo de linguagem de uma finalidade (chat, importação…). */
 export async function languageModel(purpose: Purpose = "chat") {
   const cfg = await resolveAi(purpose);
@@ -199,7 +297,7 @@ export async function languageModel(purpose: Purpose = "chat") {
       "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
     );
   }
-  return instanciar(cfg);
+  return comRegistro(instanciar(cfg), cfg, purpose);
 }
 
 /** Modelo de chat (streamText/generateObject/generateText). */
@@ -223,10 +321,11 @@ export async function embeddingModel() {
     );
   }
   const opts = { apiKey: cfg.apiKey, ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}) };
-  if (cfg.kind === "google") {
-    return createGoogleGenerativeAI(opts).textEmbeddingModel(cfg.model);
-  }
-  return createOpenAI(opts).textEmbeddingModel(cfg.model);
+  const base =
+    cfg.kind === "google"
+      ? createGoogleGenerativeAI(opts).textEmbeddingModel(cfg.model)
+      : createOpenAI(opts).textEmbeddingModel(cfg.model);
+  return wrapEmbeddingModel({ model: base, middleware: embMiddleware(cfg) });
 }
 
 /**

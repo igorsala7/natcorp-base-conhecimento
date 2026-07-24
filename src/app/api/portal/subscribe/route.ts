@@ -2,6 +2,8 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { portalRateLimitOk } from "@/lib/portal/rate-limit";
 import { emailEnabled, sendEmail } from "@/lib/email/send";
+import { loadEmailWrapper } from "@/lib/email/template";
+import { emailButton, emailParagraph } from "@/lib/blocks/email-html";
 import { env } from "@/lib/env";
 
 const bodySchema = z.object({
@@ -56,12 +58,20 @@ export async function POST(req: Request): Promise<Response> {
 
   if (!sub.confirmed_at) {
     const confirmar = `${env.NEXT_PUBLIC_SITE_URL}/api/portal/subscribe/confirm?token=${sub.token}`;
+    const wrap = await loadEmailWrapper();
+    const corpo =
+      emailParagraph(
+        `Você pediu para receber novidades da documentação <strong>${space.name}</strong>. Confirme sua inscrição:`,
+      ) +
+      emailButton("Confirmar inscrição", confirmar) +
+      emailParagraph("Se não foi você, ignore este e-mail — nada será enviado sem a confirmação.", {
+        muted: true,
+        small: true,
+      });
     await sendEmail({
       to: email,
       subject: `Confirme sua inscrição — ${space.name}`,
-      html: `<p>Você pediu para receber novidades da documentação <strong>${space.name}</strong>.</p>
-<p><a href="${confirmar}">Confirmar inscrição</a></p>
-<p style="color:#666;font-size:13px">Se não foi você, ignore este e-mail — nada será enviado sem a confirmação.</p>`,
+      html: wrap(corpo),
       text: `Confirme sua inscrição em ${space.name}: ${confirmar}`,
     });
   }

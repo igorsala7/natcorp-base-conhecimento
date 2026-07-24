@@ -1,14 +1,63 @@
 import "server-only";
-import { embedMany } from "ai";
+import { createHash } from "node:crypto";
+import { embedMany, generateText } from "ai";
 import {
   embeddingModel,
   embeddingCallOptions,
   hasEmbeddingKey,
+  hasAiKey,
+  languageModel,
   aiTimeout,
+  resolveAi,
 } from "@/lib/ai/config";
 import type { createClient } from "@/lib/supabase/server";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText, richToText } from "@/lib/blocks/serialize";
+
+/**
+ * VARREDURA POR IA (Fase 3): antes de vetorizar, a IA lê o documento inteiro e
+ * gera UMA frase de contexto, prefixada em todos os chunks — trechos genéricos
+ * ("clique em Salvar") deixam de colidir entre documentos e a busca fica mais
+ * assertiva. Cacheada por hash do conteúdo (`embedding_context`/`_hash` na
+ * origem) para NÃO repetir a chamada a cada publicação. Sem IA de chat
+ * configurada, devolve "" e vale o prefixo estático de sempre.
+ */
+const CONTEXT_PROMPT = `Você lê um documento técnico e escreve UMA frase curta (no máximo 30 palavras) que situe o documento: do que ele trata e a qual sistema/módulo/área pertence. NÃO invente; use os termos do próprio texto. Responda só a frase, sem rótulos nem aspas.\n\nDOCUMENTO:\n`;
+
+async function documentContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "articles" | "knowledge_documents",
+  id: string,
+  fullText: string,
+): Promise<string> {
+  const texto = fullText.trim();
+  if (!texto) return "";
+  const hash = createHash("sha256").update(texto).digest("hex");
+
+  const { data: row } = await supabase
+    .from(table)
+    .select("embedding_context, embedding_context_hash")
+    .eq("id", id)
+    .maybeSingle();
+  if (row?.embedding_context && row.embedding_context_hash === hash) return row.embedding_context;
+
+  if (!(await hasAiKey("chat"))) return "";
+  try {
+    const { text } = await generateText({
+      model: await languageModel("chat"),
+      prompt: CONTEXT_PROMPT + texto.slice(0, 12_000),
+      // Timeout curto: a varredura roda também na publicação; não pode travar.
+      abortSignal: AbortSignal.timeout(20_000),
+    });
+    const ctx = text.trim().replace(/\s+/g, " ").slice(0, 400);
+    if (ctx) {
+      await supabase.from(table).update({ embedding_context: ctx, embedding_context_hash: hash }).eq("id", id);
+    }
+    return ctx;
+  } catch {
+    return ""; // falha/timeout: segue com o prefixo estático
+  }
+}
 
 export type Chunk = { heading_path: string; content: string };
 
@@ -60,9 +109,15 @@ export function chunkArticle(docInput: unknown): Chunk[] {
  * do manual para dentro do vetor. Só o EMBEDDING muda — a coluna `content`
  * (exibição, snippet, tsv) continua o texto puro.
  */
-function textoParaEmbedding(contexto: string, heading: string, content: string): string {
-  const partes = [contexto, heading].filter(Boolean).join(" > ");
-  return partes ? `${partes}\n\n${content}` : content;
+function textoParaEmbedding(
+  contexto: string,
+  heading: string,
+  content: string,
+  aiContext = "",
+): string {
+  const trilha = [contexto, heading].filter(Boolean).join(" > ");
+  const cabecalho = [aiContext ? `Contexto: ${aiContext}` : "", trilha].filter(Boolean).join("\n");
+  return cabecalho ? `${cabecalho}\n\n${content}` : content;
 }
 
 /** Reconstrói o uuid a partir do rótulo do ltree (uuid sem hífens). */
@@ -112,9 +167,11 @@ export async function reindexNodeChunks(
     spaceId: string;
     doc: unknown;
     withEmbeddings?: boolean;
+    /** Usuário que disparou (proveniência). Null no worker/sistema. */
+    embeddedBy?: string | null;
   },
 ): Promise<void> {
-  const { nodeId, articleId, spaceId, doc, withEmbeddings } = params;
+  const { nodeId, articleId, spaceId, doc, withEmbeddings, embeddedBy } = params;
   await supabase.from("chunks").delete().eq("node_id", nodeId);
   const chunks = chunkArticle(doc);
   if (chunks.length === 0) return;
@@ -123,9 +180,15 @@ export async function reindexNodeChunks(
   if (withEmbeddings && await hasEmbeddingKey()) {
     try {
       const contexto = await contextoDoNo(supabase, nodeId);
+      const ctxIa = await documentContext(
+        supabase,
+        "articles",
+        articleId,
+        chunks.map((c) => c.content).join("\n\n"),
+      );
       const { embeddings: e } = await embedMany({
         model: await embeddingModel(),
-        values: chunks.map((c) => textoParaEmbedding(contexto, c.heading_path, c.content)),
+        values: chunks.map((c) => textoParaEmbedding(contexto, c.heading_path, c.content, ctxIa)),
         // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
         // `chunks.embedding` é vector(1536) e recusa outro tamanho.
         providerOptions: await embeddingCallOptions(),
@@ -137,6 +200,7 @@ export async function reindexNodeChunks(
     }
   }
 
+  const prov = await proveniencia(embeddings, embeddedBy);
   await supabase.from("chunks").insert(
     chunks.map((c, i) => ({
       article_id: articleId,
@@ -146,8 +210,34 @@ export async function reindexNodeChunks(
       content: c.content,
       token_count: Math.ceil(c.content.length / 4),
       embedding: embeddings ? JSON.stringify(embeddings[i]) : null,
+      ...prov,
     })),
   );
+}
+
+/**
+ * Proveniência do vetor (provider/model/quando/quem) — só quando o embedding
+ * foi realmente gerado. Sem embedding, tudo null (o chunk existe só p/ léxico).
+ */
+async function proveniencia(
+  embeddings: number[][] | null,
+  embeddedBy?: string | null,
+): Promise<{
+  embedding_provider: string | null;
+  embedding_model: string | null;
+  embedded_at: string | null;
+  embedded_by: string | null;
+}> {
+  if (!embeddings) {
+    return { embedding_provider: null, embedding_model: null, embedded_at: null, embedded_by: null };
+  }
+  const cfg = await resolveAi("embedding");
+  return {
+    embedding_provider: cfg?.kind ?? null,
+    embedding_model: cfg?.model ?? null,
+    embedded_at: new Date().toISOString(),
+    embedded_by: embeddedBy ?? null,
+  };
 }
 
 /**
@@ -210,9 +300,11 @@ export async function reindexDocumentChunks(
     spaceId: string;
     blocks: { text: string; level: number }[];
     withEmbeddings?: boolean;
+    /** Usuário que disparou (proveniência). */
+    embeddedBy?: string | null;
   },
 ): Promise<number> {
-  const { documentId, spaceId, blocks, withEmbeddings } = params;
+  const { documentId, spaceId, blocks, withEmbeddings, embeddedBy } = params;
   await supabase.from("chunks").delete().eq("document_id", documentId);
   const chunks = chunkExtracted(blocks);
   if (chunks.length === 0) return 0;
@@ -228,9 +320,15 @@ export async function reindexDocumentChunks(
         .eq("id", documentId)
         .maybeSingle();
       const contexto = docRow?.original_name ? `Documento: ${docRow.original_name}` : "";
+      const ctxIa = await documentContext(
+        supabase,
+        "knowledge_documents",
+        documentId,
+        chunks.map((c) => c.content).join("\n\n"),
+      );
       const { embeddings: e } = await embedMany({
         model: await embeddingModel(),
-        values: chunks.map((c) => textoParaEmbedding(contexto, c.heading_path, c.content)),
+        values: chunks.map((c) => textoParaEmbedding(contexto, c.heading_path, c.content, ctxIa)),
         // Dimensão na CHAMADA (ver `embeddingCallOptions`): a coluna
         // `chunks.embedding` é vector(1536) e recusa outro tamanho.
         providerOptions: await embeddingCallOptions(),
@@ -242,6 +340,7 @@ export async function reindexDocumentChunks(
     }
   }
 
+  const prov = await proveniencia(embeddings, embeddedBy);
   await supabase.from("chunks").insert(
     chunks.map((c, i) => ({
       // article_id/node_id ficam nulos: a origem é o documento (o CHECK
@@ -252,6 +351,7 @@ export async function reindexDocumentChunks(
       content: c.content,
       token_count: Math.ceil(c.content.length / 4),
       embedding: embeddings ? JSON.stringify(embeddings[i]) : null,
+      ...prov,
     })),
   );
   return chunks.length;

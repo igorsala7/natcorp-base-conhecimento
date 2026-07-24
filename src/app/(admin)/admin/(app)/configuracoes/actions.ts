@@ -235,7 +235,7 @@ export async function updateSpaceChatPrompt(
     spaceId,
     after: { chat_prompt: texto },
   });
-  revalidatePath("/admin/aparencia");
+  revalidatePath("/admin/assistente");
   return { ok: true };
 }
 

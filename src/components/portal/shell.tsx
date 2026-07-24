@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { PortalAssistant, SearchTrigger, AskTrigger } from "@/components/portal/portal-search";
 import { ReadingProgress } from "@/components/portal/reading-progress";
 import { EditAffordance } from "@/components/portal/edit-affordance";
+import { SocialIcon } from "@/components/portal/social-icons";
 import type { PortalTreeNode } from "@/lib/portal/data";
 import { resolveTheme } from "@/lib/portal/theme";
 import { derivarVarianteEscura, derivarHover } from "@/lib/portal/brand-color";
@@ -72,6 +73,7 @@ export function PortalShell({
   space: ShellSpace;
   tree: PortalTreeNode[];
   activePath: string;
+  /** "Nesta página" — só os atalhos dos DIRETÓRIOS desta página (não os artigos). */
   toc?: TocItem[];
   /**
    * Árvore lateral. Desligada na home do espaço, onde ela seria redundante
@@ -119,7 +121,10 @@ gtag('config', '${tema.tracking.ga4}');`}
 
       {/* Cabeçalho leve: hairline apenas, sem sombra — quem separa é o ar. */}
       <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/65">
-        <div className="mx-auto flex h-14 max-w-[80rem] items-center justify-between gap-3 px-6">
+        <div
+          className="mx-auto flex max-w-[80rem] items-center justify-between gap-3 px-6"
+          style={{ height: tema.header.height }}
+        >
           <div className="flex min-w-0 items-center gap-2">
             {mostrarDrawer && (
               <PortalMobileNav
@@ -134,18 +139,27 @@ gtag('config', '${tema.tracking.ga4}');`}
               className="flex min-w-0 items-center gap-2.5 rounded-sm text-[0.9375rem] font-semibold tracking-tight"
             >
               {tema.brand.logoUrl ? (
+                // Logo cresce junto com a barra (altura - respiro), para poder
+                // ganhar destaque quando o cabeçalho é aumentado.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={tema.brand.logoUrl}
                   alt={space.name}
-                  className="h-7 w-auto max-w-[10rem] shrink-0 object-contain"
+                  className="w-auto max-w-[14rem] shrink-0 object-contain"
+                  style={{ height: Math.min(96, Math.max(20, tema.header.height - 24)) }}
                 />
               ) : (
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-fg">
+                <span
+                  className="flex shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-fg"
+                  style={{
+                    height: Math.min(96, Math.max(20, tema.header.height - 24)),
+                    width: Math.min(96, Math.max(20, tema.header.height - 24)),
+                  }}
+                >
                   N
                 </span>
               )}
-              <span className="truncate">{space.name}</span>
+              {tema.header.showTitle && <span className="truncate">{space.name}</span>}
             </Link>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -169,10 +183,9 @@ gtag('config', '${tema.tracking.ga4}');`}
 
       {/* Provider client: liga o scroll do conteúdo ao destaque na árvore. */}
       <ActiveArticleProvider>
-        {/* Grid da página de artigo (referência): 220px | minmax(0,1fr) | 200px
-            com gap de 2rem. Abaixo de lg o grid desliga e o conteúdo vira
-            coluna única — a navegação continua acessível pelo drawer mobile.
-            As colunas laterais só entram no template quando existem. */}
+        {/* Grid: 220px (árvore) | conteúdo | 200px ("Nesta página" — diretórios).
+            Abaixo de lg vira coluna única (a árvore fica no drawer mobile). As
+            colunas laterais só entram no template quando existem. */}
         <div
           className={`mx-auto max-w-[80rem] px-6 py-8${
             mostrarNav || (toc && toc.length > 0)
@@ -188,7 +201,9 @@ gtag('config', '${tema.tracking.ga4}');`}
         >
           {mostrarNav && (
             <aside className="hidden lg:block">
-              <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto pr-2">
+              {/* pb-16: folga após o último item da árvore — fica clicável com
+                  conforto e não cola na borda inferior da área de scroll. */}
+              <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto pb-16 pr-2">
                 <PortalNav spaceSlug={space.slug} tree={tree} activePath={activePath} />
               </div>
             </aside>
@@ -220,9 +235,10 @@ gtag('config', '${tema.tracking.ga4}');`}
 
           {toc && toc.length > 0 && (
             <aside className="hidden lg:block">
-              {/* max-h + scroll: sem isto, um índice longo estoura a viewport
-                  e os últimos itens ficam inalcançáveis. */}
               <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto">
+                <p className="mb-2 px-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
+                  Nesta página
+                </p>
                 <Toc items={toc} />
               </div>
             </aside>
@@ -230,21 +246,64 @@ gtag('config', '${tema.tracking.ga4}');`}
         </div>
       </ActiveArticleProvider>
 
-      {(tema.footer.text || tema.footer.links.length > 0) && (
+      {(tema.footer.text || tema.footer.links.length > 0 || tema.footer.social.length > 0) && (
         <footer className="border-t border-border">
-          <div className="mx-auto flex max-w-[80rem] flex-col items-center justify-between gap-3 px-6 py-8 sm:flex-row">
-            <p className="text-sm text-text-muted">{tema.footer.text ?? space.name}</p>
-            {tema.footer.links.length > 0 && (
-              <nav aria-label="Links do rodapé" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1">
-                {tema.footer.links.map((l) => (
-                  <ThemeLinkAnchor
-                    key={`${l.label}-${l.url}`}
-                    link={l}
-                    className="flex items-center gap-0.5 rounded-md px-2 py-1 text-sm text-text-muted transition-colors hover:text-text"
-                  />
-                ))}
-              </nav>
-            )}
+          <div className="mx-auto max-w-[80rem] px-6 py-10">
+            <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-between">
+              {/* Identidade + descrição institucional */}
+              <div className="max-w-md text-center sm:text-left">
+                <div className="mb-2 flex items-center justify-center gap-2 sm:justify-start">
+                  {tema.brand.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={tema.brand.logoUrl} alt={space.name} className="h-6 w-auto max-w-[9rem] object-contain" />
+                  ) : (
+                    <span className="text-sm font-semibold">{space.name}</span>
+                  )}
+                </div>
+                {tema.footer.text && (
+                  <p className="text-sm leading-relaxed text-text-muted">{tema.footer.text}</p>
+                )}
+              </div>
+
+              {/* Redes sociais */}
+              {tema.footer.social.length > 0 && (
+                <nav aria-label="Redes sociais" className="flex flex-wrap items-center justify-center gap-2">
+                  {tema.footer.social.map((s) => {
+                    const externo = /^https?:\/\//.test(s.url);
+                    return (
+                      <a
+                        key={`${s.network}-${s.url}`}
+                        href={s.url}
+                        aria-label={s.network}
+                        title={s.network}
+                        {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                        className="flex size-9 items-center justify-center rounded-full border border-border text-text-muted transition-colors hover:border-primary hover:text-primary"
+                      >
+                        <SocialIcon network={s.network} />
+                      </a>
+                    );
+                  })}
+                </nav>
+              )}
+            </div>
+
+            {/* Copyright + links do rodapé */}
+            <div className="mt-8 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 sm:flex-row">
+              <p className="text-xs text-text-muted">
+                © {new Date().getFullYear()} {space.name}. Todos os direitos reservados.
+              </p>
+              {tema.footer.links.length > 0 && (
+                <nav aria-label="Links do rodapé" className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1">
+                  {tema.footer.links.map((l) => (
+                    <ThemeLinkAnchor
+                      key={`${l.label}-${l.url}`}
+                      link={l}
+                      className="flex items-center gap-0.5 rounded-md px-2 py-1 text-sm text-text-muted transition-colors hover:text-text"
+                    />
+                  ))}
+                </nav>
+              )}
+            </div>
           </div>
         </footer>
       )}

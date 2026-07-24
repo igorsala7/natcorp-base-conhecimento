@@ -1,4 +1,6 @@
 import type { Extraction } from "./extract";
+import type { BlockDoc } from "@/lib/blocks/schema";
+import type { ImageRef } from "./reinsert-images";
 
 /**
  * Heurísticas PURAS de montagem da árvore.
@@ -11,16 +13,60 @@ import type { Extraction } from "./extract";
 
 export type ContentItem =
   | { type: "p"; text: string }
+  | { type: "h"; level: number; text: string }
   | { type: "img"; image: number };
 
 export type ProposedNode = {
   title: string;
   content: ContentItem[];
   children: ProposedNode[];
+  /** Conteúdo rico gerado pela Passa B (Fase B/C). Quando presente, vence
+   *  `content` na materialização e na prévia. */
+  blocks?: BlockDoc;
 };
 
 export function contarNos(nodes: ProposedNode[]): number {
   return nodes.reduce((a, n) => a + 1 + contarNos(n.children), 0);
+}
+
+/**
+ * Converte o `content` de um nó na ENTRADA da Passa B (geração de conteúdo
+ * rico): texto com marcadores ⟦IMG:k⟧ (k = índice LOCAL) + a lista de ImageRef
+ * correspondente (o índice global do content vira a URL). Puro e testável.
+ */
+export function contentToInput(
+  content: ContentItem[],
+  imageUrls: string[],
+): { text: string; images: ImageRef[] } {
+  const images: ImageRef[] = [];
+  const partes: string[] = [];
+  for (const c of content) {
+    if (c.type === "p") {
+      if (c.text) partes.push(c.text);
+    } else if (c.type === "h") {
+      // Subtítulo do artigo → prefixo "#" (a Fase C entende como heading). Os
+      // "#" não são palavra, então não interferem na rede de fidelidade.
+      if (c.text) partes.push(`${"#".repeat(Math.min(Math.max(c.level, 1), 3))} ${c.text}`);
+    } else {
+      const k = images.length;
+      images.push({ src: imageUrls[c.image] ?? "", alt: "", caption: "" });
+      partes.push(`⟦IMG:${k}⟧`);
+    }
+  }
+  return { text: partes.join("\n\n"), images };
+}
+
+/** Nós (referências, para mutar `blocks`) com conteúdo — alvo da Passa B. */
+export function nodesComConteudo(nodes: ProposedNode[]): ProposedNode[] {
+  const out: ProposedNode[] = [];
+  const walk = (list: ProposedNode[]) => {
+    for (const n of list) {
+      if (n.content.length) out.push(n);
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
 }
 
 export function profundidade(nodes: ProposedNode[]): number {

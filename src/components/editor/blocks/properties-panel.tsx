@@ -8,7 +8,6 @@ import type {
   StyleBg,
   StyleBorderColor,
   StyleBorderWidth,
-  StyleFontSize,
   StyleRadius,
   StyleWidth,
 } from "@/lib/blocks/schema";
@@ -20,7 +19,6 @@ const SCALE: SpaceScale[] = [0, 1, 2, 3, 4, 5, 6];
 const BGS: StyleBg[] = ["none", "purple", "pink", "blue", "gray", "dark"];
 const RADII: StyleRadius[] = ["none", "sm", "md", "lg", "xl", "2xl"];
 const ALIGNS: StyleAlign[] = ["left", "center", "right"];
-const FONTS: StyleFontSize[] = ["xs", "sm", "base", "lg", "xl", "2xl", "3xl"];
 const BORDER_WIDTHS: StyleBorderWidth[] = [0, 1, 2, 4, 8];
 const BORDER_COLORS: StyleBorderColor[] = ["border", "primary", "pink", "blue", "gray", "dark"];
 const WIDTHS: { key: StyleWidth; label: string }[] = [
@@ -104,7 +102,9 @@ export function BlockPropertiesForm({
   };
 
   return (
-    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+    /* Coluna única — o painel é lateral e estreito; 2 colunas espremiam os
+       seletores de largura/posição/espaçamento. */
+    <div className="space-y-5">
         {/* ── Divisões da região (container) ───────────────────────────── */}
         {isContainer && containerData && (
           <Section title="Divisões da região">
@@ -253,41 +253,8 @@ export function BlockPropertiesForm({
           </Field>
         </Section>
 
-        {/* ── Texto ────────────────────────────────────────────────────── */}
-        <Section title="Texto">
-          <Field label="Tamanho da fonte">
-            <div className="flex flex-wrap gap-1">
-              {FONTS.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => set({ fontSize: f })}
-                  className={`rounded-md border px-2 py-1 text-xs ${
-                    styles.fontSize === f ? "border-primary text-primary" : "border-border text-text-muted"
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field label="Alinhamento do texto">
-            <div className="flex gap-1">
-              {ALIGNS.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => set({ align: a })}
-                  className={`flex-1 rounded-md border px-2 py-1 text-xs ${
-                    styles.align === a ? "border-primary text-primary" : "border-border text-text-muted"
-                  }`}
-                >
-                  {a === "left" ? "Esq." : a === "center" ? "Centro" : "Dir."}
-                </button>
-              ))}
-            </div>
-          </Field>
-        </Section>
+        {/* Tamanho de fonte e alinhamento moram na seção "Texto" do painel
+            (block-inspector), junto da formatação — não aqui. */}
 
         {/* ── Aparência ────────────────────────────────────────────────── */}
         <Section title="Aparência">

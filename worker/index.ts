@@ -19,11 +19,15 @@ import {
   heuristicTree,
   refineStructureWithLLM,
 } from "../src/lib/importer/structure";
-import { improveLayout } from "../src/lib/importer/improve";
-import { hasAiKey } from "../src/lib/ai/config";
+import { buildDocInput } from "../src/lib/importer/doc-input";
+import { rasterizePdf } from "../src/lib/importer/rasterize";
+import { readOutline } from "../src/lib/importer/read-outline";
+import { generateArticle } from "../src/lib/importer/generate-article";
+import { hasAiKey, resolveAi } from "../src/lib/ai/config";
 import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
 import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-core";
+import { reindexNodeChunks } from "../src/lib/content/chunk";
 import { scanSpaceQuality } from "../src/lib/quality/scan";
 import { processDigests } from "../src/lib/subscriptions/digest";
 
@@ -101,11 +105,15 @@ async function processJob(jobId: string) {
 
   // Sobe as imagens extraídas para o bucket de assets → URLs.
   const podadas = extraction.droppedChrome ?? 0;
+  const molduraTexto = extraction.droppedChromeText ?? 0;
   await setProgress(
     jobId,
     { progress: 50 },
     `Extraídas ${extraction.images.length} imagens` +
       (podadas ? ` (${podadas} descartadas: repetidas em toda página, tratadas como cabeçalho/rodapé)` : "") +
+      (molduraTexto
+        ? `. ${molduraTexto} linha(s) de cabeçalho/rodapé/paginação removidas do texto (mobília de impressão)`
+        : "") +
       (extraction.imagesCapped
         ? ". ATENÇÃO: o documento tem mais imagens do que o limite por importação — as das últimas páginas ficaram de fora"
         : ""),
@@ -156,14 +164,55 @@ async function processJob(jobId: string) {
   }
 
   await setProgress(jobId, { status: "inferring", progress: 65 }, "Inferindo estrutura");
-  const heuristic = heuristicTree(extraction);
 
-  // Refino por LLM: agora a árvore da IA é REALMENTE aplicada (antes só a
-  // heurística era usada). Se a IA falhar/indisponível, cai na heurística.
-  let tree = heuristic;
+  let tree = heuristicTree(extraction);
   let usedAi = false;
+
+  // Leitura por IA (Fase A): a IA LÊ o documento (PDF nativo p/ Anthropic/Gemini,
+  // páginas rasterizadas p/ OpenAI, texto no fallback) e projeta a árvore. É o
+  // caminho PADRÃO sempre que houver IA configurada para "import_structure" (na
+  // página Sistema); QUALQUER falha — ou ausência de chave — cai na heurística,
+  // então nada regride.
   if (await hasAiKey("import_structure")) {
-    const { tree: refined, erro } = await refineStructureWithLLM(heuristic);
+    const cfg = await resolveAi("import_structure");
+    if (cfg) {
+      try {
+        const docInput = await buildDocInput({
+          kind: cfg.kind,
+          buf,
+          extraction,
+          rasterize: rasterizePdf,
+        });
+        await logJob(jobId, `Leitura pela IA (${docInput.modo})…`);
+        // Transparência: OpenAI só "vê" o documento quando as páginas são
+        // rasterizadas. Se a rasterização não rolou (ex.: @napi-rs/canvas
+        // ausente no ambiente), a IA leu SÓ a transcrição. Avisa em vez de
+        // fingir que enxergou as telas.
+        if (cfg.kind === "openai" && docInput.modo === "texto" && extraction.source === "pdf") {
+          await logJob(
+            jobId,
+            "OpenAI não recebeu as páginas como imagem (rasterização falhou — verifique @napi-rs/canvas); leu só a transcrição. Alternativa: usar Anthropic ou Gemini em import_structure (PDF nativo, sem rasterizar).",
+          );
+        }
+        const r = await readOutline(docInput, extraction);
+        if ("tree" in r && r.tree.length > 0) {
+          tree = r.tree;
+          usedAi = true;
+          await setProgress(jobId, { progress: 85 }, `Estrutura lida pela IA (${docInput.modo})`);
+        } else if ("erro" in r) {
+          await logJob(jobId, `Leitura por IA não usada: ${r.erro} — segue heurística`);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await logJob(jobId, `Leitura por IA falhou: ${msg} — segue heurística`);
+      }
+    }
+  }
+
+  // Sem leitura por IA aplicada: caminho antigo (refino que só reagrupa a lista
+  // plana quando o documento chega sem hierarquia própria).
+  if (!usedAi && (await hasAiKey("import_structure"))) {
+    const { tree: refined, erro } = await refineStructureWithLLM(tree);
     if (refined && refined.length > 0) {
       tree = refined;
       usedAi = true;
@@ -175,7 +224,7 @@ async function processJob(jobId: string) {
         ? "Estrutura agrupada pela IA"
         : `Estrutura vinda do próprio documento${erro ? ` — ${erro}` : ""}`,
     );
-  } else {
+  } else if (!usedAi) {
     await setProgress(
       jobId,
       { progress: 85 },
@@ -183,12 +232,21 @@ async function processJob(jobId: string) {
     );
   }
 
+  // PASSA B (Fase C): a IA gera o CONTEÚDO RICO de cada artigo (todos os blocos
+  // do editor). Padrão quando houver IA para "import_layout"; sequencial (rate
+  // limit). Falha por artigo não derruba o job — o conteúdo fica em parágrafos fiéis.
+  // O layout rico NÃO roda mais automático: a prévia mostra o texto FIEL. A
+  // melhora de layout virou OPT-IN ("Melhorar layout" na confirmação, com as
+  // preferências) e roda a MESMA IA rica (Fase C / generateArticle) em
+  // `processImprove`.
+  const usedAiContent = false;
+
   await setProgress(
     jobId,
     {
       status: "preview",
       progress: 100,
-      result_tree: { tree, images: imageUrls, usedAi },
+      result_tree: { tree, images: imageUrls, usedAi, usedAiContent },
     },
     "Pronto para revisão",
   );
@@ -238,22 +296,24 @@ async function processImprove(jobId: string, nodeIds: string[]) {
     const { text, images } = blocksToPlainWithImageMarkers(
       normalizeDoc(art.content_json).blocks,
     );
-    const res = await improveLayout(text, images);
-    if (res.ok) {
-      const texto = blocksToText(res.doc.blocks);
-      await supabase
-        .from("articles")
-        .update({
-          content_json: res.doc,
-          content_text: texto,
-          excerpt: texto.slice(0, 200),
-        })
-        .eq("id", art.id);
-      ok++;
-    } else {
-      // Mantém o conteúdo original — nada é pior do que veio.
+    // MESMO processo rico da leitura por IA (Fase C): reveste em blocos ricos,
+    // com rede de fidelidade — se a IA resumir/parafrasear, degrada para
+    // parágrafos fiéis (nunca perde conteúdo), e o `aviso` conta o motivo.
+    const { doc, aviso } = await generateArticle(text, images);
+    const texto = blocksToText(doc.blocks);
+    await supabase
+      .from("articles")
+      .update({
+        content_json: doc,
+        content_text: texto,
+        excerpt: texto.slice(0, 200),
+      })
+      .eq("id", art.id);
+    if (aviso) {
       mantidos++;
-      await logJob(jobId, `Layout ${rotulo}: "${node?.title ?? nodeId}" mantido como veio (${res.error})`);
+      await logJob(jobId, `Layout ${rotulo}: "${node?.title ?? nodeId}" — ${aviso}`);
+    } else {
+      ok++;
     }
     await setProgress(jobId, {
       progress: Math.round(((i + 1) / nodeIds.length) * 100),
@@ -266,6 +326,75 @@ async function processImprove(jobId: string, nodeIds: string[]) {
     `Layout melhorado em ${ok} artigo(s)` +
       (mantidos ? `; ${mantidos} mantido(s) como veio.` : "."),
   );
+}
+
+/**
+ * Geração de embeddings em segundo plano (aba Embeddings → botão Gerar de uma
+ * documentação/subárvore/artigo). Regenera os chunks COM embeddings de cada
+ * artigo do escopo, atualizando o progresso em `embedding_jobs` (Realtime move
+ * a barra na tela). Falha por artigo não derruba o job.
+ */
+async function processEmbeddings(jobId: string): Promise<void> {
+  const { data: job } = await supabase.from("embedding_jobs").select("*").eq("id", jobId).single();
+  if (!job) throw new Error(`Job de embeddings ${jobId} não encontrado`);
+  if (job.status !== "queued") {
+    console.log(`Embeddings job ${jobId} em '${job.status}' — nada a fazer.`);
+    return;
+  }
+
+  // Resolve os nós-artigo do escopo.
+  let nodeIds: string[] = [];
+  if (job.scope === "article" && job.target_id) {
+    nodeIds = [job.target_id];
+  } else if (job.scope === "subtree" && job.target_id) {
+    const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: job.target_id });
+    nodeIds = ((sub ?? []) as { id: string; type: string }[])
+      .filter((r) => r.type === "article")
+      .map((r) => r.id);
+  } else {
+    const { data: nodes } = await supabase
+      .from("nodes")
+      .select("id")
+      .eq("space_id", job.space_id)
+      .eq("type", "article")
+      .is("deleted_at", null);
+    nodeIds = (nodes ?? []).map((n) => n.id);
+  }
+
+  await supabase
+    .from("embedding_jobs")
+    .update({ status: "running", total: nodeIds.length, done: 0, progress: nodeIds.length ? 0 : 100 })
+    .eq("id", jobId);
+
+  let done = 0;
+  for (const nodeId of nodeIds) {
+    try {
+      const { data: art } = await supabase
+        .from("articles")
+        .select("id, content_json")
+        .eq("node_id", nodeId)
+        .maybeSingle();
+      if (art) {
+        await reindexNodeChunks(supabase, {
+          nodeId,
+          articleId: art.id,
+          spaceId: job.space_id,
+          doc: art.content_json,
+          withEmbeddings: true,
+          embeddedBy: job.created_by,
+        });
+      }
+    } catch (e) {
+      console.error(`Embeddings do nó ${nodeId} falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await supabase
+      .from("embedding_jobs")
+      .update({ done, progress: Math.round((done / Math.max(1, nodeIds.length)) * 100) })
+      .eq("id", jobId);
+  }
+
+  await supabase.from("embedding_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
 }
 
 /**
@@ -322,6 +451,7 @@ async function main() {
   await boss.createQueue("import-improve");
   await boss.createQueue("scheduled-publish");
   await boss.createQueue("quality-scan");
+  await boss.createQueue("embeddings-generate");
   await boss.createQueue("digests");
   // Digests de assinaturas: tick de 15 min (instant sai no próximo tick;
   // daily/weekly têm gate de horário dentro do processador).
@@ -363,10 +493,26 @@ async function main() {
     }
   });
 
-  await boss.work("import", async (jobs) => {
-    // Itera o lote inteiro: `const job = jobs[0]` descartava em SILÊNCIO
-    // jobs[1..n] quando o pg-boss entregava mais de um, e eles nunca eram
-    // marcados como concluídos nem como erro.
+  await boss.work("embeddings-generate", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Gerando embeddings (job ${jobId})`);
+      try {
+        await processEmbeddings(jobId);
+        console.log(`Embeddings job ${jobId} concluído`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Embeddings job ${jobId} falhou:`, msg);
+        await supabase.from("embedding_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  // `batchSize: 1`: importação é UM arquivo de cada vez. Vários uploads viram
+  // vários jobs 'queued'; o worker busca e processa um, só então pega o próximo
+  // — nada de dois PDFs concorrendo (memória/IA) e recuperação limpa se cair no
+  // meio (só um job fica 'active' por vez). O laço abaixo segue defensivo.
+  await boss.work("import", { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) {
       const { jobId } = job.data as { jobId: string };
       console.log(`Processando job ${jobId}`);

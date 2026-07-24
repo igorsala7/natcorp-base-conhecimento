@@ -8,6 +8,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import type { ProposedNode } from "@/lib/importer/structure";
+import { RenderBlocks } from "@/lib/blocks/render";
+import type { Block } from "@/lib/blocks/schema";
 import { materializeImport, proposeImportLayoutQuestions } from "../actions";
 import {
   LayoutQuestionsForm,
@@ -85,20 +87,37 @@ function Outline({
   );
 }
 
+/** Sem snippets no fluxo de importação — mapa vazio estável. */
+const SEM_SNIPPETS = new Map<string, Block[]>();
+
 function RenderNode({ node, images, depth }: { node: ProposedNode; images: string[]; depth: number }) {
   const H = (["h2", "h3", "h4"][Math.min(depth, 2)] ?? "h4") as "h2" | "h3" | "h4";
+  const rico = node.blocks && node.blocks.blocks.length > 0;
+  // Respiro entre artigos/diretórios: mais espaço nos níveis de topo.
   return (
-    <div className="mb-4">
+    <div className={depth === 0 ? "mb-12" : depth === 1 ? "mb-8" : "mb-4"}>
       <H className="font-semibold">{node.title}</H>
-      {node.content.map((c, i) =>
-        c.type === "p" ? (
-          <p key={i} className="mt-1 text-sm text-text-muted">
-            {c.text}
-          </p>
-        ) : images[c.image] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={images[c.image]} alt="" loading="lazy" decoding="async" className="my-2 max-h-48 rounded" />
-        ) : null,
+      {rico ? (
+        // Conteúdo rico da Passa B: renderiza os blocos de verdade (mesmo motor
+        // da prévia/portal), não parágrafos.
+        <div className="prose prose-neutral prose-portal mt-2 max-w-none text-sm dark:prose-invert">
+          <RenderBlocks blocks={node.blocks!.blocks} snippets={SEM_SNIPPETS} headingShift={2} />
+        </div>
+      ) : (
+        node.content.map((c, i) =>
+          c.type === "p" ? (
+            <p key={i} className="mt-1 text-sm text-text-muted">
+              {c.text}
+            </p>
+          ) : c.type === "h" ? (
+            <p key={i} className="mt-2 text-sm font-semibold text-text">
+              {c.text}
+            </p>
+          ) : images[c.image] ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={i} src={images[c.image]} alt="" loading="lazy" decoding="async" className="my-2 max-h-48 rounded" />
+          ) : null,
+        )
       )}
       {node.children.map((child, i) => (
         <RenderNode key={i} node={child} images={images} depth={depth + 1} />
@@ -113,6 +132,7 @@ export function ImportPreview({
   tree: initialTree,
   images,
   usedAi,
+  conteudoRico,
   spaces,
   defaultSpaceId,
 }: {
@@ -121,6 +141,8 @@ export function ImportPreview({
   tree: ProposedNode[];
   images: string[];
   usedAi: boolean;
+  /** Passa B rodou: os artigos já vêm com blocos ricos (melhorar layout some). */
+  conteudoRico: boolean;
   spaces: { id: string; name: string; type: "global" | "client" }[];
   defaultSpaceId: string;
 }) {
@@ -202,7 +224,11 @@ export function ImportPreview({
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Revisar: {fileName}</h1>
           <p className="text-xs text-text-muted">
-            {usedAi ? "Estrutura refinada por IA." : "Estrutura por heurística."}{" "}
+            {conteudoRico
+              ? "Estrutura e conteúdo gerados por IA."
+              : usedAi
+                ? "Estrutura refinada por IA."
+                : "Estrutura por heurística."}{" "}
             Renomeie ou descarte seções antes de confirmar.
           </p>
         </div>
@@ -295,6 +321,12 @@ export function ImportPreview({
             )}
           </div>
 
+          {conteudoRico ? (
+            <p className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-xs text-text-muted">
+              O conteúdo já foi gerado em blocos ricos pela IA na leitura — não é
+              preciso melhorar o layout depois.
+            </p>
+          ) : (
           <div className="rounded-lg border border-border p-3">
             <label className="flex items-start gap-2.5 text-sm">
               <input
@@ -352,6 +384,7 @@ export function ImportPreview({
               </div>
             )}
           </div>
+          )}
         </div>
       </Dialog>
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Plus, Trash2, Zap, Mail, Cpu } from "lucide-react";
+import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Surface } from "@/components/ui/surface";
@@ -11,7 +12,7 @@ import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { DataTable, DataHead, Th, Td, Tr } from "@/components/ui/data-table";
+import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import {
   PROVIDER_LABEL,
   PROVIDER_HELP,
@@ -28,6 +29,8 @@ import {
   testPurpose,
   saveEmailSettings,
   sendTestEmail,
+  getAiUsageReport,
+  type AiUsageRow,
 } from "./actions";
 
 export type ProviderRow = {
@@ -354,6 +357,206 @@ function AbaIA({
           />
         ))}
       </Surface>
+
+      <ConsumoIA />
+    </div>
+  );
+}
+
+/** Data de hoje (UTC) em `YYYY-MM-DD` para os inputs de data. */
+function hojeIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+/** `n` dias atrás (UTC) em `YYYY-MM-DD`. */
+function diasAtras(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+const fmt = (n: number) => n.toLocaleString("pt-BR");
+
+/** Consumo de tokens (envio/recebimento) por IA e por modelo, com período. */
+function ConsumoIA() {
+  const [from, setFrom] = useState(() => diasAtras(30));
+  const [to, setTo] = useState(() => hojeIso());
+  const [rows, setRows] = useState<AiUsageRow[] | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [carregando, startLoad] = useTransition();
+
+  useEffect(() => {
+    startLoad(async () => {
+      const r = await getAiUsageReport({ from, to });
+      if (r.ok) {
+        setRows(r.rows);
+        setErro(null);
+      } else {
+        setRows([]);
+        setErro(r.error);
+      }
+    });
+  }, [from, to]);
+
+  const total = useMemo(
+    () =>
+      (rows ?? []).reduce(
+        (a, r) => ({
+          input: a.input + r.input,
+          output: a.output + r.output,
+          calls: a.calls + r.calls,
+        }),
+        { input: 0, output: 0, calls: 0 },
+      ),
+    [rows],
+  );
+
+  // Agrega os modelos de cada provedor numa linha por IA.
+  const porIA = useMemo(() => {
+    const m = new Map<string, { input: number; output: number; total: number; calls: number }>();
+    for (const r of rows ?? []) {
+      const a = m.get(r.provider) ?? { input: 0, output: 0, total: 0, calls: 0 };
+      a.input += r.input;
+      a.output += r.output;
+      a.total += r.total;
+      a.calls += r.calls;
+      m.set(r.provider, a);
+    }
+    return [...m.entries()].sort((x, y) => y[1].total - x[1].total);
+  }, [rows]);
+
+  return (
+    <Surface elevation={1} padding="lg" className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className={eyebrowLabel}>Consumo de IA</h2>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-border">
+            {[7, 30, 90].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => {
+                  setFrom(diasAtras(n));
+                  setTo(hojeIso());
+                }}
+                className="border-r border-border px-2.5 py-1 text-xs text-text-muted last:border-0 hover:bg-surface-2 hover:text-text"
+              >
+                {n} dias
+              </button>
+            ))}
+          </div>
+          <input
+            type="date"
+            aria-label="De"
+            value={from}
+            max={to}
+            onChange={(e) => setFrom(e.target.value)}
+            className={`${controlClass} h-8 w-auto px-2 py-1`}
+          />
+          <span className="text-text-muted">→</span>
+          <input
+            type="date"
+            aria-label="Até"
+            value={to}
+            min={from}
+            max={hojeIso()}
+            onChange={(e) => setTo(e.target.value)}
+            className={`${controlClass} h-8 w-auto px-2 py-1`}
+          />
+        </div>
+      </div>
+
+      {erro && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {erro}
+        </p>
+      )}
+
+      {rows === null ? (
+        <p className="py-8 text-center text-sm text-text-muted">Carregando…</p>
+      ) : (
+        <div className={`space-y-5 transition-opacity ${carregando ? "opacity-60" : ""}`}>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Cartao rotulo="Envio (entrada)" valor={fmt(total.input)} sufixo="tokens" />
+            <Cartao rotulo="Recebimento (saída)" valor={fmt(total.output)} sufixo="tokens" />
+            <Cartao rotulo="Chamadas" valor={fmt(total.calls)} />
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-sm font-medium">Por IA</h3>
+            <DataTable>
+              <DataHead>
+                <Th>Provedor</Th>
+                <Th className="text-right">Envio</Th>
+                <Th className="text-right">Recebimento</Th>
+                <Th className="text-right">Total</Th>
+                <Th className="text-right">Chamadas</Th>
+              </DataHead>
+              <tbody>
+                {porIA.length === 0 ? (
+                  <EmptyRow colSpan={5}>Sem consumo no período.</EmptyRow>
+                ) : (
+                  porIA.map(([prov, a]) => (
+                    <Tr key={prov}>
+                      <Td className="font-medium">{PROVIDER_LABEL[prov as ProviderKind] ?? prov}</Td>
+                      <Td className="text-right tabular-nums">{fmt(a.input)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(a.output)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(a.total)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(a.calls)}</Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </DataTable>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-sm font-medium">Por modelo</h3>
+            <DataTable>
+              <DataHead>
+                <Th>Provedor</Th>
+                <Th>Modelo</Th>
+                <Th className="text-right">Envio</Th>
+                <Th className="text-right">Recebimento</Th>
+                <Th className="text-right">Total</Th>
+                <Th className="text-right">Chamadas</Th>
+              </DataHead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <EmptyRow colSpan={6}>Sem consumo no período.</EmptyRow>
+                ) : (
+                  rows.map((r, i) => (
+                    <Tr key={`${r.provider}:${r.model}:${i}`}>
+                      <Td>{PROVIDER_LABEL[r.provider as ProviderKind] ?? r.provider}</Td>
+                      <Td className="font-mono text-xs">{r.model}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.input)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.output)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.total)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.calls)}</Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </DataTable>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs leading-relaxed text-text-muted">
+        Envio = tokens de entrada; recebimento = tokens de saída. O registro de consumo começou em
+        jul/2026; períodos anteriores não têm dados.
+      </p>
+    </Surface>
+  );
+}
+
+/** Cartão de total no topo do consumo. */
+function Cartao({ rotulo, valor, sufixo }: { rotulo: string; valor: string; sufixo?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+      <p className="text-xs text-text-muted">{rotulo}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums">
+        {valor}
+        {sufixo && <span className="ml-1 text-xs font-normal text-text-muted">{sufixo}</span>}
+      </p>
     </div>
   );
 }
@@ -526,6 +729,11 @@ function AbaEmail({
         </Button>
         <Button variant="secondary" disabled={pending || f.transport === "off"} onClick={() => run(() => sendTestEmail())}>
           <Mail className="size-4" /> Enviar e-mail de teste
+        </Button>
+        <Button asChild variant="secondary">
+          <Link href="/admin/sistema/email-template">
+            <LayoutTemplate className="size-4" /> Template de e-mail
+          </Link>
         </Button>
       </div>
     </Surface>

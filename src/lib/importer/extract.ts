@@ -29,6 +29,8 @@ export type Extraction = {
   images: ExtractedImage[];
   /** Imagens descartadas por serem cabeçalho/rodapé de página (ver `podarRepetidas`). */
   droppedChrome?: number;
+  /** Linhas de texto descartadas por serem cabeçalho/rodapé/paginação (ver `podarChromeDePaginas`). */
+  droppedChromeText?: number;
   /** Bateu no teto de imagens do PDF: o documento tem mais do que foi trazido. */
   imagesCapped?: boolean;
 };
@@ -222,6 +224,112 @@ function podarRepetidas(images: ExtractedImage[]): {
     (i) => (contagem.get(chave(i)) ?? 0) < REPETICOES_ATE_VIRAR_MOBILIA,
   );
   return { images: mantidas, droppedChrome: images.length - mantidas.length };
+}
+
+// Parâmetros da poda de mobília (ver `podarChromeDePaginas`).
+const CHROME_MAX_LEN = 90; // mobília é curta; parágrafo de corpo é longo
+const BANDA_MAX = 14; // teto de linhas por banda de cabeçalho/rodapé (tabela alta)
+
+const PAGINACAO_RE: RegExp[] = [
+  /^\d{1,4}$/, // "12"
+  /^[-–—]\s*\d{1,4}\s*[-–—]$/, // "- 12 -"
+  /^\d{1,4}\s*\/\s*\d{1,4}$/, // "12 / 340"
+  /^p[áa]g(?:\.|ina)?\s*:?\s*\d{1,4}(?:\s*(?:de|\/)\s*\d{1,4})?$/i, // "Página 12 de 340", "Página: 12"
+  /^page\s*\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$/i, // "Page 12 of 340"
+  /^data\s*:?\s*\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/i, // "Data: 29/12/2023"
+];
+
+function ehPaginacao(texto: string): boolean {
+  const t = texto.trim();
+  return t.length <= 24 && PAGINACAO_RE.some((re) => re.test(t));
+}
+
+/** Molde p/ comparar molduras: minúsculas, números → "#", espaços colapsados. */
+function moldeDaLinha(texto: string): string {
+  return texto
+    .toLowerCase()
+    .replace(/\d+/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const ehCurta = (t: string) => {
+  const n = t.trim().length;
+  return n > 0 && n <= CHROME_MAX_LEN;
+};
+
+/**
+ * Remove cabeçalho, rodapé e paginação — a "mobília" impressa que emoldura toda
+ * página de um documento feito para papel. Ela NÃO é conteúdo: polui a árvore,
+ * os artigos e os embeddings.
+ *
+ * A moldura costuma ter VÁRIAS linhas (um cabeçalho-tabela com título do
+ * documento + seção + "Página: N" + "Data: …", um rodapé com o endereço do
+ * site). Por isso removemos a BANDA CONTÍGUA de mobília — do topo para baixo e
+ * da base para cima — parando na primeira linha de conteúdo, em vez de fixar um
+ * número de linhas. Uma linha é mobília quando é CURTA e (é paginação/data OU
+ * seu molde, com os números trocados por "#", se repete na margem de MUITAS
+ * páginas). Conservador: só age com 3+ páginas; um parágrafo de corpo é longo
+ * demais para entrar como candidato, e a banda para no primeiro título/parágrafo
+ * de verdade — então não come conteúdo.
+ */
+export function podarChromeDePaginas<T extends { text: string; page: number }>(
+  lines: T[],
+  numPages: number,
+): { lines: T[]; dropped: number } {
+  if (numPages < 3 || lines.length === 0) return { lines, dropped: 0 };
+
+  // Índices das linhas agrupados por página, na ordem de leitura (topo → base).
+  const porPagina = new Map<number, number[]>();
+  lines.forEach((l, i) => {
+    const arr = porPagina.get(l.page);
+    if (arr) arr.push(i);
+    else porPagina.set(l.page, [i]);
+  });
+
+  // Frequência de molde entre páginas — SÓ linhas curtas entram (parágrafo de
+  // corpo nunca vira candidato a mobília).
+  const paginasPorMolde = new Map<string, Set<number>>();
+  for (const [pagina, idxs] of porPagina) {
+    const vistos = new Set<string>();
+    for (const i of idxs) {
+      if (!ehCurta(lines[i]!.text)) continue;
+      const molde = moldeDaLinha(lines[i]!.text);
+      if (!molde || vistos.has(molde)) continue;
+      vistos.add(molde);
+      const set = paginasPorMolde.get(molde);
+      if (set) set.add(pagina);
+      else paginasPorMolde.set(molde, new Set([pagina]));
+    }
+  }
+
+  // Repetir em ~40% das páginas (mín. 3) já denuncia moldura.
+  const limite = Math.max(3, Math.ceil(numPages * 0.4));
+  const eMobilia = (texto: string): boolean => {
+    if (!ehCurta(texto)) return false;
+    if (ehPaginacao(texto)) return true;
+    return (paginasPorMolde.get(moldeDaLinha(texto))?.size ?? 0) >= limite;
+  };
+
+  const remover = new Set<number>();
+  for (const idxs of porPagina.values()) {
+    const n = idxs.length;
+    // Banda de cabeçalho (do topo para baixo, até a 1ª linha de conteúdo).
+    for (let k = 0; k < Math.min(BANDA_MAX, n); k++) {
+      if (eMobilia(lines[idxs[k]!]!.text)) remover.add(idxs[k]!);
+      else break;
+    }
+    // Banda de rodapé (da base para cima).
+    for (let k = 0; k < Math.min(BANDA_MAX, n); k++) {
+      const idx = idxs[n - 1 - k]!;
+      if (remover.has(idx)) continue; // página curta: já veio do cabeçalho
+      if (eMobilia(lines[idx]!.text)) remover.add(idx);
+      else break;
+    }
+  }
+
+  if (remover.size === 0) return { lines, dropped: 0 };
+  return { lines: lines.filter((_, i) => !remover.has(i)), dropped: remover.size };
 }
 
 /** Markdown → blocos por # e parágrafos. */
@@ -422,9 +530,14 @@ async function extractPdf(buf: Buffer): Promise<Extraction> {
     page.cleanup();
   }
 
+  // Remove a mobília de página (cabeçalho/rodapé/paginação) ANTES de analisar
+  // fontes e ancorar imagens — assim o cálculo de "corpo" e os blocos/artigos
+  // saem limpos, e as imagens se ancoram nas linhas que sobraram.
+  const { lines: linhas, dropped: chromeText } = podarChromeDePaginas(lines, pdf.numPages);
+
   // Descobre os tamanhos de fonte mais comuns → o modal é "corpo".
   const freq = new Map<number, number>();
-  for (const l of lines) freq.set(l.size, (freq.get(l.size) ?? 0) + 1);
+  for (const l of linhas) freq.set(l.size, (freq.get(l.size) ?? 0) + 1);
   const bodySize =
     [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 10;
   const bigSizes = [...freq.keys()]
@@ -433,7 +546,7 @@ async function extractPdf(buf: Buffer): Promise<Extraction> {
   const sizeToLevel = new Map<number, number>();
   bigSizes.slice(0, 3).forEach((s, i) => sizeToLevel.set(s, i + 1));
 
-  const blocks: ExtractedBlock[] = lines.map((l) => ({
+  const blocks: ExtractedBlock[] = linhas.map((l) => ({
     text: l.text,
     fontSize: l.size,
     page: l.page,
@@ -454,11 +567,12 @@ async function extractPdf(buf: Buffer): Promise<Extraction> {
     }
   }
 
-  ancorarImagens(imagens, lines);
+  ancorarImagens(imagens, linhas);
   return {
     source: "pdf",
     blocks,
     ...podarRepetidas(imagens.map((i) => i.imagem)),
+    ...(chromeText ? { droppedChromeText: chromeText } : {}),
     ...(teto ? { imagesCapped: true } : {}),
   };
 }

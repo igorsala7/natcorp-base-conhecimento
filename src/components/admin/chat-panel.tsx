@@ -37,13 +37,20 @@ type Msg = {
 };
 
 export function ChatPanel({
-  spaces,
+  spaces = [],
   aiReady,
+  fixedSpaceId,
+  promptOverride,
 }: {
-  spaces: SpaceInfo[];
+  spaces?: SpaceInfo[];
   aiReady: boolean;
+  /** Quando vem, a documentação é controlada pela página (esconde o seletor). */
+  fixedSpaceId?: string;
+  /** Persona de rascunho a testar (página Assistente) — vai no body do /api/chat. */
+  promptOverride?: string;
 }) {
-  const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? "");
+  const [internalSpaceId, setInternalSpaceId] = useState(spaces[0]?.id ?? "");
+  const spaceId = fixedSpaceId ?? internalSpaceId;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -59,7 +66,7 @@ export function ChatPanel({
   /** Trocar de espaço isola a sessão por base de cliente: começa do zero. */
   function changeSpace(id: string) {
     if (id === spaceId) return;
-    setSpaceId(id);
+    setInternalSpaceId(id);
     resetConversation();
   }
 
@@ -79,6 +86,8 @@ export function ChatPanel({
           spaceId,
           messages: history.map((m) => ({ role: m.role, content: m.content })),
           conversationId: convRef.current,
+          // Só manda quando a página forneceu um rascunho (a página Assistente).
+          ...(promptOverride !== undefined ? { promptOverride } : {}),
         }),
       });
       convRef.current = res.headers.get("X-Conversation-Id") || convRef.current;
@@ -132,19 +141,21 @@ export function ChatPanel({
   return (
     <Surface elevation={1} padding="none" className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border p-2">
-        <select
-          value={spaceId}
-          onChange={(e) => changeSpace(e.target.value)}
-          className={`${controlClass} h-8 w-auto px-2`}
-          aria-label="Espaço"
-        >
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.type === "global" ? "🌐 " : "👤 "}
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {!fixedSpaceId && (
+          <select
+            value={spaceId}
+            onChange={(e) => changeSpace(e.target.value)}
+            className={`${controlClass} h-8 w-auto px-2`}
+            aria-label="Espaço"
+          >
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.type === "global" ? "🌐 " : "👤 "}
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="hidden text-xs text-text-muted sm:inline">
           Só responde com o conteúdo deste espaço.
         </span>

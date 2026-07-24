@@ -4,26 +4,18 @@ import type { Block, RichText as RT } from "@/lib/blocks/schema";
 import { RichText } from "../rich-text/rich-text";
 import { BlockIcon } from "../block-icon";
 import type { BlockEditProps } from "../edit-types";
-import { controlClass } from "@/components/ui/input";
 
 export function DividerBlock() {
   return <hr className="my-2 border-border" />;
 }
 
-export function SpacerBlock({ block, onChange }: BlockEditProps) {
+export function SpacerBlock({ block }: BlockEditProps) {
   const b = block as Extract<Block, { type: "spacer" }>;
   const h = b.data.size === "sm" ? "h-3" : b.data.size === "lg" ? "h-12" : "h-6";
+  // A altura é escolhida no painel de propriedades.
   return (
     <div className={`flex items-center justify-center rounded border border-dashed border-border ${h}`}>
-      <select
-        value={b.data.size}
-        onChange={(e) => onChange({ data: { size: e.target.value as "sm" | "md" | "lg" } } as Partial<Block>)}
-        className="bg-transparent text-xs text-text-muted outline-none"
-      >
-        <option value="sm">Pequeno</option>
-        <option value="md">Médio</option>
-        <option value="lg">Grande</option>
-      </select>
+      <span className="text-[10px] uppercase tracking-wide text-text-muted/70">Espaçador</span>
     </div>
   );
 }
@@ -31,8 +23,9 @@ export function SpacerBlock({ block, onChange }: BlockEditProps) {
 export function ButtonBlock({ block, onChange }: BlockEditProps) {
   const b = block as Extract<Block, { type: "button" }>;
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
-      {/* Prévia com o MESMO acabamento do portal (px-5 py-2.5, semibold). */}
+    /* Estilo e link vivem no painel de propriedades — aqui só o texto do botão,
+       com o MESMO acabamento do portal (px-5 py-2.5, semibold). */
+    <div className="rounded-lg border border-border p-3">
       <input
         value={b.data.label}
         onChange={(e) => onChange({ data: { ...b.data, label: e.target.value } } as Partial<Block>)}
@@ -43,25 +36,9 @@ export function ButtonBlock({ block, onChange }: BlockEditProps) {
             : "bg-primary text-primary-fg placeholder:text-primary-fg/60"
         }`}
       />
-      <input
-        value={b.data.href}
-        onChange={(e) => onChange({ data: { ...b.data, href: e.target.value } } as Partial<Block>)}
-        placeholder="Link (/docs/… ou https://…)"
-        className="min-w-40 flex-1 bg-transparent text-sm text-text-muted outline-none"
-      />
-      <select
-        value={b.data.variant}
-        onChange={(e) => onChange({ data: { ...b.data, variant: e.target.value as "primary" | "secondary" } } as Partial<Block>)}
-        className={`${controlClass} w-auto px-2 py-1 text-xs`}
-      >
-        <option value="primary">Primário</option>
-        <option value="secondary">Secundário</option>
-      </select>
     </div>
   );
 }
-
-const HERO_BG = ["purple", "blue", "gray", "dark"] as const;
 
 export function HeroBlock({ block, onChange }: BlockEditProps) {
   const b = block as Extract<Block, { type: "hero" }>;
@@ -78,18 +55,8 @@ export function HeroBlock({ block, onChange }: BlockEditProps) {
     onChange({ data: { ...b.data, ...patch } } as Partial<Block>);
   return (
     <div className={`rounded-xl border p-6 sm:p-8 ${bgClass[b.data.bg]}`}>
+      {/* A cor de fundo agora está no painel de propriedades. */}
       <BlockIcon name={b.styles?.icon} className={`mb-3 size-7 ${dark ? "text-white/80" : "text-primary"}`} />
-      <div className="mb-2 flex gap-1">
-        {HERO_BG.map((bg) => (
-          <button
-            key={bg}
-            type="button"
-            onClick={() => set({ bg })}
-            title={bg}
-            className={`size-4 rounded-full border ${b.data.bg === bg ? "ring-2 ring-primary" : ""} ${bgClass[bg]}`}
-          />
-        ))}
-      </div>
       <input
         value={b.data.eyebrow}
         onChange={(e) => set({ eyebrow: e.target.value })}
@@ -174,12 +141,7 @@ export function CardBlock({ block, onChange, children }: BlockEditProps) {
         className="mb-1 block w-full bg-transparent font-semibold outline-none"
       />
       <div className="text-sm text-text-muted">{children}</div>
-      <input
-        value={b.data.href}
-        onChange={(e) => onChange({ data: { ...b.data, href: e.target.value } } as Partial<Block>)}
-        placeholder="Link (opcional)"
-        className="mt-2 block w-full bg-transparent text-xs text-text-muted outline-none"
-      />
+      {/* O link do card está no painel de propriedades. */}
     </div>
   );
 }

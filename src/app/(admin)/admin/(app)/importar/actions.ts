@@ -9,6 +9,7 @@ import { uniqueSlug } from "@/lib/content/unique-slug";
 import { enqueueImport, enqueueImportImprove } from "@/lib/jobs/boss";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
 import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
+import { blocksToText } from "@/lib/blocks/serialize";
 import type { Json } from "@/lib/database.types";
 import { proposeLayoutQuestions } from "@/lib/importer/questions";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
@@ -80,7 +81,9 @@ function toBlocks(content: ContentItem[], images: string[]): BlockDoc {
   const blocks: Block[] = content.map((c) =>
     c.type === "p"
       ? { id: newId(), type: "paragraph", text: c.text ? [{ text: c.text }] : [] }
-      : { id: newId(), type: "image", data: { src: images[c.image] ?? "", alt: "", caption: "" } },
+      : c.type === "h"
+        ? { id: newId(), type: "heading", data: { level: c.level >= 3 ? 3 : 2 }, text: [{ text: c.text }] }
+        : { id: newId(), type: "image", data: { src: images[c.image] ?? "", alt: "", caption: "" } },
   );
   return { version: 2, blocks: blocks.length ? blocks : [{ id: newId(), type: "paragraph", text: [] }] };
 }
@@ -117,17 +120,22 @@ async function insertProposed(
   criados.push(created.id);
 
   if (!isFolder) {
+    // Conteúdo rico da Passa B (node.blocks) vence; senão, parágrafos/imagens.
+    const doc = node.blocks ?? toBlocks(node.content, images);
+    const texto = blocksToText(doc.blocks);
     await supabase.from("articles").insert({
       node_id: created.id,
-      content_json: toBlocks(node.content, images) as unknown as Json,
+      content_json: doc as unknown as Json,
+      content_text: texto,
+      excerpt: texto.slice(0, 200),
     });
   } else if (node.content.length > 0) {
-    // Pasta com corpo → cria um artigo "Visão geral" com o corpo.
+    // Pasta com corpo → cria um artigo "Visão geral" com o corpo (rico, se houver).
     await insertProposed(
       supabase,
       spaceId,
       created.id,
-      { title: "Visão geral", content: node.content, children: [] },
+      { title: "Visão geral", content: node.content, children: [], blocks: node.blocks },
       images,
       null,
       criados,

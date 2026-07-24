@@ -19,6 +19,10 @@ import {
 } from "@/lib/ai/config";
 import type { ProviderKind, Purpose } from "@/lib/ai/catalog";
 import { sendEmail } from "@/lib/email/send";
+import { loadEmailWrapper } from "@/lib/email/template";
+import { emailParagraph } from "@/lib/blocks/email-html";
+import { BlockDocSchema } from "@/lib/blocks/schema";
+import { normalizeDoc } from "@/lib/blocks/convert";
 
 export type SysResult = { ok: true; msg?: string } | { ok: false; error: string };
 
@@ -204,6 +208,51 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
   }
 }
 
+export type AiUsageRow = {
+  provider: string;
+  model: string;
+  input: number;
+  output: number;
+  total: number;
+  calls: number;
+};
+
+/** Dia seguinte (só a parte da data, em UTC) — limite superior exclusivo. */
+function proximoDia(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Consumo de IA (tokens de envio/recebimento) por provedor e modelo num
+ * intervalo de datas. Agrega no banco (RPC `ai_usage_report`, `[from, to]`
+ * inclusivo). Só leitura, gateada por `ai.configure`.
+ */
+export async function getAiUsageReport(input: {
+  from: string;
+  to: string;
+}): Promise<{ ok: true; rows: AiUsageRow[] } | { ok: false; error: string }> {
+  if (!(await hasPermission("ai.configure", null))) {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("ai_usage_report", {
+    p_from: `${input.from}T00:00:00`,
+    p_to: `${proximoDia(input.to)}T00:00:00`,
+  });
+  if (error) return { ok: false, error: error.message };
+  const rows: AiUsageRow[] = (data ?? []).map((r) => ({
+    provider: r.provider,
+    model: r.model,
+    input: Number(r.input_tokens),
+    output: Number(r.output_tokens),
+    total: Number(r.total_tokens),
+    calls: Number(r.calls),
+  }));
+  return { ok: true, rows };
+}
+
 // ────────────────────────────── E-mail ─────────────────────────────────────
 
 export async function saveEmailSettings(input: {
@@ -271,15 +320,45 @@ export async function sendTestEmail(): Promise<SysResult> {
   } = await supabase.auth.getUser();
   if (!user?.email) return { ok: false, error: "Sua conta não tem e-mail." };
 
+  // Aplica o template salvo — o teste vira a pré-visualização do design real.
+  const wrap = await loadEmailWrapper();
   const res = await sendEmail({
     to: user.email,
     subject: "Teste de envio — Base de Conhecimento",
-    html: "<p>Se você recebeu esta mensagem, o envio de e-mail está funcionando.</p>",
+    html: wrap(
+      emailParagraph("Se você recebeu esta mensagem, o envio de e-mail está funcionando. ✅") +
+        emailParagraph(
+          "Este é o layout do seu template de e-mail aplicado ao corpo da mensagem — é assim que os convites, confirmações e novidades vão chegar.",
+        ),
+    ),
     text: "Se você recebeu esta mensagem, o envio de e-mail está funcionando.",
   });
   return res.ok
     ? { ok: true, msg: `Enviado para ${user.email} via ${res.via}. Confira a caixa de entrada.` }
     : { ok: false, error: res.reason };
+}
+
+/** Salva o template de e-mail (BlockDoc) da instalação em email_settings. */
+export async function saveEmailTemplate(doc: unknown): Promise<SysResult> {
+  try {
+    await requirePermission("integrations.manage", null);
+  } catch {
+    return { ok: false, error: "Sem permissão para configurar integrações." };
+  }
+  const parsed = BlockDocSchema.safeParse(doc);
+  if (!parsed.success) return { ok: false, error: "Template inválido." };
+  const { blocks } = normalizeDoc(parsed.data);
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("email_settings")
+    .update({ template: { version: 2, blocks } as never, updated_at: new Date().toISOString() })
+    .eq("id", true);
+  if (error) return { ok: false, error: `Falha ao salvar o template: ${error.message}` };
+
+  await audit({ action: "space.update", entityType: "email_settings", entityId: "email", spaceId: null });
+  revalidatePath("/admin/sistema/email-template");
+  return { ok: true, msg: "Template de e-mail salvo." };
 }
 
 /** A tela precisa saber SE há segredo gravado, nunca o valor. */

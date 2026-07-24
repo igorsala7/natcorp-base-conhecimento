@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, AlertTriangle, CheckCircle2, Lightbulb, OctagonAlert, Plus, Minus } from "lucide-react";
+import { Info, AlertTriangle, CheckCircle2, Lightbulb, OctagonAlert } from "lucide-react";
 import type { Block, CalloutVariant, PanelBg } from "@/lib/blocks/schema";
 import { BlockIcon } from "../block-icon";
 import { CALLOUT_ROTULO } from "@/lib/blocks/schema";
@@ -49,30 +49,10 @@ export function CalloutBlock({ block, onChange, children }: BlockEditProps) {
   const escolhido = b.styles?.icon;
   return (
     /* Anatomia do portal (WYSIWYG): quadrado de ícone + TÍTULO editável.
-       O select fica invisível POR CIMA do ícone — clicar nele troca o tipo. */
+       O TIPO de destaque agora é escolhido no painel de propriedades. */
     <div className={`my-1 flex gap-3 rounded-lg border p-4 ${meta.cls}`}>
-      <span
-        className={`relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${meta.iconWrap}`}
-      >
-        {escolhido ? (
-          <BlockIcon name={escolhido} className="size-4" />
-        ) : (
-          <Icon className="size-4" />
-        )}
-        <select
-          value={b.data.variant}
-          onChange={(e) =>
-            onChange({ data: { ...b.data, variant: e.target.value as CalloutVariant } } as Partial<Block>)
-          }
-          className="absolute inset-0 cursor-pointer opacity-0"
-          title="Tipo de destaque (clique para trocar)"
-        >
-          <option value="info">Nota</option>
-          <option value="success">Dica</option>
-          <option value="warning">Atenção</option>
-          <option value="danger">Cuidado</option>
-          <option value="note">Observação</option>
-        </select>
+      <span className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${meta.iconWrap}`}>
+        {escolhido ? <BlockIcon name={escolhido} className="size-4" /> : <Icon className="size-4" />}
       </span>
       <div className="min-w-0 flex-1">
         <input
@@ -90,7 +70,6 @@ export function CalloutBlock({ block, onChange, children }: BlockEditProps) {
   );
 }
 
-const PANEL_BG: PanelBg[] = ["purple", "pink", "blue", "gray"];
 const PANEL_CLS: Record<PanelBg, string> = {
   purple: "bg-brand-purple-50 dark:bg-brand-purple-950/30",
   pink: "bg-brand-pink-50 dark:bg-brand-pink-950/30",
@@ -98,24 +77,10 @@ const PANEL_CLS: Record<PanelBg, string> = {
   gray: "bg-brand-gray-100 dark:bg-brand-gray-800",
 };
 
-export function PanelBlock({ block, onChange, children }: BlockEditProps) {
+export function PanelBlock({ block, children }: BlockEditProps) {
   const b = block as Extract<Block, { type: "panel" }>;
-  return (
-    <div className={`rounded-xl p-5 ${PANEL_CLS[b.data.bg]}`}>
-      <div className="mb-2 flex gap-1">
-        {PANEL_BG.map((bg) => (
-          <button
-            key={bg}
-            type="button"
-            title={bg}
-            onClick={() => onChange({ data: { bg } } as Partial<Block>)}
-            className={`size-4 rounded-full ${PANEL_CLS[bg]} ${b.data.bg === bg ? "ring-2 ring-primary" : "border border-border"}`}
-          />
-        ))}
-      </div>
-      {children}
-    </div>
-  );
+  // A cor de fundo é escolhida no painel de propriedades.
+  return <div className={`rounded-xl p-5 ${PANEL_CLS[b.data.bg]}`}>{children}</div>;
 }
 
 /**
@@ -123,7 +88,7 @@ export function PanelBlock({ block, onChange, children }: BlockEditProps) {
  * entre divisões) para o que se edita ser o que o leitor vê. O número de
  * divisões e as proporções são ajustados no painel de Propriedades.
  */
-export function ContainerBlock({ block, onChange, children }: BlockEditProps) {
+export function ContainerBlock({ block, children }: BlockEditProps) {
   const b = block as Extract<Block, { type: "container" }>;
   const cols = Math.min(5, Math.max(2, b.data.columns || 2));
   const raw = b.data.ratios;
@@ -141,27 +106,10 @@ export function ContainerBlock({ block, onChange, children }: BlockEditProps) {
 
   return (
     <div className="rounded-lg border border-dashed border-border p-2">
-      <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
-        <span>
-          {cols} divisões{ratios ? ` · ${ratios.join(":")}` : ""}
-          {b.data.divider ? " · com divisor" : ""}
-        </span>
-        <button
-          type="button"
-          title="Menos divisões"
-          onClick={() => onChange({ data: { ...b.data, columns: Math.max(2, cols - 1), ratios: undefined } } as Partial<Block>)}
-          className="rounded p-0.5 hover:bg-surface-2"
-        >
-          <Minus className="size-3" />
-        </button>
-        <button
-          type="button"
-          title="Mais divisões"
-          onClick={() => onChange({ data: { ...b.data, columns: Math.min(5, cols + 1), ratios: undefined } } as Partial<Block>)}
-          className="rounded p-0.5 hover:bg-surface-2"
-        >
-          <Plus className="size-3" />
-        </button>
+      {/* Número de divisões e proporções são ajustados no painel de propriedades. */}
+      <div className="mb-2 text-xs text-text-muted">
+        {cols} divisões{ratios ? ` · ${ratios.join(":")}` : ""}
+        {b.data.divider ? " · com divisor" : ""}
       </div>
       <div
         className={`grid gap-3 ${ratios ? "[grid-template-columns:var(--block-cols)]" : grid[cols]} ${divider}`}
@@ -230,26 +178,10 @@ export function TabsBlock({ children }: BlockEditProps) {
   return <div className="space-y-2">{children}</div>;
 }
 
-export function CardGridBlock({ block, onChange, children }: BlockEditProps) {
+export function CardGridBlock({ block, children }: BlockEditProps) {
   const b = block as Extract<Block, { type: "cardGrid" }>;
   const cols = b.data.cols || 3;
   const grid = cols === 2 ? "sm:grid-cols-2" : cols === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3";
-  return (
-    <div>
-      <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
-        Colunas:
-        {[2, 3, 4].map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange({ data: { cols: n } } as Partial<Block>)}
-            className={`rounded px-1.5 ${cols === n ? "bg-primary text-primary-fg" : "hover:bg-surface-2"}`}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <div className={`grid gap-3 ${grid}`}>{children}</div>
-    </div>
-  );
+  // O número de colunas é ajustado no painel de propriedades.
+  return <div className={`grid gap-3 ${grid}`}>{children}</div>;
 }

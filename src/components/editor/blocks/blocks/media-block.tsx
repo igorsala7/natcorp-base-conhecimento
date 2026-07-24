@@ -54,37 +54,11 @@ export function ImageBlock({ block, onChange, spaceId }: BlockEditProps) {
           b.data.size === "wide" ? "w-full max-w-[36rem]" : b.data.size === "medium" ? "w-full max-w-[24rem]" : ""
         }`}
       />
-      {/* Tamanhos da referência: natural / 36rem / 24rem. */}
-      <div className="mt-2 flex justify-center gap-1">
-        {(
-          [
-            [undefined, "Natural"],
-            ["wide", "Ampla"],
-            ["medium", "Média"],
-          ] as const
-        ).map(([valor, rotulo]) => (
-          <button
-            key={rotulo}
-            type="button"
-            onClick={() =>
-              onChange({ data: { ...b.data, size: valor } } as Partial<Block>)
-            }
-            className={`rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] transition-colors ${
-              b.data.size === valor
-                ? "bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
-                : "text-brand-gray-400 hover:text-text"
-            }`}
-          >
-            {rotulo}
-          </button>
-        ))}
-      </div>
-      <input
-        value={b.data.caption}
-        onChange={(e) => onChange({ data: { ...b.data, caption: e.target.value } } as Partial<Block>)}
-        placeholder="Legenda (opcional)"
-        className="mt-2 w-full bg-transparent text-center text-xs text-text-muted outline-none"
-      />
+      {/* Tamanho, legenda e texto alternativo agora vivem no painel de
+          propriedades — aqui só a figura (WYSIWYG), com a legenda quando houver. */}
+      {b.data.caption && (
+        <figcaption className="mt-2 text-center text-xs text-text-muted">{b.data.caption}</figcaption>
+      )}
     </figure>
   );
 }

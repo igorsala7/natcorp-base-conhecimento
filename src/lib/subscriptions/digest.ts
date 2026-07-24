@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { emailEnabled, sendEmail } from "@/lib/email/send";
+import { loadEmailWrapper } from "@/lib/email/template";
 import { frequenciaDue } from "./rules";
 
 /**
@@ -47,6 +48,7 @@ function htmlDigest(
 
 export async function processDigests(db: Db, siteUrl: string): Promise<{ enviados: number }> {
   if (!(await emailEnabled())) return { enviados: 0 };
+  const wrap = await loadEmailWrapper(); // template de marca, carregado 1× para todos
   const agora = new Date();
   let enviados = 0;
 
@@ -135,7 +137,7 @@ export async function processDigests(db: Db, siteUrl: string): Promise<{ enviado
             freq === "instant"
               ? `Novo na documentação ${space.name}: ${artigos[0]!.title}`
               : `Novidades da documentação ${space.name}`,
-          html: corpo.html,
+          html: wrap(corpo.html),
           text: corpo.text,
         });
         if (r.ok) enviados += 1;
