@@ -16,6 +16,10 @@ import {
   extractKey,
   rateLimitOk,
 } from "@/lib/widget/auth";
+import { interpretarConsulta } from "@/lib/ai/query-understanding";
+import { ehConversaSocial } from "@/lib/ai/social";
+import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
+import { trackingFields } from "@/lib/chat/tracking";
 
 export const runtime = "nodejs";
 
@@ -46,6 +50,9 @@ export async function POST(req: NextRequest) {
     conversationId?: string;
     sessionId?: string;
     key?: string;
+    scope?: ClarifyScope;
+    contextScope?: ClarifyScope;
+    track?: unknown;
   };
   try {
     payload = await req.json();
@@ -81,8 +88,19 @@ export async function POST(req: NextRequest) {
     promptDaChave: key.system_prompt,
     promptDoEspaco: espacoDono?.chat_prompt ?? null,
   });
-  // Escopo do chatbot: TODAS as documentações vinculadas à chave.
-  const sources = await retrievePublicContext(key.space_ids, question);
+  // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
+  // responde na simpatia, sem contexto nem "não encontrei".
+  const social = ehConversaSocial(question);
+  // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
+  // por botão só NARROW dentro delas — nunca escapa da chave).
+  const sources = social
+    ? []
+    : await retrievePublicContext(
+        key.space_ids,
+        await interpretarConsulta(key.space_ids, question, messages),
+        8,
+        payload.scope,
+      );
 
   // Garante a conversa (persiste histórico com session_id anônimo). Isola por
   // base de cliente: uma conversationId de outro espaço/chave é descartada.
@@ -99,16 +117,24 @@ export async function POST(req: NextRequest) {
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
-      .insert({ space_id: key.space_id, session_id: payload.sessionId ?? null })
+      .insert({
+        space_id: key.space_id,
+        session_id: payload.sessionId ?? null,
+        ...trackingFields(payload.track),
+      })
       .select("id")
       .single();
     convId = conv?.id;
   }
-  await supabase.from("messages").insert({
-    conversation_id: convId!,
-    role: "user",
-    content: question,
-  });
+  // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
+  // desambiguação re-envia a mesma pergunta e não deve duplicá-la.
+  if (!payload.scope) {
+    await supabase.from("messages").insert({
+      conversation_id: convId!,
+      role: "user",
+      content: question,
+    });
+  }
 
   const citations = sources.map((s) => ({
     n: s.n,
@@ -121,10 +147,10 @@ export async function POST(req: NextRequest) {
   const sse = (obj: unknown) => encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
-  if (sources.length === 0) {
+  if (sources.length === 0 && !social) {
     const refusal =
-      "Não encontrei essa informação na documentação. " +
-      "Recomendo refinar a pergunta ou falar com um atendente humano.";
+      "Não encontrei exatamente isso na documentação. " +
+      "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
     await supabase.from("messages").insert({
       conversation_id: convId!,
       role: "assistant",
@@ -142,6 +168,24 @@ export async function POST(req: NextRequest) {
     return sseResponse(stream, cors);
   }
 
+  // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
+  // Pulada em turnos sociais — não se "desambigua" um "oi".
+  if (!payload.scope && !social) {
+    const dis =
+      analyzeAmbiguity(sources, payload.contextScope ?? null) ??
+      analyzeConfidence(sources, payload.contextScope ?? null);
+    if (dis) {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(sse({ type: "clarify", question: dis.question, options: dis.options }));
+          controller.enqueue(sse({ type: "done", conversationId: convId }));
+          controller.close();
+        },
+      });
+      return sseResponse(stream, cors);
+    }
+  }
+
   const result = streamText({
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
@@ -157,6 +201,8 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       controller.enqueue(sse({ type: "citations", citations }));
+      const tema = resolveTheme(sources);
+      if (tema) controller.enqueue(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";
       try {
         for await (const delta of result.textStream) {

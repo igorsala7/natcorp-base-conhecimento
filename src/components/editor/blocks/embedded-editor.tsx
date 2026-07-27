@@ -13,11 +13,14 @@ import type { Block, BlockType } from "@/lib/blocks/schema";
 import { newId } from "@/lib/blocks/schema";
 import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { moveBlock, findBlock } from "@/lib/blocks/tree-ops";
+import { groupBlocks } from "@/lib/blocks/group";
 import { BlockList } from "./block-item";
+import { GroupBar } from "./group-bar";
 import { SlashMenu } from "./slash-menu";
 import { BlockContextMenu } from "./block-context-menu";
 import { ActiveRichTextProvider } from "./rich-text/active";
 import { useEditorActions } from "./use-editor-actions";
+import { usePasteBlocks } from "./use-paste-blocks";
 import { useUndoRedo } from "./use-undo-redo";
 
 /**
@@ -51,12 +54,26 @@ export function EmbeddedBlockEditor({
   const [blocks, setBlocks] = useState<Block[]>(
     initialBlocks.length ? initialBlocks : [{ id: newId(), type: "paragraph", text: [] }],
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Seleção múltipla (shift/ctrl/cmd+clique) para agrupar. Este editor não tem
+  // inspetor, então basta o shim `setSelectedId` para os call sites antigos.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const setSelectedId = (id: string | null) => setSelectedIds(id == null ? [] : [id]);
   const [autoFocusId, setAutoFocusId] = useState<string | null>(null);
   const [slash, setSlash] = useState<{ id: string | null; rect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ block: Block; x: number; y: number } | null>(null);
 
-  const actions = useEditorActions({ setBlocks, setSelectedId, setAutoFocusId, setSlash });
+  const actions = useEditorActions({ setBlocks, setSelectedIds, setAutoFocusId, setSlash });
+  const onPaste = usePasteBlocks({ spaceId, insertBlocks: actions.insertBlocks, patch: actions.patch });
+
+  /** Agrupa os blocos selecionados numa nova região do tipo escolhido. */
+  function agrupar(type: BlockType) {
+    const groupId = newId();
+    const r = groupBlocks(blocks, selectedIds, type, groupId);
+    if (!r) return;
+    setBlocks(r.blocks);
+    setSelectedIds([groupId]);
+    setAutoFocusId(groupId);
+  }
   const { desfazer, refazer, revisao } = useUndoRedo(blocks, setBlocks, () => {
     setSelectedId(null);
     setSlash(null);
@@ -119,7 +136,7 @@ export function EmbeddedBlockEditor({
 
   return (
     <ActiveRichTextProvider>
-      <div onKeyDown={onKeyDown}>
+      <div onKeyDown={onKeyDown} onPaste={onPaste}>
         <div
           // `editor-blocks`: na edição cada bloco tem wrapper próprio e as
           // margens não colapsam — sem isto o espaçamento dobra (ver globals).
@@ -144,7 +161,7 @@ export function EmbeddedBlockEditor({
                 key={revisao}
                 blocks={blocks}
                 actions={actions}
-                selectedId={selectedId}
+                selectedIds={selectedIds}
                 autoFocusId={autoFocusId}
                 spaceId={spaceId}
                 onContextMenu={(block, x, y) => setCtxMenu({ block, x, y })}
@@ -171,6 +188,9 @@ export function EmbeddedBlockEditor({
             onClose={() => setCtxMenu(null)}
             onProperties={() => setSelectedId(ctxMenu.block.id)}
           />
+        )}
+        {selectedIds.length >= 2 && (
+          <GroupBar count={selectedIds.length} onGroup={agrupar} onClear={() => setSelectedIds([])} />
         )}
       </div>
     </ActiveRichTextProvider>

@@ -14,6 +14,7 @@ import {
   List,
   ListOrdered,
   Quote,
+  Milestone,
   Minus,
   Code2,
   Image as ImageIcon,
@@ -35,13 +36,71 @@ import {
   type LucideIcon,
   CheckSquare,
   BarChart3,
+  Waypoints,
 } from "lucide-react";
 import {
   type Block,
   type BlockType,
+  type ChartType,
   isContainerType,
   newId,
 } from "./schema";
+
+/** Fluxograma de exemplo (início → tarefa → decisão → correção/fim). */
+export function fluxoPadrao(): Block {
+  return {
+    id: newId(),
+    type: "flow",
+    data: {
+      nodes: [
+        { id: "n1", type: "start", label: "Início" },
+        { id: "n2", type: "process", label: "Executar a tarefa" },
+        { id: "n3", type: "decision", label: "Deu certo?" },
+        { id: "n4", type: "process", label: "Concluir" },
+        { id: "n5", type: "process", label: "Corrigir" },
+        { id: "n6", type: "end", label: "Fim" },
+      ],
+      edges: [
+        { id: "e1", from: "n1", to: "n2" },
+        { id: "e2", from: "n2", to: "n3" },
+        { id: "e3", from: "n3", to: "n4", label: "Sim" },
+        { id: "e4", from: "n3", to: "n5", label: "Não" },
+        { id: "e5", from: "n4", to: "n6" },
+        { id: "e6", from: "n5", to: "n2" },
+      ],
+    },
+  };
+}
+
+/** Gráfico com dados de exemplo. Trocar o tipo depois preserva os dados. */
+export function graficoPadrao(chartType: ChartType): Block {
+  return {
+    id: newId(),
+    type: "chart",
+    data: {
+      chartType,
+      title: "",
+      columns: [
+        { key: "categoria", label: "Categoria" },
+        { key: "serie1", label: "Série 1" },
+        { key: "serie2", label: "Série 2" },
+      ],
+      rows: [
+        { categoria: "Jan", serie1: 120, serie2: 90 },
+        { categoria: "Fev", serie1: 150, serie2: 130 },
+        { categoria: "Mar", serie1: 100, serie2: 110 },
+        { categoria: "Abr", serie1: 180, serie2: 140 },
+      ],
+      xKey: "categoria",
+      series: [
+        { key: "serie1", label: "Série 1" },
+        { key: "serie2", label: "Série 2" },
+      ],
+      legend: true,
+      grid: true,
+    },
+  };
+}
 
 export type BlockCategory =
   | "basico"
@@ -90,6 +149,7 @@ export const TEXT_CONVERT_TARGETS: BlockType[] = [
   "paragraph",
   "heading",
   "quote",
+  "breadcrumb",
   "bulletList",
   "orderedList",
   "checklist",
@@ -189,6 +249,18 @@ export const BLOCKS = {
     isVoid: false,
     transformableTo: alvosTexto("quote"),
     defaultData: () => ({ id: newId(), type: "quote", text: [] }),
+  },
+  breadcrumb: {
+    type: "breadcrumb",
+    label: "Breadcrumb",
+    description: "Trilha de navegação (Início › Seção › Página)",
+    keywords: ["breadcrumb", "caminho", "navegacao", "trilha", "menu", "rota"],
+    icon: Milestone,
+    category: "basico",
+    isContainer: false,
+    isVoid: false,
+    transformableTo: alvosTexto("breadcrumb"),
+    defaultData: () => ({ id: newId(), type: "breadcrumb", text: [] }),
   },
   divider: {
     type: "divider",
@@ -545,6 +617,30 @@ export const BLOCKS = {
     isVoid: false,
     transformableTo: [],
     defaultData: () => ({ id: newId(), type: "mermaid", data: { code: "graph TD;\n  A-->B;" } }),
+  },
+  chart: {
+    type: "chart",
+    label: "Gráfico",
+    description: "Colunas, linha, pizza, dispersão…",
+    keywords: ["grafico", "chart", "barras", "colunas", "linha", "pizza", "dados", "graph"],
+    icon: BarChart3,
+    category: "midia",
+    isContainer: false,
+    isVoid: true,
+    transformableTo: [],
+    defaultData: () => graficoPadrao("column"),
+  },
+  flow: {
+    type: "flow",
+    label: "Fluxograma",
+    description: "Fluxo de nós com decisões e ramos",
+    keywords: ["fluxograma", "flow", "fluxo", "processo", "decisao", "diagrama"],
+    icon: Waypoints,
+    category: "midia",
+    isContainer: false,
+    isVoid: true,
+    transformableTo: [],
+    defaultData: () => fluxoPadrao(),
   },
   snippet: {
     type: "snippet",

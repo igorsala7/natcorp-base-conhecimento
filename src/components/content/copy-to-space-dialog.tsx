@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import {
   listSpaceFolders,
@@ -32,16 +33,17 @@ export function CopyToSpaceDialog({
   onDone: (msg: string) => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const outros = spaces.filter((s) => s.id !== currentSpaceId);
   const [destId, setDestId] = useState(outros[0]?.id ?? "");
   const [parentId, setParentId] = useState("__root__");
   const [modo, setModo] = useState<"copy" | "move">("copy");
+  const [copiarBusca, setCopiarBusca] = useState(true);
   const [loaded, setLoaded] = useState<{
     spaceId: string;
     list: { id: string; title: string; depth: number }[];
   } | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
   const folders = loaded?.spaceId === destId ? loaded.list : [];
   const carregando = !!destId && loaded?.spaceId !== destId;
@@ -58,15 +60,14 @@ export function CopyToSpaceDialog({
   }, [destId]);
 
   function submit() {
-    setMsg(null);
     startTransition(async () => {
       const parent = parentId === "__root__" ? null : parentId;
       const res =
         modo === "copy"
-          ? await copyNodesToSpace(nodeIds, destId, parent)
-          : await moveNodesToSpace(nodeIds, destId, parent);
+          ? await copyNodesToSpace(nodeIds, destId, parent, copiarBusca)
+          : await moveNodesToSpace(nodeIds, destId, parent, copiarBusca);
       if (!res.ok) {
-        setMsg(res.error);
+        toast.error(res.error);
         return;
       }
       onDone(
@@ -170,14 +171,21 @@ export function CopyToSpaceDialog({
             </select>
           </Field>
 
-          {msg && (
-            <p
-              role="alert"
-              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-            >
-              {msg}
-            </p>
-          )}
+          <label className="flex items-start gap-2.5 rounded-lg border border-border p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={copiarBusca}
+              onChange={(e) => setCopiarBusca(e.target.checked)}
+              className="mt-0.5 accent-[var(--color-primary)]"
+            />
+            <span>
+              <span className="font-medium">Trazer os dados de busca prontos</span>
+              <span className="block text-xs leading-relaxed text-text-muted">
+                Copia os embeddings (vetores) e a ontologia (termos e sinônimos) da origem — a busca
+                e o assistente já funcionam no destino sem regerar, economizando tokens.
+              </span>
+            </span>
+          </label>
         </div>
       )}
     </Dialog>

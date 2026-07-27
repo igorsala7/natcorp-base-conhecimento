@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import {
   getSchedule,
   listPublishedArticles,
@@ -43,12 +44,12 @@ export function ScheduleDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pub, setPub] = useState("");
   const [unpub, setUnpub] = useState("");
   const [redirectTo, setRedirectTo] = useState("");
   const [destinos, setDestinos] = useState<{ id: string; title: string }[]>([]);
   const [carregado, setCarregado] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -69,14 +70,14 @@ export function ScheduleDialog({
   }, [nodeId, spaceId]);
 
   function salvar(limpar = false) {
-    setErro(null);
     startTransition(async () => {
       const r = await setSchedule(nodeId, {
         publishAt: limpar ? null : localParaIso(pub),
         unpublishAt: limpar ? null : localParaIso(unpub),
         redirectTo: limpar ? null : redirectTo || null,
       });
-      if (!r.ok) return setErro(r.error);
+      if (!r.ok) return toast.error(r.error);
+      toast.success(limpar ? "Agendamento removido." : "Publicação agendada.");
       router.refresh();
       onClose();
     });
@@ -156,11 +157,6 @@ export function ScheduleDialog({
           </Field>
         )}
 
-        {erro && (
-          <p role="alert" className="rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-            {erro}
-          </p>
-        )}
       </div>
     </Dialog>
   );

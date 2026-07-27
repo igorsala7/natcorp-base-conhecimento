@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { EmptyState } from "@/components/ui/empty-state";
 import { approveReview, rejectReview, type ReviewItem } from "../conteudo/review-actions";
@@ -21,13 +22,14 @@ export function ReviewQueue({
 }) {
   const router = useRouter();
   const { pedirTexto } = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
 
   function approve(id: string) {
     startTransition(async () => {
       const r = await approveReview(id);
-      setMsg(r.ok ? "Aprovado e publicado." : r.error);
+      if (r.ok) toast.success("Aprovado e publicado.");
+      else toast.error(r.error ?? "Falhou.");
       router.refresh();
     });
   }
@@ -42,7 +44,8 @@ export function ReviewQueue({
     if (c === null) return;
     startTransition(async () => {
       const r = await rejectReview(id, c);
-      setMsg(r.ok ? "Rejeitado — voltou para rascunho." : r.error);
+      if (r.ok) toast.success("Rejeitado — voltou para rascunho.");
+      else toast.error(r.error ?? "Falhou.");
       router.refresh();
     });
   }
@@ -53,12 +56,6 @@ export function ReviewQueue({
       <p className="mt-1 text-sm text-text-muted">
         Artigos aguardando aprovação para publicar.
       </p>
-
-      {msg && (
-        <p role="status" className="mt-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {msg}
-        </p>
-      )}
 
       {items.length === 0 ? (
         <EmptyState

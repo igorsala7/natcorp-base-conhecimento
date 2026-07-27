@@ -2,25 +2,33 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
-import { Search, UserPlus } from "lucide-react";
+import { FolderTree, Plus, Search, Trash2, Upload, UserPlus, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Input, controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Segmented } from "@/components/ui/segmented";
-import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
+import { Dialog } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { Role } from "@/lib/auth/roles";
-import type { UserRow } from "./page";
+import type { UserRow, Membership, SpaceOption } from "./page";
 import {
   inviteUser,
-  changeUserRole,
   setUserSuspended,
   removeUser,
   revokeSessions,
+  updateProfileIdentity,
+  addMembershipRule,
+  removeMembershipRule,
   type ActionState,
 } from "./actions";
+import { saveAuthor, deleteAuthor, type AuthorRow, type AuthorActionResult } from "./author-actions";
+import { listSpaceFolders } from "../conteudo/space-actions";
+import { uploadAvatar } from "@/lib/content/upload";
 
 type Perms = { invite: boolean; manage: boolean; suspend: boolean };
 
@@ -29,15 +37,86 @@ const STATUS_LABEL: Record<string, string> = {
   invited: "Convidado",
   suspended: "Suspenso",
 };
-
 const STATUS_TONE: Record<string, BadgeTone> = {
   active: "success",
   invited: "info",
   suspended: "danger",
 };
+const STATUS_DOT: Record<string, string> = {
+  active: "bg-emerald-500",
+  invited: "bg-sky-500",
+  suspended: "bg-rose-500",
+};
 
 function maxLevel(u: UserRow) {
   return u.memberships.reduce((max, m) => Math.max(max, m.role_level), 0);
+}
+function papelPrincipal(u: UserRow): Membership | null {
+  return u.memberships.reduce<Membership | null>(
+    (top, m) => (!top || m.role_level > top.role_level ? m : top),
+    null,
+  );
+}
+function fmtData(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function Avatar({ url, size = "size-11" }: { url: string | null; size?: string }) {
+  if (url)
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt="" className={`${size} shrink-0 rounded-full object-cover`} />;
+  return (
+    <span className={`${size} flex shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-muted`}>
+      <UserRound className="size-1/2" />
+    </span>
+  );
+}
+
+/** Foto com UPLOAD (bucket `avatars`) + campo de URL como alternativa. */
+function AvatarUpload({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  disabled?: boolean;
+}) {
+  const toast = useToast();
+  const [enviando, setEnviando] = useState(false);
+  function escolher() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setEnviando(true);
+      const url = await uploadAvatar(file);
+      setEnviando(false);
+      if (url) onChange(url);
+      else toast.error("Falha ao enviar a foto.");
+    };
+    input.click();
+  }
+  return (
+    <div className="flex items-center gap-3">
+      <Avatar url={value || null} size="size-16" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <Button type="button" size="sm" variant="secondary" disabled={disabled || enviando} onClick={escolher}>
+          <Upload className="size-4" /> {enviando ? "Enviando…" : "Enviar foto"}
+        </Button>
+        <input
+          className={`${controlClass} h-8 text-xs`}
+          placeholder="ou cole uma URL https://…"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  );
 }
 
 function InviteSubmit() {
@@ -49,90 +128,89 @@ function InviteSubmit() {
   );
 }
 
-function InviteForm({
+/** Convite numa tela modal (Dialog), no mesmo padrão do painel do usuário. */
+function InviteDialog({
+  open,
+  onClose,
   roles,
   actorLevel,
   onDone,
 }: {
+  open: boolean;
+  onClose: () => void;
   roles: Role[];
   actorLevel: number;
   onDone: (msg: string) => void;
 }) {
-  const [state, action] = useActionState<ActionState, FormData>(
-    async (prev, fd) => {
-      const res = await inviteUser(prev, fd);
-      if (res?.ok) onDone(res.ok);
-      return res;
-    },
-    undefined,
-  );
-
-  // Só papéis abaixo do nível do ator (não-escalada, refletida na UI).
+  const [state, action] = useActionState<ActionState, FormData>(async (prev, fd) => {
+    const res = await inviteUser(prev, fd);
+    if (res?.ok) onDone(res.ok);
+    return res;
+  }, undefined);
   const assignable = roles.filter((r) => r.level < actorLevel);
-
   return (
-    <form
-      action={action}
-      className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4 shadow-1"
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="md"
+      title="Convidar usuário"
+      description="A pessoa recebe um e-mail para definir a senha e entrar."
     >
-      <Field
-        label="E-mail"
-        htmlFor="invite-email"
-        required
-        className="flex-1"
-        error={state?.error ?? null}
-      >
-        <Input
-          id="invite-email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          placeholder="pessoa@natcorp.com.br"
-        />
-      </Field>
-      <Field
-        label="Papel"
-        htmlFor="invite-role"
-        required
-        hint="Só papéis abaixo do seu nível aparecem aqui."
-      >
-        <select
-          id="invite-role"
-          name="roleKey"
-          required
-          className={`${controlClass} h-10 w-auto`}
-        >
-          {assignable.map((r) => (
-            <option key={r.id} value={r.key}>
-              {r.name} (nível {r.level})
-            </option>
-          ))}
-        </select>
-      </Field>
-      <InviteSubmit />
-    </form>
+      <form action={action} className="space-y-4">
+        <Field label="E-mail" htmlFor="invite-email" required error={state?.error ?? null}>
+          <Input
+            id="invite-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            placeholder="pessoa@natcorp.com.br"
+          />
+        </Field>
+        <Field label="Papel" htmlFor="invite-role" required hint="Só papéis abaixo do seu nível aparecem aqui.">
+          <select id="invite-role" name="roleKey" required className={`${controlClass} h-10 w-full`}>
+            {assignable.map((r) => (
+              <option key={r.id} value={r.key}>
+                {r.name} (nível {r.level})
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <InviteSubmit />
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
 export function UsersManager({
   users,
   roles,
+  authors,
+  spaces,
   actorLevel,
+  actorId,
   can,
 }: {
   users: UserRow[];
   roles: Role[];
+  authors: AuthorRow[];
+  spaces: SpaceOption[];
   actorLevel: number;
+  actorId: string | null;
   can: Perms;
 }) {
-  const { confirmar } = useConfirm();
+  const toast = useToast();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [showInvite, setShowInvite] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -140,20 +218,16 @@ export function UsersManager({
       const matchesQuery =
         !q ||
         u.email?.toLowerCase().includes(q) ||
-        u.full_name?.toLowerCase().includes(q);
-      const matchesRole =
-        !roleFilter || u.memberships.some((m) => m.role_key === roleFilter);
+        u.full_name?.toLowerCase().includes(q) ||
+        u.job_title?.toLowerCase().includes(q) ||
+        u.author?.public_name.toLowerCase().includes(q);
+      const matchesRole = !roleFilter || u.memberships.some((m) => m.role_key === roleFilter);
       const matchesStatus = !statusFilter || u.status === statusFilter;
       return matchesQuery && matchesRole && matchesStatus;
     });
   }, [users, query, roleFilter, statusFilter]);
 
-  function run(fn: () => Promise<ActionState>) {
-    startTransition(async () => {
-      const res = await fn();
-      setMessage(res?.ok ?? res?.error ?? null);
-    });
-  }
+  const selected = selectedId ? users.find((u) => u.id === selectedId) ?? null : null;
 
   return (
     <div className="mt-6">
@@ -161,7 +235,7 @@ export function UsersManager({
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
           <Input
-            placeholder="Buscar por nome ou e-mail…"
+            placeholder="Buscar por nome, e-mail, cargo…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
@@ -191,160 +265,538 @@ export function UsersManager({
           ]}
         />
         {can.invite && (
-          <Button
-            className="ml-auto"
-            onClick={() => setShowInvite((v) => !v)}
-          >
+          <Button className="ml-auto" onClick={() => setShowInvite(true)}>
             <UserPlus /> Convidar
           </Button>
         )}
       </div>
 
-      {showInvite && can.invite && (
-        <InviteForm
+      {can.invite && (
+        <InviteDialog
+          open={showInvite}
+          onClose={() => setShowInvite(false)}
           roles={roles}
           actorLevel={actorLevel}
           onDone={(msg) => {
-            setMessage(msg);
+            toast.success(msg);
             setShowInvite(false);
+            router.refresh();
           }}
         />
       )}
 
-      {message && (
-        <p className="mt-4 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {message}
-        </p>
+      {filtered.length === 0 ? (
+        <EmptyState className="mt-6" icon={UserRound} title="Nenhum usuário" description="Nada corresponde aos filtros." />
+      ) : (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((u) => (
+            <UserCard key={u.id} user={u} onOpen={() => setSelectedId(u.id)} />
+          ))}
+        </div>
       )}
 
-      <div className="mt-4">
-        <DataTable>
-          <DataHead>
-            <Th>Usuário</Th>
-            <Th>Papéis</Th>
-            <Th>Status</Th>
-            <Th>Escopo</Th>
-            <Th>Ações</Th>
-          </DataHead>
-          <tbody>
-            {filtered.length === 0 && (
-              <EmptyRow colSpan={5}>Nenhum usuário corresponde aos filtros.</EmptyRow>
-            )}
-            {filtered.map((u) => {
-              const targetLevel = maxLevel(u);
-              const canActOn = actorLevel > targetLevel;
-              const primary = u.memberships[0];
-              return (
-                <Tr key={u.id}>
-                  <Td>
-                    <div className="font-medium">{u.email ?? "—"}</div>
-                    {u.full_name && <div className="text-text-muted">{u.full_name}</div>}
-                  </Td>
-                  <Td>
-                    <div className="flex flex-wrap gap-1">
-                      {u.memberships.length === 0 && (
-                        <span className="text-text-muted">sem papel</span>
-                      )}
-                      {u.memberships.map((m) => (
-                        <Badge key={m.id} tone="primary">
-                          {m.role_name}
-                        </Badge>
-                      ))}
-                    </div>
-                  </Td>
-                  <Td>
-                    <Badge tone={STATUS_TONE[u.status] ?? "neutral"}>
-                      {STATUS_LABEL[u.status] ?? u.status}
-                    </Badge>
-                  </Td>
-                  <Td className="text-text-muted">
-                    {u.memberships.some((m) => m.space_id === null) ? "Global" : "Por espaço"}
-                  </Td>
-                  <Td>
-                    {!canActOn ? (
-                      <span className="text-xs text-text-muted">
-                        nível ≥ ao seu
-                      </span>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {can.manage && primary && (
-                          <select
-                            defaultValue={primary.role_key}
-                            disabled={pending}
-                            aria-label={`Papel de ${u.email}`}
-                            onChange={(e) => {
-                              const fd = new FormData();
-                              fd.set("membershipId", primary.id);
-                              fd.set("roleKey", e.target.value);
-                              run(() => changeUserRole(undefined, fd));
-                            }}
-                            className={`${controlClass} h-8 w-auto px-2 text-xs`}
-                          >
-                            {roles
-                              .filter((r) => r.level < actorLevel)
-                              .map((r) => (
-                                <option key={r.id} value={r.key}>
-                                  {r.name}
-                                </option>
-                              ))}
-                          </select>
-                        )}
-                        {can.suspend && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={pending}
-                            onClick={() =>
-                              run(() =>
-                                setUserSuspended(
-                                  u.id,
-                                  u.status !== "suspended",
-                                ),
-                              )
-                            }
-                          >
-                            {u.status === "suspended" ? "Reativar" : "Suspender"}
-                          </Button>
-                        )}
-                        {can.manage && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={pending}
-                              onClick={() => run(() => revokeSessions(u.id))}
-                            >
-                              Revogar sessões
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={pending}
-                              onClick={async () => {
-                                if (
-                                  await confirmar({
-                                    title: "Remover usuário",
-                                    description: `Remover ${u.email}? Esta ação não pode ser desfeita.`,
-                                    tone: "danger",
-                                    confirmLabel: "Remover",
-                                  })
-                                )
-                                  run(() => removeUser(u.id));
-                              }}
-                            >
-                              Remover
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </Td>
-                </Tr>
-              );
-            })}
-          </tbody>
-        </DataTable>
-      </div>
+      {selected && (
+        <UserDrawer
+          key={selected.id}
+          user={selected}
+          roles={roles}
+          authors={authors}
+          spaces={spaces}
+          actorLevel={actorLevel}
+          isSelf={selected.id === actorId}
+          can={can}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function UserCard({ user, onOpen }: { user: UserRow; onOpen: () => void }) {
+  const principal = papelPrincipal(user);
+  const nome = user.full_name || user.email || "—";
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex flex-col rounded-xl border border-border bg-surface p-4 text-left shadow-1 transition-colors hover:border-border-strong hover:bg-surface-2"
+    >
+      <div className="flex items-center gap-3">
+        <Avatar url={user.avatar_url} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{nome}</p>
+          <p className="truncate text-xs text-text-muted">
+            {user.job_title || <span className="italic">sem cargo</span>}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {principal ? (
+          <Badge tone="primary">{principal.role_name}</Badge>
+        ) : (
+          <span className="text-xs text-text-muted">sem papel</span>
+        )}
+        {user.memberships.length > 1 && (
+          <span className="text-xs text-text-muted">+{user.memberships.length - 1} regra(s)</span>
+        )}
+      </div>
+      <div className="mt-3 flex items-center justify-between border-t border-border pt-2 text-xs text-text-muted">
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-block size-2 rounded-full ${STATUS_DOT[user.status] ?? "bg-brand-gray-400"}`} />
+          {STATUS_LABEL[user.status] ?? user.status}
+        </span>
+        {user.author && (
+          <span className="flex items-center gap-1">
+            <UserRound className="size-3" /> {user.author.artigos} art.
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Painel de UM usuário: identidade (foto/nome/cargo), REGRAS de acesso por
+ * documentação/diretório, conta e perfil de autor. O servidor revalida cada
+ * ação; a UI esconde o que o ator não pode fazer.
+ */
+function UserDrawer({
+  user,
+  roles,
+  authors,
+  spaces,
+  actorLevel,
+  isSelf,
+  can,
+  onClose,
+}: {
+  user: UserRow;
+  roles: Role[];
+  authors: AuthorRow[];
+  spaces: SpaceOption[];
+  actorLevel: number;
+  isSelf: boolean;
+  can: Perms;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const { confirmar } = useConfirm();
+  const [pending, start] = useTransition();
+
+  const targetLevel = maxLevel(user);
+  const canActOn = actorLevel > targetLevel;
+
+  // Identidade
+  const [nome, setNome] = useState(user.full_name ?? "");
+  const [cargo, setCargo] = useState(user.job_title ?? "");
+  const [foto, setFoto] = useState(user.avatar_url ?? "");
+
+  // Nova regra de acesso
+  const atribuiveis = roles.filter((r) => r.level < actorLevel);
+  const [novoPapel, setNovoPapel] = useState(atribuiveis[0]?.key ?? "");
+  const [novoEspaco, setNovoEspaco] = useState(spaces[0]?.id ?? "");
+  const [novoNo, setNovoNo] = useState("");
+  const [pastas, setPastas] = useState<{ id: string; title: string; depth: number }[]>([]);
+
+  // Autor
+  const a = user.author;
+  const [aNome, setANome] = useState(a?.public_name ?? user.full_name ?? "");
+  const [aSlug, setASlug] = useState(a?.slug ?? "");
+  const [aAvatar, setAAvatar] = useState(a?.avatar_url ?? "");
+  const [aBio, setABio] = useState(a?.bio ?? "");
+  const [aAtivo, setAAtivo] = useState(a?.active ?? true);
+  const [criandoAutor, setCriandoAutor] = useState(false);
+  const [excluindoAutor, setExcluindoAutor] = useState(false);
+  const [reatribuirPara, setReatribuirPara] = useState("");
+  const temAutor = !!a;
+  const mostrarFormAutor = temAutor || criandoAutor;
+
+  function runUser(fn: () => Promise<ActionState>, aoOk?: () => void) {
+    start(async () => {
+      const res = await fn();
+      if (res?.ok) {
+        toast.success(res.ok);
+        aoOk?.();
+      } else if (res?.error) toast.error(res.error);
+      router.refresh();
+    });
+  }
+  function runAuthor(fn: () => Promise<AuthorActionResult>, aoOk?: () => void) {
+    start(async () => {
+      const res = await fn();
+      if (res.ok) {
+        toast.success("Perfil de autor salvo.");
+        aoOk?.();
+      } else toast.error(res.error);
+      router.refresh();
+    });
+  }
+  function carregarPastas(spaceId: string) {
+    setNovoNo("");
+    setPastas([]);
+    if (!spaceId) return;
+    start(async () => {
+      const fs = await listSpaceFolders(spaceId);
+      setPastas(fs);
+    });
+  }
+
+  const outrosAutores = authors.filter((x) => x.id !== user.id);
+  const secTitulo = "text-xs font-semibold uppercase tracking-wide text-text-muted";
+
+  return (
+    <Dialog
+      open
+      onClose={() => !pending && onClose()}
+      size="lg"
+      title={user.full_name || user.email || "Usuário"}
+      description={user.full_name ? (user.email ?? undefined) : undefined}
+      footer={
+        <Button variant="ghost" onClick={onClose} disabled={pending}>
+          Fechar
+        </Button>
+      }
+    >
+      <div className="space-y-6">
+        {/* Identidade */}
+        <section>
+          <h3 className={secTitulo}>Identidade</h3>
+          <p className="mt-0.5 text-xs text-text-muted">Foto, nome e cargo — dado interno, separado do perfil de autor.</p>
+          <fieldset disabled={!can.manage || pending} className="mt-3 space-y-3">
+            <AvatarUpload value={foto} onChange={setFoto} disabled={!can.manage || pending} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Nome" htmlFor="id-nome">
+                <Input id="id-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome completo" />
+              </Field>
+              <Field label="Cargo" htmlFor="id-cargo">
+                <Input id="id-cargo" value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Ex.: Gerente de Suporte" />
+              </Field>
+            </div>
+            {can.manage && (
+              <Button
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  runUser(() =>
+                    updateProfileIdentity({
+                      userId: user.id,
+                      fullName: nome.trim() || null,
+                      jobTitle: cargo.trim() || null,
+                      avatarUrl: foto.trim() || null,
+                    }),
+                  )
+                }
+              >
+                {pending ? "Salvando…" : "Salvar identidade"}
+              </Button>
+            )}
+          </fieldset>
+        </section>
+
+        {/* Regras de acesso */}
+        <section className="border-t border-border pt-5">
+          <h3 className={secTitulo}>Regras de acesso</h3>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Cada regra = papel + documentação + diretório (opcional). Papel de <strong>edição</strong> restringe o que a
+            pessoa edita; papel com <strong>aprovação</strong> restringe o que ela aprova. Sem diretório, vale a documentação
+            inteira.
+          </p>
+
+          <ul className="mt-3 space-y-1.5">
+            {user.memberships.length === 0 && (
+              <li className="text-sm text-text-muted">Nenhuma regra — sem acesso a nenhuma documentação.</li>
+            )}
+            {user.memberships.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm"
+              >
+                <Badge tone="primary">{m.role_name}</Badge>
+                <span className="min-w-0 flex-1 truncate text-text-muted">
+                  {m.space_name ?? (m.space_id ? "documentação" : "todas as documentações")}
+                  {m.node_id && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <span className="inline-flex items-center gap-1 text-text">
+                        <FolderTree className="size-3" />
+                        {m.node_title ?? "diretório"}
+                      </span>
+                    </>
+                  )}
+                  {!m.node_id && m.space_id && " · toda a documentação"}
+                </span>
+                {can.manage && actorLevel > m.role_level && (
+                  <button
+                    type="button"
+                    title="Remover regra"
+                    disabled={pending}
+                    onClick={() => runUser(() => removeMembershipRule(m.id))}
+                    className="shrink-0 rounded p-1 text-text-muted hover:bg-surface-2 hover:text-brand-pink-700"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {can.manage && (
+            <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-border p-3">
+              <Field label="Papel" htmlFor="rule-papel">
+                <select
+                  id="rule-papel"
+                  value={novoPapel}
+                  onChange={(e) => setNovoPapel(e.target.value)}
+                  className={`${controlClass} h-9 w-auto`}
+                >
+                  {atribuiveis.map((r) => (
+                    <option key={r.id} value={r.key}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Documentação" htmlFor="rule-espaco">
+                <select
+                  id="rule-espaco"
+                  value={novoEspaco}
+                  onChange={(e) => {
+                    setNovoEspaco(e.target.value);
+                    carregarPastas(e.target.value);
+                  }}
+                  className={`${controlClass} h-9 w-auto`}
+                >
+                  {spaces.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Diretório (opcional)" htmlFor="rule-no">
+                <select
+                  id="rule-no"
+                  value={novoNo}
+                  onChange={(e) => setNovoNo(e.target.value)}
+                  className={`${controlClass} h-9 w-auto max-w-[14rem]`}
+                >
+                  <option value="">Toda a documentação</option>
+                  {pastas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {" ".repeat(p.depth * 2)}
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pending || !novoPapel || !novoEspaco}
+                onClick={() =>
+                  runUser(
+                    () =>
+                      addMembershipRule({
+                        userId: user.id,
+                        roleKey: novoPapel,
+                        spaceId: novoEspaco,
+                        nodeId: novoNo || null,
+                      }),
+                    () => {
+                      setNovoNo("");
+                    },
+                  )
+                }
+              >
+                <Plus className="size-4" /> Adicionar
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* Conta */}
+        <section className="border-t border-border pt-5">
+          <h3 className={secTitulo}>Conta</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <Badge tone={STATUS_TONE[user.status] ?? "neutral"}>{STATUS_LABEL[user.status] ?? user.status}</Badge>
+            <span className="text-text-muted">
+              Membro desde <span className="text-text">{fmtData(user.created_at)}</span>
+            </span>
+            <span className="text-text-muted">
+              Visto por último <span className="text-text">{fmtData(user.last_seen_at)}</span>
+            </span>
+          </div>
+          {isSelf ? (
+            <p className="mt-3 rounded-md bg-surface-2 px-3 py-2 text-xs text-text-muted">É você — ações de conta ficam com outro gestor.</p>
+          ) : !canActOn ? (
+            <p className="mt-3 rounded-md bg-surface-2 px-3 py-2 text-xs text-text-muted">
+              Este usuário tem nível ≥ ao seu — você não pode alterar a conta.
+            </p>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {can.suspend && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => runUser(() => setUserSuspended(user.id, user.status !== "suspended"))}
+                >
+                  {user.status === "suspended" ? "Reativar" : "Suspender"}
+                </Button>
+              )}
+              {can.manage && (
+                <>
+                  <Button variant="ghost" size="sm" disabled={pending} onClick={() => runUser(() => revokeSessions(user.id))}>
+                    Revogar sessões
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-brand-pink-700"
+                    disabled={pending}
+                    onClick={async () => {
+                      if (
+                        await confirmar({
+                          title: "Remover usuário",
+                          description: `Remover ${user.email}? Esta ação não pode ser desfeita.`,
+                          tone: "danger",
+                          confirmLabel: "Remover",
+                        })
+                      )
+                        runUser(() => removeUser(user.id), onClose);
+                    }}
+                  >
+                    Remover
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Perfil público de autor */}
+        <section className="border-t border-border pt-5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className={secTitulo}>Perfil de autor</h3>
+              <p className="mt-0.5 text-xs text-text-muted">
+                O que o LEITOR vê nos artigos do portal.
+                {temAutor && ` Assina ${a!.artigos} artigo${a!.artigos === 1 ? "" : "s"}.`}
+              </p>
+            </div>
+            {!can.manage && <Badge tone="neutral">somente leitura</Badge>}
+          </div>
+
+          {!mostrarFormAutor ? (
+            <div className="mt-3 flex items-center gap-3">
+              <span className="text-sm text-text-muted">Sem perfil de autor.</span>
+              {can.manage && (
+                <Button size="sm" variant="secondary" onClick={() => setCriandoAutor(true)}>
+                  Criar perfil de autor
+                </Button>
+              )}
+            </div>
+          ) : (
+            <fieldset disabled={!can.manage || pending} className="mt-3 space-y-3">
+              <AvatarUpload value={aAvatar} onChange={setAAvatar} disabled={!can.manage || pending} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Nome público" htmlFor="autor-nome">
+                  <Input id="autor-nome" value={aNome} onChange={(e) => setANome(e.target.value)} placeholder="Ex.: Equipe Natcorp" />
+                </Field>
+                <Field label="Slug" htmlFor="autor-slug" hint="URL do filtro no portal (?autor=…).">
+                  <Input id="autor-slug" value={aSlug} onChange={(e) => setASlug(e.target.value)} placeholder="equipe-natcorp" />
+                </Field>
+              </div>
+              <Field label="Bio" htmlFor="autor-bio">
+                <textarea id="autor-bio" rows={2} maxLength={400} value={aBio} onChange={(e) => setABio(e.target.value)} className={controlClass} />
+              </Field>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={aAtivo} onChange={(e) => setAAtivo(e.target.checked)} className="accent-[var(--color-primary)]" />
+                Ativo (aparece no portal)
+              </label>
+
+              {can.manage && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={pending || !aNome.trim()}
+                    onClick={() =>
+                      runAuthor(
+                        () =>
+                          saveAuthor({
+                            userId: user.id,
+                            publicName: aNome.trim(),
+                            slug: aSlug.trim() || null,
+                            avatarUrl: aAvatar.trim() || null,
+                            bio: aBio.trim() || null,
+                            active: aAtivo,
+                          }),
+                        () => setCriandoAutor(false),
+                      )
+                    }
+                  >
+                    {pending ? "Salvando…" : temAutor ? "Salvar perfil" : "Criar perfil"}
+                  </Button>
+                  {temAutor && !excluindoAutor && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-brand-pink-700"
+                      disabled={pending}
+                      onClick={() => {
+                        setReatribuirPara("");
+                        setExcluindoAutor(true);
+                      }}
+                    >
+                      Excluir perfil
+                    </Button>
+                  )}
+                  {criandoAutor && !temAutor && (
+                    <Button size="sm" variant="ghost" disabled={pending} onClick={() => setCriandoAutor(false)}>
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {excluindoAutor && a && (
+                <div className="rounded-md border border-border bg-surface-2 p-3">
+                  <p className="text-sm">
+                    {a.artigos > 0
+                      ? `"${a.public_name}" assina ${a.artigos} artigo(s). Escolha quem os herda.`
+                      : "O perfil público será removido; o usuário continua existindo."}
+                  </p>
+                  {a.artigos > 0 && (
+                    <select value={reatribuirPara} onChange={(e) => setReatribuirPara(e.target.value)} className={`${controlClass} mt-2 h-9 w-full`}>
+                      <option value="">Reatribuir artigos para…</option>
+                      {outrosAutores.map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.public_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={pending || (a.artigos > 0 && !reatribuirPara)}
+                      onClick={() => runAuthor(() => deleteAuthor(user.id, reatribuirPara || null), () => setExcluindoAutor(false))}
+                    >
+                      {pending ? "Excluindo…" : "Excluir perfil"}
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={pending} onClick={() => setExcluindoAutor(false)}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </fieldset>
+          )}
+        </section>
+      </div>
+    </Dialog>
   );
 }

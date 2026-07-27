@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 import { registerView } from "@/app/(portal)/actions";
+import { scrollToElement } from "@/lib/portal/scroll";
 import { useActiveArticle } from "./active-article";
 
 /**
@@ -34,24 +34,32 @@ export type PageArticle = { id: string; anchor: string; path: string };
  */
 export function ReadingScroll({
   articles,
+  navTargets,
   initialId,
   spaceSlug,
 }: {
   articles: PageArticle[];
+  /**
+   * TODOS os nós desta página (DIRETÓRIOS + artigos) → mapa `onPage` da árvore.
+   * É o que permite clicar num diretório/sub-diretório na árvore e ROLAR até a
+   * seção dele (não só nos artigos). O scroll-spy abaixo segue observando apenas
+   * `articles` (destaque de leitura + view + URL). Cai em `articles` se ausente.
+   */
+  navTargets?: PageArticle[];
   initialId: string | null;
   spaceSlug: string;
 }) {
   const ctx = useActiveArticle();
   const setOnPage = ctx?.setOnPage;
   const setActiveId = ctx?.setActiveId;
-  const pathname = usePathname();
 
-  // Publica os artigos desta página para a árvore lateral.
+  // Publica os alvos desta página (diretórios + artigos) para a árvore lateral.
   useEffect(() => {
     if (!setOnPage) return;
-    setOnPage(new Map(articles.map((a) => [a.id, a.anchor])));
+    const alvos = navTargets ?? articles;
+    setOnPage(new Map(alvos.map((a) => [a.id, a.anchor])));
     return () => setOnPage(new Map());
-  }, [articles, setOnPage]);
+  }, [navTargets, articles, setOnPage]);
 
   // `articles` muda de identidade a cada render do servidor; o efeito de
   // posicionamento lê pela ref para não re-rolar num refresh qualquer.
@@ -67,12 +75,6 @@ export function ReadingScroll({
   // cima disso jogaria o leitor para o topo do artigo em vez de onde parou.
   const navegacaoPop = useRef(false);
 
-  // O scroll-spy sincroniza a URL com `history.replaceState` ao trocar de seção.
-  // No Next 16 (API nativa de History) isso ATUALIZA `usePathname()`, o que
-  // re-dispararia o efeito de posicionamento e jogaria o leitor de volta para o
-  // artigo aberto a cada rolagem entre seções. Esta marca faz o posicionamento
-  // ignorar a mudança de URL que ele mesmo (o spy) causou.
-  const spySync = useRef(false);
   useEffect(() => {
     const onPop = () => {
       navegacaoPop.current = true;
@@ -82,15 +84,16 @@ export function ReadingScroll({
   }, []);
 
   /**
-   * Posiciona no alvo da navegação. Roda a CADA navegação (pathname/initialId),
-   * não só no mount: a busca navega client-side (`router.push`) e, na mesma
-   * rota dinâmica, o componente NÃO remonta — com o efeito preso no mount, o
-   * clique num resultado simplesmente não rolava a página.
+   * Posiciona no alvo da NAVEGAÇÃO (`initialId`) — só quando ele muda: abertura
+   * da página e navegação client-side (`router.push` da busca troca o artigo →
+   * troca `initialId` → reposiciona). NÃO depende da URL: rolar ou clicar na
+   * árvore mexe a URL via `replaceState`, mas NÃO deve reposicionar. Depender de
+   * `initialId` isola isso naturalmente (nossos replaceState não trocam o
+   * artigo-alvo) — sem precisar de guardas frágeis.
    *
-   * Também rola por conta própria mesmo quando a âncora existe: o scroll
-   * nativo de hash do App Router não é garantido em navegação client-side.
-   * Âncora ANTIGA/sem prefixo (`#instalacao`, e é o que a busca gera) é
-   * resgatada para `#<âncora-do-artigo>--instalacao`.
+   * Também rola por conta própria mesmo quando a âncora existe: o scroll nativo
+   * de hash do App Router não é garantido em navegação client-side. Âncora
+   * ANTIGA/sem prefixo (`#instalacao`) é resgatada para `#<âncora>--instalacao`.
    */
   useEffect(() => {
     const posicionar = () => {
@@ -98,24 +101,18 @@ export function ReadingScroll({
         navegacaoPop.current = false;
         return;
       }
-      // Mudança de URL vinda do próprio scroll-spy: não reposiciona (senão a
-      // rolagem entre seções te devolveria ao artigo aberto).
-      if (spySync.current) {
-        spySync.current = false;
-        return;
-      }
       const lista = articlesRef.current;
       const hash = decodeURIComponent(window.location.hash.slice(1));
       if (hash) {
         const direto = document.getElementById(hash);
         if (direto) {
-          direto.scrollIntoView({ block: "start" });
+          scrollToElement(direto);
           return;
         }
         const atual = lista.find((a) => a.id === initialId);
         const resgate = atual && document.getElementById(`${atual.anchor}--${hash}`);
         if (resgate) {
-          resgate.scrollIntoView({ block: "start" });
+          scrollToElement(resgate);
           return;
         }
       }
@@ -124,7 +121,7 @@ export function ReadingScroll({
       if (!initialId || lista[0]?.id === initialId) return;
       const alvo = lista.find((a) => a.id === initialId);
       const el = alvo && document.getElementById(alvo.anchor);
-      if (el) el.scrollIntoView({ block: "start" });
+      if (el) scrollToElement(el);
     };
 
     // Dois quadros: deixa o scroll-para-o-topo do próprio router acontecer
@@ -140,34 +137,48 @@ export function ReadingScroll({
       cancelAnimationFrame(raf2);
       window.removeEventListener("hashchange", posicionar);
     };
-  }, [initialId, pathname]);
+  }, [initialId]);
 
   // Scroll-spy: qual artigo está sendo lido.
   useEffect(() => {
     if (!setActiveId || articles.length === 0) return;
-    const byAnchor = new Map(articles.map((a) => [a.anchor, a]));
+    // Âncoras atualmente na "faixa de leitura" (topo). O ativo é o TOPMOST em
+    // ORDEM DE DOCUMENTO — não "o primeiro do batch do observer", que era
+    // arbitrário: num artigo curto, dois títulos caem na faixa ao mesmo tempo e
+    // o spy destacava o IRMÃO DE BAIXO (bug: clicar em "Criação" ia p/ "Indicação").
+    const visiveis = new Set<string>();
+    const aplicar = () => {
+      const art = articles.find((a) => visiveis.has(a.anchor));
+      if (!art) return;
+      setActiveId(art.id);
+      // A "visualização" é chegar de fato no artigo durante a leitura —
+      // o mesmo sinal do destaque na árvore, não o carregamento da página.
+      contarView(art.id);
+      // Mantém a URL do artigo que está sendo lido (sem recarregar). O efeito de
+      // posicionamento não reage a isto (depende só de `initialId`), então não
+      // precisa de guarda.
+      const url = `/docs/${spaceSlug}/${art.path}`;
+      if (window.location.pathname !== url) {
+        window.history.replaceState(null, "", url);
+      }
+    };
+    // MARGEM DE SEGURANÇA no topo: o artigo ativo é o que ocupa a faixa de
+    // leitura ABAIXO do cabeçalho fixo + uma folga. Sem isso, um artigo com
+    // só alguns px ainda visíveis no topo continuava "ativo" mesmo com o artigo
+    // clicado ocupando ~90% da tela (o topmost intersectava a faixa por um
+    // fiapo). A margem = altura do cabeçalho fixo + folga, então o artigo de
+    // cima só perde o foco quando encolhe abaixo dessa linha.
+    const header = document.querySelector("header");
+    const margemTopo = Math.round(header?.getBoundingClientRect().height ?? 0) + 48;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const art = byAnchor.get(entry.target.id);
-          if (!art) continue;
-          setActiveId(art.id);
-          // A "visualização" é chegar de fato no artigo durante a leitura —
-          // o mesmo sinal do destaque na árvore, não o carregamento da página.
-          contarView(art.id);
-          // Mantém a URL do artigo que está sendo lido (sem recarregar).
-          const url = `/docs/${spaceSlug}/${art.path}`;
-          if (window.location.pathname !== url) {
-            // Avisa o efeito de posicionamento para ele ignorar ESTA troca de
-            // URL (no Next 16 o replaceState mexe no usePathname).
-            spySync.current = true;
-            window.history.replaceState(null, "", url);
-          }
-          break;
+          if (entry.isIntersecting) visiveis.add(entry.target.id);
+          else visiveis.delete(entry.target.id);
         }
+        aplicar();
       },
-      { rootMargin: "0px 0px -70% 0px", threshold: 0 },
+      { rootMargin: `-${margemTopo}px 0px -55% 0px`, threshold: 0 },
     );
     for (const a of articles) {
       const el = document.getElementById(a.anchor);

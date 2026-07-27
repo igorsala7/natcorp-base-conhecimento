@@ -6,6 +6,7 @@ import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
 import { ChatPanel } from "@/components/admin/chat-panel";
+import { useToast } from "@/components/ui/toast";
 import { updateSpaceChatPrompt } from "../configuracoes/actions";
 
 /**
@@ -28,19 +29,18 @@ export function AssistantWorkbench({
   const [prompt, setPrompt] = useState(chatPromptSalvo);
   const [salvo, setSalvo] = useState(chatPromptSalvo);
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
+  const toast = useToast();
   const sujo = prompt !== salvo;
 
   function salvar() {
-    setMsg(null);
     startTransition(async () => {
       try {
         const res = await updateSpaceChatPrompt(spaceId, prompt);
-        if (!res.ok) return setMsg(res.error);
+        if (!res.ok) return toast.error(res.error);
         setSalvo(prompt);
-        setMsg("Persona salva. O portal e os chatbots desta documentação já usam.");
+        toast.success("Persona salva. O portal e os chatbots desta documentação já usam.");
       } catch (e) {
-        setMsg(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
+        toast.error(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
       }
     });
   }
@@ -99,12 +99,6 @@ export function AssistantWorkbench({
             <p className="text-xs text-text-muted">
               Você não tem permissão para editar a persona desta documentação — mas pode testá-la
               no chat ao lado.
-            </p>
-          )}
-
-          {msg && (
-            <p role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-              {msg}
             </p>
           )}
         </Surface>

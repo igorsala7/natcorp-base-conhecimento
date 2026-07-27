@@ -1,11 +1,14 @@
 import {
   BlockSchema,
+  CHART_TYPES,
   newId,
   type Block,
-  type BlockDoc,
   type BlockType,
+  type BlockDoc,
+  type ChartType,
   type RichText,
 } from "@/lib/blocks/schema";
+import { csvToChartData, mermaidToFlowData } from "@/lib/blocks/ai-data-blocks";
 
 /**
  * SANITIZADOR da saída livre da IA (Fase B) → BlockDoc válido e seguro para o
@@ -25,7 +28,7 @@ const TIPOS_VALIDOS = new Set<BlockType>([
   "divider", "code", "image", "video", "file", "embed", "button", "callout",
   "steps", "step", "accordion", "accordionItem", "tabs", "tab", "toggle",
   "container", "column", "panel", "cardGrid", "card", "hero", "spacer", "table",
-  "mermaid", "snippet", "checklist", "stats",
+  "mermaid", "chart", "flow", "snippet", "checklist", "stats",
 ]);
 
 /** Blocos que carregam filhos (contêineres). */
@@ -126,6 +129,69 @@ function coerceData(type: BlockType, d: Record<string, unknown>): Record<string,
         .map((row) => (row as unknown[]).map((cell) => toRich(cell)));
       return { rows, hasHeader: d.hasHeader !== false };
     }
+    case "chart": {
+      // Forma preferida da IA: `chartType` + CSV. Aceita também dados diretos.
+      const tipos = CHART_TYPES.map((t) => t.type) as [ChartType, ...ChartType[]];
+      const ct = pick(d.chartType, tipos, "column");
+      if (typeof d.dataCsv === "string" && d.dataCsv.trim())
+        return csvToChartData(ct, d.dataCsv, str(d.title, 120)) ?? undefined;
+      const columns = (Array.isArray(d.columns) ? d.columns : [])
+        .map((c) => {
+          const o = raw(c);
+          return { key: str(o.key, 60), label: str(o.label ?? o.key, 120) };
+        })
+        .filter((c) => c.key);
+      const rows = (Array.isArray(d.rows) ? d.rows : []).map(
+        (r) => raw(r) as Record<string, string | number>,
+      );
+      if (!columns.length || !rows.length) return undefined;
+      const series = (
+        Array.isArray(d.series) && d.series.length
+          ? d.series.map((s) => {
+              const o = raw(s);
+              return { key: str(o.key, 60), label: str(o.label ?? o.key, 120) };
+            })
+          : columns.slice(1)
+      ).filter((s) => s.key);
+      return {
+        chartType: ct,
+        title: str(d.title, 120) || undefined,
+        columns,
+        rows,
+        xKey: str(d.xKey, 60) || columns[0]!.key,
+        series,
+        legend: true,
+        grid: true,
+      };
+    }
+    case "flow": {
+      // Forma preferida: sintaxe Mermaid. Aceita também nós/arestas diretos.
+      if (typeof d.mermaid === "string" && d.mermaid.trim()) {
+        const f = mermaidToFlowData(d.mermaid);
+        return f.nodes.length ? f : undefined;
+      }
+      const tipos = ["start", "end", "process", "decision", "io", "subroutine"] as const;
+      const nodes = (Array.isArray(d.nodes) ? d.nodes : [])
+        .map((n) => {
+          const o = raw(n);
+          return { id: str(o.id, 40), type: pick(o.type, tipos, "process"), label: str(o.label, 120) };
+        })
+        .filter((n) => n.id);
+      if (!nodes.length) return undefined;
+      const ids = new Set(nodes.map((n) => n.id));
+      const edges = (Array.isArray(d.edges) ? d.edges : [])
+        .map((e, i) => {
+          const o = raw(e);
+          return {
+            id: str(o.id, 40) || `e${i + 1}`,
+            from: str(o.from, 40),
+            to: str(o.to, 40),
+            label: str(o.label, 60) || undefined,
+          };
+        })
+        .filter((e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to);
+      return { nodes, edges };
+    }
     case "checklist": {
       const itemsRaw = Array.isArray(d.items) ? d.items : [];
       const items = itemsRaw
@@ -173,6 +239,8 @@ function sanitizeBlock(input: unknown): Block | null {
 
   // Blocos tabulares/lista vazios não têm o que mostrar.
   if (type === "table" && !((data?.rows as unknown[])?.length)) return null;
+  if (type === "chart" && !data) return null;
+  if (type === "flow" && !((data?.nodes as unknown[])?.length)) return null;
   if ((type === "checklist" || type === "stats") && !((data?.items as unknown[])?.length)) return null;
 
   // Filhos: `children`, ou `items` nos contêineres. Em listas, entradas soltas

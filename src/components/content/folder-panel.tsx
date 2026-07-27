@@ -9,6 +9,7 @@ import {
   Folder,
   Palette,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { ICONS } from "@/lib/blocks/icons";
 import { Button } from "@/components/ui/button";
@@ -17,12 +18,14 @@ import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { IconPicker } from "@/components/editor/blocks/icon-picker";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import {
   changeSlug,
   renameNode,
   updateNodeMeta,
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+import { DirectoryImproveDialog } from "@/components/content/directory-improve-dialog";
 
 export type FolderStats = {
   publicados: number;
@@ -66,13 +69,14 @@ export function FolderPanel({
 }) {
   const router = useRouter();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [title, setTitle] = useState(node.title);
   const [slug, setSlug] = useState(node.slug);
   const [icon, setIcon] = useState<string | undefined>(node.icon ?? undefined);
   const [description, setDescription] = useState(node.description ?? "");
   const [salvando, startSalvar] = useTransition();
   const [agindo, startAgir] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
+  const [improveOpen, setImproveOpen] = useState(false);
 
   const sujo =
     title.trim() !== node.title ||
@@ -81,24 +85,23 @@ export function FolderPanel({
     (description.trim() || null) !== node.description;
 
   function salvar() {
-    setMsg(null);
     startSalvar(async () => {
       // Sequencial: cada action revalida e audita por conta própria.
       if (title.trim() && title.trim() !== node.title) {
         const r = await renameNode(node.id, title.trim());
-        if (!r.ok) return setMsg(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
       if (slug.trim() && slug.trim() !== node.slug) {
         const r = await changeSlug(node.id, slug.trim());
-        if (!r.ok) return setMsg(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
       const novoIcone = icon ?? null;
       const novaDescricao = description.trim() || null;
       if (novoIcone !== node.icon || novaDescricao !== node.description) {
         const r = await updateNodeMeta(node.id, { icon: novoIcone, description: novaDescricao });
-        if (!r.ok) return setMsg(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
-      setMsg("Salvo.");
+      toast.success("Salvo.");
       router.refresh();
     });
   }
@@ -110,10 +113,10 @@ export function FolderPanel({
       confirmLabel: "Publicar",
     });
     if (!ok) return;
-    setMsg(null);
     startAgir(async () => {
       const r = await publishSubtree(node.id);
-      setMsg(r.ok ? "Publicado — a seção já aparece no portal." : r.error);
+      if (r.ok) toast.success("Publicado — a seção já aparece no portal.");
+      else toast.error(r.error);
       router.refresh();
     });
   }
@@ -286,6 +289,11 @@ export function FolderPanel({
             </Button>
           )}
           {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => setImproveOpen(true)} disabled={agindo}>
+              <Wand2 className="size-4" /> Melhorar layout
+            </Button>
+          )}
+          {canEdit && (
             <Button variant="secondary" size="sm" onClick={gerarEmbeddings} disabled={agindo}>
               <Sparkles className="size-4" /> Gerar embeddings
             </Button>
@@ -293,10 +301,8 @@ export function FolderPanel({
         </div>
       </Surface>
 
-      {msg && (
-        <p role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {msg}
-        </p>
+      {improveOpen && (
+        <DirectoryImproveDialog nodeId={node.id} title={node.title} onClose={() => setImproveOpen(false)} />
       )}
     </div>
   );

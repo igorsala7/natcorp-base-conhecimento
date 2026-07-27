@@ -122,6 +122,8 @@ function blockToEmail(b: Block): string {
       return `<blockquote style="margin:0 0 14px;padding:8px 16px;border-left:3px solid ${MARCA.pink};color:${TEXTO_SUAVE};font-style:italic">${richToEmail(b.text)}${
         b.data?.author?.trim() ? `<br><span style="font-size:12px;color:${TEXTO_SUAVE}">— ${esc(b.data.author.trim())}</span>` : ""
       }</blockquote>`;
+    case "breadcrumb":
+      return `<p${estilo(b.styles, `margin:0 0 12px;font-size:13px;color:${TEXTO_SUAVE}`)}>${richToEmail(b.text)}</p>`;
     case "divider":
       return `<hr style="border:0;border-top:1px solid ${BORDA};margin:24px 0">`;
     case "spacer": {
@@ -228,6 +230,39 @@ function blockToEmail(b: Block): string {
     case "column":
     case "step":
       return childrenEmail(b);
+    case "chart": {
+      // E-mail não roda Recharts: cai para os DADOS numa tabela (legível).
+      const { columns, rows, title } = b.data;
+      if (!rows.length || !columns.length) return "";
+      const head = `<tr>${columns
+        .map(
+          (c) =>
+            `<th style="padding:8px 10px;border:1px solid ${BORDA};text-align:left;background:#f9fafb;font-weight:700">${esc(c.label)}</th>`,
+        )
+        .join("")}</tr>`;
+      const body = rows
+        .map(
+          (r) =>
+            `<tr>${columns
+              .map((c) => `<td style="padding:8px 10px;border:1px solid ${BORDA}">${esc(String(r[c.key] ?? ""))}</td>`)
+              .join("")}</tr>`,
+        )
+        .join("");
+      return `${
+        title ? `<p style="margin:0 0 6px;font-weight:700;color:${TEXTO}">${esc(title)}</p>` : ""
+      }<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;border-collapse:collapse;border:1px solid ${BORDA};font-size:13px">${head}${body}</table>`;
+    }
+    case "flow": {
+      // E-mail não desenha SVG: lista os passos e as ligações.
+      const nomes = new Map(b.data.nodes.map((n) => [n.id, n.label]));
+      const linhas = b.data.edges.map(
+        (e) => `${nomes.get(e.from) ?? "?"} →${e.label ? ` (${e.label})` : ""} ${nomes.get(e.to) ?? "?"}`,
+      );
+      if (!linhas.length) return "";
+      return `<ul style="margin:0 0 14px;padding-left:20px;font-size:14px;line-height:1.7;color:${TEXTO}">${linhas
+        .map((l) => `<li>${esc(l)}</li>`)
+        .join("")}</ul>`;
+    }
     case "mermaid":
     case "snippet":
       return "";

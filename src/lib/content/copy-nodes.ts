@@ -3,6 +3,8 @@ import { generateKeyBetween } from "fractional-indexing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
 import { uniqueSlug } from "./unique-slug";
+import { copySearchData, type ArtPair } from "./copy-search-data";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 type Db = SupabaseClient<Database>;
 
@@ -40,17 +42,25 @@ export async function copyNodesDeep(
     rootIds: string[] | null;
     destSpaceId: string;
     destParentId: string | null;
+    /** Também copia embeddings (chunks, com vetor) + ontologia — sem regerar. */
+    copySearchData?: boolean;
   },
 ): Promise<number> {
   const { sourceSpaceId, rootIds, destSpaceId, destParentId } = opts;
 
-  const { data: nodes } = await supabase
-    .from("nodes")
-    .select("id, parent_id, type, title, slug, position, status, link_url")
-    .eq("space_id", sourceSpaceId)
-    .is("deleted_at", null)
-    .order("position");
-  const all = (nodes ?? []) as SrcNode[];
+  // Paginado: sem isto, um espaço-fonte com >1000 nós copiaria só os
+  // primeiros 1000 — cópia silenciosamente incompleta (ver fetchAllPaged).
+  const all = await fetchAllPaged<SrcNode>(async (from, to) => {
+    const { data, error } = await supabase
+      .from("nodes")
+      .select("id, parent_id, type, title, slug, position, status, link_url")
+      .eq("space_id", sourceSpaceId)
+      .is("deleted_at", null)
+      .order("position")
+      .order("id")
+      .range(from, to);
+    return { data: (data ?? null) as SrcNode[] | null, error };
+  });
   if (all.length === 0) return 0;
 
   const byParent = new Map<string | null, SrcNode[]>();
@@ -85,6 +95,8 @@ export async function copyNodesDeep(
   }
 
   let created = 0;
+  // Mapa origem→destino dos artigos (para copiar chunks depois, remapeados).
+  const artPairs: ArtPair[] = [];
 
   const insertNode = async (src: SrcNode, parentId: string | null, prevPos: string | null) => {
     const slug = await uniqueSlug(supabase, destSpaceId, parentId, src.title || src.slug);
@@ -108,14 +120,19 @@ export async function copyNodesDeep(
 
     if (src.type === "article") {
       const a = contentByNode.get(src.id);
-      await supabase.from("articles").insert({
-        node_id: node.id,
-        content_json: (a?.content_json ?? { version: 2, blocks: [] }) as Json,
-        content_text: (a?.content_text as string | null) ?? null,
-        excerpt: (a?.excerpt as string | null) ?? null,
-        cover_image: (a?.cover_image as string | null) ?? null,
-        meta: (a?.meta ?? {}) as Json,
-      });
+      const { data: art } = await supabase
+        .from("articles")
+        .insert({
+          node_id: node.id,
+          content_json: (a?.content_json ?? { version: 2, blocks: [] }) as Json,
+          content_text: (a?.content_text as string | null) ?? null,
+          excerpt: (a?.excerpt as string | null) ?? null,
+          cover_image: (a?.cover_image as string | null) ?? null,
+          meta: (a?.meta ?? {}) as Json,
+        })
+        .select("id")
+        .single();
+      if (art) artPairs.push({ srcNodeId: src.id, destNodeId: node.id, destArticleId: art.id });
     }
 
     // Filhos, preservando a ordem da origem.
@@ -141,5 +158,16 @@ export async function copyNodesDeep(
   for (const root of roots) {
     prev = await insertNode(root, destParentId, prev);
   }
+
+  // Dados de busca prontos (embeddings + ontologia): melhor-esforço — se falhar,
+  // a cópia do conteúdo continua válida (a doc nova só regeraria os vetores).
+  if (opts.copySearchData) {
+    try {
+      await copySearchData({ pairs: artPairs, sourceSpaceId, destSpaceId });
+    } catch (e) {
+      console.error("Cópia de dados de busca falhou:", e instanceof Error ? e.message : e);
+    }
+  }
+
   return created;
 }

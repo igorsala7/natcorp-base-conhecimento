@@ -75,7 +75,7 @@ export function invalidateAiCache(): void {
  * quase instantâneo e está no caminho crítico de toda busca do RAG; a
  * reformatação de layout roda por segmento e pode levar dezenas de segundos.
  */
-const TIMEOUT_MS: Record<Purpose | "embedding_query", number> = {
+const TIMEOUT_MS: Record<Purpose | "embedding_query" | "ontology_scan", number> = {
   chat: 60_000,
   embedding: 120_000,
   embedding_query: 15_000,
@@ -83,10 +83,11 @@ const TIMEOUT_MS: Record<Purpose | "embedding_query", number> = {
   import_layout: 120_000,
   editor_text: 60_000,
   editor_generate: 90_000,
+  ontology_scan: 120_000, // lê lotes grandes de texto por chamada (usa a IA do Chat)
 };
 
 /** `abortSignal` pronto para passar às funções do AI SDK. */
-export function aiTimeout(purpose: Purpose | "embedding_query"): AbortSignal {
+export function aiTimeout(purpose: Purpose | "embedding_query" | "ontology_scan"): AbortSignal {
   return AbortSignal.timeout(TIMEOUT_MS[purpose]);
 }
 
@@ -201,32 +202,34 @@ function instanciar(cfg: ResolvedAi) {
 /**
  * Registro de consumo (tokens de envio/recebimento) por provedor e modelo.
  *
- * Fire-and-forget e à prova de falhas: gravar o consumo NUNCA pode derrubar a
- * chamada de IA. Reusa o mesmo service-role que `doBanco` já usa aqui — a
- * tabela `ai_usage` só tem policy de leitura (a escrita passa por fora do RLS).
+ * É AGUARDADO dentro do middleware (não fire-and-forget): um insert solto após
+ * a resposta/stream terminar é descartado quando o runtime encerra a função —
+ * era essa a causa de "conta menos chamadas do que o real". À prova de falhas
+ * mesmo assim: um erro de gravação é registrado no log e NUNCA derruba a
+ * chamada de IA. Reusa o service-role que `doBanco` já usa aqui (a tabela
+ * `ai_usage` só tem policy de leitura; a escrita passa por fora do RLS).
  */
-function logUsage(row: {
+async function logUsage(row: {
   provider: ProviderKind;
   model: string;
   purpose: Purpose;
   input: number;
   output: number;
-}): void {
+}): Promise<void> {
   try {
     const supabase = createAdminClient();
-    void supabase
-      .from("ai_usage")
-      .insert({
-        provider: row.provider,
-        model: row.model,
-        purpose: row.purpose,
-        input_tokens: row.input,
-        output_tokens: row.output,
-        total_tokens: row.input + row.output,
-      })
-      .then(undefined, () => {});
-  } catch {
+    const { error } = await supabase.from("ai_usage").insert({
+      provider: row.provider,
+      model: row.model,
+      purpose: row.purpose,
+      input_tokens: row.input,
+      output_tokens: row.output,
+      total_tokens: row.input + row.output,
+    });
+    if (error) console.error("[ai_usage] falha ao registrar consumo:", error.message);
+  } catch (e) {
     // Nunca propagar: o registro é secundário à resposta da IA.
+    console.error("[ai_usage] erro ao registrar consumo:", e instanceof Error ? e.message : e);
   }
 }
 
@@ -246,21 +249,23 @@ function tokensDe(usage: LanguageModelV3Usage): { input: number; output: number 
 function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purpose: Purpose) {
   const registrar = (usage: LanguageModelV3Usage) => {
     const { input, output } = tokensDe(usage);
-    logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output });
+    return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output });
   };
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v3",
     wrapGenerate: async ({ doGenerate }) => {
       const result = await doGenerate();
-      registrar(result.usage);
+      await registrar(result.usage); // aguardado: senão o insert some ao retornar
       return result;
     },
     wrapStream: async ({ doStream }) => {
       const { stream, ...rest } = await doStream();
       const transformed = stream.pipeThrough(
         new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
-          transform(chunk, controller) {
-            if (chunk.type === "finish") registrar(chunk.usage);
+          // `transform` async: o stream aguarda a gravação antes de fechar, então
+          // a função não é encerrada com o insert pendente (a causa da subcontagem).
+          async transform(chunk, controller) {
+            if (chunk.type === "finish") await registrar(chunk.usage);
             controller.enqueue(chunk);
           },
         }),
@@ -277,7 +282,7 @@ function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
     specificationVersion: "v3",
     wrapEmbed: async ({ doEmbed }) => {
       const result = await doEmbed();
-      logUsage({
+      await logUsage({
         provider: cfg.kind,
         model: cfg.model,
         purpose: "embedding",

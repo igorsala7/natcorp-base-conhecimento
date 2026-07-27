@@ -6,6 +6,12 @@ import type { RichTextHandle } from "./rich-text/rich-text";
 export type EditorActions = {
   patch: (id: string, patch: Partial<Block>) => void;
   insertAfter: (id: string, type: BlockType) => void;
+  /**
+   * Insere blocos JÁ construídos após `afterId` (null = fim do documento).
+   * Se `afterId` for um parágrafo vazio, é substituído. Usado ao colar
+   * conteúdo de Word/Docs/web já convertido em blocos.
+   */
+  insertBlocks: (afterId: string | null, blocks: Block[]) => void;
   /** Acrescenta um filho ao contêiner (coluna, card, passo, item…). */
   addChild: (parentId: string, type: BlockType) => void;
   remove: (id: string) => void;
@@ -15,6 +21,8 @@ export type EditorActions = {
   transformHeading: (id: string, level: 1 | 2 | 3) => void;
   move: (id: string, dir: -1 | 1) => void;
   select: (id: string | null) => void;
+  /** Alterna a presença do bloco na seleção múltipla (shift/ctrl/cmd+clique). */
+  selectToggle: (id: string) => void;
   openSlash: (id: string, rect: DOMRect) => void;
 };
 

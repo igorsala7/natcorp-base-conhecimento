@@ -27,7 +27,12 @@ export function TreeItem({
   depth,
   collapsed,
   hasChildren,
-  active,
+  hasEmbedding,
+  hasOntology,
+  hasPendingDraft,
+  dropBefore,
+  dropAfter,
+  dropInside,
   selected,
   checked,
   anyChecked,
@@ -42,7 +47,18 @@ export function TreeItem({
   depth: number;
   collapsed: boolean;
   hasChildren: boolean;
-  active: boolean;
+  /** Artigo indexado (ou pasta com descendente indexado) → bolinha azul-clara. */
+  hasEmbedding?: boolean;
+  /** Artigo varrido pela ontologia (ou pasta com descendente varrido) → bolinha cinza escura. */
+  hasOntology?: boolean;
+  /** Artigo com edições salvas mas NÃO publicadas (article_drafts) → bolinha de rascunho. */
+  hasPendingDraft?: boolean;
+  /** Drop vira IRMÃO antes deste item → linha no TOPO da linha. */
+  dropBefore?: boolean;
+  /** Drop vira IRMÃO depois deste item → linha na BASE da linha. */
+  dropAfter?: boolean;
+  /** Drop vira FILHO desta pasta → pasta inteira destacada. */
+  dropInside?: boolean;
   selected: boolean;
   checked: boolean;
   /** Há itens marcados na árvore → mantém as caixas visíveis. */
@@ -66,20 +82,40 @@ export function TreeItem({
       ref={setNodeRef}
       data-node-id={id}
       style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
+        // Só o item ARRASTADO segue o cursor; os demais ficam PARADOS (sem o
+        // "abre-espaço" do sortable) para a LINHA de inserção ser o único e
+        // claro indicador de onde ele vai cair.
+        transform: isDragging ? CSS.Translate.toString(transform) : undefined,
+        transition: isDragging ? transition : undefined,
         paddingLeft: depth * indentationWidth + 4,
-        opacity: isDragging ? 0.4 : 1,
       }}
       className={cn(
-        "group relative flex items-start gap-1 rounded-md py-[3px] pr-1 text-[0.8125rem] leading-[1.45]",
+        "group relative flex items-start gap-1 rounded-md py-[3px] pr-1 text-[0.8125rem] leading-[1.45] transition-[background-color,box-shadow,padding] duration-150",
         selected
           ? "bg-brand-purple-50 font-semibold text-primary dark:bg-brand-purple-950/40"
           : "hover:bg-surface-2",
         checked && "bg-brand-purple-50 dark:bg-brand-purple-950/30",
-        active && "ring-1 ring-ring",
+        // Item sendo arrastado: translúcido seguindo o cursor — é o que você
+        // SEGURA; os indicadores mostram ONDE ele cai.
+        isDragging && "z-10 cursor-grabbing opacity-60 !bg-surface shadow-1 ring-1 ring-primary/50",
+        // Drop DENTRO desta pasta: a pasta inteira destaca.
+        dropInside &&
+          "bg-brand-purple-50 ring-2 ring-inset ring-primary dark:bg-brand-purple-950/50",
       )}
     >
+      {/* LINHA de irmão: antes (topo) ou depois (base) deste item, no nível dele. */}
+      {(dropBefore || dropAfter) && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-x-1 z-20 flex items-center gap-1",
+            dropBefore ? "-top-px" : "-bottom-px",
+          )}
+        >
+          <span className="size-2 shrink-0 rounded-full bg-primary ring-2 ring-surface" />
+          <span className="h-[3px] flex-1 rounded-full bg-primary" />
+        </span>
+      )}
       {/* Rail da referência: barra vertical no item selecionado. */}
       {selected && (
         <span
@@ -139,8 +175,32 @@ export function TreeItem({
         {node.title}
         {node.status === "published" && (
           <span
-            className="ml-1.5 inline-block size-1.5 rounded-full bg-primary align-middle"
+            className="ml-1.5 inline-block size-1.5 rounded-full bg-emerald-500 align-middle"
             title="Publicado"
+          />
+        )}
+        {node.type === "article" && node.status === "review" && (
+          <span
+            className="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+            title="Aguardando aprovação"
+          />
+        )}
+        {node.type === "article" && (node.status === "draft" || hasPendingDraft) && (
+          <span
+            className="ml-1.5 inline-block size-1.5 rounded-full border border-brand-gray-400 align-middle"
+            title={node.status === "draft" ? "Rascunho (nunca publicado)" : "Tem edições não publicadas"}
+          />
+        )}
+        {hasEmbedding && (
+          <span
+            className="ml-1 inline-block size-1.5 rounded-full bg-blue-600 align-middle dark:bg-blue-500"
+            title="Indexado para busca e IA (embeddings gerados)"
+          />
+        )}
+        {hasOntology && (
+          <span
+            className="ml-1 inline-block size-1.5 rounded-full bg-slate-600 align-middle dark:bg-slate-400"
+            title="Incluído na varredura de ontologia"
           />
         )}
         {(node.publish_at || node.unpublish_at) && (

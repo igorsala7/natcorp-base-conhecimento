@@ -7,10 +7,13 @@ import { Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { createImportJob, deleteImportJob } from "./actions";
+import { ImportValidateDialog } from "./import-validate-dialog";
+import { ACCEPT_ATTR, extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 
 export type ImportJobRow = {
   id: string;
@@ -33,10 +36,11 @@ export function ImportManager({
   const router = useRouter();
   const supabase = createClient();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [jobs, setJobs] = useState<ImportJobRow[]>(initialJobs);
   const [uploading, setUploading] = useState(false);
   const [progressoUp, setProgressoUp] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [validar, setValidar] = useState<{ id: string; name: string } | null>(null);
 
   // Realtime: acompanha progresso dos jobs deste espaço.
   useEffect(() => {
@@ -89,10 +93,17 @@ export function ImportManager({
   // processa um de cada vez). A ordem de seleção vira a ordem da fila.
   async function onFiles(files: File[]) {
     setUploading(true);
-    setMsg(null);
     const erros: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i]!;
+      if (!extensaoAceita(file.name)) {
+        erros.push(`"${file.name}": tipo de arquivo não permitido.`);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        erros.push(`"${file.name}": arquivo muito grande (máx. ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`);
+        continue;
+      }
       setProgressoUp(files.length > 1 ? `Enviando ${i + 1} de ${files.length}: ${file.name}` : "Enviando…");
       const path = `${spaceId}/${Date.now()}-${i}-${file.name.replace(/[^\w.-]/g, "_")}`;
       const { error } = await supabase.storage.from("imports").upload(path, file);
@@ -111,7 +122,7 @@ export function ImportManager({
     }
     setProgressoUp(null);
     setUploading(false);
-    if (erros.length) setMsg(erros.join(" · "));
+    if (erros.length) toast.error(erros.join(" · "));
   }
 
   return (
@@ -122,12 +133,12 @@ export function ImportManager({
           {uploading ? (progressoUp ?? "Enviando…") : "Clique para escolher arquivos"}
         </span>
         <span className="text-xs text-text-muted">
-          PDF, DOCX, HTML, Markdown — pode escolher vários (processa um de cada vez)
+          PDF, DOCX, PPTX, XLSX, HTML, Markdown e arquivos de desenvolvimento (SQL, JS, TS, CSS, JSON…) — pode escolher vários (processa um de cada vez)
         </span>
         <input
           type="file"
           multiple
-          accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt"
+          accept={ACCEPT_ATTR}
           className="hidden"
           disabled={uploading}
           onChange={(e) => {
@@ -137,15 +148,6 @@ export function ImportManager({
           }}
         />
       </label>
-
-      {msg && (
-        <p
-          role="alert"
-          className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-        >
-          {msg}
-        </p>
-      )}
 
       <h2 className="mt-8 text-xs font-semibold uppercase tracking-wider text-text-muted">
         Importações
@@ -179,9 +181,18 @@ export function ImportManager({
                         </Button>
                       )}
                       {job.status === "done" && (
-                        <Link href="/admin/conteudo" className="text-sm text-primary hover:underline">
-                          Ver na árvore
-                        </Link>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setValidar({ id: job.id, name: job.original_name ?? "documento" })}
+                          >
+                            Validar conteúdo
+                          </Button>
+                          <Link href="/admin/conteudo" className="text-sm text-primary hover:underline">
+                            Ver na árvore
+                          </Link>
+                        </>
                       )}
                       <button
                         type="button"
@@ -223,6 +234,10 @@ export function ImportManager({
           </Surface>
         )}
       </div>
+
+      {validar && (
+        <ImportValidateDialog jobId={validar.id} name={validar.name} onClose={() => setValidar(null)} />
+      )}
     </div>
   );
 }

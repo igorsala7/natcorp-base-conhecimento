@@ -3,6 +3,7 @@ import {
   segmentarTexto,
   contarPalavras,
   contencaoDePalavras,
+  juntarLetrasSoltas,
   paragrafosAusentes,
 } from "./segment";
 
@@ -98,6 +99,25 @@ describe("contencaoDePalavras — reformatar não pode reescrever", () => {
     const corpo = Array.from({ length: 50 }, (_, i) => `palavra${i}`).join(" ");
     const orig = `Página 3 de 40 ${corpo}`;
     expect(contencaoDePalavras(orig, corpo)).toBeGreaterThan(0.85);
+  });
+
+  it("conserto de letras soltas ('c a d a s t r o' → 'cadastro') NÃO conta como reescrita", () => {
+    const corpo = Array.from({ length: 40 }, (_, i) => `palavra${i}`).join(" ");
+    const orig = `${corpo} c a d a s t r o final`;
+    const res = `${corpo} cadastro final`;
+    // Sem a normalização, os 8 tokens de 1 letra "sumiriam" e a contenção cairia.
+    expect(contencaoDePalavras(orig, res)).toBe(1);
+  });
+});
+
+describe("juntarLetrasSoltas", () => {
+  it("junta 3+ letras separadas por espaço numa palavra só", () => {
+    expect(juntarLetrasSoltas("p a l a v r a")).toBe("palavra");
+    expect(juntarLetrasSoltas("preencha c a d a s t r o novo")).toBe("preencha cadastro novo");
+  });
+  it("NÃO junta pares (2 letras soltas), mas junta 3+", () => {
+    expect(juntarLetrasSoltas("de a b")).toBe("de a b"); // só 2 soltas → preserva
+    expect(juntarLetrasSoltas("a e o")).toBe("aeo"); // 3 soltas → junta (raro em prosa real)
   });
 });
 

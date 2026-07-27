@@ -13,6 +13,7 @@ import {
   duplicateBlock,
   updateBlock,
   nudgeBlock,
+  findBlock,
 } from "@/lib/blocks/tree-ops";
 import type { EditorActions } from "./edit-types";
 
@@ -147,12 +148,12 @@ export function changeType(block: Block, type: BlockType): Block {
  */
 export function useEditorActions({
   setBlocks,
-  setSelectedId,
+  setSelectedIds,
   setAutoFocusId,
   setSlash,
 }: {
   setBlocks: Dispatch<SetStateAction<Block[]>>;
-  setSelectedId: Dispatch<SetStateAction<string | null>>;
+  setSelectedIds: Dispatch<SetStateAction<string[]>>;
   setAutoFocusId: Dispatch<SetStateAction<string | null>>;
   setSlash: Dispatch<SetStateAction<{ id: string | null; rect: DOMRect } | null>>;
 }): EditorActions {
@@ -163,13 +164,33 @@ export function useEditorActions({
         const nb = BLOCKS[type].defaultData();
         setBlocks((bs) => insertAfter(bs, id, nb));
         setAutoFocusId(nb.id);
-        setSelectedId(nb.id);
+        setSelectedIds([nb.id]);
       },
       addChild: (parentId, type) => {
         const nb = BLOCKS[type].defaultData();
         setBlocks((bs) => appendChild(bs, parentId, nb));
         setAutoFocusId(nb.id);
-        setSelectedId(nb.id);
+        setSelectedIds([nb.id]);
+      },
+      insertBlocks: (afterId, novos) => {
+        if (!novos.length) return;
+        setBlocks((bs) => {
+          if (!afterId) return [...bs, ...novos];
+          const alvo = findBlock(bs, afterId);
+          // Colar sobre um parágrafo vazio o SUBSTITUI (não deixa linha em branco).
+          const vazio = !!alvo && "text" in alvo && alvo.type === "paragraph" && alvo.text.length === 0;
+          let next = bs;
+          let anchor = afterId;
+          for (const b of novos) {
+            next = insertAfter(next, anchor, b);
+            anchor = b.id;
+          }
+          if (vazio) next = removeBlock(next, afterId);
+          return next.length ? next : novos;
+        });
+        const ultimo = novos[novos.length - 1]!;
+        setSelectedIds([ultimo.id]);
+        setAutoFocusId(ultimo.id);
       },
       remove: (id) =>
         setBlocks((bs) => {
@@ -193,9 +214,11 @@ export function useEditorActions({
         setAutoFocusId(id);
       },
       move: (id, dir) => setBlocks((bs) => nudgeBlock(bs, id, dir)),
-      select: (id) => setSelectedId(id),
+      select: (id) => setSelectedIds(id == null ? [] : [id]),
+      selectToggle: (id) =>
+        setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])),
       openSlash: (id, rect) => setSlash({ id, rect }),
     }),
-    [setBlocks, setSelectedId, setAutoFocusId, setSlash],
+    [setBlocks, setSelectedIds, setAutoFocusId, setSlash],
   );
 }

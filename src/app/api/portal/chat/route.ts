@@ -9,6 +9,10 @@ import {
 } from "@/lib/ai/rag";
 import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
 import { getPortalAccess } from "@/lib/portal/data";
+import { interpretarConsulta } from "@/lib/ai/query-understanding";
+import { ehConversaSocial } from "@/lib/ai/social";
+import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
+import { trackingFields } from "@/lib/chat/tracking";
 
 export const runtime = "nodejs";
 
@@ -33,6 +37,9 @@ export async function POST(req: NextRequest) {
     messages?: ChatMessage[];
     conversationId?: string;
     sessionId?: string;
+    scope?: ClarifyScope;
+    contextScope?: ClarifyScope;
+    track?: unknown;
   };
   try {
     payload = await req.json();
@@ -61,7 +68,17 @@ export async function POST(req: NextRequest) {
 
   const spaceId = access.space.id;
   const started = Date.now();
-  const sources = await retrievePublicContext(spaceId, question);
+  // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
+  // responde na simpatia, sem contexto nem "não encontrei".
+  const social = ehConversaSocial(question);
+  const sources = social
+    ? []
+    : await retrievePublicContext(
+        spaceId,
+        await interpretarConsulta(spaceId, question, messages),
+        8,
+        payload.scope,
+      );
 
   // Ask-AI do portal usa a persona da própria documentação.
   const { data: espaco } = await supabase
@@ -84,16 +101,24 @@ export async function POST(req: NextRequest) {
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
-      .insert({ space_id: spaceId, session_id: payload.sessionId ?? null })
+      .insert({
+        space_id: spaceId,
+        session_id: payload.sessionId ?? null,
+        ...trackingFields(payload.track),
+      })
       .select("id")
       .single();
     convId = conv?.id;
   }
-  await supabase.from("messages").insert({
-    conversation_id: convId!,
-    role: "user",
-    content: question,
-  });
+  // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
+  // desambiguação re-envia a mesma pergunta e não deve duplicá-la.
+  if (!payload.scope) {
+    await supabase.from("messages").insert({
+      conversation_id: convId!,
+      role: "user",
+      content: question,
+    });
+  }
 
   const citations = sources.map((s) => ({
     n: s.n,
@@ -110,10 +135,10 @@ export async function POST(req: NextRequest) {
     Connection: "keep-alive",
   };
 
-  if (sources.length === 0) {
+  if (sources.length === 0 && !social) {
     const refusal =
-      "Não encontrei essa informação nesta documentação. " +
-      "Tente reformular a pergunta ou fale com o suporte.";
+      "Não encontrei exatamente isso aqui na documentação. " +
+      "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda bastante), ou, se preferir, falar com um atendente humano.";
     await supabase.from("messages").insert({
       conversation_id: convId!,
       role: "assistant",
@@ -131,6 +156,24 @@ export async function POST(req: NextRequest) {
     return new Response(stream, { headers });
   }
 
+  // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
+  // Pulada em turnos sociais — não se "desambigua" um "oi".
+  if (!payload.scope && !social) {
+    const dis =
+      analyzeAmbiguity(sources, payload.contextScope ?? null) ??
+      analyzeConfidence(sources, payload.contextScope ?? null);
+    if (dis) {
+      const stream = new ReadableStream({
+        start(c) {
+          c.enqueue(sse({ type: "clarify", question: dis.question, options: dis.options }));
+          c.enqueue(sse({ type: "done", conversationId: convId }));
+          c.close();
+        },
+      });
+      return new Response(stream, { headers });
+    }
+  }
+
   const result = streamText({
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
@@ -146,6 +189,8 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(c) {
       c.enqueue(sse({ type: "citations", citations }));
+      const tema = resolveTheme(sources);
+      if (tema) c.enqueue(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";
       try {
         for await (const delta of result.textStream) {

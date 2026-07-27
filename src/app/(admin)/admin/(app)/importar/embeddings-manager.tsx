@@ -6,6 +6,7 @@ import { FileText, FileUp, Trash2, Database, Sparkles, Loader2 } from "lucide-re
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Surface } from "@/components/ui/surface";
@@ -68,6 +69,7 @@ export function EmbeddingsManager({
   const router = useRouter();
   const supabase = createClient();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const nomeEspaco = (id: string) => spaces.find((s) => s.id === id)?.name ?? "documentação";
 
@@ -130,7 +132,6 @@ export function EmbeddingsManager({
   const [nodeSel, setNodeSel] = useState(initialNodeId ?? "__all__");
   const [gerando, setGerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   // Nós carregados junto do espaço a que pertencem — o "carregando" é DERIVADO
   // (sem setState síncrono no efeito, que dispara re-render em cascata).
   const [loaded, setLoaded] = useState<{ spaceId: string; list: NodeOpt[] } | null>(null);
@@ -148,8 +149,43 @@ export function EmbeddingsManager({
     };
   }, [spaceId]);
 
+  /** IDs de artigo cobertos pela seleção atual (tudo / pasta+subárvore / artigo). */
+  function idsDoAlvo(): string[] {
+    if (nodeSel === "__all__") return nodes.filter((n) => n.type === "article").map((n) => n.id);
+    const i = nodes.findIndex((n) => n.id === nodeSel);
+    if (i < 0) return [nodeSel];
+    const alvo = nodes[i]!;
+    if (alvo.type === "article") return [alvo.id];
+    // Pasta: descendentes na lista pré-ordenada (profundidade maior até cair).
+    const ids: string[] = [];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const n = nodes[j]!;
+      if (n.depth <= alvo.depth) break;
+      if (n.type === "article") ids.push(n.id);
+    }
+    return ids;
+  }
+
   async function gerar() {
-    setMsg(null);
+    // Já indexado antes? Confirma que é uma ATUALIZAÇÃO (regera os vetores).
+    const alvos = new Set(idsDoAlvo());
+    const jaIndexado = initial.some(
+      (r) =>
+        r.originKind === "article" &&
+        r.embeddedCount > 0 &&
+        r.spaceId === spaceId &&
+        alvos.has(r.originId),
+    );
+    if (jaIndexado) {
+      const ok = await confirmar({
+        title: "Atualizar embeddings?",
+        description:
+          "Este conteúdo já foi indexado antes. Gerar de novo REGERA os vetores (substitui os atuais). Deseja atualizar?",
+        confirmLabel: "Atualizar",
+      });
+      if (!ok) return;
+    }
+
     setGerando(true);
     const node = nodeSel === "__all__" ? undefined : nodes.find((n) => n.id === nodeSel);
     const res = await enqueueEmbeddingsJob({
@@ -158,17 +194,17 @@ export function EmbeddingsManager({
       nodeType: node?.type,
     });
     setGerando(false);
-    setMsg(res.ok ? "Geração iniciada — acompanhe o progresso abaixo." : res.error);
+    if (res.ok) toast.success("Geração iniciada — acompanhe o progresso abaixo.");
+    else toast.error(res.error);
   }
 
   async function enviarArquivo(file: File) {
-    setMsg(null);
     if (!spaceId) {
-      setMsg("Escolha uma documentação de destino.");
+      toast.warning("Escolha uma documentação de destino.");
       return;
     }
     if (file.size > MAX_BYTES) {
-      setMsg(`Arquivo maior que ${MAX_MB} MB.`);
+      toast.warning(`Arquivo maior que ${MAX_MB} MB.`);
       return;
     }
     setEnviando(true);
@@ -176,7 +212,7 @@ export function EmbeddingsManager({
     const { error } = await supabase.storage.from("imports").upload(path, file);
     if (error) {
       setEnviando(false);
-      setMsg(`Falha no upload: ${error.message}`);
+      toast.error(`Falha no upload: ${error.message}`);
       return;
     }
     const res = await ingestKnowledgeFile({
@@ -187,7 +223,8 @@ export function EmbeddingsManager({
       sizeBytes: file.size,
     });
     setEnviando(false);
-    setMsg(res.ok ? "Arquivo indexado — o chatbot já pode usá-lo." : res.error);
+    if (res.ok) toast.success("Arquivo indexado — o chatbot já pode usá-lo.");
+    else toast.error(res.error);
     router.refresh();
   }
 
@@ -286,11 +323,6 @@ export function EmbeddingsManager({
           </label>
         </div>
 
-        {msg && (
-          <p role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-            {msg}
-          </p>
-        )}
       </Surface>
 
       {/* ── Progresso dos jobs ────────────────────────────────────────────── */}
@@ -354,13 +386,20 @@ export function EmbeddingsManager({
               {initial.map((r) => (
                 <Tr key={`${r.originKind}-${r.originId}`}>
                   <Td>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-start gap-2">
                       {r.originKind === "file" ? (
-                        <FileUp className="size-4 shrink-0 text-text-muted" />
+                        <FileUp className="mt-0.5 size-4 shrink-0 text-text-muted" />
                       ) : (
-                        <FileText className="size-4 shrink-0 text-text-muted" />
+                        <FileText className="mt-0.5 size-4 shrink-0 text-text-muted" />
                       )}
-                      <span className="font-medium">{r.title}</span>
+                      <div className="min-w-0">
+                        <span className="font-medium">{r.title}</span>
+                        {r.directory && (
+                          <div className="truncate text-xs text-text-muted" title={r.directory}>
+                            {r.directory}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </Td>
                   <Td className="text-text-muted">{r.spaceName}</Td>

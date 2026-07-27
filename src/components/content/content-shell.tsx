@@ -46,6 +46,17 @@ export function ContentShell({
     }
   }, [chaveColapso]);
 
+  // O editor pede para recolher a árvore ao selecionar um bloco (mais espaço
+  // para editar). Evento global — só o editor o dispara.
+  useEffect(() => {
+    function recolher() {
+      setCollapsed(true);
+      localStorage.setItem(chaveColapso, "1");
+    }
+    window.addEventListener("kb:collapse-tree", recolher);
+    return () => window.removeEventListener("kb:collapse-tree", recolher);
+  }, [chaveColapso]);
+
   function alternar() {
     setCollapsed((c) => {
       localStorage.setItem(chaveColapso, c ? "0" : "1");
@@ -81,15 +92,16 @@ export function ContentShell({
 
   if (collapsed) {
     return (
-      <div className="flex h-[calc(100dvh-3.5rem)]">
-        {/* Trilho fino: a árvore está a um clique. */}
+      <div data-fullbleed className="flex h-full">
+        {/* Trilho fino: a árvore está a um clique. Botão destacado (acento roxo). */}
         <aside className="mr-3 flex w-11 shrink-0 flex-col items-center rounded-lg border border-border bg-surface py-2">
           <button
             type="button"
             onClick={alternar}
             title="Mostrar a árvore de conteúdo"
+            aria-label="Mostrar a árvore de conteúdo"
             aria-expanded={false}
-            className="flex size-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            className="flex size-8 items-center justify-center rounded-lg border border-brand-purple-200 bg-brand-purple-50 text-primary transition-colors hover:bg-brand-purple-100 dark:border-brand-purple-900 dark:bg-brand-purple-950/50 dark:hover:bg-brand-purple-900/60"
           >
             <PanelLeftOpen className="size-4" />
           </button>
@@ -100,7 +112,7 @@ export function ContentShell({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)]">
+    <div data-fullbleed className="flex h-full">
       <aside
         style={{ width }}
         className="flex shrink-0 flex-col overflow-auto rounded-lg border border-border bg-surface p-3"
@@ -110,10 +122,12 @@ export function ContentShell({
             type="button"
             onClick={alternar}
             title="Recolher a árvore (mais espaço para editar)"
+            aria-label="Recolher a árvore"
             aria-expanded
-            className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            className="flex items-center gap-1.5 rounded-lg border border-brand-purple-200 bg-brand-purple-50 px-2 py-1 text-xs font-medium text-primary shadow-sm transition-colors hover:bg-brand-purple-100 dark:border-brand-purple-900 dark:bg-brand-purple-950/50 dark:hover:bg-brand-purple-900/60"
           >
             <PanelLeftClose className="size-4" />
+            Recolher
           </button>
         </div>
         {aside}

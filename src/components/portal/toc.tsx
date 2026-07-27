@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { List } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { scrollToElement } from "@/lib/portal/scroll";
 
 export type TocItem = { id: string; text: string; level: number };
 
@@ -10,18 +11,24 @@ export type TocItem = { id: string; text: string; level: number };
 export function Toc({ items }: { items: TocItem[] }) {
   const [active, setActive] = useState<string | null>(null);
 
+  // Mesma lógica da árvore principal: ativo = TOPMOST na faixa de leitura, com
+  // MARGEM DE SEGURANÇA abaixo do cabeçalho fixo (senão um item com fiapo no topo
+  // continuava destacado). Ver [reading-scroll.tsx].
   useEffect(() => {
     if (items.length === 0) return;
+    const visiveis = new Set<string>();
+    const header = document.querySelector("header");
+    const margemTopo = Math.round(header?.getBoundingClientRect().height ?? 0) + 48;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActive(entry.target.id);
-            break;
-          }
+          if (entry.isIntersecting) visiveis.add(entry.target.id);
+          else visiveis.delete(entry.target.id);
         }
+        const topo = items.find((it) => visiveis.has(it.id));
+        if (topo) setActive(topo.id);
       },
-      { rootMargin: "0px 0px -70% 0px", threshold: 0 },
+      { rootMargin: `-${margemTopo}px 0px -55% 0px`, threshold: 0 },
     );
     for (const item of items) {
       const el = document.getElementById(item.id);
@@ -42,6 +49,15 @@ export function Toc({ items }: { items: TocItem[] }) {
           <li key={item.id}>
             <a
               href={`#${item.id}`}
+              onClick={(e) => {
+                // Rola com a MESMA lógica da árvore (fixa o alvo enquanto imagens
+                // carregam) em vez do hash nativo, que caía em posição obsoleta.
+                const el = document.getElementById(item.id);
+                if (el) {
+                  e.preventDefault();
+                  scrollToElement(el);
+                }
+              }}
               aria-current={active === item.id ? "location" : undefined}
               className={cn(
                 "-ml-px block border-l-2 py-1 text-[0.8125rem] leading-[1.4] transition-colors",

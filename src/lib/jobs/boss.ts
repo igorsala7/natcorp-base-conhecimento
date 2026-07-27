@@ -17,6 +17,14 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("import-improve");
       await boss.createQueue("quality-scan");
       await boss.createQueue("embeddings-generate");
+      await boss.createQueue("ontology-scan");
+      await boss.createQueue("bulk-process");
+      await boss.createQueue("backup");
+      await boss.createQueue("backup-restore");
+      await boss.createQueue("backup-reschedule");
+      await boss.createQueue("backup-import");
+      await boss.createQueue("backup-github-save");
+      await boss.createQueue("backup-github-import");
       return boss;
     })();
   }
@@ -48,4 +56,52 @@ export async function enqueueQualityScan(spaceId: string): Promise<void> {
 export async function enqueueEmbeddings(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("embeddings-generate", { jobId });
+}
+
+/** Varredura de ontologia pela IA (Gemini lê os artigos e sugere termos). */
+export async function enqueueOntologyScan(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("ontology-scan", { jobId });
+}
+
+/** Processamento em lote (publicar → embedding → ontologia) da seleção. */
+export async function enqueueBulkProcess(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("bulk-process", { jobId });
+}
+
+/** Backup do sistema (banco + arquivos) em segundo plano, com progresso. */
+export async function enqueueBackup(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup", { jobId });
+}
+
+/** Restauração de um backup (destrutivo — substitui os dados atuais). */
+export async function enqueueRestore(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup-restore", { jobId });
+}
+
+/** Pede ao worker para reler `backup_settings` e reprogramar o backup automático. */
+export async function enqueueBackupReschedule(): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup-reschedule", {});
+}
+
+/** Importa (desempacota) um .zip de backup enviado para o bucket. */
+export async function enqueueBackupImport(jobId: string, incomingPath: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup-import", { jobId, incomingPath });
+}
+
+/** Envia um backup existente para o GitHub. */
+export async function enqueueGithubSave(jobId: string, sourceBackupId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup-github-save", { jobId, sourceBackupId });
+}
+
+/** Traz um backup do GitHub para a lista (depois o usuário restaura). */
+export async function enqueueGithubImport(jobId: string, filePath?: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("backup-github-import", { jobId, filePath });
 }

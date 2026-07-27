@@ -73,6 +73,7 @@ function blockToText(b: Block): string {
     case "paragraph":
     case "heading":
     case "quote":
+    case "breadcrumb":
     case "listItem":
       return richToText(b.text);
     case "code":
@@ -97,6 +98,23 @@ function blockToText(b: Block): string {
       return [b.data.title, childrenText(b)].filter(Boolean).join(" ");
     case "table":
       return b.data.rows.map((row) => row.map(richToText).join(" ")).join("\n");
+    case "chart":
+      return [
+        b.data.title ?? "",
+        b.data.columns.map((c) => c.label).join(" "),
+        b.data.rows
+          .map((r) => b.data.columns.map((c) => String(r[c.key] ?? "")).join(" "))
+          .join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    case "flow":
+      return [
+        b.data.nodes.map((n) => n.label).join(" "),
+        b.data.edges.map((e) => e.label ?? "").filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(" ");
     case "file":
       return b.data.name;
     case "checklist":
@@ -203,6 +221,8 @@ function blockToMd(b: Block): string {
       return `${"#".repeat(b.data.level)} ${richToMarkdown(b.text)}`;
     case "paragraph":
       return richToMarkdown(b.text);
+    case "breadcrumb":
+      return richToMarkdown(b.text);
     case "listItem":
       return richToMarkdown(b.text) + (children(b).length ? "\n" + childrenMd(b) : "");
     case "bulletList":
@@ -234,6 +254,31 @@ function blockToMd(b: Block): string {
       return "```mermaid\n" + b.data.code + "\n```";
     case "table":
       return tableToMd(b.data.rows);
+    case "chart": {
+      // Exporta os DADOS como tabela Markdown (reimportável, legível).
+      const { columns, rows, title } = b.data;
+      if (!columns.length) return title ? `**${title}**` : "";
+      const head = `| ${columns.map((c) => c.label).join(" | ")} |`;
+      const sep = `| ${columns.map(() => "---").join(" | ")} |`;
+      const body = rows
+        .map((r) => `| ${columns.map((c) => String(r[c.key] ?? "")).join(" | ")} |`)
+        .join("\n");
+      return `${title ? `**${title}**\n\n` : ""}${head}\n${sep}\n${body}`;
+    }
+    case "flow": {
+      // Exporta como mermaid `flowchart` (visual em muitos viewers, reimportável).
+      const forma = (n: (typeof b.data.nodes)[number]) =>
+        n.type === "decision"
+          ? `{${n.label}}`
+          : n.type === "start" || n.type === "end"
+            ? `([${n.label}])`
+            : `[${n.label}]`;
+      const decl = b.data.nodes.map((n) => `  ${n.id}${forma(n)}`).join("\n");
+      const conns = b.data.edges
+        .map((e) => `  ${e.from} -->${e.label ? `|${e.label}|` : ""} ${e.to}`)
+        .join("\n");
+      return "```mermaid\nflowchart TD\n" + decl + "\n" + conns + "\n```";
+    }
     case "callout":
       return (
         `> **[${(b.data.title ?? b.data.variant).toUpperCase()}]**\n` +
@@ -303,6 +348,16 @@ function blockToHtml(b: Block): string {
       return `<ol>${childrenHtml(b)}</ol>`;
     case "quote":
       return `<blockquote>${richToHtml(b.text)}</blockquote>`;
+    case "breadcrumb": {
+      const partes = richToText(b.text)
+        .split(/\s*[›»>/]\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!partes.length) return "";
+      return `<nav class="breadcrumb">${partes
+        .map(escHtml)
+        .join(' <span aria-hidden="true">›</span> ')}</nav>`;
+    }
     case "divider":
       return "<hr>";
     case "code":

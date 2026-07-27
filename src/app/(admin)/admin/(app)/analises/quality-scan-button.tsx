@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import { runQualityScan } from "./quality-actions";
 
 /** Dispara a varredura de qualidade de uma documentação (roda no worker). */
 export function QualityScanButton({ spaces }: { spaces: { id: string; name: string }[] }) {
   const router = useRouter();
+  const toast = useToast();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? "");
-  const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   return (
@@ -35,22 +36,15 @@ export function QualityScanButton({ spaces }: { spaces: { id: string; name: stri
         onClick={() =>
           startTransition(async () => {
             const r = await runQualityScan(spaceId);
-            setMsg(
-              r.ok
-                ? "Varredura na fila — o worker processa e o resultado aparece aqui."
-                : r.error,
-            );
+            if (r.ok)
+              toast.success("Varredura na fila — o worker processa e o resultado aparece aqui.");
+            else toast.error(r.error);
             router.refresh();
           })
         }
       >
         <Gauge className="size-4" /> {pending ? "Enviando…" : "Analisar qualidade"}
       </Button>
-      {msg && (
-        <span role="status" className="text-xs text-text-muted">
-          {msg}
-        </span>
-      )}
     </div>
   );
 }

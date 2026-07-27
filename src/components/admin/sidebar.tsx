@@ -10,6 +10,8 @@ import {
   Code2,
   LayoutDashboard,
   Library,
+  MessagesSquare,
+  MousePointerClick,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
@@ -62,6 +64,8 @@ const GRUPOS = [
     items: [
       { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
       { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
+      { href: "/admin/conversas", label: "Conversas", icon: MessagesSquare, ready: true },
+      { href: "/admin/acessos", label: "Acessos", icon: MousePointerClick, ready: true },
       { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
     ],
   },

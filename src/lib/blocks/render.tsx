@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Download,
   FileDown,
   Info,
@@ -19,7 +20,11 @@ import { highlightCode } from "@/lib/content/highlight";
 import { PortalTabs } from "@/components/portal/tabs";
 import { CopyAnchor } from "@/components/portal/copy-anchor";
 import { CodeCopy } from "@/components/portal/code-copy";
+import { TableFrame } from "@/components/portal/table-frame";
+import { cellBgClass } from "./table-styles";
 import { MermaidView } from "@/components/editor/mermaid-view";
+import { ChartView } from "@/components/portal/chart-view";
+import { FlowView } from "@/components/portal/flow-view";
 import type { TocItem } from "@/components/portal/toc";
 import { embedIframe } from "./embed";
 import { type Block, type RichText } from "./schema";
@@ -165,6 +170,26 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
           ) : null}
         </figure>
       );
+    case "breadcrumb": {
+      const partes = richToText(block.text)
+        .split(/\s*[›»>/]\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!partes.length) return null;
+      return (
+        <nav
+          aria-label="Trilha de navegação"
+          className="my-4 flex flex-wrap items-center gap-1.5 text-sm text-text-muted"
+        >
+          {partes.map((p, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              {i > 0 && <ChevronRight className="size-3.5 text-brand-gray-400" aria-hidden="true" />}
+              <span className={i === partes.length - 1 ? "font-medium text-text" : ""}>{p}</span>
+            </span>
+          ))}
+        </nav>
+      );
+    }
     case "divider":
       return (
         <div className="my-7 flex items-center gap-3" role="separator">
@@ -492,19 +517,23 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
     }
 
     case "table": {
+      const cores = block.data.cellColors;
+      const rows = block.data.rows;
+      const headRowIdx = block.data.hasHeader ? 0 : -1;
       const [head, ...rest] = block.data.hasHeader
-        ? [block.data.rows[0] ?? [], ...block.data.rows.slice(1)]
-        : [null, ...block.data.rows];
+        ? [rows[0] ?? [], ...rows.slice(1)]
+        : [null, ...rows];
+      // Rola dentro do próprio contêiner (TableFrame) — uma tabela larga jamais
+      // faz a PÁGINA rolar — e ganha o botão "Expandir" quando há colunas
+      // escondidas pelo scroll.
       return (
-        // Rola dentro do próprio contêiner: uma tabela larga jamais pode fazer
-        // a PÁGINA rolar na horizontal.
-        <div className="table-portal my-4 overflow-x-auto rounded-lg border border-border shadow-1">
+        <TableFrame borders={block.data.borders ?? "rows"} striped={block.data.striped ?? true}>
           <table>
             {head && (
               <thead>
                 <tr>
                   {head.map((cell, ci) => (
-                    <th key={ci} scope="col">
+                    <th key={ci} scope="col" className={cellBgClass(cores, 0, ci)}>
                       {renderRich(cell)}
                     </th>
                   ))}
@@ -512,21 +541,32 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               </thead>
             )}
             <tbody>
-              {rest.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => (
-                    <td key={ci}>{renderRich(cell)}</td>
-                  ))}
-                </tr>
-              ))}
+              {rest.map((row, ri) => {
+                const realR = headRowIdx === 0 ? ri + 1 : ri;
+                return (
+                  <tr key={ri}>
+                    {row.map((cell, ci) => (
+                      <td key={ci} className={cellBgClass(cores, realR, ci)}>
+                        {renderRich(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
+        </TableFrame>
       );
     }
 
     case "mermaid":
       return <MermaidView code={block.data.code} />;
+
+    case "chart":
+      return <ChartView data={block.data} />;
+
+    case "flow":
+      return <FlowView data={block.data} />;
 
     case "checklist":
       return (

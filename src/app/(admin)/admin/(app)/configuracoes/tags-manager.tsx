@@ -10,6 +10,7 @@ import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import {
   createTag,
   deleteTag,
@@ -26,17 +27,18 @@ import {
 export function TagsManager({ spaceId, initial }: { spaceId: string; initial: TagInfo[] }) {
   const router = useRouter();
   const { confirmar, pedirTexto } = useConfirm();
+  const toast = useToast();
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [mesclando, setMesclando] = useState(false);
   const [destino, setDestino] = useState("");
   const [novo, setNovo] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
     startTransition(async () => {
       const r = await fn();
-      setMsg(r.ok ? null : (r.error ?? "Falha."));
+      if (r.ok) toast.success("Feito.");
+      else toast.error(r.error ?? "Falha.");
       router.refresh();
     });
   }
@@ -99,11 +101,6 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
         </Button>
       </form>
 
-      {msg && (
-        <p role="alert" className="mt-2 rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-          {msg}
-        </p>
-      )}
 
       {initial.length === 0 ? (
         <EmptyState

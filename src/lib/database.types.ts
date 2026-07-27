@@ -357,6 +357,7 @@ export type Database = {
           id: string
           meta: Json
           node_id: string
+          ontology_at: string | null
           published_at: string | null
           updated_at: string
           updated_by: string | null
@@ -373,6 +374,7 @@ export type Database = {
           id?: string
           meta?: Json
           node_id: string
+          ontology_at?: string | null
           published_at?: string | null
           updated_at?: string
           updated_by?: string | null
@@ -389,6 +391,7 @@ export type Database = {
           id?: string
           meta?: Json
           node_id?: string
+          ontology_at?: string | null
           published_at?: string | null
           updated_at?: string
           updated_by?: string | null
@@ -400,6 +403,193 @@ export type Database = {
             columns: ["node_id"]
             isOneToOne: true
             referencedRelation: "nodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      backup_jobs: {
+        Row: {
+          bytes: number | null
+          created_at: string
+          created_by: string | null
+          error: string | null
+          files_count: number | null
+          id: string
+          include_storage: boolean
+          kind: string
+          phase: string | null
+          progress: number
+          rows_count: number | null
+          source_backup_id: string | null
+          status: string
+          storage_path: string | null
+          tables_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          bytes?: number | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          files_count?: number | null
+          id?: string
+          include_storage?: boolean
+          kind?: string
+          phase?: string | null
+          progress?: number
+          rows_count?: number | null
+          source_backup_id?: string | null
+          status?: string
+          storage_path?: string | null
+          tables_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          bytes?: number | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          files_count?: number | null
+          id?: string
+          include_storage?: boolean
+          kind?: string
+          phase?: string | null
+          progress?: number
+          rows_count?: number | null
+          source_backup_id?: string | null
+          status?: string
+          storage_path?: string | null
+          tables_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "backup_jobs_source_backup_id_fkey"
+            columns: ["source_backup_id"]
+            isOneToOne: false
+            referencedRelation: "backup_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      backup_settings: {
+        Row: {
+          auto_enabled: boolean
+          frequency: string
+          github_branch: string
+          github_path: string
+          github_repo: string | null
+          hour: number
+          id: boolean
+          include_storage: boolean
+          last_run_at: string | null
+          retention_days: number
+          updated_at: string
+          weekday: number
+        }
+        Insert: {
+          auto_enabled?: boolean
+          frequency?: string
+          github_branch?: string
+          github_path?: string
+          github_repo?: string | null
+          hour?: number
+          id?: boolean
+          include_storage?: boolean
+          last_run_at?: string | null
+          retention_days?: number
+          updated_at?: string
+          weekday?: number
+        }
+        Update: {
+          auto_enabled?: boolean
+          frequency?: string
+          github_branch?: string
+          github_path?: string
+          github_repo?: string | null
+          hour?: number
+          id?: boolean
+          include_storage?: boolean
+          last_run_at?: string | null
+          retention_days?: number
+          updated_at?: string
+          weekday?: number
+        }
+        Relationships: []
+      }
+      backup_secrets: {
+        Row: {
+          github_token_enc: string | null
+          id: boolean
+          updated_at: string
+        }
+        Insert: {
+          github_token_enc?: string | null
+          id?: boolean
+          updated_at?: string
+        }
+        Update: {
+          github_token_enc?: string | null
+          id?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      bulk_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          do_embedding: boolean
+          do_ontology: boolean
+          do_publish: boolean
+          done: number
+          error: string | null
+          id: string
+          node_ids: string[]
+          phase: string | null
+          progress: number
+          space_id: string
+          status: string
+          total: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          do_embedding?: boolean
+          do_ontology?: boolean
+          do_publish?: boolean
+          done?: number
+          error?: string | null
+          id?: string
+          node_ids: string[]
+          phase?: string | null
+          progress?: number
+          space_id: string
+          status?: string
+          total?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          do_embedding?: boolean
+          do_ontology?: boolean
+          do_publish?: boolean
+          done?: number
+          error?: string | null
+          id?: string
+          node_ids?: string[]
+          phase?: string | null
+          progress?: number
+          space_id?: string
+          status?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bulk_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -577,6 +767,12 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          p_base: string | null
+          p_empresa: string | null
+          p_matricula: string | null
+          p_perfil: string | null
+          p_portal: string | null
+          p_usuario: string | null
           session_id: string | null
           space_id: string
           user_ref: string | null
@@ -584,6 +780,12 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
           session_id?: string | null
           space_id: string
           user_ref?: string | null
@@ -591,6 +793,12 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
           session_id?: string | null
           space_id?: string
           user_ref?: string | null
@@ -601,6 +809,72 @@ export type Database = {
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      page_views: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          node_id: string | null
+          p_base: string | null
+          p_empresa: string | null
+          p_matricula: string | null
+          p_perfil: string | null
+          p_portal: string | null
+          p_usuario: string | null
+          path: string | null
+          session_id: string | null
+          space_id: string
+          title: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          node_id?: string | null
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
+          path?: string | null
+          session_id?: string | null
+          space_id: string
+          title?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          node_id?: string | null
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
+          path?: string | null
+          session_id?: string | null
+          space_id?: string
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page_views_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "page_views_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "nodes"
             referencedColumns: ["id"]
           },
         ]
@@ -711,6 +985,144 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "embedding_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ontology_terms: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          kind: string
+          node_id: string | null
+          source: string
+          space_id: string
+          term: string
+          term_norm: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          kind?: string
+          node_id?: string | null
+          source?: string
+          space_id: string
+          term: string
+          term_norm: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          kind?: string
+          node_id?: string | null
+          source?: string
+          space_id?: string
+          term?: string
+          term_norm?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ontology_terms_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ontology_aliases: {
+        Row: {
+          alias: string
+          alias_norm: string
+          created_at: string
+          id: string
+          source: string
+          term_id: string
+        }
+        Insert: {
+          alias: string
+          alias_norm: string
+          created_at?: string
+          id?: string
+          source?: string
+          term_id: string
+        }
+        Update: {
+          alias?: string
+          alias_norm?: string
+          created_at?: string
+          id?: string
+          source?: string
+          term_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ontology_aliases_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "ontology_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ontology_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          done: number
+          error: string | null
+          found: number
+          id: string
+          progress: number
+          scope: string
+          space_id: string
+          status: string
+          target_id: string | null
+          total: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          found?: number
+          id?: string
+          progress?: number
+          scope?: string
+          space_id: string
+          status?: string
+          target_id?: string | null
+          total?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          found?: number
+          id?: string
+          progress?: number
+          scope?: string
+          space_id?: string
+          status?: string
+          target_id?: string | null
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ontology_jobs_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
@@ -1145,6 +1557,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           id: string
+          job_title: string | null
           last_seen_at: string | null
           status: string
         }
@@ -1154,6 +1567,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id: string
+          job_title?: string | null
           last_seen_at?: string | null
           status?: string
         }
@@ -1163,6 +1577,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          job_title?: string | null
           last_seen_at?: string | null
           status?: string
         }
@@ -1837,10 +2252,40 @@ export type Database = {
       f_unaccent: { Args: { "": string }; Returns: string }
       gc_versions: { Args: never; Returns: number }
       hard_delete_subtree: { Args: { p_node_id: string }; Returns: number }
+      approvers_for_node: {
+        Args: { p_node_id: string }
+        Returns: { user_id: string }[]
+      }
       has_permission: {
         Args: {
           p_permission_key: string
           p_space_id?: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      has_permission_child: {
+        Args: {
+          p_parent_id: string
+          p_permission_key: string
+          p_space_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      has_permission_node: {
+        Args: {
+          p_node_id: string
+          p_permission_key: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      has_permission_node_row: {
+        Args: {
+          p_path: unknown
+          p_permission_key: string
+          p_space_id: string
           p_user_id: string
         }
         Returns: boolean
@@ -1894,6 +2339,7 @@ export type Database = {
       }
       hybrid_search_scoped: {
         Args: {
+          p_boost?: string
           p_document_ids?: string[]
           p_embedding?: string
           p_limit?: number
@@ -1919,6 +2365,7 @@ export type Database = {
         Returns: {
           provider: string
           model: string
+          purpose: string
           input_tokens: number
           output_tokens: number
           total_tokens: number

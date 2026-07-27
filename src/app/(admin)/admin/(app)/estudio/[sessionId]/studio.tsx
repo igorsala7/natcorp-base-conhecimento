@@ -6,11 +6,13 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Check,
+  Download,
   Eye,
   FileText,
-  FileUp,
   Folder,
+  ImagePlus,
   Loader2,
+  Paperclip,
   Pencil,
   Send,
   Sparkles,
@@ -18,11 +20,17 @@ import {
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, MenuItem } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
+import { TypingIndicator } from "@/components/ui/typing-indicator";
+import { Markdown } from "@/components/ui/markdown";
+import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 import { createClient } from "@/lib/supabase/client";
+import { uploadToAssets } from "@/lib/content/upload";
+import { ACCEPT_ATTR } from "@/lib/importer/file-guard";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { EmbeddedBlockEditor } from "@/components/editor/blocks/embedded-editor";
 import {
@@ -35,6 +43,7 @@ import {
   materializeStudio,
   saveStudioState,
   studioAttach,
+  studioAttachMedia,
   studioGenerateBody,
   studioTurn,
   type StudioMsg,
@@ -72,12 +81,15 @@ export function Studio({
   const [modoPrevia, setModoPrevia] = useState(false);
   const [criando, setCriando] = useState(false);
   const [anexando, setAnexando] = useState(false);
-  const fimRef = useRef<HTMLDivElement>(null);
+  const msgsRef = useRef<HTMLDivElement>(null);
   const criada = sessao.status === "created";
 
+  // Rola SÓ o container do chat (nunca a janela). O `scrollIntoView` antigo
+  // mexia na página e abria uma área vazia enquanto a IA "pensava".
   useEffect(() => {
-    fimRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, perguntas]);
+    const el = msgsRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [msgs, perguntas, ocupado]);
 
   const artigoSel = selecionado ? acharNo(proposal, selecionado) : null;
 
@@ -144,10 +156,11 @@ export function Studio({
     void enviar(`Minhas escolhas:\n${escolhas.map((d) => `- ${d}`).join("\n")}`);
   }
 
-  function anexar() {
+  /** Documento/código para a IA LER como base (vira texto em `materiais`). */
+  function anexarBase() {
     const el = document.createElement("input");
     el.type = "file";
-    el.accept = ".pdf,.docx,.md,.markdown,.html,.txt,.sql,.pks,.pkb,.js,.ts,.css,.json,.xml";
+    el.accept = ACCEPT_ATTR;
     el.onchange = async () => {
       const file = el.files?.[0];
       if (!file) return;
@@ -176,7 +189,80 @@ export function Studio({
         return;
       }
       setMateriais((m) => [...m, r.data]);
-      void enviar(`Anexei o material "${r.data.nome}". Considere-o na proposta.`);
+      // NÃO dispara a IA sozinho: o material fica anexado à sessão (o servidor o
+      // considera no PRÓXIMO envio). O usuário escreve a mensagem e clica em
+      // enviar — aí a conversa segue já com o anexo em conta.
+      sistema(
+        `Material "${r.data.nome}" anexado. Escreva sua mensagem e clique em enviar — vou considerá-lo na proposta.`,
+      );
+    };
+    el.click();
+  }
+
+  /** Artigo da proposta que vai receber a mídia: o selecionado, ou o único. */
+  function alvoArtigo(): string | null {
+    if (selecionado) {
+      const n = acharNo(proposal, selecionado);
+      if (n?.tipo === "article") return n.tmpId;
+    }
+    const artigos: string[] = [];
+    const walk = (ns: ProposalNode[]) =>
+      ns.forEach((n) => {
+        if (n.tipo === "article") artigos.push(n.tmpId);
+        walk(n.children);
+      });
+    walk(proposal);
+    return artigos.length === 1 ? artigos[0]! : null;
+  }
+
+  /** Imagem no corpo OU arquivo para download, dentro do artigo alvo. */
+  function anexarMidia(kind: "image" | "file") {
+    const alvo = alvoArtigo();
+    if (!alvo) {
+      sistema(
+        `Selecione na proposta (à direita) o artigo que vai receber ${kind === "image" ? "a imagem" : "o arquivo"} e anexe de novo.`,
+      );
+      return;
+    }
+    const el = document.createElement("input");
+    el.type = "file";
+    el.accept = kind === "image" ? "image/*" : "*/*";
+    el.onchange = async () => {
+      const file = el.files?.[0];
+      if (!file) return;
+      const limiteMb = kind === "image" ? 10 : 25;
+      if (file.size > limiteMb * 1024 * 1024) {
+        sistema(`Arquivo acima de ${limiteMb} MB.`);
+        return;
+      }
+      setAnexando(true);
+      const url = await uploadToAssets(file, sessao.spaceId);
+      if (!url) {
+        sistema("Falha no upload do arquivo.");
+        setAnexando(false);
+        return;
+      }
+      const r = await studioAttachMedia({
+        sessionId: sessao.id,
+        kind,
+        url,
+        name: file.name,
+        size: file.size,
+        targetTmpId: alvo,
+      });
+      setAnexando(false);
+      if (!r.ok) {
+        sistema(r.error);
+        return;
+      }
+      setProposal(r.data.proposal);
+      setSelecionado(alvo);
+      const no = acharNo(r.data.proposal, alvo);
+      sistema(
+        kind === "image"
+          ? `Imagem "${file.name}" adicionada ao artigo "${no?.titulo ?? ""}". A IA a posiciona ao (re)gerar o corpo; senão fica ao fim.`
+          : `Arquivo "${file.name}" disponibilizado para download no artigo "${no?.titulo ?? ""}".`,
+      );
     };
     el.click();
   }
@@ -257,7 +343,7 @@ export function Studio({
   const podecriar = useMemo(() => proposal.length > 0 && !criada, [proposal, criada]);
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       {/* Barra superior: destino + criar */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border pb-3">
         <Link
@@ -307,8 +393,8 @@ export function Studio({
 
       <div className="mt-3 flex min-h-0 flex-1 gap-3">
         {/* CHAT */}
-        <Surface elevation={1} padding="none" className="flex w-[26rem] shrink-0 flex-col">
-          <div className="flex-1 space-y-3 overflow-y-auto p-3">
+        <Surface elevation={1} padding="none" className="flex min-h-0 w-[26rem] shrink-0 flex-col">
+          <div ref={msgsRef} className="flex-1 space-y-3 overflow-y-auto p-3">
             {msgs.length === 0 && (
               <p className="rounded-lg border border-dashed border-border p-4 text-sm leading-relaxed text-text-muted">
                 Explique o que você precisa documentar — cole texto, código (PL/SQL, JavaScript…)
@@ -326,7 +412,11 @@ export function Studio({
                       : "rounded-md bg-surface-2 px-3 py-1.5 text-xs text-text-muted"
                 }
               >
-                <span className="whitespace-pre-wrap">{m.text}</span>
+                {m.role === "assistant" ? (
+                  <Markdown content={m.text} />
+                ) : (
+                  <span className="whitespace-pre-wrap">{m.text}</span>
+                )}
               </div>
             ))}
             {perguntas && (
@@ -351,11 +441,11 @@ export function Studio({
               </div>
             )}
             {ocupado && (
-              <p className="flex items-center gap-2 text-sm text-text-muted">
-                <Loader2 className="size-4 animate-spin text-primary" /> {ocupado}
-              </p>
+              <div className="flex w-fit items-center gap-2.5 rounded-lg border border-border px-3 py-2 text-sm text-text-muted">
+                <TypingIndicator />
+                <span>{ocupado}</span>
+              </div>
             )}
-            <div ref={fimRef} />
           </div>
 
           {materiais.length > 0 && (
@@ -371,16 +461,31 @@ export function Studio({
               void enviar(input);
             }}
           >
-            <button
-              type="button"
-              title="Anexar arquivo (PDF, DOCX, código…)"
-              onClick={anexar}
+            <DropdownMenu
+              icon={Paperclip}
+              chevron={false}
+              variant="secondary"
+              size="icon"
+              placement="top"
+              panelWidth={260}
               disabled={anexando || !!ocupado}
-              className="rounded-md border border-border p-2 text-text-muted transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+              title="Anexar: base para a IA · imagem no corpo · arquivo para download"
             >
-              {anexando ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
-            </button>
-            <textarea
+              {(close) => (
+                <>
+                  <MenuItem icon={FileText} onClick={() => { close(); anexarBase(); }}>
+                    Documento base (a IA lê)
+                  </MenuItem>
+                  <MenuItem icon={ImagePlus} onClick={() => { close(); anexarMidia("image"); }}>
+                    Imagem no corpo do artigo
+                  </MenuItem>
+                  <MenuItem icon={Download} onClick={() => { close(); anexarMidia("file"); }}>
+                    Arquivo para download
+                  </MenuItem>
+                </>
+              )}
+            </DropdownMenu>
+            <AutoGrowTextarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -389,9 +494,9 @@ export function Studio({
                   void enviar(input);
                 }
               }}
-              rows={2}
+              rows={1}
               placeholder="Descreva, cole código, peça mudanças… (Enter envia)"
-              className={`${controlClass} max-h-40 min-h-10 flex-1 resize-y`}
+              className={`${controlClass} min-h-10 flex-1`}
               disabled={!!ocupado}
             />
             <Button type="submit" size="sm" disabled={!input.trim() || !!ocupado} title="Enviar">
@@ -401,7 +506,7 @@ export function Studio({
         </Surface>
 
         {/* PROPOSTA */}
-        <Surface elevation={1} padding="none" className="flex min-w-0 flex-1 flex-col">
+        <Surface elevation={1} padding="none" className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Sparkles className="size-4 text-primary" />
             <h2 className="text-sm font-semibold">Proposta</h2>

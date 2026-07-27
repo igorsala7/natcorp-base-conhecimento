@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PenLine, Plus, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -41,16 +42,20 @@ export function AuthorsManager({
   const [ehNovo, setEhNovo] = useState(false);
   const [excluindo, setExcluindo] = useState<AuthorRow | null>(null);
   const [reatribuirPara, setReatribuirPara] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const toast = useToast();
 
   const semPerfil = users.filter((u) => !authors.some((a) => a.id === u.id));
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, aoOk?: () => void) {
     startTransition(async () => {
       const r = await fn();
-      setMsg(r.ok ? null : (r.error ?? "Falha."));
-      if (r.ok) aoOk?.();
+      if (r.ok) {
+        toast.success("Feito.");
+        aoOk?.();
+      } else {
+        toast.error(r.error ?? "Falha.");
+      }
       router.refresh();
     });
   }
@@ -80,11 +85,6 @@ export function AuthorsManager({
         )}
       </div>
 
-      {msg && (
-        <p role="alert" className="mt-2 rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-          {msg}
-        </p>
-      )}
 
       {authors.length === 0 ? (
         <EmptyState

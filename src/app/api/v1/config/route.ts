@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
   }
   return Response.json(
     { config: key.config, aiEnabled: await hasAiKey() },
-    { headers: cors },
+    // no-store: mudança de config (ícone/cor/título) reflete no próximo load,
+    // sem o navegador servir uma versão cacheada da config.
+    { headers: { ...cors, "Cache-Control": "no-store" } },
   );
 }

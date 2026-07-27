@@ -8,12 +8,15 @@
  * validado DEPOIS das ops; teto de artigos na proposta.
  */
 import type { BlockDoc } from "@/lib/blocks/schema";
+import type { MediaRef } from "./media";
 
 export type ProposalNode = {
   tmpId: string;
   tipo: "folder" | "article";
   titulo: string;
   doc: BlockDoc | null;
+  /** Mídias anexadas ao artigo (imagem no corpo / arquivo p/ download). */
+  midias?: MediaRef[];
   children: ProposalNode[];
 };
 

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { enqueueEmbeddings } from "@/lib/jobs/boss";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import { deleteKnowledgeFile } from "../base-conhecimento/actions";
 
 /** Uma linha do relatório de gestão de embeddings (origem = artigo OU arquivo). */
@@ -12,6 +13,8 @@ export type EmbeddingReportRow = {
   originKind: "article" | "file";
   originId: string;
   title: string;
+  /** Caminho de pastas do artigo ("Financeiro › Faturamento"); null p/ arquivo ou raiz. */
+  directory: string | null;
   spaceId: string;
   spaceName: string;
   chunkCount: number;
@@ -47,11 +50,45 @@ export async function listEmbeddingsReport(spaceId?: string): Promise<EmbeddingR
     for (const p of perfis ?? []) nomes.set(p.id, p.full_name || p.email || "—");
   }
 
+  // Caminho de pastas de cada artigo: uma consulta dos nós das documentações
+  // envolvidas monta o mapa id → pais, e daí o "Financeiro › Faturamento".
+  const espacos = [...new Set(data.map((r) => r.space_id).filter((x): x is string => !!x))];
+  const pai = new Map<string, { parentId: string | null; title: string; type: string }>();
+  if (espacos.length) {
+    // Paginado: >1000 nós nas documentações envolvidas truncariam o mapa de
+    // pais e alguns artigos mostrariam diretório errado/vazio (ver fetchAllPaged).
+    const nodes = await fetchAllPaged(async (from, to) => {
+      const { data, error } = await supabase
+        .from("nodes")
+        .select("id, parent_id, title, type, space_id")
+        .in("space_id", espacos)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to);
+      return { data, error };
+    });
+    for (const n of nodes)
+      pai.set(n.id, { parentId: n.parent_id, title: n.title, type: n.type });
+  }
+  const caminhoPastas = (nodeId: string): string | null => {
+    const partes: string[] = [];
+    let atual = pai.get(nodeId)?.parentId ?? null;
+    // Sobe pelos pais (só pastas viram caminho); trava de segurança contra ciclo.
+    for (let i = 0; atual && i < 50; i++) {
+      const p = pai.get(atual);
+      if (!p) break;
+      if (p.type === "folder") partes.unshift(p.title);
+      atual = p.parentId;
+    }
+    return partes.length ? partes.join(" › ") : null;
+  };
+
   return data
     .map((r) => ({
       originKind: (r.origin_kind === "file" ? "file" : "article") as "article" | "file",
       originId: r.origin_id,
       title: r.title ?? "(sem título)",
+      directory: r.origin_kind === "file" ? null : caminhoPastas(r.origin_id),
       spaceId: r.space_id,
       spaceName: r.space_name,
       chunkCount: Number(r.chunk_count),

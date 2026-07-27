@@ -12,8 +12,13 @@ if (!globalThis.WebSocket) {
 }
 import { createHash } from "node:crypto";
 import PgBoss from "pg-boss";
+// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
+import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
+import { performBackup, performRestore, deleteBackupObjects, packBackup, unpackBackup } from "../src/lib/backup/engine";
+import { pushToGithub, listGithubBackups, downloadGithubFile } from "../src/lib/backup/github";
+import { tryDecryptSecret } from "../src/lib/crypto/secrets";
 import { extractDocument } from "../src/lib/importer/extract";
 import {
   heuristicTree,
@@ -24,6 +29,9 @@ import { rasterizePdf } from "../src/lib/importer/rasterize";
 import { readOutline } from "../src/lib/importer/read-outline";
 import { generateArticle } from "../src/lib/importer/generate-article";
 import { hasAiKey, resolveAi } from "../src/lib/ai/config";
+import { extrairTermos } from "../src/lib/ai/ontology-scan";
+import { normalizarTermo } from "../src/lib/ai/ontology";
+import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
 import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
 import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-core";
@@ -397,12 +405,299 @@ async function processEmbeddings(jobId: string): Promise<void> {
   await supabase.from("embedding_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
 }
 
+/** Agrupa textos em lotes até ~maxChars por lote (um artigo nunca é partido). */
+function agruparPorTamanho(textos: string[], maxChars: number): string[] {
+  const lotes: string[] = [];
+  let atual = "";
+  for (const t of textos) {
+    if (atual && atual.length + t.length > maxChars) {
+      lotes.push(atual);
+      atual = "";
+    }
+    atual = atual ? `${atual}\n\n---\n\n${t}` : t;
+  }
+  if (atual) lotes.push(atual);
+  return lotes;
+}
+
+/**
+ * NÚCLEO da ontologia (reutilizado pela varredura E pelo lote): a IA (do Chat)
+ * lê o texto dos artigos `nodeIds` (cada um com seu CAMINHO DE PASTAS, para
+ * entender o contexto) e sugere termos + sinônimos, gravados com origem 'ia' e
+ * MERGE inteligente (termo/sinônimo já existente — como canônico OU alias de
+ * outro — NÃO duplica nem conflaciona; só acrescenta o que falta; curadoria
+ * manual preservada). Carimba `articles.ontology_at`. `onProgress(done,total)`
+ * é chamado por lote. Retorna quantos itens (termos+aliases) foram gravados.
+ */
+async function varrerOntologia(
+  spaceId: string,
+  nodeIds: string[],
+  createdBy: string | null,
+  onProgress?: (done: number, total: number) => Promise<void>,
+): Promise<number> {
+  const { data: allNodes } = await supabase
+    .from("nodes")
+    .select("id, parent_id, title, type")
+    .eq("space_id", spaceId)
+    .is("deleted_at", null);
+  const nodeById = new Map((allNodes ?? []).map((n) => [n.id, n]));
+  const caminhoPastas = (nodeId: string): string => {
+    const partes: string[] = [];
+    let cur = nodeById.get(nodeId)?.parent_id ?? null;
+    for (let i = 0; cur && i < 50; i++) {
+      const p = nodeById.get(cur);
+      if (!p) break;
+      if (p.type === "folder") partes.unshift(p.title);
+      cur = p.parent_id;
+    }
+    return partes.join(" > ");
+  };
+
+  // Texto dos artigos em FATIAS (`.in()` com centenas de UUIDs estoura a URL).
+  const arts: { node_id: string | null; content_text: string | null }[] = [];
+  for (let i = 0; i < nodeIds.length; i += 200) {
+    const { data } = await supabase
+      .from("articles")
+      .select("node_id, content_text")
+      .in("node_id", nodeIds.slice(i, i + 200));
+    if (data) arts.push(...data);
+  }
+
+  const pedacos = arts
+    .map((a) => {
+      const titulo = (a.node_id && nodeById.get(a.node_id)?.title) || "";
+      const caminho = a.node_id ? caminhoPastas(a.node_id) : "";
+      const cabecalho = caminho ? `[${caminho}]\n# ${titulo}` : `# ${titulo}`;
+      return `${cabecalho}\n${a.content_text ?? ""}`.trim();
+    })
+    .filter((t) => t.length > 20);
+  const lotes = agruparPorTamanho(pedacos, 40_000);
+  await onProgress?.(0, lotes.length);
+
+  const acumulado = new Map<
+    string,
+    { term: string; kind: string; description: string | null; aliases: Set<string> }
+  >();
+  let done = 0;
+  for (const lote of lotes) {
+    try {
+      const termos = await extrairTermos(lote);
+      for (const t of termos) {
+        const norm = normalizarTermo(t.term);
+        if (!norm) continue;
+        const ex = acumulado.get(norm) ?? {
+          term: t.term,
+          kind: t.kind,
+          description: t.description,
+          aliases: new Set<string>(),
+        };
+        if (!ex.description && t.description) ex.description = t.description;
+        for (const a of t.aliases) {
+          if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+        }
+        acumulado.set(norm, ex);
+      }
+    } catch (e) {
+      console.error(`Ontologia lote falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await onProgress?.(done, lotes.length);
+  }
+
+  // MERGE (norm → termId cobre termos E aliases existentes).
+  const { data: exTerms } = await supabase
+    .from("ontology_terms")
+    .select("id, term_norm, description")
+    .eq("space_id", spaceId);
+  const normToTermId = new Map<string, string>();
+  const descById = new Map<string, string | null>();
+  for (const t of exTerms ?? []) {
+    normToTermId.set(t.term_norm, t.id);
+    descById.set(t.id, t.description);
+  }
+  const exTermIds = (exTerms ?? []).map((t) => t.id);
+  for (let i = 0; i < exTermIds.length; i += 200) {
+    const { data: exAliases } = await supabase
+      .from("ontology_aliases")
+      .select("term_id, alias_norm")
+      .in("term_id", exTermIds.slice(i, i + 200));
+    for (const a of exAliases ?? []) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
+  }
+
+  let found = 0;
+  for (const [norm, t] of acumulado) {
+    const existenteId = normToTermId.get(norm);
+    let termId: string;
+    if (existenteId) {
+      termId = existenteId;
+      if (t.description && !descById.get(termId)) {
+        await supabase
+          .from("ontology_terms")
+          .update({ description: t.description, updated_at: new Date().toISOString() })
+          .eq("id", termId);
+        descById.set(termId, t.description);
+      }
+    } else {
+      const { data: novo } = await supabase
+        .from("ontology_terms")
+        .insert({ space_id: spaceId, term: t.term, term_norm: norm, kind: t.kind, description: t.description, source: "ia", created_by: createdBy })
+        .select("id")
+        .single();
+      if (!novo) continue;
+      termId = novo.id;
+      normToTermId.set(norm, termId);
+      descById.set(termId, t.description);
+      found += 1;
+    }
+    for (const alias of t.aliases) {
+      const an = normalizarTermo(alias);
+      if (!an || an === norm) continue;
+      if (normToTermId.has(an)) continue;
+      await supabase
+        .from("ontology_aliases")
+        .upsert({ term_id: termId, alias, alias_norm: an, source: "ia" }, { onConflict: "term_id,alias_norm", ignoreDuplicates: true });
+      normToTermId.set(an, termId);
+      found += 1;
+    }
+  }
+
+  // Carimba os artigos varridos (bolinha de ontologia na árvore).
+  const agora = new Date().toISOString();
+  for (let i = 0; i < nodeIds.length; i += 200) {
+    await supabase.from("articles").update({ ontology_at: agora }).in("node_id", nodeIds.slice(i, i + 200));
+  }
+  return found;
+}
+
+/** Job de varredura de ontologia: resolve o escopo e chama o núcleo. */
+async function processOntologyScan(jobId: string): Promise<void> {
+  const { data: job } = await supabase.from("ontology_jobs").select("*").eq("id", jobId).single();
+  if (!job) throw new Error(`Job de ontologia ${jobId} não encontrado`);
+  if (job.status !== "queued") {
+    console.log(`Ontologia job ${jobId} em '${job.status}' — nada a fazer.`);
+    return;
+  }
+
+  let nodeIds: string[] = [];
+  if (job.scope === "article" && job.target_id) {
+    nodeIds = [job.target_id];
+  } else if (job.scope === "subtree" && job.target_id) {
+    const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: job.target_id });
+    nodeIds = ((sub ?? []) as { id: string; type: string }[]).filter((r) => r.type === "article").map((r) => r.id);
+  } else {
+    const { data: arts } = await supabase
+      .from("nodes")
+      .select("id")
+      .eq("space_id", job.space_id)
+      .eq("type", "article")
+      .is("deleted_at", null);
+    nodeIds = (arts ?? []).map((n) => n.id);
+  }
+
+  await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
+  const found = await varrerOntologia(job.space_id, nodeIds, job.created_by, async (done, total) => {
+    await supabase
+      .from("ontology_jobs")
+      .update({ total, done, progress: total ? Math.round((done / total) * 100) : 100 })
+      .eq("id", jobId);
+  });
+  await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+}
+
+/**
+ * LOTE em segundo plano da seleção múltipla: publica → embedding → ontologia,
+ * NESSA prioridade, UM item de cada vez (não simultâneo). Publicar já gera
+ * embedding; a fase de embedding só é útil sem publicar ou para regerar.
+ */
+async function processBulk(jobId: string): Promise<void> {
+  const { data: job } = await supabase.from("bulk_jobs").select("*").eq("id", jobId).single();
+  if (!job) throw new Error(`Job de lote ${jobId} não encontrado`);
+  if (job.status !== "queued") {
+    console.log(`Lote ${jobId} em '${job.status}' — nada a fazer.`);
+    return;
+  }
+
+  // Seleção → ARTIGOS, em ordem, sem repetir (pasta → subárvore de artigos).
+  const artigos: string[] = [];
+  const visto = new Set<string>();
+  for (const nid of (job.node_ids ?? []) as string[]) {
+    const { data: n } = await supabase.from("nodes").select("id, type").eq("id", nid).maybeSingle();
+    if (!n) continue;
+    if (n.type === "article") {
+      if (!visto.has(n.id)) { visto.add(n.id); artigos.push(n.id); }
+    } else {
+      const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: nid });
+      for (const r of (sub ?? []) as { id: string; type: string }[])
+        if (r.type === "article" && !visto.has(r.id)) { visto.add(r.id); artigos.push(r.id); }
+    }
+  }
+
+  const total =
+    (job.do_publish ? artigos.length : 0) +
+    (job.do_embedding ? artigos.length : 0) +
+    (job.do_ontology ? 1 : 0);
+  let done = 0;
+  const tick = (phase: string) =>
+    supabase
+      .from("bulk_jobs")
+      .update({ status: "running", phase, total, done, progress: total ? Math.round((done / total) * 100) : 100 })
+      .eq("id", jobId);
+  await tick("publicar");
+
+  if (job.do_publish) {
+    for (const nodeId of artigos) {
+      try {
+        const r = await publishNodeCore(supabase, nodeId, job.space_id, "Publicação em lote");
+        if (!r.ok) console.error(`Lote publicar ${nodeId}:`, r.error);
+      } catch (e) {
+        console.error(`Lote publicar ${nodeId}:`, e instanceof Error ? e.message : e);
+      }
+      done += 1;
+      await tick("publicar");
+    }
+  }
+
+  if (job.do_embedding) {
+    await tick("embedding");
+    for (const nodeId of artigos) {
+      try {
+        const { data: art } = await supabase.from("articles").select("id, content_json").eq("node_id", nodeId).maybeSingle();
+        if (art)
+          await reindexNodeChunks(supabase, {
+            nodeId,
+            articleId: art.id,
+            spaceId: job.space_id,
+            doc: art.content_json,
+            withEmbeddings: true,
+            embeddedBy: job.created_by,
+          });
+      } catch (e) {
+        console.error(`Lote embedding ${nodeId}:`, e instanceof Error ? e.message : e);
+      }
+      done += 1;
+      await tick("embedding");
+    }
+  }
+
+  if (job.do_ontology) {
+    await tick("ontologia");
+    try {
+      await varrerOntologia(job.space_id, artigos, job.created_by);
+    } catch (e) {
+      console.error(`Lote ontologia:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+  }
+
+  await supabase.from("bulk_jobs").update({ status: "done", phase: null, progress: 100, done: total }).eq("id", jobId);
+}
+
 /**
  * Publicações agendadas vencidas: executa a MESMA lógica do publicar manual
  * (rascunho → oficial, snapshot, embeddings) e o despublicar com redirect.
  * Roda pelo cron do pg-boss a cada minuto; cada nó falha isolado.
  */
-async function processScheduled(): Promise<void> {
+async function processScheduled(boss: PgBoss): Promise<void> {
   const agora = new Date().toISOString();
 
   const { data: paraPublicar } = await supabase
@@ -417,6 +712,19 @@ async function processScheduled(): Promise<void> {
       const r = await publishNodeCore(supabase, n.id, n.space_id, "Publicação agendada");
       if (!r.ok) throw new Error(r.error);
       console.log(`Agendado publicado: "${n.title}" (${n.id})`);
+      // Mesmo acoplamento do publicar manual: embedding já saiu inline no
+      // núcleo; a ontologia vai para a fila (efeito de sistema, não bloqueia).
+      try {
+        const ontId = await criarJobOntologia(supabase, {
+          spaceId: n.space_id,
+          scope: "article",
+          targetId: n.id,
+          createdBy: null,
+        });
+        if (ontId) await boss.send("ontology-scan", { jobId: ontId });
+      } catch (e2) {
+        console.error(`Agendado ${n.id}: falha ao enfileirar ontologia:`, e2 instanceof Error ? e2.message : e2);
+      }
     } catch (e) {
       // Zera o agendamento mesmo na falha: repetir a cada minuto para sempre
       // só encheria o log — o autor vê o artigo ainda em rascunho e reage.
@@ -444,6 +752,134 @@ async function processScheduled(): Promise<void> {
   }
 }
 
+// ── Backup / Restauração ──────────────────────────────────────────────────────
+async function bkUpdate(jobId: string, patch: Record<string, unknown>) {
+  await supabase.from("backup_jobs").update(patch).eq("id", jobId);
+}
+
+/** Apaga backups (arquivos + registro) além do prazo de retenção configurado. */
+async function pruneBackups() {
+  const { data: cfg } = await supabase.from("backup_settings").select("retention_days").eq("id", true).single();
+  const days = cfg?.retention_days ?? 30;
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data: velhos } = await supabase
+    .from("backup_jobs").select("id, storage_path")
+    .in("kind", ["manual", "auto"]).eq("status", "done").lt("created_at", cutoff);
+  for (const b of velhos ?? []) {
+    if (b.storage_path) await deleteBackupObjects(supabase, b.storage_path).catch(() => {});
+    await supabase.from("backup_jobs").delete().eq("id", b.id);
+  }
+}
+
+async function processBackup(jobId: string) {
+  const { data: job } = await supabase.from("backup_jobs").select("*").eq("id", jobId).single();
+  if (!job) return;
+  await bkUpdate(jobId, { status: "running", progress: 0, phase: "iniciando" });
+  const client = new pg.Client(parseDbConfig());
+  await client.connect();
+  try {
+    const res = await performBackup({
+      pg: client, supabase, jobId, includeStorage: job.include_storage,
+      onProgress: (phase, pct) => bkUpdate(jobId, { phase, progress: pct }),
+    });
+    await bkUpdate(jobId, {
+      status: "done", progress: 100, phase: "concluído", storage_path: res.storagePath,
+      bytes: res.bytes, tables_count: res.tablesCount, rows_count: res.rowsCount,
+      files_count: res.filesCount, updated_at: new Date().toISOString(),
+    });
+    await pruneBackups().catch((e) => console.error("Retenção de backups falhou:", e));
+  } finally {
+    await client.end();
+  }
+}
+
+async function processRestore(jobId: string) {
+  const { data: job } = await supabase.from("backup_jobs").select("*").eq("id", jobId).single();
+  if (!job || !job.storage_path) throw new Error("Backup de origem inválido.");
+  await bkUpdate(jobId, { status: "running", progress: 0, phase: "restaurando" });
+  const client = new pg.Client(parseDbConfig());
+  await client.connect();
+  try {
+    const res = await performRestore({
+      pg: client, supabase, sourcePath: job.storage_path,
+      onProgress: (phase, pct) => bkUpdate(jobId, { phase, progress: pct }),
+    });
+    await bkUpdate(jobId, {
+      status: "done", progress: 100, phase: "concluído", tables_count: res.tablesCount,
+      rows_count: res.rowsCount, files_count: res.filesCount, updated_at: new Date().toISOString(),
+    });
+  } finally {
+    await client.end();
+  }
+}
+
+/** Desempacota um .zip de backup (upload/GitHub) para a pasta `<jobId>/`. */
+async function processBackupImport(jobId: string, incomingPath: string) {
+  await bkUpdate(jobId, { status: "running", progress: 10, phase: "importando" });
+  const { data } = await supabase.storage.from("backups").download(incomingPath);
+  if (!data) throw new Error("Arquivo enviado não encontrado.");
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  const { manifest } = await unpackBackup(supabase, bytes, jobId);
+  await bkUpdate(jobId, {
+    status: "done", progress: 100, phase: "concluído", storage_path: jobId,
+    tables_count: manifest?.db?.length ?? null, files_count: null,
+    include_storage: manifest?.include_storage ?? false, updated_at: new Date().toISOString(),
+  });
+  await supabase.storage.from("backups").remove([incomingPath]);
+}
+
+async function githubConfig() {
+  const { data: s } = await supabase.from("backup_settings").select("github_repo, github_branch, github_path").eq("id", true).single();
+  const { data: sec } = await supabase.from("backup_secrets").select("github_token_enc").eq("id", true).single();
+  const token = tryDecryptSecret(sec?.github_token_enc ?? null);
+  if (!s?.github_repo || !token) throw new Error("Configure o repositório e o token do GitHub em Sistema → Backup.");
+  return { repo: s.github_repo, branch: s.github_branch || "main", path: s.github_path || "backups", token };
+}
+
+async function processGithubSave(jobId: string, sourceBackupId: string) {
+  await bkUpdate(jobId, { status: "running", progress: 10, phase: "empacotando" });
+  const cfg = await githubConfig();
+  const { data: src } = await supabase.from("backup_jobs").select("storage_path, created_at").eq("id", sourceBackupId).single();
+  if (!src?.storage_path) throw new Error("Backup de origem inválido.");
+  const zip = await packBackup(supabase, src.storage_path);
+  const mb = zip.length / 1048576;
+  if (mb > 95) throw new Error(`Backup grande demais para o GitHub (${mb.toFixed(0)} MB; limite ~100 MB). Use um backup só do banco, ou o download.`);
+  await bkUpdate(jobId, { progress: 50, phase: "enviando ao GitHub", bytes: zip.length });
+  const filename = `backup-${String(src.created_at).slice(0, 10)}-${sourceBackupId.slice(0, 8)}.zip`;
+  const r = await pushToGithub({ ...cfg, filename, bytes: zip, message: `Backup ${filename}` });
+  await bkUpdate(jobId, { status: "done", progress: 100, phase: `GitHub: ${r.path}`, updated_at: new Date().toISOString() });
+}
+
+async function processGithubImport(jobId: string, filePath?: string) {
+  await bkUpdate(jobId, { status: "running", progress: 10, phase: "baixando do GitHub" });
+  const cfg = await githubConfig();
+  let fp = filePath;
+  if (!fp) {
+    const list = await listGithubBackups(cfg);
+    if (!list.length) throw new Error("Nenhum backup .zip encontrado no repositório do GitHub.");
+    fp = list[0]!.path;
+  }
+  const bytes = await downloadGithubFile({ token: cfg.token, repo: cfg.repo, branch: cfg.branch, filePath: fp });
+  await bkUpdate(jobId, { progress: 60, phase: "desempacotando" });
+  const { manifest } = await unpackBackup(supabase, bytes, jobId);
+  await bkUpdate(jobId, {
+    status: "done", progress: 100, phase: `de ${fp}`, storage_path: jobId,
+    tables_count: manifest?.db?.length ?? null, include_storage: manifest?.include_storage ?? false,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+/** Lê `backup_settings` e (re)programa o backup automático no pg-boss. */
+async function applyBackupSchedule(boss: PgBoss) {
+  const { data: cfg } = await supabase.from("backup_settings").select("*").eq("id", true).single();
+  try { await boss.unschedule("backup"); } catch { /* nada agendado ainda */ }
+  if (cfg?.auto_enabled) {
+    const cron = cfg.frequency === "weekly" ? `0 ${cfg.hour} * * ${cfg.weekday}` : `0 ${cfg.hour} * * *`;
+    await boss.schedule("backup", cron, { auto: true });
+    console.log(`Backup automático agendado: ${cron}`);
+  }
+}
+
 async function main() {
   const boss = new PgBoss({ ...parseDbConfig(), schema: "pgboss" });
   await boss.start();
@@ -452,7 +888,16 @@ async function main() {
   await boss.createQueue("scheduled-publish");
   await boss.createQueue("quality-scan");
   await boss.createQueue("embeddings-generate");
+  await boss.createQueue("ontology-scan");
+  await boss.createQueue("bulk-process");
+  await boss.createQueue("backup");
+  await boss.createQueue("backup-restore");
+  await boss.createQueue("backup-reschedule");
+  await boss.createQueue("backup-import");
+  await boss.createQueue("backup-github-save");
+  await boss.createQueue("backup-github-import");
   await boss.createQueue("digests");
+  await applyBackupSchedule(boss);
   // Digests de assinaturas: tick de 15 min (instant sai no próximo tick;
   // daily/weekly têm gate de horário dentro do processador).
   await boss.schedule("digests", "*/15 * * * *");
@@ -487,7 +932,7 @@ async function main() {
 
   await boss.work("scheduled-publish", async () => {
     try {
-      await processScheduled();
+      await processScheduled(boss);
     } catch (e) {
       console.error("Varredura de agendados falhou:", e instanceof Error ? e.message : e);
     }
@@ -507,6 +952,103 @@ async function main() {
       }
     }
   });
+
+  await boss.work("ontology-scan", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Varredura de ontologia (job ${jobId})`);
+      try {
+        await processOntologyScan(jobId);
+        console.log(`Ontologia job ${jobId} concluído`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Ontologia job ${jobId} falhou:`, msg);
+        await supabase.from("ontology_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("bulk-process", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Processamento em lote (job ${jobId})`);
+      try {
+        await processBulk(jobId);
+        console.log(`Lote ${jobId} concluído`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Lote ${jobId} falhou:`, msg);
+        await supabase.from("bulk_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("backup", async (jobs) => {
+    for (const job of jobs) {
+      const data = job.data as { jobId?: string; auto?: boolean };
+      let jobId = data.jobId;
+      try {
+        // Disparo agendado (cron): cria o registro do backup na hora.
+        if (!jobId && data.auto) {
+          const { data: cfg } = await supabase.from("backup_settings").select("include_storage").eq("id", true).single();
+          const { data: row } = await supabase
+            .from("backup_jobs").insert({ kind: "auto", include_storage: cfg?.include_storage ?? true })
+            .select("id").single();
+          jobId = row?.id;
+          await supabase.from("backup_settings").update({ last_run_at: new Date().toISOString() }).eq("id", true);
+        }
+        if (!jobId) continue;
+        console.log(`Backup (job ${jobId})`);
+        await processBackup(jobId);
+        console.log(`Backup ${jobId} concluído`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Backup ${jobId ?? "?"} falhou:`, msg);
+        if (jobId) await bkUpdate(jobId, { status: "error", error: msg, updated_at: new Date().toISOString() });
+      }
+    }
+  });
+
+  await boss.work("backup-restore", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Restauração (job ${jobId})`);
+      try {
+        await processRestore(jobId);
+        console.log(`Restauração ${jobId} concluída`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Restauração ${jobId} falhou:`, msg);
+        await bkUpdate(jobId, { status: "error", error: msg, updated_at: new Date().toISOString() });
+      }
+    }
+  });
+
+  await boss.work("backup-reschedule", async () => {
+    try {
+      await applyBackupSchedule(boss);
+    } catch (e) {
+      console.error("Reprogramação de backup falhou:", e instanceof Error ? e.message : e);
+    }
+  });
+
+  const backupJobHandler = (fn: (data: Record<string, unknown>) => Promise<void>, nome: string) =>
+    async (jobs: { data: unknown }[]) => {
+      for (const job of jobs) {
+        const data = job.data as { jobId: string } & Record<string, unknown>;
+        try {
+          await fn(data);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`${nome} ${data.jobId} falhou:`, msg);
+          if (data.jobId) await bkUpdate(data.jobId, { status: "error", error: msg, updated_at: new Date().toISOString() });
+        }
+      }
+    };
+
+  await boss.work("backup-import", backupJobHandler((d) => processBackupImport(d.jobId as string, d.incomingPath as string), "Importação de backup"));
+  await boss.work("backup-github-save", backupJobHandler((d) => processGithubSave(d.jobId as string, d.sourceBackupId as string), "Envio ao GitHub"));
+  await boss.work("backup-github-import", backupJobHandler((d) => processGithubImport(d.jobId as string, d.filePath as string | undefined), "Importação do GitHub"));
 
   // `batchSize: 1`: importação é UM arquivo de cada vez. Vários uploads viram
   // vários jobs 'queued'; o worker busca e processa um, só então pega o próximo

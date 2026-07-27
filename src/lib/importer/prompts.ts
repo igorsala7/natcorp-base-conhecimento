@@ -1,7 +1,9 @@
 /**
  * Prompts do importador de IA — edite aqui para afinar a interpretação.
  * (1) STRUCTURE: como a IA organiza as seções em Documentos e Artigos.
- * (2) LAYOUT: como a IA reformata o texto de um artigo em blocos ricos.
+ * (2) CONTENT: como a IA reformata o texto de um artigo em blocos ricos — o
+ *     MESMO prompt para a importação (generate-article.ts) e para o "Melhorar
+ *     layout" do editor (improve.ts), ambos via JSON livre + sanitizeDoc.
  *
  * IMPORTANTE (contrato técnico — mexer aqui sem mexer no schema quebra a saída):
  * - STRUCTURE recebe a ESTRUTURA ATUAL das seções já extraídas, com o nível de
@@ -15,10 +17,11 @@
  *   ⚠️ Esta passada SÓ RODA quando a árvore chega PLANA (`precisaAgruparComIa`
  *   em tree.ts). Documento que já traz a própria hierarquia não passa por aqui:
  *   medimos que a IA só piorava. Ao afrouxar aquele portão, meça de novo.
- * - LAYOUT devolve blocos do esquema FIXO `blocksSchema` (improve.ts). Só
- *   existem os blocos listados abaixo, com exatamente aqueles campos: o que
- *   vier fora disso é descartado na conversão. Por isso o prompt não pede
- *   HTML/CSS, cores livres, larguras nem blocos inexistentes.
+ * - CONTENT devolve JSON LIVRE ({ blocks: [...] }) coercido por `sanitizeDoc`
+ *   (rich-blocks.ts): destrava o catálogo rico completo e NÃO passa pela grade
+ *   da saída estruturada (limite de 16 uniões na Anthropic). O esquema FIXO
+ *   `blocksSchema` (layout-schema.ts) ainda existe, mas hoje serve o Estúdio e
+ *   o chat do editor (studio/editor-chat), não mais o "Melhorar layout".
  * - `icon` aceita SOMENTE as chaves do catálogo (lib/blocks/icons.ts). Chave
  *   desconhecida é descartada silenciosamente no conversor.
  *   ⚠️ A lista ICON_KEYS abaixo ESPELHA `ICONS` de lib/blocks/icons.ts —
@@ -117,6 +120,7 @@ COMO AGRUPAR (do sinal mais forte para o mais fraco)
 
 REGRAS
 - Poucas pastas de topo, cada uma reunindo suas seções. Um nó COM filhos é PASTA; um nó FOLHA é ARTIGO. Um grupo só se justifica com 2+ seções — não crie pasta para uma seção sozinha.
+- LIMITES DE ARTIGO — PRESTE ATENÇÃO: a faixa de páginas de cada artigo cobre SÓ o conteúdo DELE. Quando uma seção/artigo NOVO começa (novo título), TODO o texto dali em diante pertence ao artigo NOVO — a abertura de um artigo (o título e o primeiro parágrafo) JAMAIS pode ficar presa no fim do artigo ANTERIOR. Faixas de artigos irmãos NÃO se sobrepõem: o artigo anterior TERMINA na página imediatamente ANTES de o próximo COMEÇAR (pageEnd do anterior = pageStart do próximo − 1, salvo quando dividem a mesma página). Se um artigo começa no meio de uma página, o pageStart dele é ESSA página. Na dúvida sobre onde um artigo acaba, corte no INÍCIO do próximo título — nunca depois.
 - PRESERVE a ordem do documento entre irmãos. A faixa de páginas de uma pasta engloba a dos filhos.
 - ${MOBILIA_DE_IMPRESSAO}
 - FOLHA DE ROSTO / PÁGINAS QUE NÃO SÃO CONTEÚDO — não viram nó nem entram no texto; comece a árvore DEPOIS delas:
@@ -129,6 +133,11 @@ REGRAS
 
 Devolva SÓ a árvore no formato pedido (nodes com title, pageStart, pageEnd e children).`;
 
+/**
+ * LEGADO (sem consumidores): descrevia o esquema FIXO `blocksSchema`. Desde a
+ * unificação, tanto a importação quanto o "Melhorar layout" usam
+ * CONTENT_INSTRUCTIONS (JSON livre). Mantido só como referência histórica.
+ */
 export const LAYOUT_INSTRUCTIONS = `Você é um EDITOR VISUAL de documentação técnica. Recebe o texto cru de UM artigo — extraído de Word, PDF ou HTML de um manual de sistema SaaS — e o REFORMATA em blocos ricos para o usuário ENTENDER o mais rápido possível.
 
 Seu objetivo: a página ficar VISUAL, INTUITIVA, ORGANIZADA e FÁCIL DE INTERPRETAR, no nível de uma boa central de ajuda (Notion, Linear Docs, Stripe, Intercom). Use os recursos do editor de verdade: devolver uma parede de parágrafos é FALHA sua.
@@ -136,7 +145,9 @@ Seu objetivo: a página ficar VISUAL, INTUITIVA, ORGANIZADA e FÁCIL DE INTERPRE
 VOCÊ NÃO É REDATOR — REGRAS ABSOLUTAS
 - NÃO reescreva, resuma, traduza, corrija gramática, nem invente conteúdo. As PALAVRAS e a ORDEM das ideias são exatamente as mesmas. COPIE o texto PALAVRA POR PALAVRA para dentro dos blocos: sinônimo, paráfrase ou "melhoria de estilo" é FALHA. O sistema mede e DESCARTA a resposta que RESUMIR (encolher o texto) ou PARAFRASEAR (trocar as palavras do original) — mantenha a GRANDE MAIORIA das palavras. Títulos de callout e cabeçalhos de tabela são montados SELECIONANDO palavras do próprio texto — nunca invente vocabulário novo.
 - Pode dividir um parágrafo longo em vários, e juntar linhas quebradas artificialmente pela extração do PDF (mesmas palavras).
+- JUNTAR FRAGMENTOS: blocos/linhas que são PEDAÇOS de um mesmo parágrafo — ou até de uma mesma PALAVRA cortada no meio (ex.: "informa" seguido de "ção" = "informação"; uma frase interrompida que continua no bloco seguinte) — devem virar UM único bloco, colando as palavras sem inventar nada. Use o SENTIDO do texto para decidir: junte só o que claramente continua a mesma frase/palavra; mantenha SEPARADO o que é conteúdo distinto (novo assunto, item de lista, título, célula de tabela).
 - Pode transformar uma enumeração embutida numa frase em lista/passos — mantendo os mesmos itens e as mesmas palavras.
+- Se um parágrafo TIVER dentro dele uma listagem descritiva, campos/parâmetros ou passos, EXTRAIA essa parte para o bloco certo (table, bullets/ordered list ou steps) e DIVIDA o parágrafo em torno dela: o texto ANTES vira um paragraph, a parte estruturada vira o bloco, e o texto DEPOIS vira outro paragraph — com as MESMAS palavras. Um único bloco de texto pode virar 2, 3 ou mais blocos assim.
 - NÃO DESCARTE CONTEÚDO: TODO parágrafo, TODA linha e TODO título do texto precisa aparecer no resultado — não omita frase, passo, linha de tabela nem título. Só é permitido descartar um resto óbvio de MOBÍLIA DE IMPRESSÃO que tenha sobrado (número de página "Página 3 de 40", cabeçalho/rodapé repetido, marca d'água, sumário solto). Na dúvida, PRESERVE.
 - IMAGENS: o texto contém marcadores como ⟦IMG:0⟧, ⟦IMG:1⟧ — cada um é uma IMAGEM naquela posição. COPIE cada marcador EXATAMENTE como está (mesmos caracteres), SEMPRE sozinho no seu próprio paragraph de NÍVEL SUPERIOR, mantendo a posição relativa ao texto. NUNCA coloque um marcador dentro de columns, panel, cardGrid ou toggle: no documento original a imagem ocupa a largura da página, e dentro dessas regiões ela encolheria até ficar ilegível. NUNCA altere, traduza, descreva ou remova um marcador.
 
@@ -246,8 +257,10 @@ REGRAS DE COMPOSIÇÃO (valem sempre):
 export const CONTENT_INSTRUCTIONS = `Você é um EDITOR VISUAL de documentação técnica. Recebe o texto cru de UM artigo (extraído de um manual de sistema SaaS) e o transforma num documento de BLOCOS RICOS para o usuário ENTENDER o mais rápido possível — no nível de Notion, Linear Docs, Stripe, Intercom.
 
 VOCÊ NÃO É REDATOR — REGRAS ABSOLUTAS
-- NÃO reescreva, resuma, traduza, corrija gramática, nem invente conteúdo. As PALAVRAS e a ORDEM das ideias são exatamente as do texto. COPIE o texto PALAVRA POR PALAVRA para dentro dos blocos. O sistema mede e DESCARTA a saída que RESUMIR (encolher o texto) ou PARAFRASEAR (trocar as palavras do original) — mantenha a GRANDE MAIORIA das palavras do texto. Títulos de callout, rótulos e cabeçalhos de tabela são montados SELECIONANDO palavras do próprio texto — nunca vocabulário novo.
+- NÃO reescreva, resuma, traduza, nem invente conteúdo. As PALAVRAS, os números, os nomes próprios e a ORDEM das ideias são os MESMOS do texto — você só CONSERTA o mecânico (ver abaixo). COPIE o texto para dentro dos blocos mantendo o vocabulário. O sistema mede e DESCARTA a saída que RESUMIR (encolher o texto) ou PARAFRASEAR (trocar as palavras do original) — mantenha a GRANDE MAIORIA das palavras do texto. Títulos de callout, rótulos e cabeçalhos de tabela são montados SELECIONANDO palavras do próprio texto — nunca vocabulário novo.
 - Pode dividir parágrafos longos, juntar linhas quebradas pela extração, e transformar enumerações embutidas em listas/passos — mantendo os mesmos itens e palavras.
+- CONSERTE O MECÂNICO (sempre, além de reformatar): (1) junte parágrafos e frases quebrados no meio pela extração; (2) corrija erros ÓBVIOS de ortografia e gramática — acentuação, concordância, pontuação — SEM mudar o vocabulário nem o sentido; (3) remova espaços a mais: espaços duplicados, espaço antes de pontuação, e espaços DENTRO de uma palavra ("p a l a v r a" → "palavra", "c a d a s t r o" → "cadastro"). Isso é conserto de FORMA, não reescrita: os números, nomes próprios, termos técnicos e a ordem das ideias continuam idênticos.
+- FRASE INTEIRA, PALAVRA INTEIRA: a extração do PDF/Word quebra frases e até PALAVRAS no meio da linha. Antes de montar os blocos, JUNTE os pedaços de volta: uma palavra cortada ("informa" + "ção" = "informação"; "cadas" + "tro" = "cadastro") e uma frase que continua na linha ou no fragmento seguinte viram UM texto só, colados sem inventar nem trocar nada. NUNCA deixe metade de uma frase — nem metade de uma palavra — num bloco/parágrafo e a outra metade em outro. Identifique onde a frase realmente TERMINA (ponto final, fim de item, próximo título) e só então feche o bloco. Só fica SEPARADO o que é conteúdo genuinamente distinto: novo assunto, próximo item de lista, subtítulo ou célula de tabela.
 - NÃO DESCARTE CONTEÚDO. O texto que você recebe JÁ vem limpo — cabeçalho, rodapé, paginação, marca d'água e sumário foram removidos ANTES de chegar até você. Portanto TODO parágrafo, TODA linha e TODO subtítulo do texto PRECISA aparecer no resultado: não omita nenhuma frase, passo, linha de tabela ou título. No máximo, ignore um resto raro de número de página solto ("Página 3 de 40"). Na dúvida, PRESERVE.
 - SUBTÍTULOS: uma linha que começa com "#", "##" ou "###" é um SUBTÍTULO do artigo naquele nível. Vira um bloco heading (# ou ## → nível 2; ### → nível 3) com o MESMO texto, SEM os "#". NUNCA junte um subtítulo a um parágrafo e NUNCA o descarte — ele organiza a leitura.
 - IMAGENS: o texto tem marcadores "⟦IMG:0⟧", "⟦IMG:1⟧" — cada um é uma imagem. COPIE cada marcador EXATAMENTE (mesmos caracteres), SEMPRE sozinho num paragraph de NÍVEL SUPERIOR (nunca dentro de container). NUNCA altere, traduza, descreva ou remova um marcador.
@@ -264,8 +277,8 @@ Destaques: callout{data:{variant: info|warning|success|danger|note, title?}, chi
 Procedimento: steps{children:[step]} · step{data:{title?}, children} — TODA sequência de ações vira steps.
 Recolhíveis: accordion{children:[accordionItem]} · accordionItem{data:{title}, children} (FAQ, erro→solução) · toggle{data:{title}, children} (detalhe avançado) · tabs{children:[tab]} · tab{data:{label}, children}.
 Layout: container{data:{columns, ratios?, divider?}, children:[column]} · column{children} (conteúdos paralelos comparáveis) · cardGrid{data:{cols}, children:[card]} · card{data:{icon, title, href?}, children} (lista "Nome: descrição" repetida vira cardGrid) · hero{data:{eyebrow?, title, subtitle?, bg: purple|blue|gray|dark}} (abertura, no máximo 1) · stats{data:{items:[{value, label, trend?}]}} (números de destaque).
-Dados: table{data:{hasHeader:true, rows:[[<cell>,<cell>], ...]}} onde cada cell é spans ou string; 1ª linha = cabeçalho (campos/parâmetros/status/erros).
-Diagrama: mermaid{data:{code}} — para fluxos/organogramas quando o original descreve um; senão use steps.
+Dados: table{data:{hasHeader:true, rows:[[<cell>,<cell>], ...]}} onde cada cell é spans ou string; 1ª linha = cabeçalho (campos/parâmetros/status/erros). · chart{data:{chartType, dataCsv, title?}} — quando o texto traz uma SÉRIE NUMÉRICA que vale visualizar (evolução no tempo, comparação, distribuição %). chartType: column|bar|line|area|stackedColumn|stackedArea|combo|pie|donut|scatter|bubble|radar. dataCsv em CSV: 1ª linha = cabeçalhos, 1ª coluna = categorias (eixo X), demais colunas = séries numéricas. Use SÓ os números que CONSTAM do texto — NUNCA invente dados; sem números reais, use table. Para poucos números sem comparação visual clara, prefira table.
+Diagrama/Fluxo: flow{data:{mermaid}} — FLUXOGRAMA de processo/decisão em sintaxe Mermaid \`flowchart TD\`: nós id([Início]) · id[Etapa] · id{Decisão?} · id([Fim]); arestas \`a --> b\` e \`a -->|Sim| b\`. Decisão SEMPRE com 2 saídas rotuladas. Use flow quando o texto descreve um FLUXO com ramificações/decisões; passo a passo linear é steps. (mermaid{data:{code}} segue para outros diagramas — organograma, sequência.)
 Mídia: video{data:{provider: youtube|vimeo|upload, url}} · file{data:{url, name, size}} · embed{data:{provider, url}} — só quando o texto traz a URL literal.
 Ação: button{data:{label, href, variant?}} — SÓ com URL que consta LITERALMENTE do texto.
 Respiro: divider{} · spacer{data:{size: sm|md|lg}} (com parcimônia).

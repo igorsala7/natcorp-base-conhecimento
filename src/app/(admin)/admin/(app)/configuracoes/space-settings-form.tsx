@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Globe, Lock, KeyRound, ShieldAlert, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
@@ -34,19 +35,18 @@ export function SpaceSettingsForm({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(current.name);
   const [visibility, setVisibility] = useState(current.visibility);
   const [customDomain, setCustomDomain] = useState(current.custom_domain ?? "");
   const [slug, setSlug] = useState(current.slug);
   const [password, setPassword] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [dns, setDns] = useState<DomainCheck | null>(null);
   const [verificando, setVerificando] = useState(false);
   const [origens, setOrigens] = useState((current.access_referrers ?? []).join("\n"));
   const [msgBloqueio, setMsgBloqueio] = useState(current.access_denied_message ?? "");
-  const [clearMsg, setClearMsg] = useState<string | null>(null);
 
   async function clearEmbeddings() {
     const ok = await confirmar({
@@ -57,22 +57,21 @@ export function SpaceSettingsForm({
     });
     if (!ok) return;
     setClearing(true);
-    setClearMsg(null);
     startTransition(async () => {
       const r = await clearSpaceEmbeddings(current.id);
       setClearing(false);
-      setClearMsg(
-        r.ok
-          ? `Embeddings limpos: ${r.count} trecho(s). Gere novamente pela árvore de conteúdo.`
-          : r.error,
-      );
-      if (r.ok) router.refresh();
+      if (r.ok) {
+        toast.success(`Embeddings limpos: ${r.count} trecho(s). Gere novamente pela árvore de conteúdo.`);
+        router.refresh();
+      } else {
+        toast.error(r.error);
+      }
     });
   }
 
   function save() {
     if (visibility === "password" && !hasPassword && !password) {
-      setMsg("Defina uma senha para proteger este espaço.");
+      toast.warning("Defina uma senha para proteger este espaço.");
       return;
     }
     startTransition(async () => {
@@ -89,10 +88,12 @@ export function SpaceSettingsForm({
           .filter(Boolean),
         accessDeniedMessage: msgBloqueio,
       });
-      setMsg(r.ok ? "Configurações salvas." : r.error);
       if (r.ok) {
+        toast.success("Configurações salvas.");
         setPassword("");
         router.refresh();
+      } else {
+        toast.error(r.error);
       }
     });
   }
@@ -126,8 +127,6 @@ export function SpaceSettingsForm({
           ))}
         </select>
       </div>
-
-      {msg && <p className="rounded-md border border-border bg-surface px-3 py-2 text-sm">{msg}</p>}
 
       <Surface elevation={1} padding="lg" className="space-y-4 rounded-xl">
         <label className="block text-sm">
@@ -318,7 +317,6 @@ export function SpaceSettingsForm({
             gerar de novo (botão <em>Gerar embeddings</em> na pasta, dentro da árvore de conteúdo).
             Use ao trocar de modelo/provedor de embedding.
           </p>
-          {clearMsg && <p className="mt-2 text-xs text-text-muted">{clearMsg}</p>}
           <div className="mt-3">
             <Button variant="secondary" onClick={clearEmbeddings} disabled={clearing}>
               <Eraser /> {clearing ? "Limpando…" : "Limpar embeddings"}

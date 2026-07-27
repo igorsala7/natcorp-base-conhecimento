@@ -69,6 +69,7 @@ export type BlockType =
   | "orderedList"
   | "listItem"
   | "quote"
+  | "breadcrumb"
   | "divider"
   | "code"
   | "image"
@@ -93,6 +94,8 @@ export type BlockType =
   | "spacer"
   | "table"
   | "mermaid"
+  | "chart"
+  | "flow"
   | "snippet"
   | "checklist"
   | "stats";
@@ -174,8 +177,137 @@ export type HeroData = {
   bg: HeroBg;
 };
 export type SpacerData = { size: SpacerSize };
-export type TableData = { rows: RichText[][]; hasHeader: boolean };
+/** Paleta de cor de fundo de célula de tabela (tints leves, texto escuro legível). */
+export type TableColor = "purple" | "pink" | "blue" | "green" | "amber" | "gray";
+export type TableData = {
+  rows: RichText[][];
+  hasHeader: boolean;
+  /** Cor de fundo por célula, paralela a `rows` (ausente/null = sem cor). */
+  cellColors?: (TableColor | null)[][];
+  /** Bordas: grade completa · só linhas horizontais (padrão) · nenhuma. */
+  borders?: "all" | "rows" | "none";
+  /** Zebra nas linhas (padrão ligado). */
+  striped?: boolean;
+};
 export type MermaidData = { code: string };
+
+// ── Fluxograma (renderizador de nós próprio) ────────────────────────────────
+// Modelo abstrato nós + arestas; o LAYOUT é automático (flow-layout.ts), então
+// a IA e o editor só descrevem a estrutura — não coordenadas.
+export type FlowNodeType =
+  | "start" // início (pílula)
+  | "end" // fim (pílula)
+  | "process" // etapa (retângulo arredondado)
+  | "decision" // decisão (losango)
+  | "io" // entrada/saída (paralelogramo)
+  | "subroutine"; // sub-rotina (retângulo com barras)
+/** Onde o ícone fica em relação ao texto do nó. */
+export type FlowIconPos = "top" | "left" | "right" | "bottom";
+export type FlowNodeStyle = {
+  bold?: boolean;
+  italic?: boolean;
+  fontColor?: string; // hex do texto
+  bg?: string; // hex do preenchimento
+  borderColor?: string; // hex da borda
+  borderWidth?: number; // px (0–6)
+  icon?: string; // chave do catálogo de ícones
+  iconImage?: string; // URL de imagem enviada (tem prioridade sobre `icon`)
+  iconPos?: FlowIconPos;
+};
+export type FlowNode = {
+  id: string;
+  type: FlowNodeType;
+  label: string;
+  /** Posição FIXADA (após arrastar). Ausente = layout automático. */
+  x?: number;
+  y?: number;
+  style?: FlowNodeStyle;
+};
+
+export type FlowEdgeShape = "bezier" | "straight" | "step" | "arc";
+export type FlowArrows = "end" | "both" | "none";
+export type FlowEdgeStyle = {
+  shape?: FlowEdgeShape; // flexível(bezier) · reto · cotovelo · arco
+  color?: string;
+  width?: number; // px (1–5)
+  arrows?: FlowArrows; // uma ponta · ambas · nenhuma
+  arrowSize?: number; // px (6–16)
+};
+export type FlowEdge = { id: string; from: string; to: string; label?: string; style?: FlowEdgeStyle };
+export type FlowDirection = "TB" | "LR";
+export type FlowData = { nodes: FlowNode[]; edges: FlowEdge[]; direction?: FlowDirection };
+
+export const FLOW_NODE_LABEL: Record<FlowNodeType, string> = {
+  start: "Início",
+  end: "Fim",
+  process: "Processo",
+  decision: "Decisão",
+  io: "Entrada/Saída",
+  subroutine: "Sub-rotina",
+};
+
+// ── Gráficos (Recharts) ─────────────────────────────────────────────────────
+// Modelo agnóstico ao tipo: os DADOS (colunas/linhas) ficam separados do TIPO,
+// então trocar o tipo NÃO perde os dados. `series` são as colunas plotadas (Y).
+export type ChartType =
+  | "column" // barras verticais
+  | "bar" // barras horizontais
+  | "line"
+  | "area"
+  | "stackedColumn"
+  | "stackedArea"
+  | "pie"
+  | "donut"
+  | "scatter"
+  | "bubble" // dispersão com Z = tamanho da bolha
+  | "radar"
+  | "combo"; // colunas + linha
+
+export type ChartValue = string | number;
+export type ChartRow = Record<string, ChartValue>;
+export type ChartColumn = { key: string; label: string };
+export type ChartSeries = { key: string; label: string; color?: string };
+export type ChartData = {
+  chartType: ChartType;
+  title?: string;
+  columns: ChartColumn[]; // cabeçalhos das colunas dos dados
+  rows: ChartRow[]; // uma entrada por chave de coluna
+  xKey: string; // coluna de categoria / eixo X
+  series: ChartSeries[]; // colunas plotadas (Y)
+  zKey?: string; // coluna Z (tamanho da bolha, só bubble)
+  showMedian?: boolean; // linha de mediana (barras/colunas/linha/área/combo)
+  legend?: boolean;
+  grid?: boolean;
+};
+
+/** Catálogo dos tipos (rótulo + submenu do slash). Ordem = ordem de exibição. */
+export const CHART_TYPES: { type: ChartType; label: string }[] = [
+  { type: "column", label: "Colunas" },
+  { type: "bar", label: "Barras" },
+  { type: "line", label: "Linha" },
+  { type: "area", label: "Área" },
+  { type: "stackedColumn", label: "Colunas empilhadas" },
+  { type: "stackedArea", label: "Área empilhada" },
+  { type: "combo", label: "Combo (colunas + linha)" },
+  { type: "pie", label: "Pizza" },
+  { type: "donut", label: "Rosca" },
+  { type: "scatter", label: "Dispersão" },
+  { type: "bubble", label: "Bolhas (X·Y·Z)" },
+  { type: "radar", label: "Radar" },
+];
+
+/** Bubble usa Z como tamanho. */
+export function chartSupportsZ(t: ChartType): boolean {
+  return t === "bubble";
+}
+/** Mediana faz sentido em eixos numéricos cartesianos (não em pizza/rosca/radar). */
+export function chartSupportsMedian(t: ChartType): boolean {
+  return ["column", "bar", "line", "area", "stackedColumn", "stackedArea", "combo"].includes(t);
+}
+/** Pizza/rosca usam UMA série (a 1ª). */
+export function chartIsCircular(t: ChartType): boolean {
+  return t === "pie" || t === "donut";
+}
 /** Item de checklist: texto RICO (negrito/código/link) como as células da tabela. */
 export type ChecklistItem = { id: string; text: RichText; checked: boolean };
 export type ChecklistData = { items: ChecklistItem[] };
@@ -196,6 +328,7 @@ export type Block =
   | (BlockBase & { type: "orderedList"; children: Block[] })
   | (BlockBase & { type: "listItem"; text: RichText; children?: Block[] })
   | (BlockBase & { type: "quote"; text: RichText; data?: QuoteData })
+  | (BlockBase & { type: "breadcrumb"; text: RichText })
   | (BlockBase & { type: "divider" })
   | (BlockBase & { type: "code"; data: CodeData })
   | (BlockBase & { type: "image"; data: ImageData })
@@ -220,6 +353,8 @@ export type Block =
   | (BlockBase & { type: "spacer"; data: SpacerData })
   | (BlockBase & { type: "table"; data: TableData })
   | (BlockBase & { type: "mermaid"; data: MermaidData })
+  | (BlockBase & { type: "chart"; data: ChartData })
+  | (BlockBase & { type: "flow"; data: FlowData })
   | (BlockBase & { type: "snippet"; data: SnippetData })
   | (BlockBase & { type: "checklist"; data: ChecklistData })
   | (BlockBase & { type: "stats"; data: StatsData });
@@ -291,11 +426,11 @@ export const BlockStylesSchema = z.object({
 });
 
 const BLOCK_TYPES: [BlockType, ...BlockType[]] = [
-  "paragraph", "heading", "bulletList", "orderedList", "listItem", "quote",
+  "paragraph", "heading", "bulletList", "orderedList", "listItem", "quote", "breadcrumb",
   "divider", "code", "image", "video", "file", "embed", "button", "callout", "steps",
   "step", "accordion", "accordionItem", "tabs", "tab", "toggle", "container",
   "column", "panel", "cardGrid", "card", "hero", "spacer", "table", "mermaid",
-  "snippet", "checklist", "stats",
+  "chart", "flow", "snippet", "checklist", "stats",
 ];
 
 type ZodBlock = {

@@ -15,6 +15,22 @@ function setKids(b: Block, children: Block[]): Block {
   return { ...b, children } as Block;
 }
 
+/**
+ * Clona blocos com IDs NOVOS (recursivo nos filhos) — para COLAR blocos vindos
+ * de outro artigo sem colidir com os IDs já existentes no destino. Os ids de
+ * itens internos (checklist/stats etc.) são locais ao bloco e podem repetir
+ * entre blocos, então não precisam de troca.
+ */
+export function cloneBlocksWithNewIds(blocks: Block[]): Block[] {
+  const reassign = (b: Block): Block => {
+    b.id = newId();
+    const ch = kids(b);
+    if (ch) (b as { children?: Block[] }).children = ch.map(reassign);
+    return b;
+  };
+  return blocks.map((b) => reassign(structuredClone(b)));
+}
+
 /** Aplica `fn` ao bloco com `id`, reclonando só os ancestrais. */
 export function updateBlock(blocks: Block[], id: string, fn: (b: Block) => Block): Block[] {
   let changed = false;

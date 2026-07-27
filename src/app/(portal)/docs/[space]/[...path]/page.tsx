@@ -159,7 +159,7 @@ export default async function DocsPage({
   // Diretório de 1º nível sem nenhum artigo na subárvore: índice de subpastas.
   if (artigos.length === 0) {
     return (
-      <PortalShell space={space} tree={tree} activePath={activePath}>
+      <PortalShell space={space} tree={tree} activePath={activePath} track={{ nodeId: node.id, kind: "folder", title: node.title }}>
       {originSetter}
         <Breadcrumbs
           spaceSlug={spaceSlug}
@@ -280,7 +280,7 @@ export default async function DocsPage({
     : [];
 
   return (
-    <PortalShell space={space} tree={tree} activePath={activePath} toc={toc} activeNodeId={atual?.id ?? null}>
+    <PortalShell space={space} tree={tree} activePath={activePath} toc={toc} activeNodeId={atual?.id ?? null} track={{ nodeId: node.id, kind: node.type === "folder" ? "folder" : "article", title: node.title }}>
       {originSetter}
       {/* `.leitura` + data-size ligam a escala tipográfica do tema (Aparência →
           Leitura). "large" reproduz a escala original via fallbacks. */}
@@ -317,6 +317,13 @@ export default async function DocsPage({
           spaceSlug={spaceSlug}
           initialId={atual?.id ?? null}
           articles={artigoSections.map((s) => ({
+            id: s.node.id,
+            anchor: s.anchor,
+            path: s.node.slugPath.join("/"),
+          }))}
+          // Diretórios + artigos: clicar num (sub)diretório na árvore rola até a
+          // seção dele nesta página, igual aos artigos.
+          navTargets={sections.map((s) => ({
             id: s.node.id,
             anchor: s.anchor,
             path: s.node.slugPath.join("/"),
@@ -450,7 +457,7 @@ export default async function DocsPage({
             <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
               Artigos relacionados
             </h2>
-            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {relacionados.map((r) => (
                 <li key={r.id}>
                   <Link

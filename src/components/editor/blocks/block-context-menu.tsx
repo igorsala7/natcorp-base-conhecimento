@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Copy,
   CornerDownLeft,
+  FolderInput,
   Plus,
   Settings2,
   Shuffle,
@@ -34,6 +35,8 @@ export function BlockContextMenu({
   actions,
   onClose,
   onProperties,
+  onSendToArticle,
+  selCount = 1,
 }: {
   block: Block;
   x: number;
@@ -41,6 +44,10 @@ export function BlockContextMenu({
   actions: EditorActions;
   onClose: () => void;
   onProperties: () => void;
+  /** Abre "copiar/mover para artigo" (seleção ou este bloco). */
+  onSendToArticle?: () => void;
+  /** Quantos blocos serão enviados (para o rótulo). */
+  selCount?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const meta = BLOCKS[block.type];
@@ -125,6 +132,13 @@ export function BlockContextMenu({
       <Item icon={ArrowUp} label="Mover para cima" hint="⌥⇧↑" onClick={run(() => actions.move(block.id, -1))} />
       <Item icon={ArrowDown} label="Mover para baixo" hint="⌥⇧↓" onClick={run(() => actions.move(block.id, 1))} />
       <Item icon={Copy} label="Duplicar" hint="⌘D" onClick={run(() => actions.duplicate(block.id))} />
+      {onSendToArticle && (
+        <Item
+          icon={FolderInput}
+          label={selCount > 1 ? `Copiar/mover ${selCount} p/ artigo…` : "Copiar/mover para artigo…"}
+          onClick={run(onSendToArticle)}
+        />
+      )}
       <Item icon={Settings2} label="Propriedades" onClick={run(onProperties)} />
       <Divider />
       <Item icon={Trash2} label="Excluir" hint="⌘⇧⌫" danger onClick={run(() => actions.remove(block.id))} />

@@ -6,6 +6,7 @@ import { FileUp, Trash2, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
@@ -39,14 +40,13 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
   const router = useRouter();
   const supabase = createClient();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [enviando, setEnviando] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   async function enviar(file: File) {
-    setMsg(null);
     if (file.size > MAX_BYTES) {
-      setMsg(`Arquivo maior que ${MAX_MB} MB.`);
+      toast.warning(`Arquivo maior que ${MAX_MB} MB.`);
       return;
     }
     setEnviando(true);
@@ -54,7 +54,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
     const { error } = await supabase.storage.from("imports").upload(path, file);
     if (error) {
       setEnviando(false);
-      setMsg(`Falha no upload: ${error.message}`);
+      toast.error(`Falha no upload: ${error.message}`);
       return;
     }
     const res = await ingestKnowledgeFile({
@@ -65,7 +65,8 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
       sizeBytes: file.size,
     });
     setEnviando(false);
-    setMsg(res.ok ? "Arquivo processado — o chatbot já pode usá-lo." : res.error);
+    if (res.ok) toast.success("Arquivo processado — o chatbot já pode usá-lo.");
+    else toast.error(res.error);
     router.refresh();
   }
 
@@ -78,7 +79,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
     if (!ok) return;
     startTransition(async () => {
       const res = await deleteKnowledgeFile(row.id);
-      if (!res.ok) setMsg(res.error);
+      if (!res.ok) toast.error(res.error);
       router.refresh();
     });
   }
@@ -105,12 +106,6 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
           }}
         />
       </label>
-
-      {msg && (
-        <p role="status" className="mt-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {msg}
-        </p>
-      )}
 
       <div className="mt-6">
         {initial.length === 0 ? (

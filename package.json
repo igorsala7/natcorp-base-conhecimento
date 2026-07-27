@@ -62,9 +62,11 @@
     "pg-boss": "^10.4.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "recharts": "^3.10.1",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
     "unpdf": "^1.6.2",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

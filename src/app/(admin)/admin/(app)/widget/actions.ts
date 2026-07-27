@@ -12,23 +12,33 @@ export type WidgetActionResult =
   | { ok: true; id?: string }
   | { ok: false; error: string };
 
+// http(s) OU o SVG do ícone (data URI) — nada de javascript:/blob: num src que
+// o widget injeta no site do cliente.
+const imagemUrl = z
+  .string()
+  .max(2000)
+  .refine(
+    (v) => /^https?:\/\//.test(v) || v.startsWith("data:image/svg+xml"),
+    "Use uma URL https ou escolha um ícone.",
+  )
+  .optional()
+  .or(z.literal(""));
+
 const configSchema = z.object({
   primaryColor: z.string().max(32).optional(),
+  secondaryColor: z.string().max(32).optional(),
   title: z.string().max(60).optional(),
+  subtitle: z.string().max(80).optional(),
   welcome: z.string().max(500).optional(),
-  avatarUrl: z
-    .string()
-    .max(2000)
-    .refine(
-      // http(s) OU o SVG do ícone escolhido no editor (data URI) — nada de
-      // javascript:/blob: num src que o widget injeta no site do cliente.
-      (v) => /^https?:\/\//.test(v) || v.startsWith("data:image/svg+xml"),
-      "Use uma URL https ou escolha um ícone.",
-    )
-    .optional()
-    .or(z.literal("")),
+  // Avatar do BOT (cabeçalho + respostas).
+  avatarUrl: imagemUrl,
   /** Chave do catálogo de ícones — só para o editor reabrir mostrando a seleção. */
   avatarIcon: z.string().max(60).optional().or(z.literal("")),
+  avatarShape: z.enum(["circle", "rounded", "square"]).optional(),
+  // Imagem da BOLHA do widget (separada do avatar).
+  launcherUrl: imagemUrl,
+  launcherIcon: z.string().max(60).optional().or(z.literal("")),
+  bubbleSize: z.enum(["sm", "md", "lg"]).optional(),
   suggestions: z.array(z.string().max(120)).max(6).optional(),
   position: z.enum(["right", "left"]).optional(),
 });

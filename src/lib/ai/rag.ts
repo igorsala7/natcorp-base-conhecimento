@@ -17,6 +17,8 @@ import {
 } from "@/lib/content/overlays";
 import { slugify } from "@/lib/content/slug";
 import { firstImageOf } from "@/lib/blocks/serialize";
+import type { ClarifyScope } from "@/lib/ai/disambiguation";
+import { expandirConsulta } from "@/lib/ai/ontology";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -40,6 +42,16 @@ export type RetrievedSource = {
   /** Link no portal (com âncora). Nulo quando a fonte não tem página. */
   url: string | null;
   image: string | null; // miniatura (capa do artigo ou 1ª imagem) — para os cards
+  /** Documentação (espaço) da fonte — para agrupar por documentação. */
+  space_id: string | null;
+  space_name: string | null;
+  /** Diretório de 1º nível (nó) e seu título — o "manual"; escopo/desambiguação. */
+  dir_node_id: string | null;
+  dir_title: string | null;
+  /** Score da fusão RRF (soma dos sinais) — proxy de CONFIANÇA da recuperação. */
+  score: number;
+  /** Foi FORÇADA pelo vínculo termo→artigo da ontologia (sinal forte, alta confiança). */
+  forced?: boolean;
 };
 
 /**
@@ -50,6 +62,9 @@ export type RetrievedSource = {
  * montar a URL depois faria as citações da segunda documentação apontarem para
  * a primeira.
  */
+/** Tema de um nó: documentação + diretório de 1º nível (o "manual"). */
+type NodeTheme = { spaceId: string; spaceName: string; dirNodeId: string; dirTitle: string };
+
 async function spaceContext(
   supabase: DbClient,
   spaceId: string,
@@ -57,27 +72,62 @@ async function spaceContext(
 ) {
   const { data: space } = await supabase
     .from("spaces")
-    .select("slug")
+    .select("slug, name")
     .eq("id", spaceId)
     .maybeSingle();
   const slug = space?.slug ?? "global";
+  const spaceName = space?.name ?? slug;
 
   const basePathById = new Map<string, string>();
   // Título do diretório de 1º nível de cada nó — o "manual" a que ele pertence.
   const rootTitleById = new Map<string, string | null>();
+  // Tema completo por nó (documentação + diretório), para desambiguação/escopo.
+  const themeByNode = new Map<string, NodeTheme>();
   const nodeIds: string[] = [];
-  const walk = (list: EffectiveNode[], prefix: string[], rootTitle: string | null) => {
+  const walk = (
+    list: EffectiveNode[],
+    prefix: string[],
+    rootTitle: string | null,
+    rootId: string | null,
+  ) => {
     for (const n of list) {
+      // Nó OCULTO pelo cliente (overlay hidden) sai do escopo de busca — junto
+      // com toda a subárvore. A árvore pública já vem podada; isto alinha o
+      // assistente INTERNO (árvore de admin, que inclui ocultos) ao que o
+      // chatbot real do cliente enxerga.
+      if (n.hidden) continue;
       const p = [...prefix, n.slug];
       basePathById.set(n.id, `/docs/${slug}/${p.join("/")}`);
       // Nó de 1º nível é o próprio manual: origem nula (o title já identifica).
       rootTitleById.set(n.id, rootTitle);
+      // Para o TEMA, o diretório de 1º nível nunca é nulo (nó de topo = ele mesmo).
+      themeByNode.set(n.id, {
+        spaceId,
+        spaceName,
+        dirNodeId: rootId ?? n.id,
+        dirTitle: rootTitle ?? n.title,
+      });
       nodeIds.push(n.id);
-      walk(n.children, p, rootTitle ?? n.title);
+      walk(n.children, p, rootTitle ?? n.title, rootId ?? n.id);
     }
   };
-  walk(tree, [], null);
-  return { nodeIds, basePathById, rootTitleById };
+  walk(tree, [], null, null);
+  return { nodeIds, basePathById, rootTitleById, themeByNode };
+}
+
+/** Acha um nó por id na árvore efetiva (busca em profundidade). */
+function findNode(list: EffectiveNode[], id: string): EffectiveNode | null {
+  for (const n of list) {
+    if (n.id === id) return n;
+    const f = findNode(n.children, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** Ids do nó + toda a sua subárvore (para escopar a busca a um diretório). */
+function subtreeIds(node: EffectiveNode): string[] {
+  return [node.id, ...node.children.flatMap(subtreeIds)];
 }
 
 /**
@@ -92,35 +142,74 @@ async function retrieveWith(
   escopos: { spaceId: string; tree: EffectiveNode[] }[],
   query: string,
   limit: number,
+  scope?: ClarifyScope | null,
 ): Promise<RetrievedSource[]> {
-  const nodeIds: string[] = [];
+  // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
+  const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
+  const escoposUsar = filtrados.length ? filtrados : escopos;
+
+  let nodeIds: string[] = [];
   const basePathById = new Map<string, string>();
   const rootTitleById = new Map<string, string | null>();
-  for (const e of escopos) {
+  const themeByNode = new Map<string, NodeTheme>();
+  for (const e of escoposUsar) {
     const ctx = await spaceContext(supabase, e.spaceId, e.tree);
     nodeIds.push(...ctx.nodeIds);
     for (const [id, path] of ctx.basePathById) basePathById.set(id, path);
     for (const [id, t] of ctx.rootTitleById) rootTitleById.set(id, t);
+    for (const [id, th] of ctx.themeByNode) themeByNode.set(id, th);
+  }
+
+  // Escopo por DIRETÓRIO: restringe aos nós da subárvore escolhida.
+  if (scope?.nodeId) {
+    let sub: string[] = [];
+    for (const e of escoposUsar) {
+      const node = findNode(e.tree, scope.nodeId);
+      if (node) {
+        sub = subtreeIds(node);
+        break;
+      }
+    }
+    if (sub.length) nodeIds = sub;
   }
 
   // Arquivos da base de conhecimento dos MESMOS espaços do escopo. Só os
   // prontos: um documento ainda em extração tem chunks pela metade, e responder
-  // com meia planilha é pior do que não responder.
-  const { data: docs } = await supabase
-    .from("knowledge_documents")
-    .select("id")
-    .in("space_id", escopos.map((e) => e.spaceId))
-    .eq("status", "ready");
-  const documentIds = (docs ?? []).map((d) => d.id);
+  // com meia planilha é pior do que não responder. Escopo por arquivo → só ele;
+  // escopo por diretório de artigos → sem arquivos.
+  let documentIds: string[];
+  if (scope?.documentId) {
+    documentIds = [scope.documentId];
+    nodeIds = [];
+  } else if (scope?.nodeId) {
+    documentIds = [];
+  } else {
+    const { data: docs } = await supabase
+      .from("knowledge_documents")
+      .select("id")
+      .in("space_id", escoposUsar.map((e) => e.spaceId))
+      .eq("status", "ready");
+    documentIds = (docs ?? []).map((d) => d.id);
+  }
 
   if (nodeIds.length === 0 && documentIds.length === 0) return [];
+
+  // Ontologia: expande a consulta ANTES do embedding. Devolve DUAS versões — a
+  // LÉXICA (tsquery com os sinônimos) e a do VETOR (pergunta enriquecida com os
+  // sinônimos casados), para a busca SEMÂNTICA também achar o conteúdo quando as
+  // palavras exatas diferem. Degrada para a pergunta original se algo falhar.
+  const { lexica: pQuery, vetor: queryVetor, boost, responsaveis } = await expandirConsulta(
+    supabase,
+    escoposUsar.map((e) => e.spaceId),
+    query,
+  );
 
   let embedding: number[] | null = null;
   if (await hasEmbeddingKey()) {
     try {
       const { embedding: e } = await embed({
         model: await embeddingModel(),
-        value: query,
+        value: queryVetor,
         // Dimensão vai na CHAMADA neste SDK, não no modelo. Sem isto, um
         // modelo de 3072 devolveria vetor que a coluna vector(1536) recusa.
         providerOptions: await embeddingCallOptions(),
@@ -140,7 +229,7 @@ async function retrieveWith(
   }
 
   const { data } = await supabase.rpc("hybrid_search_scoped", {
-    p_query: query,
+    p_query: pQuery,
     p_embedding: embedding ? JSON.stringify(embedding) : undefined,
     // `undefined` (e não array vazio) quando não há escopo daquele tipo: a
     // função trata null como "sem filtro deste lado", e um array vazio faria
@@ -148,11 +237,43 @@ async function retrieveWith(
     p_node_ids: nodeIds.length ? nodeIds : undefined,
     p_document_ids: documentIds.length ? documentIds : undefined,
     p_limit: limit,
+    // Boost: chunks com termos/sinônimos da ontologia sobem na fusão (4º sinal).
+    p_boost: boost ?? undefined,
   });
+
+  let resultados = data ?? [];
+  let forcadoNodeId: string | null = null;
+
+  // VÍNCULO termo→artigo/diretório: garante que o "responsável" pelo termo entre
+  // no contexto — o filtro de grupo do RPC pode tê-lo deixado de fora. Só busca
+  // o que faltar, respeitando o escopo, e insere no topo (corta o último).
+  if (responsaveis.length) {
+    const artigos = new Set<string>();
+    for (const nid of responsaveis) {
+      const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: nid });
+      for (const r of sub ?? []) if (r.type === "article") artigos.add(r.id);
+    }
+    const escopoSet = nodeIds.length ? new Set(nodeIds) : null;
+    const jaTem = new Set(resultados.map((r) => r.node_id).filter((x): x is string => !!x));
+    const faltando = [...artigos].filter((id) => (!escopoSet || escopoSet.has(id)) && !jaTem.has(id));
+    if (faltando.length) {
+      const { data: forcado } = await supabase.rpc("hybrid_search_scoped", {
+        p_query: pQuery,
+        p_embedding: embedding ? JSON.stringify(embedding) : undefined,
+        p_node_ids: faltando,
+        p_limit: 1,
+        p_boost: boost ?? undefined,
+      });
+      if (forcado && forcado.length > 0) {
+        forcadoNodeId = forcado[0]!.node_id ?? null;
+        resultados = [forcado[0]!, ...resultados].slice(0, limit);
+      }
+    }
+  }
 
   // Miniatura por nó citado: capa do artigo ou 1ª imagem do conteúdo.
   // Chunk de arquivo não tem nó — fica de fora daqui e cita sem miniatura.
-  const hitNodeIds = (data ?? []).map((r) => r.node_id).filter((x): x is string => !!x);
+  const hitNodeIds = resultados.map((r) => r.node_id).filter((x): x is string => !!x);
   const imageByNode = new Map<string, string | null>();
   if (hitNodeIds.length) {
     const { data: arts } = await supabase
@@ -164,7 +285,7 @@ async function retrieveWith(
     }
   }
 
-  return (data ?? []).map((r, i) => {
+  return resultados.map((r, i) => {
     // Fonte de ARQUIVO: não existe página no portal, então a citação sai sem
     // link. A UI já trata `url: null` (cartão sem âncora).
     if (!r.node_id) {
@@ -179,12 +300,19 @@ async function retrieveWith(
         snippet: r.snippet ?? null,
         url: null,
         image: null,
+        space_id: null,
+        space_name: null,
+        dir_node_id: null,
+        dir_title: null,
+        score: r.score ?? 0,
+        forced: false,
       } as RetrievedSource;
     }
     const base = basePathById.get(r.node_id) ?? "";
     const anchor = r.heading_path
       ? "#" + slugify(r.heading_path.split(" > ").pop() ?? "")
       : "";
+    const th = themeByNode.get(r.node_id);
     return {
       n: i + 1,
       node_id: r.node_id,
@@ -196,6 +324,12 @@ async function retrieveWith(
       snippet: r.snippet ?? null,
       url: base ? `${base}${anchor}` : null,
       image: imageByNode.get(r.node_id) ?? null,
+      space_id: th?.spaceId ?? null,
+      space_name: th?.spaceName ?? null,
+      dir_node_id: th?.dirNodeId ?? null,
+      dir_title: th?.dirTitle ?? null,
+      score: r.score ?? 0,
+      forced: r.node_id === forcadoNodeId,
     } as RetrievedSource;
   });
 }
@@ -208,10 +342,11 @@ export async function retrieveContext(
   spaceId: string,
   query: string,
   limit = 8,
+  scope?: ClarifyScope | null,
 ): Promise<RetrievedSource[]> {
   const supabase = await createClient();
   const tree = await getEffectiveTreeAdmin(spaceId);
-  return retrieveWith(supabase as DbClient, [{ spaceId, tree }], query, limit);
+  return retrieveWith(supabase as DbClient, [{ spaceId, tree }], query, limit, scope);
 }
 
 /**
@@ -223,6 +358,7 @@ export async function retrievePublicContext(
   spaceIds: string | string[],
   query: string,
   limit = 8,
+  scope?: ClarifyScope | null,
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
@@ -235,7 +371,7 @@ export async function retrievePublicContext(
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit);
+  return retrieveWith(supabase, escopos, query, limit, scope);
 }
 
 /**

@@ -6,6 +6,7 @@
  */
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { iconByKey } from "@/lib/blocks/icons";
+import { csvToChartData, mermaidToFlowData } from "@/lib/blocks/ai-data-blocks";
 import type { LeafBlock, LayoutBlock } from "./layout-schema";
 
 function rt(t: string): RichText {
@@ -16,27 +17,6 @@ function para(t: string): Block {
 }
 function nonEmptyChildren(nodes: Block[]): Block[] {
   return nodes.length ? nodes : [para("")];
-}
-
-/** Mini-estilo (largura/posição) de table/stats → BlockStyles. */
-const LARGURA_MAPA = {
-  cheia: "full",
-  metade: "half",
-  terco: "third",
-  "dois-tercos": "twoThirds",
-  "tres-quartos": "threeQuarters",
-} as const;
-const POSICAO_MAPA = { esquerda: "left", centro: "center", direita: "right" } as const;
-
-function miniEstilo(
-  largura: keyof typeof LARGURA_MAPA | null,
-  posicao: keyof typeof POSICAO_MAPA | null,
-): { styles: NonNullable<Block["styles"]> } | undefined {
-  const styles: Record<string, string> = {};
-  if (largura && LARGURA_MAPA[largura]) styles.width = LARGURA_MAPA[largura];
-  // posição só tem efeito com largura restrita (styleClass ignora sem width).
-  if (posicao && styles.width && styles.width !== "full") styles.justify = POSICAO_MAPA[posicao];
-  return Object.keys(styles).length ? { styles: styles as NonNullable<Block["styles"]> } : undefined;
 }
 
 /** Só aceita ícone que exista no catálogo (a IA manda string livre). */
@@ -98,7 +78,6 @@ function leafToBlock(b: LeafBlock): Block {
         data: {
           items: b.items.map((i) => ({ id: newId(), value: i.value, label: i.label, trend: "" })),
         },
-        ...miniEstilo(b.largura, b.posicao),
       };
     case "quote":
       return {
@@ -123,7 +102,6 @@ function leafToBlock(b: LeafBlock): Block {
           hasHeader: true,
           rows: b.rows.filter((r) => r.length > 0).map((row) => row.map((cell) => rt(cell))),
         },
-        ...miniEstilo(b.largura, b.posicao),
       };
   }
 }
@@ -197,6 +175,14 @@ export function blockToBlock(b: LayoutBlock): Block {
         children: nonEmptyChildren(b.items.map(para)),
         ...iconStyles(b.icon),
       };
+    case "chart": {
+      const data = csvToChartData(b.chartType, b.dataCsv, b.title ?? undefined);
+      return data ? { id: newId(), type: "chart", data } : para(b.dataCsv);
+    }
+    case "flow": {
+      const data = mermaidToFlowData(b.mermaid);
+      return data.nodes.length ? { id: newId(), type: "flow", data } : para(b.mermaid);
+    }
     default:
       return leafToBlock(b as LeafBlock);
   }

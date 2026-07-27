@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { currentMaxLevel } from "@/lib/auth/roles";
 import { hasEncryptionKey } from "@/lib/crypto/secrets";
@@ -9,6 +10,7 @@ import {
   type AssignmentRow,
   type EmailRow,
 } from "./system-manager";
+import type { BackupRow, BackupSettingsRow } from "./backup-panel";
 import { secretsPresentes } from "./actions";
 
 export const metadata: Metadata = { title: "Sistema" };
@@ -37,15 +39,31 @@ export default async function SistemaPage() {
     );
   }
 
+  const canBackup = await hasPermission("system.backup", null);
   const supabase = await createClient();
-  const [{ data: providers }, { data: assignments }, { data: email }, segredos, nivel] =
+  const [{ data: providers }, { data: assignments }, { data: email }, segredos, nivel, { data: backups }, { data: backupSettings }] =
     await Promise.all([
       supabase.from("ai_providers").select("id, name, kind, base_url, active").order("name"),
       supabase.from("ai_assignments").select("purpose, provider_id, model"),
       supabase.from("email_settings").select("*").maybeSingle(),
       secretsPresentes(),
       currentMaxLevel(null),
+      canBackup
+        ? supabase.from("backup_jobs")
+            .select("id, kind, status, progress, phase, bytes, tables_count, rows_count, files_count, error, created_at, source_backup_id")
+            .order("created_at", { ascending: false }).limit(50)
+        : Promise.resolve({ data: [] }),
+      canBackup
+        ? supabase.from("backup_settings").select("*").eq("id", true).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
+
+  // Token do GitHub vive numa tabela deny-all (só service-role lê). Só checamos presença.
+  let githubTokenPresent = false;
+  if (canBackup) {
+    const { data: sec } = await createAdminClient().from("backup_secrets").select("github_token_enc").eq("id", true).maybeSingle();
+    githubTokenPresent = Boolean(sec?.github_token_enc);
+  }
 
   const emailRow: EmailRow = email
     ? {
@@ -81,6 +99,16 @@ export default async function SistemaPage() {
         temChave={segredos.providers}
         isOwner={nivel >= 100}
         temChaveMestra={hasEncryptionKey()}
+        canBackup={canBackup}
+        backups={(backups ?? []) as BackupRow[]}
+        backupSettings={
+          (backupSettings as BackupSettingsRow | null) ?? {
+            auto_enabled: false, frequency: "daily", hour: 3, weekday: 0,
+            include_storage: true, retention_days: 30, last_run_at: null,
+            github_repo: null, github_branch: "main", github_path: "backups",
+          }
+        }
+        githubTokenPresent={githubTokenPresent}
       />
     </div>
   );

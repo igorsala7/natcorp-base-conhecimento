@@ -10,6 +10,7 @@ import type { Block, BlockStyles, Mark, StyleAlign, StyleFontSize } from "@/lib/
 import { BLOCKS } from "@/lib/blocks/registry.meta";
 import { BlockPropertiesForm } from "./properties-panel";
 import { ObjectProperties } from "./object-properties";
+import { CollapseButton } from "@/components/ui/resizable-panel";
 import { useDismiss } from "./use-dismiss";
 import type { EditorActions } from "./edit-types";
 
@@ -35,12 +36,15 @@ export function BlockInspector({
   onFormat,
   onLink,
   onClose,
+  onCollapse,
 }: {
   block: Block;
   actions: EditorActions;
   onFormat: (mark: Mark["type"]) => void;
   onLink: () => void;
   onClose: () => void;
+  /** Recolhe o painel num trilho fino (mantém a seleção). */
+  onCollapse?: () => void;
 }) {
   const Meta = BLOCKS[block.type];
   const temTexto = TEXTO.has(block.type);
@@ -58,16 +62,18 @@ export function BlockInspector({
   };
 
   return (
-    <aside className="slim-scroll sticky top-20 max-h-[calc(100vh-6rem)] w-80 shrink-0 overflow-y-auto rounded-xl border border-border bg-surface shadow-1 2xl:w-96">
+    <aside className="slim-scroll h-full w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-1">
       {/* Cabeçalho */}
       <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-surface/95 px-3 py-2.5 backdrop-blur">
         <Meta.icon className="size-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">{Meta.label}</span>
+        {onCollapse && <CollapseButton side="right" onClick={onCollapse} label="as propriedades" />}
         <button
           type="button"
           aria-label="Fechar propriedades"
+          title="Fechar propriedades (desmarca o item)"
           onClick={onClose}
-          className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <X className="size-4" />
         </button>

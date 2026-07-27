@@ -4,12 +4,14 @@ import { useRef, useState } from "react";
 import Image from "next/image";
 import { ChevronRight, FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import { controlClass } from "@/components/ui/input";
+import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
+import { TypingIndicator } from "@/components/ui/typing-indicator";
 import { Surface } from "@/components/ui/surface";
 import { submitChatFeedback } from "@/app/(admin)/admin/(app)/assistente/actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
+import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
 
 /** Decodifica base64 preservando UTF-8 (atob sozinho corrompe acentos). */
 function decodeB64Utf8(b64: string): string {
@@ -34,6 +36,8 @@ type Msg = {
   content: string;
   citations?: Citation[];
   feedback?: 1 | -1;
+  /** Pergunta de desambiguação: botões para o usuário escolher o tema. */
+  options?: ClarifyOption[];
 };
 
 export function ChatPanel({
@@ -55,11 +59,15 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const convRef = useRef<string | undefined>(undefined);
+  // Tema em foco na conversa (eco do servidor via X-Theme). Vai como
+  // `contextScope` na próxima pergunta — é o que evita perguntar no mesmo assunto.
+  const contextScopeRef = useRef<ClarifyScope | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   /** Nova conversa (sessão limpa): descarta histórico e o id da conversa. */
   function resetConversation() {
     convRef.current = undefined;
+    contextScopeRef.current = undefined;
     setMessages([]);
   }
 
@@ -70,12 +78,26 @@ export function ChatPanel({
     resetConversation();
   }
 
-  async function send() {
-    const q = input.trim();
-    if (!q || streaming || !spaceId) return;
-    const history: Msg[] = [...messages, { role: "user", content: q }];
-    setMessages([...history, { role: "assistant", content: "" }]);
-    setInput("");
+  /**
+   * Envia a pergunta. Sem `scope`: pergunta nova do input. Com `scope` (clique
+   * num botão de desambiguação): reusa a última pergunta, filtra pelo tema
+   * escolhido e substitui a bolha de opções pela resposta — sem duplicar o turno.
+   */
+  async function send(scope?: ClarifyScope) {
+    if (streaming || !spaceId) return;
+    let history: Msg[];
+    if (scope) {
+      const semClarify = messages[messages.length - 1]?.options ? messages.slice(0, -1) : messages;
+      if (!semClarify.some((m) => m.role === "user")) return;
+      history = semClarify;
+      setMessages([...semClarify, { role: "assistant", content: "" }]);
+    } else {
+      const q = input.trim();
+      if (!q) return;
+      history = [...messages, { role: "user", content: q }];
+      setMessages([...history, { role: "assistant", content: "" }]);
+      setInput("");
+    }
     setStreaming(true);
 
     try {
@@ -88,9 +110,32 @@ export function ChatPanel({
           conversationId: convRef.current,
           // Só manda quando a página forneceu um rascunho (a página Assistente).
           ...(promptOverride !== undefined ? { promptOverride } : {}),
+          ...(scope ? { scope } : {}),
+          ...(contextScopeRef.current ? { contextScope: contextScopeRef.current } : {}),
         }),
       });
       convRef.current = res.headers.get("X-Conversation-Id") || convRef.current;
+
+      // Resposta JSON = desambiguação (pergunta + botões) OU erro de validação.
+      if ((res.headers.get("content-type") || "").includes("application/json")) {
+        const data = await res.json().catch(() => null);
+        if (data?.type === "clarify") {
+          updateLast((m) => ({ ...m, content: data.question, options: data.options as ClarifyOption[] }));
+        } else {
+          updateLast((m) => ({ ...m, content: data?.error ?? "Falha." }));
+        }
+        return;
+      }
+
+      // Caminho de resposta em texto: tema em foco + citações vêm nos headers.
+      const themeB64 = res.headers.get("X-Theme");
+      if (themeB64) {
+        try {
+          contextScopeRef.current = JSON.parse(decodeB64Utf8(themeB64)).scope as ClarifyScope;
+        } catch {
+          /* mantém o contexto anterior */
+        }
+      }
       let citations: Citation[] = [];
       try {
         citations = JSON.parse(decodeB64Utf8(res.headers.get("X-Citations") || "W10="));
@@ -99,8 +144,7 @@ export function ChatPanel({
       }
 
       if (!res.body) {
-        const err = await res.json().catch(() => ({}));
-        updateLast((m) => ({ ...m, content: err.error ?? "Falha." }));
+        updateLast((m) => ({ ...m, content: "Falha." }));
       } else {
         const reader = res.body.getReader();
         const dec = new TextDecoder();
@@ -192,7 +236,23 @@ export function ChatPanel({
               ) : m.content ? (
                 <Markdown content={m.content} />
               ) : (
-                <p className="text-sm text-text-muted">…</p>
+                <TypingIndicator className="py-1" />
+              )}
+              {m.options && m.options.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {m.options.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => send(o.scope)}
+                      disabled={streaming}
+                      className="rounded-full border border-border bg-surface px-3 py-1.5 text-left text-xs transition-colors hover:border-primary hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      <span className="font-medium">{o.label}</span>
+                      {o.sublabel && <span className="ml-1 text-text-muted">· {o.sublabel}</span>}
+                    </button>
+                  ))}
+                </div>
               )}
               {m.citations && m.citations.length > 0 && (
                 // Sanfona FECHADA por padrão: a lista de fontes ocupava mais
@@ -283,8 +343,8 @@ export function ChatPanel({
         ))}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border p-2">
-        <Input
+      <div className="flex items-end gap-2 border-t border-border p-2">
+        <AutoGrowTextarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -293,10 +353,12 @@ export function ChatPanel({
               send();
             }
           }}
-          placeholder={aiReady ? "Pergunte algo…" : "Configure AI_API_KEY para usar"}
+          rows={1}
+          placeholder={aiReady ? "Pergunte algo… (Enter envia)" : "Configure AI_API_KEY para usar"}
           disabled={streaming || !aiReady}
+          className={`${controlClass} min-h-9 flex-1`}
         />
-        <Button size="icon" onClick={send} disabled={streaming || !aiReady}>
+        <Button size="icon" onClick={() => send()} disabled={streaming || !aiReady}>
           <Send className="size-4" />
         </Button>
       </div>

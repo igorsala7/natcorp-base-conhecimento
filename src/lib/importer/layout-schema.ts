@@ -31,14 +31,12 @@ import { z } from "zod";
 const iconField = z.string().nullable();
 
 /**
- * Mini-estilo (largura + posição) — SÓ em table/stats. O sistema completo de
- * propriedades vive na op `estilizar` do chat do editor: anexar um objeto de
- * estilo a todas as opções triplicaria a gramática (mina 1 do cabeçalho).
+ * ⚠️ LIMITE DE UNIÕES da Anthropic (mina 4): a saída estruturada rejeita
+ * schemas com MAIS DE 16 parâmetros de tipo-união (cada `.nullable()` vira
+ * `["X","null"]`, uma união). Este schema vive perto do teto — some com um
+ * campo `.nullable()` antes de somar outro. Por isso table/stats NÃO carregam
+ * mais largura/posição aqui: o ajuste de largura vive no inspetor do editor.
  */
-const larguraField = z
-  .enum(["cheia", "metade", "terco", "dois-tercos", "tres-quartos"])
-  .nullable();
-const posicaoField = z.enum(["esquerda", "centro", "direita"]).nullable();
 
 // Blocos "folha" (não-contêineres). Reaproveitados dentro de painel/colunas.
 export const leafOptions = [
@@ -68,8 +66,6 @@ export const leafOptions = [
     kind: z.literal("table"),
     // primeira linha = cabeçalho; cada linha é um array de células (texto).
     rows: z.array(z.array(z.string())),
-    largura: larguraField,
-    posicao: posicaoField,
   }),
   // Divisória: separa blocos de assunto dentro do artigo.
   z.object({ kind: z.literal("divider") }),
@@ -90,17 +86,38 @@ export const leafOptions = [
   z.object({
     kind: z.literal("stats"),
     items: z.array(z.object({ value: z.string(), label: z.string() })),
-    largura: larguraField,
-    posicao: posicaoField,
   }),
 ] as const;
 
 export type LeafBlock = z.infer<(typeof leafOptions)[number]>;
 
+/**
+ * GRÁFICO e FLUXOGRAMA como STRING: a IA descreve o gráfico com `chartType` +
+ * CSV e o fluxograma em sintaxe Mermaid — grammar minúscula (cabe em Anthropic/
+ * Google) e reaproveita os parsers (ai-data-blocks.ts). `blocksToDoc` converte.
+ */
+export const chartLeaf = z.object({
+  kind: z.literal("chart"),
+  chartType: z.enum([
+    "column", "bar", "line", "area", "stackedColumn", "stackedArea",
+    "combo", "pie", "donut", "scatter", "bubble", "radar",
+  ]),
+  // CSV/TSV: 1ª linha = cabeçalhos, 1ª coluna = categorias (eixo X).
+  dataCsv: z.string(),
+  title: z.string().nullable(),
+});
+export const flowLeaf = z.object({
+  kind: z.literal("flow"),
+  // Sintaxe Mermaid `flowchart TD` (id[Etapa], id{Decisão}, a -->|Sim| b).
+  mermaid: z.string(),
+});
+
 export const blocksSchema = z.object({
   blocks: z.array(
     z.union([
       ...leafOptions,
+      chartLeaf,
+      flowLeaf,
       // Painel = caixa colorida de destaque com parágrafos.
       z.object({
         kind: z.literal("panel"),
@@ -147,3 +164,33 @@ export const blocksSchema = z.object({
 });
 
 export type LayoutBlock = z.infer<typeof blocksSchema>["blocks"][number];
+
+/**
+ * Versão COMPACTA — só os 10 blocos essenciais de documentação (os `leafOptions`
+ * 0..9: parágrafo, título, callout, passos, lista, código, tabela, divisória,
+ * checklist, citação), SEM contêineres (painel/colunas/hero/cards/acordeão/
+ * toggle) nem extras (spacer/button/stats).
+ *
+ * Por quê: provedores com CONSTRAINED DECODING (Anthropic, e provável Google)
+ * recusam o schema completo com "compiled grammar is too large". Este subconjunto
+ * cabe na gramática deles. A saída é um SUBCONJUNTO de `LayoutBlock`, então
+ * `blocksToDoc` continua valendo. O OpenAI segue com o schema completo (mais rico).
+ */
+export const blocksSchemaCompacto = z.object({
+  blocks: z.array(
+    z.union([
+      leafOptions[0],
+      leafOptions[1],
+      leafOptions[2],
+      leafOptions[3],
+      leafOptions[4],
+      leafOptions[5],
+      leafOptions[6],
+      leafOptions[7],
+      leafOptions[8],
+      leafOptions[9],
+      chartLeaf,
+      flowLeaf,
+    ]),
+  ),
+});

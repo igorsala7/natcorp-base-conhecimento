@@ -7,6 +7,7 @@ import {
   type QualityContext,
   type QualityIssue,
 } from "./audit-article";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 /**
  * Varredura de qualidade de UMA documentação (roda no worker): auditoria pura
@@ -27,14 +28,21 @@ export async function buildQualityContext(
   db: Db,
   spaceId: string,
 ): Promise<QualityContext & { spaceSlugById: Map<string, string> }> {
-  const [{ data: spaces }, { data: nodes }] = await Promise.all([
+  const [{ data: spaces }, nodes] = await Promise.all([
     db.from("spaces").select("id, slug"),
-    db
-      .from("nodes")
-      .select("id, space_id, parent_id, slug, title, type, status")
-      .is("deleted_at", null),
+    // Paginado: sem filtro de espaço, >1000 nós no total truncariam o mapa de
+    // pais e os caminhos/SEO sairiam errados (ver fetchAllPaged).
+    fetchAllPaged(async (from, to) => {
+      const { data, error } = await db
+        .from("nodes")
+        .select("id, space_id, parent_id, slug, title, type, status")
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to);
+      return { data, error };
+    }),
   ]);
-  const porId = new Map((nodes ?? []).map((n) => [n.id, n]));
+  const porId = new Map(nodes.map((n) => [n.id, n]));
   const caminhoDe = (id: string): string[] => {
     const partes: string[] = [];
     let atual = porId.get(id);

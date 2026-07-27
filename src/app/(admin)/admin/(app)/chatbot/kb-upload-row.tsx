@@ -1,27 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { KbUploadButton } from "@/components/admin/kb-upload-button";
+import { useToast } from "@/components/ui/toast";
 
-/** Upload + resultado inline (client) para a página do chatbot. */
+/** Upload da base do chatbot; o resultado vira alerta no topo (client). */
 export function KbUploadRow({ spaceId }: { spaceId: string }) {
   const router = useRouter();
-  const [msg, setMsg] = useState<string | null>(null);
+  const toast = useToast();
   return (
-    <span className="flex items-center gap-2">
-      <KbUploadButton
-        spaceId={spaceId}
-        onDone={(resumo) => {
-          setMsg(resumo);
-          router.refresh();
-        }}
-      />
-      {msg && (
-        <span role="status" className="max-w-56 truncate text-xs text-text-muted" title={msg}>
-          {msg}
-        </span>
-      )}
-    </span>
+    <KbUploadButton
+      spaceId={spaceId}
+      onDone={(resumo) => {
+        toast.success(resumo);
+        router.refresh();
+      }}
+    />
   );
 }

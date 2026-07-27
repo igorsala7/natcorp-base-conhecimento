@@ -9,6 +9,8 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
+import { useLoader } from "@/components/ui/loader";
 import { InlineArticleEditor } from "@/components/content/inline-article-editor";
 import { ImageLightbox } from "@/components/portal/image-lightbox";
 import { publishPendingDrafts } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
@@ -70,6 +72,8 @@ export function PreviewDoc({
   const naoPublicados = itens.filter((i) => i.node.status !== "published").length;
 
   const { confirmar } = useConfirm();
+  const toast = useToast();
+  const loader = useLoader();
   const [modoEdicao, setModoEdicao] = useState(editavel && edicaoInicial);
   /** Qual artigo está aberto para edição — um por vez: montar N editores numa
    *  documentação inteira derrubaria a página. */
@@ -79,7 +83,6 @@ export function PreviewDoc({
     () => new Set(artigos.filter((a) => conteudosMap.get(a.node.id)?.hasDraft).map((a) => a.node.id)),
   );
   const [publicando, setPublicando] = useState(false);
-  const [aviso, setAviso] = useState<string | null>(null);
   const comRascunho = rascunhos.size;
 
   async function publicarPendentes() {
@@ -92,11 +95,13 @@ export function PreviewDoc({
     )
       return;
     setPublicando(true);
-    const res = await publishPendingDrafts(spaceId);
+    const res = await loader.during("Publicando alterações pendentes…", () =>
+      publishPendingDrafts(spaceId),
+    );
     setPublicando(false);
-    if (!res.ok) return setAviso(res.error);
+    if (!res.ok) return toast.error(res.error);
     setRascunhos(new Set());
-    setAviso(`${res.count} artigo(s) publicado(s).`);
+    toast.success(`${res.count} artigo(s) publicado(s).`);
   }
 
   return (
@@ -155,12 +160,6 @@ export function PreviewDoc({
             </div>
           )}
         </div>
-      )}
-
-      {aviso && (
-        <p role="status" className="mt-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {aviso}
-        </p>
       )}
 
       <div className="mt-8 flex gap-10">

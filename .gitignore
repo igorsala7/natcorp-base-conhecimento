@@ -19,6 +19,9 @@ next-env.d.ts
 .env.local
 .env*.local
 
+# arquivos de trabalho/temporários (scripts, prints, dumps — nunca versionar)
+/temp/
+
 # supabase
 /supabase/.branches
 /supabase/.temp

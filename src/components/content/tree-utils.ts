@@ -23,79 +23,112 @@ export function flatten(
   });
 }
 
-function getMaxDepth(prev?: FlatItem) {
-  return prev ? prev.depth + 1 : 0;
+/**
+ * Modelo de drop INTUITIVO (estilo gerenciador de arquivos): a posição do
+ * cursor DENTRO da linha-alvo decide a ação — sem depender de arrasto lateral.
+ *   - `before` / `after`: vira IRMÃO do item-alvo (linha acima/abaixo, no nível
+ *     do próprio alvo);
+ *   - `inside`: vira FILHO do item-alvo (só pasta) — a pasta inteira destaca.
+ */
+export type DropZone = "before" | "after" | "inside";
+
+export type PlanoDeDrop = {
+  /** Árvore já reordenada (reordenação OTIMISTA — o item fica onde caiu). */
+  tree: TreeNode[];
+  /** Novo pai (null = raiz). */
+  parentId: string | null;
+  /** Positions dos vizinhos para o índice fracionário do servidor. */
+  prev: string | null;
+  next: string | null;
+};
+
+/** Remove um nó (com subárvore) da árvore; devolve a árvore nova e o removido. */
+function removerNo(nodes: TreeNode[], id: string): { tree: TreeNode[]; removido: TreeNode | null } {
+  let removido: TreeNode | null = null;
+  const anda = (list: TreeNode[]): TreeNode[] =>
+    list
+      .filter((n) => {
+        if (n.id === id) {
+          removido = n;
+          return false;
+        }
+        return true;
+      })
+      .map((n) => ({ ...n, children: anda(n.children) }));
+  return { tree: anda(nodes), removido };
 }
-function getMinDepth(next?: FlatItem) {
-  return next ? next.depth : 0;
+
+/** Localiza o item-alvo: seu array de irmãos, índice, pai e o próprio nó. */
+function localizar(
+  list: TreeNode[],
+  id: string,
+  parentId: string | null,
+): { siblings: TreeNode[]; index: number; parentId: string | null; node: TreeNode } | null {
+  const index = list.findIndex((n) => n.id === id);
+  if (index >= 0) return { siblings: list, index, parentId, node: list[index]! };
+  for (const n of list) {
+    const achado = localizar(n.children, id, n.id);
+    if (achado) return achado;
+  }
+  return null;
 }
 
 /**
- * Projeta parent/depth do item arrastado a partir do deslocamento horizontal.
- * Baseado no exemplo de árvore ordenável do dnd-kit.
+ * Planeja o drop: onde o item entra (pai + vizinhos para position) e a árvore
+ * já reordenada (otimista). `null` se o drop for inválido (no próprio item ou
+ * dentro da própria subárvore). PURA e testável.
  */
-export function getProjection(
-  items: FlatItem[],
+export function planejarDrop(
+  nodes: TreeNode[],
   activeId: string,
   overId: string,
-  dragOffset: number,
-  indentationWidth: number,
-) {
-  const overIndex = items.findIndex((i) => i.id === overId);
-  const activeIndex = items.findIndex((i) => i.id === activeId);
-  const activeItem = items[activeIndex];
-  const newItems = arrayMove(items, activeIndex, overIndex);
-  const prev = newItems[overIndex - 1];
-  const next = newItems[overIndex + 1];
+  zone: DropZone,
+): PlanoDeDrop | null {
+  if (activeId === overId) return null;
+  const { tree: semAtivo, removido } = removerNo(nodes, activeId);
+  if (!removido) return null;
+  const alvo = localizar(semAtivo, overId, null);
+  if (!alvo) return null; // overId estava dentro da subárvore do ativo → inválido
 
-  const dragDepth = Math.round(dragOffset / indentationWidth);
-  const projectedDepth = (activeItem?.depth ?? 0) + dragDepth;
-  const maxDepth = getMaxDepth(prev);
-  const minDepth = getMinDepth(next);
-  let depth = projectedDepth;
-  if (depth > maxDepth) depth = maxDepth;
-  if (depth < minDepth) depth = minDepth;
+  let parentId: string | null;
+  let container: TreeNode[];
+  let insertIdx: number;
+  let prevNode: TreeNode | undefined;
+  let nextNode: TreeNode | undefined;
 
-  function getParentId(): string | null {
-    if (depth === 0 || !prev) return null;
-    if (depth === prev.depth) return prev.parentId;
-    if (depth > prev.depth) return prev.id;
-    const parent = newItems
-      .slice(0, overIndex)
-      .reverse()
-      .find((i) => i.depth === depth)?.parentId;
-    return parent ?? null;
+  if (zone === "inside") {
+    parentId = alvo.node.id;
+    container = alvo.node.children;
+    insertIdx = 0; // entra como PRIMEIRO filho (fica visível ao expandir)
+    nextNode = alvo.node.children[0];
+  } else {
+    parentId = alvo.parentId;
+    container = alvo.siblings;
+    if (zone === "before") {
+      insertIdx = alvo.index;
+      prevNode = alvo.siblings[alvo.index - 1];
+      nextNode = alvo.node;
+    } else {
+      insertIdx = alvo.index + 1;
+      prevNode = alvo.node;
+      nextNode = alvo.siblings[alvo.index + 1];
+    }
   }
 
-  return { depth, parentId: getParentId(), overIndex };
-}
+  // Insere `removido` no `container` (comparação por REFERÊNCIA dentro de semAtivo).
+  const inserir = (list: TreeNode[]): TreeNode[] => {
+    if (list === container) {
+      const copia = list.slice();
+      copia.splice(insertIdx, 0, removido!);
+      return copia;
+    }
+    return list.map((n) => ({ ...n, children: inserir(n.children) }));
+  };
 
-export function arrayMove<T>(array: T[], from: number, to: number): T[] {
-  const copy = array.slice();
-  const [item] = copy.splice(from, 1);
-  if (item !== undefined) copy.splice(to, 0, item);
-  return copy;
-}
-
-/**
- * Vizinhos (positions) do item ao ser solto sob parentId, na posição overIndex
- * da lista achatada — para calcular o índice fracionário.
- */
-export function siblingPositions(
-  items: FlatItem[],
-  parentId: string | null,
-  activeId: string,
-  targetIndex: number,
-): { prev: string | null; next: string | null } {
-  // Irmãos (mesmo parent), na ordem atual da lista achatada, sem o ativo.
-  const siblings = items.filter(
-    (i) => i.parentId === parentId && i.id !== activeId,
-  );
-  // Descobre quantos irmãos vêm antes do targetIndex na lista achatada.
-  const before = items
-    .slice(0, targetIndex)
-    .filter((i) => i.parentId === parentId && i.id !== activeId).length;
-  const prev = siblings[before - 1]?.node.position ?? null;
-  const next = siblings[before]?.node.position ?? null;
-  return { prev, next };
+  return {
+    tree: inserir(semAtivo),
+    parentId,
+    prev: prevNode?.position ?? null,
+    next: nextNode?.position ?? null,
+  };
 }

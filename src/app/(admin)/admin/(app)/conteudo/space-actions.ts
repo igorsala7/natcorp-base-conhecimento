@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { slugify } from "@/lib/content/slug";
 import { copyNodesDeep } from "@/lib/content/copy-nodes";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import type { Json } from "@/lib/database.types";
 
 export type SpaceResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -54,6 +55,8 @@ export async function createSpace(input: {
    * origem, nem o contrário.
    */
   copyLayoutFromSpaceId?: string | null;
+  /** Copia também embeddings + ontologia da origem (modo "copy"), sem regerar. */
+  copySearchData?: boolean;
 }): Promise<SpaceResult> {
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Informe o nome da documentação." };
@@ -116,6 +119,7 @@ export async function createSpace(input: {
         rootIds: null, // documentação inteira
         destSpaceId: space.id,
         destParentId: null,
+        copySearchData: input.copySearchData ?? false,
       });
     } catch (e) {
       // Desfaz: melhor não deixar uma documentação pela metade.
@@ -145,15 +149,21 @@ export async function listSpaceFolders(
     return [];
   }
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("nodes")
-    .select("id, parent_id, title, position")
-    .eq("space_id", spaceId)
-    .eq("type", "folder")
-    .is("deleted_at", null)
-    .order("position");
-
-  const rows = data ?? [];
+  type Pasta = { id: string; parent_id: string | null; title: string; position: string };
+  // Paginado: >1000 pastas cortariam linhas e as filhas dos nós cortados
+  // apareceriam na raiz do seletor de destino (ver fetchAllPaged).
+  const rows = await fetchAllPaged<Pasta>(async (from, to) => {
+    const { data, error } = await supabase
+      .from("nodes")
+      .select("id, parent_id, title, position")
+      .eq("space_id", spaceId)
+      .eq("type", "folder")
+      .is("deleted_at", null)
+      .order("position")
+      .order("id")
+      .range(from, to);
+    return { data: (data ?? null) as Pasta[] | null, error };
+  });
   const byParent = new Map<string | null, typeof rows>();
   for (const n of rows) {
     const list = byParent.get(n.parent_id) ?? [];
@@ -176,6 +186,7 @@ export async function copyNodesToSpace(
   nodeIds: string[],
   destSpaceId: string,
   destParentId: string | null,
+  copySearchData = false,
 ): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
   if (nodeIds.length === 0) return { ok: false, error: "Nada selecionado." };
   const supabase = await createClient();
@@ -210,6 +221,7 @@ export async function copyNodesToSpace(
       rootIds: nodeIds,
       destSpaceId,
       destParentId,
+      copySearchData,
     });
     await audit({
       action: "content.copy_to_space",
@@ -236,8 +248,9 @@ export async function moveNodesToSpace(
   nodeIds: string[],
   destSpaceId: string,
   destParentId: string | null,
+  copySearchData = false,
 ): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
-  const copied = await copyNodesToSpace(nodeIds, destSpaceId, destParentId);
+  const copied = await copyNodesToSpace(nodeIds, destSpaceId, destParentId, copySearchData);
   if (!copied.ok) return copied;
 
   const supabase = await createClient();
@@ -379,6 +392,39 @@ export async function hideNode(
   if (error) return { ok: false, error: `Falha: ${error.message}` };
 
   await audit({ action: hidden ? "overlay.hide" : "overlay.unhide", entityType: "node", entityId: globalNodeId, spaceId: clientSpaceId });
+  revalidatePath("/admin/conteudo");
+  return { ok: true };
+}
+
+/** Oculta/reexibe VÁRIOS nós de global de uma vez (seleção múltipla). */
+export async function hideNodes(
+  clientSpaceId: string,
+  globalNodeIds: string[],
+  hidden: boolean,
+): Promise<SpaceResult> {
+  try {
+    await requirePermission("overlay.manage", clientSpaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const ids = [...new Set(globalNodeIds.filter(Boolean))];
+  if (!ids.length) return { ok: true };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("space_overlays")
+    .upsert(
+      ids.map((source_node_id) => ({ space_id: clientSpaceId, source_node_id, hidden })),
+      { onConflict: "space_id,source_node_id" },
+    );
+  if (error) return { ok: false, error: `Falha: ${error.message}` };
+
+  await audit({
+    action: hidden ? "overlay.hide" : "overlay.unhide",
+    entityType: "space",
+    entityId: clientSpaceId,
+    spaceId: clientSpaceId,
+    after: { count: ids.length },
+  });
   revalidatePath("/admin/conteudo");
   return { ok: true };
 }

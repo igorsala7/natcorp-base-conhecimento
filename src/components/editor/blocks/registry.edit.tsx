@@ -4,10 +4,12 @@ import type { ComponentType } from "react";
 import type { BlockType } from "@/lib/blocks/schema";
 import { ChecklistBlock, StatsBlock } from "./blocks/checklist-block";
 import type { BlockEditProps } from "./edit-types";
-import { TextBlock, HeadingBlock } from "./blocks/text-block";
+import { TextBlock, HeadingBlock, BreadcrumbBlock } from "./blocks/text-block";
 import { CodeBlock, MermaidBlock } from "./blocks/code-block";
 import { ImageBlock, VideoBlock, EmbedBlock, FileBlock } from "./blocks/media-block";
 import { TableBlock } from "./blocks/table-block";
+import { ChartBlock } from "./blocks/chart-block";
+import { FlowBlock } from "./blocks/flow-block";
 import {
   DividerBlock,
   SpacerBlock,
@@ -41,6 +43,7 @@ export const EDITORS = {
   orderedList: ListBlock,
   listItem: ListItemBlock,
   quote: TextBlock,
+  breadcrumb: BreadcrumbBlock,
   divider: DividerBlock,
   code: CodeBlock,
   image: ImageBlock,
@@ -65,6 +68,8 @@ export const EDITORS = {
   spacer: SpacerBlock,
   table: TableBlock,
   mermaid: MermaidBlock,
+  chart: ChartBlock,
+  flow: FlowBlock,
   snippet: SnippetBlock,
   checklist: ChecklistBlock,
   stats: StatsBlock,

@@ -3,6 +3,10 @@
 import type { Block } from "@/lib/blocks/schema";
 import { controlClass } from "@/components/ui/input";
 import type { EditorActions } from "./edit-types";
+import { ChartProps } from "./chart-props";
+import { FlowProps } from "./flow-props";
+import { DataImport } from "./data-import";
+import { rowsToTable } from "@/lib/blocks/tabular";
 
 /**
  * Propriedades ESPECÍFICAS de cada tipo de objeto — os seletores/knobs que antes
@@ -12,6 +16,57 @@ import type { EditorActions } from "./edit-types";
  */
 export function ObjectProperties({ block, actions }: { block: Block; actions: EditorActions }) {
   switch (block.type) {
+    case "chart":
+      return <ChartProps block={block} actions={actions} />;
+
+    case "flow":
+      return <FlowProps block={block} actions={actions} />;
+
+    case "table": {
+      const d = block.data;
+      const setData = (patch: Partial<typeof d>) =>
+        actions.patch(block.id, { data: { ...d, ...patch } } as Partial<Block>);
+      return (
+        <>
+          <Grupo title="Importar dados">
+            <DataImport
+              onRows={(rows) => {
+                const { rows: cells, hasHeader } = rowsToTable(rows);
+                // Cores por célula ficam obsoletas com a nova grade — descarta.
+                setData({ rows: cells, hasHeader, cellColors: undefined });
+              }}
+            />
+            <p className="mt-1 text-[0.6875rem] text-text-muted">
+              Cole do Excel/Sheets ou envie CSV/Excel — as colunas viram a tabela.
+            </p>
+          </Grupo>
+          <Grupo title="Tabela">
+            <Campo label="Primeira linha é cabeçalho">
+              <Seg
+                value={d.hasHeader ? "sim" : "nao"}
+                options={[["sim", "Sim"], ["nao", "Não"]]}
+                onChange={(v) => setData({ hasHeader: v === "sim" })}
+              />
+            </Campo>
+            <Campo label="Bordas">
+              <Seg
+                value={d.borders ?? "rows"}
+                options={[["all", "Grade"], ["rows", "Linhas"], ["none", "Nenhuma"]]}
+                onChange={(v) => setData({ borders: v as "all" | "rows" | "none" })}
+              />
+            </Campo>
+            <Campo label="Listras">
+              <Seg
+                value={d.striped === false ? "nao" : "sim"}
+                options={[["sim", "Sim"], ["nao", "Não"]]}
+                onChange={(v) => setData({ striped: v === "sim" })}
+              />
+            </Campo>
+          </Grupo>
+        </>
+      );
+    }
+
     case "heading": {
       const nivel = block.data.level;
       return (

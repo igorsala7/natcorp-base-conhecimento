@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BlockType } from "@/lib/blocks/schema";
+import { ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
+import type { BlockType, ChartType } from "@/lib/blocks/schema";
+import { CHART_TYPES } from "@/lib/blocks/schema";
 import { slashBlocks, CATEGORIES, COMING_SOON, type BlockMeta } from "@/lib/blocks/registry.meta";
 
 type Props = {
   rect: DOMRect;
   onSelect: (type: BlockType) => void;
   onClose: () => void;
+  /** Inserir um gráfico já com o tipo escolhido no submenu "Gráficos". */
+  onSelectChart?: (chartType: ChartType) => void;
   /** Snippets da documentação — inserir trecho reutilizável por NOME. */
   snippets?: { key: string; title: string }[];
   onSelectSnippet?: (key: string) => void;
@@ -16,9 +20,11 @@ type Props = {
 const norm = (s: string) =>
   s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnippet }: Props) {
+export function SlashMenu({ rect, onSelect, onClose, onSelectChart, snippets = [], onSelectSnippet }: Props) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  // Submenu "Gráficos": clicar no bloco Gráfico abre a lista de tipos aqui.
+  const [sub, setSub] = useState<null | "chart">(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const all = useMemo(() => slashBlocks(), []);
@@ -52,17 +58,37 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
     ...snippetsFiltrados.map((sn) => ({ kind: "snippet" as const, key: sn.key })),
   ];
 
+  // Tipos de gráfico do submenu (filtrados pela busca também).
+  const chartItems = useMemo(() => {
+    const q = norm(query.trim());
+    return q ? CHART_TYPES.filter((t) => norm(t.label).includes(q)) : CHART_TYPES;
+  }, [query]);
+
   function choose(i: number) {
+    if (sub === "chart") {
+      const t = chartItems[i];
+      if (t) onSelectChart?.(t.type);
+      return;
+    }
     const item = flat[i];
     if (!item) return;
-    if (item.kind === "block") onSelect(item.type);
-    else onSelectSnippet?.(item.key);
+    if (item.kind === "block") {
+      // Gráfico não insere direto: abre o submenu com os tipos.
+      if (item.type === "chart" && onSelectChart) {
+        setSub("chart");
+        setActive(0);
+        setQuery("");
+        return;
+      }
+      onSelect(item.type);
+    } else onSelectSnippet?.(item.key);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    const n = sub === "chart" ? chartItems.length : flat.length;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(flat.length - 1, a + 1));
+      setActive((a) => Math.min(n - 1, a + 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(0, a - 1));
@@ -71,7 +97,14 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
       choose(active);
     } else if (e.key === "Escape") {
       e.preventDefault();
-      onClose();
+      if (sub) {
+        setSub(null);
+        setActive(0);
+      } else onClose();
+    } else if (e.key === "ArrowLeft" && sub) {
+      e.preventDefault();
+      setSub(null);
+      setActive(0);
     }
   }
 
@@ -96,11 +129,45 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Buscar bloco…"
+          placeholder={sub === "chart" ? "Buscar tipo de gráfico…" : "Buscar bloco…"}
           className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none"
         />
         <div className="max-h-72 overflow-auto p-1">
-          {groups.map((g) => (
+          {sub === "chart" && (
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSub(null);
+                  setActive(0);
+                }}
+                className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-text-muted hover:bg-surface-2"
+              >
+                <ChevronLeft className="size-3.5" /> Gráficos
+              </button>
+              {chartItems.map((t, i) => (
+                <button
+                  key={t.type}
+                  type="button"
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => onSelectChart?.(t.type)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm ${
+                    active === i ? "bg-surface-2" : ""
+                  }`}
+                >
+                  <span className="flex size-7 items-center justify-center rounded-md border border-border">
+                    <BarChart3 className="size-4" />
+                  </span>
+                  {t.label}
+                </button>
+              ))}
+              {chartItems.length === 0 && (
+                <p className="px-3 py-6 text-center text-sm text-text-muted">Nenhum tipo.</p>
+              )}
+            </div>
+          )}
+          {sub !== "chart" &&
+            groups.map((g) => (
             <div key={g.cat.key}>
               <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                 {g.cat.label}
@@ -122,7 +189,10 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
                     <span className="flex size-7 items-center justify-center rounded-md border border-border">
                       <Icon className="size-4" />
                     </span>
-                    {b.label}
+                    <span className="flex-1">{b.label}</span>
+                    {b.type === "chart" && onSelectChart && (
+                      <ChevronRight className="size-4 text-text-muted" />
+                    )}
                   </button>
                 );
               })}
@@ -144,7 +214,7 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
                 })}
             </div>
           ))}
-          {snippetsFiltrados.length > 0 && (
+          {sub !== "chart" && snippetsFiltrados.length > 0 && (
             <div>
               <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                 Snippets (reutilizáveis)
@@ -171,7 +241,7 @@ export function SlashMenu({ rect, onSelect, onClose, snippets = [], onSelectSnip
               })}
             </div>
           )}
-          {flat.length === 0 && (
+          {sub !== "chart" && flat.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-text-muted">Nenhum bloco encontrado.</p>
           )}
         </div>

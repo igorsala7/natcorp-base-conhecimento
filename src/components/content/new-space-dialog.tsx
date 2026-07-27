@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { createSpace, type NewSpaceMode } from "@/app/(admin)/admin/(app)/conteudo/space-actions";
 
@@ -39,19 +40,21 @@ export function NewSpaceDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [mode, setMode] = useState<NewSpaceMode>("empty");
   const [sourceId, setSourceId] = useState(spaces[0]?.id ?? "");
-  const [msg, setMsg] = useState<string | null>(null);
 
   const precisaOrigem = mode === "inherit" || mode === "copy";
   // Copiar o layout vem marcado quando já há uma origem escolhida: quem herda
   // ou copia conteúdo quase sempre quer a mesma cara.
   const [copiarLayout, setCopiarLayout] = useState(true);
+  // Só a "Cópia editável" duplica o conteúdo — e é onde vale trazer os
+  // embeddings/ontologia prontos (a herdada já reaproveita os da origem).
+  const [copiarBusca, setCopiarBusca] = useState(true);
 
   function submit() {
-    setMsg(null);
     startTransition(async () => {
       const res = await createSpace({
         name,
@@ -59,11 +62,13 @@ export function NewSpaceDialog({
         sourceSpaceId: precisaOrigem ? sourceId : null,
         // Vale para os três modos: dá para nascer vazia já com a marca de outra.
         copyLayoutFromSpaceId: copiarLayout && sourceId ? sourceId : null,
+        copySearchData: mode === "copy" && copiarBusca,
       });
       if (!res.ok) {
-        setMsg(res.error);
+        toast.error(res.error);
         return;
       }
+      toast.success("Documentação criada.");
       onClose();
       router.push(`/admin/conteudo?space=${res.id}`);
       router.refresh();
@@ -195,13 +200,24 @@ export function NewSpaceDialog({
           </div>
         )}
 
-        {msg && (
-          <p
-            role="alert"
-            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-          >
-            {msg}
-          </p>
+        {/* Só a cópia editável duplica o conteúdo — logo, só nela cabe trazer os
+            dados de busca prontos. */}
+        {mode === "copy" && (
+          <label className="flex items-start gap-2.5 rounded-lg border border-border p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={copiarBusca}
+              onChange={(e) => setCopiarBusca(e.target.checked)}
+              className="mt-1 accent-[var(--color-primary)]"
+            />
+            <span>
+              <span className="font-medium">Trazer os dados de busca prontos</span>
+              <span className="block text-xs leading-relaxed text-text-muted">
+                Copia os embeddings (vetores) e a ontologia (termos e sinônimos) da origem — a busca
+                e o assistente já funcionam sem regerar, economizando tokens.
+              </span>
+            </span>
+          </label>
         )}
       </div>
     </Dialog>

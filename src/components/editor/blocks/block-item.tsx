@@ -16,7 +16,7 @@ import type { EditorActions } from "./edit-types";
 type ItemProps = {
   block: Block;
   actions: EditorActions;
-  selectedId: string | null;
+  selectedIds: string[];
   autoFocusId: string | null;
   spaceId: string;
   /** Abre o menu de contexto (botão direito) para este bloco. */
@@ -33,7 +33,7 @@ function childrenOf(block: Block): Block[] | undefined {
 const BlockItem = memo(function BlockItem({
   block,
   actions,
-  selectedId,
+  selectedIds,
   autoFocusId,
   spaceId,
   onContextMenu,
@@ -42,14 +42,14 @@ const BlockItem = memo(function BlockItem({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
   const Editor = EDITORS[block.type];
   const Meta = BLOCKS[block.type];
-  const selected = selectedId === block.id;
+  const selected = selectedIds.includes(block.id);
   const kids = childrenOf(block);
 
   const childrenNode = kids ? (
     <BlockList
       blocks={kids}
       actions={actions}
-      selectedId={selectedId}
+      selectedIds={selectedIds}
       autoFocusId={autoFocusId}
       spaceId={spaceId}
       onContextMenu={onContextMenu}
@@ -69,7 +69,14 @@ const BlockItem = memo(function BlockItem({
       className={`block-row group relative ${isDragging ? "z-30" : ""}`}
       onClick={(e) => {
         e.stopPropagation();
-        actions.select(block.id);
+        // Shift/Ctrl/Cmd+clique alterna a seleção múltipla (para agrupar).
+        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+          actions.selectToggle(block.id);
+          // Limpa o realce de texto que o shift+clique cria no navegador — a
+          // seleção de BLOCOS tem seu próprio destaque, e um texto realçado
+          // faria o Ctrl+C/X cair no copiar nativo em vez de copiar os blocos.
+          window.getSelection()?.removeAllRanges();
+        } else actions.select(block.id);
       }}
       onContextMenu={(e) => {
         // Botão direito: seleciona ESTE bloco (o mais interno) e abre suas ações.
@@ -170,7 +177,7 @@ const BlockItem = memo(function BlockItem({
 export function BlockList({
   blocks,
   actions,
-  selectedId,
+  selectedIds,
   autoFocusId,
   spaceId,
   onContextMenu,
@@ -179,7 +186,7 @@ export function BlockList({
 }: {
   blocks: Block[];
   actions: EditorActions;
-  selectedId: string | null;
+  selectedIds: string[];
   autoFocusId: string | null;
   spaceId: string;
   onContextMenu: (block: Block, x: number, y: number) => void;
@@ -197,7 +204,7 @@ export function BlockList({
             <BlockItem
               block={b}
               actions={actions}
-              selectedId={selectedId}
+              selectedIds={selectedIds}
               autoFocusId={autoFocusId}
               spaceId={spaceId}
               onContextMenu={onContextMenu}

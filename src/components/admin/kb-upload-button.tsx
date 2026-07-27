@@ -15,15 +15,11 @@ import { MAX_BYTES, MAX_MB, EXTENSOES } from "@/app/(admin)/admin/(app)/base-con
  * incremental. O chamador dá `router.refresh()` no `onDone` para as
  * contagens acompanharem.
  */
-export function KbUploadButton({
-  spaceId,
-  size = "sm",
-  onDone,
-}: {
-  spaceId: string;
-  size?: "sm" | "md";
-  onDone?: (resumo: string) => void;
-}) {
+/**
+ * Lógica reutilizável do envio à base do chatbot (para usar num botão OU num
+ * item de menu). Devolve `abrir` (seletor de arquivos + ingestão) e o progresso.
+ */
+export function useKbUpload(spaceId: string, onDone?: (resumo: string) => void) {
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState<string | null>(null);
 
@@ -75,6 +71,19 @@ export function KbUploadButton({
     input.click();
   }
 
+  return { abrir, enviando, progresso };
+}
+
+export function KbUploadButton({
+  spaceId,
+  size = "sm",
+  onDone,
+}: {
+  spaceId: string;
+  size?: "sm" | "md";
+  onDone?: (resumo: string) => void;
+}) {
+  const { abrir, enviando, progresso } = useKbUpload(spaceId, onDone);
   return (
     <Button
       variant="secondary"

@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
 import { Field, eyebrowLabel } from "@/components/ui/field";
@@ -34,10 +35,18 @@ export type WidgetKeyRow = {
   active: boolean;
   config: {
     primaryColor?: string;
+    secondaryColor?: string;
     title?: string;
+    subtitle?: string;
     welcome?: string;
+    /** Avatar do BOT (cabeçalho + respostas). */
     avatarUrl?: string;
     avatarIcon?: string;
+    avatarShape?: "circle" | "rounded" | "square";
+    /** Imagem da BOLHA do widget (separada do avatar). */
+    launcherUrl?: string;
+    launcherIcon?: string;
+    bubbleSize?: "sm" | "md" | "lg";
     suggestions?: string[];
     position?: "right" | "left";
   } | null;
@@ -64,10 +73,16 @@ type Draft = {
   scopeSpaceIds: string[];
   systemPrompt: string;
   primaryColor: string;
+  secondaryColor: string;
   title: string;
+  subtitle: string;
   welcome: string;
   avatarUrl: string;
   avatarIcon: string;
+  avatarShape: "circle" | "rounded" | "square";
+  launcherUrl: string;
+  launcherIcon: string;
+  bubbleSize: "sm" | "md" | "lg";
   suggestions: string;
   position: "right" | "left";
 };
@@ -84,10 +99,16 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     scopeSpaceIds: k.scope_space_ids ?? [k.space_id],
     systemPrompt: k.system_prompt ?? "",
     primaryColor: c.primaryColor ?? COR_PADRAO,
+    secondaryColor: c.secondaryColor ?? "",
     title: c.title ?? "Assistente",
+    subtitle: c.subtitle ?? "",
     welcome: c.welcome ?? "Olá! Como posso ajudar com a documentação?",
     avatarUrl: c.avatarUrl ?? "",
     avatarIcon: c.avatarIcon ?? "",
+    avatarShape: c.avatarShape ?? "circle",
+    launcherUrl: c.launcherUrl ?? "",
+    launcherIcon: c.launcherIcon ?? "",
+    bubbleSize: c.bubbleSize ?? "md",
     suggestions: (c.suggestions ?? []).join("\n"),
     position: c.position ?? "right",
   };
@@ -95,30 +116,35 @@ function rowToDraft(k: WidgetKeyRow): Draft {
 
 
 /**
- * Avatar do widget: ÍCONE do catálogo (vira SVG branco em data URI — o
- * cabeçalho do widget é colorido) ou IMAGEM enviada ao Storage. Os dois
- * caminhos terminam no MESMO campo `avatarUrl` que o widget.js já consome —
- * zero mudança no bundle embutido nos sites dos clientes.
+ * Seletor de mídia (ÍCONE do catálogo → SVG branco em data URI, ou IMAGEM
+ * enviada ao Storage). Genérico: serve tanto para a IMAGEM DA BOLHA quanto para
+ * o AVATAR DO BOT — o dono controla os campos via `url`/`icon`/`onChange`.
+ * Ambos os caminhos terminam numa URL que o widget.js consome direto.
  */
-function AvatarDoWidget({
-  draft,
-  setDraft,
+function MidiaPicker({
+  url,
+  icon,
+  spaceId,
+  onChange,
 }: {
-  draft: Draft;
-  setDraft: (d: Draft) => void;
+  url: string;
+  icon: string;
+  spaceId: string;
+  /** Atualiza os DOIS campos de uma vez (url derivada + chave do ícone). */
+  onChange: (url: string, icon: string) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [enviando, setEnviando] = useState(false);
-  const Icone = draft.avatarIcon ? ICONS[draft.avatarIcon] : null;
+  const Icone = icon ? ICONS[icon] : null;
 
   // O SVG do ícone escolhido só existe no DOM DEPOIS do render — o data URI é
   // lido daqui, não construído à mão (fica sempre fiel ao catálogo).
   useEffect(() => {
-    if (!draft.avatarIcon || !svgRef.current) return;
+    if (!icon || !svgRef.current) return;
     const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svgRef.current.outerHTML)}`;
-    if (draft.avatarUrl !== uri) setDraft({ ...draft, avatarUrl: uri });
+    if (url !== uri) onChange(uri, icon);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.avatarIcon]);
+  }, [icon]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -127,9 +153,9 @@ function AvatarDoWidget({
         className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-purple-700"
         aria-hidden
       >
-        {draft.avatarUrl ? (
+        {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={draft.avatarUrl} alt="" className="size-7 rounded-full object-cover" />
+          <img src={url} alt="" className="size-7 rounded-full object-cover" />
         ) : (
           <Bot className="size-5 text-white/80" />
         )}
@@ -137,16 +163,10 @@ function AvatarDoWidget({
 
       <div className="min-w-40 flex-1">
         <IconPicker
-          value={draft.avatarIcon || undefined}
-          onChange={(key) =>
-            setDraft({
-              ...draft,
-              avatarIcon: key ?? "",
-              // Limpar o ícone limpa o avatar; escolher um novo é concluído
-              // pelo efeito acima, quando o SVG existir no DOM.
-              ...(key ? {} : { avatarUrl: "" }),
-            })
-          }
+          value={icon || undefined}
+          // Limpar o ícone limpa a imagem; escolher um novo é concluído pelo
+          // efeito acima (quando o SVG existir no DOM).
+          onChange={(key) => onChange(key ? url : "", key ?? "")}
         />
       </div>
 
@@ -154,25 +174,20 @@ function AvatarDoWidget({
         type="button"
         variant="secondary"
         size="sm"
-        disabled={enviando || !draft.spaceId}
+        disabled={enviando || !spaceId}
         onClick={() => {
           setEnviando(true);
-          escolherEEnviar(draft.spaceId, (url) => {
+          escolherEEnviar(spaceId, (u) => {
             setEnviando(false);
-            if (url) setDraft({ ...draft, avatarUrl: url, avatarIcon: "" });
+            if (u) onChange(u, "");
           });
         }}
       >
         <ImagePlus className="size-4" /> {enviando ? "Enviando…" : "Enviar imagem"}
       </Button>
 
-      {draft.avatarUrl && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setDraft({ ...draft, avatarUrl: "", avatarIcon: "" })}
-        >
+      {url && (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange("", "")}>
           Remover
         </Button>
       )}
@@ -203,8 +218,8 @@ export function WidgetManager({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const spaceName = useMemo(
     () => new Map(spaces.map((s) => [s.id, s.name])),
@@ -226,7 +241,6 @@ export function WidgetManager({
   }, [testing, siteUrl]);
 
   function newDraft() {
-    setMsg(null);
     const dona = fixedSpaceId ?? spaces[0]?.id ?? "";
     setDraft({
       spaceId: dona,
@@ -238,13 +252,26 @@ export function WidgetManager({
       scopeSpaceIds: [dona].filter(Boolean),
       systemPrompt: "",
       primaryColor: COR_PADRAO,
+      secondaryColor: "",
       title: "Assistente",
+      subtitle: "",
       welcome: "Olá! Como posso ajudar com a documentação?",
       avatarUrl: "",
       avatarIcon: "",
+      avatarShape: "circle",
+      launcherUrl: "",
+      launcherIcon: "",
+      bubbleSize: "md",
       suggestions: "",
       position: "right",
     });
+  }
+
+  /** Duplica um widget: reabre o form como NOVA chave (sem id → gera public_key
+   *  nova ao salvar), com tudo copiado e "(cópia)" no nome. */
+  function duplicate(k: WidgetKeyRow) {
+    const d = rowToDraft(k);
+    setDraft({ ...d, id: undefined, name: `${k.name} (cópia)` });
   }
 
   function save() {
@@ -261,20 +288,26 @@ export function WidgetManager({
       systemPrompt: draft.systemPrompt.trim() || null,
       config: {
         primaryColor: draft.primaryColor,
+        secondaryColor: draft.secondaryColor.trim() || undefined,
         title: draft.title,
+        subtitle: draft.subtitle.trim() || undefined,
         welcome: draft.welcome,
         avatarUrl: draft.avatarUrl || undefined,
         avatarIcon: draft.avatarIcon || undefined,
+        avatarShape: draft.avatarShape,
+        launcherUrl: draft.launcherUrl || undefined,
+        launcherIcon: draft.launcherIcon || undefined,
+        bubbleSize: draft.bubbleSize,
         suggestions: draft.suggestions.split("\n").map((s) => s.trim()).filter(Boolean),
         position: draft.position,
       },
     };
     startTransition(async () => {
       const r = await saveWidgetKey(payload);
-      if (!r.ok) setMsg(r.error);
+      if (!r.ok) toast.error(r.error);
       else {
         setDraft(null);
-        setMsg("Chave salva.");
+        toast.success("Chave salva.");
         router.refresh();
       }
     });
@@ -292,7 +325,8 @@ export function WidgetManager({
       return;
     startTransition(async () => {
       const r = await regenerateWidgetKey(id);
-      setMsg(r.ok ? "Nova chave gerada." : r.error);
+      if (r.ok) toast.success("Nova chave gerada.");
+      else toast.error(r.error);
       router.refresh();
     });
   }
@@ -308,7 +342,8 @@ export function WidgetManager({
       return;
     startTransition(async () => {
       const r = await deleteWidgetKey(id);
-      setMsg(r.ok ? "Chave excluída." : r.error);
+      if (r.ok) toast.success("Chave excluída.");
+      else toast.error(r.error);
       router.refresh();
     });
   }
@@ -326,9 +361,6 @@ export function WidgetManager({
         <Button onClick={newDraft}>Novo Widget</Button>
       </div>
 
-      {msg && (
-        <p className="rounded-md border border-border bg-surface px-3 py-2 text-sm">{msg}</p>
-      )}
 
       {testing && (
         <p className="rounded-md border border-primary/40 bg-brand-purple-50 px-3 py-2 text-sm text-primary dark:bg-brand-purple-950/30">
@@ -371,6 +403,9 @@ export function WidgetManager({
                 <Button size="sm" variant="ghost" onClick={() => setDraft(rowToDraft(k))}>
                   Editar
                 </Button>
+                <Button size="sm" variant="ghost" onClick={() => duplicate(k)} title="Cria um novo widget com as mesmas configurações (chave nova)">
+                  Duplicar
+                </Button>
                 <Button size="sm" variant="ghost" onClick={() => regenerate(k.id)}>
                   Nova chave
                 </Button>
@@ -385,7 +420,11 @@ export function WidgetManager({
               </code>
               <CopyButton text={k.public_key} label="Copiar chave" />
             </div>
-            <EmbedSnippet siteUrl={siteUrl} publicKey={k.public_key} />
+            <EmbedSnippet
+              siteUrl={siteUrl}
+              publicKey={k.public_key}
+              spaceSlug={spaces.find((s) => s.id === k.space_id)?.slug}
+            />
             {(k.allowed_origins?.length ?? 0) === 0 && (
               <p className="mt-2 text-xs text-brand-pink-700">
                 ⚠ Sem allowlist de origem: qualquer site pode usar esta chave. Restrinja em produção.
@@ -518,8 +557,37 @@ export function WidgetManager({
                 <input className={`${controlClass} flex-1`} value={draft.primaryColor} onChange={(e) => setDraft({ ...draft, primaryColor: e.target.value })} />
               </div>
             </Field>
+            <Field label="Cor secundária (fim do gradiente; vazio = automática)">
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  className="h-9 w-12 rounded border border-border"
+                  value={draft.secondaryColor || draft.primaryColor}
+                  onChange={(e) => setDraft({ ...draft, secondaryColor: e.target.value })}
+                />
+                <input
+                  className={`${controlClass} flex-1`}
+                  value={draft.secondaryColor}
+                  placeholder="automática"
+                  onChange={(e) => setDraft({ ...draft, secondaryColor: e.target.value })}
+                />
+                {draft.secondaryColor && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setDraft({ ...draft, secondaryColor: "" })}>
+                    Auto
+                  </Button>
+                )}
+              </div>
+            </Field>
             <Field label="Título do widget">
               <input className={controlClass} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            </Field>
+            <Field label="Subtítulo do widget (abaixo do título)">
+              <input
+                className={controlClass}
+                value={draft.subtitle}
+                placeholder="Pergunte o que quiser"
+                onChange={(e) => setDraft({ ...draft, subtitle: e.target.value })}
+              />
             </Field>
             <Field label="Posição inicial">
               <select
@@ -531,8 +599,43 @@ export function WidgetManager({
                 <option value="left">Esquerda</option>
               </select>
             </Field>
-            <Field label="Avatar do widget (opcional)">
-              <AvatarDoWidget draft={draft} setDraft={setDraft} />
+            <Field label="Tamanho da bolha">
+              <select
+                className={controlClass}
+                value={draft.bubbleSize}
+                onChange={(e) => setDraft({ ...draft, bubbleSize: e.target.value as Draft["bubbleSize"] })}
+              >
+                <option value="sm">Pequena</option>
+                <option value="md">Média</option>
+                <option value="lg">Grande</option>
+              </select>
+            </Field>
+            <Field label="Imagem do widget (bolha flutuante)">
+              <MidiaPicker
+                url={draft.launcherUrl}
+                icon={draft.launcherIcon}
+                spaceId={draft.spaceId}
+                onChange={(url, icon) => setDraft({ ...draft, launcherUrl: url, launcherIcon: icon })}
+              />
+            </Field>
+            <Field label="Avatar do bot (cabeçalho e respostas)">
+              <MidiaPicker
+                url={draft.avatarUrl}
+                icon={draft.avatarIcon}
+                spaceId={draft.spaceId}
+                onChange={(url, icon) => setDraft({ ...draft, avatarUrl: url, avatarIcon: icon })}
+              />
+            </Field>
+            <Field label="Formato do avatar">
+              <select
+                className={controlClass}
+                value={draft.avatarShape}
+                onChange={(e) => setDraft({ ...draft, avatarShape: e.target.value as Draft["avatarShape"] })}
+              >
+                <option value="circle">Círculo</option>
+                <option value="rounded">Arredondado</option>
+                <option value="square">Quadrado</option>
+              </select>
             </Field>
             <Field label="Mensagem de boas-vindas">
               <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
@@ -573,8 +676,20 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-function EmbedSnippet({ siteUrl, publicKey }: { siteUrl: string; publicKey: string }) {
+function EmbedSnippet({
+  siteUrl, publicKey, spaceSlug,
+}: {
+  siteUrl: string;
+  publicKey: string;
+  spaceSlug?: string;
+}) {
   const snippet = `<script src="${siteUrl}/widget.js" data-key="${publicKey}" async></script>`;
+  const docUrl = `${siteUrl}/docs/${spaceSlug ?? "SUA-DOCUMENTACAO"}`;
+  // Exemplo com o backend do cliente injetando os dados do usuário logado.
+  const embedComRastreio = `<script src="${siteUrl}/widget.js" data-key="${publicKey}"
+  data-usuario="joao.silva" data-empresa="ACME" data-matricula="00123"
+  data-perfil="gestor" data-portal="cliente-a" data-base="prod" async></script>`;
+  const urlComRastreio = `${docUrl}?p_usuario=joao.silva&p_empresa=ACME&p_matricula=00123&p_perfil=gestor`;
   return (
     <div className="mt-3">
       <span className="mb-1 block text-xs font-medium text-text-muted">
@@ -586,6 +701,53 @@ function EmbedSnippet({ siteUrl, publicKey }: { siteUrl: string; publicKey: stri
         </code>
         <CopyButton text={snippet} label="Copiar" />
       </div>
+
+      {/* Rastreamento opcional — como o SISTEMA DO CLIENTE passa quem é o usuário. */}
+      <details className="mt-3 rounded-lg border border-border">
+        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-text">
+          Rastrear quem usa (opcional) — empresa, usuário, matrícula, perfil…
+        </summary>
+        <div className="space-y-3 border-t border-border p-3">
+          <p className="text-xs text-text-muted">
+            Passe os dados do usuário logado no seu sistema para saber, no admin (em{" "}
+            <b>Conversas</b> e <b>Acessos</b>), quem perguntou o quê e quais páginas abriu. São apenas
+            rótulos de rastreio — <b>nunca</b> entram na resposta da IA.
+          </p>
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-text-muted">
+              1) No widget — o seu backend gera o <code>&lt;script&gt;</code> com os{" "}
+              <code>data-*</code> preenchidos:
+            </span>
+            <div className="flex items-start gap-2">
+              <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-surface-2 p-2 text-xs">
+                {embedComRastreio}
+              </pre>
+              <CopyButton text={embedComRastreio} label="Copiar" />
+            </div>
+          </div>
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-text-muted">
+              2) Nos links para a documentação — anexe os parâmetros <code>p_*</code> na URL:
+            </span>
+            <div className="flex items-start gap-2">
+              <code className="flex-1 overflow-x-auto rounded bg-surface-2 px-2 py-1.5 text-xs">
+                {urlComRastreio}
+              </code>
+              <CopyButton text={urlComRastreio} label="Copiar" />
+            </div>
+          </div>
+
+          <p className="text-xs text-text-muted">
+            A identidade vale para a <b>visita inteira</b>: basta chegar uma vez com os parâmetros
+            (por link, redirecionamento ou SSO) que as páginas seguintes seguem atribuídas ao mesmo
+            usuário. O widget também aceita os mesmos valores via <code>?p_*</code> na URL da página.
+            Campos: <code>p_usuario</code>, <code>p_empresa</code>, <code>p_matricula</code>,{" "}
+            <code>p_perfil</code>, <code>p_portal</code>, <code>p_base</code>.
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Folder, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
@@ -147,9 +148,9 @@ export function ImportPreview({
   defaultSpaceId: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [tree, setTree] = useState<ProposedNode[]>(initialTree);
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
 
   // Destino da importação (escolhido na confirmação).
   const [askTarget, setAskTarget] = useState(false);
@@ -207,7 +208,7 @@ export function ImportPreview({
             : undefined,
         },
       );
-      if (!res.ok) setMsg(res.error);
+      if (!res.ok) toast.error(res.error);
       // Melhorando em segundo plano: permanece nesta página, que vira a tela
       // de progresso da fase de layout (e navega ao destino quando terminar).
       else if (res.improving) router.refresh();
@@ -219,7 +220,7 @@ export function ImportPreview({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Revisar: {fileName}</h1>
@@ -360,12 +361,10 @@ export function ImportPreview({
                     if (r.ok && r.perguntas.length > 0) {
                       setPerguntas(r.perguntas);
                       setMostrarPerguntas(true);
+                    } else if (r.ok) {
+                      toast.info("A IA não encontrou escolhas a fazer — a melhoria segue com o padrão.");
                     } else {
-                      setMsg(
-                        r.ok
-                          ? "A IA não encontrou escolhas a fazer — a melhoria segue com o padrão."
-                          : r.error,
-                      );
+                      toast.error(r.error);
                     }
                   }}
                   className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
@@ -409,12 +408,6 @@ export function ImportPreview({
           <LayoutQuestionsForm perguntas={perguntas} respostas={respostas} onChange={setRespostas} />
         )}
       </Dialog>
-
-      {msg && (
-        <p className="mt-2 rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-          {msg}
-        </p>
-      )}
 
       <div className="mt-4 grid flex-1 grid-cols-2 gap-4 overflow-hidden">
         <section className="overflow-auto rounded-lg border border-border p-4">

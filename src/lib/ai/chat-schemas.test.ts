@@ -72,6 +72,7 @@ describe("payloads típicos validam", () => {
       ],
       ferramenta: null,
       perguntas: null,
+      estrutura: null,
     });
     expect(editar.success).toBe(true);
     const ferramenta = editorChatSchema.safeParse({
@@ -79,6 +80,7 @@ describe("payloads típicos validam", () => {
       ops: null,
       ferramenta: "melhorar_layout",
       perguntas: null,
+      estrutura: null,
     });
     expect(ferramenta.success).toBe(true);
   });

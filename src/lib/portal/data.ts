@@ -5,6 +5,7 @@ import { createPublicClient } from "@/lib/supabase/public";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/database.types";
 import { getEffectiveTreePublic } from "@/lib/content/overlays";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import { spaceCookieName, verifySpaceToken } from "@/lib/portal/space-auth";
 import { origemPermitida, originCookieName, temRestricaoDeOrigem } from "@/lib/portal/origin-gate";
 import { env } from "@/lib/env";
@@ -168,14 +169,20 @@ export async function getPortalAccess(spaceSlug: string): Promise<PortalAccess |
 
 /** Todos os nós publicados do espaço (flat), ordenados por posição. */
 async function fetchPublishedNodes(spaceId: string, db: PortalDb): Promise<PublicNode[]> {
-  const { data } = await db
-    .from("nodes")
-    .select("id, parent_id, type, title, slug, position, link_url, icon, description, updated_at")
-    .eq("space_id", spaceId)
-    .eq("status", "published")
-    .is("deleted_at", null)
-    .order("position", { ascending: true });
-  return (data ?? []) as PublicNode[];
+  // Paginado: >1000 nós publicados cortariam linhas e os filhos dos nós
+  // cortados apareceriam na raiz do portal (ver fetchAllPaged).
+  return fetchAllPaged<PublicNode>(async (from, to) => {
+    const { data, error } = await db
+      .from("nodes")
+      .select("id, parent_id, type, title, slug, position, link_url, icon, description, updated_at")
+      .eq("space_id", spaceId)
+      .eq("status", "published")
+      .is("deleted_at", null)
+      .order("position", { ascending: true })
+      .order("id")
+      .range(from, to);
+    return { data: (data ?? null) as PublicNode[] | null, error };
+  });
 }
 
 /**
@@ -220,7 +227,11 @@ export async function getPortalTree(
     for (const node of byId.values()) {
       const parent = node.parent_id ? byId.get(node.parent_id) : null;
       if (parent) parent.children.push(node);
-      else roots.push(node);
+      // Só RAIZ de verdade (sem pai) vira topo. Um nó publicado cujo pai NÃO
+      // está publicado é PODADO — não sobe para a raiz. Antes ele virava uma
+      // "categoria" falsa no portal, fora de ordem (posição relativa ao pai) e
+      // com URL errada. A árvore do admin mostra o pai (rascunho) e aninha certo.
+      else if (!node.parent_id) roots.push(node);
     }
   }
 

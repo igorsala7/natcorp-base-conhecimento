@@ -18,6 +18,19 @@ export async function uploadToAssets(file: File, spaceId: string): Promise<strin
   return supabase.storage.from("assets").getPublicUrl(path).data.publicUrl;
 }
 
+/**
+ * Envia uma foto de usuário/autor para o bucket público `avatars` e devolve a
+ * URL. Bucket próprio (não `assets`): foto de pessoa não pertence a nenhuma
+ * documentação — a escrita é gate por `user.manage` na policy do Storage.
+ */
+export async function uploadAvatar(file: File): Promise<string | null> {
+  const supabase = createClient();
+  const path = `${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+  const { error } = await supabase.storage.from("avatars").upload(path, file);
+  if (error) return null;
+  return supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+}
+
 /** Abre o seletor de arquivos e envia. `null` se o usuário cancelar ou falhar. */
 export function escolherEEnviar(
   spaceId: string,

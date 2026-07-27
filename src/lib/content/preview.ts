@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import type { Block } from "@/lib/blocks/schema";
 import type { TreeNode } from "@/lib/content/tree";
@@ -53,15 +54,22 @@ export function flattenPreview(nodes: PreviewNode[]): PreviewNode[] {
  */
 export async function getPreviewTree(spaceId: string): Promise<PreviewNode[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("nodes")
-    .select("id, space_id, parent_id, type, title, slug, position, icon, link_url, status")
-    .eq("space_id", spaceId)
-    .is("deleted_at", null)
-    .order("position", { ascending: true });
+  // Paginado: >1000 nós cortariam linhas e os filhos dos nós cortados
+  // apareceriam na raiz da prévia (ver fetchAllPaged).
+  const data = await fetchAllPaged<Omit<TreeNode, "children">>(async (from, to) => {
+    const { data, error } = await supabase
+      .from("nodes")
+      .select("id, space_id, parent_id, type, title, slug, position, icon, link_url, status")
+      .eq("space_id", spaceId)
+      .is("deleted_at", null)
+      .order("position", { ascending: true })
+      .order("id")
+      .range(from, to);
+    return { data: (data ?? null) as Omit<TreeNode, "children">[] | null, error };
+  });
 
   const byId = new Map<string, TreeNode>();
-  for (const n of data ?? []) byId.set(n.id, { ...(n as Omit<TreeNode, "children">), children: [] });
+  for (const n of data) byId.set(n.id, { ...n, children: [] });
   const raizes: TreeNode[] = [];
   for (const node of byId.values()) {
     const pai = node.parent_id ? byId.get(node.parent_id) : null;

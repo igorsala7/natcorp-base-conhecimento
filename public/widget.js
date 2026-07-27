@@ -16,6 +16,28 @@
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_SID = "kb.widget.sid." + KEY;
 
+  // Parâmetros de rastreio: de onde/quem veio a conversa. Lidos do atributo
+  // data-* do <script> (tem prioridade) ou da querystring da página (p_*).
+  // Só DADO — nunca vão para o prompt da IA; servem para o admin filtrar.
+  var track = (function () {
+    var qs;
+    try {
+      qs = new URLSearchParams(window.location.search);
+    } catch (e) {
+      qs = null;
+    }
+    var t = {};
+    ["base", "usuario", "portal", "empresa", "matricula", "perfil"].forEach(function (n) {
+      var v = script.getAttribute("data-" + n);
+      if (v == null || v === "") v = qs ? qs.get("p_" + n) : null;
+      if (v != null) {
+        v = String(v).trim().slice(0, 200);
+        if (v) t["p_" + n] = v;
+      }
+    });
+    return Object.keys(t).length ? t : null;
+  })();
+
   // Sessão anônima estável (para agrupar a conversa).
   var sessionId = localStorage.getItem(LS_SID);
   if (!sessionId) {
@@ -41,64 +63,106 @@
       "" +
       ":host{all:initial}" +
       "*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}" +
-      ".bubble{position:fixed;z-index:2147483000;width:56px;height:56px;border-radius:50%;" +
-      "background:var(--pc);color:#fff;border:none;cursor:grab;box-shadow:0 6px 24px rgba(0,0,0,.28);" +
-      "display:flex;align-items:center;justify-content:center;transition:transform .15s ease,box-shadow .15s ease;touch-action:none}" +
-      ".bubble:hover{transform:scale(1.06)}" +
+      // Gradiente da marca (--pc primária; --pc2 derivada em JS, com fallback p/ --pc).
+      ".grad{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)))}" +
+      // Bolha flutuante
+      ".bubble{position:fixed;z-index:2147483000;width:var(--bs,60px);height:var(--bs,60px);border-radius:50%;" +
+      "background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;cursor:grab;" +
+      "box-shadow:0 12px 30px rgba(40,20,80,.38);display:flex;align-items:center;justify-content:center;" +
+      "transition:transform .18s ease,box-shadow .18s ease;touch-action:none}" +
+      ".bubble:hover{transform:scale(1.07);box-shadow:0 16px 40px rgba(40,20,80,.46)}" +
       ".bubble:active{cursor:grabbing}" +
-      ".bubble svg{width:26px;height:26px}" +
-      ".panel{position:fixed;z-index:2147483000;width:380px;max-width:calc(100vw - 24px);height:560px;" +
-      "max-height:calc(100vh - 96px);background:#fff;border-radius:16px;overflow:hidden;display:none;flex-direction:column;" +
-      "box-shadow:0 12px 48px rgba(0,0,0,.32);border:1px solid #e7e2ee}" +
-      ".panel.open{display:flex}" +
-      ".hd{background:var(--pc);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}" +
-      ".hd img{width:28px;height:28px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,.2)}" +
-      ".hd .t{font-weight:600;font-size:15px;flex:1}" +
-      ".hd button{background:transparent;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1;opacity:.9}" +
-      ".hd button:hover{opacity:1}" +
-      ".msgs{flex:1;overflow-y:auto;padding:16px;background:#faf8fc;display:flex;flex-direction:column;gap:12px}" +
-      ".m{max-width:85%;padding:10px 12px;border-radius:12px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}" +
-      ".m.u{align-self:flex-end;background:var(--pc);color:#fff;border-bottom-right-radius:4px}" +
-      ".m.a{align-self:flex-start;background:#fff;color:#1a1523;border:1px solid #ece7f2;border-bottom-left-radius:4px}" +
+      // `pointer-events:none` no conteúdo: o pointerdown/move é SEMPRE da bolha,
+      // e a imagem não inicia um drag NATIVO (era o que quebrava o arrastar
+      // depois que a bolha passou a exibir uma imagem/avatar).
+      ".bubble svg,.bubble .bic,.bubble .bimg{pointer-events:none;-webkit-user-drag:none;user-select:none}" +
+      ".bubble svg{width:27px;height:27px}" +
+      // Avatar/ícone configurado dentro da bolha: ícone (SVG) centralizado; foto preenche.
+      ".bubble .bic{width:30px;height:30px;object-fit:contain}" +
+      ".bubble .bimg{width:100%;height:100%;object-fit:cover;border-radius:50%}" +
+      // Painel
+      ".panel{position:fixed;z-index:2147483000;width:392px;max-width:calc(100vw - 24px);height:620px;" +
+      "max-height:calc(100vh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
+      "box-shadow:0 26px 72px rgba(30,15,60,.34);border:1px solid rgba(120,90,180,.14)}" +
+      ".panel.open{display:flex;animation:kbin .22s cubic-bezier(.2,.8,.2,1)}" +
+      "@keyframes kbin{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}" +
+      // Cabeçalho (gradiente)
+      ".hd{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;padding:16px 15px 18px;display:flex;align-items:center;gap:12px}" +
+      ".hd .hav{width:44px;height:44px;border-radius:var(--ash,50%);background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.15)}" +
+      ".hd .hav img{width:100%;height:100%;object-fit:cover}" +
+      ".hd .hav svg{width:24px;height:24px;color:#fff}" +
+      ".hd .ti{flex:1;min-width:0}" +
+      ".hd .t{font-weight:700;font-size:16px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".hd .s{font-size:12px;opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".hd button{background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;flex:none}" +
+      ".hd button:hover{background:rgba(255,255,255,.32)}" +
+      // Mensagens
+      ".msgs{flex:1;overflow-y:auto;padding:18px 15px 8px;background:#f6f4fb;display:flex;flex-direction:column;gap:14px}" +
+      ".msgs::-webkit-scrollbar{width:8px}.msgs::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
+      // Linha do assistente (avatar + balão)
+      ".arow{display:flex;gap:9px;align-items:flex-start;max-width:92%}" +
+      ".arow .av{width:30px;height:30px;border-radius:var(--ash,50%);flex:none;background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 12px rgba(40,20,80,.28)}" +
+      ".arow .av svg{width:16px;height:16px;color:#fff}" +
+      ".arow .av img{width:100%;height:100%;object-fit:cover}" +
+      // Balões
+      ".m{padding:11px 14px;border-radius:18px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}" +
+      ".m.u{align-self:flex-end;background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border-bottom-right-radius:6px;max-width:82%;box-shadow:0 8px 20px rgba(60,30,110,.26)}" +
+      ".m.a{background:#fff;color:#1c1726;border:1px solid #efe7f7;border-bottom-left-radius:6px;box-shadow:0 5px 16px rgba(60,40,100,.07)}" +
+      ".arow .m.a{flex:1;min-width:0}" +
       ".m.a a{color:var(--pc);font-weight:600}" +
       ".m.a p{margin:6px 0}.m.a p:first-child{margin-top:0}.m.a p:last-child{margin-bottom:0}" +
-      ".m.a strong{font-weight:600}.m.a em{font-style:italic}.m.a .mh{font-weight:600;margin:8px 0 4px}" +
-      ".m.a ul,.m.a ol{margin:6px 0;padding-left:20px}.m.a li{margin:2px 0}" +
-      ".m.a code{background:#f0ebf7;border-radius:4px;padding:1px 4px;font-size:.85em}" +
-      ".m.a pre{background:#f4f0fa;border-radius:8px;padding:10px;overflow-x:auto;margin:6px 0}" +
+      ".m.a strong{font-weight:700}.m.a em{font-style:italic}.m.a .mh{font-weight:700;margin:8px 0 4px}" +
+      ".m.a ul,.m.a ol{margin:6px 0;padding-left:20px}.m.a li{margin:3px 0}" +
+      ".m.a code{background:#f0ebf7;border-radius:5px;padding:1px 5px;font-size:.85em}" +
+      ".m.a pre{background:#f4f0fa;border-radius:10px;padding:10px;overflow-x:auto;margin:6px 0}" +
       ".m.a pre code{background:none;padding:0}" +
-      ".cites{align-self:stretch;display:flex;flex-direction:column;gap:6px;margin-top:2px}" +
-      ".cite{display:flex;align-items:center;gap:8px;text-decoration:none;border:1px solid #e2d8ee;border-radius:10px;padding:6px;background:#fff;transition:border-color .15s}" +
-      ".cite:hover{border-color:var(--pc)}" +
-      // Fonte sem link: não deve parecer clicável.
-      ".cite-nolink{cursor:default}.cite-nolink:hover{border-color:#e2d8ee}" +
-      ".cdet{align-self:stretch;margin-top:2px}" +
-      // list-style none nos dois seletores: o Safari usa ::-webkit-details-marker.
-      ".csum{cursor:pointer;list-style:none;font-size:12px;color:#6b6577;padding:4px 2px;user-select:none}" +
+      // Citações (alinhadas sob o balão do assistente: 30 av + 9 gap = 39)
+      ".cdet{align-self:stretch;margin:0 0 0 39px}" +
+      ".cites{display:flex;flex-direction:column;gap:8px;margin-top:6px}" +
+      ".cite{display:flex;align-items:center;gap:10px;text-decoration:none;border:1px solid #ece3f6;border-radius:14px;padding:9px 10px;background:#fff;transition:border-color .15s,box-shadow .15s;box-shadow:0 3px 10px rgba(60,40,100,.05)}" +
+      ".cite:hover{border-color:var(--pc);box-shadow:0 8px 18px rgba(60,40,100,.12)}" +
+      ".cite-nolink{cursor:default}.cite-nolink:hover{border-color:#ece3f6;box-shadow:0 3px 10px rgba(60,40,100,.05)}" +
+      ".csum{cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:#6b6577;padding:4px 2px;user-select:none}" +
       ".csum::-webkit-details-marker{display:none}" +
       ".csum:before{content:\"\\25B8\";display:inline-block;margin-right:6px;transition:transform .15s}" +
       ".cdet[open] .csum:before{transform:rotate(90deg)}" +
       ".csum:hover{color:#201d26}" +
-      ".cthumb{width:38px;height:38px;border-radius:6px;object-fit:cover;flex:none;background:#f3edfa}" +
-      ".cthumb.cph{display:flex;align-items:center;justify-content:center;font-size:18px}" +
+      ".cthumb{width:42px;height:42px;border-radius:9px;object-fit:cover;flex:none;background:#f3edfa}" +
+      ".cthumb.cph{display:flex;align-items:center;justify-content:center;font-size:20px}" +
       ".cbody{min-width:0;display:flex;flex-direction:column}" +
-      ".ctitle{font-size:12px;font-weight:600;color:var(--pc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".ctitle{font-size:12.5px;font-weight:600;color:var(--pc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".cpath{font-size:11px;color:#8a7ea3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
-      ".fbk{align-self:flex-start;display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7ea3;margin-top:-2px}" +
-      ".fbk-btn{background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px;border-radius:6px;opacity:.7}" +
-      ".fbk-btn:hover{opacity:1;background:#f3edfa}.fbk-btn.on{opacity:1}" +
-      ".sugg{display:flex;flex-wrap:wrap;gap:6px}" +
-      ".sugg button{font-size:13px;color:var(--pc);border:1px solid #e2d8ee;background:#fff;border-radius:999px;padding:6px 10px;cursor:pointer}" +
-      ".sugg button:hover{background:#f3edfa}" +
-      ".ft{border-top:1px solid #ece7f2;padding:10px;display:flex;gap:8px;background:#fff}" +
-      ".ft textarea{flex:1;resize:none;border:1px solid #ddd4e8;border-radius:10px;padding:9px 11px;font-size:14px;max-height:96px;outline:none}" +
-      ".ft textarea:focus{border-color:var(--pc)}" +
-      ".ft button{background:var(--pc);color:#fff;border:none;border-radius:10px;width:40px;cursor:pointer;display:flex;align-items:center;justify-content:center}" +
-      ".ft button:disabled{opacity:.5;cursor:default}" +
-      ".dots{display:inline-flex;gap:3px}.dots span{width:6px;height:6px;border-radius:50%;background:#b9a9cf;animation:bl 1s infinite}" +
-      ".dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}" +
-      "@keyframes bl{0%,80%,100%{opacity:.3}40%{opacity:1}}" +
-      ".pw{padding:6px 12px;font-size:11px;color:#9a8fb0;text-align:center;background:#fff}"
+      // Feedback
+      ".fbk{align-self:flex-start;display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7ea3;margin:-4px 0 0 39px}" +
+      ".fbk-btn{background:none;border:none;cursor:pointer;font-size:15px;line-height:1;padding:3px;border-radius:8px;opacity:.7;transition:.15s}" +
+      ".fbk-btn:hover{opacity:1;background:#efe8f8}.fbk-btn.on{opacity:1;transform:scale(1.15)}" +
+      // Chips de sugestão / desambiguação (pílulas contornadas)
+      ".sugg{display:flex;flex-wrap:wrap;gap:8px;padding-left:39px}" +
+      ".sugg button{font-size:13px;font-weight:500;color:var(--pc);border:1.5px solid;border-color:color-mix(in srgb,var(--pc) 38%,#fff);background:#fff;border-radius:999px;padding:8px 14px;cursor:pointer;text-align:left;line-height:1.35;transition:border-color .15s,background .15s,transform .1s;box-shadow:0 2px 7px rgba(60,40,100,.05)}" +
+      ".sugg button:hover{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 8%,#fff)}" +
+      ".sugg button:active{transform:scale(.97)}" +
+      // Opções de desambiguação = CARTÕES (nome do artigo + resumo), como no portal.
+      ".opts{display:flex;flex-direction:column;gap:8px;padding-left:39px}" +
+      ".opts button{text-align:left;border:1.5px solid;border-color:color-mix(in srgb,var(--pc) 38%,#fff);background:#fff;border-radius:14px;padding:10px 12px;cursor:pointer;box-shadow:0 2px 7px rgba(60,40,100,.05);transition:border-color .15s,background .15s}" +
+      ".opts button:hover{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 8%,#fff)}" +
+      ".opts .ol{display:block;font-size:13px;font-weight:600;color:var(--pc)}" +
+      ".opts .os{display:block;font-size:12px;color:#6b6577;margin-top:2px;line-height:1.4}" +
+      // Rodapé / entrada
+      ".ft{border-top:1px solid #efe9f6;padding:12px;display:flex;gap:9px;align-items:flex-end;background:#fff}" +
+      ".ft textarea{flex:1;resize:none;border:1.5px solid #e6ddf1;border-radius:16px;padding:11px 14px;font-size:14px;line-height:1.4;outline:none;overflow-y:hidden;background:#faf8fd;transition:border-color .15s,background .15s;min-height:44px}" +
+      ".ft textarea:focus{border-color:var(--pc);background:#fff}" +
+      ".ft button{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;border-radius:50%;width:44px;height:44px;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s,box-shadow .15s,opacity .15s;box-shadow:0 8px 18px rgba(60,30,110,.3)}" +
+      ".ft button:hover:not(:disabled){transform:scale(1.06)}" +
+      ".ft button:disabled{opacity:.4;cursor:default;box-shadow:none}" +
+      ".ft button svg{width:19px;height:19px}" +
+      // "Digitando…": três pontos que sobem em onda, na cor da marca do widget.
+      ".dots{display:inline-flex;gap:4px;align-items:flex-end;height:8px}" +
+      ".dots span{width:7px;height:7px;border-radius:50%;background:var(--pc);animation:bl 1.4s ease-in-out infinite}" +
+      ".dots span:nth-child(2){animation-delay:.16s}.dots span:nth-child(3){animation-delay:.32s}" +
+      "@keyframes bl{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}" +
+      "@media (prefers-reduced-motion:reduce){.dots span{animation:blf 1.4s ease-in-out infinite}.panel.open{animation:none}}" +
+      "@keyframes blf{0%,100%{opacity:.35}50%{opacity:1}}" +
+      ".pw{padding:8px 12px 10px;font-size:10.5px;color:#a99fbe;text-align:center;background:#fff;letter-spacing:.02em}"
     );
   }
 
@@ -106,6 +170,44 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   var ICON_SEND =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+  // Avatar do assistente: um brilho ("sparkle"), como nas referências.
+  var ICON_BOT =
+    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 4.8L18 8.5l-4.3 1.7L12 15l-1.7-4.8L6 8.5l4.3-1.7L12 2z"/><path d="M19 13l.8 2.3L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.7L19 13z" opacity=".65"/></svg>';
+
+  /**
+   * Deriva a 2ª cor do gradiente a partir da primária configurada (mistura em
+   * direção a um índigo vivo) — sem depender de color-mix p/ o gradiente.
+   */
+  function derive(hex) {
+    var m = /^#?([0-9a-fA-F]{6})$/.exec((hex || "").trim());
+    if (!m) return hex || "#511C76";
+    var n = parseInt(m[1], 16);
+    var r = (n >> 16) & 255,
+      g = (n >> 8) & 255,
+      b = n & 255;
+    var tr = 0x6d,
+      tg = 0x5a,
+      tb = 0xe6;
+    r = Math.round(r * 0.68 + tr * 0.32);
+    g = Math.round(g * 0.68 + tg * 0.32);
+    b = Math.round(b * 0.68 + tb * 0.32);
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  /**
+   * Conteúdo da BOLHA fechada: o avatar/ícone configurado (para o ícone
+   * escolhido no admin aparecer também na bolha, não só no cabeçalho); sem
+   * avatar, o ícone de conversa padrão. Ícone (SVG) = centralizado; foto = preenche.
+   */
+  function bubbleInner() {
+    // Imagem própria da BOLHA; se não houver, cai no avatar do bot; senão, ícone.
+    var src = cfg.launcherUrl || cfg.avatarUrl;
+    if (src) {
+      var isSvg = src.indexOf("data:image/svg") === 0;
+      return '<img src="' + esc(src) + '" alt="" class="' + (isSvg ? "bic" : "bimg") + '">';
+    }
+    return ICON_CHAT;
+  }
 
   // ==== Montagem ====
   function mount() {
@@ -119,20 +221,34 @@
     root.appendChild(st);
 
     var wrap = document.createElement("div");
-    wrap.style.setProperty("--pc", cfg.primaryColor || "#511C76");
+    var pc = cfg.primaryColor || "#511C76";
+    wrap.style.setProperty("--pc", pc);
+    // Cor secundária escolhida (hex válido) OU derivada da primária.
+    var sec = /^#?[0-9a-fA-F]{6}$/.test(cfg.secondaryColor || "")
+      ? (cfg.secondaryColor.charAt(0) === "#" ? cfg.secondaryColor : "#" + cfg.secondaryColor)
+      : derive(pc);
+    wrap.style.setProperty("--pc2", sec);
+    // Tamanho da bolha e formato do avatar (parametrizados no admin).
+    var TAM = { sm: "52px", md: "60px", lg: "70px" };
+    wrap.style.setProperty("--bs", TAM[cfg.bubbleSize] || "60px");
+    var FORMA = { circle: "50%", rounded: "30%", square: "18%" };
+    wrap.style.setProperty("--ash", FORMA[cfg.avatarShape] || "50%");
 
     bubble = document.createElement("button");
     bubble.className = "bubble";
     bubble.setAttribute("aria-label", "Abrir assistente");
-    bubble.innerHTML = ICON_CHAT;
+    bubble.innerHTML = bubbleInner();
 
     panel = document.createElement("div");
     panel.className = "panel";
     panel.innerHTML =
       '<div class="hd">' +
-      (cfg.avatarUrl ? '<img src="' + esc(cfg.avatarUrl) + '" alt="">' : "") +
-      '<span class="t">' + esc(cfg.title) + "</span>" +
-      '<button aria-label="Fechar" data-close>&times;</button></div>' +
+      '<div class="hav">' +
+      (cfg.avatarUrl ? '<img src="' + esc(cfg.avatarUrl) + '" alt="">' : ICON_BOT) +
+      "</div>" +
+      '<div class="ti"><div class="t">' + esc(cfg.title) + "</div>" +
+      '<div class="s">' + esc(cfg.subtitle || "Pergunte o que quiser") + "</div></div>" +
+      '<button aria-label="Minimizar" data-close>&minus;</button></div>' +
       '<div class="msgs"></div>' +
       '<div class="ft"><textarea rows="1" placeholder="Escreva sua pergunta…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
@@ -154,6 +270,8 @@
         submit();
       }
     });
+    // A caixa cresce com as linhas, até 5 linhas; depois rola por dentro.
+    inputEl.addEventListener("input", autoGrow);
 
     positionBubble();
     setupDrag();
@@ -232,7 +350,7 @@
   }
   function positionBubble() {
     var p = savedPos();
-    var size = 56, margin = 20;
+    var size = Math.round(bubble.getBoundingClientRect().width) || 60, margin = 20;
     var x = p ? p.x : (cfg.position === "left" ? margin : window.innerWidth - size - margin);
     var y = p ? p.y : window.innerHeight - size - margin;
     x = Math.max(margin, Math.min(x, window.innerWidth - size - margin));
@@ -245,16 +363,19 @@
   }
   function placePanel() {
     var b = bubble.getBoundingClientRect();
-    var pw = Math.min(380, window.innerWidth - 24);
+    // Precisa BATER com o CSS do .panel (width:392; height:620; max-h:100vh-96),
+    // senão a base do painel passa do limite da janela.
+    var pw = Math.min(392, window.innerWidth - 24);
     var left = b.left + b.width / 2 < window.innerWidth / 2 ? b.left : b.right - pw;
     left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
     panel.style.left = left + "px";
     panel.style.width = pw + "px";
-    // Abre acima da bolha por padrão.
-    var ph = Math.min(560, window.innerHeight - 96);
+    // Altura REAL renderizada = min(620, 100vh - 96). Abre acima da bolha por
+    // padrão; se não couber, abaixo — sempre grudado ao topo/base visível.
+    var ph = Math.min(620, window.innerHeight - 96);
     var top = b.top - ph - 12;
     if (top < 12) top = Math.min(b.bottom + 12, window.innerHeight - ph - 12);
-    panel.style.top = Math.max(12, top) + "px";
+    panel.style.top = Math.max(12, Math.min(top, window.innerHeight - ph - 12)) + "px";
   }
   function setupDrag() {
     var dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
@@ -284,7 +405,7 @@
         return;
       }
       // Snap horizontal na borda mais próxima.
-      var size = 56, margin = 20;
+      var size = Math.round(bubble.getBoundingClientRect().width) || 60, margin = 20;
       var r = bubble.getBoundingClientRect();
       var x = r.left + size / 2 < window.innerWidth / 2 ? margin : window.innerWidth - size - margin;
       var y = Math.max(margin, Math.min(r.top, window.innerHeight - size - margin));
@@ -312,16 +433,28 @@
     } else {
       panel.classList.remove("open");
       bubble.style.fontSize = "";
-      bubble.innerHTML = ICON_CHAT;
+      bubble.innerHTML = bubbleInner();
     }
   }
 
   // ==== Mensagens ====
+  // Linha do assistente: avatar (brilho/foto) + balão. Retorna a LINHA.
+  function botRow(bubbleEl) {
+    var row = document.createElement("div");
+    row.className = "arow";
+    var av = document.createElement("div");
+    av.className = "av";
+    av.innerHTML = cfg.avatarUrl ? '<img src="' + esc(cfg.avatarUrl) + '" alt="">' : ICON_BOT;
+    row.appendChild(av);
+    row.appendChild(bubbleEl);
+    return row;
+  }
   function addMsg(role, text) {
     var el = document.createElement("div");
     el.className = "m " + (role === "user" ? "u" : "a");
     el.textContent = text;
-    messagesEl.appendChild(el);
+    if (role === "user") messagesEl.appendChild(el);
+    else messagesEl.appendChild(botRow(el)); // assistente ganha avatar ao lado
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return el;
   }
@@ -346,38 +479,85 @@
 
   var history = [];
   var busy = false;
+  // Tema em foco na conversa (eco do servidor via evento SSE `theme`). Vai como
+  // `contextScope` na próxima pergunta — evita perguntar de novo no mesmo assunto.
+  var contextScope = null;
+
+  // Pergunta de desambiguação: renderiza os botões de tema; ao clicar, re-consulta
+  // já filtrada (reaproveita o estilo `.sugg` das perguntas sugeridas).
+  function renderClarify(question, options) {
+    if (question) addMsg("assistant", question);
+    var box = document.createElement("div");
+    box.className = "opts";
+    (options || []).forEach(function (o) {
+      var b = document.createElement("button");
+      if (o.sublabel) {
+        // Cartão: nome do artigo em destaque + resumo abaixo (igual ao portal).
+        var ol = document.createElement("span");
+        ol.className = "ol";
+        ol.textContent = o.label;
+        var os = document.createElement("span");
+        os.className = "os";
+        os.textContent = o.sublabel;
+        b.appendChild(ol);
+        b.appendChild(os);
+      } else {
+        b.textContent = o.label;
+      }
+      b.addEventListener("click", function () {
+        box.remove();
+        ask(o.scope);
+      });
+      box.appendChild(b);
+    });
+    messagesEl.appendChild(box);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // Auto-cresce a caixa de texto conforme as linhas, até 5 linhas; depois rola.
+  function autoGrow() {
+    inputEl.style.height = "auto";
+    var cs = getComputedStyle(inputEl);
+    var lh = parseFloat(cs.lineHeight) || 18;
+    var padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    var max = lh * 5 + padY;
+    inputEl.style.height = Math.min(inputEl.scrollHeight, max) + "px";
+    inputEl.style.overflowY = inputEl.scrollHeight > max ? "auto" : "hidden";
+  }
 
   function submit() {
     var text = inputEl.value.trim();
     if (!text || busy) return;
     inputEl.value = "";
-    inputEl.style.height = "auto";
+    autoGrow();
     addMsg("user", text);
     history.push({ role: "user", content: text });
     ask();
   }
 
-  function ask() {
+  function ask(scope) {
     busy = true;
     sendBtn.disabled = true;
-    var typing = document.createElement("div");
-    typing.className = "m a";
-    typing.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    var typingBubble = document.createElement("div");
+    typingBubble.className = "m a";
+    typingBubble.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    var typing = botRow(typingBubble); // avatar + balão de "digitando"
     messagesEl.appendChild(typing);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
     var answerEl = null;
     var full = "";
     var citations = [];
+    var clarified = false;
 
+    var body = { messages: history, conversationId: conversationId, sessionId: sessionId };
+    if (scope) body.scope = scope;
+    if (contextScope) body.contextScope = contextScope;
+    if (track) body.track = track;
     fetch(API + "/api/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
-      body: JSON.stringify({
-        messages: history,
-        conversationId: conversationId,
-        sessionId: sessionId,
-      }),
+      body: JSON.stringify(body),
     })
       .then(function (res) {
         if (!res.ok) {
@@ -419,6 +599,12 @@
     function handle(evt) {
       if (evt.type === "citations") {
         citations = evt.citations || [];
+      } else if (evt.type === "theme") {
+        contextScope = evt.scope || null;
+      } else if (evt.type === "clarify") {
+        clarified = true;
+        if (typing.parentNode) typing.remove();
+        renderClarify(evt.question, evt.options);
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         if (!answerEl) answerEl = addMsg("assistant", "");
@@ -434,6 +620,10 @@
     }
     function finish() {
       if (typing.parentNode) typing.remove();
+      if (clarified) {
+        done();
+        return;
+      }
       if (full) {
         history.push({ role: "assistant", content: full });
         if (citations.length) renderCitations(citations);

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/auth/audit";
 import { reindexNodeChunks } from "@/lib/content/chunk";
+import { notifyApprovers } from "@/lib/content/review-notify";
 
 export type ReviewResult = { ok: true } | { ok: false; error: string };
 
@@ -31,9 +32,14 @@ function mapErr(msg: string): string {
 /** Editor envia o rascunho para revisão (status → review). */
 export async function submitForReview(nodeId: string): Promise<ReviewResult> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { error } = await supabase.rpc("submit_for_review", { p_node_id: nodeId });
   if (error) return { ok: false, error: mapErr(error.message) };
   await audit({ action: "review.submit", entityType: "node", entityId: nodeId });
+  // Avisa os responsáveis por aprovar (escopo cobre o nó) — segundo plano, nunca lança.
+  await notifyApprovers(nodeId, user?.id ?? null);
   revalidatePath("/admin/revisao");
   revalidatePath(`/admin/conteudo/${nodeId}`);
   return { ok: true };

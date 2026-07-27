@@ -6,6 +6,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { Eye, EyeOff, GripVertical, ImagePlus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
@@ -140,7 +141,7 @@ export function AppearanceEditor({
 }) {
   const [tema, setTema] = useState<TemaResolvido>(temaSalvo);
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
+  const toast = useToast();
   const [enviando, setEnviando] = useState<"logo" | "cover" | null>(null);
 
   const sujo = JSON.stringify(tema) !== JSON.stringify(temaSalvo);
@@ -154,16 +155,15 @@ export function AppearanceEditor({
     setTema((t) => ({ ...t, header: { ...t.header, ...patch } }));
 
   function salvar() {
-    setMsg(null);
     startTransition(async () => {
       // Um erro lançado (não retornado) por uma action dentro da transição sobe
       // até a raiz e apaga a tela. O try/catch mantém a falha na própria página.
       try {
         const res = await updateSpaceTheme(spaceId, paraGravar(tema));
-        if (!res.ok) return setMsg(res.error);
-        setMsg("Salvo. O portal público já reflete a mudança.");
+        if (!res.ok) return toast.error(res.error);
+        toast.success("Salvo. O portal público já reflete a mudança.");
       } catch (e) {
-        setMsg(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
+        toast.error(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
       }
     });
   }
@@ -266,7 +266,7 @@ export function AppearanceEditor({
               escolherEEnviar(spaceId, (url) => {
                 setEnviando(null);
                 if (url) setBrand({ logoUrl: url });
-                else setMsg("Falha no envio da imagem.");
+                else toast.error("Falha no envio da imagem.");
               });
             }}
             onLimpar={() => setBrand({ logoUrl: null })}
@@ -289,7 +289,7 @@ export function AppearanceEditor({
                       r.key === "cover" ? { ...r, on: true } : r,
                     ),
                   });
-                } else setMsg("Falha no envio da imagem.");
+                } else toast.error("Falha no envio da imagem.");
               });
             }}
             onLimpar={() => setBrand({ coverUrl: null })}
@@ -882,11 +882,6 @@ export function AppearanceEditor({
           </a>
         </div>
 
-        {msg && (
-          <p role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-            {msg}
-          </p>
-        )}
       </div>
 
       {/* ── Prévia ao vivo ─────────────────────────────────────────────

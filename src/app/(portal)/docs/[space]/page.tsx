@@ -83,7 +83,7 @@ export default async function SpaceHome({
       : [];
     const { tema } = spaceChrome(space);
     return (
-      <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
+      <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide" track={{ nodeId: null, kind: "home", title: space.name }}>
       {originSetter}
         <div className="leitura mx-auto max-w-prose" data-size={tema.article.fontSize}>
           <Link
@@ -191,7 +191,7 @@ export default async function SpaceHome({
   };
 
   return (
-    <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide">
+    <PortalShell space={space} tree={tree} activePath="" nav={false} width="wide" track={{ nodeId: null, kind: "home", title: space.name }}>
       {originSetter}
       <SpaceHomeView tema={tema} dados={dados} />
     </PortalShell>

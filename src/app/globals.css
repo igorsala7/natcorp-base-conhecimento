@@ -269,6 +269,12 @@
      editor, aplicado no wrapper) deixa de ter efeito — já quebrou uma vez. */
   .prose-portal {
     max-width: var(--measure);
+    /* Corta o transbordo horizontal do CONTEÚDO no mobile (uma tabela larga
+       cujo wrapper `overflow-x-auto` não segurava a rolagem no nível da página
+       fazia o portal "balançar para os lados"). `clip` não cria contêiner de
+       rolagem — não quebra o `position: sticky` do cabeçalho, que fica fora
+       daqui — e cada tabela/código mantém a própria rolagem interna. */
+    overflow-x: clip;
     font-size: var(--l-body, 0.9375rem);
     /* Referência: corpo em ink-700 (mais claro que títulos ink-900) — é o
        contraste tipográfico que dá o acabamento da página-modelo. */
@@ -456,6 +462,20 @@
   .table-portal tr:last-child td {
     border-bottom: 0;
   }
+  /* Bordas configuráveis (data-borders no wrapper .table-portal). Padrão = só
+     linhas horizontais (regras acima). "all" = grade; "none" = sem bordas. */
+  .table-portal[data-borders="all"] td,
+  .table-portal[data-borders="all"] th {
+    border: 1px solid var(--color-border);
+  }
+  .table-portal[data-borders="none"] td,
+  .table-portal[data-borders="none"] th {
+    border: 0;
+  }
+  /* Zebra desligada (data-striped="false"). */
+  .table-portal[data-striped="false"] tbody tr:nth-child(even) td {
+    background: transparent;
+  }
 
   /* Prévia do admin: destaca o artigo alvo quando se chega por âncora
      (botão "Prévia" do editor). Some sozinho ao navegar para outro. */
@@ -505,6 +525,31 @@
     opacity: 0;
   }
   to {
+    opacity: 1;
+  }
+}
+/* "Digitando…" — três pontos que sobem em onda (indicador clássico de chat).
+   Usado no assistente de IA, no Estúdio e no chat do editor. O widget tem a
+   sua própria cópia (Shadow DOM não enxerga esta folha). */
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+/* Variante sem salto para prefers-reduced-motion (só pulsa a opacidade). */
+@keyframes typing-soft {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
     opacity: 1;
   }
 }

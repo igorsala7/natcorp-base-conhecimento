@@ -6,6 +6,7 @@ import { ArrowLeft, Check, Loader2, Mail, Monitor, Smartphone } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { EmbeddedBlockEditor } from "@/components/editor/blocks/embedded-editor";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToEmailHtml, injectEmailBody, wrapEmailDocument } from "@/lib/blocks/email-html";
@@ -38,8 +39,8 @@ export function EmailTemplateEditor({
   const [editorKey, setEditorKey] = useState(0);
   const [dispositivo, setDispositivo] = useState<"desktop" | "mobile">("desktop");
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
   const { confirmar } = useConfirm();
+  const toast = useToast();
 
   const sujo = JSON.stringify(blocks) !== salvoJson;
   const ano = String(new Date().getFullYear());
@@ -61,19 +62,18 @@ export function EmailTemplateEditor({
 
   function salvar(): Promise<boolean> {
     return new Promise((resolve) => {
-      setMsg(null);
       startTransition(async () => {
         try {
           const res = await saveEmailTemplate({ version: 2, blocks });
           if (!res.ok) {
-            setMsg(res.error);
+            toast.error(res.error);
             return resolve(false);
           }
           setSalvoJson(JSON.stringify(blocks));
-          setMsg("Template salvo.");
+          toast.success("Template salvo.");
           resolve(true);
         } catch (e) {
-          setMsg(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
+          toast.error(e instanceof Error ? `Falha ao salvar: ${e.message}` : "Falha ao salvar.");
           resolve(false);
         }
       });
@@ -84,7 +84,8 @@ export function EmailTemplateEditor({
     if (sujo && !(await salvar())) return; // testa sempre o que está salvo/no ar
     startTransition(async () => {
       const res = await sendTestEmail();
-      setMsg(res.ok ? res.msg ?? "E-mail de teste enviado." : res.error);
+      if (res.ok) toast.success(res.msg ?? "E-mail de teste enviado.");
+      else toast.error(res.error);
     });
   }
 
@@ -103,7 +104,7 @@ export function EmailTemplateEditor({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       {/* Barra superior */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
         <Link
@@ -118,7 +119,6 @@ export function EmailTemplateEditor({
         <h1 className="text-sm font-semibold">Template de e-mail</h1>
 
         <div className="ml-auto flex items-center gap-2">
-          {msg && <span className="mr-1 text-xs text-text-muted">{msg}</span>}
           <Button size="sm" variant="secondary" onClick={testar} disabled={pending}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />} Enviar teste
           </Button>

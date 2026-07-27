@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { zodSchema } from "ai";
-import { blocksSchema } from "./layout-schema";
+import { blocksSchema, blocksSchemaCompacto } from "./layout-schema";
 
 /**
  * Guardas das três minas do structured output (ver layout-schema.ts).
@@ -49,7 +49,7 @@ describe("layout-schema (JSON Schema para o provedor)", () => {
         { kind: "hero", eyebrow: null, title: "Seção", subtitle: null, icon: null },
         { kind: "cardGrid", cards: [{ title: "A", text: "a", icon: null }] },
         { kind: "toggle", title: "Detalhes", items: ["escondido"], icon: null },
-        { kind: "table", rows: [["A", "B"], ["1", "2"]], largura: null, posicao: null },
+        { kind: "table", rows: [["A", "B"], ["1", "2"]] },
         { kind: "quote", text: "Documentar é cuidar.", autor: null },
         { kind: "spacer", size: "md" },
         { kind: "accordion", items: [{ titulo: "Como instalar?", texto: "Baixe o pacote." }] },
@@ -57,5 +57,35 @@ describe("layout-schema (JSON Schema para o provedor)", () => {
       ],
     };
     expect(blocksSchema.parse(doc).blocks).toHaveLength(15);
+  });
+});
+
+describe("blocksSchemaCompacto (provedores com limite de gramática)", () => {
+  const json = zodSchema(blocksSchemaCompacto).jsonSchema;
+
+  it("não emite oneOf e é bem menor que o completo", () => {
+    expect(JSON.stringify(json)).not.toContain('"oneOf"');
+    // menos ramos de união → gramática menor (cabe no Anthropic/Google).
+    const compacto = JSON.stringify(json).length;
+    const completo = JSON.stringify(zodSchema(blocksSchema).jsonSchema).length;
+    expect(compacto).toBeLessThan(completo);
+  });
+
+  it("aceita os 10 blocos-núcleo e REJEITA contêineres", () => {
+    const ok = blocksSchemaCompacto.safeParse({
+      blocks: [
+        { kind: "heading", level: 2, text: "T" },
+        { kind: "paragraph", text: "p" },
+        { kind: "steps", items: [{ titulo: null, texto: "1" }] },
+        { kind: "table", rows: [["a", "b"]] },
+        { kind: "divider" },
+      ],
+    });
+    expect(ok.success).toBe(true);
+    // hero é contêiner → fora do compacto.
+    const bad = blocksSchemaCompacto.safeParse({
+      blocks: [{ kind: "hero", eyebrow: null, title: "x", subtitle: null, icon: null }],
+    });
+    expect(bad.success).toBe(false);
   });
 });

@@ -290,4 +290,166 @@ export async function revokeSessions(userId: string): Promise<ActionState> {
   return { ok: "Sessões revogadas." };
 }
 
+/**
+ * Edita a identidade INTERNA do usuário — nome, cargo e foto —, separada do
+ * perfil PÚBLICO de autor. Exige user.manage e respeita a não-escalada (não
+ * edita quem tem nível ≥ ao seu; a si mesmo pode).
+ */
+const identitySchema = z.object({
+  userId: z.string().uuid(),
+  fullName: z.string().trim().max(120).nullable(),
+  jobTitle: z.string().trim().max(120).nullable(),
+  avatarUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .nullable()
+    .refine((v) => !v || v.startsWith("https://") || v.startsWith("/"), {
+      message: "Foto precisa ser https:// ou caminho local.",
+    }),
+});
+
+export async function updateProfileIdentity(
+  input: z.infer<typeof identitySchema>,
+): Promise<ActionState> {
+  const parsed = identitySchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Dados inválidos.");
+  const { userId, fullName, jobTitle, avatarUrl } = parsed.data;
+
+  let actor;
+  try {
+    actor = await requirePermission("user.manage");
+  } catch {
+    return fail("Sem permissão para editar usuários.");
+  }
+
+  const supabase = await createClient();
+  const { data: targetLevel } = await supabase.rpc("max_role_level", {
+    p_user_id: userId,
+    p_space_id: undefined,
+  });
+  const actorLevel = await currentMaxLevel(null);
+  if (userId !== actor.id && actorLevel <= (targetLevel ?? 0)) {
+    return fail("Você não pode editar um usuário de nível igual ou superior ao seu.");
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      full_name: fullName || null,
+      job_title: jobTitle || null,
+      avatar_url: avatarUrl || null,
+    })
+    .eq("id", userId);
+  if (error) return fail(`Falha: ${error.message}`);
+
+  await audit({
+    action: "user.identity_update",
+    entityType: "user",
+    entityId: userId,
+    after: { full_name: fullName, job_title: jobTitle },
+  });
+  revalidatePath("/admin/usuarios");
+  return { ok: "Identidade atualizada." };
+}
+
+/**
+ * Adiciona uma REGRA de acesso ao usuário: papel + documentação (espaço) +
+ * diretório opcional (subárvore). Várias regras convivem. O papel decide o
+ * efeito: papel de edição restringe o que o Editor edita; papel com
+ * review.approve restringe o que o aprovador aprova. Inserido pela sessão do
+ * ator — RLS + trigger de não-escalada decidem de verdade.
+ */
+const ruleSchema = z.object({
+  userId: z.string().uuid(),
+  roleKey: z.string().min(1),
+  spaceId: z.string().uuid(),
+  nodeId: z.string().uuid().nullable().optional(),
+});
+
+export async function addMembershipRule(
+  input: z.infer<typeof ruleSchema>,
+): Promise<ActionState> {
+  const parsed = ruleSchema.safeParse(input);
+  if (!parsed.success) return fail("Dados inválidos.");
+  const { userId, roleKey, spaceId, nodeId = null } = parsed.data;
+
+  try {
+    await requirePermission("user.manage", spaceId);
+  } catch {
+    return fail("Sem permissão para gerenciar acesso neste escopo.");
+  }
+
+  const supabase = await createClient();
+  const { data: role } = await supabase.from("roles").select("id, level").eq("key", roleKey).single();
+  if (!role) return fail("Papel inválido.");
+
+  const actorLevel = await currentMaxLevel(spaceId);
+  if (actorLevel <= role.level) {
+    return fail("Você não pode conceder um papel de nível igual ou superior ao seu.");
+  }
+
+  const { error } = await supabase.from("memberships").insert({
+    user_id: userId,
+    role_id: role.id,
+    space_id: spaceId,
+    node_id: nodeId,
+  });
+  if (error) {
+    return fail(
+      error.message.includes("nível")
+        ? "Você não pode conceder um papel de nível igual ou superior ao seu."
+        : `Falha: ${error.message}`,
+    );
+  }
+
+  await audit({
+    action: "user.rule_add",
+    entityType: "user",
+    entityId: userId,
+    spaceId,
+    after: { role: roleKey, node_id: nodeId },
+  });
+  revalidatePath("/admin/usuarios");
+  return { ok: "Regra de acesso adicionada." };
+}
+
+/** Remove uma regra de acesso (membership). Não remove papel ≥ ao seu; o último Owner é protegido pelo banco. */
+export async function removeMembershipRule(membershipId: string): Promise<ActionState> {
+  if (!/^[0-9a-f-]{36}$/i.test(membershipId)) return fail("Inválido.");
+
+  const supabase = await createClient();
+  const { data: m } = await supabase
+    .from("memberships")
+    .select("space_id, roles(level)")
+    .eq("id", membershipId)
+    .single();
+  if (!m) return fail("Regra não encontrada.");
+
+  try {
+    await requirePermission("user.manage", m.space_id ?? null);
+  } catch {
+    return fail("Sem permissão para gerenciar acesso neste escopo.");
+  }
+
+  const targetLevel = (m.roles as unknown as { level: number } | null)?.level ?? 0;
+  const actorLevel = await currentMaxLevel(m.space_id ?? null);
+  if (actorLevel <= targetLevel) {
+    return fail("Você não pode remover um papel de nível igual ou superior ao seu.");
+  }
+
+  const { error } = await supabase.from("memberships").delete().eq("id", membershipId);
+  if (error) {
+    return fail(
+      error.message.toLowerCase().includes("owner")
+        ? "Não é possível remover o último Owner."
+        : `Falha: ${error.message}`,
+    );
+  }
+
+  await audit({ action: "user.rule_remove", entityType: "membership", entityId: membershipId });
+  revalidatePath("/admin/usuarios");
+  return { ok: "Regra removida." };
+}
+
 export { PermissionError };

@@ -10,6 +10,7 @@ import { Toc, type TocItem } from "@/components/portal/toc";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PortalAssistant, SearchTrigger, AskTrigger } from "@/components/portal/portal-search";
 import { ReadingProgress } from "@/components/portal/reading-progress";
+import { PortalTracker } from "@/components/portal/portal-tracker";
 import { EditAffordance } from "@/components/portal/edit-affordance";
 import { SocialIcon } from "@/components/portal/social-icons";
 import type { PortalTreeNode } from "@/lib/portal/data";
@@ -68,6 +69,7 @@ export function PortalShell({
   nav = true,
   width = "prose",
   activeNodeId,
+  track,
   children,
 }: {
   space: ShellSpace;
@@ -90,6 +92,11 @@ export function PortalShell({
   width?: "prose" | "wide";
   /** Artigo em foco — o atalho de edição cai direto nele na prévia. */
   activeNodeId?: string | null;
+  /**
+   * Rastreio da página (documentação/diretório/artigo). Presente só nas páginas
+   * que devem registrar acesso — a 404 e o gate de senha omitem, e nada é logado.
+   */
+  track?: { nodeId: string | null; kind: "home" | "folder" | "article"; title: string };
   children: React.ReactNode;
 }) {
   const { supportUrl, style, tema, temaClasse } = spaceChrome(space);
@@ -118,6 +125,15 @@ gtag('config', '${tema.tracking.ga4}');`}
         </>
       )}
       <ReadingProgress />
+      {track && (
+        <PortalTracker
+          spaceSlug={space.slug}
+          nodeId={track.nodeId}
+          kind={track.kind}
+          title={track.title}
+          path={activePath}
+        />
+      )}
 
       {/* Cabeçalho leve: hairline apenas, sem sombra — quem separa é o ar. */}
       <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/65">

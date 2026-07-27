@@ -12,6 +12,7 @@ import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import type { Json } from "@/lib/database.types";
 import { proposeLayoutQuestions } from "@/lib/importer/questions";
+import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
 
 export type ImportResult =
@@ -37,6 +38,12 @@ export async function createImportJob(input: {
     await requirePermission("content.import", input.spaceId);
   } catch {
     return { ok: false, error: "Sem permissão para importar." };
+  }
+  if (!extensaoAceita(input.originalName)) {
+    return { ok: false, error: "Tipo de arquivo não permitido." };
+  }
+  if (input.sizeBytes > MAX_UPLOAD_BYTES) {
+    return { ok: false, error: `Arquivo muito grande (máx. ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).` };
   }
 
   const supabase = await createClient();

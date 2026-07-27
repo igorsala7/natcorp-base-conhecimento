@@ -5,6 +5,7 @@ import { RotateCcw, Lock, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { wordDiff, type DiffOp } from "@/lib/content/word-diff";
@@ -34,8 +35,8 @@ export function HistoryPanel({
   const [versions, setVersions] = useState<ArticleVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const { confirmar, pedirTexto } = useConfirm();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail>(null);
   const [aId, setAId] = useState("");
   const [bId, setBId] = useState("");
@@ -62,14 +63,14 @@ export function HistoryPanel({
   async function view(id: string) {
     const r = await getArticleVersion(id);
     if (r.ok) setDetail({ mode: "view", content: r.content });
-    else setMsg(r.error);
+    else toast.error(r.error);
   }
 
   async function compare() {
     if (!aId || !bId) return;
     const [ra, rb] = await Promise.all([getArticleVersion(aId), getArticleVersion(bId)]);
     if (!ra.ok || !rb.ok) {
-      setMsg("Não foi possível carregar as versões.");
+      toast.error("Não foi possível carregar as versões.");
       return;
     }
     const va = versions.find((v) => v.id === aId);
@@ -98,8 +99,10 @@ export function HistoryPanel({
     setBusy(true);
     const r = await snapshotArticleVersion(nodeId, label, isProtected);
     setBusy(false);
-    setMsg(r.ok ? "Versão salva." : r.error);
-    if (r.ok) load();
+    if (r.ok) {
+      toast.success("Versão salva.");
+      load();
+    } else toast.error(r.error);
   }
 
   async function editLabel(v: ArticleVersion) {
@@ -119,8 +122,10 @@ export function HistoryPanel({
     setBusy(true);
     const r = await renameArticleVersion(v.id, label, isProtected);
     setBusy(false);
-    setMsg(r.ok ? "Atualizada." : r.error);
-    if (r.ok) load();
+    if (r.ok) {
+      toast.success("Atualizada.");
+      load();
+    } else toast.error(r.error);
   }
 
   async function restore(v: ArticleVersion) {
@@ -134,10 +139,10 @@ export function HistoryPanel({
     const r = await restoreArticleVersion(nodeId, v.id);
     setBusy(false);
     if (r.ok) {
-      setMsg("Restaurado — recarregando…");
+      toast.success("Restaurado — recarregando…");
       setTimeout(() => window.location.reload(), 700);
     } else {
-      setMsg(r.error);
+      toast.error(r.error);
     }
   }
 
@@ -156,15 +161,6 @@ export function HistoryPanel({
       }
     >
       <>
-        {msg && (
-          <p
-            role="status"
-            className="mx-5 mb-2 rounded-md bg-brand-purple-50 px-3 py-2 text-sm text-primary dark:bg-brand-purple-950/30"
-          >
-            {msg}
-          </p>
-        )}
-
         <div className="flex min-h-0 flex-1 border-t border-border">
           {/* Lista de versões */}
           <div className="w-80 shrink-0 overflow-auto border-r border-border p-3">

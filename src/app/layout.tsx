@@ -31,6 +31,10 @@ export const metadata: Metadata = {
     template: "%s · Natcorp",
   },
   description: "Plataforma de base de conhecimento da Natcorp.",
+  // Sistema NÃO rastreável por buscadores. Herdado por TODAS as páginas (as que
+  // definem seu próprio metadata não sobrescrevem `robots`). Ver também
+  // src/app/robots.ts e o cabeçalho X-Robots-Tag em next.config.ts.
+  robots: { index: false, follow: false, nocache: true },
 };
 
 export default function RootLayout({

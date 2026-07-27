@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { FileText, FolderPlus, MousePointer2, Sparkles } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
-import { getDefaultSpace, listTree } from "@/lib/content/tree";
+import { getDefaultSpace, listTree, embeddedNodeIds, ontologyNodeIds, pendingDraftNodeIds } from "@/lib/content/tree";
 import { listSpaces } from "@/lib/content/spaces";
 import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
 import { env } from "@/lib/env";
@@ -97,9 +97,29 @@ export default async function ConteudoPage({
     );
   }
 
-  const tree = await listTree(current.id);
+  const [tree, embeddedIds, ontologyIds, pendingDraftIds] = await Promise.all([
+    listTree(current.id),
+    embeddedNodeIds(current.id),
+    ontologyNodeIds(current.id),
+    pendingDraftNodeIds(current.id),
+  ]);
   return (
-    <ContentShell aside={<>{switcher}<Tree spaceId={current.id} nodes={tree} spaces={spaces} /></>}>
+    <ContentShell
+      aside={
+        <>
+          {switcher}
+          <Tree
+            spaceId={current.id}
+            nodes={tree}
+            spaces={spaces}
+            siteUrl={env.NEXT_PUBLIC_SITE_URL}
+            embeddedIds={embeddedIds}
+            ontologyIds={ontologyIds}
+            pendingDraftIds={pendingDraftIds}
+          />
+        </>
+      }
+    >
       <ConteudoVazio />
     </ContentShell>
   );

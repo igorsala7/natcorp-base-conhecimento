@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquareText, Send, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FileText, Folder, Loader2, MessageSquareText, Send, Sparkles, X } from "lucide-react";
 import type { Block } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { aplicarOpsNoDoc, resumoDoDoc } from "@/lib/studio/chat-ops";
-import { editorChatTurn } from "@/app/(admin)/admin/(app)/conteudo/chat-actions";
+import {
+  editorChatTurn,
+  applyChatStructure,
+  type ChatStructureItem,
+} from "@/app/(admin)/admin/(app)/conteudo/chat-actions";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
 import {
   LayoutQuestionsForm,
@@ -13,6 +18,9 @@ import {
 } from "./layout-questions";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
+import { TypingIndicator } from "@/components/ui/typing-indicator";
+import { Markdown } from "@/components/ui/markdown";
+import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 
 type Msg = { role: "user" | "assistant" | "system"; text: string };
 
@@ -42,17 +50,20 @@ export function EditorChat({
   onAcaoTexto: () => void;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [perguntas, setPerguntas] = useState<LayoutQuestion[] | null>(null);
   const [respostas, setRespostas] = useState<Record<string, number>>({});
   const [mostrarAcoesTexto, setMostrarAcoesTexto] = useState(false);
+  const [estrutura, setEstrutura] = useState<ChatStructureItem[] | null>(null);
+  const [criandoEstrutura, setCriandoEstrutura] = useState(false);
   const fimRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fimRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, perguntas, mostrarAcoesTexto]);
+  }, [msgs, perguntas, mostrarAcoesTexto, estrutura]);
 
   async function enviar(texto: string) {
     const t = texto.trim();
@@ -61,6 +72,7 @@ export function EditorChat({
     setPerguntas(null);
     setRespostas({});
     setMostrarAcoesTexto(false);
+    setEstrutura(null);
     const historico = msgs
       .filter((m): m is Msg & { role: "user" | "assistant" } => m.role !== "system")
       .map((m) => ({ role: m.role, text: m.text }));
@@ -112,6 +124,7 @@ export function EditorChat({
     }
 
     if (r.data.perguntas?.length) setPerguntas(r.data.perguntas);
+    if (r.data.estrutura?.length) setEstrutura(r.data.estrutura);
   }
 
   function responderPerguntas() {
@@ -119,6 +132,23 @@ export function EditorChat({
     const escolhas = diretivasEscolhidas(perguntas, respostas);
     if (!escolhas.length) return;
     void enviar(`Minhas escolhas:\n${escolhas.map((d) => `- ${d}`).join("\n")}`);
+  }
+
+  async function criarEstrutura() {
+    if (!estrutura?.length) return;
+    setCriandoEstrutura(true);
+    const r = await applyChatStructure(nodeId, estrutura);
+    setCriandoEstrutura(false);
+    setEstrutura(null);
+    if (!r.ok) {
+      setMsgs((m) => [...m, { role: "system", text: r.error }]);
+      return;
+    }
+    setMsgs((m) => [
+      ...m,
+      { role: "system", text: `${r.criados} item(ns) criado(s) na árvore.` },
+    ]);
+    router.refresh(); // atualiza a árvore lateral
   }
 
   return (
@@ -159,7 +189,11 @@ export function EditorChat({
                   : "rounded-md bg-surface-2 px-2.5 py-1 text-[0.6875rem] text-text-muted"
             }
           >
-            <span className="whitespace-pre-wrap">{m.text}</span>
+            {m.role === "assistant" ? (
+              <Markdown content={m.text} />
+            ) : (
+              <span className="whitespace-pre-wrap">{m.text}</span>
+            )}
           </div>
         ))}
 
@@ -203,10 +237,42 @@ export function EditorChat({
           </div>
         )}
 
+        {estrutura && estrutura.length > 0 && (
+          <div className="rounded-lg border border-primary/40 p-2.5">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-medium">
+              <Sparkles className="size-3.5 text-primary" /> Sugestão de organização
+            </p>
+            <ul className="space-y-1 text-[0.8125rem]">
+              {estrutura.map((it) => {
+                const filho = !!it.pai && estrutura.some((x) => x.tmp === it.pai);
+                const Icone = it.tipo === "folder" ? Folder : FileText;
+                return (
+                  <li key={it.tmp} className={`flex items-center gap-1.5 ${filho ? "pl-5" : ""}`}>
+                    <Icone className="size-3.5 shrink-0 text-text-muted" />
+                    <span className="truncate">{it.titulo}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-1.5 text-[0.6875rem] text-text-muted">
+              Os artigos nascem vazios, prontos para preencher.
+            </p>
+            <div className="mt-2.5 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEstrutura(null)} disabled={criandoEstrutura}>
+                Agora não
+              </Button>
+              <Button size="sm" onClick={criarEstrutura} disabled={criandoEstrutura}>
+                {criandoEstrutura ? <Loader2 className="size-4 animate-spin" /> : null}
+                Criar estrutura
+              </Button>
+            </div>
+          </div>
+        )}
+
         {ocupado && (
-          <p className="flex items-center gap-2 text-xs text-text-muted">
-            <Loader2 className="size-3.5 animate-spin text-primary" /> Pensando…
-          </p>
+          <div className="flex w-fit items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-text-muted">
+            <TypingIndicator /> <span>Pensando…</span>
+          </div>
         )}
         <div ref={fimRef} />
       </div>
@@ -218,7 +284,7 @@ export function EditorChat({
           void enviar(input);
         }}
       >
-        <textarea
+        <AutoGrowTextarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -227,10 +293,10 @@ export function EditorChat({
               void enviar(input);
             }
           }}
-          rows={2}
+          rows={1}
           placeholder="Instrução… (Enter envia)"
           disabled={ocupado}
-          className={`${controlClass} max-h-32 min-h-9 flex-1 resize-y text-sm`}
+          className={`${controlClass} min-h-9 flex-1 text-sm`}
         />
         <Button type="submit" size="sm" disabled={!input.trim() || ocupado} title="Enviar">
           <Send className="size-4" />

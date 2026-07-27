@@ -1,10 +1,10 @@
 import "server-only";
-import { generateText } from "ai";
-import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
+import { languageModel, hasAiKey, ehTimeout } from "@/lib/ai/config";
 import { CONTENT_INSTRUCTIONS, CABECALHO_PREFERENCIAS, PADRAO_DE_ARTIGO } from "./prompts";
 import type { Block, BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { sanitizeDoc } from "./rich-blocks";
+import { gerarSegmentoRico } from "./rich-generate";
 import {
   segmentarTexto,
   contarPalavras,
@@ -30,16 +30,6 @@ export type GenerateArticleResult = {
   /** Preenchido quando o resultado foi degradado (fallback fiel). */
   aviso?: string;
 };
-
-/** Extrai o objeto JSON de uma resposta que pode vir com cerca ```json ou prosa em volta. */
-function parseLoose(text: string): unknown {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const cru = (fence ? fence[1]! : text).trim();
-  const i = cru.indexOf("{");
-  const j = cru.lastIndexOf("}");
-  const alvo = i >= 0 && j > i ? cru.slice(i, j + 1) : cru;
-  return JSON.parse(alvo);
-}
 
 function comImagens(doc: BlockDoc, images: ImageRef[]): BlockDoc {
   return images.length ? reinsertImages(doc, images) : doc;
@@ -71,34 +61,25 @@ export async function generateArticle(
   let degradou = false;
 
   for (const seg of segmentos) {
-    let doc: BlockDoc | null = null;
-    for (let tentativa = 0; tentativa < 2 && !doc; tentativa++) {
-      try {
-        const reforco =
-          tentativa > 0
-            ? "\n\nATENÇÃO: devolva SOMENTE o JSON { \"blocks\": [...] }, sem cerca nem comentários."
-            : "";
-        const { text } = await generateText({
-          model,
-          prompt: cabecalho + reforco + "\n\nTEXTO:\n" + seg,
-          abortSignal: aiTimeout("import_layout"),
-        });
-        doc = sanitizeDoc(parseLoose(text), seg);
-      } catch (e) {
-        if (ehTimeout(e)) {
-          // Provedor lento: não trava a importação — cai para parágrafos fiéis.
-          return {
-            doc: comImagens(sanitizeDoc(null, texto), images),
-            aviso: "a IA não respondeu a tempo; conteúdo mantido em parágrafos fiéis",
-          };
-        }
-        if (tentativa === 1) {
-          doc = sanitizeDoc(null, seg);
-          degradou = true;
-        }
+    let doc: BlockDoc | null;
+    try {
+      doc = await gerarSegmentoRico(model, cabecalho, seg);
+    } catch (e) {
+      if (ehTimeout(e)) {
+        // Provedor lento: não trava a importação — cai para parágrafos fiéis.
+        return {
+          doc: comImagens(sanitizeDoc(null, texto), images),
+          aviso: "a IA não respondeu a tempo; conteúdo mantido em parágrafos fiéis",
+        };
       }
+      doc = null;
     }
-    blocos.push(...(doc ?? sanitizeDoc(null, seg)).blocks);
+    if (!doc) {
+      // Esgotou as tentativas: este segmento fica em parágrafos fiéis.
+      doc = sanitizeDoc(null, seg);
+      degradou = true;
+    }
+    blocos.push(...doc.blocks);
   }
 
   const doc: BlockDoc = { version: 2, blocks: blocos.length ? blocos : sanitizeDoc(null, texto).blocks };

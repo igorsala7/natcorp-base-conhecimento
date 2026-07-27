@@ -36,8 +36,8 @@ describe("question-schema (JSON Schema para o provedor)", () => {
           pergunta: "Os títulos das seções devem ter mais destaque ou serem sutis?",
           trecho: null,
           opcoes: [
-            { rotulo: "Mais destaque", exemplo: null, diretiva: "Use heading nível 2 nas seções." },
-            { rotulo: "Sutis", exemplo: null, diretiva: "Use heading nível 3 nas seções." },
+            { rotulo: "Mais destaque", exemplo: null, preview: "heading", diretiva: "Use heading nível 2 nas seções." },
+            { rotulo: "Sutis", exemplo: null, preview: null, diretiva: "Use heading nível 3 nas seções." },
           ],
         },
         {
@@ -48,11 +48,13 @@ describe("question-schema (JSON Schema para o provedor)", () => {
             {
               rotulo: "Tabela",
               exemplo: "| Status | Situação |\n| 1 | Realizado |",
+              preview: "table",
               diretiva: "Converta a relação de status em uma tabela de duas colunas.",
             },
             {
               rotulo: "Lista",
               exemplo: "- Status 1 — Realizado",
+              preview: "bullets",
               diretiva: "Converta a relação de status em lista com marcadores.",
             },
           ],

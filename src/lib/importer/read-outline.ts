@@ -99,9 +99,14 @@ export function outlineToTree(
   extraction.blocks.forEach((b, i) => {
     const pag = b.page ?? 1;
     if (pag < cortaFrontMatter) return; // folha de rosto / sumário — não é conteúdo
-    let alvo: { node: ProposedNode; depth: number } | null = null;
+    // Escolhe o nó dono da página: mais PROFUNDO vence (folha vence pasta) e,
+    // no EMPATE de profundidade (faixas irmãs que se sobrepõem), vence a que
+    // COMEÇA MAIS TARDE — assim a abertura de um artigo novo não fica presa no
+    // artigo anterior (o bug do conteúdo que "vazava" para o de cima).
+    let alvo: (typeof flat)[number] | null = null;
     for (const f of flat) {
-      if (pag >= f.start && pag <= f.end && (!alvo || f.depth > alvo.depth)) {
+      if (pag < f.start || pag > f.end) continue;
+      if (!alvo || f.depth > alvo.depth || (f.depth === alvo.depth && f.start > alvo.start)) {
         alvo = f;
       }
     }

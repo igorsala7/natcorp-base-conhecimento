@@ -44,6 +44,28 @@ export function TextBlock({ block, onChange, ...rest }: BlockEditProps) {
   );
 }
 
+/**
+ * Breadcrumb — trilha de navegação. Edita como uma linha de texto ("Início ›
+ * Seção › Página"); na prévia/portal vira a trilha com chevrons (render.tsx
+ * divide pelos separadores › » > /).
+ */
+export function BreadcrumbBlock({ block, onChange, ...rest }: BlockEditProps) {
+  const b = block as Extract<Block, { type: "breadcrumb" }>;
+  return (
+    <RichText
+      tag="p"
+      value={b.text}
+      onChange={(text: RT) => onChange({ text } as Partial<Block>)}
+      placeholder="Início › Seção › Página (separe com › ou >)"
+      autoFocus={rest.autoFocus}
+      onEnter={rest.onEnter}
+      onEmptyBackspace={rest.onEmptyBackspace}
+      onSlash={rest.onSlash}
+      registerHandle={rest.registerHandle}
+    />
+  );
+}
+
 /** Título com seletor de nível (H1/H2/H3). Renderiza a tag h1/h2/h3 real. */
 export function HeadingBlock({ block, onChange, ...rest }: BlockEditProps) {
   const b = block as Extract<Block, { type: "heading" }>;

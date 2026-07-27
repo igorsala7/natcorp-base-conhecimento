@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { leafOptions } from "@/lib/importer/layout-schema";
+import { leafOptions, chartLeaf, flowLeaf } from "@/lib/importer/layout-schema";
 import { questionsSchema } from "@/lib/importer/question-schema";
 
 /**
@@ -48,8 +48,11 @@ export const editorChatSchema = z.object({
         op: z.enum(["substituir", "inserir_apos", "inserir_topo", "remover", "estilizar"]),
         /** Id do bloco-alvo (topo-nível); null só para inserir_topo. */
         blockId: z.string().max(40).nullable(),
-        /** Blocos novos (folhas); null para remover/estilizar. */
-        blocks: z.array(z.union([...leafOptions, mermaidLeaf])).max(20).nullable(),
+        /** Blocos novos (folhas + diagrama/gráfico/fluxograma); null p/ remover/estilizar. */
+        blocks: z
+          .array(z.union([...leafOptions, mermaidLeaf, chartLeaf, flowLeaf]))
+          .max(20)
+          .nullable(),
         /** Aparência do bloco (só na op estilizar). */
         estilo: estiloField,
       }),
@@ -60,6 +63,24 @@ export const editorChatSchema = z.object({
   ferramenta: z.enum(["melhorar_layout", "melhorar_texto"]).nullable(),
   /** Perguntas com opções+exemplo quando faltar contexto/confirmação. */
   perguntas: questionsSchema.shape.perguntas.nullable(),
+  /**
+   * Proposta de NOVA ESTRUTURA (pastas/artigos) para organizar melhor o
+   * conteúdo — como o Estúdio faz. Criada só se o autor CONFIRMAR na tela.
+   * Lista plana com `pai` referenciando o `tmp` de uma pasta da própria lista.
+   */
+  estrutura: z
+    .array(
+      z.object({
+        /** id temporário desta proposta (para aninhar). */
+        tmp: z.string().max(20),
+        tipo: z.enum(["folder", "article"]),
+        titulo: z.string().max(120),
+        /** `tmp` de uma PASTA desta lista (aninha dentro dela); null = irmão do artigo atual. */
+        pai: z.string().max(20).nullable(),
+      }),
+    )
+    .max(12)
+    .nullable(),
 });
 
 export type EditorChatTurn = z.infer<typeof editorChatSchema>;

@@ -17,18 +17,26 @@ export const questionsSchema = z.object({
     .array(
       z.object({
         /** Identificador curto e estável ("titulos", "status-tabela"). */
-        id: z.string().max(40),
-        pergunta: z.string().max(300),
+        id: z.string().max(64),
+        pergunta: z.string().max(600),
         /** Trecho do texto a que a pergunta se refere; null no modo genérico. */
-        trecho: z.string().max(400).nullable(),
+        trecho: z.string().max(1000).nullable(),
         opcoes: z
           .array(
             z.object({
-              rotulo: z.string().max(80),
+              rotulo: z.string().max(160),
               /** Demonstração aplicada da opção (como ficaria); null se não couber. */
-              exemplo: z.string().max(400).nullable(),
+              exemplo: z.string().max(1200).nullable(),
+              /**
+               * PRÉVIA VISUAL: chave de um tipo de bloco do catálogo de layout
+               * (`callout`, `steps`, `table`, `columns`, `cardGrid`, `bullets`,
+               * `checklist`, `quote`, `code`, `accordion`, `toggle`, `hero`,
+               * `panel`, `stats`, `heading`). A UI renderiza um exemplo real do
+               * bloco. `null` quando a pergunta não é sobre um tipo de bloco.
+               */
+              preview: z.string().max(60).nullable(),
               /** Instrução IMPERATIVA de formato para o prompt final. */
-              diretiva: z.string().max(300),
+              diretiva: z.string().max(600),
             }),
           )
           .min(2)

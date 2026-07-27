@@ -2,6 +2,7 @@ import mammoth from "mammoth";
 import { getDocumentProxy, getResolvedPDFJS } from "unpdf";
 import { encodePng } from "./png";
 import { garantirTransferDeArrayBuffer } from "./pdf-compat";
+import { assertArquivoSeguro } from "./file-guard";
 
 /** Bloco extraído: texto + nível inferido (0 = corpo, 1..3 = título). */
 export type ExtractedBlock = {
@@ -24,7 +25,7 @@ export type ExtractedImage = {
 };
 
 export type Extraction = {
-  source: "pdf" | "docx" | "html" | "markdown" | "sheet";
+  source: "pdf" | "docx" | "pptx" | "html" | "markdown" | "sheet";
   blocks: ExtractedBlock[];
   images: ExtractedImage[];
   /** Imagens descartadas por serem cabeçalho/rodapé de página (ver `podarRepetidas`). */
@@ -601,13 +602,77 @@ function ancorarImagens(imagens: ImagemPdf[], lines: { page: number; y: number }
 }
 
 /** Ponto de entrada: detecta o tipo e extrai. */
+/** Decodifica entidades XML (&amp; por último, para não decodificar duas vezes). */
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, "&");
+}
+
+/** Parágrafos de texto de um XML de slide (agrupa os runs <a:t> por <a:p>). */
+function paragrafosDeSlide(xml: string): string[] {
+  const paras: string[] = [];
+  const reP = /<a:p\b[\s\S]*?<\/a:p>/g;
+  let m: RegExpExecArray | null;
+  while ((m = reP.exec(xml))) {
+    const txt = [...m[0].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+      .map((r) => decodeXmlEntities(r[1] ?? ""))
+      .join("");
+    if (txt.trim()) paras.push(txt);
+  }
+  if (!paras.length) {
+    const txt = [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+      .map((r) => decodeXmlEntities(r[1] ?? ""))
+      .join(" ");
+    if (txt.trim()) paras.push(txt);
+  }
+  return paras;
+}
+
+/**
+ * PPTX → texto por slide, na ordem. O 1º parágrafo de cada slide vira título
+ * (level 1, geralmente o placeholder de título); os demais, corpo. O jszip é
+ * carregado sob demanda (só o caminho de PPTX precisa dele).
+ */
+async function extractPptx(buf: Buffer): Promise<Extraction> {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buf);
+  const slides = Object.keys(zip.files)
+    .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => {
+      const na = Number(a.match(/slide(\d+)\.xml$/)?.[1] ?? 0);
+      const nb = Number(b.match(/slide(\d+)\.xml$/)?.[1] ?? 0);
+      return na - nb;
+    });
+  const blocks: ExtractedBlock[] = [];
+  for (const nome of slides) {
+    const xml = await zip.files[nome]!.async("string");
+    let primeiro = true;
+    for (const p of paragrafosDeSlide(xml)) {
+      const t = p.trim();
+      if (!t) continue;
+      blocks.push({ text: t, level: primeiro ? 1 : 0 });
+      primeiro = false;
+    }
+  }
+  return { source: "pptx", blocks, images: [] };
+}
+
 export async function extractDocument(
   buf: Buffer,
   filename: string,
   mime?: string,
 ): Promise<Extraction> {
+  // Portão de segurança: allowlist + assinatura/magic-bytes + binário disfarçado.
+  assertArquivoSeguro(buf, filename);
   const name = filename.toLowerCase();
   if (name.endsWith(".pdf") || mime === "application/pdf") return extractPdf(buf);
+  if (name.endsWith(".pptx") || mime?.includes("presentation")) return extractPptx(buf);
   if (name.endsWith(".docx") || mime?.includes("word"))
     return extractDocx(buf);
   if (name.endsWith(".md") || name.endsWith(".markdown"))

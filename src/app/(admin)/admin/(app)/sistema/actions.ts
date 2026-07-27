@@ -211,6 +211,7 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
 export type AiUsageRow = {
   provider: string;
   model: string;
+  purpose: string;
   input: number;
   output: number;
   total: number;
@@ -245,6 +246,7 @@ export async function getAiUsageReport(input: {
   const rows: AiUsageRow[] = (data ?? []).map((r) => ({
     provider: r.provider,
     model: r.model,
+    purpose: r.purpose,
     input: Number(r.input_tokens),
     output: Number(r.output_tokens),
     total: Number(r.total_tokens),

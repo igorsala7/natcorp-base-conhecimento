@@ -6,6 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import { IconPicker } from "@/components/editor/blocks/icon-picker";
 import {
   changeSlug,
@@ -43,7 +44,7 @@ export function NodePropertiesDialog({
   const [icon, setIcon] = useState<string | undefined>(node.icon ?? undefined);
   const [description, setDescription] = useState(node.description ?? "");
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   const ehPasta = node.type === "folder";
   const ehArtigo = node.type === "article";
@@ -76,17 +77,16 @@ export function NodePropertiesDialog({
   }, [ehArtigo, node.id, node.space_id]);
 
   function salvar() {
-    setError(null);
     startTransition(async () => {
       // Sequencial de propósito: cada action revalida e audita por conta
       // própria; paralelizar faria duas escritas disputarem o mesmo nó.
       if (title.trim() && title.trim() !== node.title) {
         const r = await renameNode(node.id, title.trim());
-        if (!r.ok) return setError(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
       if (slug.trim() && slug.trim() !== node.slug) {
         const r = await changeSlug(node.id, slug.trim());
-        if (!r.ok) return setError(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
       const novoIcone = icon ?? null;
       const novaDescricao = description.trim() || null;
@@ -95,13 +95,13 @@ export function NodePropertiesDialog({
           icon: novoIcone,
           description: novaDescricao,
         });
-        if (!r.ok) return setError(r.error);
+        if (!r.ok) return toast.error(r.error);
       }
       if (ehArtigo && tagIds !== null) {
         const rt = await setNodeTags(node.id, [...tagIds]);
-        if (!rt.ok) return setError(rt.error);
+        if (!rt.ok) return toast.error(rt.error);
         const ra = await setNodeAuthor(node.id, authorId);
-        if (!ra.ok) return setError(ra.error);
+        if (!ra.ok) return toast.error(ra.error);
       }
       onDone(null);
       onClose();
@@ -221,7 +221,7 @@ export function NodePropertiesDialog({
                     setNovaTag("");
                     // Criação inline (padrão HubSpot): cria e já marca.
                     void createTag(node.space_id, nome).then(async (r) => {
-                      if (!r.ok) return setError(r.error);
+                      if (!r.ok) return toast.error(r.error);
                       const lista = await listTags(node.space_id);
                       setTags(lista);
                       if (r.id) setTagIds((prev) => new Set([...(prev ?? []), r.id!]));
@@ -254,12 +254,6 @@ export function NodePropertiesDialog({
               </select>
             </Field>
           </>
-        )}
-
-        {error && (
-          <p role="alert" className="rounded-md bg-brand-pink-50 px-3 py-2 text-sm text-brand-pink-700 dark:bg-brand-pink-950/40 dark:text-brand-pink-300">
-            {error}
-          </p>
         )}
       </div>
     </Dialog>

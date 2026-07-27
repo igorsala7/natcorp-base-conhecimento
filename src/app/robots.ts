@@ -1,13 +1,13 @@
 import type { MetadataRoute } from "next";
-import { env } from "@/lib/env";
 
+/**
+ * Sistema NÃO indexável: bloqueia TODOS os robôs de busca (Google, Bing, etc.)
+ * em todo o site. Reforçado pela meta `robots: noindex` (layout raiz) e pelo
+ * cabeçalho `X-Robots-Tag: noindex, nofollow` (next.config) — três camadas.
+ * NÃO anuncia o sitemap de propósito.
+ */
 export default function robots(): MetadataRoute.Robots {
-  const base = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
   return {
-    rules: [
-      // O admin nunca deve ser indexado.
-      { userAgent: "*", allow: "/docs/", disallow: "/admin/" },
-    ],
-    sitemap: `${base}/sitemap.xml`,
+    rules: [{ userAgent: "*", disallow: "/" }],
   };
 }

@@ -5,26 +5,34 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Bot,
+  BookText,
   Database,
   ExternalLink,
   Eye,
+  FilePlus2,
   FolderTree,
   Globe,
   KeyRound,
+  Loader2,
   Lock,
+  MoreHorizontal,
   Palette,
   Plus,
   Settings,
   Sparkles,
   Trash2,
+  Users,
 } from "lucide-react";
 import type { SpaceInfo } from "@/lib/content/spaces";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
-import { KbUploadButton } from "@/components/admin/kb-upload-button";
+import { useKbUpload } from "@/components/admin/kb-upload-button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { deleteSpace } from "./actions";
 
 export type DocResumo = {
@@ -53,23 +61,177 @@ const VISIBILIDADE = {
   private: { rotulo: "Privada", Icon: Lock },
 } as const;
 
-/** Atalho de área da documentação — todos os destinos já aceitam ?space=. */
-function Atalho({
-  href,
-  icon: Icon,
-  children,
-}: {
-  href: string;
-  icon: typeof Palette;
-  children: React.ReactNode;
-}) {
+/** Um número + rótulo, com bolinha de cor — leitura rápida do estado da doc. */
+function Metrica({ n, label, dot }: { n: number; label: string; dot: string }) {
   return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text transition-colors hover:border-primary hover:text-primary"
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("size-1.5 rounded-full", dot)} />
+      <strong className="font-semibold tabular-nums">{n}</strong>
+      <span className="text-text-muted">{label}</span>
+    </span>
+  );
+}
+
+function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
+  const router = useRouter();
+  const { confirmar } = useConfirm();
+  const toast = useToast();
+  const [excluindo, startTransition] = useTransition();
+  const { abrir: enviarAoBot, enviando, progresso } = useKbUpload(d.id, (resumo) => {
+    toast.success(resumo);
+    router.refresh();
+  });
+  const vis = VISIBILIDADE[d.visibility];
+
+  async function excluir() {
+    const ok = await confirmar({
+      title: `Excluir "${d.name}"`,
+      description:
+        `Exclusão DEFINITIVA e irreversível: ${d.publicados + d.rascunhos + d.emRevisao} artigo(s) com todas as versões, ` +
+        `${d.pastas} pasta(s), ${d.chunksIndexados} trecho(s) indexado(s) (embeddings), os chatbots (chaves de widget), ` +
+        "os arquivos da base do chatbot, as conversas e as imagens do Storage. A página pública sai do ar agora. " +
+        "Só a trilha de auditoria permanece.",
+      tone: "danger",
+      confirmLabel: "Excluir definitivamente",
+      typeToConfirm: d.name,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const r = await deleteSpace(d.id);
+      if (!r.ok) toast.error(r.error);
+      else toast.success(`"${d.name}" excluída.`);
+      router.refresh();
+    });
+  }
+
+  return (
+    <Surface
+      elevation={1}
+      padding="lg"
+      style={{ animationDelay: `${index * 60}ms` }}
+      className="animate-fade-up flex flex-col gap-4 transition-shadow hover:shadow-2"
     >
-      <Icon className="size-4 text-text-muted" /> {children}
-    </Link>
+      {/* Cabeçalho: identidade + menu de ações (kebab). */}
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40"
+        >
+          {d.type === "client" ? <Users className="size-5" /> : <BookText className="size-5" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-base font-semibold tracking-tight">{d.name}</h2>
+            {d.type === "client" && <Badge tone="accent">Cliente</Badge>}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-text-muted">
+            <span className="truncate">/docs/{d.slug}</span>
+            <span className="inline-flex items-center gap-1">
+              <vis.Icon className="size-3" /> {vis.rotulo}
+            </span>
+          </div>
+        </div>
+        {enviando && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-primary" title="Enviando à base do chatbot">
+            <Loader2 className="size-3.5 animate-spin" /> {progresso ?? "…"}
+          </span>
+        )}
+        <DropdownMenu
+          icon={MoreHorizontal}
+          chevron={false}
+          variant="ghost"
+          size="icon"
+          align="end"
+          panelWidth={248}
+          title="Mais ações"
+        >
+          {(close) => (
+            <>
+              <MenuLabel>Configurar</MenuLabel>
+              <MenuItem icon={Palette} onClick={() => { close(); router.push(`/admin/aparencia?space=${d.id}`); }}>
+                Aparência
+              </MenuItem>
+              <MenuItem icon={Settings} onClick={() => { close(); router.push(`/admin/configuracoes?space=${d.id}`); }}>
+                Preferências
+              </MenuItem>
+              <MenuItem icon={Bot} onClick={() => { close(); router.push(`/admin/chatbot?space=${d.id}`); }}>
+                Chatbot
+              </MenuItem>
+              {d.canEdit && (
+                <>
+                  <MenuSeparator />
+                  <MenuLabel>IA e base do chatbot</MenuLabel>
+                  <MenuItem
+                    icon={Sparkles}
+                    onClick={() => { close(); router.push(`/admin/importar?tab=embeddings&space=${d.id}`); }}
+                  >
+                    Gerar embeddings
+                  </MenuItem>
+                  <MenuItem icon={FilePlus2} disabled={enviando} onClick={() => { close(); enviarAoBot(); }}>
+                    Adicionar documentos ao chatbot
+                  </MenuItem>
+                </>
+              )}
+              {d.canDelete && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem
+                    icon={Trash2}
+                    danger
+                    disabled={d.temClientes || excluindo}
+                    hint={d.temClientes ? "tem clientes" : undefined}
+                    onClick={() => { close(); void excluir(); }}
+                  >
+                    Excluir documentação
+                  </MenuItem>
+                </>
+              )}
+            </>
+          )}
+        </DropdownMenu>
+      </div>
+
+      {/* Métricas escaneáveis (conteúdo + prontidão de IA), sem caixas pesadas. */}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+          <Metrica n={d.publicados} label="publicados" dot="bg-emerald-500" />
+          <Metrica n={d.rascunhos} label="rascunhos" dot="bg-brand-gray-400" />
+          <Metrica n={d.emRevisao} label="em revisão" dot="bg-amber-500" />
+          <Metrica n={d.pastas} label="pastas" dot="bg-slate-400" />
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <Sparkles className="size-3.5 text-primary" />
+            <strong className="font-semibold tabular-nums text-text">{d.chunksIndexados}</strong> trechos indexados p/ busca e IA
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Database className="size-3.5" />
+            <strong className="font-semibold tabular-nums text-text">{d.arquivosBot}</strong> arquivos no chatbot
+          </span>
+        </div>
+      </div>
+
+      {/* Ação primária + acessos rápidos; o resto vive no menu ⋯. */}
+      <div className="mt-auto flex items-center gap-1.5 border-t border-border pt-3">
+        <Button asChild size="sm">
+          <Link href={`/admin/conteudo?space=${d.id}`}>
+            <FolderTree className="size-4" /> Conteúdo
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="ghost" title="Prévia interna da documentação">
+          <Link href={`/admin/previa/${d.id}`}>
+            <Eye className="size-4" /> Prévia
+          </Link>
+        </Button>
+        {d.visibility === "public" && (
+          <Button asChild size="icon" variant="ghost" title="Abrir a página pública em uma nova aba" className="ml-auto">
+            <a href={d.publicBase} target="_blank" rel="noopener noreferrer" aria-label="Abrir a página pública">
+              <ExternalLink className="size-4" />
+            </a>
+          </Button>
+        )}
+      </div>
+    </Surface>
   );
 }
 
@@ -83,41 +245,7 @@ export function DocsHub({
   spaces: SpaceInfo[];
   canCreate: boolean;
 }) {
-  const router = useRouter();
-  const { confirmar } = useConfirm();
   const [criando, setCriando] = useState(false);
-  const [msg, setMsg] = useState<Record<string, string>>({});
-  const [ocupado, setOcupado] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-
-  async function excluir(doc: DocResumo) {
-    const ok = await confirmar({
-      title: `Excluir "${doc.name}"`,
-      description:
-        `Exclusão DEFINITIVA e irreversível: ${doc.publicados + doc.rascunhos + doc.emRevisao} artigo(s) com todas as versões, ` +
-        `${doc.pastas} pasta(s), ${doc.chunksIndexados} trecho(s) indexado(s) (embeddings), os chatbots (chaves de widget), ` +
-        "os arquivos da base do chatbot, as conversas e as imagens do Storage. A página pública sai do ar agora. " +
-        "Só a trilha de auditoria permanece.",
-      tone: "danger",
-      confirmLabel: "Excluir definitivamente",
-      typeToConfirm: doc.name,
-    });
-    if (!ok) return;
-    setOcupado(doc.id);
-    setMsg((m) => ({ ...m, [doc.id]: "Excluindo…" }));
-    startTransition(async () => {
-      const r = await deleteSpace(doc.id);
-      setOcupado(null);
-      if (!r.ok) setMsg((m) => ({ ...m, [doc.id]: r.error }));
-      router.refresh();
-    });
-  }
-
-  function gerarEmbeddings(doc: DocResumo) {
-    // A geração vive na aba Embeddings da Importar (job em background com
-    // progresso). Abrimos já apontando para esta documentação.
-    router.push(`/admin/importar?tab=embeddings&space=${doc.id}`);
-  }
 
   return (
     <div>
@@ -136,130 +264,9 @@ export function DocsHub({
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {docs.map((d, i) => {
-          const vis = VISIBILIDADE[d.visibility];
-          return (
-            <Surface
-              key={d.id}
-              elevation={1}
-              padding="lg"
-              style={{ animationDelay: `${i * 60}ms` }}
-              className="animate-fade-up flex flex-col gap-4 transition-shadow hover:shadow-2"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold tracking-tight">{d.name}</h2>
-                  <p className="mt-0.5 truncate text-xs text-text-muted">/docs/{d.slug}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {d.type === "client" && <Badge tone="accent">Cliente</Badge>}
-                  <Badge tone="neutral" className="inline-flex items-center gap-1">
-                    <vis.Icon className="size-3" /> {vis.rotulo}
-                  </Badge>
-                </div>
-              </div>
-
-              <dl className="grid grid-cols-4 gap-2">
-                {(
-                  [
-                    ["Publicados", d.publicados],
-                    ["Rascunhos", d.rascunhos],
-                    ["Em revisão", d.emRevisao],
-                    ["Pastas", d.pastas],
-                  ] as const
-                ).map(([rotulo, n]) => (
-                  <div key={rotulo} className="rounded-lg border border-border px-2.5 py-2">
-                    <dt className="truncate text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
-                      {rotulo}
-                    </dt>
-                    <dd className="mt-0.5 text-lg font-semibold tabular-nums">{n}</dd>
-                  </div>
-                ))}
-              </dl>
-
-              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
-                <Sparkles className="size-4 shrink-0 text-primary" />
-                <span className="min-w-0 flex-1 text-sm">
-                  <strong className="font-medium tabular-nums">{d.chunksIndexados}</strong>{" "}
-                  <span className="text-text-muted">
-                    trecho(s) indexado(s) para busca semântica e IA
-                  </span>
-                </span>
-                {d.canEdit && (
-                  <Button variant="secondary" size="sm" onClick={() => gerarEmbeddings(d)}>
-                    Gerar embeddings
-                  </Button>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
-                <Database className="size-4 shrink-0 text-primary" />
-                <span className="min-w-0 flex-1 text-sm">
-                  <strong className="font-medium tabular-nums">{d.arquivosBot}</strong>{" "}
-                  <span className="text-text-muted">
-                    documento(s) na base de conhecimento do chatbot
-                  </span>
-                </span>
-                {d.canEdit && (
-                  <KbUploadButton
-                    spaceId={d.id}
-                    onDone={(resumo) => {
-                      setMsg((m) => ({ ...m, [d.id]: resumo }));
-                      router.refresh();
-                    }}
-                  />
-                )}
-              </div>
-              {msg[d.id] && (
-                <p role="status" className="-mt-2 text-xs text-text-muted">
-                  {msg[d.id]}
-                </p>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <Atalho href={`/admin/conteudo?space=${d.id}`} icon={FolderTree}>
-                  Conteúdo
-                </Atalho>
-                <Atalho href={`/admin/aparencia?space=${d.id}`} icon={Palette}>
-                  Aparência
-                </Atalho>
-                <Atalho href={`/admin/configuracoes?space=${d.id}`} icon={Settings}>
-                  Preferências
-                </Atalho>
-                <Atalho href={`/admin/chatbot?space=${d.id}`} icon={Bot}>
-                  Chatbot
-                </Atalho>
-                <Atalho href={`/admin/previa/${d.id}`} icon={Eye}>
-                  Prévia
-                </Atalho>
-                {d.visibility === "public" && (
-                  <a
-                    href={d.publicBase}
-                    target="_blank"
-                    rel="noopener"
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text transition-colors hover:border-primary hover:text-primary"
-                  >
-                    <ExternalLink className="size-4 text-text-muted" /> Abrir página
-                  </a>
-                )}
-                {d.canDelete && (
-                  <button
-                    type="button"
-                    disabled={ocupado === d.id || d.temClientes}
-                    title={
-                      d.temClientes
-                        ? "Há documentações de cliente herdando desta — exclua-as primeiro."
-                        : "Excluir esta documentação e TODOS os seus dados"
-                    }
-                    onClick={() => excluir(d)}
-                    className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-brand-pink-700/40 hover:text-brand-pink-700 disabled:opacity-40"
-                  >
-                    <Trash2 className="size-4" /> Excluir
-                  </button>
-                )}
-              </div>
-            </Surface>
-          );
-        })}
+        {docs.map((d, i) => (
+          <DocCard key={d.id} doc={d} index={i} />
+        ))}
       </div>
 
       {criando && <NewSpaceDialog spaces={spaces} onClose={() => setCriando(false)} />}

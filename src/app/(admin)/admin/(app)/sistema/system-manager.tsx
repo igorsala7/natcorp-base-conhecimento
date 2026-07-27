@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate } from "lucide-react";
+import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Segmented } from "@/components/ui/segmented";
 import { Field, eyebrowLabel } from "@/components/ui/field";
@@ -32,6 +33,7 @@ import {
   getAiUsageReport,
   type AiUsageRow,
 } from "./actions";
+import { BackupPanel, type BackupRow, type BackupSettingsRow } from "./backup-panel";
 
 export type ProviderRow = {
   id: string;
@@ -51,7 +53,7 @@ export type EmailRow = {
   smtp_secure: boolean;
 };
 
-type Aba = "ia" | "email";
+type Aba = "ia" | "email" | "backup";
 
 export function SystemManager({
   providers,
@@ -60,6 +62,10 @@ export function SystemManager({
   temChave,
   isOwner,
   temChaveMestra,
+  canBackup,
+  backups,
+  backupSettings,
+  githubTokenPresent,
 }: {
   providers: ProviderRow[];
   assignments: AssignmentRow[];
@@ -68,17 +74,21 @@ export function SystemManager({
   temChave: Record<string, boolean>;
   isOwner: boolean;
   temChaveMestra: boolean;
+  canBackup: boolean;
+  backups: BackupRow[];
+  backupSettings: BackupSettingsRow;
+  githubTokenPresent: boolean;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [aba, setAba] = useState<Aba>("ia");
-  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   function run(fn: () => Promise<{ ok: boolean; msg?: string; error?: string }>) {
-    setMsg(null);
     startTransition(async () => {
       const r = await fn();
-      setMsg({ ok: r.ok, texto: r.ok ? (r.msg ?? "Feito.") : (r.error ?? "Falhou.") });
+      if (r.ok) toast.success(r.msg ?? "Feito.");
+      else toast.error(r.error ?? "Falhou.");
       router.refresh();
     });
   }
@@ -105,6 +115,16 @@ export function SystemManager({
               </>
             ),
           },
+          ...(canBackup
+            ? [{
+                value: "backup" as const,
+                label: (
+                  <>
+                    <DatabaseBackup /> Backup
+                  </>
+                ),
+              }]
+            : []),
         ]}
       />
 
@@ -118,18 +138,6 @@ export function SystemManager({
         </p>
       )}
 
-      {msg && (
-        <p
-          role="status"
-          className={`mt-3 whitespace-pre-wrap rounded-md border px-3 py-2 text-sm ${
-            msg.ok
-              ? "border-border bg-surface-2"
-              : "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-          }`}
-        >
-          {msg.texto}
-        </p>
-      )}
 
       {aba === "ia" ? (
         <AbaIA
@@ -141,6 +149,8 @@ export function SystemManager({
           pending={pending}
           run={run}
         />
+      ) : aba === "backup" && canBackup ? (
+        <BackupPanel backups={backups} settings={backupSettings} isOwner={isOwner} githubTokenPresent={githubTokenPresent} />
       ) : (
         <AbaEmail email={email} isOwner={isOwner} pending={pending} run={run} />
       )}
@@ -374,6 +384,8 @@ function diasAtras(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 const fmt = (n: number) => n.toLocaleString("pt-BR");
+/** Rótulo amigável da AÇÃO (finalidade) — ex.: import_layout → "Importação — layout". */
+const acaoLabel = (p: string) => PURPOSES.find((x) => x.key === p)?.label ?? p;
 
 /** Consumo de tokens (envio/recebimento) por IA e por modelo, com período. */
 function ConsumoIA() {
@@ -421,6 +433,25 @@ function ConsumoIA() {
       m.set(r.provider, a);
     }
     return [...m.entries()].sort((x, y) => y[1].total - x[1].total);
+  }, [rows]);
+
+  // As linhas do relatório vêm por (IA, modelo, ação); aqui somam-se as ações
+  // para a visão por modelo.
+  const porModelo = useMemo(() => {
+    const m = new Map<
+      string,
+      { provider: string; model: string; input: number; output: number; total: number; calls: number }
+    >();
+    for (const r of rows ?? []) {
+      const chave = `${r.provider} ${r.model}`;
+      const a = m.get(chave) ?? { provider: r.provider, model: r.model, input: 0, output: 0, total: 0, calls: 0 };
+      a.input += r.input;
+      a.output += r.output;
+      a.total += r.total;
+      a.calls += r.calls;
+      m.set(chave, a);
+    }
+    return [...m.values()].sort((x, y) => y.total - x.total);
   }, [rows]);
 
   return (
@@ -520,13 +551,45 @@ function ConsumoIA() {
                 <Th className="text-right">Chamadas</Th>
               </DataHead>
               <tbody>
-                {rows.length === 0 ? (
+                {porModelo.length === 0 ? (
                   <EmptyRow colSpan={6}>Sem consumo no período.</EmptyRow>
                 ) : (
-                  rows.map((r, i) => (
-                    <Tr key={`${r.provider}:${r.model}:${i}`}>
+                  porModelo.map((r) => (
+                    <Tr key={`${r.provider}:${r.model}`}>
                       <Td>{PROVIDER_LABEL[r.provider as ProviderKind] ?? r.provider}</Td>
                       <Td className="font-mono text-xs">{r.model}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.input)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.output)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.total)}</Td>
+                      <Td className="text-right tabular-nums">{fmt(r.calls)}</Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </DataTable>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-sm font-medium">Por IA, modelo e ação</h3>
+            <DataTable>
+              <DataHead>
+                <Th>Provedor</Th>
+                <Th>Modelo</Th>
+                <Th>Ação</Th>
+                <Th className="text-right">Envio</Th>
+                <Th className="text-right">Recebimento</Th>
+                <Th className="text-right">Total</Th>
+                <Th className="text-right">Chamadas</Th>
+              </DataHead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <EmptyRow colSpan={7}>Sem consumo no período.</EmptyRow>
+                ) : (
+                  rows.map((r, i) => (
+                    <Tr key={`${r.provider}:${r.model}:${r.purpose}:${i}`}>
+                      <Td>{PROVIDER_LABEL[r.provider as ProviderKind] ?? r.provider}</Td>
+                      <Td className="font-mono text-xs">{r.model}</Td>
+                      <Td>{acaoLabel(r.purpose)}</Td>
                       <Td className="text-right tabular-nums">{fmt(r.input)}</Td>
                       <Td className="text-right tabular-nums">{fmt(r.output)}</Td>
                       <Td className="text-right tabular-nums">{fmt(r.total)}</Td>

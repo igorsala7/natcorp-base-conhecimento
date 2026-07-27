@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Network } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
@@ -57,7 +59,14 @@ export default async function AssistentePage({
             {!aiReady && " Configure a IA em Sistema para ativar."}
           </p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Link
+            href={`/admin/ontologia?space=${atual.id}`}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text transition-colors hover:border-primary hover:text-primary"
+            title="Termos e sinônimos que deixam o assistente mais preciso"
+          >
+            <Network className="size-4" /> Ontologia
+          </Link>
           <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
         </div>
       </div>

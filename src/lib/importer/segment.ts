@@ -51,8 +51,19 @@ export function segmentarTexto(text: string, limite = LIMITE_SEGMENTO): string[]
  * rede de segurança contra a IA que resume em vez de reformatar — o prompt
  * manda "reformatar, não reescrever", mas prompt não é garantia.
  */
+/**
+ * Junta letras soltas por espaço numa palavra só: "p a l a v r a" → "palavra".
+ * O "Melhorar layout" agora CONSERTA esses espaços; aplicar a MESMA normalização
+ * dos dois lados da rede de fidelidade evita contar esse conserto legítimo como
+ * "palavras trocadas". Exige 3+ letras seguidas para não colar sequências reais
+ * de palavras de 1 letra ("a e o").
+ */
+export function juntarLetrasSoltas(text: string): string {
+  return text.replace(/\b\p{L}(?: \p{L}){2,}\b/gu, (m) => m.replace(/ /g, ""));
+}
+
 export function contarPalavras(text: string): number {
-  return text
+  return juntarLetrasSoltas(text)
     .replace(/⟦IMG:\d+⟧/g, " ")
     .split(/\s+/)
     .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
@@ -78,7 +89,7 @@ export const MINIMO_PALAVRAS = 0.85;
  */
 export function contencaoDePalavras(original: string, resultado: string): number {
   const tokenizar = (t: string) =>
-    t
+    juntarLetrasSoltas(t)
       .replace(/⟦IMG:\d+⟧/g, " ")
       .toLowerCase()
       .normalize("NFD")
@@ -111,7 +122,7 @@ export function contencaoDePalavras(original: string, resultado: string): number
  */
 export function paragrafosAusentes(original: string, resultado: string): string[] {
   const tokenizar = (t: string) =>
-    t
+    juntarLetrasSoltas(t)
       .replace(/⟦IMG:\d+⟧/g, " ")
       .toLowerCase()
       .normalize("NFD")

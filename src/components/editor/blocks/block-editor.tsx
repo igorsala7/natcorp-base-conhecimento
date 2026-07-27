@@ -19,6 +19,7 @@ import {
 import {
   BookOpen,
   Check,
+  ClipboardPaste,
   Copy,
   ExternalLink,
   Eye,
@@ -41,23 +42,39 @@ import {
   Wand2,
   ArrowLeft,
 } from "lucide-react";
-import type { Block, BlockType, BlockDoc } from "@/lib/blocks/schema";
+import type { Block, BlockType, BlockDoc, ChartType } from "@/lib/blocks/schema";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { newId } from "@/lib/blocks/schema";
-import { BLOCKS, slashBlocks } from "@/lib/blocks/registry.meta";
-import { blocksToText } from "@/lib/blocks/serialize";
+import { BLOCKS, slashBlocks, graficoPadrao } from "@/lib/blocks/registry.meta";
+import { blocksToText, blocksToPlainWithImageMarkers, type ImageMarker } from "@/lib/blocks/serialize";
 import { RenderBlocks } from "@/lib/blocks/render";
-import { moveBlock, findBlock, topAncestorId } from "@/lib/blocks/tree-ops";
+import { moveBlock, findBlock, topAncestorId, cloneBlocksWithNewIds } from "@/lib/blocks/tree-ops";
+import { copyBlocksToClipboard, readBlocksFromClipboard } from "@/lib/blocks/clipboard";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { CRIATIVIDADES, tempLayout, tempTexto, type Criatividade } from "@/lib/ai/creativity";
 import { Dialog } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
+import { useLoader } from "@/components/ui/loader";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
 import { useDismiss } from "./use-dismiss";
 import { useEditorActions } from "./use-editor-actions";
+import { usePasteBlocks } from "./use-paste-blocks";
 import { useUndoRedo } from "./use-undo-redo";
 import { useAutosaveArticle } from "./use-autosave-article";
 import { BlockList } from "./block-item";
+import { GroupBar } from "./group-bar";
+import { SendToArticleDialog } from "./send-to-article-dialog";
+import {
+  ResizablePanel,
+  CollapseButton,
+  CollapsedRail,
+  useCollapsiblePanel,
+} from "@/components/ui/resizable-panel";
+import { groupBlocks } from "@/lib/blocks/group";
+import { FindReplaceBar } from "./find-replace-bar";
+import { findMatches, replaceOne, replaceAll, type FindMatch } from "@/lib/blocks/find-replace";
 import { BlockPalette } from "./block-palette";
 import { BlockInspector } from "./block-inspector";
 import { ActiveRichTextProvider, useActiveRichText } from "./rich-text/active";
@@ -95,6 +112,7 @@ import {
   discardDraft,
   saveArticle,
   improveArticleLayout,
+  improveBlocks,
   proposeArticleLayoutQuestions,
   improveArticleText,
   type TextoAcao,
@@ -136,6 +154,7 @@ function aplicarTextoNoBloco(bs: Block[], id: string, proposta: string): Block[]
 
 /** Ações do menu "IA no texto" — separado do "Melhorar layout" de propósito. */
 const ACOES_IA_TEXTO: { acao: TextoAcao; tom?: TomAlvo; rotulo: string }[] = [
+  { acao: "formatar", rotulo: "Ajustar formatação" },
   { acao: "reescrever", rotulo: "Reescrever com clareza" },
   { acao: "expandir", rotulo: "Expandir (sem inventar)" },
   { acao: "resumir", rotulo: "Resumir" },
@@ -202,10 +221,124 @@ function BlockEditorInner({
 }: BlockEditorProps) {
   const router = useRouter();
   const { confirmar, pedirTexto } = useConfirm();
+  const toast = useToast();
+  const loader = useLoader();
   const [blocks, setBlocks] = useState<Block[]>(() => initialBlocks(initialContent));
   // Conteúdo publicado atual (para "Descartar" reverter). Atualiza ao publicar.
   const publishedRef = useRef<Block[]>(initialBlocks(publishedContent ?? initialContent));
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Seleção MÚLTIPLA (shift/ctrl/cmd+clique). `selectedId` (único) segue
+  // derivado para todo o resto — inspetor, atalhos por bloco, IA — que só faz
+  // sentido com exatamente um selecionado; o shim `setSelectedId` mantém os
+  // call sites antigos intactos.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectedId = selectedIds.length === 1 ? selectedIds[0]! : null;
+  // Diálogo "copiar/mover para artigo" — guarda os blocos + ids de topo da seleção.
+  const [enviar, setEnviar] = useState<{ blocks: Block[]; tops: string[] } | null>(null);
+
+  // ── Localizar e substituir (Ctrl+F) ──────────────────────────────────────
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findReplace, setFindReplace] = useState("");
+  const [findCase, setFindCase] = useState(false);
+  const [findIndex, setFindIndex] = useState(-1); // -1 = nada focado ainda
+
+  const matches = useMemo(
+    () => (findOpen && findQuery ? findMatches(blocks, findQuery, findCase) : []),
+    [findOpen, findQuery, findCase, blocks],
+  );
+
+  /** Rola até o bloco e SELECIONA no DOM o trecho achado (realce nativo). */
+  function focarMatch(m: FindMatch | undefined) {
+    if (!m) return;
+    const host = document.querySelector<HTMLElement>(`[data-block-id="${m.blockId}"]`);
+    if (!host) return;
+    host.scrollIntoView({ block: "center", behavior: "smooth" });
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        // Ignora texto de blocos FILHOS (que têm o próprio data-block-id).
+        let p = node.parentElement;
+        while (p && p !== host) {
+          if (p.hasAttribute("data-block-id")) return NodeFilter.FILTER_REJECT;
+          p = p.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let acc = 0;
+    let sNode: Node | null = null;
+    let sOff = 0;
+    let eNode: Node | null = null;
+    let eOff = 0;
+    let node = walker.nextNode();
+    while (node) {
+      const len = node.textContent?.length ?? 0;
+      if (sNode === null && m.start <= acc + len) {
+        sNode = node;
+        sOff = m.start - acc;
+      }
+      if (m.end <= acc + len) {
+        eNode = node;
+        eOff = m.end - acc;
+        break;
+      }
+      acc += len;
+      node = walker.nextNode();
+    }
+    if (!sNode || !eNode) return;
+    try {
+      const range = document.createRange();
+      range.setStart(sNode, sOff);
+      range.setEnd(eNode, eOff);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch {
+      /* estrutura inesperada: o scroll já orienta o usuário */
+    }
+  }
+
+  /** Vai para o match de índice `idx` (com wrap) e o realça. */
+  function irPara(idx: number) {
+    if (!matches.length) return;
+    const n = ((idx % matches.length) + matches.length) % matches.length;
+    setFindIndex(n);
+    const m = matches[n];
+    requestAnimationFrame(() => focarMatch(m));
+  }
+
+  function substituirAtual() {
+    if (!matches.length) return;
+    const m = matches[findIndex < 0 ? 0 : findIndex];
+    if (m) setBlocks((bs) => replaceOne(bs, m, findReplace));
+  }
+
+  function substituirTudo() {
+    const { blocks: nb, count } = replaceAll(blocks, findQuery, findReplace, findCase);
+    if (count) {
+      setBlocks(nb);
+      toast.success(`${count} ocorrência(s) substituída(s).`);
+    } else {
+      toast.info("Nada encontrado para substituir.");
+    }
+  }
+
+  // Ctrl/Cmd+F abre a barra e impede o "localizar" nativo do navegador.
+  useEffect(() => {
+    function onFindKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        const sel = window.getSelection()?.toString().trim();
+        if (sel) {
+          setFindQuery(sel);
+          setFindIndex(-1);
+        }
+        setFindOpen(true);
+      }
+    }
+    document.addEventListener("keydown", onFindKey);
+    return () => document.removeEventListener("keydown", onFindKey);
+  }, []);
+  const setSelectedId = (id: string | null) => setSelectedIds(id == null ? [] : [id]);
   const [autoFocusId, setAutoFocusId] = useState<string | null>(null);
   // `id: null` = inserir no FIM do documento (menu aberto na área em branco).
   const [slash, setSlash] = useState<{ id: string | null; rect: DOMRect } | null>(null);
@@ -213,9 +346,12 @@ function BlockEditorInner({
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   const [status, setStatus] = useState(initialStatus);
-  const [msg, setMsg] = useState<string | null>(null);
   const [improving, setImproving] = useState(false);
   const [proposed, setProposed] = useState<BlockDoc | null>(null);
+  // Alvo do "Melhorar layout": `null` = artigo inteiro (substitui tudo);
+  // lista de ids = blocos de topo selecionados (substitui só eles — pode virar
+  // vários blocos, ex.: texto → tabela → texto).
+  const [proposedTarget, setProposedTarget] = useState<string[] | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -227,6 +363,8 @@ function BlockEditorInner({
   const [remix, setRemix] = useState<{ tipo: RemixTipo; blocks: Block[] } | null>(null);
   const [remixando, setRemixando] = useState<RemixTipo | null>(null);
   const [layoutPerguntas, setLayoutPerguntas] = useState<LayoutQuestion[] | null>(null);
+  // Criatividade da IA (Melhorar Layout e IA no texto). Preferência da sessão.
+  const [criatividade, setCriatividade] = useState<Criatividade>("equilibrado");
   const [layoutRespostas, setLayoutRespostas] = useState<Record<string, number>>({});
   const [snippetsDisponiveis, setSnippetsDisponiveis] = useState<{ key: string; title: string }[]>([]);
 
@@ -241,7 +379,13 @@ function BlockEditorInner({
   const [showAiTexto, setShowAiTexto] = useState(false);
   const [aiTextoBusy, setAiTextoBusy] = useState(false);
   const [aiProposta, setAiProposta] = useState<{
-    blockId: string;
+    /** "bloco" = 1 bloco no lugar · "selecao" = os itens escolhidos · "artigo" = tudo. */
+    escopo: "bloco" | "selecao" | "artigo";
+    blockId: string | null;
+    /** Ids dos blocos de topo alvo, quando escopo = "selecao". */
+    blockIds: string[] | null;
+    /** Imagens do escopo (marcadores ⟦IMG:n⟧) — reinseridas no aplicar. */
+    images: ImageMarker[];
     rotulo: string;
     original: string;
     proposta: string;
@@ -275,6 +419,24 @@ function BlockEditorInner({
   rootIdsRef.current = new Set(blocks.map((b) => b.id));
   const activeRT = useActiveRichText();
 
+  // Recolher/expandir os dois painéis laterais do editor (persistido). A árvore
+  // (menu lateral externo) tem o próprio controle no ContentShell.
+  const paleta = useCollapsiblePanel("kb.palette");
+  const inspetor = useCollapsiblePanel("kb.inspector");
+
+  // Ao selecionar um item (clicar num bloco), recolhe a árvore lateral para
+  // sobrar espaço — a documentação já traz a árvore recolhida por padrão, mas
+  // se o usuário a abriu, o clique num objeto volta a fechá-la. Só na SUBIDA
+  // (nada → algo selecionado); trocar de bloco não redispara.
+  const tinhaSelecao = useRef(false);
+  useEffect(() => {
+    const tem = selectedIds.length > 0;
+    if (tem && !tinhaSelecao.current) {
+      window.dispatchEvent(new Event("kb:collapse-tree"));
+    }
+    tinhaSelecao.current = tem;
+  }, [selectedIds]);
+
   // Autosave (debounce + semântica de rascunho) em `use-autosave-article`.
   const {
     saveState,
@@ -289,7 +451,18 @@ function BlockEditorInner({
   useDismiss(aiTextoRef, showAiTexto, useCallback(() => setShowAiTexto(false), []));
 
   // API de mutação compartilhada com o editor inline da prévia.
-  const actions = useEditorActions({ setBlocks, setSelectedId, setAutoFocusId, setSlash });
+  const actions = useEditorActions({ setBlocks, setSelectedIds, setAutoFocusId, setSlash });
+  const onPaste = usePasteBlocks({ spaceId, insertBlocks: actions.insertBlocks, patch: actions.patch });
+
+  /** Agrupa os blocos selecionados numa nova região do tipo escolhido. */
+  function agrupar(type: BlockType) {
+    const groupId = newId();
+    const r = groupBlocks(blocks, selectedIds, type, groupId);
+    if (!r) return;
+    setBlocks(r.blocks);
+    setSelectedIds([groupId]);
+    setAutoFocusId(groupId);
+  }
 
   function onSlashSelect(type: BlockType) {
     const target = slash;
@@ -311,6 +484,15 @@ function BlockEditorInner({
     } else {
       actions.insertAfter(target.id, type);
     }
+  }
+
+  function onSlashChart(chartType: ChartType) {
+    const target = slash;
+    setSlash(null);
+    if (!target) return;
+    const nb = graficoPadrao(chartType);
+    actions.insertBlocks(target.id, [nb]);
+    setSelectedId(nb.id);
   }
 
   function onSlashSnippet(key: string) {
@@ -517,32 +699,194 @@ function BlockEditorInner({
     setSelectedId(nb.id);
   }
 
+  /** Blocos de TOPO afetados pela seleção (em ordem do documento). */
+  function idsDeTopo(bs: Block[], ids: string[]): string[] {
+    const tops: string[] = [];
+    for (const id of ids) {
+      const t = topAncestorId(bs, id) ?? id;
+      if (!tops.includes(t)) tops.push(t);
+    }
+    return tops.sort((a, b) => bs.findIndex((x) => x.id === a) - bs.findIndex((x) => x.id === b));
+  }
+
+  /** Blocos de TOPO da seleção, na ordem do artigo (cada um com sua subárvore). */
+  function blocosSelecionados(): { tops: string[]; blocos: Block[] } {
+    const tops = idsDeTopo(blocks, selectedIds);
+    const blocos = tops
+      .map((id) => findBlock(blocks, id))
+      .filter((b): b is Block => !!b);
+    return { tops, blocos };
+  }
+
+  /** Copiar: guarda os blocos selecionados na área de transferência (localStorage). */
+  function onCopiar() {
+    const { blocos } = blocosSelecionados();
+    if (!blocos.length) return;
+    if (copyBlocksToClipboard(blocos))
+      toast.success(`${blocos.length} bloco(s) copiado(s) — cole em qualquer artigo.`);
+  }
+
+  /** Recortar: copia e remove os selecionados do artigo. */
+  function onRecortar() {
+    const { tops, blocos } = blocosSelecionados();
+    if (!blocos.length) return;
+    if (!copyBlocksToClipboard(blocos)) return;
+    const set = new Set(tops);
+    setBlocks((bs) => bs.filter((b) => !set.has(b.id)));
+    setSelectedIds([]);
+    toast.success(`${blocos.length} bloco(s) recortado(s) — cole em qualquer artigo.`);
+  }
+
+  /** Abre o diálogo de copiar/mover a seleção para outro artigo. */
+  function onEnviarParaArtigo() {
+    const { tops, blocos } = blocosSelecionados();
+    if (!blocos.length) return;
+    setEnviar({ blocks: blocos, tops });
+  }
+
+  /** Idem, a partir do menu de contexto: se o bloco está na seleção múltipla,
+   *  envia a seleção; senão, só ele. */
+  function onEnviarBlocoParaArtigo(blockId: string) {
+    const tops = selectedIds.includes(blockId) ? idsDeTopo(blocks, selectedIds) : [blockId];
+    const blocos = tops.map((id) => findBlock(blocks, id)).filter((b): b is Block => !!b);
+    if (blocos.length) setEnviar({ blocks: blocos, tops });
+  }
+
+  /** Colar: acrescenta os blocos copiados AO FIM do artigo, com IDs novos. */
+  function onColar() {
+    const raw = readBlocksFromClipboard();
+    if (!raw?.length) {
+      toast.info("Nada foi copiado ainda. Selecione blocos e use Copiar ou Recortar.");
+      return;
+    }
+    const doc = normalizeDoc({ version: 2, blocks: raw });
+    const novos = cloneBlocksWithNewIds(doc.blocks);
+    if (!novos.length) return;
+    setBlocks((bs) => [...bs, ...novos]);
+    toast.success(`${novos.length} bloco(s) colado(s) ao fim do artigo.`);
+  }
+
+  // Atalhos GLOBAIS de clipboard de BLOCOS entre artigos: Ctrl/Cmd + C (copiar),
+  // X (recortar), V (colar). Ficam no DOCUMENTO porque a seleção de blocos pode
+  // estar com o foco fora do texto (na barra flutuante, ou logo após navegar
+  // para o artigo destino). Refs evitam re-subscrever o listener a cada render.
+  const clipRef = useRef({ onColar, onCopiar, onRecortar, selectedIds });
+  clipRef.current = { onColar, onCopiar, onRecortar, selectedIds };
+  useEffect(() => {
+    function onClipKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const k = e.key.toLowerCase();
+      if (k !== "c" && k !== "x" && k !== "v") return;
+      const el = document.activeElement as HTMLElement | null;
+      const emCampoForm = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+      const c = clipRef.current;
+
+      if (k === "v") {
+        // Colar: só fora de campo de texto (dentro, o colar nativo/HTML manda).
+        if (emCampoForm || el?.isContentEditable) return;
+        if (!readBlocksFromClipboard()?.length) return;
+        e.preventDefault();
+        c.onColar();
+        return;
+      }
+
+      // Copiar/Recortar de BLOCOS. Prioridade do copiar NATIVO quando o usuário
+      // está num campo de formulário (título/código) ou destacou texto de fato.
+      if (emCampoForm) return;
+      const textoSel = (typeof window !== "undefined" ? window.getSelection()?.toString() : "") ?? "";
+      if (textoSel.trim() !== "") return;
+      if (c.selectedIds.length === 0) return;
+      // Editando UM bloco (cursor no texto, nada destacado) → deixa o nativo, não
+      // sequestra o Ctrl+C de quem só quer copiar dentro do parágrafo.
+      if (c.selectedIds.length === 1 && el?.isContentEditable) return;
+      e.preventDefault();
+      if (k === "c") c.onCopiar();
+      else c.onRecortar();
+    }
+    document.addEventListener("keydown", onClipKey);
+    return () => document.removeEventListener("keydown", onClipKey);
+  }, []);
+
+  /**
+   * Colar (evento nativo do container): se a área de transferência do SO não
+   * traz conteúdo (HTML/texto/imagem), mas há blocos recortados/copiados,
+   * cola os blocos. Senão, segue o fluxo de Word/Docs/web/imagem (usePasteBlocks).
+   */
+  function onPasteRoot(e: React.ClipboardEvent) {
+    const cd = e.clipboardData;
+    const temSistema =
+      cd.getData("text/html").trim() !== "" ||
+      cd.getData("text/plain").trim() !== "" ||
+      Array.from(cd.items ?? []).some((it) => it.kind === "file");
+    if (!temSistema && readBlocksFromClipboard()?.length) {
+      e.preventDefault();
+      onColar();
+      return;
+    }
+    onPaste(e);
+  }
+
   async function onImprove() {
+    // A IA lê do banco (artigo inteiro) ou dos blocos selecionados; o flush
+    // garante que a última edição da tela esteja salva no rascunho.
     setImproving(true);
-    setMsg(null);
-    // A IA lê do banco, não do estado local: sem o flush ela reformataria a
-    // última versão salva, ignorando o que está na tela (mesmo motivo do publicar).
     await flush();
+    setImproving(false);
+
+    // Com seleção → melhora SÓ os blocos escolhidos (pode desmembrar em vários).
+    if (selectedIds.length > 0) {
+      await rodarImproveSelecao(idsDeTopo(blocks, selectedIds));
+      return;
+    }
+
+    // Artigo inteiro → confirmação antes (é uma mudança em tudo).
+    const ok = await confirmar({
+      title: "Melhorar o layout de todo o artigo?",
+      description:
+        "A IA reformata o texto em blocos ricos (tabelas, passos, listas, avisos…) sem reescrever. Você revê a proposta antes de aplicar.",
+    });
+    if (!ok) return;
+
     // Fase 1 (interativa): a IA lê o texto e PERGUNTA antes de reformatar.
     // Falha do passe de perguntas não bloqueia — cai no fluxo direto.
-    const q = await proposeArticleLayoutQuestions(nodeId);
+    setImproving(true);
+    const q = await loader.during("Analisando o artigo…", () => proposeArticleLayoutQuestions(nodeId));
     setImproving(false);
     if (q.ok && q.perguntas.length > 0) {
       setLayoutPerguntas(q.perguntas);
       setLayoutRespostas({});
       return;
     }
-    if (!q.ok) setMsg(`Análise indisponível (${q.error}) — reformatando sem perguntas.`);
+    if (!q.ok) toast.warning(`Análise indisponível (${q.error}) — reformatando sem perguntas.`);
     await rodarImprove(undefined);
   }
 
-  /** Fase 2: reformatação, com ou sem a direção do autor. */
+  /** Fase 2 (artigo inteiro): reformatação, com ou sem a direção do autor. */
   async function rodarImprove(direcao: string | undefined) {
     setLayoutPerguntas(null);
     setImproving(true);
-    const res = await improveArticleLayout(nodeId, direcao);
+    const res = await loader.during("Melhorando o layout com IA…", () =>
+      improveArticleLayout(nodeId, direcao, tempLayout(criatividade)),
+    );
     setImproving(false);
-    if (!res.ok) return setMsg(res.error);
+    if (!res.ok) return toast.error(res.error);
+    setProposedTarget(null);
+    setProposed(normalizeDoc(res.doc));
+  }
+
+  /** Melhora só os blocos de topo selecionados (desmembra em vários se couber). */
+  async function rodarImproveSelecao(alvos: string[]) {
+    const blocosAlvo = alvos
+      .map((id) => findBlock(blocks, id))
+      .filter((b): b is Block => !!b);
+    if (!blocosAlvo.length) return;
+    setImproving(true);
+    const res = await loader.during("Melhorando o layout com IA…", () =>
+      improveBlocks(nodeId, blocosAlvo, undefined, tempLayout(criatividade)),
+    );
+    setImproving(false);
+    if (!res.ok) return toast.error(res.error);
+    setProposedTarget(alvos);
     setProposed(normalizeDoc(res.doc));
   }
   async function onSalvarModelo() {
@@ -555,7 +899,8 @@ function BlockEditorInner({
     if (!nome) return;
     await flush();
     const r = await saveArticleAsTemplate(nodeId, nome, null);
-    setMsg(r.ok ? null : r.error);
+    if (r.ok) toast.success("Modelo salvo.");
+    else toast.error(r.error);
   }
 
   async function onSalvarSnippet() {
@@ -569,17 +914,18 @@ function BlockEditorInner({
     });
     if (!nome) return;
     const r = await saveBlocksAsSnippet(spaceId, nome, [alvo]);
-    setMsg(r.ok ? null : r.error);
-    if (r.ok) setSnippetsDisponiveis(await listSnippets(spaceId));
+    if (r.ok) {
+      toast.success("Snippet salvo.");
+      setSnippetsDisponiveis(await listSnippets(spaceId));
+    } else toast.error(r.error);
   }
 
   async function onRemix(tipo: RemixTipo) {
     setRemixando(tipo);
-    setMsg(null);
     await flush(); // remixa o que está na tela, não uma versão velha
     const r = await remixArticle(nodeId, tipo);
     setRemixando(null);
-    if (!r.ok) return setMsg(r.error);
+    if (!r.ok) return toast.error(r.error);
     setRemix({ tipo, blocks: r.data });
   }
 
@@ -599,7 +945,7 @@ function BlockEditorInner({
       title: `FAQ — ${title}`,
     });
     if (!criado.ok || !criado.id) {
-      setMsg(!criado.ok ? criado.error : "Falha ao criar o artigo de FAQ.");
+      toast.error(!criado.ok ? criado.error : "Falha ao criar o artigo de FAQ.");
       return;
     }
     await saveArticle(criado.id, { version: 2, blocks: remix.blocks });
@@ -608,8 +954,25 @@ function BlockEditorInner({
   }
 
   function applyImprove() {
-    if (proposed) setBlocks(proposed.blocks.length ? proposed.blocks : blocks);
+    if (proposed && proposed.blocks.length) {
+      const novos = proposed.blocks;
+      if (proposedTarget) {
+        // Seleção: substitui os blocos-alvo pelos propostos, na posição do 1º.
+        setBlocks((bs) => {
+          const set = new Set(proposedTarget);
+          const primeiro = bs.findIndex((b) => set.has(b.id));
+          if (primeiro < 0) return bs;
+          const antes = bs.slice(0, primeiro).filter((b) => !set.has(b.id));
+          const depois = bs.slice(primeiro + 1).filter((b) => !set.has(b.id));
+          return [...antes, ...novos, ...depois];
+        });
+      } else {
+        setBlocks(novos); // artigo inteiro
+      }
+    }
     setProposed(null);
+    setProposedTarget(null);
+    setSelectedIds([]);
   }
 
   // ── IA no texto (separada do "Melhorar layout") ─────────────────────────
@@ -624,18 +987,107 @@ function BlockEditorInner({
       : null;
 
   async function onAiTexto(acao: TextoAcao, tom: TomAlvo | undefined, rotulo: string) {
-    if (!aiTextoAlvo) return;
+    // 1 bloco de texto → no lugar; vários selecionados → só a seleção; nada → artigo inteiro.
+    // Nos escopos artigo/seleção o texto vai com marcadores ⟦IMG:n⟧ para a IA —
+    // assim as imagens NÃO se perdem (são reinseridas no aplicar).
+    const topIds = idsDeTopo(blocks, selectedIds);
+    let escopo: "bloco" | "selecao" | "artigo";
+    let original: string;
+    let images: ImageMarker[] = [];
+    let blockId: string | null = null;
+    let blockIds: string[] | null = null;
+    if (aiTextoAlvo) {
+      escopo = "bloco";
+      original = blocksToText([aiTextoAlvo]).trim();
+      blockId = aiTextoAlvo.id;
+    } else if (selectedIds.length > 0) {
+      escopo = "selecao";
+      const alvo = topIds.map((id) => findBlock(blocks, id)).filter((b): b is Block => !!b);
+      const marc = blocksToPlainWithImageMarkers(alvo);
+      original = marc.text.trim();
+      images = marc.images;
+      blockIds = topIds;
+    } else {
+      escopo = "artigo";
+      const marc = blocksToPlainWithImageMarkers(blocks);
+      original = marc.text.trim();
+      images = marc.images;
+    }
+    if (original.length < 8) {
+      toast.info("Não há texto suficiente para a IA ajustar.");
+      return;
+    }
     setShowAiTexto(false);
     setAiTextoBusy(true);
-    setMsg(null);
-    const original = blocksToText([aiTextoAlvo]).trim();
-    const res = await improveArticleText(nodeId, original, acao, tom);
+    const res = await loader.during("A IA está ajustando o texto…", () =>
+      improveArticleText(nodeId, original, acao, tom, tempTexto(criatividade)),
+    );
     setAiTextoBusy(false);
-    if (!res.ok) return setMsg(res.error);
-    setAiProposta({ blockId: aiTextoAlvo.id, rotulo, original, proposta: res.proposta });
+    if (!res.ok) return toast.error(res.error);
+    setAiProposta({ escopo, blockId, blockIds, images, rotulo, original, proposta: res.proposta });
   }
+
+  /** Quebra a proposta em parágrafos (o formato de texto puro da IA). */
+  function propostaEmParagrafos(proposta: string): Block[] {
+    return proposta
+      .split(/\n{2,}/)
+      .map((p) => p.replace(/\n/g, " ").trim())
+      .filter(Boolean)
+      .map((p) => ({ id: newId(), type: "paragraph", text: [{ text: p }] }) as Block);
+  }
+
+  /**
+   * Reconstrói a proposta em blocos, reinserindo as imagens nos marcadores
+   * ⟦IMG:n⟧ — e, como rede de segurança, jogando ao fim qualquer imagem cujo
+   * marcador a IA tenha esquecido. Nenhuma imagem é perdida.
+   */
+  function propostaComImagens(proposta: string, images: ImageMarker[]): Block[] {
+    const imgBloco = (im: ImageMarker): Block =>
+      ({ id: newId(), type: "image", data: { src: im.src, alt: im.alt, caption: im.caption } }) as Block;
+    const usados = new Set<number>();
+    const out: Block[] = [];
+    proposta.split(/⟦IMG:(\d+)⟧/).forEach((parte, i) => {
+      if (i % 2 === 1) {
+        const n = Number(parte);
+        const im = images[n];
+        if (im?.src && !usados.has(n)) {
+          usados.add(n);
+          out.push(imgBloco(im));
+        }
+      } else {
+        out.push(...propostaEmParagrafos(parte));
+      }
+    });
+    images.forEach((im, n) => {
+      if (im?.src && !usados.has(n)) out.push(imgBloco(im));
+    });
+    return out;
+  }
+
   function applyAiTexto() {
-    if (aiProposta) setBlocks((bs) => aplicarTextoNoBloco(bs, aiProposta.blockId, aiProposta.proposta));
+    if (aiProposta) {
+      const imgs = aiProposta.images ?? [];
+      if (aiProposta.escopo === "artigo") {
+        const novos = propostaComImagens(aiProposta.proposta, imgs);
+        if (novos.length) setBlocks(novos);
+      } else if (aiProposta.escopo === "selecao" && aiProposta.blockIds) {
+        // Substitui os blocos selecionados pela proposta (com as imagens), na posição do 1º.
+        const novos = propostaComImagens(aiProposta.proposta, imgs);
+        if (novos.length) {
+          const set = new Set(aiProposta.blockIds);
+          setBlocks((bs) => {
+            const primeiro = bs.findIndex((b) => set.has(b.id));
+            if (primeiro < 0) return bs;
+            const antes = bs.slice(0, primeiro).filter((b) => !set.has(b.id));
+            const depois = bs.slice(primeiro + 1).filter((b) => !set.has(b.id));
+            return [...antes, ...novos, ...depois];
+          });
+        }
+        setSelectedIds([]);
+      } else if (aiProposta.blockId) {
+        setBlocks((bs) => aplicarTextoNoBloco(bs, aiProposta.blockId!, aiProposta.proposta));
+      }
+    }
     setAiProposta(null);
   }
 
@@ -647,15 +1099,16 @@ function BlockEditorInner({
 
   async function onSubmitReview() {
     const res = await submitForReview(nodeId);
-    if (!res.ok) return setMsg(res.error);
+    if (!res.ok) return toast.error(res.error);
     setStatus("review");
-    setMsg("Enviado para revisão.");
+    toast.success("Enviado para revisão.");
     router.refresh();
   }
   async function onApprove() {
     const res = await approveReview(nodeId);
-    if (!res.ok) return setMsg(res.error);
+    if (!res.ok) return toast.error(res.error);
     setStatus("published");
+    toast.success("Aprovado e publicado.");
     router.refresh();
   }
   async function onReject() {
@@ -668,8 +1121,9 @@ function BlockEditorInner({
     });
     if (comment === null) return;
     const res = await rejectReview(nodeId, comment);
-    if (!res.ok) return setMsg(res.error);
+    if (!res.ok) return toast.error(res.error);
     setStatus("draft");
+    toast.success("Devolvido para rascunho.");
     router.refresh();
   }
   async function onPublishToggle() {
@@ -677,12 +1131,15 @@ function BlockEditorInner({
     // contrário, publica (comitando o rascunho, se houver).
     const willUnpublish = status === "published" && !hasDraft;
     if (!willUnpublish) await flush(); // garante o rascunho mais recente salvo
-    const res = willUnpublish ? await unpublishNode(nodeId) : await publishNode(nodeId);
-    if (!res.ok) return setMsg(res.error);
+    const res = await loader.during(
+      willUnpublish ? "Despublicando…" : "Publicando…",
+      () => (willUnpublish ? unpublishNode(nodeId) : publishNode(nodeId)),
+    );
+    if (!res.ok) return toast.error(res.error);
     setStatus(willUnpublish ? "draft" : "published");
     setHasDraft(false);
     publishedRef.current = blocks; // o conteúdo atual passou a ser o oficial
-    setMsg(null);
+    toast.success(willUnpublish ? "Artigo despublicado." : "Artigo publicado.");
     router.refresh();
   }
 
@@ -696,12 +1153,12 @@ function BlockEditorInner({
     });
     if (!ok) return;
     const res = await discardDraft(nodeId);
-    if (!res.ok) return setMsg(res.error);
+    if (!res.ok) return toast.error(res.error);
     pularProximo(); // reversão: não deve virar um novo rascunho
     setBlocks(publishedRef.current);
     setHasDraft(false);
     setSelectedId(null);
-    setMsg(null);
+    toast.success("Alterações descartadas.");
   }
 
   const words = useMemo(() => {
@@ -713,6 +1170,7 @@ function BlockEditorInner({
   return (
     <div
       onKeyDown={onRootKeyDown}
+      onPaste={onPasteRoot}
       className={fullscreen ? "fixed inset-0 z-40 flex flex-col overflow-hidden bg-bg p-4 md:p-8" : "flex h-full flex-col"}
     >
       {/* Cabeçalho (barra superior Lumina: sticky, translúcida com blur) */}
@@ -812,11 +1270,13 @@ function BlockEditorInner({
               variant="ghost"
               title={
                 aiTextoAlvo
-                  ? "IA no texto do bloco selecionado (reescrever, expandir, resumir, tom)"
-                  : "Selecione um bloco de texto para usar a IA"
+                  ? "IA no texto do bloco selecionado (formatar, reescrever, expandir, resumir, tom)"
+                  : selectedIds.length > 0
+                    ? "IA no texto dos itens selecionados (formatar, reescrever, expandir, resumir, tom)"
+                    : "IA no texto do ARTIGO INTEIRO (nada selecionado)"
               }
               aria-expanded={showAiTexto}
-              disabled={!aiTextoAlvo || aiTextoBusy}
+              disabled={(!aiTextoAlvo && selectedIds.length === 0 && words === 0) || aiTextoBusy}
               onClick={() => setShowAiTexto((v) => !v)}
             >
               <PenLine className={aiTextoBusy ? "animate-pulse" : ""} />
@@ -824,6 +1284,19 @@ function BlockEditorInner({
             </Button>
             {showAiTexto && (
               <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2">
+                <p className="px-2 pb-1.5 pt-1 text-[11px] leading-snug text-text-muted">
+                  {aiTextoAlvo
+                    ? "Age no bloco selecionado."
+                    : selectedIds.length > 0
+                      ? `Age nos ${selectedIds.length} itens selecionados.`
+                      : "Nada selecionado — age no artigo inteiro."}
+                </p>
+                <div className="px-1 pb-1.5">
+                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                    Criatividade
+                  </p>
+                  <CriatividadeSelect value={criatividade} onChange={setCriatividade} />
+                </div>
                 {ACOES_IA_TEXTO.map((a) => (
                   <button
                     key={a.rotulo}
@@ -862,7 +1335,12 @@ function BlockEditorInner({
                   </button>
                 )}
                 <button type="button" disabled={improving} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { onImprove(); setShowMore(false); }} title="Reformatar o texto em blocos ricos (IA)">
-                  <Wand2 className="size-4 text-text-muted" /> {improving ? "Melhorando…" : "Melhorar layout"}
+                  <Wand2 className="size-4 text-text-muted" />{" "}
+                  {improving
+                    ? "Melhorando…"
+                    : selectedIds.length > 0
+                      ? "Melhorar layout (seleção)"
+                      : "Melhorar layout"}
                 </button>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowHistory(true); setShowMore(false); }}>
                   <History className="size-4 text-text-muted" /> Histórico de versões
@@ -883,6 +1361,9 @@ function BlockEditorInner({
                 </button>
                 <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("faq"); setShowMore(false); }} title="Gera um artigo de FAQ a partir deste (IA, com prévia)">
                   <Wand2 className="size-4 text-text-muted" /> {remixando === "faq" ? "Gerando FAQ…" : "Gerar FAQ (IA)"}
+                </button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { onColar(); setShowMore(false); }} title="Cola ao fim deste artigo os blocos copiados/recortados de outro artigo">
+                  <ClipboardPaste className="size-4 text-text-muted" /> Colar blocos (fim do artigo)
                 </button>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { void onSalvarModelo(); setShowMore(false); }} title="Este artigo vira um modelo para novos artigos">
                   <LayoutTemplate className="size-4 text-text-muted" /> Salvar como modelo
@@ -928,8 +1409,8 @@ function BlockEditorInner({
         </div>
       </div>
 
-      {(msg ?? erroSalvar) && (
-        <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{msg ?? erroSalvar}</p>
+      {erroSalvar && (
+        <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{erroSalvar}</p>
       )}
 
       {/* Só ocupa o topo quando o artigo está em revisão (ou aberto pelo menu
@@ -986,33 +1467,34 @@ function BlockEditorInner({
               setDropLinha(null);
             }}
           >
-            {/* Com um painel direito aberto, a paleta vira trilho de ícones —
-                nunca dois trilhos largos comendo o canvas ao mesmo tempo. */}
+            {/* Região "itens e objetos" (paleta de blocos). Fixa na altura,
+                rola sozinha, redimensionável e recolhível. Com um painel direito
+                aberto (Chat/Otimizar), vira trilho de ícones à força — nunca dois
+                trilhos largos comendo o canvas ao mesmo tempo. */}
             {showChat || showOptimize ? (
               <aside className="slim-scroll flex w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto rounded-lg border border-border bg-surface py-2">
-                {slashBlocks().map((m) => {
-                  const Icon = m.icon;
-                  return (
-                    <button
-                      key={m.type}
-                      type="button"
-                      title={`${m.label} — adicionar ao final`}
-                      onClick={() => paletteAdd(m.type)}
-                      className="flex size-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-brand-purple-50 hover:text-primary dark:hover:bg-brand-purple-950/40"
-                    >
-                      <Icon className="size-4" />
-                    </button>
-                  );
-                })}
+                <PaletteRailIcons onAdd={paletteAdd} />
               </aside>
+            ) : paleta.collapsed ? (
+              <CollapsedRail side="left" onExpand={paleta.toggle} label="a paleta de blocos">
+                <PaletteRailIcons onAdd={paletteAdd} />
+              </CollapsedRail>
             ) : (
-              <aside className="slim-scroll sticky top-20 max-h-[calc(100vh-6rem)] w-60 shrink-0 overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-1">
-                <BlockPalette
-                  onAdd={paletteAdd}
-                  snippets={snippetsDisponiveis}
-                  onAddSnippet={paletteAddSnippet}
-                />
-              </aside>
+              <ResizablePanel storageKey="kb.paletteWidth" side="left" min={200} max={420} defaultWidth={240}>
+                <aside className="slim-scroll h-full w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-1">
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-surface/95 px-3 py-2.5 backdrop-blur">
+                    <span className="text-sm font-semibold">Blocos e objetos</span>
+                    <CollapseButton side="left" onClick={paleta.toggle} label="a paleta de blocos" />
+                  </div>
+                  <div className="p-3">
+                    <BlockPalette
+                      onAdd={paletteAdd}
+                      snippets={snippetsDisponiveis}
+                      onAddSnippet={paletteAddSnippet}
+                    />
+                  </div>
+                </aside>
+              </ResizablePanel>
             )}
             <div
               className="min-w-[26rem] flex-1 overflow-auto"
@@ -1036,7 +1518,7 @@ function BlockEditorInner({
                     key={revisao}
                     blocks={blocks}
                     actions={actions}
-                    selectedId={selectedId}
+                    selectedIds={selectedIds}
                     autoFocusId={autoFocusId}
                     spaceId={spaceId}
                     onContextMenu={(block, x, y) => setCtxMenu({ block, x, y })}
@@ -1087,21 +1569,91 @@ function BlockEditorInner({
             onClose={() => setShowOptimize(false)}
           />
         )}
-        {/* Painel de PROPRIEDADES na direita — abre ao selecionar um bloco (e
-            cede a vez para Chat/Otimizar quando algum deles está aberto). */}
+        {/* Região "propriedades do item selecionado" na direita — SÓ aparece ao
+            selecionar um bloco (cede a vez para Chat/Otimizar). Fixa na altura,
+            redimensionável e recolhível num trilho fino. */}
         {!preview && !showChat && !showOptimize && selectedId && (() => {
           const sel = findBlock(blocks, selectedId);
-          return sel ? (
-            <BlockInspector
-              block={sel}
-              actions={actions}
-              onFormat={(mark) => activeRT?.current?.toggleMark(mark)}
-              onLink={() => activeRT?.current?.link()}
-              onClose={() => setSelectedId(null)}
-            />
-          ) : null;
+          if (!sel) return null;
+          if (inspetor.collapsed) {
+            const Icon = BLOCKS[sel.type].icon;
+            return (
+              <CollapsedRail side="right" onExpand={inspetor.toggle} label="as propriedades">
+                <span
+                  title={`Propriedades — ${BLOCKS[sel.type].label}`}
+                  className="flex size-8 items-center justify-center rounded-lg border border-border bg-surface text-primary"
+                >
+                  <Icon className="size-4" />
+                </span>
+              </CollapsedRail>
+            );
+          }
+          return (
+            <ResizablePanel storageKey="kb.inspectorWidth" side="right" min={260} max={560} defaultWidth={320}>
+              <BlockInspector
+                block={sel}
+                actions={actions}
+                onFormat={(mark) => activeRT?.current?.toggleMark(mark)}
+                onLink={() => activeRT?.current?.link()}
+                onClose={() => setSelectedId(null)}
+                onCollapse={inspetor.toggle}
+              />
+            </ResizablePanel>
+          );
         })()}
       </div>
+
+      {/* Barra flutuante de seleção — 1+ bloco: copiar/recortar sempre, agrupar
+          a partir de 2 (shift/ctrl+clique). */}
+      {!preview && !showChat && !showOptimize && selectedIds.length >= 1 && (
+        <GroupBar
+          count={selectedIds.length}
+          onGroup={agrupar}
+          onCopy={onCopiar}
+          onCut={onRecortar}
+          onSendToArticle={onEnviarParaArtigo}
+          onClear={() => setSelectedIds([])}
+        />
+      )}
+
+      {enviar && (
+        <SendToArticleDialog
+          blocks={enviar.blocks}
+          onClose={() => setEnviar(null)}
+          onDone={(mover) => {
+            if (mover) {
+              const set = new Set(enviar.tops);
+              setBlocks((bs) => bs.filter((b) => !set.has(b.id)));
+              setSelectedIds([]);
+            }
+            setEnviar(null);
+          }}
+        />
+      )}
+
+      {findOpen && !preview && (
+        <FindReplaceBar
+          query={findQuery}
+          onQuery={(v) => {
+            setFindQuery(v);
+            setFindIndex(-1);
+          }}
+          replaceValue={findReplace}
+          onReplaceValue={setFindReplace}
+          caseSensitive={findCase}
+          onToggleCase={() => {
+            setFindCase((c) => !c);
+            setFindIndex(-1);
+          }}
+          count={matches.length}
+          current={findIndex >= 0 && findIndex < matches.length ? findIndex + 1 : 0}
+          onPrev={() => irPara(findIndex - 1)}
+          onNext={() => irPara(findIndex + 1)}
+          onReplace={substituirAtual}
+          onReplaceAll={substituirTudo}
+          onClose={() => setFindOpen(false)}
+        />
+      )}
 
       <div className="mt-2 flex items-center justify-end border-t border-border pt-2 text-xs text-text-muted">
         <span className="tabular-nums">{words} palavra{words === 1 ? "" : "s"}</span>
@@ -1111,6 +1663,7 @@ function BlockEditorInner({
         <SlashMenu
           rect={slash.rect}
           onSelect={onSlashSelect}
+          onSelectChart={onSlashChart}
           onClose={() => setSlash(null)}
           snippets={snippetsDisponiveis}
           onSelectSnippet={onSlashSnippet}
@@ -1125,6 +1678,8 @@ function BlockEditorInner({
           actions={actions}
           onClose={() => setCtxMenu(null)}
           onProperties={() => setSelectedId(ctxMenu.block.id)}
+          onSendToArticle={() => onEnviarBlocoParaArtigo(ctxMenu.block.id)}
+          selCount={selectedIds.includes(ctxMenu.block.id) ? selectedIds.length : 1}
         />
       )}
 
@@ -1171,6 +1726,10 @@ function BlockEditorInner({
           </>
         }
       >
+        <div className="mb-4 rounded-lg border border-border p-3">
+          <p className="mb-1.5 text-xs font-medium text-text-muted">Criatividade da IA</p>
+          <CriatividadeSelect value={criatividade} onChange={setCriatividade} />
+        </div>
         {layoutPerguntas && (
           <LayoutQuestionsForm
             perguntas={layoutPerguntas}
@@ -1215,14 +1774,24 @@ function BlockEditorInner({
         open={!!aiProposta}
         onClose={() => setAiProposta(null)}
         size="lg"
-        title={aiProposta ? `IA no texto — ${aiProposta.rotulo}` : "IA no texto"}
-        description="Compare e decida. Nada é aplicado sem o seu aceite; a formatação em negrito/itálico do trecho antigo é substituída junto."
+        title={
+          aiProposta
+            ? `IA no texto ${aiProposta.escopo === "artigo" ? "(artigo inteiro) " : aiProposta.escopo === "selecao" ? `(${aiProposta.blockIds?.length ?? 0} itens) ` : ""}— ${aiProposta.rotulo}`
+            : "IA no texto"
+        }
+        description={
+          aiProposta?.escopo === "artigo"
+            ? "Nada é aplicado sem o seu aceite. ATENÇÃO: aplicar SUBSTITUI o conteúdo do artigo pelo texto reformulado em parágrafos — blocos ricos (imagens, tabelas, código) são removidos."
+            : "Compare e decida. Nada é aplicado sem o seu aceite; a formatação em negrito/itálico do trecho antigo é substituída junto."
+        }
         footer={
           <>
             <Button variant="ghost" onClick={() => setAiProposta(null)}>
               Descartar
             </Button>
-            <Button onClick={applyAiTexto}>Aplicar no bloco</Button>
+            <Button onClick={applyAiTexto}>
+              {aiProposta?.escopo === "artigo" ? "Aplicar no artigo" : "Aplicar no bloco"}
+            </Button>
           </>
         }
       >
@@ -1276,6 +1845,29 @@ function BlockEditorInner({
   );
 }
 
+/** Ícones de acesso rápido da paleta (trilho recolhido): clicar adiciona o
+ *  bloco ao final. Reusado no trilho forçado (Chat/Otimizar) e no recolhido. */
+function PaletteRailIcons({ onAdd }: { onAdd: (t: BlockType) => void }) {
+  return (
+    <>
+      {slashBlocks().map((m) => {
+        const Icon = m.icon;
+        return (
+          <button
+            key={m.type}
+            type="button"
+            title={`${m.label} — adicionar ao final`}
+            onClick={() => onAdd(m.type)}
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-brand-purple-50 hover:text-primary dark:hover:bg-brand-purple-950/40"
+          >
+            <Icon className="size-4" />
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 /** Zona de soltura final do canvas (padrão Lumina): alvo GRANDE para o
  *  arrasto de paleta + convite quando o documento está vazio. */
 function CanvasEndZone({ vazio }: { vazio: boolean }) {
@@ -1292,6 +1884,35 @@ function CanvasEndZone({ vazio }: { vazio: boolean }) {
       {vazio
         ? "Comece arrastando blocos da paleta ao lado para montar o artigo"
         : "Solte aqui para adicionar ao final do artigo"}
+    </div>
+  );
+}
+
+/** Seletor compacto do nível de criatividade da IA (3 botões). */
+function CriatividadeSelect({
+  value,
+  onChange,
+}: {
+  value: Criatividade;
+  onChange: (c: Criatividade) => void;
+}) {
+  return (
+    <div className="flex gap-1">
+      {CRIATIVIDADES.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          title={c.hint}
+          onClick={() => onChange(c.key)}
+          className={`flex-1 rounded-md border px-1.5 py-1 text-[11px] transition-colors ${
+            value === c.key
+              ? "border-primary bg-brand-purple-50 text-primary dark:bg-brand-purple-950/30"
+              : "border-border text-text-muted hover:border-primary/50"
+          }`}
+        >
+          {c.label}
+        </button>
+      ))}
     </div>
   );
 }

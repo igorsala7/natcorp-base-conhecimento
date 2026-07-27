@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Plus, Settings } from "lucide-react";
+import { LayoutTemplate, Plus, Settings } from "lucide-react";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { NewSpaceDialog } from "./new-space-dialog";
 import { controlClass } from "@/components/ui/input";
@@ -66,6 +66,16 @@ export function SpaceSwitcher({
           </option>
         ))}
       </select>
+      {canManage && (
+        <Link
+          href={`/admin/aparencia?space=${currentId}`}
+          title="Editar o layout da página inicial desta documentação"
+          aria-label="Editar layout da página inicial"
+          className="rounded-md border border-border p-1.5 text-text-muted hover:border-primary hover:text-primary"
+        >
+          <LayoutTemplate className="size-4" />
+        </Link>
+      )}
       {canManage && (
         <Link
           href={settingsHref}

@@ -1,6 +1,7 @@
 "use client";
 
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
+import { BlockPreview, temPreview } from "./block-previews";
 
 /**
  * Formulário das perguntas de layout da IA — compartilhado pelo editor
@@ -26,7 +27,7 @@ export function LayoutQuestionsForm({
               “{p.trecho}”
             </blockquote>
           )}
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="mt-2 grid grid-cols-1 gap-2">
             {p.opcoes.map((o, i) => {
               const ativa = respostas[p.id] === i;
               return (
@@ -48,10 +49,16 @@ export function LayoutQuestionsForm({
                     />
                     {o.rotulo}
                   </span>
-                  {o.exemplo && (
-                    <span className="mt-1.5 block whitespace-pre-wrap rounded bg-surface-2 px-2 py-1.5 text-[0.6875rem] leading-relaxed text-text-muted">
-                      {o.exemplo}
+                  {temPreview(o.preview) ? (
+                    <span className="mt-2 block">
+                      <BlockPreview typeKey={o.preview!} />
                     </span>
+                  ) : (
+                    o.exemplo && (
+                      <span className="mt-1.5 block whitespace-pre-wrap rounded bg-surface-2 px-2 py-1.5 text-[0.6875rem] leading-relaxed text-text-muted">
+                        {o.exemplo}
+                      </span>
+                    )
                   )}
                 </label>
               );

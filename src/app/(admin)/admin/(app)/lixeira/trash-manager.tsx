@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw, Trash2, FolderTree, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { EmptyState } from "@/components/ui/empty-state";
 import { restoreTrash, hardDeleteTrash, emptyTrash, type TrashItem } from "./actions";
@@ -18,13 +19,14 @@ export function TrashManager({
 }) {
   const router = useRouter();
   const { confirmar } = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string; count?: number }>, okMsg: (n?: number) => string) {
     startTransition(async () => {
       const r = await fn();
-      setMsg(r.ok ? okMsg(r.count) : (r.error ?? "Falha."));
+      if (r.ok) toast.success(okMsg(r.count));
+      else toast.error(r.error ?? "Falha.");
       router.refresh();
     });
   }
@@ -59,12 +61,6 @@ export function TrashManager({
           </Button>
         )}
       </div>
-
-      {msg && (
-        <p role="status" className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-          {msg}
-        </p>
-      )}
 
       {initialItems.length === 0 ? (
         <EmptyState
