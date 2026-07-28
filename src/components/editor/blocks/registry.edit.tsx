@@ -10,6 +10,7 @@ import { ImageBlock, VideoBlock, EmbedBlock, FileBlock } from "./blocks/media-bl
 import { TableBlock } from "./blocks/table-block";
 import { ChartBlock } from "./blocks/chart-block";
 import { FlowBlock } from "./blocks/flow-block";
+import { MindMapBlock } from "./blocks/mindmap-block";
 import {
   DividerBlock,
   SpacerBlock,
@@ -70,6 +71,7 @@ export const EDITORS = {
   mermaid: MermaidBlock,
   chart: ChartBlock,
   flow: FlowBlock,
+  mindmap: MindMapBlock,
   snippet: SnippetBlock,
   checklist: ChecklistBlock,
   stats: StatsBlock,

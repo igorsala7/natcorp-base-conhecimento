@@ -5,7 +5,17 @@
  * (Fase B). Aqui converte para os dados ricos dos blocos.
  */
 import { parseDelimited, rowsToChart } from "./tabular";
-import type { ChartData, ChartType, FlowData, FlowEdge, FlowNode, FlowNodeType } from "./schema";
+import { newId } from "./schema";
+import type {
+  ChartData,
+  ChartType,
+  FlowData,
+  FlowEdge,
+  FlowNode,
+  FlowNodeType,
+  MindMapData,
+  MindMapNode,
+} from "./schema";
 
 /** `chartType` + CSV/TSV → ChartData (X/séries detectados). Null se sem dados. */
 export function csvToChartData(
@@ -88,4 +98,51 @@ export function mermaidToFlowData(src: string): FlowData {
     }
   }
   return { nodes: [...nodes.values()], edges };
+}
+
+/**
+ * Outline indentado → MindMapData. A IA descreve o MAPA MENTAL como uma lista
+ * indentada (a linha de MENOR indentação é a raiz; cada nível de indentação
+ * aninha). Aceita `-`/`*`/`•` como marcador. Robusto a indentação irregular:
+ * usa uma pilha por nível de indentação. Null se vazio.
+ */
+export function outlineToMindMap(outline: string): MindMapData | null {
+  const itens: { indent: number; label: string }[] = [];
+  for (const linha of (outline ?? "").split(/\r?\n/)) {
+    if (!linha.trim()) continue;
+    const m = /^(\s*)(.*)$/.exec(linha);
+    const indent = (m?.[1] ?? "").replace(/\t/g, "  ").length;
+    const label = (m?.[2] ?? "").replace(/^[-*•+]\s+/, "").replace(/^[-*•+]/, "").trim();
+    if (label) itens.push({ indent, label });
+  }
+  if (!itens.length) return null;
+
+  const root: MindMapNode = { id: newId(), label: itens[0]!.label, children: [] };
+  const pilha: { indent: number; node: MindMapNode }[] = [{ indent: itens[0]!.indent, node: root }];
+  for (let i = 1; i < itens.length; i++) {
+    const it = itens[i]!;
+    while (pilha.length > 1 && pilha[pilha.length - 1]!.indent >= it.indent) pilha.pop();
+    const pai = pilha[pilha.length - 1]!.node;
+    const node: MindMapNode = { id: newId(), label: it.label, children: [] };
+    (pai.children ??= []).push(node);
+    pilha.push({ indent: it.indent, node });
+  }
+  limparVazios(root);
+  return { root };
+}
+
+/** MindMapData → outline indentado (2 espaços/nível). Para editar/enviar à IA. */
+export function mindMapToOutline(root: MindMapNode): string {
+  const linhas: string[] = [];
+  const walk = (n: MindMapNode, depth: number) => {
+    linhas.push("  ".repeat(depth) + n.label);
+    (n.children ?? []).forEach((c) => walk(c, depth + 1));
+  };
+  walk(root, 0);
+  return linhas.join("\n");
+}
+
+function limparVazios(n: MindMapNode): void {
+  if (n.children && n.children.length === 0) delete n.children;
+  n.children?.forEach(limparVazios);
 }

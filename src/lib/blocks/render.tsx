@@ -25,6 +25,7 @@ import { cellBgClass } from "./table-styles";
 import { MermaidView } from "@/components/editor/mermaid-view";
 import { ChartView } from "@/components/portal/chart-view";
 import { FlowView } from "@/components/portal/flow-view";
+import { MindMapView } from "@/components/portal/mindmap-view";
 import type { TocItem } from "@/components/portal/toc";
 import { embedIframe } from "./embed";
 import { type Block, type RichText } from "./schema";
@@ -567,6 +568,13 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
 
     case "flow":
       return <FlowView data={block.data} />;
+
+    case "mindmap":
+      return (
+        <div className="my-5">
+          <MindMapView data={block.data} />
+        </div>
+      );
 
     case "checklist":
       return (

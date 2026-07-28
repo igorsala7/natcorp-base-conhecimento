@@ -96,6 +96,7 @@ export type BlockType =
   | "mermaid"
   | "chart"
   | "flow"
+  | "mindmap"
   | "snippet"
   | "checklist"
   | "stats";
@@ -308,6 +309,24 @@ export function chartSupportsMedian(t: ChartType): boolean {
 export function chartIsCircular(t: ChartType): boolean {
   return t === "pie" || t === "donut";
 }
+// ── Mapa mental (MindMap — árvore interativa) ───────────────────────────────
+// Árvore de nós (raiz + filhos, recursivo). O LAYOUT é automático
+// (mindmap-layout.ts); a IA e o editor só descrevem a hierarquia. Interativo no
+// leitor: expandir/retrair, zoom e tela cheia.
+export type MindMapNode = {
+  id: string;
+  label: string;
+  note?: string; // detalhe/descrição (tooltip no leitor, painel no editor)
+  link?: string; // URL — o nó abre em nova aba
+  icon?: string; // chave do catálogo de ícones (ICONS)
+  color?: string; // hex do acento/borda do nó
+  bg?: string; // hex do preenchimento do nó
+  collapsed?: boolean; // começa retraído (filhos ocultos)
+  children?: MindMapNode[];
+};
+export type MindMapDirection = "LR" | "TB"; // raiz à esquerda (padrão) ou no topo
+export type MindMapData = { root: MindMapNode; direction?: MindMapDirection };
+
 /** Item de checklist: texto RICO (negrito/código/link) como as células da tabela. */
 export type ChecklistItem = { id: string; text: RichText; checked: boolean };
 export type ChecklistData = { items: ChecklistItem[] };
@@ -355,6 +374,7 @@ export type Block =
   | (BlockBase & { type: "mermaid"; data: MermaidData })
   | (BlockBase & { type: "chart"; data: ChartData })
   | (BlockBase & { type: "flow"; data: FlowData })
+  | (BlockBase & { type: "mindmap"; data: MindMapData })
   | (BlockBase & { type: "snippet"; data: SnippetData })
   | (BlockBase & { type: "checklist"; data: ChecklistData })
   | (BlockBase & { type: "stats"; data: StatsData });
@@ -430,7 +450,7 @@ const BLOCK_TYPES: [BlockType, ...BlockType[]] = [
   "divider", "code", "image", "video", "file", "embed", "button", "callout", "steps",
   "step", "accordion", "accordionItem", "tabs", "tab", "toggle", "container",
   "column", "panel", "cardGrid", "card", "hero", "spacer", "table", "mermaid",
-  "chart", "flow", "snippet", "checklist", "stats",
+  "chart", "flow", "mindmap", "snippet", "checklist", "stats",
 ];
 
 type ZodBlock = {

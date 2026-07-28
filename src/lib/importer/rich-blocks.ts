@@ -8,7 +8,7 @@ import {
   type ChartType,
   type RichText,
 } from "@/lib/blocks/schema";
-import { csvToChartData, mermaidToFlowData } from "@/lib/blocks/ai-data-blocks";
+import { csvToChartData, mermaidToFlowData, outlineToMindMap } from "@/lib/blocks/ai-data-blocks";
 
 /**
  * SANITIZADOR da saída livre da IA (Fase B) → BlockDoc válido e seguro para o
@@ -28,7 +28,7 @@ const TIPOS_VALIDOS = new Set<BlockType>([
   "divider", "code", "image", "video", "file", "embed", "button", "callout",
   "steps", "step", "accordion", "accordionItem", "tabs", "tab", "toggle",
   "container", "column", "panel", "cardGrid", "card", "hero", "spacer", "table",
-  "mermaid", "chart", "flow", "snippet", "checklist", "stats",
+  "mermaid", "chart", "flow", "mindmap", "snippet", "checklist", "stats",
 ]);
 
 /** Blocos que carregam filhos (contêineres). */
@@ -164,6 +164,11 @@ function coerceData(type: BlockType, d: Record<string, unknown>): Record<string,
         grid: true,
       };
     }
+    case "mindmap": {
+      // Forma preferida: outline indentado (1ª linha = raiz, indentação = ramos).
+      if (typeof d.outline === "string" && d.outline.trim()) return outlineToMindMap(d.outline) ?? undefined;
+      return d.root && typeof d.root === "object" ? { root: d.root } : undefined;
+    }
     case "flow": {
       // Forma preferida: sintaxe Mermaid. Aceita também nós/arestas diretos.
       if (typeof d.mermaid === "string" && d.mermaid.trim()) {
@@ -241,6 +246,7 @@ function sanitizeBlock(input: unknown): Block | null {
   if (type === "table" && !((data?.rows as unknown[])?.length)) return null;
   if (type === "chart" && !data) return null;
   if (type === "flow" && !((data?.nodes as unknown[])?.length)) return null;
+  if (type === "mindmap" && !(data as { root?: unknown })?.root) return null;
   if ((type === "checklist" || type === "stats") && !((data?.items as unknown[])?.length)) return null;
 
   // Filhos: `children`, ou `items` nos contêineres. Em listas, entradas soltas

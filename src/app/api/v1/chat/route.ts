@@ -133,13 +133,16 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!existing) convId = undefined;
   }
+  // Identidade de rastreio (decodificada do token) — usada na conversa E para
+  // atribuir o CONSUMO de IA a este usuário (não ao sistema).
+  const track = await decodeTrackForSpace(key.space_id, payload.track);
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
       .insert({
         space_id: key.space_id,
         session_id: payload.sessionId ?? null,
-        ...(await decodeTrackForSpace(key.space_id, payload.track)),
+        ...track,
         ...(page ? { page } : {}),
       })
       .select("id")
@@ -217,7 +220,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: await chatModel(),
+    model: await chatModel({ kind: "user", ...track }),
     system: withContext(
       systemPrompt,
       [buildContextBlock(sources), attach.contextBlock, pageContextNote(page), scanBlock].filter(Boolean).join("\n\n"),

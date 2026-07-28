@@ -424,25 +424,55 @@ const fmt = (n: number) => n.toLocaleString("pt-BR");
 const acaoLabel = (p: string) => PURPOSES.find((x) => x.key === p)?.label ?? p;
 
 /** Consumo de tokens (envio/recebimento) por IA e por modelo, com período. */
+type UsoTipo = "system" | "user" | "all";
+/** Filtros de identidade (só no tipo "usuário"). "Painel" = p_portal. */
+const CAMPOS_USO = [
+  ["base", "Base"],
+  ["portal", "Painel"],
+  ["perfil", "Perfil"],
+  ["usuario", "Usuário"],
+  ["empresa", "Empresa"],
+  ["matricula", "Matrícula"],
+] as const;
+type FiltrosUso = Record<(typeof CAMPOS_USO)[number][0], string>;
+
 function ConsumoIA() {
   const [from, setFrom] = useState(() => diasAtras(30));
   const [to, setTo] = useState(() => hojeIso());
+  const [tipo, setTipo] = useState<UsoTipo>("system");
+  const [filtros, setFiltros] = useState<FiltrosUso>({
+    base: "",
+    portal: "",
+    perfil: "",
+    usuario: "",
+    empresa: "",
+    matricula: "",
+  });
   const [rows, setRows] = useState<AiUsageRow[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, startLoad] = useTransition();
 
+  // Debounce: digitar nos filtros de identidade não dispara uma consulta por tecla.
   useEffect(() => {
-    startLoad(async () => {
-      const r = await getAiUsageReport({ from, to });
-      if (r.ok) {
-        setRows(r.rows);
-        setErro(null);
-      } else {
-        setRows([]);
-        setErro(r.error);
-      }
-    });
-  }, [from, to]);
+    const t = setTimeout(() => {
+      startLoad(async () => {
+        const r = await getAiUsageReport({
+          from,
+          to,
+          kind: tipo === "all" ? null : tipo,
+          ...(tipo === "user" ? filtros : {}),
+        });
+        if (r.ok) {
+          setRows(r.rows);
+          setErro(null);
+        } else {
+          setRows([]);
+          setErro(r.error);
+        }
+      });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [from, to, tipo, filtros]);
 
   const total = useMemo(
     () =>
@@ -495,6 +525,16 @@ function ConsumoIA() {
       <div className="flex flex-wrap items-center gap-3">
         <h2 className={eyebrowLabel}>Consumo de IA</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Tipo de consumo"
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as UsoTipo)}
+            className={`${controlClass} h-8 w-auto px-2 py-1 text-xs`}
+          >
+            <option value="system">Tipo: Sistema</option>
+            <option value="user">Tipo: Usuário</option>
+            <option value="all">Tipo: Todos</option>
+          </select>
           <div className="flex overflow-hidden rounded-md border border-border">
             {[7, 30, 90].map((n) => (
               <button
@@ -530,6 +570,22 @@ function ConsumoIA() {
           />
         </div>
       </div>
+
+      {tipo === "user" && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {CAMPOS_USO.map(([campo, rotulo]) => (
+            <label key={campo} className="block">
+              <span className="mb-0.5 block text-xs text-text-muted">{rotulo}</span>
+              <Input
+                value={filtros[campo]}
+                onChange={(e) => setFiltros((f) => ({ ...f, [campo]: e.target.value }))}
+                placeholder="—"
+                className="h-8"
+              />
+            </label>
+          ))}
+        </div>
+      )}
 
       {erro && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">

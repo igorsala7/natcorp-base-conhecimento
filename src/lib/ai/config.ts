@@ -17,6 +17,14 @@ import {
   type ProviderKind,
   type Purpose,
 } from "@/lib/ai/catalog";
+import type { TrackingKey } from "@/lib/chat/tracking";
+
+/**
+ * Contexto do consumo: se a chamada veio do SISTEMA (importador, editor, busca…)
+ * ou de um USUÁRIO (chat do widget/portal) e, nesse caso, a identidade de
+ * rastreio (p_*), para o relatório de Consumo de IA filtrar por usuário.
+ */
+export type UsageMeta = { kind?: "system" | "user" } & Partial<Record<TrackingKey, string>>;
 
 /**
  * Resolução do provedor de IA por FINALIDADE (chat, embeddings, importação).
@@ -216,6 +224,7 @@ async function logUsage(row: {
   purpose: Purpose;
   input: number;
   output: number;
+  meta?: UsageMeta;
 }): Promise<void> {
   try {
     const supabase = createAdminClient();
@@ -226,6 +235,13 @@ async function logUsage(row: {
       input_tokens: row.input,
       output_tokens: row.output,
       total_tokens: row.input + row.output,
+      kind: row.meta?.kind ?? "system",
+      p_base: row.meta?.p_base ?? null,
+      p_usuario: row.meta?.p_usuario ?? null,
+      p_portal: row.meta?.p_portal ?? null,
+      p_empresa: row.meta?.p_empresa ?? null,
+      p_matricula: row.meta?.p_matricula ?? null,
+      p_perfil: row.meta?.p_perfil ?? null,
     });
     if (error) console.error("[ai_usage] falha ao registrar consumo:", error.message);
   } catch (e) {
@@ -247,10 +263,10 @@ function tokensDe(usage: LanguageModelV3Usage): { input: number; output: number 
  * cobrindo chat, importador, editor e busca. `cfg`/`purpose` ficam presos no
  * fecho no momento do wrap (o modelo é reinstanciado a cada chamada).
  */
-function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purpose: Purpose) {
+function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purpose: Purpose, meta?: UsageMeta) {
   const registrar = (usage: LanguageModelV3Usage) => {
     const { input, output } = tokensDe(usage);
-    return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output });
+    return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output, meta });
   };
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v3",
@@ -295,20 +311,21 @@ function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
   };
 }
 
-/** Modelo de linguagem de uma finalidade (chat, importação…). */
-export async function languageModel(purpose: Purpose = "chat") {
+/** Modelo de linguagem de uma finalidade (chat, importação…). `meta` atribui o
+ *  consumo a um usuário (chat) em vez do sistema. */
+export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta) {
   const cfg = await resolveAi(purpose);
   if (!cfg) {
     throw new Error(
       "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
     );
   }
-  return comRegistro(instanciar(cfg), cfg, purpose);
+  return comRegistro(instanciar(cfg), cfg, purpose, meta);
 }
 
 /** Modelo de chat (streamText/generateObject/generateText). */
-export async function chatModel() {
-  return languageModel("chat");
+export async function chatModel(meta?: UsageMeta) {
+  return languageModel("chat", meta);
 }
 
 /**

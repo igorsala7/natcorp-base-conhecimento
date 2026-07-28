@@ -37,6 +37,7 @@ import {
   CheckSquare,
   BarChart3,
   Waypoints,
+  Network,
 } from "lucide-react";
 import {
   type Block,
@@ -45,6 +46,25 @@ import {
   isContainerType,
   newId,
 } from "./schema";
+
+/** Mapa mental de exemplo (tema central + 3 ramos). */
+export function mapaMentalPadrao(): Block {
+  return {
+    id: newId(),
+    type: "mindmap",
+    data: {
+      root: {
+        id: newId(),
+        label: "Tema central",
+        children: [
+          { id: newId(), label: "Ramo 1", children: [{ id: newId(), label: "Detalhe" }] },
+          { id: newId(), label: "Ramo 2" },
+          { id: newId(), label: "Ramo 3" },
+        ],
+      },
+    },
+  };
+}
 
 /** Fluxograma de exemplo (início → tarefa → decisão → correção/fim). */
 export function fluxoPadrao(): Block {
@@ -641,6 +661,18 @@ export const BLOCKS = {
     isVoid: true,
     transformableTo: [],
     defaultData: () => fluxoPadrao(),
+  },
+  mindmap: {
+    type: "mindmap",
+    label: "Mapa mental",
+    description: "Árvore de ideias interativa (expandir, zoom, tela cheia)",
+    keywords: ["mapa mental", "mindmap", "mind map", "árvore", "ideias", "brainstorm", "tópicos"],
+    icon: Network,
+    category: "midia",
+    isContainer: false,
+    isVoid: true,
+    transformableTo: [],
+    defaultData: () => mapaMentalPadrao(),
   },
   snippet: {
     type: "snippet",

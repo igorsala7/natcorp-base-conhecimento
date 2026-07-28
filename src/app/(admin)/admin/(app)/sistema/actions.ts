@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { generateText, embed } from "ai";
+import { generateText, embed, experimental_transcribe as transcribe } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission, hasPermission } from "@/lib/auth/permissions";
@@ -159,6 +160,28 @@ export async function assignPurpose(
  * emudece — foi exatamente o que aconteceu quando o crédito da Anthropic
  * acabou: as fontes apareciam e a resposta, não.
  */
+/** WAV mono 16 kHz de ~1s de silêncio — áudio válido para testar o Whisper. */
+function wavSilencioTeste(): Uint8Array {
+  const sampleRate = 16000;
+  const numSamples = sampleRate; // ~1s (acima do mínimo de 0,1s do Whisper)
+  const dataBytes = numSamples * 2; // PCM 16 bits, mono
+  const buf = Buffer.alloc(44 + dataBytes); // cabeçalho WAV + dados (já zerados = silêncio)
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + dataBytes, 4);
+  buf.write("WAVE", 8);
+  buf.write("fmt ", 12);
+  buf.writeUInt32LE(16, 16); // tamanho do bloco fmt
+  buf.writeUInt16LE(1, 20); // PCM
+  buf.writeUInt16LE(1, 22); // mono
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(sampleRate * 2, 28); // byte rate
+  buf.writeUInt16LE(2, 32); // block align
+  buf.writeUInt16LE(16, 34); // bits por amostra
+  buf.write("data", 36);
+  buf.writeUInt32LE(dataBytes, 40);
+  return new Uint8Array(buf);
+}
+
 export async function testPurpose(purpose: Purpose): Promise<SysResult> {
   try {
     await requirePermission("ai.configure", null);
@@ -185,6 +208,28 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
         };
       }
       return { ok: true, msg: `OK — ${cfg.kind}/${cfg.model}, 1536 dimensões (origem: ${cfg.origem}).` };
+    }
+    if (purpose === "transcricao") {
+      // Whisper NÃO é modelo de chat: testar com um `generateText` falha (ou, se
+      // não configurado, cai no provedor do Chat e "passa" com o modelo errado).
+      // Aqui transcrevemos um áudio de teste de verdade.
+      if (cfg.kind !== "openai") {
+        return {
+          ok: false,
+          error: "A transcrição exige um provedor OpenAI-compatível (Whisper). Selecione OpenAI.",
+        };
+      }
+      const openai = createOpenAI({ apiKey: cfg.apiKey, ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}) });
+      const r = await transcribe({
+        model: openai.transcription(cfg.model),
+        audio: wavSilencioTeste(),
+        abortSignal: aiTimeout("transcricao"),
+      });
+      const trecho = (r.text ?? "").trim().slice(0, 40);
+      return {
+        ok: true,
+        msg: `OK — ${cfg.kind}/${cfg.model} transcreveu o áudio de teste${trecho ? ` ("${trecho}")` : ""} (origem: ${cfg.origem}).`,
+      };
     }
     const { text } = await generateText({
       model: await languageModel(purpose),
@@ -233,14 +278,31 @@ function proximoDia(iso: string): string {
 export async function getAiUsageReport(input: {
   from: string;
   to: string;
+  /** Tipo: sistema (importador/editor/…), usuário (chat) ou todos (null). */
+  kind?: "system" | "user" | null;
+  /** Filtros de identidade (só fazem sentido no tipo "usuário"). */
+  base?: string;
+  usuario?: string;
+  portal?: string;
+  empresa?: string;
+  matricula?: string;
+  perfil?: string;
 }): Promise<{ ok: true; rows: AiUsageRow[] } | { ok: false; error: string }> {
   if (!(await hasPermission("ai.configure", null))) {
     return { ok: false, error: "Sem permissão." };
   }
   const admin = createAdminClient();
+  const limpo = (s?: string) => (s && s.trim() ? s.trim() : null);
   const { data, error } = await admin.rpc("ai_usage_report", {
     p_from: `${input.from}T00:00:00`,
     p_to: `${proximoDia(input.to)}T00:00:00`,
+    p_kind: input.kind ?? null,
+    pf_base: limpo(input.base),
+    pf_usuario: limpo(input.usuario),
+    pf_portal: limpo(input.portal),
+    pf_empresa: limpo(input.empresa),
+    pf_matricula: limpo(input.matricula),
+    pf_perfil: limpo(input.perfil),
   });
   if (error) return { ok: false, error: error.message };
   const rows: AiUsageRow[] = (data ?? []).map((r) => ({

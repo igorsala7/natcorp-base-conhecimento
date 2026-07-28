@@ -7,7 +7,7 @@
  *  - blocksToHtml              → export/cache HTML semântico
  *  - firstImageOf              → 1ª imagem (thumbnail de citação no RAG)
  */
-import { type Block, type RichText, type ImageData } from "./schema";
+import { type Block, type RichText, type ImageData, type MindMapNode } from "./schema";
 import { normalizeDoc } from "./convert";
 
 // ── inline ───────────────────────────────────────────────────────────────────
@@ -115,6 +115,16 @@ function blockToText(b: Block): string {
       ]
         .filter(Boolean)
         .join(" ");
+    case "mindmap": {
+      // Todos os rótulos da árvore — para busca/RAG.
+      const labels: string[] = [];
+      const walk = (n: MindMapNode) => {
+        if (n.label) labels.push(n.label);
+        n.children?.forEach(walk);
+      };
+      walk(b.data.root);
+      return labels.join(" ");
+    }
     case "file":
       return b.data.name;
     case "checklist":
@@ -278,6 +288,16 @@ function blockToMd(b: Block): string {
         .map((e) => `  ${e.from} -->${e.label ? `|${e.label}|` : ""} ${e.to}`)
         .join("\n");
       return "```mermaid\nflowchart TD\n" + decl + "\n" + conns + "\n```";
+    }
+    case "mindmap": {
+      // Exporta como lista Markdown indentada (é a própria estrutura, reimportável).
+      const linhas: string[] = [];
+      const walk = (n: MindMapNode, depth: number) => {
+        linhas.push(`${"  ".repeat(depth)}- ${n.label}`);
+        n.children?.forEach((c) => walk(c, depth + 1));
+      };
+      walk(b.data.root, 0);
+      return linhas.join("\n");
     }
     case "callout":
       return (

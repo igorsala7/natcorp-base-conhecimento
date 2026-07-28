@@ -9,7 +9,7 @@
  * Blocos sem representação em e-mail (mermaid/tabs/accordion/embed/video)
  * caem num fallback (link ou filhos achatados) em vez de sumir sem aviso.
  */
-import type { Block, RichText, BlockStyles, SpaceScale, CalloutVariant } from "./schema";
+import type { Block, RichText, BlockStyles, SpaceScale, CalloutVariant, MindMapNode } from "./schema";
 import { CALLOUT_ROTULO } from "./schema";
 
 // ── paleta e tokens (Tailwind → px/hex) ──────────────────────────────────────
@@ -262,6 +262,12 @@ function blockToEmail(b: Block): string {
       return `<ul style="margin:0 0 14px;padding-left:20px;font-size:14px;line-height:1.7;color:${TEXTO}">${linhas
         .map((l) => `<li>${esc(l)}</li>`)
         .join("")}</ul>`;
+    }
+    case "mindmap": {
+      // E-mail não desenha SVG: a árvore vira lista aninhada.
+      const li = (n: MindMapNode): string =>
+        `<li>${esc(n.label)}${n.children?.length ? `<ul style="margin:2px 0;padding-left:18px">${n.children.map(li).join("")}</ul>` : ""}</li>`;
+      return `<ul style="margin:0 0 14px;padding-left:20px;font-size:14px;line-height:1.7;color:${TEXTO}">${li(b.data.root)}</ul>`;
     }
     case "mermaid":
     case "snippet":

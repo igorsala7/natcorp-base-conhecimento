@@ -110,8 +110,15 @@ export type Database = {
           created_at: string
           id: string
           input_tokens: number
+          kind: string
           model: string
           output_tokens: number
+          p_base: string | null
+          p_empresa: string | null
+          p_matricula: string | null
+          p_perfil: string | null
+          p_portal: string | null
+          p_usuario: string | null
           provider: string
           purpose: string
           total_tokens: number
@@ -120,8 +127,15 @@ export type Database = {
           created_at?: string
           id?: string
           input_tokens?: number
+          kind?: string
           model: string
           output_tokens?: number
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
           provider: string
           purpose: string
           total_tokens?: number
@@ -130,8 +144,15 @@ export type Database = {
           created_at?: string
           id?: string
           input_tokens?: number
+          kind?: string
           model?: string
           output_tokens?: number
+          p_base?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          p_usuario?: string | null
           provider?: string
           purpose?: string
           total_tokens?: number
@@ -2847,7 +2868,17 @@ export type Database = {
         Returns: boolean
       }
       ai_usage_report: {
-        Args: { p_from: string; p_to: string }
+        Args: {
+          p_from: string
+          p_to: string
+          p_kind?: string | null
+          pf_base?: string | null
+          pf_usuario?: string | null
+          pf_portal?: string | null
+          pf_empresa?: string | null
+          pf_matricula?: string | null
+          pf_perfil?: string | null
+        }
         Returns: {
           provider: string
           model: string

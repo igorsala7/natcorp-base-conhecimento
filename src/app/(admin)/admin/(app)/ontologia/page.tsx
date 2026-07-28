@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
+import { pickSpace } from "@/lib/content/current-space";
 import { hasAiKey } from "@/lib/ai/config";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { listSpaceNodes } from "../importar/embeddings-actions";
@@ -33,7 +34,7 @@ export default async function OntologiaPage({
 
   const spaces = await listSpaces();
   const { space } = await searchParams;
-  const atual = spaces.find((s) => s.id === space) ?? spaces[0];
+  const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const [{ terms, jobs }, nodes, canManage, aiReady] = await Promise.all([

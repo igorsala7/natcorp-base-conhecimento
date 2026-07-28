@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
+import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
@@ -58,7 +59,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
 
   const spaces = await listSpaces();
   const sp = await searchParams;
-  const atual = spaces.find((s) => s.id === sp.space) ?? spaces[0];
+  const atual = await pickSpace(spaces, sp.space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { LayoutTemplate, Plus, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Library, LayoutTemplate, Plus, Settings } from "lucide-react";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { NewSpaceDialog } from "./new-space-dialog";
 import { controlClass } from "@/components/ui/input";
+import { SPACE_COOKIE } from "@/lib/content/space-cookie";
 
 /** Seletor de espaço + atalho de configurações + criação de espaço-cliente. */
 export function SpaceSwitcher({
@@ -39,7 +40,18 @@ export function SpaceSwitcher({
   const searchParams = useSearchParams();
   const [creating, setCreating] = useState(false);
 
+  // Mantém o cookie SEMPRE igual à documentação MOSTRADA nesta tela — não só ao
+  // trocar no seletor. Assim, abrir o editor de um artigo de outra documentação
+  // (ou chegar por link), onde a documentação vem do próprio nó, também FIXA a
+  // escolha para as telas seguintes.
+  useEffect(() => {
+    document.cookie = `${SPACE_COOKIE}=${encodeURIComponent(currentId)}; path=/; max-age=31536000; samesite=lax`;
+  }, [currentId]);
+
   function irPara(spaceId: string) {
+    // Persiste a escolha entre telas: as páginas SEM `?space=` leem este cookie
+    // e abrem já na mesma documentação (o servidor lê em current-space.ts).
+    document.cookie = `${SPACE_COOKIE}=${encodeURIComponent(spaceId)}; path=/; max-age=31536000; samesite=lax`;
     if (switchBasePath) return router.push(`${switchBasePath}?space=${spaceId}`);
     // Preserva os demais parâmetros (`from`, `edit`…): perdê-los quebraria o
     // "voltar" e desligaria modos já ativos na tela.
@@ -51,13 +63,21 @@ export function SpaceSwitcher({
   // Volta para exatamente esta tela ao sair das configurações.
   const settingsHref = `/admin/configuracoes?space=${currentId}&from=${encodeURIComponent(pathname)}`;
 
+  const btn =
+    "rounded-md border border-brand-purple-200 bg-surface p-1.5 text-text-muted transition-colors hover:border-primary hover:text-primary dark:border-brand-purple-900/60";
+
   return (
-    <div className="mb-3 flex items-center gap-2">
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-brand-purple-200 bg-brand-purple-50/60 px-3 py-2 shadow-1 dark:border-brand-purple-900/60 dark:bg-brand-purple-950/25">
+      <span className="flex items-center gap-1.5 text-sm font-semibold text-primary">
+        <Library className="size-4 shrink-0" />
+        <span className="hidden sm:inline">Documentação:</span>
+      </span>
       <select
         value={currentId}
         onChange={(e) => irPara(e.target.value)}
-        className={`${controlClass} h-8 flex-1 px-2`}
-        aria-label="Espaço"
+        className={`${controlClass} h-9 min-w-0 flex-1 px-2 text-sm font-semibold`}
+        aria-label="Documentação em manutenção"
+        title="Documentação sendo mantida — a escolha vale para as próximas telas"
       >
         {spaces.map((s) => (
           <option key={s.id} value={s.id}>
@@ -66,37 +86,39 @@ export function SpaceSwitcher({
           </option>
         ))}
       </select>
-      {canManage && (
-        <Link
-          href={`/admin/aparencia?space=${currentId}`}
-          title="Editar o layout da página inicial desta documentação"
-          aria-label="Editar layout da página inicial"
-          className="rounded-md border border-border p-1.5 text-text-muted hover:border-primary hover:text-primary"
-        >
-          <LayoutTemplate className="size-4" />
-        </Link>
-      )}
-      {canManage && (
-        <Link
-          href={settingsHref}
-          title="Configurações desta documentação"
-          aria-label="Configurações desta documentação"
-          className="rounded-md border border-border p-1.5 text-text-muted hover:border-primary hover:text-primary"
-        >
-          <Settings className="size-4" />
-        </Link>
-      )}
-      {canCreate && (
-        <button
-          type="button"
-          title="Nova documentação"
-          aria-label="Nova documentação"
-          className="rounded-md border border-border p-1.5 text-text-muted hover:border-primary hover:text-primary"
-          onClick={() => setCreating(true)}
-        >
-          <Plus className="size-4" />
-        </button>
-      )}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {canManage && (
+          <Link
+            href={`/admin/aparencia?space=${currentId}`}
+            title="Editar o layout da página inicial desta documentação"
+            aria-label="Editar layout da página inicial"
+            className={btn}
+          >
+            <LayoutTemplate className="size-4" />
+          </Link>
+        )}
+        {canManage && (
+          <Link
+            href={settingsHref}
+            title="Configurações desta documentação"
+            aria-label="Configurações desta documentação"
+            className={btn}
+          >
+            <Settings className="size-4" />
+          </Link>
+        )}
+        {canCreate && (
+          <button
+            type="button"
+            title="Nova documentação"
+            aria-label="Nova documentação"
+            className={btn}
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="size-4" />
+          </button>
+        )}
+      </div>
 
       {creating && <NewSpaceDialog spaces={spaces} onClose={() => setCreating(false)} />}
     </div>

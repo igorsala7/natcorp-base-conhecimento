@@ -111,6 +111,11 @@ export const flowLeaf = z.object({
   // Sintaxe Mermaid `flowchart TD` (id[Etapa], id{Decisão}, a -->|Sim| b).
   mermaid: z.string(),
 });
+export const mindmapLeaf = z.object({
+  kind: z.literal("mindmap"),
+  // Outline indentado: 1ª linha = tema central; 2 espaços = um nível de sub-ramo.
+  outline: z.string(),
+});
 
 export const blocksSchema = z.object({
   blocks: z.array(
@@ -118,6 +123,7 @@ export const blocksSchema = z.object({
       ...leafOptions,
       chartLeaf,
       flowLeaf,
+      mindmapLeaf,
       // Painel = caixa colorida de destaque com parágrafos.
       z.object({
         kind: z.literal("panel"),
@@ -191,6 +197,7 @@ export const blocksSchemaCompacto = z.object({
       leafOptions[9],
       chartLeaf,
       flowLeaf,
+      mindmapLeaf,
     ]),
   ),
 });

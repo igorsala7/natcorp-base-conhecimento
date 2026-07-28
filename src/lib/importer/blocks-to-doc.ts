@@ -6,7 +6,7 @@
  */
 import { newId, type Block, type BlockDoc, type RichText } from "@/lib/blocks/schema";
 import { iconByKey } from "@/lib/blocks/icons";
-import { csvToChartData, mermaidToFlowData } from "@/lib/blocks/ai-data-blocks";
+import { csvToChartData, mermaidToFlowData, outlineToMindMap } from "@/lib/blocks/ai-data-blocks";
 import type { LeafBlock, LayoutBlock } from "./layout-schema";
 
 function rt(t: string): RichText {
@@ -182,6 +182,10 @@ export function blockToBlock(b: LayoutBlock): Block {
     case "flow": {
       const data = mermaidToFlowData(b.mermaid);
       return data.nodes.length ? { id: newId(), type: "flow", data } : para(b.mermaid);
+    }
+    case "mindmap": {
+      const data = outlineToMindMap(b.outline);
+      return data ? { id: newId(), type: "mindmap", data } : para(b.outline);
     }
     default:
       return leafToBlock(b as LeafBlock);

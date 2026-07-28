@@ -3,6 +3,7 @@ import { FileText, FolderPlus, MousePointer2, Sparkles } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getDefaultSpace, listTree, embeddedNodeIds, ontologyNodeIds, pendingDraftNodeIds } from "@/lib/content/tree";
 import { listSpaces } from "@/lib/content/spaces";
+import { resolvedSpaceId } from "@/lib/content/current-space";
 import { getEffectiveTreeAdmin } from "@/lib/content/overlays";
 import { env } from "@/lib/env";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -61,8 +62,10 @@ export default async function ConteudoPage({
   if (!global) return <div className="p-8 text-text-muted">Nenhum espaço.</div>;
 
   const { space: spaceParam } = await searchParams;
+  // Persistente entre telas: URL → cookie (última escolhida) → global → 1º.
+  const resolvido = await resolvedSpaceId(spaceParam, spaces);
   const current =
-    spaces.find((s) => s.id === spaceParam) ??
+    spaces.find((s) => s.id === resolvido) ??
     spaces.find((s) => s.id === global.id) ??
     spaces.find((s) => s.type === "global") ??
     spaces[0];

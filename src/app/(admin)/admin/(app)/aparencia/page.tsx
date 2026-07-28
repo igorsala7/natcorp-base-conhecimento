@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
+import { pickSpace } from "@/lib/content/current-space";
 import {
   getPortalTree,
   flattenPortalTree,
@@ -39,7 +40,7 @@ export default async function AparenciaPage({
 
   const spaces = await listSpaces();
   const { space } = await searchParams;
-  const atual = spaces.find((s) => s.id === space) ?? spaces[0];
+  const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();

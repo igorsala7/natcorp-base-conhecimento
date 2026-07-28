@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { MessageSquarePlus, Wand2 } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
+import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -23,7 +24,7 @@ export default async function EstudioPage({
 }) {
   const spaces = await listSpaces();
   const { space, parent, nova } = await searchParams;
-  const atual = spaces.find((s) => s.id === space) ?? spaces[0];
+  const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   if (!(await hasPermission("content.create", atual.id))) {
