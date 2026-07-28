@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Natcorp — Captura de documentação",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Documente enquanto navega: capture a tela e monte artigos na Base de Conhecimento.",
   "permissions": ["storage", "sidePanel", "activeTab", "tabs", "scripting"],
   "host_permissions": ["<all_urls>"],

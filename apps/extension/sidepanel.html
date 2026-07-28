@@ -8,132 +8,205 @@
       :root {
         --pc: #511c76;
         --pc2: #2c1a63;
+        --pink: #c95788;
         --bg: #faf8fd;
         --card: #fff;
-        --border: #e6ddf1;
+        --border: #e9e1f3;
         --text: #1c1726;
         --muted: #6b6577;
+        --soft: #f4eefb;
       }
       * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
       body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
-      .hd { background: linear-gradient(135deg, var(--pc), var(--pc2)); color: #fff; padding: 16px 14px; }
-      .hd h1 { margin: 0; font-size: 15px; font-weight: 700; }
-      .hd p { margin: 4px 0 0; font-size: 12px; opacity: 0.85; }
-      main { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
-      .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-      .card h2 { margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-      label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
-      input, select { width: 100%; border: 1.5px solid var(--border); border-radius: 9px; padding: 8px 10px; font-size: 13px; outline: none; background: #fff; }
-      input:focus, select:focus { border-color: var(--pc); }
-      button { border: none; border-radius: 9px; padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--pc); color: #fff; width: 100%; margin-top: 10px; }
-      button.ghost { background: #efe9f6; color: #5b5468; }
+      [hidden] { display: none !important; }
+      button { border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--pc); color: #fff; }
       button:disabled { opacity: 0.5; cursor: default; }
-      .row { display: flex; gap: 8px; }
-      .row button { margin-top: 0; }
-      .status { font-size: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 9px; word-break: break-all; }
+      button.ghost { background: var(--soft); color: #5b4d70; }
+      button.block { width: 100%; }
+      button.big { padding: 13px; font-size: 15px; }
+      input, select, textarea { width: 100%; border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; outline: none; background: #fff; color: var(--text); }
+      input:focus, select:focus, textarea:focus { border-color: var(--pc); }
+      label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+      .muted { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      kbd { background: var(--soft); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11px; }
+      .status { font-size: 12.5px; margin-top: 10px; padding: 9px 11px; border-radius: 10px; word-break: break-word; line-height: 1.45; }
       .status.ok { background: #e7f7ee; color: #1b7a45; }
       .status.err { background: #fdecea; color: #b3271e; }
-      .status.info { background: #f2edfa; color: var(--pc); }
-      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-      .muted { color: var(--muted); font-size: 12px; }
-      /* Chat da IA */
-      .chatmsgs { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; margin: 10px 0; }
-      .chatmsgs:empty { display: none; }
-      .cm { padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-      .cm.u { align-self: flex-end; background: var(--pc); color: #fff; border-bottom-right-radius: 5px; max-width: 88%; }
-      .cm.a { align-self: flex-start; background: #f2edfa; color: #2b2540; border-bottom-left-radius: 5px; max-width: 94%; }
-      .chatrow { display: flex; gap: 8px; align-items: flex-end; }
-      .chatrow textarea { flex: 1; resize: none; min-height: 40px; }
-      .chatrow button { width: auto; margin-top: 0; padding: 10px 14px; }
-      kbd { background: #efe9f6; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11px; font-family: inherit; }
-      /* Grade de prints */
+      .status.info { background: var(--soft); color: var(--pc); }
+
+      /* ── Onboarding / Login ─────────────────────────────────────── */
+      #loginView { min-height: 100vh; display: flex; flex-direction: column; padding: 26px 20px; }
+      .brand { text-align: center; margin-bottom: 22px; }
+      .brand .logo { width: 52px; height: 52px; border-radius: 15px; margin: 0 auto 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--pc), var(--pc2)); font-size: 26px; }
+      .brand h1 { margin: 0; font-size: 18px; }
+      .brand p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+      .login-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: 0 10px 30px rgba(81, 28, 118, 0.07); }
+      details.adv { margin-top: 12px; }
+      details.adv summary { cursor: pointer; font-size: 12px; color: var(--muted); font-weight: 600; list-style: none; }
+      details.adv summary::-webkit-details-marker { display: none; }
+      .login-foot { margin-top: auto; padding-top: 18px; text-align: center; }
+
+      /* ── App ────────────────────────────────────────────────────── */
+      .topbar { position: sticky; top: 0; z-index: 5; background: linear-gradient(135deg, var(--pc), var(--pc2)); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+      .topbar .t-title { font-weight: 700; font-size: 14px; }
+      .topbar .t-sub { font-size: 11px; opacity: 0.8; }
+      .acct { margin-left: auto; position: relative; }
+      .acct .chip { display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.16); border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; max-width: 130px; }
+      .acct .chip .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .acct .menu { position: absolute; right: 0; top: calc(100% + 6px); background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); min-width: 140px; overflow: hidden; }
+      .acct .menu button { width: 100%; text-align: left; background: #fff; color: var(--text); border-radius: 0; font-weight: 500; padding: 10px 12px; }
+      .acct .menu button:hover { background: var(--soft); }
+      main { padding: 14px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 88px; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+      .card-h { display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
+      .card-h .n { width: 22px; height: 22px; border-radius: 7px; background: var(--soft); color: var(--pc); font-size: 12px; font-weight: 800; display: grid; place-items: center; flex: none; }
+      .card-h h2 { margin: 0; font-size: 14px; font-weight: 700; }
+      .card.dim { opacity: 0.55; }
+      .row { display: flex; gap: 8px; }
+      .row > button { flex: 1; }
+      /* Sessão em andamento */
+      .live { display: flex; align-items: center; gap: 8px; background: var(--soft); border-radius: 10px; padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--pc); }
+      .live .dot { width: 9px; height: 9px; border-radius: 50%; background: #d33; animation: pulse 1.3s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
       .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-      .shots img { width: 100%; height: 56px; object-fit: cover; border-radius: 7px; border: 1px solid var(--border); }
-      /* Recorte (overlay que cobre o painel) */
-      .cropOverlay { position: fixed; inset: 0; background: rgba(28, 20, 46, 0.55); backdrop-filter: blur(2px); display: none; flex-direction: column; padding: 12px; z-index: 50; overflow: auto; }
-      .cropCard { background: var(--card); border-radius: 12px; padding: 12px; }
-      .cropCard h2 { margin: 0 0 8px; font-size: 12px; font-weight: 700; }
+      .shots:empty { display: none; }
+      .shots img { width: 100%; height: 54px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+
+      /* ── Chat flutuante (assistente) ─────────────────────────────── */
+      #chatFab { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: 52px; height: 52px; border-radius: 50%; padding: 0; font-size: 24px; box-shadow: 0 8px 22px rgba(81, 28, 118, 0.4); display: grid; place-items: center; }
+      #chatPanel { position: fixed; right: 12px; bottom: 12px; z-index: 45; width: calc(100% - 24px); max-width: 380px; height: 460px; max-height: calc(100vh - 24px); background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 16px 44px rgba(28, 20, 46, 0.25); display: flex; flex-direction: column; overflow: hidden; }
+      #chatPanel .ch-h { background: linear-gradient(135deg, var(--pc), var(--pc2)); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 8px; }
+      #chatPanel .ch-h .title { font-weight: 700; font-size: 14px; }
+      #chatPanel .ch-h .title small { display: block; font-weight: 400; font-size: 11px; opacity: 0.8; }
+      #chatPanel .ch-h button { margin-left: auto; background: rgba(255, 255, 255, 0.18); width: 30px; height: 30px; border-radius: 50%; padding: 0; font-size: 18px; line-height: 1; }
+      .chatmsgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+      .chat-empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; padding: 20px; line-height: 1.6; }
+      .cm { padding: 9px 12px; border-radius: 13px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+      .cm.u { align-self: flex-end; background: var(--pc); color: #fff; border-bottom-right-radius: 5px; max-width: 88%; }
+      .cm.a { align-self: flex-start; background: var(--soft); color: #2b2540; border-bottom-left-radius: 5px; max-width: 94%; }
+      .chatrow { display: flex; gap: 8px; align-items: flex-end; padding: 10px; border-top: 1px solid var(--border); }
+      .chatrow textarea { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
+      .chatrow button { width: auto; padding: 11px 15px; flex: none; }
+
+      /* ── Recorte (overlay) ──────────────────────────────────────── */
+      .cropOverlay { position: fixed; inset: 0; background: rgba(28, 20, 46, 0.6); backdrop-filter: blur(2px); display: none; flex-direction: column; padding: 12px; z-index: 60; overflow: auto; }
+      .cropCard { background: var(--card); border-radius: 14px; padding: 14px; }
+      .cropCard h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
       .cropStage { position: relative; display: inline-block; max-width: 100%; line-height: 0; touch-action: none; user-select: none; cursor: crosshair; }
-      .cropStage img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
-      .cropSel { position: absolute; border: 2px solid var(--pc); background: rgba(81, 28, 118, 0.12); box-shadow: 0 0 0 9999px rgba(28, 20, 46, 0.35); pointer-events: none; }
+      .cropStage img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+      .cropSel { position: absolute; border: 2px solid var(--pc); background: rgba(81, 28, 118, 0.12); box-shadow: 0 0 0 9999px rgba(28, 20, 46, 0.4); pointer-events: none; }
     </style>
   </head>
   <body>
-    <div class="hd">
-      <h1>Captura de documentação</h1>
-      <p>Documente enquanto navega.</p>
+    <!-- ════════════ ONBOARDING / LOGIN ════════════ -->
+    <div id="loginView">
+      <div class="brand">
+        <div class="logo">📸</div>
+        <h1>Documentar navegando</h1>
+        <p>Capture as telas e monte artigos na Base de Conhecimento.</p>
+      </div>
+      <div class="login-card">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" placeholder="voce@empresa.com" autocomplete="username" />
+        <label for="pass">Senha</label>
+        <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+        <button id="login" class="block big" style="margin-top: 16px">Entrar</button>
+        <div id="connStatus" class="status info" style="display: none"></div>
+        <details class="adv">
+          <summary>Configurações avançadas</summary>
+          <label for="base">Endereço da plataforma</label>
+          <input id="base" type="url" placeholder="http://localhost:3008" />
+        </details>
+      </div>
+      <div class="login-foot">
+        <p class="muted">Use o mesmo login da plataforma. Sua sessão fica só neste navegador.</p>
+      </div>
     </div>
-    <main>
-      <div class="card">
-        <h2>Conexão</h2>
-        <label for="base">Endereço da plataforma</label>
-        <input id="base" type="url" placeholder="http://localhost:3008" />
-        <div id="loginBox">
-          <label for="email">E-mail</label>
-          <input id="email" type="email" placeholder="voce@empresa.com" autocomplete="username" />
-          <label for="pass">Senha</label>
-          <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
-          <button id="login">Entrar</button>
+
+    <!-- ════════════ APP (após login) ════════════ -->
+    <div id="appView" hidden>
+      <div class="topbar">
+        <div>
+          <div class="t-title">Nova captura</div>
+          <div class="t-sub">Documente enquanto navega</div>
         </div>
-        <div id="loggedBox" style="display: none">
-          <p class="muted" id="loggedAs" style="margin-top: 8px"></p>
-          <button id="logout" class="ghost">Sair</button>
+        <div class="acct">
+          <div class="chip" id="acctChip"><span>👤</span><span class="who" id="acctEmail">…</span><span>▾</span></div>
+          <div class="menu" id="acctMenu" hidden>
+            <button id="logout">Sair</button>
+          </div>
         </div>
-        <div id="connStatus" class="muted" style="margin-top: 8px"></div>
       </div>
 
-      <div class="card">
-        <h2>Sessão</h2>
-        <p class="muted">Inicie uma sessão para capturar. Ela aparece em Sistema → Extensão no admin.</p>
-        <button id="start">Iniciar sessão</button>
-        <div id="sessionStatus" class="status info" style="display: none"></div>
-      </div>
-
-      <div class="card">
-        <h2>Capturas</h2>
-        <p class="muted">
-          Aperte <kbd>Ctrl</kbd> + <kbd>Espaço</kbd> em qualquer página para tirar um print (customizável em
-          <code>chrome://extensions/shortcuts</code>). Depois, recorte e confirme.
-        </p>
-        <div class="row" style="margin-top: 10px">
-          <button id="capture" class="ghost" style="margin-top: 0">Área visível</button>
-          <button id="captureFull" class="ghost" style="margin-top: 0">Página inteira</button>
+      <main>
+        <!-- Passo 1: sessão -->
+        <div class="card" id="sessionCard">
+          <div class="card-h"><span class="n">1</span><h2>Iniciar captura</h2></div>
+          <p class="muted" id="sessionHint">Comece uma sessão para registrar as telas por onde você passar.</p>
+          <button id="start" class="block big" style="margin-top: 12px">▶ Iniciar sessão de captura</button>
+          <div id="sessionLive" class="live" hidden><span class="dot"></span><span id="sessionLiveText">Capturando…</span></div>
+          <div id="sessionStatus" class="status info" style="display: none"></div>
         </div>
-        <button id="scan" class="ghost">📋 Capturar dados da tela</button>
-        <div id="shotCount" class="muted" style="margin-top: 8px">Nenhum print nesta sessão.</div>
-        <div id="shots" class="shots"></div>
-      </div>
 
-      <div class="card">
-        <h2>Narração (microfone)</h2>
-        <p class="muted">Grave sua explicação em voz; a IA transcreve e o texto entra no rascunho ao finalizar.</p>
-        <button id="rec">🎙️ Gravar narração</button>
-        <div id="recStatus" class="status info" style="display: none"></div>
-      </div>
+        <!-- Passo 2: capturar -->
+        <div class="card" id="captureCard">
+          <div class="card-h"><span class="n">2</span><h2>Capturar telas</h2></div>
+          <p class="muted">
+            Aperte <kbd>Ctrl</kbd>+<kbd>Espaço</kbd> em qualquer página para um print, recorte e confirme
+            (customizável em <code>chrome://extensions/shortcuts</code>).
+          </p>
+          <div class="row" style="margin-top: 10px">
+            <button id="capture" class="ghost">🖼️ Área visível</button>
+            <button id="captureFull" class="ghost">📄 Página inteira</button>
+          </div>
+          <button id="scan" class="ghost block" style="margin-top: 8px">📋 Ler os dados da tela (contexto p/ IA)</button>
+          <div id="shotCount" class="muted" style="margin-top: 10px">Nenhum print ainda.</div>
+          <div id="shots" class="shots"></div>
+        </div>
 
-      <div class="card">
-        <h2>Assistente (IA)</h2>
-        <p class="muted">Converse para estruturar o artigo enquanto captura — a IA lê o material e dá feedback.</p>
-        <div id="chatMsgs" class="chatmsgs"></div>
+        <!-- Passo 3: narração -->
+        <div class="card" id="narrationCard">
+          <div class="card-h"><span class="n">3</span><h2>Narrar (opcional)</h2></div>
+          <p class="muted">Grave sua explicação em voz; a IA transcreve e o texto entra no rascunho.</p>
+          <button id="rec" class="ghost block" style="margin-top: 10px">🎙️ Gravar narração</button>
+          <div id="recStatus" class="status info" style="display: none"></div>
+        </div>
+
+        <!-- Passo 4: finalizar -->
+        <div class="card" id="finalizeCard">
+          <div class="card-h"><span class="n">4</span><h2>Criar o artigo</h2></div>
+          <p class="muted">Transforme a captura num rascunho de artigo na documentação escolhida.</p>
+          <label for="space">Documentação de destino</label>
+          <select id="space"><option value="">—</option></select>
+          <label for="draftTitle">Título do rascunho</label>
+          <input id="draftTitle" type="text" placeholder="Rascunho da captura" />
+          <button id="finalize" class="block big" style="margin-top: 14px" disabled>✓ Criar rascunho do artigo</button>
+          <div id="finalizeStatus" class="status info" style="display: none"></div>
+        </div>
+      </main>
+
+      <!-- Chat flutuante (assistente de IA) -->
+      <button id="chatFab" title="Assistente de IA">💬</button>
+      <div id="chatPanel" hidden>
+        <div class="ch-h">
+          <span>✨</span>
+          <div class="title">Assistente<small>Estrutura o artigo com você</small></div>
+          <button id="chatClose" aria-label="Fechar">×</button>
+        </div>
+        <div id="chatMsgs" class="chatmsgs">
+          <div class="chat-empty" id="chatEmpty">
+            Pergunte como organizar o que você está capturando.<br />Ex.: <i>"como divido isso em passos?"</i>
+          </div>
+        </div>
         <div class="chatrow">
-          <textarea id="chatInput" rows="1" aria-label="Mensagem para o assistente" placeholder="Ex.: como organizo isso em passos?"></textarea>
+          <textarea id="chatInput" rows="1" aria-label="Mensagem para o assistente" placeholder="Escreva sua mensagem…"></textarea>
           <button id="chatSend">Enviar</button>
         </div>
       </div>
+    </div>
 
-      <div class="card">
-        <h2>Finalizar</h2>
-        <p class="muted">Ao terminar, transforme a captura (telas visitadas + prints) num rascunho de artigo.</p>
-        <label for="space">Documentação de destino</label>
-        <select id="space"><option value="">—</option></select>
-        <label for="draftTitle">Título do rascunho</label>
-        <input id="draftTitle" type="text" placeholder="Rascunho da captura" />
-        <button id="finalize" disabled>Finalizar e criar rascunho</button>
-        <div id="finalizeStatus" class="status info" style="display: none"></div>
-      </div>
-    </main>
-
-    <!-- Recorte -->
+    <!-- ════════════ Recorte de print ════════════ -->
     <div id="cropOverlay" class="cropOverlay">
       <div class="cropCard">
         <h2>Recorte o print</h2>
@@ -142,7 +215,7 @@
           <div id="cropSel" class="cropSel" style="display: none"></div>
         </div>
         <div id="cropWarn" class="status err" style="display: none"></div>
-        <button id="cropAi" class="ghost" style="margin-top: 10px">✨ Sugerir recorte com IA</button>
+        <button id="cropAi" class="ghost block" style="margin-top: 10px">✨ Sugerir recorte com IA</button>
         <div id="cropAiStatus" class="muted" style="margin-top: 6px; display: none"></div>
         <div class="row" style="margin-top: 10px">
           <button id="cropCancel" class="ghost">Descartar</button>

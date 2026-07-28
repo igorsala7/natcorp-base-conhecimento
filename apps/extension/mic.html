@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autorizar microfone — Natcorp</title>
+    <style>
+      :root { --pc: #511c76; --pc2: #2c1a63; }
+      * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #faf8fd; color: #1c1726; padding: 24px; }
+      .card { max-width: 460px; width: 100%; background: #fff; border: 1px solid #e6ddf1; border-radius: 18px; padding: 28px; box-shadow: 0 12px 40px rgba(81, 28, 118, 0.1); text-align: center; }
+      .ic { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; margin: 0 auto 14px; background: linear-gradient(135deg, var(--pc), var(--pc2)); font-size: 26px; }
+      h1 { margin: 0 0 6px; font-size: 19px; }
+      p { margin: 0 0 16px; color: #6b6577; font-size: 14px; line-height: 1.6; }
+      button { border: none; border-radius: 11px; padding: 12px 20px; font-size: 15px; font-weight: 700; cursor: pointer; background: var(--pc); color: #fff; }
+      button:disabled { opacity: 0.5; }
+      .status { margin-top: 16px; font-size: 14px; padding: 11px 14px; border-radius: 11px; font-weight: 600; }
+      .status.ok { background: #e7f7ee; color: #1b7a45; }
+      .status.err { background: #fdecea; color: #b3271e; }
+      .status.info { background: #f2edfa; color: var(--pc); }
+      .hint { margin-top: 14px; font-size: 12px; color: #9a93a8; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="ic">🎙️</div>
+      <h1>Autorizar o microfone</h1>
+      <p>
+        Para gravar a narração dos seus tutoriais, o navegador precisa da sua permissão para o
+        microfone <b>nesta extensão</b>. Clique no botão e escolha <b>Permitir</b> no aviso do
+        navegador.
+      </p>
+      <button id="allow">Permitir microfone</button>
+      <div id="status" class="status info" style="display: none"></div>
+      <p class="hint">
+        Se você já bloqueou antes, clique no ícone de câmera/cadeado na barra de endereço e mude o
+        microfone para <b>Permitir</b>. Depois volte à extensão e grave normalmente.
+      </p>
+    </div>
+    <script src="mic.js"></script>
+  </body>
+</html>

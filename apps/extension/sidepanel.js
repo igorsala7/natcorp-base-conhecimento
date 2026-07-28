@@ -25,6 +25,12 @@ function sessionMsg(kind, html) {
   el.className = "status " + kind;
   el.innerHTML = html;
 }
+function connMsg(kind, text) {
+  const el = $("connStatus");
+  el.style.display = "block";
+  el.className = "status " + kind;
+  el.textContent = text;
+}
 
 // ── Início ──────────────────────────────────────────────────────────────────
 (async function init() {
@@ -55,6 +61,20 @@ function sessionMsg(kind, html) {
       chatSend();
     }
   });
+
+  // Menu da conta (chip no topo → Sair).
+  $("acctChip").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("acctMenu").hidden = !$("acctMenu").hidden;
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".acct")) $("acctMenu").hidden = true;
+  });
+
+  // Chat flutuante (assistente).
+  $("chatFab").addEventListener("click", () => openChat(true));
+  $("chatClose").addEventListener("click", () => openChat(false));
+
   setupSelection();
   loadSpaces();
 
@@ -72,23 +92,67 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
+let conectadoAgora = false;
+
 function refreshConn(cfg) {
   const conectado = !!(cfg.token && cfg.token.startsWith("ext_live_"));
-  $("loginBox").style.display = conectado ? "none" : "block";
-  $("loggedBox").style.display = conectado ? "block" : "none";
-  if (conectado) $("loggedAs").textContent = "Conectado como " + (cfg.email || "usuário");
-  if (!conectado) $("connStatus").textContent = "Entre com seu e-mail e senha da plataforma.";
+  conectadoAgora = conectado;
+  // Onboarding: mostra a tela de login OU o app, nunca os dois.
+  $("loginView").hidden = conectado;
+  $("appView").hidden = !conectado;
+  $("chatFab").hidden = !conectado;
+  if (conectado) {
+    $("acctEmail").textContent = cfg.email || "usuário";
+    $("acctEmail").title = cfg.email || "";
+  } else {
+    openChat(false);
+    $("connStatus").style.display = "none";
+  }
   $("start").disabled = !conectado || !cfg.apiBase;
+  refreshSession(cfg);
+}
+
+// Indicador "capturando" quando há uma sessão ativa (esconde o botão iniciar).
+function refreshSession(cfg) {
+  const ativa = !!cfg.sessionId;
+  $("start").hidden = ativa;
+  $("sessionHint").hidden = ativa;
+  $("sessionLive").hidden = !ativa;
+  if (ativa) {
+    $("sessionLiveText").textContent = shotCount
+      ? "Capturando · " + shotCount + " print(s)"
+      : "Sessão ativa · capture as telas";
+  }
+}
+async function syncSession() {
+  refreshSession(await loadConfig());
+}
+
+// ── Chat flutuante (assistente) ─────────────────────────────────────────────
+function openChat(open) {
+  $("chatPanel").hidden = !open;
+  $("chatFab").hidden = open || !conectadoAgora; // o painel cobre a bolha
+  if (open) {
+    renderChat();
+    setTimeout(() => $("chatInput").focus(), 30);
+  }
+}
+// Some com o chat enquanto o print está sendo recortado (não atrapalha a leitura).
+function hideChatForCapture() {
+  openChat(false);
+  $("chatFab").hidden = true;
+}
+function restoreChat() {
+  $("chatFab").hidden = !conectadoAgora;
 }
 
 async function login() {
-  const base = normalizeBase($("base").value);
+  const base = normalizeBase($("base").value) || DEFAULT_BASE;
   const email = $("email").value.trim();
   const pass = $("pass").value;
-  if (!base) return ($("connStatus").textContent = "Informe o endereço da plataforma.");
-  if (!email || !pass) return ($("connStatus").textContent = "Informe e-mail e senha.");
+  if (!email || !pass) return connMsg("err", "Informe e-mail e senha.");
   $("login").disabled = true;
-  $("connStatus").textContent = "Entrando…";
+  connMsg("info", "Entrando…");
   try {
     const res = await fetch(base + "/api/v1/ext/login", {
       method: "POST",
@@ -97,16 +161,16 @@ async function login() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      $("connStatus").textContent = data.error || "Erro " + res.status;
+      connMsg("err", data.error || "Erro " + res.status);
       return;
     }
     await setConn({ apiBase: base, token: data.token, email: data.email });
     $("pass").value = "";
-    $("connStatus").textContent = "";
+    $("connStatus").style.display = "none";
     refreshConn({ apiBase: base, token: data.token, email: data.email });
     loadSpaces();
   } catch (e) {
-    $("connStatus").textContent = "Falha de rede: " + (e && e.message ? e.message : e);
+    connMsg("err", "Falha de rede: " + (e && e.message ? e.message : e));
   } finally {
     $("login").disabled = false;
   }
@@ -114,6 +178,8 @@ async function login() {
 
 async function logout() {
   await new Promise((r) => chrome.storage.local.remove(["token", "email", "sessionId"], r));
+  $("acctMenu").hidden = true;
+  shotCount = 0;
   refreshConn({ apiBase: normalizeBase($("base").value) });
   $("space").innerHTML = '<option value="">—</option>';
   updateFinalizeEnabled();
@@ -140,8 +206,9 @@ async function startSession() {
       await chrome.storage.local.remove("lastNavUrl");
       shotCount = 0;
       $("shots").innerHTML = "";
-      $("shotCount").textContent = "Nenhum print nesta sessão.";
-      sessionMsg("ok", "Sessão iniciada ✓<br><code>" + data.sessionId + "</code>");
+      $("shotCount").textContent = "Nenhum print ainda.";
+      sessionMsg("ok", "Sessão iniciada ✓ — capture as telas com <kbd>Ctrl</kbd>+<kbd>Espaço</kbd>.");
+      await syncSession();
       loadSpaces();
       updateFinalizeEnabled();
     }
@@ -217,6 +284,7 @@ let sel = null; // seleção em px do stage: { x, y, w, h }
 function showCrop(shot) {
   pending = shot;
   sel = null;
+  hideChatForCapture(); // enquanto o print está na tela, o assistente some
   $("cropSel").style.display = "none";
   $("cropAiStatus").style.display = "none";
   $("cropOverlay").style.display = "flex";
@@ -326,6 +394,7 @@ function closeCrop() {
   $("cropOverlay").style.display = "none";
   pending = null;
   sel = null;
+  restoreChat(); // print resolvido: a bolha do assistente volta
   chrome.storage.local.remove("pendingShot");
 }
 
@@ -420,6 +489,7 @@ async function uploadShot(blob, meta) {
     im.title = (meta && meta.title) || "";
     $("shots").prepend(im);
     $("shotCount").textContent = shotCount + " print(s) nesta sessão.";
+    refreshSession(cfg); // atualiza o "Capturando · N print(s)"
     sessionMsg("ok", "Print salvo ✓");
   } catch (e) {
     sessionMsg("err", "Falha ao enviar o print: " + (e && e.message ? e.message : e));
@@ -445,7 +515,23 @@ async function toggleRec() {
     try {
       recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
-      recMsg("err", "Sem acesso ao microfone (" + (e && e.name ? e.name : e) + "). Autorize o microfone para a extensão e tente de novo.");
+      const nome = (e && e.name) || String(e);
+      // O painel lateral quase nunca consegue exibir o aviso de permissão do
+      // microfone (→ NotAllowedError). Abrimos uma ABA dedicada, onde o aviso
+      // aparece de forma confiável; a permissão é por ORIGEM e passa a valer
+      // aqui também. Depois é só voltar e gravar.
+      if (nome === "NotAllowedError" || nome === "SecurityError" || nome === "PermissionDeniedError") {
+        recMsg("info", "Abri uma aba para você autorizar o microfone. Permita lá e volte aqui para gravar.");
+        try {
+          chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
+        } catch {
+          window.open(chrome.runtime.getURL("mic.html"), "_blank");
+        }
+      } else if (nome === "NotFoundError" || nome === "DevicesNotFoundError") {
+        recMsg("err", "Nenhum microfone encontrado. Conecte um microfone e tente de novo.");
+      } else {
+        recMsg("err", "Sem acesso ao microfone (" + nome + "). Tente de novo.");
+      }
       return;
     }
     recChunks = [];
@@ -513,6 +599,13 @@ let chatBusy = false;
 function renderChat() {
   const box = $("chatMsgs");
   box.innerHTML = "";
+  if (!chatMsgs.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = 'Pergunte como organizar o que você está capturando.<br>Ex.: <i>"como divido isso em passos?"</i>';
+    box.appendChild(empty);
+    return;
+  }
   chatMsgs.forEach((m) => {
     const el = document.createElement("div");
     el.className = "cm " + (m.role === "user" ? "u" : "a");
@@ -621,6 +714,11 @@ async function finalizeSession() {
       return;
     }
     await chrome.storage.local.remove(["sessionId", "lastNavUrl"]);
+    shotCount = 0;
+    $("shots").innerHTML = "";
+    $("shotCount").textContent = "Nenhum print ainda.";
+    $("draftTitle").value = "";
+    await syncSession(); // volta o botão "Iniciar sessão" e esconde o "Capturando…"
     finMsg(
       "ok",
       'Rascunho criado ✓ "' + escapeHtml(data.title || "") + '"<br><a href="' + base + '/admin/conteudo" target="_blank" style="color:inherit;font-weight:700">Abrir no admin →</a>',
