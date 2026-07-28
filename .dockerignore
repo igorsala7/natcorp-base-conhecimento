@@ -1,0 +1,32 @@
+# Dependências e artefatos de build — reinstalados/reconstruídos na imagem.
+node_modules
+.next
+.next-verify
+
+# Segredos e ambiente local — NUNCA devem entrar no contexto de build.
+.env
+.env.*
+
+# Git e ferramentas de editor.
+.git
+.gitignore
+.github
+.vscode
+.idea
+.claude
+
+# Trabalho/temporários e relatórios de teste.
+temp
+coverage
+playwright-report
+test-results
+e2e
+
+# Extensão do navegador (empacotada à parte) e documentação.
+apps
+docs
+
+# Os próprios arquivos de container (não precisam ir para dentro da imagem).
+Dockerfile
+docker-compose.yml
+.dockerignore

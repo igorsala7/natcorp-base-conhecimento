@@ -3,6 +3,10 @@ import { createPublicClient } from "@/lib/supabase/public";
 import { getPortalTree, flattenPortalTree } from "@/lib/portal/data";
 import { env } from "@/lib/env";
 
+// Gerado sob demanda, não no build: o `next build` do Docker não precisa
+// alcançar o Supabase, e o sitemap reflete o conteúdo publicado a cada acesso.
+export const dynamic = "force-dynamic";
+
 /** Sitemap com todo o conteúdo publicado de espaços públicos. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");

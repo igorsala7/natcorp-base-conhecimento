@@ -1,0 +1,39 @@
+# Sobe o WEB (Next) e o WORKER (fila de jobs + Playwright) a partir da MESMA
+# imagem. As variáveis vêm do arquivo .env (copie de .env.production.example):
+# o compose usa o .env tanto para o BUILD (args NEXT_PUBLIC_*) quanto para o
+# RUNTIME (env_file).
+#
+# TROCAR A PORTA em produção: ajuste WEB_PORT (porta publicada no servidor) e,
+# se quiser, PORT (porta interna do container) no .env — nada mais.
+
+services:
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+    image: natcorp-kb:latest
+    env_file: .env
+    environment:
+      PORT: ${PORT:-3000}
+    ports:
+      - "${WEB_PORT:-3000}:${PORT:-3000}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-3000}/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    # Reaproveita a imagem construída pelo serviço "web" (não constrói de novo).
+    image: natcorp-kb:latest
+    env_file: .env
+    command: ["npm", "run", "worker:prod"]
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
