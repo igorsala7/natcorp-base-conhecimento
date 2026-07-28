@@ -27,6 +27,8 @@ import {
 import { resolverMidias, type MediaRef } from "@/lib/studio/media";
 import { contextoParaCriacao } from "@/lib/ai/creation-context";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
+import { extrairUrls, buscarPaginas } from "@/lib/ai/web-fetch";
+import { webFetchPolicy } from "@/lib/ai/web-fetch-policy";
 import type { BlockDoc } from "@/lib/blocks/schema";
 import type { Json } from "@/lib/database.types";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
@@ -307,6 +309,25 @@ export async function studioTurn(
   const proposal = (ctx.sess.proposal as ProposalNode[]) ?? [];
   const materiais = (ctx.sess.materiais as { nome: string; texto: string }[]) ?? [];
 
+  // Autoria: uma URL citada pelo autor vira MATERIAL de referência (buscado com
+  // trava SSRF) — passa a alimentar tanto a conversa quanto a geração do corpo,
+  // e fica persistida na sessão como qualquer material anexado.
+  let materiaisMudou = false;
+  if ((await webFetchPolicy()).authoring) {
+    const urls = extrairUrls(parsed.data);
+    if (urls.length) {
+      for (const r of await buscarPaginas(urls)) {
+        if (r.ok && !materiais.some((m) => m.texto.includes(r.pagina.url))) {
+          materiais.push({
+            nome: `Web: ${r.pagina.titulo || r.pagina.url}`,
+            texto: `(Fonte: ${r.pagina.url})\n${r.pagina.texto}`,
+          });
+          materiaisMudou = true;
+        }
+      }
+    }
+  }
+
   const historico = messages
     .slice(-MSGS_NO_PROMPT)
     .map((m) => `${m.role === "user" ? "AUTOR" : "VOCÊ"}: ${m.text}`)
@@ -370,6 +391,7 @@ ${parsed.data}`,
         messages: novasMsgs as unknown as Json,
         proposal: r.proposal as unknown as Json,
         title: titulo,
+        ...(materiaisMudou ? { materiais: materiais as unknown as Json } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId);

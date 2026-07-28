@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  ChevronDown, ChevronRight, ThumbsUp, ThumbsDown, Download, User, Bot, MessageSquare,
+  ChevronDown, ChevronRight, ThumbsUp, ThumbsDown, Download, User, Bot, MessageSquare, ArrowUp, ArrowDown,
 } from "lucide-react";
 
 export type ConvMsg = {
@@ -13,6 +13,9 @@ export type ConvMsg = {
   feedback: number | null;
   latency_ms: number | null;
   created_at: string;
+  tokens: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
 };
 
 export type Conversa = {
@@ -32,6 +35,31 @@ const fmt = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo",
 });
 const dataHora = (iso: string) => fmt.format(new Date(iso));
+
+// dd/mm/yyyy hh24:mi:ss — data/hora completa por mensagem (sem a vírgula do Intl).
+const fmtSeg = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit", month: "2-digit", year: "numeric",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  timeZone: "America/Sao_Paulo",
+});
+const dataHoraSeg = (iso: string) => fmtSeg.format(new Date(iso)).replace(",", "");
+const numTok = (n: number) => n.toLocaleString("pt-BR");
+
+/**
+ * Tokens a exibir por mensagem: o custo do turno é medido na chamada que gera a
+ * RESPOSTA (entrada = prompt, saída = resposta). Atribuímos a ENTRADA ao envio
+ * do usuário (a resposta seguinte carrega o input_tokens) e a SAÍDA à resposta.
+ */
+function tokensDaMensagem(msgs: ConvMsg[], i: number): { entrada: number | null; saida: number | null } {
+  const m = msgs[i]!;
+  if (m.role === "assistant") return { entrada: null, saida: m.output_tokens };
+  for (let j = i + 1; j < msgs.length; j++) {
+    const n = msgs[j]!;
+    if (n.role === "assistant") return { entrada: n.input_tokens, saida: null };
+    if (n.role === "user") break; // outra pergunta antes de qualquer resposta
+  }
+  return { entrada: null, saida: null };
+}
 
 const PARAMS: [keyof Conversa, string][] = [
   ["p_empresa", "Empresa"], ["p_usuario", "Usuário"], ["p_matricula", "Matrícula"],
@@ -65,19 +93,20 @@ function csvCell(v: string | number | null): string {
 
 function exportarCsv(conversas: Conversa[]) {
   const head = [
-    "conversa_id", "data", "empresa", "usuario", "matricula", "portal", "base", "perfil",
-    "sessao", "papel", "feedback", "latencia_ms", "conteudo",
+    "conversa_id", "data_hora", "empresa", "usuario", "matricula", "portal", "base", "perfil",
+    "sessao", "papel", "feedback", "latencia_ms", "tokens_entrada", "tokens_saida", "conteudo",
   ];
   const linhas = [head.map(csvCell).join(",")];
   for (const c of conversas) {
-    for (const m of c.messages) {
+    c.messages.forEach((m, i) => {
+      const { entrada, saida } = tokensDaMensagem(c.messages, i);
       linhas.push([
-        c.id, dataHora(m.created_at), c.p_empresa, c.p_usuario, c.p_matricula, c.p_portal, c.p_base, c.p_perfil,
+        c.id, dataHoraSeg(m.created_at), c.p_empresa, c.p_usuario, c.p_matricula, c.p_portal, c.p_base, c.p_perfil,
         c.session_id, m.role === "user" ? "usuário" : "assistente",
         m.feedback === 1 ? "positivo" : m.feedback === -1 ? "negativo" : "",
-        m.latency_ms, m.content,
+        m.latency_ms, entrada, saida, m.content,
       ].map(csvCell).join(","));
-    }
+    });
   }
   const blob = new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -179,6 +208,7 @@ export function ConversasList({
                   {c.messages.map((m, i) => {
                     const citas = citasDe(m);
                     const usuario = m.role === "user";
+                    const { entrada, saida } = tokensDaMensagem(c.messages, i);
                     return (
                       <div key={i} className={`flex gap-2.5 ${usuario ? "" : "flex-row"}`}>
                         <span
@@ -190,11 +220,27 @@ export function ConversasList({
                           {usuario ? <User className="size-4" /> : <Bot className="size-4" />}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 text-xs text-text-muted">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
                             <span className="font-semibold text-text">{usuario ? "Usuário" : "Assistente"}</span>
                             {m.feedback === 1 && <ThumbsUp className="size-3 text-emerald-600" />}
                             {m.feedback === -1 && <ThumbsDown className="size-3 text-rose-600" />}
+                            <span className="font-mono tabular-nums opacity-80">{dataHoraSeg(m.created_at)}</span>
                             {typeof m.latency_ms === "number" && <span>{m.latency_ms} ms</span>}
+                            {entrada != null && (
+                              <span className="inline-flex items-center gap-0.5 text-brand-purple-700" title="Tokens de entrada (envio do usuário)">
+                                <ArrowUp className="size-3" />{numTok(entrada)} tok
+                              </span>
+                            )}
+                            {saida != null && (
+                              <span className="inline-flex items-center gap-0.5 text-brand-blue-700" title="Tokens de saída (resposta do chatbot)">
+                                <ArrowDown className="size-3" />{numTok(saida)} tok
+                              </span>
+                            )}
+                            {!usuario && saida == null && m.tokens != null && (
+                              <span className="opacity-80" title="Total de tokens (registro antigo, sem separação entrada/saída)">
+                                {numTok(m.tokens)} tok (total)
+                              </span>
+                            )}
                           </div>
                           <p className="mt-0.5 whitespace-pre-wrap text-sm text-text">{m.content}</p>
                           {citas.length > 0 && (

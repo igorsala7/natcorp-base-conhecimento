@@ -1,6 +1,6 @@
 import "server-only";
 import { languageModel, hasAiKey, ehTimeout } from "@/lib/ai/config";
-import { CONTENT_INSTRUCTIONS, CABECALHO_PREFERENCIAS, PADRAO_DE_ARTIGO } from "./prompts";
+import { resolveCategory } from "@/lib/ai/prompts";
 import type { Block, BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { sanitizeDoc } from "./rich-blocks";
@@ -51,11 +51,12 @@ export async function generateArticle(
   const model = await languageModel("import_layout");
   // Mesmas receitas de composição do editor/estúdio/"Melhorar layout" — assim o
   // artigo importado sai no MESMO padrão dos criados à mão, não numa versão pobre.
+  const A = await resolveCategory("importador_artigo");
   const cabecalho =
-    CONTENT_INSTRUCTIONS +
+    A.content_instructions +
     "\n\n" +
-    PADRAO_DE_ARTIGO +
-    (direcao ? `\n\n${CABECALHO_PREFERENCIAS}\n${direcao}` : "");
+    A.padrao_de_artigo +
+    (direcao ? `\n\n${A.cabecalho_preferencias}\n${direcao}` : "");
 
   const blocos: Block[] = [];
   let degradou = false;

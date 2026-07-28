@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  Camera,
   Check,
   Download,
   Eye,
@@ -39,7 +40,9 @@ import {
 } from "@/components/editor/layout-questions";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
 import { acharNo, aplicarPatch, type ProposalNode, type ProposalPatch } from "@/lib/studio/proposal";
+import { CaptureDialog } from "@/components/capture/capture-dialog";
 import {
+  getStudioSession,
   materializeStudio,
   saveStudioState,
   studioAttach,
@@ -49,6 +52,8 @@ import {
   type StudioMsg,
   type StudioSessionData,
 } from "../actions";
+import { createCaptureStudio } from "../capture-actions";
+import { sugerirCaminhoCaptura } from "../../importar/capture-actions";
 
 type MsgView = StudioMsg | { role: "system"; text: string };
 
@@ -81,6 +86,7 @@ export function Studio({
   const [modoPrevia, setModoPrevia] = useState(false);
   const [criando, setCriando] = useState(false);
   const [anexando, setAnexando] = useState(false);
+  const [capturaAlvo, setCapturaAlvo] = useState<string | null>(null);
   const msgsRef = useRef<HTMLDivElement>(null);
   const criada = sessao.status === "created";
 
@@ -213,6 +219,16 @@ export function Studio({
       });
     walk(proposal);
     return artigos.length === 1 ? artigos[0]! : null;
+  }
+
+  /** Abre o diálogo de captura de telas, mirando o artigo-alvo da proposta. */
+  function abrirCaptura() {
+    const alvo = alvoArtigo();
+    if (!alvo) {
+      sistema("Selecione na proposta (à direita) o artigo que vai receber os prints e tente de novo.");
+      return;
+    }
+    setCapturaAlvo(alvo);
   }
 
   /** Imagem no corpo OU arquivo para download, dentro do artigo alvo. */
@@ -482,6 +498,9 @@ export function Studio({
                   <MenuItem icon={Download} onClick={() => { close(); anexarMidia("file"); }}>
                     Arquivo para download
                   </MenuItem>
+                  <MenuItem icon={Camera} onClick={() => { close(); abrirCaptura(); }}>
+                    Capturar telas de uma URL
+                  </MenuItem>
                 </>
               )}
             </DropdownMenu>
@@ -573,6 +592,26 @@ export function Studio({
           </div>
         </Surface>
       </div>
+
+      {capturaAlvo && (
+        <CaptureDialog
+          open
+          onClose={() => setCapturaAlvo(null)}
+          spaceId={sessao.spaceId}
+          submit={(i) => createCaptureStudio({ sessionId: sessao.id, targetTmpId: capturaAlvo, ...i })}
+          sugerir={(i) => sugerirCaminhoCaptura({ spaceId: sessao.spaceId, ...i })}
+          onDone={async () => {
+            const fresh = await getStudioSession(sessao.id);
+            if (fresh) {
+              setProposal(fresh.proposal);
+              setMateriais(fresh.materiais);
+              setSelecionado(capturaAlvo);
+            }
+            sistema("Prints capturados e anexados ao artigo. Gere o corpo para posicioná-los (senão entram ao fim).");
+            setCapturaAlvo(null);
+          }}
+        />
+      )}
     </div>
   );
 }

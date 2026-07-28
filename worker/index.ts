@@ -10,7 +10,7 @@ import ws from "ws";
 if (!globalThis.WebSocket) {
   (globalThis as unknown as { WebSocket: unknown }).WebSocket = ws;
 }
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import PgBoss from "pg-boss";
 // @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
@@ -38,6 +38,11 @@ import { publishNodeCore, unpublishNodeCore } from "../src/lib/content/publish-c
 import { reindexNodeChunks } from "../src/lib/content/chunk";
 import { scanSpaceQuality } from "../src/lib/quality/scan";
 import { processDigests } from "../src/lib/subscriptions/digest";
+import { SessaoCaptura } from "../src/lib/capture/browser";
+import { planejarCaptura, escreverArtigoEducativo } from "../src/lib/capture/generate";
+import { resolverMidias, type MediaRef } from "../src/lib/studio/media";
+import type { ProposalNode } from "../src/lib/studio/proposal";
+import type { ProposedNode } from "../src/lib/importer/structure";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -880,11 +885,169 @@ async function applyBackupSchedule(boss: PgBoss) {
   }
 }
 
+// ── Captura de telas (prints) ───────────────────────────────────────────────
+
+type CaptureDestino =
+  | { kind: "import"; parentId: string | null; instrucao?: string; importJobId?: string }
+  | { kind: "studio"; sessionId: string; targetTmpId: string; instrucao?: string };
+
+const CAPTURE_PROCESSAVEIS = new Set(["queued", "running", "capturing", "writing"]);
+
+/** Atualiza um nó da proposta do Estúdio pelo tmpId (recursivo, imutável). */
+function atualizarNoProposta(
+  nodes: ProposalNode[],
+  tmpId: string,
+  fn: (n: ProposalNode) => ProposalNode,
+): ProposalNode[] {
+  return nodes.map((n) =>
+    n.tmpId === tmpId ? fn(n) : { ...n, children: atualizarNoProposta(n.children, tmpId, fn) },
+  );
+}
+
+/**
+ * Abre a URL (login opcional), a IA escolhe os prints, captura, sobe ao bucket
+ * `assets` (dedup por checksum) e aterrissa conforme o destino: prévia do
+ * Importador (artigo pronto com os prints) ou sessão do Estúdio (prints como
+ * mídia + texto como material). Credenciais são apagadas ANTES de abrir o browser.
+ */
+async function processCapture(jobId: string) {
+  const { data: job } = await supabase
+    .from("capture_jobs")
+    .select("id, space_id, url, mode, status, destino, needs_login, created_by")
+    .eq("id", jobId)
+    .single();
+  if (!job || !CAPTURE_PROCESSAVEIS.has(job.status)) return;
+
+  const destino = (job.destino ?? {}) as CaptureDestino;
+  const modo = (job.mode === "interactive" ? "interactive" : "static") as "static" | "interactive";
+  const logs: { at: string; msg: string }[] = [];
+  const passo = async (patch: Record<string, unknown>, msg?: string) => {
+    if (msg) {
+      logs.push({ at: new Date().toISOString(), msg });
+      console.log(`  captura ${jobId}: ${msg}`);
+    }
+    await supabase.from("capture_jobs").update({ ...patch, ...(msg ? { log: logs } : {}) }).eq("id", jobId);
+  };
+
+  await passo({ status: "running", progress: 5 }, "Abrindo a página");
+
+  // Credenciais efêmeras: lê, APAGA e decifra (delete-after-use, antes do browser).
+  let login: { usuario: string; senha: string } | undefined;
+  if (job.needs_login) {
+    const { data: sec } = await supabase
+      .from("capture_secrets")
+      .select("usuario_enc, senha_enc")
+      .eq("job_id", jobId)
+      .maybeSingle();
+    await supabase.from("capture_secrets").delete().eq("job_id", jobId);
+    const usuario = tryDecryptSecret(sec?.usuario_enc ?? null);
+    const senha = tryDecryptSecret(sec?.senha_enc ?? null);
+    if (usuario && senha) login = { usuario, senha };
+  }
+
+  const sessao = await SessaoCaptura.iniciar({ url: job.url, modo, ...(login ? { login } : {}) });
+  try {
+    await passo(
+      { status: "capturing", progress: 25 },
+      `${sessao.inventario.elementos.length} elemento(s); escolhendo os prints`,
+    );
+    const instrucao = destino.instrucao ?? "";
+    const planos = await planejarCaptura(sessao.inventario, instrucao, modo);
+    const pngs = await sessao.capturar(planos);
+    if (!pngs.length) throw new Error("Nenhum print pôde ser capturado nesta página");
+    // Eventos da página (alerta/validação/erro) percebidos durante a navegação.
+    for (const ev of sessao.eventos.slice(0, 8)) await passo({}, `A tela respondeu: ${ev}`);
+    await passo({ progress: 60 }, `${pngs.length} print(s) capturado(s)`);
+
+    // Sobe cada print ao bucket `assets` (dedup por checksum) → MediaRef[].
+    const midias: MediaRef[] = [];
+    for (const p of pngs) {
+      const checksum = createHash("sha256").update(p.png).digest("hex");
+      const path = `${job.space_id}/shots/${checksum}.png`;
+      const { error } = await supabase.storage
+        .from("assets")
+        .upload(path, p.png, { contentType: "image/png", upsert: true });
+      const url = error ? "" : supabase.storage.from("assets").getPublicUrl(path).data.publicUrl;
+      if (!url) continue;
+      midias.push({
+        id: randomUUID().replace(/-/g, "").slice(0, 8),
+        kind: "image",
+        url,
+        name: p.legenda || "Print",
+        alt: p.legenda ?? "",
+      });
+    }
+    if (!midias.length) throw new Error("Falha ao guardar os prints no Storage");
+
+    await passo({ status: "writing", progress: 80 }, "Montando o artigo");
+
+    const instrucaoComEventos = sessao.eventos.length
+      ? `${instrucao}\n\nMensagens que a tela mostrou durante a navegação (documente os retornos/validações relevantes): ${sessao.eventos.join("; ")}`
+      : instrucao;
+    if (destino.kind === "import") {
+      const titulo = (sessao.inventario.titulo || "Artigo").slice(0, 200);
+      const doc = await escreverArtigoEducativo({ inv: sessao.inventario, midias, titulo, instrucao: instrucaoComEventos });
+      const node: ProposedNode = { title: titulo, content: [], children: [], blocks: doc };
+      // Cria o job do Importador já em 'preview' (a prévia de 4 etapas assume daqui).
+      const { data: imp } = await supabase
+        .from("import_jobs")
+        .insert({
+          space_id: job.space_id,
+          source_file: job.url,
+          original_name: `Prints de ${titulo}`.slice(0, 160),
+          mime: "text/html",
+          size_bytes: 0,
+          status: "preview",
+          progress: 100,
+          target_parent_id: destino.parentId ?? null,
+          created_by: job.created_by,
+          result_tree: { tree: [node], images: midias.map((m) => m.url), usedAi: true, usedAiContent: true },
+        })
+        .select("id")
+        .single();
+      // Guarda o id do job criado no destino, para a UI abrir a prévia certa.
+      await supabase
+        .from("capture_jobs")
+        .update({ destino: { ...destino, importJobId: imp?.id ?? null } })
+        .eq("id", jobId);
+    } else {
+      // Estúdio: anexa os prints como mídia no artigo-alvo + texto da página como material.
+      const { data: sess } = await supabase
+        .from("studio_sessions")
+        .select("proposal, materiais")
+        .eq("id", destino.sessionId)
+        .single();
+      const proposal = (sess?.proposal ?? []) as ProposalNode[];
+      const nova = atualizarNoProposta(proposal, destino.targetTmpId, (n) => {
+        const todas = [...(n.midias ?? []), ...midias];
+        const doc = n.doc ? { ...n.doc, blocks: resolverMidias(n.doc.blocks, todas) } : n.doc;
+        return { ...n, midias: todas, doc };
+      });
+      const materiais = [...((sess?.materiais ?? []) as { nome: string; texto: string }[])];
+      if (!materiais.some((m) => m.texto.includes(job.url))) {
+        materiais.push({
+          nome: `Web: ${sessao.inventario.titulo || job.url}`,
+          texto: `(Fonte: ${job.url})\n${sessao.inventario.texto}`,
+        });
+      }
+      await supabase
+        .from("studio_sessions")
+        .update({ proposal: nova, materiais, updated_at: new Date().toISOString() })
+        .eq("id", destino.sessionId);
+    }
+
+    await passo({ status: "done", progress: 100 }, "Concluído");
+  } finally {
+    await sessao.fechar();
+  }
+}
+
 async function main() {
   const boss = new PgBoss({ ...parseDbConfig(), schema: "pgboss" });
   await boss.start();
   await boss.createQueue("import");
   await boss.createQueue("import-improve");
+  await boss.createQueue("capture");
   await boss.createQueue("scheduled-publish");
   await boss.createQueue("quality-scan");
   await boss.createQueue("embeddings-generate");
@@ -904,6 +1067,24 @@ async function main() {
   // Cron do próprio pg-boss: um tick por minuto, singleton (não acumula).
   await boss.schedule("scheduled-publish", "* * * * *");
   console.log("Worker de importação pronto. Aguardando jobs…");
+
+  await boss.work("capture", { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Captura de telas (job ${jobId})`);
+      try {
+        await processCapture(jobId);
+        console.log(`Captura job ${jobId} concluída`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Captura job ${jobId} falhou:`, msg);
+        await supabase
+          .from("capture_jobs")
+          .update({ status: "error", error: msg.slice(0, 500) })
+          .eq("id", jobId);
+      }
+    }
+  });
 
   await boss.work("quality-scan", async (jobs) => {
     for (const job of jobs) {

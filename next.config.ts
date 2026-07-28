@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   // `.next` em uso e mistura chunks — a página passa a hidratar com bundle
   // antigo contra HTML novo (erro real que aconteceu).
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // O Playwright (usado no fallback de scraping para sites com proteção anti-bot,
+  // ver `capture/browser.ts`) é nativo e pesado — nunca deve ser empacotado pelo
+  // bundler das Server Actions; carrega do node_modules em runtime.
+  serverExternalPackages: ["playwright", "playwright-core"],
   // Expor o localhost por um túnel (Cloudflare) para outra pessoa testar: o
   // navegador manda Origin = xxx.trycloudflare.com, que NÃO bate com o Host, e
   // o Next recusa as Server Actions por CSRF — resultado: vários botões do
@@ -33,9 +37,21 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Tudo, MENOS o widget: ele existe para rodar dentro do site do
-        // cliente, então não pode levar frame-ancestors/X-Frame-Options.
-        source: "/((?!widget\\.js).*)",
+        // Páginas de INCORPORAÇÃO (iframe em outros sites): NÃO podem levar
+        // X-Frame-Options; `frame-ancestors *` libera o embed em qualquer host.
+        // Mantém noindex e nosniff. Só serve conteúdo público (a rota barra o resto).
+        source: "/embed/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          { key: "Content-Security-Policy", value: "frame-ancestors *" },
+        ],
+      },
+      {
+        // Tudo, MENOS o widget e o /embed: ambos rodam DENTRO do site do
+        // cliente, então não podem levar frame-ancestors/X-Frame-Options.
+        source: "/((?!widget\\.js|embed/).*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

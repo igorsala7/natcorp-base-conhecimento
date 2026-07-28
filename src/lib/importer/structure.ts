@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { generateObject } from "ai";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "../ai/config";
-import { STRUCTURE_INSTRUCTIONS } from "./prompts";
+import { promptField } from "@/lib/ai/prompts";
 import { tituloLimpo, precisaAgruparComIa, contarNos, profundidade } from "./tree";
 import type { ProposedNode, ContentItem } from "./tree";
 
@@ -120,7 +120,7 @@ export async function refineStructureWithLLM(
     const { object } = await generateObject({
       model: await languageModel("import_structure"),
       prompt:
-        STRUCTURE_INSTRUCTIONS +
+        (await promptField("importador_estrutura", "structure_instructions")) +
         "\n\nESTRUTURA ATUAL (índice, recuo = nível, título e trecho):\n" +
         listarSecoes(flat),
       schema: refineSchema,

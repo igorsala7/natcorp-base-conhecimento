@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Folder, Loader2, MessageSquareText, Send, Sparkles, X } from "lucide-react";
+import { Eraser, FileText, Folder, Loader2, MessageSquareText, Send, Sparkles, X } from "lucide-react";
 import type { Block } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { aplicarOpsNoDoc, resumoDoDoc } from "@/lib/studio/chat-ops";
+import { resolverMidias } from "@/lib/studio/media";
+import { PromptLibrary, SavePromptButton } from "@/components/chat/prompt-library";
+import { listMyPrompts, saveMyPrompt, deleteMyPrompt } from "@/app/(admin)/admin/(app)/prompt-library-actions";
+
+const promptBackend = { list: listMyPrompts, save: saveMyPrompt, del: deleteMyPrompt };
 import {
   editorChatTurn,
   applyChatStructure,
@@ -65,6 +70,15 @@ export function EditorChat({
     fimRef.current?.scrollIntoView({ block: "end" });
   }, [msgs, perguntas, mostrarAcoesTexto, estrutura]);
 
+  /** "Limpar" a conversa (só visual — o chat do editor não é persistido). */
+  function limpar() {
+    setMsgs([]);
+    setPerguntas(null);
+    setRespostas({});
+    setMostrarAcoesTexto(false);
+    setEstrutura(null);
+  }
+
   async function enviar(texto: string) {
     const t = texto.trim();
     if (!t || ocupado) return;
@@ -94,7 +108,11 @@ export function EditorChat({
 
     if (r.data.ops?.length) {
       const res = aplicarOpsNoDoc(blocks, r.data.ops);
-      if (res.aplicadas > 0) onApplyBlocks(res.blocks);
+      // Troca os marcadores [[media:id]] pelas imagens da página re-hospedadas.
+      const finais = r.midias.length
+        ? resolverMidias(res.blocks, r.midias, { apenasPosicionadas: true })
+        : res.blocks;
+      if (res.aplicadas > 0) onApplyBlocks(finais);
       for (const ig of res.ignoradas) {
         setMsgs((m) => [...m, { role: "system", text: `Ignorado: ${ig}` }]);
       }
@@ -160,14 +178,27 @@ export function EditorChat({
           </h3>
           <p className="text-xs text-text-muted">Altera o artigo em tempo real — Ctrl+Z desfaz.</p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Fechar"
-          className="rounded p-1 text-text-muted hover:bg-surface-2"
-        >
-          <X className="size-4" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {msgs.length > 0 && (
+            <button
+              type="button"
+              onClick={limpar}
+              aria-label="Limpar conversa"
+              title="Limpar conversa"
+              className="rounded p-1 text-text-muted hover:bg-surface-2"
+            >
+              <Eraser className="size-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="rounded p-1 text-text-muted hover:bg-surface-2"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 space-y-2.5 overflow-y-auto p-3">
@@ -183,7 +214,7 @@ export function EditorChat({
             key={i}
             className={
               m.role === "user"
-                ? "ml-4 rounded-lg bg-brand-purple-50 px-2.5 py-1.5 text-[0.8125rem] dark:bg-brand-purple-950/40"
+                ? "group relative ml-4 rounded-lg bg-brand-purple-50 px-2.5 py-1.5 text-[0.8125rem] dark:bg-brand-purple-950/40"
                 : m.role === "assistant"
                   ? "mr-4 rounded-lg border border-border px-2.5 py-1.5 text-[0.8125rem]"
                   : "rounded-md bg-surface-2 px-2.5 py-1 text-[0.6875rem] text-text-muted"
@@ -193,6 +224,11 @@ export function EditorChat({
               <Markdown content={m.text} />
             ) : (
               <span className="whitespace-pre-wrap">{m.text}</span>
+            )}
+            {m.role === "user" && (
+              <span className="absolute -right-1 -top-2 opacity-0 transition-opacity group-hover:opacity-100">
+                <SavePromptButton texto={m.text} backend={promptBackend} className="rounded-md border border-border bg-surface shadow-sm" />
+              </span>
             )}
           </div>
         ))}
@@ -277,8 +313,12 @@ export function EditorChat({
         <div ref={fimRef} />
       </div>
 
+      <div className="flex items-center border-t border-border px-2 pt-1.5">
+        <PromptLibrary backend={promptBackend} onInsert={(t) => setInput((p) => (p.trim() ? `${p}\n${t}` : t))} />
+      </div>
+
       <form
-        className="flex items-end gap-1.5 border-t border-border p-2"
+        className="flex items-end gap-1.5 px-2 pb-2 pt-1"
         onSubmit={(e) => {
           e.preventDefault();
           void enviar(input);

@@ -49,6 +49,7 @@ export type WidgetKeyRow = {
     bubbleSize?: "sm" | "md" | "lg";
     suggestions?: string[];
     position?: "right" | "left";
+    scan?: boolean;
   } | null;
   created_at: string;
 };
@@ -85,6 +86,7 @@ type Draft = {
   bubbleSize: "sm" | "md" | "lg";
   suggestions: string;
   position: "right" | "left";
+  scan: boolean;
 };
 
 function rowToDraft(k: WidgetKeyRow): Draft {
@@ -111,6 +113,7 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     bubbleSize: c.bubbleSize ?? "md",
     suggestions: (c.suggestions ?? []).join("\n"),
     position: c.position ?? "right",
+    scan: c.scan !== false, // ausente = ligado (comportamento atual)
   };
 }
 
@@ -264,6 +267,7 @@ export function WidgetManager({
       bubbleSize: "md",
       suggestions: "",
       position: "right",
+      scan: true,
     });
   }
 
@@ -300,6 +304,7 @@ export function WidgetManager({
         bubbleSize: draft.bubbleSize,
         suggestions: draft.suggestions.split("\n").map((s) => s.trim()).filter(Boolean),
         position: draft.position,
+        scan: draft.scan,
       },
     };
     startTransition(async () => {
@@ -642,6 +647,20 @@ export function WidgetManager({
             </Field>
             <Field label="Perguntas sugeridas (uma por linha)">
               <textarea className={`${controlClass} h-16`} value={draft.suggestions} onChange={(e) => setDraft({ ...draft, suggestions: e.target.value })} />
+            </Field>
+            <Field label="Ler os dados da tela (varredura)">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.scan}
+                  onChange={(e) => setDraft({ ...draft, scan: e.target.checked })}
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                <span className="text-text-muted">
+                  Lê os campos, textos e tabelas da página do cliente (inclusive modais e iframes) e envia
+                  como contexto para a IA responder sobre a tela. Desligue em telas com dados sensíveis.
+                </span>
+              </label>
             </Field>
           </div>
 

@@ -14,6 +14,10 @@ import type { Json } from "@/lib/database.types";
 import { proposeLayoutQuestions } from "@/lib/importer/questions";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 import type { LayoutQuestion } from "@/lib/importer/question-schema";
+import { getSessionUser } from "@/lib/auth/permissions";
+import { limparHtmlParaImport } from "@/lib/ai/web-fetch";
+import { buscarPaginaRobusta } from "@/lib/capture/fetch-robusto";
+import { webFetchPolicy } from "@/lib/ai/web-fetch-policy";
 
 export type ImportResult =
   | {
@@ -81,6 +85,64 @@ export async function createImportJob(input: {
   await audit({ action: "content.import_start", entityType: "import_job", entityId: job.id, spaceId: input.spaceId });
   revalidatePath("/admin/importar");
   return { ok: true, id: job.id };
+}
+
+/**
+ * Importa a partir de uma URL: busca a página (trava SSRF), limpa o HTML
+ * mantendo a estrutura, sobe ao bucket `imports` e cria um job normal — daí em
+ * diante é o mesmo pipeline de qualquer arquivo (extração → estrutura → prévia).
+ */
+export async function createUrlImportJob(input: {
+  spaceId: string;
+  url: string;
+  targetParentId?: string | null;
+}): Promise<ImportResult> {
+  if (!(await getSessionUser())) {
+    return { ok: false, error: "Sua sessão expirou. Recarregue a página (F5) e entre de novo." };
+  }
+  try {
+    await requirePermission("content.import", input.spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão para importar." };
+  }
+  if (!(await webFetchPolicy()).authoring) {
+    return { ok: false, error: "O acesso à web para autoria está desligado (Sistema → IA → Acesso à web)." };
+  }
+  let u: URL;
+  try {
+    u = new URL(input.url.trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error();
+  } catch {
+    return { ok: false, error: "Informe uma URL http(s) válida." };
+  }
+
+  // Fetch robusto: cai para navegador real se o site tiver proteção anti-bot.
+  const r = await buscarPaginaRobusta(u.toString(), { incluirHtml: true });
+  if (!r.ok) return { ok: false, error: `Não consegui acessar a página (${r.motivo}).` };
+
+  const html = limparHtmlParaImport(r.pagina.html ?? `<body>${r.pagina.texto}</body>`, r.pagina.url);
+  const bytes = new TextEncoder().encode(html);
+  if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+    return { ok: false, error: "A página é grande demais para importar." };
+  }
+
+  const nomeBase = (r.pagina.titulo || u.hostname).replace(/[^\w.-]+/g, "_").slice(0, 80) || "pagina";
+  const originalName = `${nomeBase}.html`;
+  const supabase = await createClient();
+  const path = `${input.spaceId}/${Date.now()}-url-${nomeBase}.html`;
+  const { error: upErr } = await supabase.storage
+    .from("imports")
+    .upload(path, bytes, { contentType: "text/html" });
+  if (upErr) return { ok: false, error: `Falha ao guardar a página: ${upErr.message}` };
+
+  return createImportJob({
+    spaceId: input.spaceId,
+    sourceFile: path,
+    originalName,
+    mime: "text/html",
+    sizeBytes: bytes.byteLength,
+    targetParentId: input.targetParentId ?? null,
+  });
 }
 
 /** Converte os itens de conteúdo em um documento de blocos v2. */

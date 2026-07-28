@@ -1,6 +1,6 @@
 import "server-only";
 import { languageModel, hasAiKey, ehTimeout } from "@/lib/ai/config";
-import { CONTENT_INSTRUCTIONS, CABECALHO_PREFERENCIAS, PADRAO_DE_ARTIGO } from "./prompts";
+import { resolveCategory } from "@/lib/ai/prompts";
 import type { Block, BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
 import {
@@ -61,9 +61,10 @@ export async function improveLayout(
   if (!segmentos.length) return { ok: false, error: "Sem conteúdo para melhorar." };
 
   const model = await languageModel("import_layout");
+  const A = await resolveCategory("importador_artigo");
   const cabecalho =
-    CONTENT_INSTRUCTIONS + "\n\n" + PADRAO_DE_ARTIGO +
-    (direcao ? `\n\n${CABECALHO_PREFERENCIAS}\n${direcao}` : "");
+    A.content_instructions + "\n\n" + A.padrao_de_artigo +
+    (direcao ? `\n\n${A.cabecalho_preferencias}\n${direcao}` : "");
   const blocos: Block[] = [];
 
   // Sequencial de propósito: paralelizar aqui estoura o rate limit do provedor

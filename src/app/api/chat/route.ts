@@ -8,10 +8,12 @@ import {
   buildContextBlock,
 } from "@/lib/ai/rag";
 import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { resolveCategory } from "@/lib/ai/prompts";
 import { limitarHistorico } from "@/lib/ai/history";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
+import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -49,9 +51,12 @@ export async function POST(req: NextRequest) {
   const social = ehConversaSocial(question);
   // Entende o que o usuário QUIS dizer (gíria/erro/vago) antes de buscar; a
   // pergunta original segue para a persistência e para a resposta.
-  const sources = social
+  const ragSources = social
     ? []
     : await retrieveContext(spaceId, await interpretarConsulta(spaceId, question, messages), 8, scope);
+  // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
+  const webSources = social ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const sources = [...ragSources, ...webSources];
 
   // Assistente do admin: mesma persona que o leitor vê, para o que se testa
   // aqui corresponder ao que o público recebe.
@@ -59,16 +64,25 @@ export async function POST(req: NextRequest) {
   // salvar), ele vence o banco — SEM persistir e SEM pular as REGRAS_ABSOLUTAS
   // (a cascata segue acrescentando citar fonte / não inventar). Rascunho vazio =
   // testar o padrão do produto. Sem o campo → lê a persona salva do espaço.
+  const aP = await resolveCategory("assistente");
   let systemPrompt: string;
   if (promptOverride !== undefined) {
-    systemPrompt = buildSystemPrompt({ promptDoEspaco: promptOverride.trim() || null });
+    systemPrompt = buildSystemPrompt({
+      promptDoEspaco: promptOverride.trim() || null,
+      personaPadrao: aP.persona_padrao,
+      regrasAbsolutas: aP.regras_absolutas,
+    });
   } else {
     const { data: espaco } = await supabase
       .from("spaces")
       .select("chat_prompt")
       .eq("id", spaceId)
       .maybeSingle();
-    systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
+    systemPrompt = buildSystemPrompt({
+      promptDoEspaco: espaco?.chat_prompt ?? null,
+      personaPadrao: aP.persona_padrao,
+      regrasAbsolutas: aP.regras_absolutas,
+    });
   }
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:
@@ -111,7 +125,7 @@ export async function POST(req: NextRequest) {
   };
   // Eco do tema resolvido: o cliente devolve como `contextScope` na próxima
   // pergunta, mantendo a conversa "no contexto".
-  const tema = resolveTheme(sources);
+  const tema = resolveTheme(ragSources);
   if (tema) baseHeaders["X-Theme"] = Buffer.from(JSON.stringify(tema)).toString("base64");
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
@@ -132,10 +146,10 @@ export async function POST(req: NextRequest) {
   // temas e o assunto está fora do contexto atual, pergunta com botões em vez de
   // responder. NÃO persiste turno de assistente (é UI transitória). Pulada em
   // turnos sociais — não se "desambigua" um "oi".
-  if (!scope && !social) {
+  if (!scope && !social && webSources.length === 0) {
     const dis =
-      analyzeAmbiguity(sources, contextScope ?? null) ??
-      analyzeConfidence(sources, contextScope ?? null);
+      analyzeAmbiguity(ragSources, contextScope ?? null) ??
+      analyzeConfidence(ragSources, contextScope ?? null);
     if (dis) return Response.json({ type: "clarify", ...dis }, { headers: baseHeaders });
   }
 
@@ -157,6 +171,8 @@ export async function POST(req: NextRequest) {
         citations: sources.map((s) => ({ n: s.n, title: s.title, url: s.url, image: s.image, heading_path: s.heading_path })) as never,
         latency_ms: Date.now() - started,
         tokens: usage?.totalTokens ?? null,
+        input_tokens: usage?.inputTokens ?? null,
+        output_tokens: usage?.outputTokens ?? null,
       });
     },
   });

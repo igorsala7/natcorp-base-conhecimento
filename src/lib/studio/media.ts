@@ -68,7 +68,11 @@ function limparMarcadores(text: RichText): RichText {
  *  - deduplica por URL (uma mídia nunca aparece duas vezes) → idempotente.
  * Só processa marcadores em blocos de texto de topo (onde a IA os escreve).
  */
-export function resolverMidias(blocks: Block[], midias: MediaRef[]): Block[] {
+export function resolverMidias(
+  blocks: Block[],
+  midias: MediaRef[],
+  opts?: { apenasPosicionadas?: boolean },
+): Block[] {
   if (!midias.length) return blocks;
   const porId = new Map(midias.map((m) => [m.id, m]));
 
@@ -107,11 +111,14 @@ export function resolverMidias(blocks: Block[], midias: MediaRef[]): Block[] {
     saida.push(...midiaBlocks);
   }
 
-  // Não posicionadas pela IA → ao fim, na ordem de anexação.
-  for (const m of midias) {
-    if (!presentes.has(m.url)) {
-      saida.push(midiaParaBloco(m));
-      presentes.add(m.url);
+  // Não posicionadas pela IA → ao fim, na ordem de anexação. No scraping do chat,
+  // as imagens são só CANDIDATAS (a IA escolhe quais colar), então não anexa.
+  if (!opts?.apenasPosicionadas) {
+    for (const m of midias) {
+      if (!presentes.has(m.url)) {
+        saida.push(midiaParaBloco(m));
+        presentes.add(m.url);
+      }
     }
   }
   return saida;

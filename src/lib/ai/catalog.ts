@@ -26,7 +26,8 @@ export type Purpose =
   | "import_structure"
   | "import_layout"
   | "editor_text"
-  | "editor_generate";
+  | "editor_generate"
+  | "transcricao";
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
@@ -54,6 +55,11 @@ export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
     key: "editor_generate",
     label: "Editor — gerar artigo",
     desc: "Wizard \"Artigo com IA\" (outline e corpo) e remix (FAQ, resumo). Sem atribuição própria, usa o provedor do Chat.",
+  },
+  {
+    key: "transcricao",
+    label: "Transcrição de voz",
+    desc: "Transforma a fala da gravação de tela (extensão) em texto. Só provedor OpenAI (Whisper).",
   },
 ];
 
@@ -131,12 +137,22 @@ export function precisaDimensoes(model: string): boolean {
 }
 
 /** O provedor serve para esta finalidade? */
+/** Modelos de TRANSCRIÇÃO (STT). Whisper/gpt-*-transcribe são OpenAI-compatíveis. */
+export const TRANSCRIBE_MODELS: Record<ProviderKind, string[]> = {
+  openai: ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"],
+  google: [],
+  anthropic: [],
+};
+
 export function suportaFinalidade(kind: ProviderKind, purpose: Purpose): boolean {
   if (purpose === "embedding") return EMBEDDING_MODELS[kind].length > 0;
+  if (purpose === "transcricao") return TRANSCRIBE_MODELS[kind].length > 0; // só OpenAI
   return true;
 }
 
 /** Modelos sugeridos para o par (provedor, finalidade). */
 export function modelosDe(kind: ProviderKind, purpose: Purpose): string[] {
-  return purpose === "embedding" ? EMBEDDING_MODELS[kind] : CHAT_MODELS[kind];
+  if (purpose === "embedding") return EMBEDDING_MODELS[kind];
+  if (purpose === "transcricao") return TRANSCRIBE_MODELS[kind];
+  return CHAT_MODELS[kind];
 }

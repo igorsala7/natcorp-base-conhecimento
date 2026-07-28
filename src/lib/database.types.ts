@@ -683,6 +683,135 @@ export type Database = {
         }
         Relationships: []
       }
+      capture_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          destino: Json
+          error: string | null
+          id: string
+          log: Json
+          mode: string
+          needs_login: boolean
+          progress: number
+          space_id: string
+          status: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          destino?: Json
+          error?: string | null
+          id?: string
+          log?: Json
+          mode?: string
+          needs_login?: boolean
+          progress?: number
+          space_id: string
+          status?: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          destino?: Json
+          error?: string | null
+          id?: string
+          log?: Json
+          mode?: string
+          needs_login?: boolean
+          progress?: number
+          space_id?: string
+          status?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capture_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capture_recipes: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          instrucao: string
+          name: string
+          space_id: string
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          instrucao: string
+          name: string
+          space_id: string
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          instrucao?: string
+          name?: string
+          space_id?: string
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capture_recipes_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      capture_secrets: {
+        Row: {
+          created_at: string
+          job_id: string
+          senha_enc: string
+          usuario_enc: string
+        }
+        Insert: {
+          created_at?: string
+          job_id: string
+          senha_enc: string
+          usuario_enc: string
+        }
+        Update: {
+          created_at?: string
+          job_id?: string
+          senha_enc?: string
+          usuario_enc?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "capture_secrets_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: true
+            referencedRelation: "capture_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chunks: {
         Row: {
           article_id: string | null
@@ -763,6 +892,206 @@ export type Database = {
           },
         ]
       }
+      chat_attachments: {
+        Row: {
+          char_count: number | null
+          conversation_id: string | null
+          created_at: string
+          extracted_text: string | null
+          id: string
+          mime: string
+          name: string
+          size_bytes: number
+          space_id: string
+          storage_path: string
+        }
+        Insert: {
+          char_count?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          extracted_text?: string | null
+          id?: string
+          mime: string
+          name: string
+          size_bytes: number
+          space_id: string
+          storage_path: string
+        }
+        Update: {
+          char_count?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          extracted_text?: string | null
+          id?: string
+          mime?: string
+          name?: string
+          size_bytes?: number
+          space_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_attachments_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_attachments_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extension_tokens: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          last_used_at: string | null
+          revoked_at: string | null
+          token_hash: string
+          token_prefix: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash: string
+          token_prefix: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+          token_prefix?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      extension_events: {
+        Row: {
+          created_at: string
+          discarded: boolean
+          id: string
+          kind: string
+          label: string | null
+          meta: Json | null
+          mime: string | null
+          session_id: string
+          size_bytes: number | null
+          storage_path: string | null
+          t_ms: number | null
+          title: string | null
+          url: string | null
+        }
+        Insert: {
+          created_at?: string
+          discarded?: boolean
+          id?: string
+          kind: string
+          label?: string | null
+          meta?: Json | null
+          mime?: string | null
+          session_id: string
+          size_bytes?: number | null
+          storage_path?: string | null
+          t_ms?: number | null
+          title?: string | null
+          url?: string | null
+        }
+        Update: {
+          created_at?: string
+          discarded?: boolean
+          id?: string
+          kind?: string
+          label?: string | null
+          meta?: Json | null
+          mime?: string | null
+          session_id?: string
+          size_bytes?: number | null
+          storage_path?: string | null
+          t_ms?: number | null
+          title?: string | null
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extension_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "extension_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extension_sessions: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          event_count: number
+          id: string
+          node_id: string | null
+          space_id: string | null
+          started_at: string
+          status: string
+          title: string | null
+          token_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          event_count?: number
+          id?: string
+          node_id?: string | null
+          space_id?: string | null
+          started_at?: string
+          status?: string
+          title?: string | null
+          token_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          event_count?: number
+          id?: string
+          node_id?: string | null
+          space_id?: string | null
+          started_at?: string
+          status?: string
+          title?: string | null
+          token_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extension_sessions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extension_sessions_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "extension_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           created_at: string
@@ -773,6 +1102,7 @@ export type Database = {
           p_perfil: string | null
           p_portal: string | null
           p_usuario: string | null
+          page: Json | null
           session_id: string | null
           space_id: string
           user_ref: string | null
@@ -786,6 +1116,7 @@ export type Database = {
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
+          page?: Json | null
           session_id?: string | null
           space_id: string
           user_ref?: string | null
@@ -799,6 +1130,7 @@ export type Database = {
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
+          page?: Json | null
           session_id?: string | null
           space_id?: string
           user_ref?: string | null
@@ -1352,35 +1684,44 @@ export type Database = {
       }
       messages: {
         Row: {
+          attachments: Json
           citations: Json
           content: string
           conversation_id: string
           created_at: string
           feedback: number | null
           id: string
+          input_tokens: number | null
           latency_ms: number | null
+          output_tokens: number | null
           role: string
           tokens: number | null
         }
         Insert: {
+          attachments?: Json
           citations?: Json
           content: string
           conversation_id: string
           created_at?: string
           feedback?: number | null
           id?: string
+          input_tokens?: number | null
           latency_ms?: number | null
+          output_tokens?: number | null
           role: string
           tokens?: number | null
         }
         Update: {
+          attachments?: Json
           citations?: Json
           content?: string
           conversation_id?: string
           created_at?: string
           feedback?: number | null
           id?: string
+          input_tokens?: number | null
           latency_ms?: number | null
+          output_tokens?: number | null
           role?: string
           tokens?: number | null
         }
@@ -1580,6 +1921,95 @@ export type Database = {
           job_title?: string | null
           last_seen_at?: string | null
           status?: string
+        }
+        Relationships: []
+      }
+      prompt_overrides: {
+        Row: {
+          fields: Json
+          key: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          fields?: Json
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          fields?: Json
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      prompts_usuario_cliente: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          p_base: string
+          p_usuario: string
+          space_id: string
+          texto: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          p_base: string
+          p_usuario: string
+          space_id: string
+          texto: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          p_base?: string
+          p_usuario?: string
+          space_id?: string
+          texto?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prompts_usuario_cliente_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prompts_usuario_sistema: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          texto: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          texto: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          texto?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -2185,6 +2615,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      web_fetch_settings: {
+        Row: {
+          allowlist: string[]
+          authoring_enabled: boolean
+          id: boolean
+          reader_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          allowlist?: string[]
+          authoring_enabled?: boolean
+          id?: boolean
+          reader_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          allowlist?: string[]
+          authoring_enabled?: boolean
+          id?: boolean
+          reader_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       widget_keys: {
         Row: {

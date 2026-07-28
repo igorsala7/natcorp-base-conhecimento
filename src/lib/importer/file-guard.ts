@@ -28,8 +28,20 @@ export const EXT_TEXTO = [
   "graphql", "gql", "proto", "prisma", "tf", "hcl",
 ] as const;
 
-/** Todas as extensões aceitas. */
+/**
+ * Imagens — NÃO entram na Importação (viram texto? não): só são aceitas nos
+ * ANEXOS de chat, e mesmo assim apenas quando o chamador pede explicitamente
+ * (`{ imagens: true }`), pois vão a um modelo com VISÃO, não ao extrator.
+ */
+export const EXT_IMAGEM = ["png", "jpg", "jpeg", "gif", "webp"] as const;
+
+/** Todas as extensões aceitas (documentos/código — imagens ficam à parte). */
 export const EXT_ACEITAS: ReadonlySet<string> = new Set<string>([...EXT_EXTRAI, ...EXT_TEXTO]);
+
+/** É uma imagem (pela extensão)? */
+export function ehImagem(name: string): boolean {
+  return (EXT_IMAGEM as readonly string[]).includes(extDe(name));
+}
 
 /** Valor do atributo `accept` do <input type=file> (hint no cliente). */
 export const ACCEPT_ATTR = [...EXT_ACEITAS].map((e) => `.${e}`).join(",");
@@ -72,10 +84,24 @@ export function pareceBinario(buf: Uint8Array): boolean {
 
 const ZIP = [0x50, 0x4b]; // "PK" — docx/pptx/xlsx são zips OOXML
 const PDF = [0x25, 0x50, 0x44, 0x46]; // "%PDF"
+const PNG = [0x89, 0x50, 0x4e, 0x47]; // "\x89PNG"
+const JPG = [0xff, 0xd8, 0xff]; // JFIF/Exif
+const GIF = [0x47, 0x49, 0x46, 0x38]; // "GIF8"
+const RIFF = [0x52, 0x49, 0x46, 0x46]; // "RIFF" (webp)
+const WEBP = [0x57, 0x45, 0x42, 0x50]; // "WEBP" no offset 8
 
 function comecaCom(buf: Uint8Array, sig: number[]): boolean {
   if (buf.length < sig.length) return false;
   return sig.every((b, i) => buf[i] === b);
+}
+
+/** Assinatura de imagem coerente com a extensão. */
+function imagemValida(buf: Uint8Array, ext: string): boolean {
+  if (ext === "png") return comecaCom(buf, PNG);
+  if (ext === "jpg" || ext === "jpeg") return comecaCom(buf, JPG);
+  if (ext === "gif") return comecaCom(buf, GIF);
+  if (ext === "webp") return comecaCom(buf, RIFF) && buf.length >= 12 && WEBP.every((b, i) => buf[8 + i] === b);
+  return false;
 }
 
 /**
@@ -83,11 +109,23 @@ function comecaCom(buf: Uint8Array, sig: number[]): boolean {
  * se o arquivo não for o que a extensão diz (binário disfarçado etc.). Barra o
  * ataque de "executável renomeado para .txt/.pdf".
  */
-export function assertArquivoSeguro(buf: Uint8Array, name: string): void {
+export function assertArquivoSeguro(
+  buf: Uint8Array,
+  name: string,
+  opts?: { imagens?: boolean },
+): void {
   const ext = extDe(name);
   // Mensagem amigável ANTES da allowlist para o PPT antigo (binário OLE).
   if (ext === "ppt") {
     throw new Error("PPT antigo não é suportado — salve como .pptx e anexe de novo.");
+  }
+  // Imagens: só quando o chamador permite (anexos de chat → modelo com visão).
+  // Ficam antes da allowlist de documentos, que não as inclui.
+  if ((EXT_IMAGEM as readonly string[]).includes(ext)) {
+    if (!opts?.imagens) throw new Error(`Tipo de arquivo não permitido (.${ext}).`);
+    if (buf.length > MAX_UPLOAD_BYTES) throw new Error("Arquivo muito grande.");
+    if (!imagemValida(buf, ext)) throw new Error("Imagem corrompida ou em formato não suportado.");
+    return;
   }
   if (!EXT_ACEITAS.has(ext)) {
     throw new Error(`Tipo de arquivo não permitido (.${ext || "?"}).`);

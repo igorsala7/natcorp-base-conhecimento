@@ -90,7 +90,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   if (ids.length) {
     const { data } = await supabase
       .from("messages")
-      .select("conversation_id, role, content, citations, feedback, latency_ms, created_at")
+      .select("conversation_id, role, content, citations, feedback, latency_ms, created_at, tokens, input_tokens, output_tokens")
       .in("conversation_id", ids)
       .order("created_at", { ascending: true });
     msgs = (data ?? []) as ConvMsg[];

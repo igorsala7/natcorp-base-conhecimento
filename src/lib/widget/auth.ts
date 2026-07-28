@@ -10,6 +10,12 @@ export type WidgetConfig = {
   avatarUrl?: string;
   suggestions?: string[];
   position?: "right" | "left";
+  /**
+   * Varredura da tela: se o widget lê os dados/campos/textos da página do
+   * cliente e os envia como contexto para a IA. Por widget. `undefined`/`true`
+   * = ligado (comportamento atual); `false` = desligado (mais privacidade).
+   */
+  scan?: boolean;
 };
 
 export type ResolvedKey = {

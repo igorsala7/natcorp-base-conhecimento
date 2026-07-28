@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup } from "lucide-react";
+import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup, MessageSquareText, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
@@ -34,6 +34,9 @@ import {
   type AiUsageRow,
 } from "./actions";
 import { BackupPanel, type BackupRow, type BackupSettingsRow } from "./backup-panel";
+import { PromptsPanel, type PromptCatUI } from "./prompts-panel";
+import { WebAccessPanel, type WebAccessData } from "./web-access-panel";
+import { ExtensionPanel } from "./extension-panel";
 
 export type ProviderRow = {
   id: string;
@@ -53,7 +56,7 @@ export type EmailRow = {
   smtp_secure: boolean;
 };
 
-type Aba = "ia" | "email" | "backup";
+type Aba = "ia" | "email" | "backup" | "prompts" | "extensao";
 
 export function SystemManager({
   providers,
@@ -66,6 +69,9 @@ export function SystemManager({
   backups,
   backupSettings,
   githubTokenPresent,
+  canPrompts,
+  prompts,
+  webAccess,
 }: {
   providers: ProviderRow[];
   assignments: AssignmentRow[];
@@ -78,6 +84,9 @@ export function SystemManager({
   backups: BackupRow[];
   backupSettings: BackupSettingsRow;
   githubTokenPresent: boolean;
+  canPrompts: boolean;
+  prompts: PromptCatUI[];
+  webAccess: WebAccessData;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -115,6 +124,24 @@ export function SystemManager({
               </>
             ),
           },
+          {
+            value: "extensao",
+            label: (
+              <>
+                <Puzzle /> Extensão
+              </>
+            ),
+          },
+          ...(canPrompts
+            ? [{
+                value: "prompts" as const,
+                label: (
+                  <>
+                    <MessageSquareText /> Prompts
+                  </>
+                ),
+              }]
+            : []),
           ...(canBackup
             ? [{
                 value: "backup" as const,
@@ -140,17 +167,26 @@ export function SystemManager({
 
 
       {aba === "ia" ? (
-        <AbaIA
-          providers={providers}
-          assignments={assignments}
-          temChave={temChave}
-          isOwner={isOwner}
-          temChaveMestra={temChaveMestra}
-          pending={pending}
-          run={run}
-        />
+        <>
+          <AbaIA
+            providers={providers}
+            assignments={assignments}
+            temChave={temChave}
+            isOwner={isOwner}
+            temChaveMestra={temChaveMestra}
+            pending={pending}
+            run={run}
+          />
+          <div className="mt-6">
+            <WebAccessPanel {...webAccess} />
+          </div>
+        </>
+      ) : aba === "prompts" && canPrompts ? (
+        <PromptsPanel categorias={prompts} />
       ) : aba === "backup" && canBackup ? (
         <BackupPanel backups={backups} settings={backupSettings} isOwner={isOwner} githubTokenPresent={githubTokenPresent} />
+      ) : aba === "extensao" ? (
+        <ExtensionPanel />
       ) : (
         <AbaEmail email={email} isOwner={isOwner} pending={pending} run={run} />
       )}

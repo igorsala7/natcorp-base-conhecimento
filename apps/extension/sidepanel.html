@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Natcorp — Captura</title>
+    <style>
+      :root {
+        --pc: #511c76;
+        --pc2: #2c1a63;
+        --bg: #faf8fd;
+        --card: #fff;
+        --border: #e6ddf1;
+        --text: #1c1726;
+        --muted: #6b6577;
+      }
+      * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
+      .hd { background: linear-gradient(135deg, var(--pc), var(--pc2)); color: #fff; padding: 16px 14px; }
+      .hd h1 { margin: 0; font-size: 15px; font-weight: 700; }
+      .hd p { margin: 4px 0 0; font-size: 12px; opacity: 0.85; }
+      main { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+      .card h2 { margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+      input, select { width: 100%; border: 1.5px solid var(--border); border-radius: 9px; padding: 8px 10px; font-size: 13px; outline: none; background: #fff; }
+      input:focus, select:focus { border-color: var(--pc); }
+      button { border: none; border-radius: 9px; padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--pc); color: #fff; width: 100%; margin-top: 10px; }
+      button.ghost { background: #efe9f6; color: #5b5468; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .row { display: flex; gap: 8px; }
+      .row button { margin-top: 0; }
+      .status { font-size: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 9px; word-break: break-all; }
+      .status.ok { background: #e7f7ee; color: #1b7a45; }
+      .status.err { background: #fdecea; color: #b3271e; }
+      .status.info { background: #f2edfa; color: var(--pc); }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      .muted { color: var(--muted); font-size: 12px; }
+      /* Chat da IA */
+      .chatmsgs { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; margin: 10px 0; }
+      .chatmsgs:empty { display: none; }
+      .cm { padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+      .cm.u { align-self: flex-end; background: var(--pc); color: #fff; border-bottom-right-radius: 5px; max-width: 88%; }
+      .cm.a { align-self: flex-start; background: #f2edfa; color: #2b2540; border-bottom-left-radius: 5px; max-width: 94%; }
+      .chatrow { display: flex; gap: 8px; align-items: flex-end; }
+      .chatrow textarea { flex: 1; resize: none; min-height: 40px; }
+      .chatrow button { width: auto; margin-top: 0; padding: 10px 14px; }
+      kbd { background: #efe9f6; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11px; font-family: inherit; }
+      /* Grade de prints */
+      .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+      .shots img { width: 100%; height: 56px; object-fit: cover; border-radius: 7px; border: 1px solid var(--border); }
+      /* Recorte (overlay que cobre o painel) */
+      .cropOverlay { position: fixed; inset: 0; background: rgba(28, 20, 46, 0.55); backdrop-filter: blur(2px); display: none; flex-direction: column; padding: 12px; z-index: 50; overflow: auto; }
+      .cropCard { background: var(--card); border-radius: 12px; padding: 12px; }
+      .cropCard h2 { margin: 0 0 8px; font-size: 12px; font-weight: 700; }
+      .cropStage { position: relative; display: inline-block; max-width: 100%; line-height: 0; touch-action: none; user-select: none; cursor: crosshair; }
+      .cropStage img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+      .cropSel { position: absolute; border: 2px solid var(--pc); background: rgba(81, 28, 118, 0.12); box-shadow: 0 0 0 9999px rgba(28, 20, 46, 0.35); pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div class="hd">
+      <h1>Captura de documentação</h1>
+      <p>Documente enquanto navega.</p>
+    </div>
+    <main>
+      <div class="card">
+        <h2>Conexão</h2>
+        <label for="base">Endereço da plataforma</label>
+        <input id="base" type="url" placeholder="http://localhost:3008" />
+        <div id="loginBox">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" placeholder="voce@empresa.com" autocomplete="username" />
+          <label for="pass">Senha</label>
+          <input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+          <button id="login">Entrar</button>
+        </div>
+        <div id="loggedBox" style="display: none">
+          <p class="muted" id="loggedAs" style="margin-top: 8px"></p>
+          <button id="logout" class="ghost">Sair</button>
+        </div>
+        <div id="connStatus" class="muted" style="margin-top: 8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Sessão</h2>
+        <p class="muted">Inicie uma sessão para capturar. Ela aparece em Sistema → Extensão no admin.</p>
+        <button id="start">Iniciar sessão</button>
+        <div id="sessionStatus" class="status info" style="display: none"></div>
+      </div>
+
+      <div class="card">
+        <h2>Capturas</h2>
+        <p class="muted">
+          Aperte <kbd>Ctrl</kbd> + <kbd>Espaço</kbd> em qualquer página para tirar um print (customizável em
+          <code>chrome://extensions/shortcuts</code>). Depois, recorte e confirme.
+        </p>
+        <div class="row" style="margin-top: 10px">
+          <button id="capture" class="ghost" style="margin-top: 0">Área visível</button>
+          <button id="captureFull" class="ghost" style="margin-top: 0">Página inteira</button>
+        </div>
+        <button id="scan" class="ghost">📋 Capturar dados da tela</button>
+        <div id="shotCount" class="muted" style="margin-top: 8px">Nenhum print nesta sessão.</div>
+        <div id="shots" class="shots"></div>
+      </div>
+
+      <div class="card">
+        <h2>Narração (microfone)</h2>
+        <p class="muted">Grave sua explicação em voz; a IA transcreve e o texto entra no rascunho ao finalizar.</p>
+        <button id="rec">🎙️ Gravar narração</button>
+        <div id="recStatus" class="status info" style="display: none"></div>
+      </div>
+
+      <div class="card">
+        <h2>Assistente (IA)</h2>
+        <p class="muted">Converse para estruturar o artigo enquanto captura — a IA lê o material e dá feedback.</p>
+        <div id="chatMsgs" class="chatmsgs"></div>
+        <div class="chatrow">
+          <textarea id="chatInput" rows="1" aria-label="Mensagem para o assistente" placeholder="Ex.: como organizo isso em passos?"></textarea>
+          <button id="chatSend">Enviar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Finalizar</h2>
+        <p class="muted">Ao terminar, transforme a captura (telas visitadas + prints) num rascunho de artigo.</p>
+        <label for="space">Documentação de destino</label>
+        <select id="space"><option value="">—</option></select>
+        <label for="draftTitle">Título do rascunho</label>
+        <input id="draftTitle" type="text" placeholder="Rascunho da captura" />
+        <button id="finalize" disabled>Finalizar e criar rascunho</button>
+        <div id="finalizeStatus" class="status info" style="display: none"></div>
+      </div>
+    </main>
+
+    <!-- Recorte -->
+    <div id="cropOverlay" class="cropOverlay">
+      <div class="cropCard">
+        <h2>Recorte o print</h2>
+        <div id="cropStage" class="cropStage">
+          <img id="cropImg" alt="" />
+          <div id="cropSel" class="cropSel" style="display: none"></div>
+        </div>
+        <div id="cropWarn" class="status err" style="display: none"></div>
+        <button id="cropAi" class="ghost" style="margin-top: 10px">✨ Sugerir recorte com IA</button>
+        <div id="cropAiStatus" class="muted" style="margin-top: 6px; display: none"></div>
+        <div class="row" style="margin-top: 10px">
+          <button id="cropCancel" class="ghost">Descartar</button>
+          <button id="cropOk">Confirmar</button>
+        </div>
+        <p class="muted" style="margin-top: 8px">Arraste para selecionar uma área, use a sugestão da IA — ou confirme para usar tudo.</p>
+      </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

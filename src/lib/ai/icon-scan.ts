@@ -2,6 +2,7 @@ import "server-only";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { languageModel, hasAiKey, aiTimeout } from "@/lib/ai/config";
+import { promptField } from "@/lib/ai/prompts";
 import { ICONS, ICON_KEYWORDS } from "@/lib/blocks/icons";
 
 /**
@@ -25,19 +26,6 @@ const CATALOGO = Object.keys(ICONS)
 
 const CHAVES_VALIDAS = new Set(Object.keys(ICONS));
 
-const PROMPT = `Você escolhe um ÍCONE para cada DIRETÓRIO de uma base de documentação técnica (sistema SaaS/ERP em português).
-
-Para cada diretório, escolha a CHAVE de ícone que melhor representa o ASSUNTO, olhando o TÍTULO do diretório e os TÍTULOS dos itens dentro dele. Pense no tema (financeiro, RH/folha, cadastros, relatórios, configurações, segurança, integração, estoque, vendas, etc.) e escolha o ícone que um leitor associaria de imediato.
-
-REGRAS
-- Use SOMENTE chaves da LISTA abaixo. O texto após cada chave é só o SIGNIFICADO, para você entender — nunca use esse texto como resposta, só a chave.
-- Nunca invente uma chave fora da lista.
-- Uma chave por diretório. Se realmente nada se encaixar, use "folder".
-- Devolva um item { id, icon } para CADA diretório recebido, preservando o id.
-
-LISTA DE CHAVES (chave: significado):
-${CATALOGO}`;
-
 /** Mapa diretorioId→chaveDeIcone. Só chaves válidas entram. */
 export async function escolherIcones(
   itens: DiretorioParaIcone[],
@@ -45,6 +33,12 @@ export async function escolherIcones(
   const out = new Map<string, string>();
   if (!itens.length || !(await hasAiKey("chat"))) return out;
   const model = await languageModel("chat");
+  // A lista de chaves válidas (vocabulário fechado) é SEMPRE anexada aqui — não
+  // vive no texto editável, para que uma edição não possa quebrar o vocabulário.
+  const PROMPT =
+    (await promptField("icones", "instrucoes")) +
+    "\n\nLISTA DE CHAVES (chave: significado):\n" +
+    CATALOGO;
 
   const TAMANHO = 40;
   for (let i = 0; i < itens.length; i += TAMANHO) {

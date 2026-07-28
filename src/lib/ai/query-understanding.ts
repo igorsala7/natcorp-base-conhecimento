@@ -23,6 +23,8 @@ export async function interpretarConsulta(
   spaceIds: string | string[],
   pergunta: string,
   historico?: { role: string; content: string }[],
+  /** Tela onde o usuário está (Fase 4) — ajuda a resolver perguntas vagas. */
+  contextoTela?: string,
 ): Promise<string> {
   const p = (pergunta ?? "").trim();
   if (p.length < 3) return pergunta;
@@ -47,11 +49,14 @@ export async function interpretarConsulta(
 
 REGRAS:
 - Resolva referências do histórico ("e como cancelo?" → retome o assunto anterior).
+- Se a mensagem for VAGA ou apontar para "isto/isso/aqui" e houver uma TELA ATUAL abaixo, use o nome da tela para inferir o assunto. Se a mensagem já tiver assunto próprio, IGNORE a tela.
 - Corrija erros de digitação e troque a gíria pelo TERMO do produto quando o VOCABULÁRIO abaixo ajudar.
 - NÃO responda a pergunta. NÃO invente um assunto que não está na mensagem. Se já estiver clara, devolva-a essencialmente como está.
 - Responda APENAS a consulta, em uma linha, sem aspas e sem explicação.
 
 VOCABULÁRIO DA DOCUMENTAÇÃO (termos canônicos e sinônimos — use quando casar): ${vocab || "(indisponível)"}
+
+TELA ATUAL DO USUÁRIO (onde ele está no sistema): ${(contextoTela ?? "").trim() || "(desconhecida)"}
 
 HISTÓRICO RECENTE:
 ${recentes || "(início)"}

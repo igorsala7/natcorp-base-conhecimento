@@ -13,6 +13,10 @@ import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { trackingFields } from "@/lib/chat/tracking";
+import { resolveCategory } from "@/lib/ai/prompts";
+import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
+import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
+import { pageContextFields, pageContextHint, pageContextNote } from "@/lib/chat/page-context";
 
 export const runtime = "nodejs";
 
@@ -40,12 +44,16 @@ export async function POST(req: NextRequest) {
     scope?: ClarifyScope;
     contextScope?: ClarifyScope;
     track?: unknown;
+    attachmentIds?: unknown;
+    page?: unknown;
   };
   try {
     payload = await req.json();
   } catch {
     return json({ error: "JSON inválido." }, 400);
   }
+  // Tela atual do leitor (Fase 4) — o artigo/página que ele está vendo.
+  const page = pageContextFields(payload.page);
 
   if (!payload.spaceSlug) return json({ error: "Espaço ausente." }, 400);
   const access = await getPortalAccess(payload.spaceSlug);
@@ -71,14 +79,20 @@ export async function POST(req: NextRequest) {
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
-  const sources = social
+  const ragSources = social
     ? []
     : await retrievePublicContext(
         spaceId,
-        await interpretarConsulta(spaceId, question, messages),
+        await interpretarConsulta(spaceId, question, messages, pageContextHint(page)),
         8,
         payload.scope,
       );
+  // Fontes da web (se o leitor citou uma URL permitida): numeradas após as da
+  // documentação e tratadas como qualquer outra fonte (contexto + citação).
+  const webSources = social ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const sources = [...ragSources, ...webSources];
+  // Anexos deste turno (documentos): texto extraído, injetado como DADO.
+  const attach = await loadAttachmentsForTurn(spaceId, payload.attachmentIds);
 
   // Ask-AI do portal usa a persona da própria documentação.
   const { data: espaco } = await supabase
@@ -86,7 +100,12 @@ export async function POST(req: NextRequest) {
     .select("chat_prompt")
     .eq("id", spaceId)
     .maybeSingle();
-  const systemPrompt = buildSystemPrompt({ promptDoEspaco: espaco?.chat_prompt ?? null });
+  const aP = await resolveCategory("assistente");
+  const systemPrompt = buildSystemPrompt({
+    promptDoEspaco: espaco?.chat_prompt ?? null,
+    personaPadrao: aP.persona_padrao,
+    regrasAbsolutas: aP.regras_absolutas,
+  });
 
   let convId = payload.conversationId;
   if (convId) {
@@ -105,6 +124,7 @@ export async function POST(req: NextRequest) {
         space_id: spaceId,
         session_id: payload.sessionId ?? null,
         ...trackingFields(payload.track),
+        ...(page ? { page } : {}),
       })
       .select("id")
       .single();
@@ -117,7 +137,9 @@ export async function POST(req: NextRequest) {
       conversation_id: convId!,
       role: "user",
       content: question,
+      attachments: attach.metas as never,
     });
+    await linkAttachments(attach.ids, convId!, spaceId);
   }
 
   const citations = sources.map((s) => ({
@@ -135,7 +157,7 @@ export async function POST(req: NextRequest) {
     Connection: "keep-alive",
   };
 
-  if (sources.length === 0 && !social) {
+  if (sources.length === 0 && !social && attach.ids.length === 0) {
     const refusal =
       "Não encontrei exatamente isso aqui na documentação. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda bastante), ou, se preferir, falar com um atendente humano.";
@@ -157,11 +179,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
-  // Pulada em turnos sociais — não se "desambigua" um "oi".
-  if (!payload.scope && !social) {
+  // Pulada em turnos sociais e quando o leitor deu uma URL (intenção já é clara).
+  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0) {
     const dis =
-      analyzeAmbiguity(sources, payload.contextScope ?? null) ??
-      analyzeConfidence(sources, payload.contextScope ?? null);
+      analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
+      analyzeConfidence(ragSources, payload.contextScope ?? null);
     if (dis) {
       const stream = new ReadableStream({
         start(c) {
@@ -182,14 +204,17 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel(),
-    system: withContext(systemPrompt, buildContextBlock(sources)),
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    system: withContext(
+      systemPrompt,
+      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page)].filter(Boolean).join("\n\n"),
+    ),
+    messages: withImageParts(messages, attach.imageParts),
   });
 
   const stream = new ReadableStream({
     async start(c) {
       c.enqueue(sse({ type: "citations", citations }));
-      const tema = resolveTheme(sources);
+      const tema = resolveTheme(ragSources);
       if (tema) c.enqueue(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";
       try {
@@ -208,6 +233,8 @@ export async function POST(req: NextRequest) {
         citations: citations as never,
         latency_ms: Date.now() - started,
         tokens: usage?.totalTokens ?? null,
+        input_tokens: usage?.inputTokens ?? null,
+        output_tokens: usage?.outputTokens ?? null,
       });
       c.enqueue(sse({ type: "done", conversationId: convId }));
       c.close();

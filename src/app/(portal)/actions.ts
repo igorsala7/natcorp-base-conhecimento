@@ -17,6 +17,17 @@ import {
   SPACE_COOKIE_MAX_AGE,
 } from "@/lib/portal/space-auth";
 import { portalRateLimitOk } from "@/lib/portal/rate-limit";
+import { trackingFields } from "@/lib/chat/tracking";
+import {
+  listClientePrompts,
+  saveClientePrompt,
+  deleteClientePrompt,
+  type SavedPrompt,
+  type SavePromptResult,
+  type ClienteIdentity,
+} from "@/lib/portal/prompt-store";
+import { fetchLatestHistory, identityMatch, type ChatHistory } from "@/lib/chat/history-store";
+import { receiveAttachment, type AttachmentMeta } from "@/lib/chat/attachment-store";
 
 /**
  * Conta uma visualização de artigo (visitante anônimo).
@@ -160,6 +171,100 @@ export async function searchPortal(
       url: `/docs/${space.slug}/${slugPath.join("/")}${anchor}`,
     };
   });
+}
+
+/**
+ * Prompts salvos do leitor no portal (biblioteca de reuso do Ask-AI).
+ *
+ * Identidade = par (p_base, p_usuario) que veio na URL da visita — só existe
+ * biblioteca quando ambos estão presentes. O `track` chega do cliente como DADO
+ * não confiável; saneamos com `trackingFields` e resolvemos o espaço pelo slug.
+ * A tabela é service-role (RLS nega o cliente), então o escopo é imposto AQUI.
+ */
+async function resolvePromptScope(
+  spaceSlug: string,
+  track: unknown,
+): Promise<{ spaceId: string; identity: ClienteIdentity } | null> {
+  const t = trackingFields(track);
+  if (!t.p_base || !t.p_usuario) return null;
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space) return null;
+  return { spaceId: space.id, identity: { p_base: t.p_base, p_usuario: t.p_usuario } };
+}
+
+export async function listPortalPrompts(
+  spaceSlug: string,
+  track: unknown,
+): Promise<SavedPrompt[]> {
+  const scope = await resolvePromptScope(spaceSlug, track);
+  if (!scope) return [];
+  return listClientePrompts(scope.spaceId, scope.identity);
+}
+
+export async function savePortalPrompt(
+  spaceSlug: string,
+  track: unknown,
+  input: { id?: string | null; label?: string | null; texto: string },
+): Promise<SavePromptResult> {
+  if (!(await portalRateLimitOk("prompt-save", 40))) {
+    return { ok: false, error: "Muitas ações. Aguarde um instante." };
+  }
+  const scope = await resolvePromptScope(spaceSlug, track);
+  if (!scope) return { ok: false, error: "Sem identidade de visitante para salvar prompts." };
+  return saveClientePrompt(scope.spaceId, scope.identity, input);
+}
+
+export async function deletePortalPrompt(
+  spaceSlug: string,
+  track: unknown,
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const scope = await resolvePromptScope(spaceSlug, track);
+  if (!scope) return { ok: false, error: "Sem identidade de visitante." };
+  return deleteClientePrompt(scope.spaceId, scope.identity, id);
+}
+
+/**
+ * Histórico do Ask-AI do portal, relido por identidade (Fase 3B). Casa pela
+ * identidade (p_base + p_usuario) e, sem ela, pela sessão do navegador. Só
+ * mensagens após `afterIso` (o "Limpar" do leitor grava esse instante — a
+ * limpeza é visual, o banco fica intacto). Roda com service-role, escopado ao
+ * espaço aqui.
+ */
+export async function getPortalChatHistory(
+  spaceSlug: string,
+  sessionId: string,
+  track: unknown,
+  afterIso?: string | null,
+): Promise<ChatHistory | null> {
+  if (!(await portalRateLimitOk("chat-history", 40))) return null;
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space) return null;
+  const t = trackingFields(track);
+  const match = identityMatch(t.p_base, t.p_usuario, sessionId || undefined);
+  if (!match) return null;
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  return fetchLatestHistory(createAdminClient(), space.id, match, afterIso);
+}
+
+/**
+ * Anexa um documento ao Ask-AI do portal (Fase 3C). Mesma origem (sem chave);
+ * escopo = o espaço do slug. Valida, guarda e extrai o texto; devolve os
+ * metadados (o id volta no `attachmentIds` do /api/portal/chat).
+ */
+export async function uploadPortalAttachment(
+  spaceSlug: string,
+  formData: FormData,
+): Promise<{ ok: true; attachment: AttachmentMeta } | { ok: false; error: string }> {
+  if (!(await portalRateLimitOk("attach", 15))) {
+    return { ok: false, error: "Muitos envios. Aguarde um instante." };
+  }
+  const space = await resolvePortalSpace(spaceSlug);
+  if (!space) return { ok: false, error: "Espaço não encontrado." };
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, error: "Arquivo ausente." };
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return receiveAttachment(space.id, { name: file.name, mime: file.type, bytes });
 }
 
 /**

@@ -20,6 +20,10 @@ import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { trackingFields } from "@/lib/chat/tracking";
+import { resolveCategory } from "@/lib/ai/prompts";
+import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
+import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
+import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
 
 export const runtime = "nodejs";
 
@@ -53,12 +57,19 @@ export async function POST(req: NextRequest) {
     scope?: ClarifyScope;
     contextScope?: ClarifyScope;
     track?: unknown;
+    attachmentIds?: unknown;
+    page?: unknown;
+    pageContent?: unknown;
   };
   try {
     payload = await req.json();
   } catch {
     return json({ error: "JSON inválido." }, 400);
   }
+  // Tela atual do usuário (Fase 4) — DADO de contexto, nunca instrução.
+  const page = pageContextFields(payload.page);
+  // Varredura da tela (campos/dados/modais/iframes) que o widget coletou.
+  const scanBlock = pageContentBlock(payload.pageContent);
 
   const key = await resolveWidgetKey(extractKey(req, payload.key));
   if (!key) return json({ error: "Chave inválida ou inativa." }, 401);
@@ -84,23 +95,31 @@ export async function POST(req: NextRequest) {
     .select("chat_prompt")
     .eq("id", key.space_id)
     .maybeSingle();
+  const aP = await resolveCategory("assistente");
   const systemPrompt = buildSystemPrompt({
     promptDaChave: key.system_prompt,
     promptDoEspaco: espacoDono?.chat_prompt ?? null,
+    personaPadrao: aP.persona_padrao,
+    regrasAbsolutas: aP.regras_absolutas,
   });
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
   // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
   // por botão só NARROW dentro delas — nunca escapa da chave).
-  const sources = social
+  const ragSources = social
     ? []
     : await retrievePublicContext(
         key.space_ids,
-        await interpretarConsulta(key.space_ids, question, messages),
+        await interpretarConsulta(key.space_ids, question, messages, pageContextHint(page)),
         8,
         payload.scope,
       );
+  // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
+  const webSources = social ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const sources = [...ragSources, ...webSources];
+  // Anexos deste turno (documentos): texto extraído, injetado como DADO.
+  const attach = await loadAttachmentsForTurn(key.space_id, payload.attachmentIds);
 
   // Garante a conversa (persiste histórico com session_id anônimo). Isola por
   // base de cliente: uma conversationId de outro espaço/chave é descartada.
@@ -121,6 +140,7 @@ export async function POST(req: NextRequest) {
         space_id: key.space_id,
         session_id: payload.sessionId ?? null,
         ...trackingFields(payload.track),
+        ...(page ? { page } : {}),
       })
       .select("id")
       .single();
@@ -133,7 +153,10 @@ export async function POST(req: NextRequest) {
       conversation_id: convId!,
       role: "user",
       content: question,
+      attachments: attach.metas as never,
     });
+    // Vincula os anexos à conversa (auditoria + cascade de exclusão).
+    await linkAttachments(attach.ids, convId!, key.space_id);
   }
 
   const citations = sources.map((s) => ({
@@ -147,7 +170,8 @@ export async function POST(req: NextRequest) {
   const sse = (obj: unknown) => encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
-  if (sources.length === 0 && !social) {
+  // Com anexo, NÃO recusa: o usuário trouxe o próprio conteúdo para a resposta.
+  if (sources.length === 0 && !social && attach.ids.length === 0 && !scanBlock) {
     const refusal =
       "Não encontrei exatamente isso na documentação. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
@@ -170,10 +194,10 @@ export async function POST(req: NextRequest) {
 
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
   // Pulada em turnos sociais — não se "desambigua" um "oi".
-  if (!payload.scope && !social) {
+  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock) {
     const dis =
-      analyzeAmbiguity(sources, payload.contextScope ?? null) ??
-      analyzeConfidence(sources, payload.contextScope ?? null);
+      analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
+      analyzeConfidence(ragSources, payload.contextScope ?? null);
     if (dis) {
       const stream = new ReadableStream({
         start(controller) {
@@ -194,14 +218,17 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel(),
-    system: withContext(systemPrompt, buildContextBlock(sources)),
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    system: withContext(
+      systemPrompt,
+      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page), scanBlock].filter(Boolean).join("\n\n"),
+    ),
+    messages: withImageParts(messages, attach.imageParts),
   });
 
   const stream = new ReadableStream({
     async start(controller) {
       controller.enqueue(sse({ type: "citations", citations }));
-      const tema = resolveTheme(sources);
+      const tema = resolveTheme(ragSources);
       if (tema) controller.enqueue(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";
       try {
@@ -220,6 +247,8 @@ export async function POST(req: NextRequest) {
         citations: citations as never,
         latency_ms: Date.now() - started,
         tokens: usage?.totalTokens ?? null,
+        input_tokens: usage?.inputTokens ?? null,
+        output_tokens: usage?.outputTokens ?? null,
       });
       controller.enqueue(sse({ type: "done", conversationId: convId }));
       controller.close();

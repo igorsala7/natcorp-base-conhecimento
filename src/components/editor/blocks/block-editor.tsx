@@ -20,6 +20,7 @@ import {
   BookOpen,
   Check,
   ClipboardPaste,
+  Code2,
   Copy,
   ExternalLink,
   Eye,
@@ -52,8 +53,9 @@ import { moveBlock, findBlock, topAncestorId, cloneBlocksWithNewIds } from "@/li
 import { copyBlocksToClipboard, readBlocksFromClipboard } from "@/lib/blocks/clipboard";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { CRIATIVIDADES, tempLayout, tempTexto, type Criatividade } from "@/lib/ai/creativity";
+import { CRIATIVIDADES, type Criatividade } from "@/lib/ai/creativity";
 import { Dialog } from "@/components/ui/dialog";
+import { EmbedDialog } from "@/components/content/embed-dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { useLoader } from "@/components/ui/loader";
@@ -355,6 +357,7 @@ function BlockEditorInner({
   const [fullscreen, setFullscreen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [embedOpen, setEmbedOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showOptimize, setShowOptimize] = useState(false);
@@ -866,7 +869,7 @@ function BlockEditorInner({
     setLayoutPerguntas(null);
     setImproving(true);
     const res = await loader.during("Melhorando o layout com IA…", () =>
-      improveArticleLayout(nodeId, direcao, tempLayout(criatividade)),
+      improveArticleLayout(nodeId, direcao, criatividade),
     );
     setImproving(false);
     if (!res.ok) return toast.error(res.error);
@@ -882,7 +885,7 @@ function BlockEditorInner({
     if (!blocosAlvo.length) return;
     setImproving(true);
     const res = await loader.during("Melhorando o layout com IA…", () =>
-      improveBlocks(nodeId, blocosAlvo, undefined, tempLayout(criatividade)),
+      improveBlocks(nodeId, blocosAlvo, undefined, criatividade),
     );
     setImproving(false);
     if (!res.ok) return toast.error(res.error);
@@ -1020,7 +1023,7 @@ function BlockEditorInner({
     setShowAiTexto(false);
     setAiTextoBusy(true);
     const res = await loader.during("A IA está ajustando o texto…", () =>
-      improveArticleText(nodeId, original, acao, tom, tempTexto(criatividade)),
+      improveArticleText(nodeId, original, acao, tom, criatividade),
     );
     setAiTextoBusy(false);
     if (!res.ok) return toast.error(res.error);
@@ -1221,6 +1224,16 @@ function BlockEditorInner({
                 <span className="text-brand-pink-700" title={status !== "published" ? "Publique o artigo para o link ficar ativo" : "O espaço não é público"}>
                   • {status !== "published" ? "rascunho" : "espaço privado"}
                 </span>
+              )}
+              {status === "published" && spacePublic && (
+                <button
+                  type="button"
+                  title="Gerar código de iframe deste artigo"
+                  onClick={() => setEmbedOpen(true)}
+                  className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-text-muted hover:bg-surface-2 hover:text-primary"
+                >
+                  <Code2 className="size-3" /> Incorporar
+                </button>
               )}
             </div>
           )}
@@ -1841,6 +1854,16 @@ function BlockEditorInner({
           </div>
         )}
       </Dialog>
+
+      {publicUrl && status === "published" && spacePublic && (
+        <EmbedDialog
+          open={embedOpen}
+          onClose={() => setEmbedOpen(false)}
+          url={publicUrl.replace("/docs/", "/embed/")}
+          title={title}
+          kind="article"
+        />
+      )}
     </div>
   );
 }

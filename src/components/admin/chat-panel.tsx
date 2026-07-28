@@ -10,8 +10,12 @@ import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 import { TypingIndicator } from "@/components/ui/typing-indicator";
 import { Surface } from "@/components/ui/surface";
 import { submitChatFeedback } from "@/app/(admin)/admin/(app)/assistente/actions";
+import { PromptLibrary, SavePromptButton } from "@/components/chat/prompt-library";
+import { listMyPrompts, saveMyPrompt, deleteMyPrompt } from "@/app/(admin)/admin/(app)/prompt-library-actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
+
+const promptBackend = { list: listMyPrompts, save: saveMyPrompt, del: deleteMyPrompt };
 
 /** Decodifica base64 preservando UTF-8 (atob sozinho corrompe acentos). */
 function decodeB64Utf8(b64: string): string {
@@ -223,7 +227,12 @@ export function ChatPanel({
           </p>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
+          <div key={i} className={m.role === "user" ? "group flex items-start justify-end gap-1" : ""}>
+            {m.role === "user" && m.content && (
+              <span className="mt-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <SavePromptButton texto={m.content} backend={promptBackend} />
+              </span>
+            )}
             <div
               className={
                 m.role === "user"
@@ -343,7 +352,10 @@ export function ChatPanel({
         ))}
       </div>
 
-      <div className="flex items-end gap-2 border-t border-border p-2">
+      <div className="flex items-center border-t border-border px-2 pt-1.5">
+        <PromptLibrary backend={promptBackend} onInsert={(t) => setInput((p) => (p.trim() ? `${p}\n${t}` : t))} />
+      </div>
+      <div className="flex items-end gap-2 px-2 pb-2 pt-1">
         <AutoGrowTextarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

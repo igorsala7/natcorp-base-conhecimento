@@ -15,6 +15,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.start();
       await boss.createQueue("import");
       await boss.createQueue("import-improve");
+      await boss.createQueue("capture");
       await boss.createQueue("quality-scan");
       await boss.createQueue("embeddings-generate");
       await boss.createQueue("ontology-scan");
@@ -44,6 +45,12 @@ export async function enqueueImport(jobId: string): Promise<void> {
 export async function enqueueImportImprove(jobId: string, nodeIds: string[]): Promise<void> {
   const boss = await getBoss();
   await boss.send("import-improve", { jobId, nodeIds });
+}
+
+/** Captura de telas (Playwright) de uma URL — estado em capture_jobs. */
+export async function enqueueCapture(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("capture", { jobId });
 }
 
 /** Varredura de qualidade/SEO de uma documentação (painel Otimizar em massa). */

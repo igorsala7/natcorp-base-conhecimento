@@ -41,6 +41,8 @@ const configSchema = z.object({
   bubbleSize: z.enum(["sm", "md", "lg"]).optional(),
   suggestions: z.array(z.string().max(120)).max(6).optional(),
   position: z.enum(["right", "left"]).optional(),
+  /** Varredura da tela do cliente como contexto p/ a IA (por widget). */
+  scan: z.boolean().optional(),
 });
 
 const upsertSchema = z.object({

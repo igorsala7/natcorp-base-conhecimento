@@ -2,7 +2,7 @@ import { z } from "zod";
 import { generateObject } from "ai";
 import type { FilePart, ImagePart, TextPart } from "ai";
 import { languageModel, aiTimeout, ehTimeout } from "../ai/config";
-import { READ_INSTRUCTIONS } from "./prompts";
+import { promptField } from "@/lib/ai/prompts";
 import type { Extraction } from "./extract";
 import type { ProposedNode, ContentItem } from "./tree";
 import type { DocInput } from "./doc-input";
@@ -149,7 +149,7 @@ export async function readOutline(
   extraction: Extraction,
 ): Promise<ReadOutlineResult> {
   const content: Array<TextPart | FilePart | ImagePart> = [
-    { type: "text", text: READ_INSTRUCTIONS },
+    { type: "text", text: await promptField("importador_estrutura", "read_instructions") },
     ...(docInput.parts as Array<TextPart | FilePart | ImagePart>),
   ];
 

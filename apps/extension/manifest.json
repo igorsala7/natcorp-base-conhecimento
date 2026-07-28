@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Natcorp — Captura de documentação",
+  "version": "0.6.0",
+  "description": "Documente enquanto navega: capture a tela e monte artigos na Base de Conhecimento.",
+  "permissions": ["storage", "sidePanel", "activeTab", "tabs", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Natcorp — Captura de documentação"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "capturar-tela": {
+      "suggested_key": { "default": "Ctrl+Space", "mac": "MacCtrl+Space" },
+      "description": "Capturar a área visível"
+    },
+    "capturar-pagina": {
+      "suggested_key": { "default": "Ctrl+Shift+Space", "mac": "MacCtrl+Shift+Space" },
+      "description": "Capturar a página inteira"
+    }
+  }
+}

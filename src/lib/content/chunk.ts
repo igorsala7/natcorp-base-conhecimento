@@ -11,6 +11,7 @@ import {
   resolveAi,
 } from "@/lib/ai/config";
 import type { createClient } from "@/lib/supabase/server";
+import { promptField } from "@/lib/ai/prompts";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText, richToText } from "@/lib/blocks/serialize";
 
@@ -22,8 +23,6 @@ import { blocksToText, richToText } from "@/lib/blocks/serialize";
  * origem) para NÃO repetir a chamada a cada publicação. Sem IA de chat
  * configurada, devolve "" e vale o prefixo estático de sempre.
  */
-const CONTEXT_PROMPT = `Você lê um documento técnico e escreve UMA frase curta (no máximo 30 palavras) que situe o documento: do que ele trata e a qual sistema/módulo/área pertence. NÃO invente; use os termos do próprio texto. Responda só a frase, sem rótulos nem aspas.\n\nDOCUMENTO:\n`;
-
 async function documentContext(
   supabase: Awaited<ReturnType<typeof createClient>>,
   table: "articles" | "knowledge_documents",
@@ -43,9 +42,10 @@ async function documentContext(
 
   if (!(await hasAiKey("chat"))) return "";
   try {
+    const contexto = await promptField("embeddings", "contexto");
     const { text } = await generateText({
       model: await languageModel("chat"),
-      prompt: CONTEXT_PROMPT + texto.slice(0, 12_000),
+      prompt: contexto + "\n\nDOCUMENTO:\n" + texto.slice(0, 12_000),
       // Timeout curto: a varredura roda também na publicação; não pode travar.
       abortSignal: AbortSignal.timeout(20_000),
     });

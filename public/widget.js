@@ -15,6 +15,8 @@
   var API = new URL(script.src).origin;
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_SID = "kb.widget.sid." + KEY;
+  // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
+  var LS_CLEARED = "kb.widget.cleared." + KEY;
 
   // Parâmetros de rastreio: de onde/quem veio a conversa. Lidos do atributo
   // data-* do <script> (tem prioridade) ou da querystring da página (p_*).
@@ -23,7 +25,7 @@
     var qs;
     try {
       qs = new URLSearchParams(window.location.search);
-    } catch (e) {
+    } catch {
       qs = null;
     }
     var t = {};
@@ -37,6 +39,82 @@
     });
     return Object.keys(t).length ? t : null;
   })();
+
+  // Tela atual do usuário (Fase 4): o widget roda na página do produto do
+  // cliente, então href/path/título descrevem ONDE a pessoa está. Só DADO —
+  // ajuda a IA a entender perguntas vagas ("como faço isso?"). Lido a cada
+  // pergunta (a página pode mudar numa SPA). NUNCA pede URL nem login.
+  function pageContext() {
+    try {
+      return {
+        href: String(location.href).slice(0, 500),
+        path: String(location.pathname || "").slice(0, 300),
+        title: String(document.title || "").slice(0, 300),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Varredura da PÁGINA: coleta campos (rótulo + valor, mascarando segredos),
+  // e o texto visível (títulos, tabelas/relatórios, MODAIS) — inclusive iframes
+  // de MESMA ORIGEM (cross-origin é bloqueado pelo navegador). Vira DADO para a
+  // IA interpretar a tela em que o usuário está. Nunca captura senha/segredo.
+  var SCAN_MAX = 7000;
+  function scanTexto(s) {
+    return String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  }
+  function scanValor(el) {
+    var t = (el.type || "").toLowerCase();
+    if (t === "password") return "(oculto)";
+    var nome = (el.name || "") + " " + (el.id || "") + " " + (el.getAttribute("autocomplete") || "");
+    if (/senha|password|cvv|cvc|secret|token|pin|otp|cart(a|ã)o|card/i.test(nome)) return "(oculto)";
+    if (t === "checkbox" || t === "radio") return el.checked ? "marcado" : "desmarcado";
+    return scanTexto(el.value).slice(0, 120);
+  }
+  function scanDoc(doc, marca, campos, textos) {
+    if (!doc) return;
+    var lm = {};
+    try {
+      doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); });
+    } catch {}
+    try {
+      doc.querySelectorAll("input,select,textarea").forEach(function (el) {
+        if ((el.type || "") === "hidden") return;
+        // Pula só o realmente invisível. `getClientRects` (≠ offsetParent) NÃO
+        // descarta campos `position:fixed` — os de modais entram.
+        if (el.getClientRects && el.getClientRects().length === 0) return;
+        var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
+        var val = scanValor(el);
+        campos.push((marca ? marca + " " : "") + "- " + scanTexto(rot) + (val ? ": " + val : " (vazio)"));
+      });
+    } catch {}
+    try {
+      var txt = scanTexto(doc.body ? doc.body.innerText : "");
+      if (txt) textos.push((marca ? marca + " " : "") + txt);
+    } catch {}
+    // iframes de MESMA ORIGEM (cross-origin lança e retorna null → ignorado)
+    try {
+      doc.querySelectorAll("iframe").forEach(function (f) {
+        var d = null;
+        try { d = f.contentDocument; } catch { d = null; }
+        if (d) scanDoc(d, "[IFRAME]", campos, textos);
+      });
+    } catch {}
+  }
+  function scanPage() {
+    try {
+      var campos = [], textos = [];
+      scanDoc(document, "", campos, textos);
+      var partes = [];
+      if (campos.length) partes.push("CAMPOS DA TELA:\n" + campos.slice(0, 80).join("\n"));
+      if (textos.length) partes.push("TEXTO DA TELA:\n" + textos.join("\n"));
+      var s = partes.join("\n\n");
+      return s.length > SCAN_MAX ? s.slice(0, SCAN_MAX) + "\n…(truncado)" : s;
+    } catch {
+      return "";
+    }
+  }
 
   // Sessão anônima estável (para agrupar a conversa).
   var sessionId = localStorage.getItem(LS_SID);
@@ -55,7 +133,9 @@
   };
   var conversationId = null;
   var open = false;
-  var host, root, bubble, panel, messagesEl, inputEl, sendBtn;
+  var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput;
+  // Anexos pendentes deste turno: {id?,name,mime?,size?,uploading?}.
+  var pendingAtts = [];
 
   // ==== Estilos (isolados no Shadow DOM) ====
   function styles() {
@@ -66,7 +146,7 @@
       // Gradiente da marca (--pc primária; --pc2 derivada em JS, com fallback p/ --pc).
       ".grad{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)))}" +
       // Bolha flutuante
-      ".bubble{position:fixed;z-index:2147483000;width:var(--bs,60px);height:var(--bs,60px);border-radius:50%;" +
+      ".bubble{position:fixed;z-index:2147483647;width:var(--bs,60px);height:var(--bs,60px);border-radius:50%;" +
       "background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;cursor:grab;" +
       "box-shadow:0 12px 30px rgba(40,20,80,.38);display:flex;align-items:center;justify-content:center;" +
       "transition:transform .18s ease,box-shadow .18s ease;touch-action:none}" +
@@ -81,7 +161,7 @@
       ".bubble .bic{width:30px;height:30px;object-fit:contain}" +
       ".bubble .bimg{width:100%;height:100%;object-fit:cover;border-radius:50%}" +
       // Painel
-      ".panel{position:fixed;z-index:2147483000;width:392px;max-width:calc(100vw - 24px);height:620px;" +
+      ".panel{position:fixed;z-index:2147483647;width:440px;max-width:calc(100vw - 20px);height:680px;" +
       "max-height:calc(100vh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
       "box-shadow:0 26px 72px rgba(30,15,60,.34);border:1px solid rgba(120,90,180,.14)}" +
       ".panel.open{display:flex;animation:kbin .22s cubic-bezier(.2,.8,.2,1)}" +
@@ -96,6 +176,7 @@
       ".hd .s{font-size:12px;opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".hd button{background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;flex:none}" +
       ".hd button:hover{background:rgba(255,255,255,.32)}" +
+      ".hd button svg{width:15px;height:15px;display:block}" +
       // Mensagens
       ".msgs{flex:1;overflow-y:auto;padding:18px 15px 8px;background:#f6f4fb;display:flex;flex-direction:column;gap:14px}" +
       ".msgs::-webkit-scrollbar{width:8px}.msgs::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
@@ -162,6 +243,58 @@
       "@keyframes bl{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}" +
       "@media (prefers-reduced-motion:reduce){.dots span{animation:blf 1.4s ease-in-out infinite}.panel.open{animation:none}}" +
       "@keyframes blf{0%,100%{opacity:.35}50%{opacity:1}}" +
+      // Barra "Prompts salvos" (acima da entrada) + botão de salvar ao pairar o balão
+      ".pbar{display:none;position:relative;background:#fff;padding:6px 12px 0}" +
+      ".pbtn{display:inline-flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;color:#6b6577;font-size:12px;font-weight:600;padding:5px 8px;border-radius:8px;transition:background .15s,color .15s}" +
+      ".pbtn:hover{background:#f2edfa;color:var(--pc)}" +
+      ".pbtn svg{width:14px;height:14px}" +
+      ".ppanel{display:none;position:absolute;bottom:100%;left:12px;right:12px;margin-bottom:6px;background:#fff;border:1px solid #e9e0f4;border-radius:14px;box-shadow:0 18px 46px rgba(40,20,80,.22);padding:8px;max-height:320px;overflow:auto;z-index:5}" +
+      ".ppanel.open{display:block}" +
+      ".pph{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 6px}" +
+      ".ppt{font-size:12px;font-weight:700;color:#201d26}" +
+      ".ppa{display:flex;gap:4px}" +
+      ".ppa button{background:none;border:none;cursor:pointer;color:#8a7ea3;padding:3px;border-radius:6px;display:flex;align-items:center;line-height:1}" +
+      ".ppa button:hover{color:var(--pc);background:#f2edfa}" +
+      ".ppa .ppx{font-size:17px}" +
+      ".ppa svg{width:15px;height:15px}" +
+      ".ppf{background:#faf8fd;border:1px solid #ece3f6;border-radius:10px;padding:8px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px}" +
+      ".ppf input,.ppf textarea{border:1.5px solid #e6ddf1;border-radius:9px;padding:7px 9px;font-size:13px;outline:none;font-family:inherit;background:#fff;width:100%}" +
+      ".ppf textarea{min-height:56px;resize:vertical}" +
+      ".ppf input:focus,.ppf textarea:focus{border-color:var(--pc)}" +
+      ".ppfb{display:flex;justify-content:flex-end;gap:6px}" +
+      ".ppbtn{border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:var(--pc);color:#fff}" +
+      ".ppbtn.ghost{background:#efe9f6;color:#5b5468}" +
+      ".ppl{display:flex;flex-direction:column;gap:2px}" +
+      ".ppe{font-size:12px;color:#8a7ea3;padding:8px 6px;line-height:1.4}" +
+      ".ppi{display:flex;align-items:flex-start;gap:4px;border-radius:8px;padding:5px 6px}" +
+      ".ppi:hover{background:#f6f2fc}" +
+      ".ppuse{flex:1;min-width:0;text-align:left;background:none;border:none;cursor:pointer;padding:0;display:block}" +
+      ".ppil{display:block;font-size:12px;font-weight:600;color:#201d26;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".ppit{display:block;font-size:12px;color:#7a7088;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".ppedit,.ppdel{background:none;border:none;cursor:pointer;color:#a99fbe;padding:3px;border-radius:6px;display:flex;flex:none}" +
+      ".ppedit:hover{color:var(--pc);background:#f2edfa}" +
+      ".ppdel:hover{color:#c0392b;background:#fbecea}" +
+      ".ppedit svg,.ppdel svg{width:14px;height:14px}" +
+      ".urow{display:flex;justify-content:flex-end;align-items:center;gap:6px;max-width:100%}" +
+      ".savep{background:none;border:none;cursor:pointer;color:#b3a9c6;padding:4px;border-radius:7px;opacity:0;transition:opacity .15s,color .15s,background .15s;flex:none}" +
+      ".urow:hover .savep{opacity:1}" +
+      ".savep:hover{color:var(--pc);background:#f2edfa}" +
+      ".savep.done{opacity:1;color:#3a9d5d}" +
+      ".savep svg{width:14px;height:14px;display:block}" +
+      // Anexos: botão (clipe), chips pendentes e chips na mensagem
+      ".attb{background:none;border:1.5px solid #e6ddf1;color:#8a7ea3;border-radius:50%;width:44px;height:44px;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,background .15s}" +
+      ".attb:hover{border-color:var(--pc);color:var(--pc);background:#faf8fd}" +
+      ".attb svg{width:19px;height:19px}" +
+      ".attz{display:none;flex-wrap:wrap;gap:6px;padding:8px 12px 0;background:#fff}" +
+      ".attc{display:inline-flex;align-items:center;gap:6px;max-width:210px;background:#f2edfa;border:1px solid #e6ddf1;border-radius:10px;padding:5px 8px;font-size:12px;color:#4b4459}" +
+      ".attc.up{opacity:.65}" +
+      ".attc .atti{display:flex;flex:none;color:var(--pc)}.attc .atti svg{width:14px;height:14px}" +
+      ".attc .attn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".attc .attx{background:none;border:none;cursor:pointer;color:#8a7ea3;font-size:15px;line-height:1;padding:0 2px;flex:none}" +
+      ".attc .attx:hover{color:#c0392b}" +
+      ".attc .atts{color:#8a7ea3;flex:none}" +
+      ".matts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;max-width:100%}" +
+      ".attc.ro{background:#efe8f8;max-width:82%}" +
       ".pw{padding:8px 12px 10px;font-size:10.5px;color:#a99fbe;text-align:center;background:#fff;letter-spacing:.02em}"
     );
   }
@@ -173,6 +306,25 @@
   // Avatar do assistente: um brilho ("sparkle"), como nas referências.
   var ICON_BOT =
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 4.8L18 8.5l-4.3 1.7L12 15l-1.7-4.8L6 8.5l4.3-1.7L12 2z"/><path d="M19 13l.8 2.3L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.7L19 13z" opacity=".65"/></svg>';
+  // Biblioteca de prompts salvos (só quando a visita traz p_base + p_usuario).
+  var ICON_BOOKMARK =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+  var ICON_PLUS =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  var ICON_PENCIL =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+  var ICON_TRASH =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+  // Anexos de documento (Fase 3C).
+  var ICON_CLIP =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+  var ICON_FILE =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  var ICON_IMG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+  function attIcon(a) {
+    return a && a.mime && a.mime.indexOf("image/") === 0 ? ICON_IMG : ICON_FILE;
+  }
 
   /**
    * Deriva a 2ª cor do gradiente a partir da primária configurada (mistura em
@@ -248,9 +400,15 @@
       "</div>" +
       '<div class="ti"><div class="t">' + esc(cfg.title) + "</div>" +
       '<div class="s">' + esc(cfg.subtitle || "Pergunte o que quiser") + "</div></div>" +
+      '<button aria-label="Limpar conversa" title="Limpar conversa" data-clear>' + ICON_TRASH + "</button>" +
       '<button aria-label="Minimizar" data-close>&minus;</button></div>' +
       '<div class="msgs"></div>' +
-      '<div class="ft"><textarea rows="1" placeholder="Escreva sua pergunta…"></textarea>' +
+      '<div class="pbar"></div>' +
+      '<div class="attz"></div>' +
+      '<div class="ft">' +
+      '<button class="attb" data-attach aria-label="Anexar arquivo" title="Anexar documento ou imagem (PDF, Word, Excel, CSV, PNG, JPG…)">' + ICON_CLIP + "</button>" +
+      '<input type="file" data-file hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp">' +
+      '<textarea rows="1" placeholder="Escreva sua pergunta…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
       '<div class="pw">Powered by Base de Conhecimento</div>';
 
@@ -261,8 +419,19 @@
     messagesEl = panel.querySelector(".msgs");
     inputEl = panel.querySelector("textarea");
     sendBtn = panel.querySelector("[data-send]");
+    attzEl = panel.querySelector(".attz");
+    fileInput = panel.querySelector("[data-file]");
 
     panel.querySelector("[data-close]").addEventListener("click", toggle);
+    panel.querySelector("[data-clear]").addEventListener("click", clearChat);
+    panel.querySelector("[data-attach]").addEventListener("click", function () {
+      fileInput.click();
+    });
+    fileInput.addEventListener("change", function () {
+      var files = fileInput.files ? Array.prototype.slice.call(fileInput.files) : [];
+      files.forEach(uploadAttachment);
+      fileInput.value = ""; // permite reanexar o mesmo arquivo
+    });
     sendBtn.addEventListener("click", submit);
     inputEl.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -275,7 +444,86 @@
 
     positionBubble();
     setupDrag();
-    renderWelcome();
+    loadInitialMessages();
+    setupPrompts();
+    manterNoTopo();
+    observarTopo();
+    blindarHost();
+  }
+
+  // Mantém o widget SEMPRE em primeiro plano: além do z-index máximo, garante que
+  // o host seja o ÚLTIMO filho do body (desempata com modais que também usam
+  // z-index alto e entram no DOM depois). Reage a mudanças no body, mas não mexe
+  // se o usuário está digitando dentro do widget (não rouba o foco).
+  function manterNoTopo() {
+    try {
+      if (!host || !document.body) return;
+      if (document.body.lastElementChild === host) return;
+      if (document.activeElement === host) return; // foco dentro do widget: não move
+      document.body.appendChild(host);
+    } catch {
+      /* ignora */
+    }
+  }
+  function observarTopo() {
+    try {
+      var mo = new MutationObserver(function () { manterNoTopo(); });
+      mo.observe(document.body, { childList: true });
+    } catch {
+      /* navegador sem MutationObserver — z-index máximo já cobre o comum */
+    }
+  }
+
+  // Alguns modais (Radix, MUI, react-aria, focus-trap…) marcam TODO o resto da
+  // página como `inert`/`aria-hidden` — o que congela o host do widget e impede
+  // clicar/digitar. Removemos essas marcas do NOSSO host assim que aparecem.
+  function limparBloqueiosHost() {
+    try {
+      if (!host) return;
+      if (host.hasAttribute("inert")) host.removeAttribute("inert");
+      if (host.getAttribute("aria-hidden") === "true") host.removeAttribute("aria-hidden");
+      if (host.getAttribute("tabindex") === "-1") host.removeAttribute("tabindex");
+    } catch {
+      /* ignora */
+    }
+  }
+  function blindarHost() {
+    limparBloqueiosHost();
+    try {
+      var mo = new MutationObserver(limparBloqueiosHost);
+      mo.observe(host, { attributes: true, attributeFilter: ["inert", "aria-hidden", "tabindex"] });
+    } catch {
+      /* ignora */
+    }
+  }
+
+  // Escapa da ARMADILHA DE FOCO do modal: quando o painel está aberto, impede que
+  // os handlers de foco do site (em document/janela) reajam ao foco ENTRANDO ou
+  // SAINDO do widget — assim o modal para de "puxar" o cursor de volta e dá para
+  // digitar. Só age quando o widget está envolvido; o foco do resto da página
+  // segue normal. Captura na janela (roda antes dos handlers do site).
+  function escaparFoco(e) {
+    try {
+      if (e.target === host || e.relatedTarget === host) e.stopImmediatePropagation();
+    } catch {
+      /* ignora */
+    }
+  }
+  var focoBlindado = false;
+  function ligarEscapeFoco(ligar) {
+    try {
+      if (ligar && !focoBlindado) {
+        window.addEventListener("focusin", escaparFoco, true);
+        window.addEventListener("focusout", escaparFoco, true);
+        focoBlindado = true;
+      } else if (!ligar && focoBlindado) {
+        window.removeEventListener("focusin", escaparFoco, true);
+        window.removeEventListener("focusout", escaparFoco, true);
+        focoBlindado = false;
+      }
+    } catch {
+      /* ignora */
+    }
   }
 
   function esc(s) {
@@ -363,16 +611,17 @@
   }
   function placePanel() {
     var b = bubble.getBoundingClientRect();
-    // Precisa BATER com o CSS do .panel (width:392; height:620; max-h:100vh-96),
-    // senão a base do painel passa do limite da janela.
-    var pw = Math.min(392, window.innerWidth - 24);
+    // Precisa BATER com o CSS do .panel (width:440; height:680; max-w:100vw-20;
+    // max-h:100vh-96), senão a base/lado do painel passa do limite da janela.
+    var margem = window.innerWidth <= 480 ? 10 : 12; // celular: cola mais nas bordas
+    var pw = Math.min(440, window.innerWidth - margem * 2);
     var left = b.left + b.width / 2 < window.innerWidth / 2 ? b.left : b.right - pw;
-    left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+    left = Math.max(margem, Math.min(left, window.innerWidth - pw - margem));
     panel.style.left = left + "px";
     panel.style.width = pw + "px";
-    // Altura REAL renderizada = min(620, 100vh - 96). Abre acima da bolha por
+    // Altura REAL renderizada = min(680, 100vh - 96). Abre acima da bolha por
     // padrão; se não couber, abaixo — sempre grudado ao topo/base visível.
-    var ph = Math.min(620, window.innerHeight - 96);
+    var ph = Math.min(680, window.innerHeight - 96);
     var top = b.top - ph - 12;
     if (top < 12) top = Math.min(b.bottom + 12, window.innerHeight - ph - 12);
     panel.style.top = Math.max(12, Math.min(top, window.innerHeight - ph - 12)) + "px";
@@ -427,13 +676,19 @@
       bubble.innerHTML = "";
       bubble.textContent = "×";
       bubble.style.fontSize = "28px";
+      limparBloqueiosHost(); // caso um modal já tenha marcado o host
+      ligarEscapeFoco(true); // escapa da armadilha de foco do modal
+      // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
+      // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
       setTimeout(function () {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
         inputEl.focus();
       }, 50);
     } else {
       panel.classList.remove("open");
       bubble.style.fontSize = "";
       bubble.innerHTML = bubbleInner();
+      ligarEscapeFoco(false);
     }
   }
 
@@ -453,8 +708,29 @@
     var el = document.createElement("div");
     el.className = "m " + (role === "user" ? "u" : "a");
     el.textContent = text;
-    if (role === "user") messagesEl.appendChild(el);
-    else messagesEl.appendChild(botRow(el)); // assistente ganha avatar ao lado
+    if (role === "user") {
+      // Com identidade (p_base+p_usuario), o balão do usuário ganha um botão de
+      // "salvar prompt" que aparece ao passar o mouse.
+      if (hasPromptIdentity()) {
+        var row = document.createElement("div");
+        row.className = "urow";
+        var sv = document.createElement("button");
+        sv.className = "savep";
+        sv.type = "button";
+        sv.title = "Salvar como prompt para reusar";
+        sv.innerHTML = ICON_BOOKMARK;
+        sv.addEventListener("click", function () {
+          saveCurrentPrompt(text, sv);
+        });
+        row.appendChild(sv);
+        row.appendChild(el);
+        messagesEl.appendChild(row);
+      } else {
+        messagesEl.appendChild(el);
+      }
+    } else {
+      messagesEl.appendChild(botRow(el)); // assistente ganha avatar ao lado
+    }
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return el;
   }
@@ -475,6 +751,68 @@
       });
       messagesEl.appendChild(box);
     }
+  }
+
+  // Ao montar: relê o histórico desta identidade/sessão (respeitando o "Limpar"
+  // anterior). Se houver, mostra a conversa; senão, a saudação padrão.
+  function loadInitialMessages() {
+    var cleared = null;
+    try {
+      cleared = localStorage.getItem(LS_CLEARED);
+    } catch {
+      cleared = null;
+    }
+    var body = { sessionId: sessionId };
+    if (track) body.track = track;
+    if (cleared) body.afterIso = cleared;
+    fetch(API + "/api/v1/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (h) {
+        if (h && h.messages && h.messages.length) {
+          renderHistory(h.messages);
+          if (h.conversationId) conversationId = h.conversationId;
+        } else {
+          renderWelcome();
+        }
+      })
+      .catch(function () {
+        renderWelcome();
+      });
+  }
+
+  function renderHistory(msgs) {
+    msgs.forEach(function (m) {
+      var el = addMsg(m.role, m.content);
+      if (m.role === "assistant") {
+        el.innerHTML = mdToHtml(m.content);
+        if (m.citations && m.citations.length) renderCitations(m.citations);
+      } else if (m.attachments && m.attachments.length) {
+        renderMsgAtts(m.attachments);
+      }
+      history.push({ role: m.role, content: m.content });
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // "Limpar" VISUAL: esvazia a tela e recomeça; grava o instante para o histórico
+  // anterior não voltar. Nada é apagado no servidor (admin/analytics veem tudo).
+  function clearChat() {
+    history = [];
+    conversationId = null;
+    contextScope = null;
+    try {
+      localStorage.setItem(LS_CLEARED, new Date().toISOString());
+    } catch {
+      /* storage indisponível */
+    }
+    messagesEl.innerHTML = "";
+    renderWelcome();
   }
 
   var history = [];
@@ -525,17 +863,124 @@
     inputEl.style.overflowY = inputEl.scrollHeight > max ? "auto" : "hidden";
   }
 
+  // ==== Anexos (documentos) ====
+  // Sobe cada arquivo para /api/v1/attach; o servidor valida, guarda e extrai o
+  // texto. O id volta e vai em `attachmentIds` na próxima pergunta.
+  function uploadAttachment(file) {
+    var entry = { name: file.name, uploading: true };
+    pendingAtts.push(entry);
+    renderAtts();
+    var fd = new FormData();
+    fd.append("file", file);
+    fetch(API + "/api/v1/attach", { method: "POST", headers: { "X-Widget-Key": KEY }, body: fd })
+      .then(function (r) {
+        return r.json().catch(function () {
+          return {};
+        });
+      })
+      .then(function (j) {
+        var idx = pendingAtts.indexOf(entry);
+        if (idx < 0) return; // removido enquanto subia
+        if (j && j.attachment) {
+          pendingAtts[idx] = j.attachment;
+        } else {
+          pendingAtts.splice(idx, 1);
+          addMsg("assistant", "Não consegui anexar “" + file.name + "”: " + ((j && j.error) || "falha no envio") + ".");
+        }
+        renderAtts();
+      })
+      .catch(function () {
+        var idx = pendingAtts.indexOf(entry);
+        if (idx >= 0) pendingAtts.splice(idx, 1);
+        renderAtts();
+        addMsg("assistant", "Falha ao anexar “" + file.name + "”.");
+      });
+  }
+
+  function renderAtts() {
+    attzEl.innerHTML = "";
+    if (!pendingAtts.length) {
+      attzEl.style.display = "none";
+      return;
+    }
+    attzEl.style.display = "flex";
+    pendingAtts.forEach(function (a) {
+      var chip = document.createElement("span");
+      chip.className = "attc" + (a.uploading ? " up" : "");
+      var ic = document.createElement("span");
+      ic.className = "atti";
+      ic.innerHTML = attIcon(a);
+      var nm = document.createElement("span");
+      nm.className = "attn";
+      nm.textContent = a.name;
+      chip.appendChild(ic);
+      chip.appendChild(nm);
+      if (a.uploading) {
+        var sp = document.createElement("span");
+        sp.className = "atts";
+        sp.textContent = "…";
+        chip.appendChild(sp);
+      } else {
+        var rm = document.createElement("button");
+        rm.className = "attx";
+        rm.type = "button";
+        rm.setAttribute("aria-label", "Remover anexo");
+        rm.textContent = "×";
+        rm.addEventListener("click", function () {
+          var i = pendingAtts.indexOf(a);
+          if (i >= 0) {
+            pendingAtts.splice(i, 1);
+            renderAtts();
+          }
+        });
+        chip.appendChild(rm);
+      }
+      attzEl.appendChild(chip);
+    });
+  }
+
+  // Chips dos anexos ENVIADOS, sob a mensagem do usuário (alinhados à direita).
+  function renderMsgAtts(atts) {
+    var row = document.createElement("div");
+    row.className = "matts";
+    atts.forEach(function (a) {
+      var chip = document.createElement("span");
+      chip.className = "attc ro";
+      var ic = document.createElement("span");
+      ic.className = "atti";
+      ic.innerHTML = attIcon(a);
+      var nm = document.createElement("span");
+      nm.className = "attn";
+      nm.textContent = a.name;
+      chip.appendChild(ic);
+      chip.appendChild(nm);
+      row.appendChild(chip);
+    });
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
   function submit() {
+    if (busy) return;
+    // Espera terminar uploads em andamento.
+    if (pendingAtts.some(function (a) { return a.uploading; })) return;
+    var atts = pendingAtts.filter(function (a) { return a.id; });
     var text = inputEl.value.trim();
-    if (!text || busy) return;
+    if (!text && !atts.length) return;
+    // Anexo sem texto: dá uma instrução padrão para o modelo ter o que fazer.
+    if (!text && atts.length) text = "Pode analisar o(s) arquivo(s) que anexei e me ajudar?";
     inputEl.value = "";
     autoGrow();
     addMsg("user", text);
+    if (atts.length) renderMsgAtts(atts);
     history.push({ role: "user", content: text });
-    ask();
+    var ids = atts.map(function (a) { return a.id; });
+    pendingAtts = [];
+    renderAtts();
+    ask(undefined, ids);
   }
 
-  function ask(scope) {
+  function ask(scope, attachmentIds) {
     busy = true;
     sendBtn.disabled = true;
     var typingBubble = document.createElement("div");
@@ -546,14 +991,48 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
     var answerEl = null;
-    var full = "";
+    var full = ""; // texto completo já recebido do servidor
     var citations = [];
     var clarified = false;
+    // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
+    // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
+    var shown = 0, stopped = false, rafId = null, feito = false;
+    function agendarReveal() {
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(passoReveal);
+    }
+    function passoReveal() {
+      rafId = null;
+      if (answerEl && shown < full.length) {
+        // Auto-scroll só se já está perto do fim (não "puxa" quem rolou p/ ler).
+        var perto = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+        // Ritmo suave: no mínimo 2 chars/quadro; acelera se acumulou muito (não fica pra trás).
+        var restante = full.length - shown;
+        shown += Math.min(restante, Math.max(2, Math.ceil(restante / 12)));
+        answerEl.innerHTML = mdToHtml(full.slice(0, shown));
+        if (perto) messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+      if (shown < full.length) agendarReveal();
+      else if (stopped && !feito) {
+        feito = true;
+        if (citations.length) renderCitations(citations);
+        renderFeedback();
+      }
+    }
 
     var body = { messages: history, conversationId: conversationId, sessionId: sessionId };
     if (scope) body.scope = scope;
     if (contextScope) body.contextScope = contextScope;
     if (track) body.track = track;
+    if (attachmentIds && attachmentIds.length) body.attachmentIds = attachmentIds;
+    var pg = pageContext();
+    if (pg) body.page = pg;
+    // Varredura da tela: só se habilitada na config deste widget (padrão ligado;
+    // o admin pode desligar por widget, em telas com dados sensíveis).
+    if (cfg.scan !== false) {
+      var scan = scanPage();
+      if (scan) body.pageContent = scan;
+    }
     fetch(API + "/api/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
@@ -609,8 +1088,7 @@
         if (typing.parentNode) typing.remove();
         if (!answerEl) answerEl = addMsg("assistant", "");
         full += evt.value;
-        answerEl.innerHTML = mdToHtml(full);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        agendarReveal(); // exibe suave, no ritmo do rAF (não em blocos)
       } else if (evt.type === "done") {
         if (evt.conversationId) conversationId = evt.conversationId;
       } else if (evt.type === "error") {
@@ -626,8 +1104,10 @@
       }
       if (full) {
         history.push({ role: "assistant", content: full });
-        if (citations.length) renderCitations(citations);
-        renderFeedback();
+        // Deixa a revelação suave terminar; ao chegar ao fim, mostra as fontes
+        // e o feedback (feito dentro de passoReveal).
+        stopped = true;
+        agendarReveal();
       } else {
         // Stream vazio = a chamada ao provedor falhou. Antes daqui não saía
         // nada na tela e o widget parecia simplesmente ignorar a pergunta.
@@ -729,6 +1209,249 @@
     det.appendChild(box);
     messagesEl.appendChild(det);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // ==== Prompts salvos (biblioteca do visitante) ====
+  // Só existe quando a visita traz p_base + p_usuario (a chave por visitante);
+  // o widget NUNCA pede login. Guardado por (space da chave, p_base, p_usuario).
+  var promptBar, promptPanel;
+  var promptOpen = false, promptLoading = false, promptCache = [];
+  var promptForm = false, promptEditId = null, promptFormLabel = "", promptFormTexto = "";
+
+  function hasPromptIdentity() {
+    return !!(track && track.p_base && track.p_usuario);
+  }
+
+  function promptApi(action, extra) {
+    var body = { action: action, track: track };
+    if (extra) for (var k in extra) body[k] = extra[k];
+    return fetch(API + "/api/v1/prompts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().catch(function () {
+        return {};
+      });
+    });
+  }
+
+  function setupPrompts() {
+    if (!hasPromptIdentity()) return; // sem identidade, sem biblioteca
+    promptBar = panel.querySelector(".pbar");
+    promptBar.style.display = "block";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pbtn";
+    btn.innerHTML = ICON_BOOKMARK + "<span>Prompts salvos</span>";
+    btn.addEventListener("click", togglePrompts);
+    promptBar.appendChild(btn);
+    promptPanel = document.createElement("div");
+    promptPanel.className = "ppanel";
+    promptBar.appendChild(promptPanel);
+  }
+
+  function togglePrompts() {
+    if (!promptPanel) return;
+    promptOpen = !promptOpen;
+    promptPanel.classList.toggle("open", promptOpen);
+    if (promptOpen) loadPrompts();
+    else promptForm = false;
+  }
+
+  function loadPrompts() {
+    promptLoading = true;
+    renderPrompts();
+    promptApi("list")
+      .then(function (r) {
+        promptCache = (r && r.prompts) || [];
+        promptLoading = false;
+        renderPrompts();
+      })
+      .catch(function () {
+        promptLoading = false;
+        promptCache = [];
+        renderPrompts();
+      });
+  }
+
+  function openPromptForm(p) {
+    promptForm = true;
+    promptEditId = p ? p.id : null;
+    promptFormLabel = p ? p.label || "" : "";
+    promptFormTexto = p ? p.texto : "";
+    renderPrompts();
+  }
+
+  function submitPromptForm() {
+    var texto = promptFormTexto.trim();
+    if (!texto) return;
+    promptApi("save", {
+      id: promptEditId,
+      label: promptFormLabel.trim() || null,
+      texto: texto,
+    }).then(function (r) {
+      if (r && r.ok) {
+        promptForm = false;
+        loadPrompts();
+      }
+    });
+  }
+
+  function deletePrompt(id) {
+    promptApi("delete", { id: id }).then(function () {
+      loadPrompts();
+    });
+  }
+
+  function usePrompt(texto) {
+    inputEl.value = inputEl.value.trim() ? inputEl.value + "\n" + texto : texto;
+    autoGrow();
+    togglePrompts();
+    inputEl.focus();
+  }
+
+  // Salvar direto do balão (hover): não abre o formulário, só grava o texto.
+  function saveCurrentPrompt(texto, btnEl) {
+    if (btnEl) btnEl.disabled = true;
+    promptApi("save", { texto: texto })
+      .then(function (r) {
+        if (btnEl) {
+          btnEl.disabled = false;
+          if (r && r.ok) btnEl.classList.add("done");
+        }
+        if (promptOpen) loadPrompts();
+      })
+      .catch(function () {
+        if (btnEl) btnEl.disabled = false;
+      });
+  }
+
+  function renderPrompts() {
+    if (!promptPanel) return;
+    promptPanel.innerHTML = "";
+
+    var head = document.createElement("div");
+    head.className = "pph";
+    var title = document.createElement("span");
+    title.className = "ppt";
+    title.textContent = "Prompts salvos";
+    head.appendChild(title);
+    var acts = document.createElement("div");
+    acts.className = "ppa";
+    var addb = document.createElement("button");
+    addb.type = "button";
+    addb.title = "Novo prompt";
+    addb.innerHTML = ICON_PLUS;
+    addb.addEventListener("click", function () {
+      openPromptForm(null);
+    });
+    var clb = document.createElement("button");
+    clb.type = "button";
+    clb.title = "Fechar";
+    clb.className = "ppx";
+    clb.textContent = "×";
+    clb.addEventListener("click", togglePrompts);
+    acts.appendChild(addb);
+    acts.appendChild(clb);
+    head.appendChild(acts);
+    promptPanel.appendChild(head);
+
+    if (promptForm) {
+      var f = document.createElement("div");
+      f.className = "ppf";
+      var li = document.createElement("input");
+      li.type = "text";
+      li.placeholder = "Rótulo (opcional)";
+      li.value = promptFormLabel;
+      li.addEventListener("input", function () {
+        promptFormLabel = li.value;
+      });
+      var ta = document.createElement("textarea");
+      ta.placeholder = "Texto do prompt";
+      ta.value = promptFormTexto;
+      ta.addEventListener("input", function () {
+        promptFormTexto = ta.value;
+      });
+      var fb = document.createElement("div");
+      fb.className = "ppfb";
+      var cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "ppbtn ghost";
+      cancel.textContent = "Cancelar";
+      cancel.addEventListener("click", function () {
+        promptForm = false;
+        renderPrompts();
+      });
+      var save = document.createElement("button");
+      save.type = "button";
+      save.className = "ppbtn";
+      save.textContent = promptEditId ? "Atualizar" : "Salvar";
+      save.addEventListener("click", submitPromptForm);
+      fb.appendChild(cancel);
+      fb.appendChild(save);
+      f.appendChild(li);
+      f.appendChild(ta);
+      f.appendChild(fb);
+      promptPanel.appendChild(f);
+    }
+
+    var listWrap = document.createElement("div");
+    listWrap.className = "ppl";
+    if (promptLoading) {
+      var ld = document.createElement("div");
+      ld.className = "ppe";
+      ld.textContent = "Carregando…";
+      listWrap.appendChild(ld);
+    } else if (!promptCache.length) {
+      var em = document.createElement("div");
+      em.className = "ppe";
+      em.textContent = "Nenhum prompt salvo ainda. Use “+” ou salve uma mensagem.";
+      listWrap.appendChild(em);
+    } else {
+      promptCache.forEach(function (p) {
+        var it = document.createElement("div");
+        it.className = "ppi";
+        var use = document.createElement("button");
+        use.type = "button";
+        use.className = "ppuse";
+        use.title = "Usar este prompt";
+        if (p.label) {
+          var lb = document.createElement("span");
+          lb.className = "ppil";
+          lb.textContent = p.label;
+          use.appendChild(lb);
+        }
+        var tx = document.createElement("span");
+        tx.className = "ppit";
+        tx.textContent = p.texto;
+        use.appendChild(tx);
+        use.addEventListener("click", function () {
+          usePrompt(p.texto);
+        });
+        var edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "ppedit";
+        edit.title = "Editar";
+        edit.innerHTML = ICON_PENCIL;
+        edit.addEventListener("click", function () {
+          openPromptForm(p);
+        });
+        var del = document.createElement("button");
+        del.type = "button";
+        del.className = "ppdel";
+        del.title = "Excluir";
+        del.innerHTML = ICON_TRASH;
+        del.addEventListener("click", function () {
+          deletePrompt(p.id);
+        });
+        it.appendChild(use);
+        it.appendChild(edit);
+        it.appendChild(del);
+        listWrap.appendChild(it);
+      });
+    }
+    promptPanel.appendChild(listWrap);
   }
 
   // ==== Init ====

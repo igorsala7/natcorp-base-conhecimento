@@ -4,11 +4,13 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  Code2,
   ExternalLink,
   FileText,
   Folder,
   Palette,
   Sparkles,
+  TextCursorInput,
   Wand2,
 } from "lucide-react";
 import { ICONS } from "@/lib/blocks/icons";
@@ -26,6 +28,8 @@ import {
 } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { publishSubtree } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import { DirectoryImproveDialog } from "@/components/content/directory-improve-dialog";
+import { DirectoryTextImproveDialog } from "@/components/content/directory-text-improve-dialog";
+import { EmbedDialog } from "@/components/content/embed-dialog";
 
 export type FolderStats = {
   publicados: number;
@@ -77,6 +81,10 @@ export function FolderPanel({
   const [salvando, startSalvar] = useTransition();
   const [agindo, startAgir] = useTransition();
   const [improveOpen, setImproveOpen] = useState(false);
+  const [textoOpen, setTextoOpen] = useState(false);
+  const [embedOpen, setEmbedOpen] = useState(false);
+  // O /embed espelha o /docs (mesmo caminho, sem a casca do portal).
+  const embedUrl = publicUrl?.replace("/docs/", "/embed/");
 
   const sujo =
     title.trim() !== node.title ||
@@ -144,14 +152,24 @@ export function FolderPanel({
           </p>
         </div>
         {publicUrl && (
-          <a
-            href={publicUrl}
-            target="_blank"
-            rel="noopener"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary"
-          >
-            <ExternalLink className="size-4" /> Ver no portal
-          </a>
+          <div className="flex shrink-0 items-center gap-2">
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary"
+            >
+              <ExternalLink className="size-4" /> Ver no portal
+            </a>
+            <button
+              type="button"
+              onClick={() => setEmbedOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary"
+              title="Gerar código de iframe desta seção"
+            >
+              <Code2 className="size-4" /> Incorporar
+            </button>
+          </div>
         )}
       </div>
 
@@ -294,6 +312,11 @@ export function FolderPanel({
             </Button>
           )}
           {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => setTextoOpen(true)} disabled={agindo}>
+              <TextCursorInput className="size-4" /> Melhorar texto
+            </Button>
+          )}
+          {canEdit && (
             <Button variant="secondary" size="sm" onClick={gerarEmbeddings} disabled={agindo}>
               <Sparkles className="size-4" /> Gerar embeddings
             </Button>
@@ -303,6 +326,18 @@ export function FolderPanel({
 
       {improveOpen && (
         <DirectoryImproveDialog nodeId={node.id} title={node.title} onClose={() => setImproveOpen(false)} />
+      )}
+      {textoOpen && (
+        <DirectoryTextImproveDialog nodeId={node.id} title={node.title} onClose={() => setTextoOpen(false)} />
+      )}
+      {embedUrl && (
+        <EmbedDialog
+          open={embedOpen}
+          onClose={() => setEmbedOpen(false)}
+          url={embedUrl}
+          title={node.title}
+          kind="folder"
+        />
       )}
     </div>
   );

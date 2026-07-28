@@ -83,6 +83,7 @@ const TIMEOUT_MS: Record<Purpose | "embedding_query" | "ontology_scan", number> 
   import_layout: 120_000,
   editor_text: 60_000,
   editor_generate: 90_000,
+  transcricao: 180_000, // áudio pode ser longo — Whisper leva mais tempo
   ontology_scan: 120_000, // lê lotes grandes de texto por chamada (usa a IA do Chat)
 };
 

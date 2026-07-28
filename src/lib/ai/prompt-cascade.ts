@@ -40,12 +40,17 @@ export function buildSystemPrompt(opts: {
   promptDaChave?: string | null;
   /** `spaces.chat_prompt` — padrão da documentação. */
   promptDoEspaco?: string | null;
+  /** Overrides da tela Sistema → Prompts (categoria "assistente"). */
+  personaPadrao?: string | null;
+  regrasAbsolutas?: string | null;
 }): string {
   const personalizado = (opts.promptDaChave ?? "").trim() || (opts.promptDoEspaco ?? "").trim();
-  const persona = (personalizado || PERSONA_PADRAO).slice(0, LIMITE_PERSONA);
+  const padrao = (opts.personaPadrao ?? "").trim() || PERSONA_PADRAO;
+  const persona = (personalizado || padrao).slice(0, LIMITE_PERSONA);
+  const regras = (opts.regrasAbsolutas ?? "").trim() || REGRAS_ABSOLUTAS;
   // Regras DEPOIS da persona: o que vem por último manda mais, e o texto do
   // usuário nunca fica na posição de sobrescrever as regras.
-  return `${persona}\n\n${REGRAS_ABSOLUTAS}`;
+  return `${persona}\n\n${regras}`;
 }
 
 /** Junta o prompt final ao bloco de contexto recuperado. */

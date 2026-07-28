@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Upload } from "lucide-react";
+import { Upload, Link2, Loader2, Camera } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
@@ -11,7 +11,10 @@ import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { createImportJob, deleteImportJob } from "./actions";
+import { controlClass } from "@/components/ui/input";
+import { CaptureDialog } from "@/components/capture/capture-dialog";
+import { createImportJob, createUrlImportJob, deleteImportJob } from "./actions";
+import { createCaptureImport, sugerirCaminhoCaptura } from "./capture-actions";
 import { ImportValidateDialog } from "./import-validate-dialog";
 import { ACCEPT_ATTR, extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 
@@ -41,6 +44,9 @@ export function ImportManager({
   const [uploading, setUploading] = useState(false);
   const [progressoUp, setProgressoUp] = useState<string | null>(null);
   const [validar, setValidar] = useState<{ id: string; name: string } | null>(null);
+  const [url, setUrl] = useState("");
+  const [importandoUrl, setImportandoUrl] = useState(false);
+  const [capturaAberta, setCapturaAberta] = useState(false);
 
   // Realtime: acompanha progresso dos jobs deste espaço.
   useEffect(() => {
@@ -125,6 +131,20 @@ export function ImportManager({
     if (erros.length) toast.error(erros.join(" · "));
   }
 
+  async function importarUrl() {
+    const alvo = url.trim();
+    if (!alvo || importandoUrl) return;
+    setImportandoUrl(true);
+    const res = await createUrlImportJob({ spaceId, url: alvo });
+    setImportandoUrl(false);
+    if (res.ok) {
+      setUrl("");
+      toast.success("Página enviada para importação. Acompanhe abaixo.");
+    } else {
+      toast.error(res.error);
+    }
+  }
+
   return (
     <div className="mt-6">
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-10 text-center hover:border-primary">
@@ -148,6 +168,48 @@ export function ImportManager({
           }}
         />
       </label>
+
+      <div className="mt-3 flex items-center gap-2">
+        <div className="relative flex-1">
+          <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="…ou cole o endereço de uma página (https://…) para importar o conteúdo"
+            className={`${controlClass} pl-9`}
+            value={url}
+            disabled={importandoUrl}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void importarUrl();
+              }
+            }}
+          />
+        </div>
+        <Button onClick={() => void importarUrl()} disabled={importandoUrl || !url.trim()}>
+          {importandoUrl ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+          Importar da URL
+        </Button>
+        <Button variant="secondary" onClick={() => setCapturaAberta(true)} title="Cria um passo a passo com prints reais da página">
+          <Camera className="size-4" /> Com prints
+        </Button>
+      </div>
+
+      <CaptureDialog
+        open={capturaAberta}
+        onClose={() => setCapturaAberta(false)}
+        title="Importar de uma URL com prints"
+        spaceId={spaceId}
+        submit={(input) => createCaptureImport({ spaceId, ...input })}
+        sugerir={(i) => sugerirCaminhoCaptura({ spaceId, ...i })}
+        onDone={() => {
+          toast.success("Prints capturados! A prévia da importação está pronta abaixo — clique em revisar.");
+          setCapturaAberta(false);
+          router.refresh();
+        }}
+      />
 
       <h2 className="mt-8 text-xs font-semibold uppercase tracking-wider text-text-muted">
         Importações

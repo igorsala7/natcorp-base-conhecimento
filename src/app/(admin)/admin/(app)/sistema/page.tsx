@@ -11,6 +11,10 @@ import {
   type EmailRow,
 } from "./system-manager";
 import type { BackupRow, BackupSettingsRow } from "./backup-panel";
+import type { PromptCatUI } from "./prompts-panel";
+import type { WebAccessData } from "./web-access-panel";
+import { PROMPT_CATEGORIES } from "@/lib/ai/prompt-registry";
+import { resolveCategory } from "@/lib/ai/prompts";
 import { secretsPresentes } from "./actions";
 
 export const metadata: Metadata = { title: "Sistema" };
@@ -65,6 +69,46 @@ export default async function SistemaPage() {
     githubTokenPresent = Boolean(sec?.github_token_enc);
   }
 
+  // Prompts (Sistema → Prompts): mesma permissão da IA. Monta o payload da UI a
+  // partir do registro (defaults = código) + os valores efetivos (override ou
+  // default) e marca quais categorias têm override gravado.
+  const canPrompts = podeIa;
+  let prompts: PromptCatUI[] = [];
+  if (canPrompts) {
+    const { data: rows } = await supabase.from("prompt_overrides").select("key");
+    const comOverride = new Set((rows ?? []).map((r) => r.key));
+    prompts = await Promise.all(
+      PROMPT_CATEGORIES.map(async (cat) => ({
+        key: cat.key,
+        label: cat.label,
+        description: cat.description,
+        hasOverride: comOverride.has(cat.key),
+        fields: cat.fields.map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type ?? ("text" as const),
+          rows: f.rows ?? 4,
+          hint: f.hint,
+          min: f.min,
+          max: f.max,
+          step: f.step,
+          def: String(f.default),
+        })),
+        values: await resolveCategory(cat.key),
+      })),
+    );
+  }
+
+  // Acesso à web dos assistentes (RLS exige ai.configure; sem ela, cai no padrão).
+  const { data: webRow } = await supabase
+    .from("web_fetch_settings")
+    .select("authoring_enabled, reader_enabled, allowlist")
+    .eq("id", true)
+    .maybeSingle();
+  const webAccess: WebAccessData = webRow
+    ? { authoring: webRow.authoring_enabled, reader: webRow.reader_enabled, allowlist: webRow.allowlist ?? [] }
+    : { authoring: true, reader: false, allowlist: [] };
+
   const emailRow: EmailRow = email
     ? {
         transport: email.transport,
@@ -109,6 +153,9 @@ export default async function SistemaPage() {
           }
         }
         githubTokenPresent={githubTokenPresent}
+        canPrompts={canPrompts}
+        prompts={prompts}
+        webAccess={webAccess}
       />
     </div>
   );
