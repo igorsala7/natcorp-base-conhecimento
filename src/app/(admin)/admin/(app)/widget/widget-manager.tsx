@@ -704,11 +704,11 @@ function EmbedSnippet({
 }) {
   const snippet = `<script src="${siteUrl}/widget.js" data-key="${publicKey}" async></script>`;
   const docUrl = `${siteUrl}/docs/${spaceSlug ?? "SUA-DOCUMENTACAO"}`;
-  // Exemplo com o backend do cliente injetando os dados do usuário logado.
+  // O backend do cliente gera um TOKEN cifrado (à prova de adulteração) e o passa
+  // no lugar dos parâmetros em texto.
   const embedComRastreio = `<script src="${siteUrl}/widget.js" data-key="${publicKey}"
-  data-usuario="joao.silva" data-empresa="ACME" data-matricula="00123"
-  data-perfil="gestor" data-portal="cliente-a" data-base="prod" async></script>`;
-  const urlComRastreio = `${docUrl}?p_usuario=joao.silva&p_empresa=ACME&p_matricula=00123&p_perfil=gestor`;
+  data-token="kbt1.SEU_TOKEN_GERADO_NO_BACKEND" async></script>`;
+  const urlComRastreio = `${docUrl}?kbt=kbt1.SEU_TOKEN_GERADO_NO_BACKEND`;
   return (
     <div className="mt-3">
       <span className="mb-1 block text-xs font-medium text-text-muted">
@@ -721,22 +721,23 @@ function EmbedSnippet({
         <CopyButton text={snippet} label="Copiar" />
       </div>
 
-      {/* Rastreamento opcional — como o SISTEMA DO CLIENTE passa quem é o usuário. */}
+      {/* Rastreamento SEGURO — o backend do cliente assina os parâmetros num token. */}
       <details className="mt-3 rounded-lg border border-border">
         <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-text">
-          Rastrear quem usa (opcional) — empresa, usuário, matrícula, perfil…
+          Rastrear quem usa (token seguro) — empresa, usuário, matrícula, perfil…
         </summary>
         <div className="space-y-3 border-t border-border p-3">
           <p className="text-xs text-text-muted">
-            Passe os dados do usuário logado no seu sistema para saber, no admin (em{" "}
-            <b>Conversas</b> e <b>Acessos</b>), quem perguntou o quê e quais páginas abriu. São apenas
-            rótulos de rastreio — <b>nunca</b> entram na resposta da IA.
+            Para saber, no admin (em <b>Conversas</b> e <b>Acessos</b>), quem perguntou o quê, o seu
+            backend gera um <b>token cifrado</b> com os dados do usuário logado e o passa no lugar dos
+            parâmetros. Assim ninguém altera a identidade pelo console. Pegue a{" "}
+            <b>chave de rastreio</b> e o passo a passo em <b>Rastreio seguro</b>, mais abaixo nesta
+            página. São apenas rótulos — <b>nunca</b> entram na resposta da IA.
           </p>
 
           <div>
             <span className="mb-1 block text-xs font-medium text-text-muted">
-              1) No widget — o seu backend gera o <code>&lt;script&gt;</code> com os{" "}
-              <code>data-*</code> preenchidos:
+              1) No widget — o seu backend injeta o token em <code>data-token</code>:
             </span>
             <div className="flex items-start gap-2">
               <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-surface-2 p-2 text-xs">
@@ -748,7 +749,7 @@ function EmbedSnippet({
 
           <div>
             <span className="mb-1 block text-xs font-medium text-text-muted">
-              2) Nos links para a documentação — anexe os parâmetros <code>p_*</code> na URL:
+              2) Nos links para a documentação — anexe o token em <code>?kbt=</code>:
             </span>
             <div className="flex items-start gap-2">
               <code className="flex-1 overflow-x-auto rounded bg-surface-2 px-2 py-1.5 text-xs">
@@ -759,11 +760,10 @@ function EmbedSnippet({
           </div>
 
           <p className="text-xs text-text-muted">
-            A identidade vale para a <b>visita inteira</b>: basta chegar uma vez com os parâmetros
-            (por link, redirecionamento ou SSO) que as páginas seguintes seguem atribuídas ao mesmo
-            usuário. O widget também aceita os mesmos valores via <code>?p_*</code> na URL da página.
-            Campos: <code>p_usuario</code>, <code>p_empresa</code>, <code>p_matricula</code>,{" "}
-            <code>p_perfil</code>, <code>p_portal</code>, <code>p_base</code>.
+            A identidade vale para a <b>visita inteira</b>: basta chegar uma vez com o token (por link,
+            redirecionamento ou SSO) que as páginas seguintes seguem atribuídas ao mesmo usuário.
+            Dentro do token vão os campos <code>p_usuario</code>, <code>p_empresa</code>,{" "}
+            <code>p_matricula</code>, <code>p_perfil</code>, <code>p_portal</code>, <code>p_base</code>.
           </p>
         </div>
       </details>

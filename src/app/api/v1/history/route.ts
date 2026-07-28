@@ -8,7 +8,7 @@ import {
   extractKey,
   rateLimitOk,
 } from "@/lib/widget/auth";
-import { trackingFields } from "@/lib/chat/tracking";
+import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { fetchLatestHistory, identityMatch } from "@/lib/chat/history-store";
 
 export const runtime = "nodejs";
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
-  const t = trackingFields(payload.track);
+  const t = await decodeTrackForSpace(key.space_id, payload.track);
   const match = identityMatch(
     t.p_base,
     t.p_usuario,

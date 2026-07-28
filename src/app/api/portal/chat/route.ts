@@ -12,7 +12,7 @@ import { getPortalAccess } from "@/lib/portal/data";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
-import { trackingFields } from "@/lib/chat/tracking";
+import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
       .insert({
         space_id: spaceId,
         session_id: payload.sessionId ?? null,
-        ...trackingFields(payload.track),
+        ...(await decodeTrackForSpace(spaceId, payload.track)),
         ...(page ? { page } : {}),
       })
       .select("id")

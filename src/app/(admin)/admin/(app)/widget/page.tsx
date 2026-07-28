@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import type { WidgetKeyRow } from "./widget-manager";
 import type { ApiKeyRow } from "./api-key-manager";
 import { ChatbotTabs } from "../chatbot/chatbot-tabs";
+import { TrackingKeyPanel } from "./tracking-key-panel";
 
 export const metadata: Metadata = { title: "Widget e API" };
 
@@ -79,6 +80,12 @@ export default async function WidgetPage() {
         spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
         siteUrl={env.NEXT_PUBLIC_SITE_URL}
       />
+      {spaces.length > 0 && (
+        <TrackingKeyPanel
+          spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
+          siteUrl={env.NEXT_PUBLIC_SITE_URL}
+        />
+      )}
     </div>
   );
 }

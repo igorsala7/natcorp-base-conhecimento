@@ -7,7 +7,7 @@ import {
   extractKey,
   rateLimitOk,
 } from "@/lib/widget/auth";
-import { trackingFields } from "@/lib/chat/tracking";
+import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import {
   listClientePrompts,
   saveClientePrompt,
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
-  const t = trackingFields(payload.track);
+  const t = await decodeTrackForSpace(key.space_id, payload.track);
   if (!t.p_base || !t.p_usuario) {
     // Sem identidade não há como separar prompts entre visitantes: devolve uma
     // biblioteca vazia (nunca solicita login no widget).

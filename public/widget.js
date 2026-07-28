@@ -21,23 +21,21 @@
   // Parâmetros de rastreio: de onde/quem veio a conversa. Lidos do atributo
   // data-* do <script> (tem prioridade) ou da querystring da página (p_*).
   // Só DADO — nunca vão para o prompt da IA; servem para o admin filtrar.
+  // Rastreio à prova de adulteração: o backend do cliente gera um TOKEN cifrado
+  // (AES-GCM, formato kbt1.…) com os parâmetros p_* e o passa em `data-token` ou
+  // em `?kbt=` na URL da página. O widget só carrega esse token opaco — os p_*
+  // em texto NÃO são mais aceitos, então ninguém forja identidade no console.
   var track = (function () {
-    var qs;
-    try {
-      qs = new URLSearchParams(window.location.search);
-    } catch {
-      qs = null;
-    }
-    var t = {};
-    ["base", "usuario", "portal", "empresa", "matricula", "perfil"].forEach(function (n) {
-      var v = script.getAttribute("data-" + n);
-      if (v == null || v === "") v = qs ? qs.get("p_" + n) : null;
-      if (v != null) {
-        v = String(v).trim().slice(0, 200);
-        if (v) t["p_" + n] = v;
+    var tok = script.getAttribute("data-token");
+    if (!tok) {
+      try {
+        tok = new URLSearchParams(window.location.search).get("kbt");
+      } catch {
+        tok = null;
       }
-    });
-    return Object.keys(t).length ? t : null;
+    }
+    tok = tok ? String(tok).trim() : "";
+    return tok ? { token: tok } : null;
   })();
 
   // Tela atual do usuário (Fase 4): o widget roda na página do produto do
@@ -306,7 +304,7 @@
   // Avatar do assistente: um brilho ("sparkle"), como nas referências.
   var ICON_BOT =
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 4.8L18 8.5l-4.3 1.7L12 15l-1.7-4.8L6 8.5l4.3-1.7L12 2z"/><path d="M19 13l.8 2.3L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.7L19 13z" opacity=".65"/></svg>';
-  // Biblioteca de prompts salvos (só quando a visita traz p_base + p_usuario).
+  // Biblioteca de prompts salvos (só quando a visita traz o token de rastreio).
   var ICON_BOOKMARK =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
   var ICON_PLUS =
@@ -709,8 +707,8 @@
     el.className = "m " + (role === "user" ? "u" : "a");
     el.textContent = text;
     if (role === "user") {
-      // Com identidade (p_base+p_usuario), o balão do usuário ganha um botão de
-      // "salvar prompt" que aparece ao passar o mouse.
+      // Com token de rastreio, o balão do usuário ganha um botão de "salvar
+      // prompt" que aparece ao passar o mouse.
       if (hasPromptIdentity()) {
         var row = document.createElement("div");
         row.className = "urow";
@@ -1212,14 +1210,15 @@
   }
 
   // ==== Prompts salvos (biblioteca do visitante) ====
-  // Só existe quando a visita traz p_base + p_usuario (a chave por visitante);
-  // o widget NUNCA pede login. Guardado por (space da chave, p_base, p_usuario).
+  // Só existe quando a visita traz um TOKEN de rastreio; o servidor o decifra e
+  // chaveia por (space, p_base, p_usuario). O widget NUNCA pede login e não lê
+  // os p_* — só carrega o token opaco.
   var promptBar, promptPanel;
   var promptOpen = false, promptLoading = false, promptCache = [];
   var promptForm = false, promptEditId = null, promptFormLabel = "", promptFormTexto = "";
 
   function hasPromptIdentity() {
-    return !!(track && track.p_base && track.p_usuario);
+    return !!(track && track.token);
   }
 
   function promptApi(action, extra) {

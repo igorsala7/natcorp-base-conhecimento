@@ -1,51 +1,44 @@
 /**
  * Identidade de rastreio do leitor no portal (lado do cliente).
  *
- * A página do portal costuma ser aberta UMA vez com os parâmetros na URL
- * (`?p_usuario=…&p_empresa=…`); ao navegar por links internos, a querystring se
- * perde. Por isso, quando os parâmetros chegam pela URL nós os guardamos em
- * `localStorage` e passamos a reusá-los nas páginas seguintes — assim a conversa
- * E os acessos continuam atribuídos ao mesmo usuário durante a visita.
+ * Os parâmetros p_* deixaram de viajar em texto: o backend do cliente gera um
+ * TOKEN cifrado (à prova de adulteração) e o passa em `?kbt=` na URL. A página
+ * do portal costuma ser aberta UMA vez com o token; ao navegar por links
+ * internos a querystring se perde, então guardamos o token em `localStorage` e
+ * o reusamos nas páginas seguintes — conversa e acessos seguem atribuídos ao
+ * mesmo usuário durante a visita. O servidor é quem decifra e valida.
  */
-const KEY = "kb.portal.track";
-const NAMES = ["base", "usuario", "portal", "empresa", "matricula", "perfil"] as const;
+const KEY = "kb.portal.kbt";
 
-export type PortalIdentity = Record<string, string>;
+export type PortalIdentity = { token: string };
 
 /**
- * Lê os parâmetros `p_*` da URL atual; se houver, salva e retorna. Caso a URL
- * não os traga, cai no que foi salvo antes (mesma visita). Retorna `null` quando
- * não há identidade alguma.
+ * Lê o token `?kbt=` da URL atual; se houver, salva e retorna. Caso a URL não o
+ * traga, cai no que foi salvo antes (mesma visita). Retorna `null` quando não há
+ * token algum.
  */
 export function readPortalIdentity(): PortalIdentity | null {
   if (typeof window === "undefined") return null;
 
-  const fromUrl: PortalIdentity = {};
+  let token = "";
   try {
-    const qs = new URLSearchParams(window.location.search);
-    for (const n of NAMES) {
-      const v = qs.get(`p_${n}`);
-      if (v) fromUrl[`p_${n}`] = v.trim().slice(0, 200);
-    }
+    token = (new URLSearchParams(window.location.search).get("kbt") ?? "").trim();
   } catch {
     /* URL inválida — ignora */
   }
 
-  if (Object.keys(fromUrl).length) {
+  if (token) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(fromUrl));
+      localStorage.setItem(KEY, token);
     } catch {
       /* storage indisponível — segue só com o da URL */
     }
-    return fromUrl;
+    return { token };
   }
 
   try {
     const salvo = localStorage.getItem(KEY);
-    if (salvo) {
-      const obj = JSON.parse(salvo) as unknown;
-      if (obj && typeof obj === "object") return obj as PortalIdentity;
-    }
+    if (salvo) return { token: salvo };
   } catch {
     /* ignora */
   }

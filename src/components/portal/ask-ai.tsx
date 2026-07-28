@@ -170,12 +170,12 @@ export function AskAiPanel({
     }
   }
 
-  // Biblioteca de prompts do leitor: só quando a visita traz p_base + p_usuario
-  // (a chave por visitante). Sem isso, nada de salvar/reusar — evita misturar
-  // prompts de leitores anônimos indistinguíveis. Memoizado para referência
-  // estável (o painel recarrega a lista quando o backend muda).
+  // Biblioteca de prompts do leitor: só quando a visita traz o token de rastreio
+  // (o servidor o decifra e chaveia por p_base+p_usuario). Sem isso, nada de
+  // salvar/reusar. Memoizado para referência estável (o painel recarrega a lista
+  // quando o backend muda).
   const promptBackend = useMemo<PromptBackend | null>(() => {
-    if (!track || !track.p_base || !track.p_usuario) return null;
+    if (!track || !track.token) return null;
     return {
       list: () => listPortalPrompts(spaceSlug, track),
       save: (input) => savePortalPrompt(spaceSlug, track, input),

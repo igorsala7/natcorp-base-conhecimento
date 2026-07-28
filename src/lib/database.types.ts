@@ -2232,6 +2232,35 @@ export type Database = {
           },
         ]
       }
+      space_tracking_keys: {
+        Row: {
+          key_enc: string
+          space_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          key_enc: string
+          space_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          key_enc?: string
+          space_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_tracking_keys_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: true
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       space_overlays: {
         Row: {
           created_at: string

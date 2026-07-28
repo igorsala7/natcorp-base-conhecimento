@@ -17,7 +17,7 @@ import {
   SPACE_COOKIE_MAX_AGE,
 } from "@/lib/portal/space-auth";
 import { portalRateLimitOk } from "@/lib/portal/rate-limit";
-import { trackingFields } from "@/lib/chat/tracking";
+import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import {
   listClientePrompts,
   saveClientePrompt,
@@ -176,19 +176,19 @@ export async function searchPortal(
 /**
  * Prompts salvos do leitor no portal (biblioteca de reuso do Ask-AI).
  *
- * Identidade = par (p_base, p_usuario) que veio na URL da visita — só existe
- * biblioteca quando ambos estão presentes. O `track` chega do cliente como DADO
- * não confiável; saneamos com `trackingFields` e resolvemos o espaço pelo slug.
+ * Identidade = par (p_base, p_usuario) que veio no TOKEN cifrado da visita — só
+ * existe biblioteca quando ambos estão presentes. O token é decifrado com a
+ * chave do espaço (`decodeTrackForSpace`); ninguém forja p_usuario no console.
  * A tabela é service-role (RLS nega o cliente), então o escopo é imposto AQUI.
  */
 async function resolvePromptScope(
   spaceSlug: string,
   track: unknown,
 ): Promise<{ spaceId: string; identity: ClienteIdentity } | null> {
-  const t = trackingFields(track);
-  if (!t.p_base || !t.p_usuario) return null;
   const space = await resolvePortalSpace(spaceSlug);
   if (!space) return null;
+  const t = await decodeTrackForSpace(space.id, track);
+  if (!t.p_base || !t.p_usuario) return null;
   return { spaceId: space.id, identity: { p_base: t.p_base, p_usuario: t.p_usuario } };
 }
 
@@ -240,7 +240,7 @@ export async function getPortalChatHistory(
   if (!(await portalRateLimitOk("chat-history", 40))) return null;
   const space = await resolvePortalSpace(spaceSlug);
   if (!space) return null;
-  const t = trackingFields(track);
+  const t = await decodeTrackForSpace(space.id, track);
   const match = identityMatch(t.p_base, t.p_usuario, sessionId || undefined);
   if (!match) return null;
   const { createAdminClient } = await import("@/lib/supabase/admin");

@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPortalAccess } from "@/lib/portal/data";
-import { trackingFields } from "@/lib/chat/tracking";
+import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 
 export const runtime = "nodejs";
 
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     title: str(payload.title, 300),
     path: str(payload.path, 500),
     session_id: str(payload.sessionId, 80),
-    ...trackingFields(payload.track),
+    ...(await decodeTrackForSpace(access.space.id, payload.track)),
   });
 
   return new Response(null, { status: 204 });
