@@ -228,13 +228,29 @@ export default async function EditarConteudoPage({
     );
   }
 
-  const [canRestore, canPublish, canApprove, canReject, canComment] = await Promise.all([
+  const [canRestore, canPublish, canApprove, canReject, canComment, canDeletePerm] = await Promise.all([
     hasPermission("content.restore", node.space_id),
     hasPermission("content.publish", node.space_id),
     hasPermission("review.approve", node.space_id),
     hasPermission("review.reject", node.space_id),
     hasPermission("review.comment", node.space_id),
+    hasPermission("content.delete", node.space_id),
   ]);
+
+  // Um artigo CUSTOMIZADO (fork num espaço-cliente) não pode ser "excluído" pelo
+  // editor: apagar só o nó deixaria o overlay apontando para um nó morto e o
+  // item sumiria da árvore sem volta. O caminho certo dele é "Reverter" (na
+  // árvore do cliente). Exclusivos e artigos próprios não têm overlay → livres.
+  let isCustomizado = false;
+  if (nodeSpace?.type === "client") {
+    const { data: forkOverlay } = await supabase
+      .from("space_overlays")
+      .select("space_id")
+      .eq("override_node_id", nodeId)
+      .maybeSingle();
+    isCustomizado = !!forkOverlay;
+  }
+  const canDelete = canDeletePerm && !isCustomizado;
 
   return (
     <ContentShell aside={aside} defaultCollapsed>
@@ -252,6 +268,7 @@ export default async function EditarConteudoPage({
         canPublish={canPublish}
         canReview={canApprove || canReject}
         canComment={canComment}
+        canDelete={canDelete}
         readingSize={resolveTheme(nodeSpace?.theme).article.fontSize}
         nodeDescription={node.description}
         nodeSlug={node.slug}

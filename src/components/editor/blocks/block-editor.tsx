@@ -39,6 +39,7 @@ import {
   PenLine,
   Redo2,
   Sparkles,
+  Trash2,
   Undo2,
   Wand2,
   ArrowLeft,
@@ -101,7 +102,7 @@ import {
   saveBlocksAsSnippet,
 } from "@/app/(admin)/admin/(app)/conteudo/template-actions";
 import { insertAfter as insertBlockAfter } from "@/lib/blocks/tree-ops";
-import { createNode } from "@/app/(admin)/admin/(app)/conteudo/actions";
+import { createNode, deleteNode } from "@/app/(admin)/admin/(app)/conteudo/actions";
 import { ReviewThread } from "../review-thread";
 import {
   submitForReview,
@@ -184,6 +185,7 @@ type BlockEditorProps = {
   canPublish?: boolean;
   canReview?: boolean;
   canComment?: boolean;
+  canDelete?: boolean;
   /** Escala de leitura do tema da documentação (Aparência → Leitura) — o
    *  canvas edita no MESMO tamanho em que o portal exibe. */
   readingSize?: "compact" | "normal" | "large";
@@ -216,6 +218,7 @@ function BlockEditorInner({
   canPublish,
   canReview,
   canComment,
+  canDelete,
   readingSize = "normal",
   nodeDescription,
   nodeSlug,
@@ -1146,6 +1149,22 @@ function BlockEditorInner({
     router.refresh();
   }
 
+  /** Exclui o artigo inteiro (soft delete → lixeira, restaurável em 30 dias). */
+  async function onDeleteArticle() {
+    setShowMore(false);
+    const ok = await confirmar({
+      title: "Excluir artigo",
+      description: `Excluir "${title}"? Vai para a lixeira e pode ser restaurado em 30 dias.`,
+      tone: "danger",
+      confirmLabel: "Excluir",
+    });
+    if (!ok) return;
+    const res = await loader.during("Excluindo…", () => deleteNode(nodeId));
+    if (!res.ok) return toast.error(res.error);
+    toast.success("Artigo enviado para a lixeira.");
+    router.push("/admin/conteudo");
+  }
+
   /** Descarta o rascunho e volta ao conteúdo publicado. */
   async function onDiscard() {
     const ok = await confirmar({
@@ -1392,6 +1411,19 @@ function BlockEditorInner({
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowShortcuts(true); setShowMore(false); }}>
                   <Keyboard className="size-4 text-text-muted" /> Atalhos do teclado
                 </button>
+                {canDelete && (
+                  <>
+                    <div className="my-1 border-t border-border" />
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm text-brand-pink-700 hover:bg-brand-pink-50 dark:text-brand-pink-400 dark:hover:bg-brand-pink-950/40"
+                      onClick={() => { void onDeleteArticle(); }}
+                      title="Enviar este artigo para a lixeira (restaurável em 30 dias)"
+                    >
+                      <Trash2 className="size-4" /> Excluir artigo
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

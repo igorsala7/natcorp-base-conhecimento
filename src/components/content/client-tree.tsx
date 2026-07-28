@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Eye, EyeOff, FileText, FoldVertical, Folder, Link2, Minus, UnfoldVertical, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, FileText, FoldVertical, Folder, Link2, Minus, Trash2, UnfoldVertical, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,6 +16,7 @@ import {
   revertOverlay,
   createExclusiveNode,
 } from "@/app/(admin)/admin/(app)/conteudo/space-actions";
+import { deleteNode } from "@/app/(admin)/admin/(app)/conteudo/actions";
 
 const ICON = { folder: Folder, article: FileText, link: Link2, divider: Minus } as const;
 
@@ -310,12 +311,36 @@ export function ClientTree({
           </>
         );
       case "exclusivo":
+        // Conteúdo PRÓPRIO do cliente (não herdado) — pode ser editado e
+        // excluído. Diferente de herdado/customizado, que só ocultam/revertem.
         return (
-          n.type === "article" && (
-            <button className="text-xs text-primary hover:underline" onClick={open}>
-              Editar
+          <>
+            {n.type === "article" && (
+              <button className="text-xs text-primary hover:underline" onClick={open}>
+                Editar
+              </button>
+            )}
+            <button
+              className="flex items-center gap-1 text-xs text-text-muted hover:text-brand-pink-700 hover:underline"
+              disabled={pending}
+              title="Excluir (vai para a lixeira, restaurável em 30 dias)"
+              onClick={async () => {
+                if (
+                  await confirmar({
+                    title: "Excluir",
+                    description: `Excluir "${n.title}"${
+                      n.type === "folder" ? " e tudo dentro" : ""
+                    }? Vai para a lixeira e pode ser restaurado em 30 dias.`,
+                    tone: "danger",
+                    confirmLabel: "Excluir",
+                  })
+                )
+                  run(() => deleteNode(n.id));
+              }}
+            >
+              <Trash2 className="size-3.5" /> Excluir
             </button>
-          )
+          </>
         );
       default:
         return null;
