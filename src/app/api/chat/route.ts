@@ -21,6 +21,14 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+/**
+ * Marcador que separa o TEXTO do modelo dos ARQUIVOS (base64) no fim do stream.
+ * O cliente (ChatPanel) corta aqui e transforma o JSON em links de download.
+ * Usa o caractere de controle RS (), que não aparece em texto do modelo.
+ * DEVE ser idêntico ao do ChatPanel.
+ */
+const ARQUIVOS_MARK = "\n__ARQUIVOS__";
+
 export async function POST(req: NextRequest) {
   const { spaceId, messages: messagesBrutas, conversationId, promptOverride, scope, contextScope, sim } = (await req.json()) as {
     spaceId: string;
@@ -204,5 +212,28 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return result.toTextStreamResponse({ headers: baseHeaders });
+  // Stream de texto do modelo; se alguma ferramenta retornou ARQUIVO(s) base64,
+  // eles são anexados no fim, após o marcador, como data URLs para download.
+  // (`onFinish` acima persiste só o texto — sem os bytes.)
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const delta of result.textStream) controller.enqueue(enc.encode(delta));
+      } catch {
+        /* stream vazio/erro do provedor: o cliente exibe a mensagem de falha */
+      }
+      if (outFiles.length) {
+        const files = outFiles.map((f) => ({
+          filename: f.filename,
+          mimeType: f.mimeType,
+          dataUrl: `data:${f.mimeType};base64,${f.base64}`,
+        }));
+        controller.enqueue(enc.encode(ARQUIVOS_MARK + JSON.stringify(files)));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(body, { headers: { ...baseHeaders, "Content-Type": "text/plain; charset=utf-8" } });
 }

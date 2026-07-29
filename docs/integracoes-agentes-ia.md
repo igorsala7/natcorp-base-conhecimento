@@ -152,7 +152,7 @@ O sistema **detecta isso automaticamente** (em qualquer profundidade do JSON), *
 do que vai para a IA (economiza tokens — o modelo não faz nada com bytes) e **entrega o arquivo**:
 
 - **WhatsApp:** enviado como **documento** — o usuário recebe o PDF direto no chat.
-- **Widget e portal ("Perguntar à IA"):** vira um **link de download** (📎) na conversa.
+- **Widget, portal ("Perguntar à IA") e o Assistente do admin (simulação):** vira um **link de download** (📎) na conversa.
 
 **Não precisa configurar nada:** basta a API retornar um campo de MIME (`mimetype`), um nome
 (`filename`) e o conteúdo base64 (campo `documento`/`arquivo`/`file`/… ou `charset: "base64"`).

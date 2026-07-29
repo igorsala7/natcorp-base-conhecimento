@@ -35,6 +35,12 @@ type Citation = {
 const FALHA_RESPOSTA =
   "Não foi possível gerar a resposta agora. As fontes encontradas estão abaixo — tente de novo em instantes ou avise a equipe.";
 
+/** Marcador que separa o texto dos ARQUIVOS no fim do stream (idêntico ao /api/chat). */
+const ARQUIVOS_MARK = "\n__ARQUIVOS__";
+
+/** Arquivo (base64) retornado por uma ferramenta — vira link de download. */
+type FileAtt = { filename: string; mimeType: string; dataUrl: string };
+
 type Msg = {
   role: "user" | "assistant";
   content: string;
@@ -42,6 +48,8 @@ type Msg = {
   feedback?: 1 | -1;
   /** Pergunta de desambiguação: botões para o usuário escolher o tema. */
   options?: ClarifyOption[];
+  /** Arquivos (PDF etc.) retornados por ferramentas — download. */
+  files?: FileAtt[];
 };
 
 /** Identidade simulada — testar o chat como um usuário de uma base (ferramentas). */
@@ -171,16 +179,25 @@ export function ChatPanel({
           const { done, value } = await reader.read();
           if (done) break;
           acc += dec.decode(value, { stream: true });
-          updateLast((m) => ({ ...m, content: acc }));
+          // Durante o stream mostra só o texto ANTES do marcador de arquivos.
+          updateLast((m) => ({ ...m, content: acc.split(ARQUIVOS_MARK)[0] ?? acc }));
+        }
+        // Separa o texto dos ARQUIVOS (base64 → links de download).
+        let texto = acc;
+        let files: FileAtt[] | undefined;
+        const iMark = acc.indexOf(ARQUIVOS_MARK);
+        if (iMark >= 0) {
+          texto = acc.slice(0, iMark);
+          try {
+            files = JSON.parse(acc.slice(iMark + ARQUIVOS_MARK.length)) as FileAtt[];
+          } catch {
+            /* marcador incompleto/corrompido: ignora os arquivos */
+          }
         }
         // Stream vazio = a chamada ao provedor falhou (chave, crédito,
         // timeout). Sem esta mensagem o usuário vê só as fontes e conclui que
         // o produto está quebrado, sem saber o porquê.
-        updateLast((m) => ({
-          ...m,
-          citations,
-          content: acc || FALHA_RESPOSTA,
-        }));
+        updateLast((m) => ({ ...m, citations, files, content: texto || FALHA_RESPOSTA }));
       }
     } catch (e) {
       updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
@@ -260,6 +277,21 @@ export function ChatPanel({
                 <Markdown content={m.content} />
               ) : (
                 <TypingIndicator className="py-1" />
+              )}
+              {m.files && m.files.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {m.files.map((f, k) => (
+                    <a
+                      key={k}
+                      href={f.dataUrl}
+                      download={f.filename}
+                      rel="noopener"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text shadow-sm transition-colors hover:text-primary"
+                    >
+                      📎 {f.filename}
+                    </a>
+                  ))}
+                </div>
               )}
               {m.options && m.options.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
