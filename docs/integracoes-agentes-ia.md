@@ -52,8 +52,9 @@ identificação (WhatsApp). O modelo só preenche os parâmetros de *consulta* (
    - **Código da base (p_base):** exatamente o valor que o token do cliente envia em `p_base`
      (ex.: `ACME`). É a chave que liga a requisição ao cliente.
    - **Nome do cliente:** rótulo amigável (ex.: `Acme S/A`).
-   - **Documentação do chatbot:** a base de conhecimento que o bot usa para responder dúvidas
-     (RAG) e onde as conversas do WhatsApp são registradas. *Obrigatória para o WhatsApp.*
+   - **Documentações do chatbot:** uma ou **mais** bases de conhecimento que o bot usa (RAG).
+     Marque quantas quiser; a **1ª marcada** é onde as conversas do WhatsApp são registradas.
+     *Pelo menos uma é obrigatória para o WhatsApp.*
 3. **Salvar.**
 
 ### Passo 2 — Cadastrar a credencial da base
@@ -136,6 +137,55 @@ A IA decide sozinha entre **responder pela documentação** (RAG) e **consultar 
 pedidos de dado específico, ela chama a API; para dúvidas de "como fazer", usa a documentação.
 Ela pode **encadear** chamadas (ex.: buscar a matrícula pelo nome e depois consultar as férias).
 
+## 5.1 APIs que retornam arquivo (base64)
+
+Algumas APIs devolvem um documento embutido no JSON em **base64** (holerite, recibo, boleto…):
+
+```json
+{ "status": "OK", "filename": "RECIBO.pdf", "charset": "base64",
+  "mimetype": "application/pdf", "documento": "JVBERi0xLjQK..." }
+```
+
+O sistema **detecta isso automaticamente** (em qualquer profundidade do JSON), **remove o base64**
+do que vai para a IA (economiza tokens — o modelo não faz nada com bytes) e **entrega o arquivo**:
+
+- **WhatsApp:** enviado como **documento** — o usuário recebe o PDF direto no chat.
+- **Widget e portal ("Perguntar à IA"):** vira um **link de download** (📎) na conversa.
+
+**Não precisa configurar nada:** basta a API retornar um campo de MIME (`mimetype`), um nome
+(`filename`) e o conteúdo base64 (campo `documento`/`arquivo`/`file`/… ou `charset: "base64"`).
+A IA apenas confirma o envio (ex.: *"segue seu holerite de março 📄"*).
+
+## 5.2 Ontologia — assertividade máxima
+
+Todo o fluxo — RAG, **escolha da API/Tool** e **extração dos parâmetros** — usa a **ontologia** da
+documentação (Admin → **Ontologia**): os termos canônicos e seus sinônimos entram no contexto da
+IA como um **glossário**. Assim, quando o usuário usa uma gíria ou sinônimo (ex.: *"contracheque"*
+em vez de *"holerite"*), o modelo entende o conceito e acerta a ferramenta e os valores.
+
+Vale nos **quatro fluxos**: **widget**, **portal**, **WhatsApp** e a **busca** (RAG) — sem
+configuração extra além de manter a ontologia da documentação atualizada.
+
+## 5.3 Resolução de identidade no servidor (login)
+
+Algumas APIs precisam de dados que **não vêm no token** (ex.: o **CPF**) e exigem **validar** o
+usuário antes de liberar dados. Para isso, o módulo faz um "login" no servidor **quando a
+credencial da base tem uma `session_key`** (campo opcional da credencial OAuth):
+
+1. **Valida** o usuário em `…/chatbot/login/v1/autenticacao` (empresa+matrícula+usuário da
+   identidade). Se a API não reconhecer (status ≠ OK), **as ferramentas de dados não são
+   oferecidas** — a IA responde só pela documentação e orienta procurar o RH.
+2. **Enriquece** a identidade com `…/chatbot/login/v1/dados_colab_usuario`: **CPF**, **perfil**
+   (gestor/colaborador), nome e cargo. Esses campos passam a estar disponíveis como **identidade**
+   (`origem = identidade`, ex.: `campoIdentidade = cpf`) — injetados no servidor, **nunca** pelo
+   modelo.
+
+O resultado é cacheado por usuário (poucos minutos). É assim que a NATCORP entrega os documentos de
+assinatura eletrônica: o `docs_user` recebe o CPF pela identidade, sem que a IA precise perguntá-lo
+nem encadear chamadas. O perfil (gestor) resolvido aqui também é a base para, no futuro, liberar as
+ferramentas de gestor. *A `session_key` é específica do padrão ORDS/APEX; bases que não a definem
+seguem usando apenas a identidade do token.*
+
 ## 6. Exemplo completo — "quero as férias de agosto"
 
 1. **Base** `ACME` com credencial OAuth.
@@ -149,6 +199,44 @@ Ela pode **encadear** chamadas (ex.: buscar a matrícula pelo nome e depois cons
    o sistema injeta a matrícula do token, formata as datas e chama
    `GET https://api.acme.com/v1/ferias/12345?data_ini=01/08/2026&data_fim=31/08/2026`, e responde
    com o dado.
+
+## 6.1 Exemplo real: NATCORP (seed reproduzível)
+
+A base **NATCORP** já vem pronta como exemplo — a migração das ferramentas de RH que
+antes viviam no n8n. Ela registra, de forma **idempotente**, a base, a credencial OAuth, **16
+ferramentas somente‑leitura** (benefícios, férias, ponto, históricos, feedback, assinatura
+eletrônica + os relatórios em PDF: recibo de pagamento, informe de rendimentos, aviso de
+férias, espelho de ponto) e o agente **"Nati — Assistente de RH"**.
+
+**Como rodar** (`base_code` = `natcorp`):
+
+1. No `.env.local` (não versionado):
+   ```
+   NATCORP_OAUTH_CLIENT_ID=<client id>
+   NATCORP_OAUTH_CLIENT_SECRET=<client secret>
+   NATCORP_SESSION_KEY=<chave de sessão do login ORDS>    # habilita validação + CPF/perfil
+   NATCORP_SPACE_SLUG=<slug da documentação para o RAG>   # opcional
+   ```
+2. `npm run seed:natcorp` — cria/atualiza tudo. Reexecutar é seguro (upsert por chave natural).
+3. Confira em **/admin/integracoes**: base **natcorp**, credencial **Configurada**, 16 tools
+   ativas, agente **nati_rh**. Vincule a documentação do chatbot (aba Bases) se não passou o slug.
+
+O código do catálogo fica em `scripts/natcorp-tools.ts` (uma linha por ferramenta) e a gravação
+em `scripts/seed-natcorp.ts`. Para adicionar/ajustar uma ferramenta, edite o catálogo e rode de novo.
+
+**Notas de compatibilidade observadas ao vivo:**
+- **OAuth:** o endpoint da NATCORP (Oracle ORDS/APEX) exige **HTTP Basic** na autenticação do
+  cliente. O motor tenta primeiro os dados no corpo e **cai para Basic automaticamente** — sem
+  configuração. Vale para qualquer provedor ORDS‑like.
+- **Datas:** cada relatório usa sua máscara (recibo `01/MM/yyyy`, informe `yyyy`, ponto
+  `dd/MM/yyyy`, eventos `MM/yyyy`); a IA entrega ISO e o motor formata.
+- **Arquivos:** os relatórios voltam com o PDF em base64 dentro do JSON → **entrega automática**
+  como download (widget/portal) ou documento (WhatsApp), sem tocar em nada.
+- **Login no servidor (CPF/perfil):** a NATCORP resolve a identidade completa via login ORDS — ver
+  a seção **5.3**. Com a `session_key` na credencial, o sistema **valida** o usuário e busca o
+  cadastro (**CPF, perfil gestor/colaborador, nome, cargo**) antes das ferramentas. Assim o
+  `docs_user` (assinatura eletrônica) recebe o **CPF pela identidade** — sem passar pelo modelo — e
+  usuários não reconhecidos ficam sem acesso aos dados.
 
 ## 7. Segurança
 
@@ -164,7 +252,7 @@ Ela pode **encadear** chamadas (ex.: buscar a matrícula pelo nome e depois cons
 |---|---|
 | A IA não usa a API | Tool não **ativada na base**, ou não **vinculada a um agente ativo**, ou descrição vaga. |
 | "Endpoint não configurado" | Faltou a `base_url` na ativação por base. |
-| Erro de autenticação | Credencial errada, ou o `auth_type` da tool ≠ o da credencial escolhida. |
+| Erro de autenticação | Credencial errada, ou o `auth_type` da tool ≠ o da credencial escolhida. Em OAuth, o motor tenta client_id/secret no corpo e, se recusado, via **HTTP Basic** — então não é preciso escolher o estilo. |
 | Data no formato errado | Ajuste a **máscara** do parâmetro de data. |
 | Dado de outro usuário | Confira que o parâmetro de identidade está com **origem = identidade** (não *modelo*). |
 | Aviso de "texto simples" | Defina `APP_ENCRYPTION_KEY` e salve as credenciais de novo. |

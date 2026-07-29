@@ -79,8 +79,8 @@ Exemplo: se sua API responde
 
 Para cada cliente (guia de Integrações):
 - A **Base** com `base_code` = o que a API de identificação devolve.
-- A **Documentação do chatbot** escolhida na base (o WhatsApp precisa dela para responder e
-  registrar a conversa).
+- As **Documentações do chatbot** marcadas na base (uma ou **mais**; o WhatsApp precisa de pelo
+  menos uma — o RAG usa todas e a 1ª registra a conversa).
 - As **APIs/Tools** ativas + um **Agente ativo** vinculando as tools (para consultar dados).
 
 ### Passo 5 — Testar
@@ -100,6 +100,10 @@ documentação e consultar as APIs quando você pedir um dado.
 | **Localização** | Latitude/longitude/nome/endereço entram como **contexto** para a IA. |
 | Outros (sticker, contato…) | Resposta educada pedindo um dos formatos acima. |
 
+**Arquivos que a IA envia:** quando uma API retorna um documento em **base64** (holerite, recibo,
+boleto…), o bot **envia o arquivo como documento** no WhatsApp, além da resposta em texto —
+automático, sem configuração (ver o guia de [Integrações](integracoes-agentes-ia.md), seção 5.1).
+
 ## 5. Como funciona por dentro (robustez)
 
 - **Assinatura** `X‑Hub‑Signature‑256` validada em todo `POST` (HMAC com o App secret).
@@ -107,6 +111,8 @@ documentação e consultar as APIs quando você pedir um dado.
 - **Deduplicação:** a Meta reenvia eventos; cada mensagem é processada **uma vez**.
 - **Rate‑limit** por remetente (barra loops/abuso).
 - **Cache** telefone→identidade (5 min) — não chama a API de identificação a cada mensagem.
+- **Ontologia:** o glossário do domínio (termos + sinônimos) entra no contexto para o modelo
+  entender gírias/sinônimos e acertar as APIs e os parâmetros.
 - **Histórico:** as conversas ficam em **/admin/conversas** (sessão = telefone); o consumo de IA
   é atribuído ao usuário.
 
@@ -127,7 +133,7 @@ documentação e consultar as APIs quando você pedir um dado.
 | Recebe mas não responde | Assine o campo **`messages`**; confira o **Access token** e o **Phone number ID**. |
 | "invalid signature" | **App secret** errado. |
 | Sempre "não identificado" | A API de identificação não devolve o **base_code**, ou o **mapa** aponta o campo errado, ou não existe base com aquele `base_code`. |
-| "atendimento não configurado" | A base não tem **Documentação do chatbot** escolhida. |
+| "atendimento não configurado" | A base não tem nenhuma **Documentação do chatbot** marcada. |
 | Áudio não transcreve | Configure *Transcrição de voz* = OpenAI/Whisper em **Sistema → IA**. |
 | Imagem não é analisada | O modelo de chat precisa ter **visão**. |
 | Não consulta dados | Falta **API ativa na base** + **agente ativo** com a tool (guia de Integrações). |
