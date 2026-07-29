@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
-import { ChevronRight, FileText, Send, ThumbsUp, ThumbsDown } from "lucide-react";
+import { ChevronRight, FileText, Send, ThumbsUp, ThumbsDown, Mic, Square, Loader2 } from "lucide-react";
+import { useVoiceInput } from "@/components/chat/use-voice";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { controlClass } from "@/components/ui/input";
@@ -115,7 +116,7 @@ export function ChatPanel({
    * num botão de desambiguação): reusa a última pergunta, filtra pelo tema
    * escolhido e substitui a bolha de opções pela resposta — sem duplicar o turno.
    */
-  async function send(scope?: ClarifyScope) {
+  async function send(scope?: ClarifyScope, textOverride?: string) {
     if (streaming || !spaceId) return;
     let history: Msg[];
     if (scope) {
@@ -124,11 +125,11 @@ export function ChatPanel({
       history = semClarify;
       setMessages([...semClarify, { role: "assistant", content: "" }]);
     } else {
-      const q = input.trim();
+      const q = (textOverride ?? input).trim();
       if (!q) return;
       history = [...messages, { role: "user", content: q }];
       setMessages([...history, { role: "assistant", content: "" }]);
-      setInput("");
+      if (!textOverride) setInput("");
     }
     setStreaming(true);
 
@@ -226,6 +227,13 @@ export function ChatPanel({
     submitChatFeedback(convRef.current ?? "", value);
     setMessages((prev) => prev.map((m, idx) => (idx === i ? { ...m, feedback: value } : m)));
   }
+
+  // Voz: grava do microfone, transcreve em /api/transcribe (Whisper) e envia a
+  // transcrição ao agente — ou preenche o input se já estiver respondendo.
+  const voice = useVoiceInput("/api/transcribe", (text) => {
+    if (streaming) setInput((p) => (p ? `${p} ${text}` : text));
+    else void send(undefined, text);
+  });
 
   return (
     <Surface elevation={1} padding="none" className="flex flex-1 flex-col overflow-hidden">
@@ -424,7 +432,32 @@ export function ChatPanel({
       <div className="flex items-center border-t border-border px-2 pt-1.5">
         <PromptLibrary backend={promptBackend} onInsert={(t) => setInput((p) => (p.trim() ? `${p}\n${t}` : t))} />
       </div>
+      {voice.error && <p className="px-3 pb-1 text-xs text-brand-pink-700">{voice.error}</p>}
       <div className="flex items-end gap-2 px-2 pb-2 pt-1">
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          onClick={voice.toggle}
+          disabled={!aiReady || voice.state === "transcribing" || (streaming && voice.state !== "recording")}
+          className={voice.state === "recording" ? "animate-pulse text-brand-pink-700" : ""}
+          title={
+            voice.state === "recording"
+              ? "Parar e transcrever"
+              : voice.state === "transcribing"
+                ? "Transcrevendo…"
+                : "Falar (gravar áudio)"
+          }
+          aria-label="Gravar áudio"
+        >
+          {voice.state === "recording" ? (
+            <Square className="size-4" />
+          ) : voice.state === "transcribing" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Mic className="size-4" />
+          )}
+        </Button>
         <AutoGrowTextarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -435,7 +468,7 @@ export function ChatPanel({
             }
           }}
           rows={1}
-          placeholder={aiReady ? "Pergunte algo… (Enter envia)" : "Configure AI_API_KEY para usar"}
+          placeholder={aiReady ? "Pergunte ou fale (🎙️)… (Enter envia)" : "Configure AI_API_KEY para usar"}
           disabled={streaming || !aiReady}
           className={`${controlClass} min-h-9 flex-1`}
         />

@@ -131,9 +131,13 @@
   };
   var conversationId = null;
   var open = false;
-  var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput;
+  var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput, micBtn;
   // Anexos pendentes deste turno: {id?,name,mime?,size?,uploading?}.
   var pendingAtts = [];
+  // Estado da gravação de voz: "idle" | "recording" | "transcribing".
+  var micState = "idle";
+  var mediaRec = null;
+  var micChunks = [];
 
   // ==== Estilos (isolados no Shadow DOM) ====
   function styles() {
@@ -281,6 +285,10 @@
       ".savep svg{width:14px;height:14px;display:block}" +
       // Anexos: botão (clipe), chips pendentes e chips na mensagem
       ".attb{background:none;border:1.5px solid #e6ddf1;color:#8a7ea3;border-radius:50%;width:44px;height:44px;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,background .15s}" +
+      ".attb svg{width:18px;height:18px}" +
+      ".attb.rec{border-color:#c95788;color:#c95788;animation:pcpulse 1s infinite}" +
+      ".attb:disabled{opacity:.5;cursor:default}" +
+      "@keyframes pcpulse{50%{opacity:.5}}" +
       ".attb:hover{border-color:var(--pc);color:var(--pc);background:#faf8fd}" +
       ".attb svg{width:19px;height:19px}" +
       ".attz{display:none;flex-wrap:wrap;gap:6px;padding:8px 12px 0;background:#fff}" +
@@ -316,6 +324,10 @@
   // Anexos de documento (Fase 3C).
   var ICON_CLIP =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+  var ICON_MIC =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+  var ICON_STOP =
+    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
   var ICON_FILE =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   var ICON_IMG =
@@ -405,8 +417,9 @@
       '<div class="attz"></div>' +
       '<div class="ft">' +
       '<button class="attb" data-attach aria-label="Anexar arquivo" title="Anexar documento ou imagem (PDF, Word, Excel, CSV, PNG, JPG…)">' + ICON_CLIP + "</button>" +
+      '<button class="attb" data-mic aria-label="Gravar áudio" title="Falar (gravar áudio)">' + ICON_MIC + "</button>" +
       '<input type="file" data-file hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp">' +
-      '<textarea rows="1" placeholder="Escreva sua pergunta…"></textarea>' +
+      '<textarea rows="1" placeholder="Escreva ou fale sua pergunta…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
       '<div class="pw">Powered by Base de Conhecimento</div>';
 
@@ -419,12 +432,14 @@
     sendBtn = panel.querySelector("[data-send]");
     attzEl = panel.querySelector(".attz");
     fileInput = panel.querySelector("[data-file]");
+    micBtn = panel.querySelector("[data-mic]");
 
     panel.querySelector("[data-close]").addEventListener("click", toggle);
     panel.querySelector("[data-clear]").addEventListener("click", clearChat);
     panel.querySelector("[data-attach]").addEventListener("click", function () {
       fileInput.click();
     });
+    micBtn.addEventListener("click", toggleMic);
     fileInput.addEventListener("change", function () {
       var files = fileInput.files ? Array.prototype.slice.call(fileInput.files) : [];
       files.forEach(uploadAttachment);
@@ -956,6 +971,91 @@
     });
     messagesEl.appendChild(row);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // ==== Voz: grava do microfone e transcreve (Whisper/provedor parametrizado) ====
+  function setMic(state) {
+    micState = state;
+    if (!micBtn) return;
+    micBtn.classList.toggle("rec", state === "recording");
+    micBtn.disabled = state === "transcribing";
+    micBtn.innerHTML = state === "recording" ? ICON_STOP : ICON_MIC;
+    micBtn.title =
+      state === "recording"
+        ? "Parar e transcrever"
+        : state === "transcribing"
+        ? "Transcrevendo…"
+        : "Falar (gravar áudio)";
+  }
+
+  function toggleMic() {
+    if (micState === "recording") {
+      if (mediaRec && mediaRec.state === "recording") mediaRec.stop();
+      return;
+    }
+    if (micState !== "idle") return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      addMsg("bot", "Gravação de voz não é suportada neste navegador.");
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(
+      function (stream) {
+        try {
+          mediaRec = new MediaRecorder(stream);
+        } catch (err) {
+          void err;
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          addMsg("bot", "Não foi possível iniciar a gravação neste navegador.");
+          return;
+        }
+        micChunks = [];
+        mediaRec.ondataavailable = function (e) {
+          if (e.data && e.data.size) micChunks.push(e.data);
+        };
+        mediaRec.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          var blob = new Blob(micChunks, { type: mediaRec.mimeType || "audio/webm" });
+          if (blob.size < 800) {
+            setMic("idle"); // gravação vazia/curtíssima: ignora
+            return;
+          }
+          setMic("transcribing");
+          var fd = new FormData();
+          fd.append("file", blob, "audio.webm");
+          fd.append("key", KEY);
+          fetch(API + "/api/v1/transcribe", {
+            method: "POST",
+            headers: { "X-Widget-Key": KEY },
+            body: fd,
+          })
+            .then(function (r) { return r.json().catch(function () { return null; }); })
+            .then(function (d) {
+              setMic("idle");
+              var text = d && d.transcribed && d.text ? String(d.text).trim() : "";
+              if (text) {
+                if (busy) {
+                  inputEl.value = (inputEl.value.trim() ? inputEl.value + " " : "") + text;
+                  autoGrow();
+                } else {
+                  inputEl.value = text;
+                  submit();
+                }
+              } else {
+                addMsg("bot", (d && d.error) || "Não consegui transcrever o áudio.");
+              }
+            })
+            .catch(function () {
+              setMic("idle");
+              addMsg("bot", "Falha ao transcrever o áudio.");
+            });
+        };
+        mediaRec.start();
+        setMic("recording");
+      },
+      function () {
+        addMsg("bot", "Não consegui acessar o microfone (permissão negada?).");
+      }
+    );
   }
 
   function submit() {

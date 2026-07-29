@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Sparkles, Send, X, Eraser, Paperclip, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon } from "lucide-react";
+import { ChevronRight, Sparkles, Send, X, Eraser, Paperclip, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon, Mic, Square, Loader2 } from "lucide-react";
+import { useVoiceInput } from "@/components/chat/use-voice";
 import { controlClass } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
 import { TypingIndicator } from "@/components/ui/typing-indicator";
@@ -60,6 +61,12 @@ export function AskAiPanel({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  // Voz: grava do microfone, transcreve (/api/portal/transcribe) e pergunta —
+  // ou preenche o campo se já estiver respondendo.
+  const voice = useVoiceInput("/api/portal/transcribe", (text) => {
+    if (streaming) setInput((p) => (p ? `${p} ${text}` : text));
+    else void ask(text);
+  });
   // Anexos (documentos) deste turno + erro de upload.
   const [pending, setPending] = useState<Pending[]>([]);
   const [attError, setAttError] = useState<string | null>(null);
@@ -579,6 +586,7 @@ export function AskAiPanel({
               e.target.value = "";
             }}
           />
+          {voice.error && <p className="mb-2 text-xs text-brand-pink-700">{voice.error}</p>}
           <div className="flex items-end gap-2">
             <button
               type="button"
@@ -588,6 +596,24 @@ export function AskAiPanel({
               className="flex size-11 shrink-0 items-center justify-center rounded-full border border-border text-text-muted transition-colors hover:border-primary hover:text-primary"
             >
               <Paperclip className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={voice.toggle}
+              disabled={voice.state === "transcribing" || (streaming && voice.state !== "recording")}
+              aria-label="Gravar áudio"
+              title={voice.state === "recording" ? "Parar e transcrever" : "Falar (gravar áudio)"}
+              className={`flex size-11 shrink-0 items-center justify-center rounded-full border border-border transition-colors hover:border-primary hover:text-primary disabled:opacity-40 ${
+                voice.state === "recording" ? "animate-pulse border-brand-pink-700 text-brand-pink-700" : "text-text-muted"
+              }`}
+            >
+              {voice.state === "recording" ? (
+                <Square className="size-4" />
+              ) : voice.state === "transcribing" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Mic className="size-4" />
+              )}
             </button>
             <AutoGrowTextarea
               value={input}
