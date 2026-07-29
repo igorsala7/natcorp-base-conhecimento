@@ -50,6 +50,7 @@ export type WidgetKeyRow = {
     suggestions?: string[];
     position?: "right" | "left";
     scan?: boolean;
+    formAssist?: boolean;
   } | null;
   created_at: string;
 };
@@ -87,6 +88,7 @@ type Draft = {
   suggestions: string;
   position: "right" | "left";
   scan: boolean;
+  formAssist: boolean;
 };
 
 function rowToDraft(k: WidgetKeyRow): Draft {
@@ -114,6 +116,7 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     suggestions: (c.suggestions ?? []).join("\n"),
     position: c.position ?? "right",
     scan: c.scan !== false, // ausente = ligado (comportamento atual)
+    formAssist: c.formAssist === true, // ausente = desligado (privacidade)
   };
 }
 
@@ -268,6 +271,7 @@ export function WidgetManager({
       suggestions: "",
       position: "right",
       scan: true,
+      formAssist: false,
     });
   }
 
@@ -305,6 +309,7 @@ export function WidgetManager({
         suggestions: draft.suggestions.split("\n").map((s) => s.trim()).filter(Boolean),
         position: draft.position,
         scan: draft.scan,
+        formAssist: draft.formAssist,
       },
     };
     startTransition(async () => {
@@ -659,6 +664,22 @@ export function WidgetManager({
                 <span className="text-text-muted">
                   Lê os campos, textos e tabelas da página do cliente (inclusive modais e iframes) e envia
                   como contexto para a IA responder sobre a tela. Desligue em telas com dados sensíveis.
+                </span>
+              </label>
+            </Field>
+            <Field label="Assistente de formulário (ler e preencher campos)">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.formAssist}
+                  onChange={(e) => setDraft({ ...draft, formAssist: e.target.checked })}
+                  className="mt-0.5 size-4 shrink-0"
+                />
+                <span className="text-text-muted">
+                  A IA lê os <strong>campos</strong> da tela (pode opinar sobre valores) e pode <strong>propor
+                  preencher</strong> um campo — destacando-o em roxo e pedindo confirmação antes de escrever.
+                  Bom para gerar textos (ex.: descrição de vaga) a partir dos outros campos. Requer que a leitura
+                  da tela esteja ligada.
                 </span>
               </label>
             </Field>

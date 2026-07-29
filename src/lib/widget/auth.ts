@@ -16,6 +16,12 @@ export type WidgetConfig = {
    * = ligado (comportamento atual); `false` = desligado (mais privacidade).
    */
   scan?: boolean;
+  /**
+   * Assistente de formulário: o widget lê os CAMPOS da tela (estruturados) e a
+   * IA pode OPINAR sobre valores e PROPOR preencher um campo (com confirmação
+   * visual do usuário). `true` liga; `undefined`/`false` = desligado (padrão).
+   */
+  formAssist?: boolean;
 };
 
 export type ResolvedKey = {

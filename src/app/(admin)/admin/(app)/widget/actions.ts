@@ -43,6 +43,8 @@ const configSchema = z.object({
   position: z.enum(["right", "left"]).optional(),
   /** Varredura da tela do cliente como contexto p/ a IA (por widget). */
   scan: z.boolean().optional(),
+  /** Assistente de formulário: ler campos + propor preenchimento (com confirmação). */
+  formAssist: z.boolean().optional(),
 });
 
 const upsertSchema = z.object({

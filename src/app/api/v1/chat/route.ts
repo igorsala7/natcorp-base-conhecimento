@@ -25,6 +25,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
+import { parseFields, fieldsContextBlock, buildFormTools, type FillAction } from "@/lib/chat/form-fields";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
     attachmentIds?: unknown;
     page?: unknown;
     pageContent?: unknown;
+    fields?: unknown;
   };
   try {
     payload = await req.json();
@@ -150,7 +152,15 @@ export async function POST(req: NextRequest) {
   const integ = track.p_base
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta)
     : { tools: {}, capabilities: "", agentPrompt: "" };
-  const temTools = Object.keys(integ.tools).length > 0;
+  // Assistente de formulário (por chave): a IA lê os campos da tela e pode PROPOR
+  // preencher um deles. `preencher_campo` só coleta a intenção; o widget executa
+  // com confirmação. As ações vão ao cliente por SSE `fill` no fim do stream.
+  const formAssist = key.config?.formAssist === true;
+  const screenFields = formAssist ? parseFields(payload.fields) : [];
+  const fillActions: FillAction[] = [];
+  const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, fillActions) : {};
+  const allTools = { ...integ.tools, ...formTools };
+  const temTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
   // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
   const glossario = social ? "" : await glossarioCasado(supabase, key.space_ids, question).catch(() => "");
@@ -255,6 +265,7 @@ export async function POST(req: NextRequest) {
         attach.contextBlock,
         pageContextNote(page),
         scanBlock,
+        fieldsContextBlock(screenFields),
         glossario
           ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
           : "",
@@ -265,9 +276,9 @@ export async function POST(req: NextRequest) {
     // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
     // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
     messages: withPrefixCache(withImageParts(messages, attach.imageParts), temTools),
-    // Loop agêntico: o modelo pode chamar uma API, ler o resultado e responder
-    // (ou encadear). `stopWhen` trava o loop. Só quando há tools de integração.
-    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
+    // Loop agêntico: o modelo pode chamar uma API (ou preencher_campo), ler o
+    // resultado e responder. `stopWhen` trava o loop.
+    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
   });
 
   const stream = new ReadableStream({
@@ -289,6 +300,11 @@ export async function POST(req: NextRequest) {
         controller.enqueue(
           sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
         );
+      }
+      // Assistente de formulário: a IA propôs preencher campos → o widget destaca
+      // e pede confirmação antes de escrever.
+      for (const a of fillActions) {
+        controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor }));
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({

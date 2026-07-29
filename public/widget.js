@@ -114,6 +114,131 @@
     }
   }
 
+  // ── Assistente de formulário: ler os CAMPOS (estruturados) e preenchê-los ─────
+  // Só roda quando `cfg.formAssist`. Lê um mapa {ref,label,type,value} da tela e
+  // guarda os elementos para escrever depois (com confirmação visual do usuário).
+  var _fieldRefs = [];       // ref (índice) -> elemento, do último scan
+  var _fills = [];           // preenchimentos propostos pela IA, processados 1 a 1
+  var _picking = null;       // ativo enquanto aguardamos o usuário clicar num campo
+  var _hlAdded = false;
+  function fieldTipo(el) {
+    var tag = (el.tagName || "").toLowerCase();
+    if (tag === "textarea") return "textarea";
+    if (tag === "select") return "select";
+    if (el.isContentEditable) return "richtext";
+    return (el.type || "text").toLowerCase();
+  }
+  function fieldValor(el) {
+    if (el.isContentEditable) return scanTexto(el.textContent).slice(0, 400);
+    return scanValor(el);
+  }
+  function scanFields() {
+    _fieldRefs = [];
+    var out = [], lm = {};
+    function collect(doc) {
+      if (!doc) return;
+      try { doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); }); } catch {}
+      try {
+        doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
+          if (out.length >= 60) return;
+          var t = (el.type || "").toLowerCase();
+          if (t === "hidden" || t === "password" || t === "submit" || t === "button" || t === "reset" || t === "file") return;
+          if (el.disabled) return;
+          if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
+          var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
+          var ref = String(_fieldRefs.length);
+          try { el.setAttribute("data-kb-field", ref); } catch {}
+          _fieldRefs.push(el);
+          out.push({ ref: ref, label: scanTexto(rot).slice(0, 120), type: fieldTipo(el), value: fieldValor(el) });
+        });
+      } catch {}
+      try {
+        doc.querySelectorAll("iframe").forEach(function (f) {
+          var d = null; try { d = f.contentDocument; } catch { d = null; }
+          if (d) collect(d);
+        });
+      } catch {}
+    }
+    collect(document);
+    return out;
+  }
+  function fieldEl(ref) {
+    var el = _fieldRefs[Number(ref)];
+    if (el && el.isConnected) return el;
+    try { return document.querySelector('[data-kb-field="' + ref + '"]'); } catch { return null; }
+  }
+  function ensureHl() {
+    if (_hlAdded) return;
+    _hlAdded = true;
+    try {
+      var c = (cfg && cfg.primaryColor) || "#511C76";
+      var st = document.createElement("style");
+      st.textContent =
+        "@keyframes kbFieldPulse{0%,100%{box-shadow:0 0 0 3px " + c + "55}50%{box-shadow:0 0 0 7px " + c + "22}}" +
+        ".kb-field-hl{outline:2px solid " + c + "!important;outline-offset:2px;border-radius:5px;animation:kbFieldPulse 1s ease-in-out infinite!important}";
+      (document.head || document.documentElement).appendChild(st);
+    } catch {}
+  }
+  function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {} }
+  function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch {} }
+  function fillField(el, valor) {
+    try {
+      if (el.isContentEditable) {
+        el.textContent = valor;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if ((el.tagName || "").toLowerCase() === "select") {
+        var achou = false;
+        Array.prototype.forEach.call(el.options, function (o) {
+          if (!achou && (o.value === valor || scanTexto(o.textContent) === scanTexto(valor))) { el.value = o.value; achou = true; }
+        });
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        // setter nativo -> React/Angular percebem a mudança
+        var proto = (el.tagName || "").toLowerCase() === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        var desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) desc.set.call(el, valor); else el.value = valor;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      try { el.focus(); } catch {}
+    } catch {}
+  }
+  function processFills() {
+    if (_picking) return;
+    var a = _fills.shift();
+    if (!a) return;
+    var el = fieldEl(a.ref);
+    if (!el) { pickField(a); return; } // campo sumiu -> pede o clique
+    highlightField(el);
+    var trecho = a.valor.length > 160 ? a.valor.slice(0, 160) + "…" : a.valor;
+    addMsg("assistant", "Preencher o campo destacado (“" + a.label + "”) com:\n“" + trecho + "”?");
+    var box = document.createElement("div");
+    box.className = "opts";
+    var sim = document.createElement("button"); sim.textContent = "Sim, preencher";
+    var nao = document.createElement("button"); nao.textContent = "Não, eu escolho o campo";
+    sim.addEventListener("click", function () { box.remove(); unhighlightField(el); fillField(el, a.valor); addMsg("assistant", "Pronto ✅ Preenchi “" + a.label + "”."); processFills(); });
+    nao.addEventListener("click", function () { box.remove(); unhighlightField(el); pickField(a); });
+    box.appendChild(sim); box.appendChild(nao);
+    messagesEl.appendChild(box); messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  function pickField(a) {
+    addMsg("assistant", "Clique no campo da tela onde você quer que eu escreva.");
+    var timer = null;
+    function onClick(e) {
+      var el = e.target && e.target.closest ? e.target.closest("input,textarea,select,[contenteditable]") : null;
+      if (!el) return;                       // clicou fora de um campo -> segue esperando
+      if (host && host.contains && host.contains(el)) return; // ignora o próprio widget
+      cleanup();
+      fillField(el, a.valor);
+      addMsg("assistant", "Pronto ✅ Escrevi no campo que você escolheu.");
+      processFills();
+    }
+    function cleanup() { _picking = null; document.removeEventListener("click", onClick, true); if (timer) clearTimeout(timer); }
+    _picking = { cancel: cleanup };
+    document.addEventListener("click", onClick, true);
+    timer = setTimeout(function () { if (_picking) { cleanup(); addMsg("assistant", "Cancelei o preenchimento — é só pedir de novo."); processFills(); } }, 30000);
+  }
+
   // Sessão anônima estável (para agrupar a conversa).
   var sessionId = localStorage.getItem(LS_SID);
   if (!sessionId) {
@@ -1131,6 +1256,12 @@
       var scan = scanPage();
       if (scan) body.pageContent = scan;
     }
+    // Assistente de formulário: envia o mapa estruturado dos campos da tela para
+    // a IA opinar/preencher (só se habilitado na config deste widget).
+    if (cfg.formAssist) {
+      var flds = scanFields();
+      if (flds.length) body.fields = flds;
+    }
     fetch(API + "/api/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
@@ -1204,6 +1335,10 @@
           "display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 40px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;max-width:80%;";
         messagesEl.appendChild(fa);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+      } else if (evt.type === "fill") {
+        // A IA propôs preencher um campo → enfileira; processa no fim (com confirmação).
+        if (typing.parentNode) typing.remove();
+        _fills.push(evt);
       }
     }
     function finish() {
@@ -1228,6 +1363,7 @@
         if (citations.length) renderCitations(citations);
       }
       done();
+      if (_fills.length) processFills(); // preenchimentos propostos pela IA
     }
     function done() {
       busy = false;
