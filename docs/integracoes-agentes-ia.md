@@ -262,19 +262,23 @@ dados do **próprio** colaborador. São `POST` com corpo embrulhado (`body_mode 
 identidade vai no corpo. A **confirmação é obrigatória**: o agente mostra o novo valor e pede
 Sim/Não antes de chamar (instruído no prompt).
 
-**Antecipação salarial — só informativo/simulação.** `antecipacao_saldo`, `antecipacao_regras`,
-`antecipacao_simular` (com `simulacao=S` — não movimenta) e `antecipacao_historico`. Usam o corpo
+**Antecipação salarial.** `antecipacao_saldo`, `antecipacao_regras`, `antecipacao_simular` (com
+`simulacao=S` — não movimenta) e `antecipacao_historico` (leitura/simulação). Usam o corpo
 `wrap:saque` (`{saque:[{…}]}`) e a `session_key`. A **efetivação do saque** (`antecipacao_efetivar`)
-fica **registrada mas DESATIVADA** — a IA não a aciona. Ela já vem protegida pelo **guard
-`saque_confirmation`**: um gate **fora‑da‑banda** — sem código, o servidor gera um código, guarda só o
-**hash** (`ai_pending_confirmations`), envia ao **e‑mail cadastrado** do usuário (o modelo NUNCA vê o
-código) e recusa pedindo o código; com o código correto (não usado, não expirado), efetiva. Assim a
-IA não consegue mover dinheiro sozinha — nem mesmo com um "Sim" no chat. **Habilitar** (pôr
-`active=true`) e um teste controlado é decisão do dono. O **PIX externo (Asaas)** não é registrado.
+está **ATIVA**, protegida pelo **guard `saque_confirmation`** (gate **fora‑da‑banda**): na 1ª chamada
+(sem código) o servidor gera um código, guarda só o **hash** (`ai_pending_confirmations`), envia ao
+**e‑mail cadastrado** do usuário (o modelo NUNCA vê o código) e recusa pedindo o código; com o código
+correto (não usado, não expirado), efetiva. Assim a IA não move dinheiro sozinha — nem com um "Sim" no
+chat. Requer o **e‑mail cadastrado** e o **envio de e‑mail** configurado (Sistema → IA); faça um teste
+controlado. O **PIX externo (Asaas)** não é registrado.
 
-> Reaplicar: `npm run seed:natcorp` registra tudo isso (44 ferramentas ativas + 1 desativada, agentes
-> `nati_rh` e `nati_gestor`). As capacidades acima reusam mecanismos genéricos do módulo
-> (`requires_perfil`, origem `credencial`, `body_mode`, `guard`) — servem a qualquer base ORDS‑like.
+**Menus (`lista_opcoes`).** Devolve MENUS prontos (título + opções separadas por `;`) para o usuário
+escolher: saudação (`opcao_colaborador`/`opcao_gestor`), confirmações Sim/Não (`confirmar_padrao`) e
+submenus de ponto (`ponto_eletronico`), SESMT (`opcao_sesmt`) e antecipação (`antecipacao_salarial`).
+
+> Reaplicar: `npm run seed:natcorp` registra tudo isso (46 ferramentas ativas, agentes `nati_rh` e
+> `nati_gestor`). As capacidades acima reusam mecanismos genéricos do módulo (`requires_perfil`, origem
+> `credencial`, `body_mode`, `guard`, `local:none`) — servem a qualquer base ORDS‑like.
 
 ## 7. Segurança
 

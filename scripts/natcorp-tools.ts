@@ -103,6 +103,16 @@ const usuario = (): ToolParam => ({
   local: "query",
   campoIdentidade: "usuario",
 });
+/** Identidade genérica: injeta `campo` do login com o `nome` que a API espera. */
+const ident = (nome: string, campo: IdentityField, obrigatorio = true): ToolParam => ({
+  nome,
+  descricao: "",
+  tipo: "string",
+  origem: "identidade",
+  obrigatorio,
+  local: "query",
+  campoIdentidade: campo,
+});
 /** Filtro (código) que a IA extrai da conversa. Códigos são texto (podem ter zero à esquerda). */
 const filtro = (nome: string, descricao: string, obrigatorio = false): ToolParam => ({
   nome,
@@ -180,6 +190,35 @@ const corpoData = (nome: string, mascara: string, descricao: string, obrigatorio
 // GRUPO COLABORADOR (nati_rh) — somente leitura do próprio colaborador
 // =============================================================================
 export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
+  {
+    key: "lista_opcoes",
+    name: "Menu de opções",
+    description:
+      "Retorna um MENU de opções (título + opções separadas por ';' + rodapé) para o usuário " +
+      "escolher. Use na SAUDAÇÃO inicial (tipo_lista='opcao_colaborador'; se o perfil for gestor, " +
+      "'opcao_gestor'), para CONFIRMAR uma ação sensível (tipo_lista='confirmar_padrao' = Sim/Não), " +
+      "e para sub-menus de ponto eletrônico ('ponto_eletronico') ou de SESMT ('opcao_sesmt'). " +
+      "Apresente as opções NUMERADAS e peça o número.",
+    path_template: "/chatbot/lista/v1/opcoes",
+    params: [
+      empresa("cod_empresa"),
+      matricula(),
+      usuario(),
+      ident("cod_empresa_usuario", "cod_empresa", false),
+      ident("matricula_usuario", "matricula", false),
+      {
+        nome: "tipo_lista",
+        descricao: "Tipo do menu a retornar.",
+        tipo: "enum",
+        origem: "modelo",
+        obrigatorio: true,
+        local: "query",
+        opcoes: ["opcao_colaborador", "opcao_gestor", "confirmar_padrao", "ponto_eletronico", "opcao_sesmt", "antecipacao_salarial"],
+      },
+    ],
+    response_hint:
+      "As opções vêm separadas por ';'. Apresente-as numeradas e peça o número. Se tipo_retorno='botao', são botões (ex.: Sim/Não).",
+  },
   {
     key: "consultar_beneficios",
     name: "Consultar benefícios",
@@ -406,6 +445,29 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
       corpoIdent("matricula", "matricula"),
       corpoFixo("acao", "CONSULTAR_HIST_SAQUE"),
       corpoFixo("simulacao", "N"),
+    ],
+  },
+  {
+    key: "antecipacao_efetivar",
+    name: "Antecipação: efetivar saque",
+    description:
+      "EFETIVA o saque de antecipação (MOVIMENTA DINHEIRO). Antes, mostre valor, taxas e valor líquido " +
+      "(use antecipacao_simular) e confirme a intenção. É protegida pelo guard de confirmação: na 1ª " +
+      "chamada (sem `codigo`), o servidor envia um código ao e-mail do usuário e recusa — peça o código " +
+      "ao usuário e chame de novo passando-o em `codigo`. Nunca invente o código.",
+    method: "POST",
+    path_template: "/pagamento/v1/saque",
+    body_mode: "wrap:saque",
+    guard: "saque_confirmation",
+    params: [
+      sessionKey(),
+      corpoIdent("cod_empresa", "cod_empresa"),
+      corpoIdent("matricula", "matricula"),
+      corpoFixo("acao", "SOLICITAR"),
+      corpoFixo("simulacao", "N"),
+      corpo("valor", "Valor do saque."),
+      corpoData("data", "dd/MM/yyyy", "Data atual (ISO).", false),
+      interno("codigo", "Código de confirmação que o usuário recebeu por e-mail (para efetivar)."),
     ],
   },
   // ── Escritas (dados do PRÓPRIO colaborador) — exigem confirmação ────────────
@@ -697,43 +759,8 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
   },
 ];
 
-// =============================================================================
-// EXTRA — registradas no catálogo mas DESATIVADAS e SEM agente (não acionáveis
-// pela IA). Movimentam dinheiro: só devem ser habilitadas junto de uma trava de
-// confirmação no servidor (ver docs). O PIX externo (Asaas) NÃO é registrado.
-// =============================================================================
-export const NATCORP_TOOLS_EXTRA: NatcorpTool[] = [
-  {
-    key: "antecipacao_efetivar",
-    name: "Antecipação: EFETIVAR saque (desativada)",
-    description:
-      "EFETIVA o saque de antecipação — MOVIMENTA DINHEIRO. Desativada por padrão. Protegida pelo " +
-      "guard `saque_confirmation`: sem código, o servidor envia um código ao e-mail do usuário e recusa; " +
-      "com o código correto, efetiva. A IA não a aciona automaticamente (habilitar é decisão do dono).",
-    method: "POST",
-    path_template: "/pagamento/v1/saque",
-    body_mode: "wrap:saque",
-    active: false,
-    guard: "saque_confirmation",
-    params: [
-      sessionKey(),
-      corpoIdent("cod_empresa", "cod_empresa"),
-      corpoIdent("matricula", "matricula"),
-      corpoFixo("acao", "SOLICITAR"),
-      corpoFixo("simulacao", "N"),
-      corpo("valor", "Valor do saque."),
-      corpoData("data", "dd/MM/yyyy", "Data atual (ISO).", false),
-      interno("codigo", "Código de confirmação que o usuário recebeu por e-mail (para efetivar)."),
-    ],
-  },
-];
-
 /** Todas as ferramentas (catálogo + ativação por base). */
-export const NATCORP_TOOLS: NatcorpTool[] = [
-  ...NATCORP_TOOLS_COLAB,
-  ...NATCORP_TOOLS_GESTOR,
-  ...NATCORP_TOOLS_EXTRA,
-];
+export const NATCORP_TOOLS: NatcorpTool[] = [...NATCORP_TOOLS_COLAB, ...NATCORP_TOOLS_GESTOR];
 
 // ── Agentes ───────────────────────────────────────────────────────────────────
 export type NatcorpAgent = {
@@ -757,7 +784,7 @@ ESTILO: pt-BR, frases curtas e legíveis. Evite títulos grandes (#, ##). Format
 
 PRIVACIDADE: os dados retornados são do próprio colaborador — pode exibi-los sem máscara. Se algum dado de OUTRA pessoa aparecer, mascare o sensível (CPF ...123-XX, cartão ****-1234). Toda mudança sensível (dados pessoais/financeiros) exige confirmação antes de executar.
 
-SAUDAÇÃO: apresente-se em uma linha e ofereça, em lista numerada, o que você pode fazer.
+SAUDAÇÃO: apresente-se em uma linha e mostre o MENU inicial com a ferramenta lista_opcoes (tipo_lista='opcao_colaborador'; se o usuário for gestor, 'opcao_gestor'). Apresente as opções numeradas e peça o número. Use lista_opcoes sempre que fizer sentido oferecer opções ou confirmar (tipo_lista='confirmar_padrao' = Sim/Não).
 
 O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 - Férias → consultar_ferias.
@@ -765,18 +792,18 @@ O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 - Holerite / recibo de pagamento → ofereça os meses com historico_financeiro_meses e, após a escolha, gere com relatorio_recibo_pagamento.
 - Informe de rendimentos → pergunte o ano (sugira 3 anos) e chame relatorio_informe_rendimentos.
 - Histórico financeiro (proventos e descontos) → liste os meses com historico_financeiro_meses e depois historico_financeiro.
-- Ponto eletrônico: batidas/marcações → consultar_marcacoes; resultado de apuração → peça o período e chame resultado_apuracao_ponto; espelho de ponto → peça o período e chame relatorio_espelho_ponto.
+- Ponto eletrônico → ofereça o submenu com lista_opcoes (tipo_lista='ponto_eletronico'). Batidas/marcações → consultar_marcacoes; resultado de apuração → peça o período e chame resultado_apuracao_ponto; espelho de ponto → peça o período e chame relatorio_espelho_ponto.
 - Aviso de férias → liste os períodos com relatorio_aviso_ferias_meses e depois relatorio_aviso_ferias.
 - Feedbacks → consultar_feedback (mostre a nota em ⭐, se houver).
 - Histórico cadastral / linha do tempo → primeiro liste os tipos de fato com linha_tempo_fato; após a escolha, consulte linha_tempo (se for férias, prefira consultar_ferias).
 - Documentos de assinatura eletrônica → consultar_assinatura_eletronica (mostre até 4 e o link url_portal_assinatura de cada um; o CPF é automático).
-- Atualizar telefone ou e-mail pessoal → AÇÃO SENSÍVEL: mostre o novo valor e peça confirmação (Sim/Não); só então chame atualizar_telefone / atualizar_email.
-- Antecipação salarial → saldo (antecipacao_saldo), regras (antecipacao_regras) e, para um valor, antecipacao_simular (mostra líquido e taxas). É INFORMATIVO/SIMULAÇÃO: a EFETIVAÇÃO do saque NÃO é feita por aqui — oriente o usuário pelos canais oficiais. Histórico → antecipacao_historico.
+- Atualizar telefone ou e-mail pessoal → AÇÃO SENSÍVEL: mostre o novo valor e peça confirmação Sim/Não (pode usar lista_opcoes tipo_lista='confirmar_padrao'); só então chame atualizar_telefone / atualizar_email.
+- Antecipação salarial → ofereça o submenu com lista_opcoes (tipo_lista='antecipacao_salarial'). Saldo → antecipacao_saldo; regras → antecipacao_regras; simular um valor → antecipacao_simular (mostra líquido e taxas); histórico → antecipacao_historico. Para EFETIVAR o saque: primeiro simule e mostre valor, taxas e líquido, confirme a intenção, e chame antecipacao_efetivar — o servidor envia um CÓDIGO ao e-mail do usuário e recusa a 1ª vez; peça o código ao usuário e chame de novo passando-o no parâmetro codigo. NUNCA invente o código.
 - Dúvidas de "como fazer", conceitos, regras e leis trabalhistas → responda pela DOCUMENTAÇÃO (não há ferramenta para isso).
 
 SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas de gestão sobre DADOS GERAIS da organização (nunca de um colaborador específico por aqui). Prefira CÓDIGOS a nomes — descubra o código usando as ferramentas de estrutura (empresas, filiais, cargos, centros de custo, funções, locais) antes de filtrar.
 - BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → escolha a ferramenta bi_hist_financeiro_* mais específica conforme os filtros; informe o mês (MM/AAAA). Parâmetros não informados ficam em branco.
-- BI de riscos / SESMT / segurança do trabalho → escolha a ferramenta bi_risco_* mais específica.
+- BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e escolha a ferramenta bi_risco_* mais específica conforme os filtros.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.
 - Dados completos de UM colaborador da equipe (cargo, situação, salário) → identifique a matrícula com listar_colaboradores_resumo e então dados_colaborador_equipe (o servidor só libera se for da sua equipe; senão recusa). Mascare dados sensíveis de terceiros (CPF, conta).
 - Alertas, notificações ou pendências da equipe → alertas_gestor.
@@ -784,7 +811,7 @@ SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas 
 
 DATAS: exiba e aceite no formato DD/MM/AAAA (ou MM/AAAA quando a ferramenta pedir mês). Se um período não for informado, pergunte. Ao acionar a ferramenta, informe a data em ISO (AAAA-MM-DD) — a formatação exigida por cada API é aplicada automaticamente. Ao gerar um relatório/documento, apenas confirme o envio: o arquivo é anexado automaticamente.
 
-AINDA NÃO DISPONÍVEL POR AQUI: a EFETIVAÇÃO do saque de antecipação (só a simulação está disponível). Se pedirem, explique com gentileza que ainda não está disponível por este canal e ofereça o que dá para fazer.
+MENU: prefira lista_opcoes para oferecer opções e para confirmar ações (Sim/Não), em vez de texto solto — fica mais fácil para o usuário responder com um número.
 
 DÚVIDA OU FALHA: se não tiver certeza de qual recurso usar, pergunte de forma simples (você quer X ou Y?), sem termos técnicos. Se algo falhar, não exponha detalhes internos — reformule e tente entender melhor o pedido.`;
 
