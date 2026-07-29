@@ -40,6 +40,7 @@ export default async function IntegracoesPage() {
   const supabase = await createClient();
   const [
     { data: bases },
+    { data: baseSpacesData },
     { data: creds },
     { data: toolsData },
     { data: baseToolsData },
@@ -48,7 +49,8 @@ export default async function IntegracoesPage() {
     { data: providersData },
     { data: waSettings },
   ] = await Promise.all([
-    supabase.from("ai_bases").select("id, base_code, name, active, chat_space_id").order("name"),
+    supabase.from("ai_bases").select("id, base_code, name, active").order("name"),
+    supabase.from("ai_base_spaces").select("base_id, space_id, position"),
     supabase.from("ai_base_credentials").select("id, base_id, name, auth_type, active").order("name"),
     supabase
       .from("ai_tools")
@@ -85,7 +87,10 @@ export default async function IntegracoesPage() {
     base_code: b.base_code,
     name: b.name,
     active: b.active,
-    chatSpaceId: b.chat_space_id,
+    spaceIds: (baseSpacesData ?? [])
+      .filter((x) => x.base_id === b.id)
+      .sort((a, z) => a.position - z.position)
+      .map((x) => x.space_id),
     credentials: (creds ?? [])
       .filter((c) => c.base_id === b.id)
       .map((c) => ({

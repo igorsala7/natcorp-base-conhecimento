@@ -40,7 +40,7 @@ export type BaseRow = {
   base_code: string;
   name: string;
   active: boolean;
-  chatSpaceId: string | null;
+  spaceIds: string[];
   credentials: CredentialRow[];
 };
 export type SpaceOption = { id: string; name: string };
@@ -412,7 +412,16 @@ function BaseDialog({
   const [baseCode, setBaseCode] = useState(base?.base_code ?? "");
   const [name, setName] = useState(base?.name ?? "");
   const [active, setActive] = useState(base?.active ?? true);
-  const [chatSpaceId, setChatSpaceId] = useState(base?.chatSpaceId ?? "");
+  const [spaceIds, setSpaceIds] = useState<Set<string>>(new Set(base?.spaceIds ?? []));
+
+  function toggleSpace(id: string) {
+    setSpaceIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
 
   return (
     <Dialog
@@ -427,8 +436,8 @@ function BaseDialog({
             onClick={() =>
               onSave(
                 base
-                  ? { id: base.id, base_code: baseCode, name, active, chat_space_id: chatSpaceId || null }
-                  : { base_code: baseCode, name, chat_space_id: chatSpaceId || null },
+                  ? { id: base.id, base_code: baseCode, name, active, space_ids: [...spaceIds] }
+                  : { base_code: baseCode, name, space_ids: [...spaceIds] },
               )
             }
           >
@@ -444,13 +453,24 @@ function BaseDialog({
         <Field label="Nome do cliente" htmlFor="base_name">
           <input id="base_name" className={controlClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="ex.: Acme S/A" />
         </Field>
-        <Field label="Documentação do chatbot" htmlFor="base_space" hint="Base de conhecimento que o chatbot usa (RAG) e onde as conversas do WhatsApp são registradas.">
-          <select id="base_space" className={controlClass} value={chatSpaceId} onChange={(e) => setChatSpaceId(e.target.value)}>
-            <option value="">— nenhuma —</option>
-            {spaces.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+        <Field label="Documentações do chatbot" htmlFor="base_spaces" hint="Bases de conhecimento que o chatbot desta base usa (RAG). Pode marcar várias; a 1ª é onde as conversas do WhatsApp são registradas.">
+          {spaces.length === 0 ? (
+            <p className="text-sm text-text-muted">Nenhuma documentação disponível.</p>
+          ) : (
+            <div className="flex max-h-48 flex-col gap-1.5 overflow-auto rounded-lg border border-border bg-surface-2/40 p-2.5">
+              {spaces.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    checked={spaceIds.has(s.id)}
+                    onChange={() => toggleSpace(s.id)}
+                    className="size-4 accent-[var(--color-primary)]"
+                  />
+                  <span className="truncate">{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
         </Field>
         {base && (
           <label className="flex items-center gap-2 text-sm text-text">

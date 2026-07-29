@@ -41,6 +41,8 @@ type Msg = {
   options?: ClarifyOption[];
   /** Documentos anexados a esta mensagem do usuário. */
   attachments?: AttMeta[];
+  /** Arquivos retornados por APIs (base64) — links de download. */
+  files?: { filename: string; mimeType: string; dataUrl: string }[];
 };
 
 /** Painel "Perguntar à IA" do leitor — responde com base na doc do espaço. */
@@ -275,6 +277,9 @@ export function AskAiPanel({
             scope?: ClarifyScope;
             question?: string;
             options?: ClarifyOption[];
+            filename?: string;
+            mimeType?: string;
+            dataUrl?: string;
           };
           try {
             evt = JSON.parse(line);
@@ -290,6 +295,10 @@ export function AskAiPanel({
           } else if (evt.type === "token") {
             full += evt.value ?? "";
             updateLast((m) => ({ ...m, content: full }));
+            scrollDown();
+          } else if (evt.type === "file") {
+            const f = { filename: evt.filename ?? "arquivo", mimeType: evt.mimeType ?? "", dataUrl: evt.dataUrl ?? "" };
+            updateLast((m) => ({ ...m, files: [...(m.files ?? []), f] }));
             scrollDown();
           } else if (evt.type === "done") {
             convRef.current = evt.conversationId || convRef.current;
@@ -427,6 +436,21 @@ export function AskAiPanel({
                           <span className="block font-semibold text-primary">{o.label}</span>
                           {o.sublabel && <span className="mt-0.5 block leading-snug text-text-muted">{o.sublabel}</span>}
                         </button>
+                      ))}
+                    </div>
+                  )}
+                  {m.files && m.files.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {m.files.map((f, i) => (
+                        <a
+                          key={i}
+                          href={f.dataUrl}
+                          download={f.filename}
+                          rel="noopener"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text shadow-sm transition-colors hover:text-primary"
+                        >
+                          📎 {f.filename}
+                        </a>
                       ))}
                     </div>
                   )}

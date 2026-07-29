@@ -23,8 +23,23 @@ async function garantirPermissao(): Promise<string | null> {
 const baseSchema = z.object({
   base_code: z.string().trim().min(1, "Informe o código da base (p_base).").max(120),
   name: z.string().trim().min(1, "Informe o nome do cliente.").max(200),
-  chat_space_id: z.string().uuid().nullish(),
+  space_ids: z.array(z.string().uuid()).default([]),
 });
+
+/** Sincroniza as documentações do chatbot da base (ordem = position). */
+async function syncBaseSpaces(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  baseId: string,
+  spaceIds: string[],
+): Promise<void> {
+  await supabase.from("ai_base_spaces").delete().eq("base_id", baseId);
+  const unicos = [...new Set(spaceIds)];
+  if (unicos.length) {
+    await supabase
+      .from("ai_base_spaces")
+      .insert(unicos.map((space_id, i) => ({ base_id: baseId, space_id, position: i })));
+  }
+}
 
 export async function createBase(input: unknown): Promise<IntegResult> {
   const negado = await garantirPermissao();
@@ -39,7 +54,6 @@ export async function createBase(input: unknown): Promise<IntegResult> {
     .insert({
       base_code: parsed.data.base_code,
       name: parsed.data.name,
-      chat_space_id: parsed.data.chat_space_id ?? null,
       created_by: user?.id ?? null,
     })
     .select("id")
@@ -48,6 +62,7 @@ export async function createBase(input: unknown): Promise<IntegResult> {
     if (error?.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
     return { ok: false, error: `Falha ao criar: ${error?.message}` };
   }
+  await syncBaseSpaces(supabase, data.id, parsed.data.space_ids);
   await audit({ action: "integrations.base.create", entityType: "ai_base", entityId: data.id, spaceId: null, after: parsed.data });
   revalidatePath("/admin/integracoes");
   return { ok: true, id: data.id };
@@ -61,15 +76,16 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const supabase = await createClient();
-  const { id, base_code, name, active, chat_space_id } = parsed.data;
+  const { id, base_code, name, active, space_ids } = parsed.data;
   const { error } = await supabase
     .from("ai_bases")
-    .update({ base_code, name, active, chat_space_id: chat_space_id ?? null, updated_at: new Date().toISOString() })
+    .update({ base_code, name, active, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
     return { ok: false, error: `Falha ao salvar: ${error.message}` };
   }
+  await syncBaseSpaces(supabase, id, space_ids);
   await audit({ action: "integrations.base.update", entityType: "ai_base", entityId: id, spaceId: null, after: { base_code, name, active } });
   revalidatePath("/admin/integracoes");
   return { ok: true, id };

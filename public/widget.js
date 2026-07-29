@@ -1092,6 +1092,18 @@
       } else if (evt.type === "error") {
         if (typing.parentNode) typing.remove();
         addMsg("assistant", evt.message || "Erro ao gerar a resposta.");
+      } else if (evt.type === "file") {
+        // Arquivo retornado por uma API (holerite, recibo…) → link de download.
+        if (typing.parentNode) typing.remove();
+        var fa = document.createElement("a");
+        fa.href = evt.dataUrl;
+        fa.download = evt.filename || "arquivo";
+        fa.rel = "noopener";
+        fa.textContent = "📎 " + (evt.filename || "arquivo");
+        fa.style.cssText =
+          "display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 40px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;max-width:80%;";
+        messagesEl.appendChild(fa);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       }
     }
     function finish() {

@@ -319,11 +319,43 @@ export type Database = {
           },
         ]
       }
+      ai_base_spaces: {
+        Row: {
+          base_id: string
+          position: number
+          space_id: string
+        }
+        Insert: {
+          base_id: string
+          position?: number
+          space_id: string
+        }
+        Update: {
+          base_id?: string
+          position?: number
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_base_spaces_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "ai_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_base_spaces_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_bases: {
         Row: {
           active: boolean
           base_code: string
-          chat_space_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -333,7 +365,6 @@ export type Database = {
         Insert: {
           active?: boolean
           base_code: string
-          chat_space_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -343,22 +374,13 @@ export type Database = {
         Update: {
           active?: boolean
           base_code?: string
-          chat_space_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
           name?: string
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ai_bases_chat_space_id_fkey"
-            columns: ["chat_space_id"]
-            isOneToOne: false
-            referencedRelation: "spaces"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       ai_tools: {
         Row: {
