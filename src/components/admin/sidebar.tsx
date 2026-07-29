@@ -14,6 +14,7 @@ import {
   MousePointerClick,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   ScrollText,
   SlidersHorizontal,
   Trash2,
@@ -75,6 +76,7 @@ const GRUPOS = [
       { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
       { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
       { href: "/admin/sistema", label: "Sistema", icon: SlidersHorizontal, ready: true },
+      { href: "/admin/integracoes", label: "Integrações", icon: Plug, ready: true },
     ],
   },
 ] as const;

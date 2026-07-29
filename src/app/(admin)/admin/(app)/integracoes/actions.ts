@@ -1,0 +1,175 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+import { requirePermission } from "@/lib/auth/permissions";
+import { audit } from "@/lib/auth/audit";
+import { encryptSecret } from "@/lib/crypto/secrets";
+import { CREDENTIAL_FIELDS, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
+
+export type IntegResult = { ok: true; id?: string } | { ok: false; error: string };
+
+async function garantirPermissao(): Promise<string | null> {
+  try {
+    await requirePermission("integrations.manage", null);
+    return null;
+  } catch {
+    return "Sem permissão para gerenciar integrações.";
+  }
+}
+
+// ─────────────────────────────── Bases ──────────────────────────────────────
+const baseSchema = z.object({
+  base_code: z.string().trim().min(1, "Informe o código da base (p_base).").max(120),
+  name: z.string().trim().min(1, "Informe o nome do cliente.").max(200),
+});
+
+export async function createBase(input: unknown): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = baseSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("ai_bases")
+    .insert({ base_code: parsed.data.base_code, name: parsed.data.name, created_by: user?.id ?? null })
+    .select("id")
+    .single();
+  if (error || !data) {
+    if (error?.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
+    return { ok: false, error: `Falha ao criar: ${error?.message}` };
+  }
+  await audit({ action: "integrations.base.create", entityType: "ai_base", entityId: data.id, spaceId: null, after: parsed.data });
+  revalidatePath("/admin/integracoes");
+  return { ok: true, id: data.id };
+}
+
+export async function updateBase(input: unknown): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const schema = baseSchema.extend({ id: z.string().uuid(), active: z.boolean() });
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+
+  const supabase = await createClient();
+  const { id, base_code, name, active } = parsed.data;
+  const { error } = await supabase
+    .from("ai_bases")
+    .update({ base_code, name, active, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
+    return { ok: false, error: `Falha ao salvar: ${error.message}` };
+  }
+  await audit({ action: "integrations.base.update", entityType: "ai_base", entityId: id, spaceId: null, after: { base_code, name, active } });
+  revalidatePath("/admin/integracoes");
+  return { ok: true, id };
+}
+
+export async function deleteBase(id: string): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const supabase = await createClient();
+  // As credenciais (e seus segredos) e ativações caem por ON DELETE CASCADE.
+  const { error } = await supabase.from("ai_bases").delete().eq("id", id);
+  if (error) return { ok: false, error: `Falha ao excluir: ${error.message}` };
+  await audit({ action: "integrations.base.delete", entityType: "ai_base", entityId: id, spaceId: null });
+  revalidatePath("/admin/integracoes");
+  return { ok: true };
+}
+
+// ──────────────────────────── Credenciais ───────────────────────────────────
+const credSchema = z.object({
+  id: z.string().uuid().optional(),
+  baseId: z.string().uuid(),
+  name: z.string().trim().min(1, "Dê um nome à credencial.").max(120),
+  auth_type: z.enum(["none", "basic", "api_key", "bearer", "oauth2"]),
+  active: z.boolean().default(true),
+  /** Blob de segredo por tipo; ausente/vazio no update = manter o atual. */
+  secret: z.record(z.string(), z.string()).nullish(),
+});
+
+export async function saveCredential(input: unknown): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = credSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const { id, baseId, name, auth_type, active } = parsed.data;
+
+  // Normaliza o blob: remove campos vazios; só o que sobrar é "informado".
+  const bruto = parsed.data.secret ?? {};
+  const secret: Record<string, string> = {};
+  for (const [k, v] of Object.entries(bruto)) if (v && v.trim()) secret[k] = v.trim();
+  const informouSegredo = Object.keys(secret).length > 0;
+
+  const supabase = await createClient();
+
+  // 1) metadados
+  let credId = id;
+  if (credId) {
+    const { error } = await supabase
+      .from("ai_base_credentials")
+      .update({ name, auth_type, active, updated_at: new Date().toISOString() })
+      .eq("id", credId);
+    if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+  } else {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("ai_base_credentials")
+      .insert({ base_id: baseId, name, auth_type, active, created_by: user?.id ?? null })
+      .select("id")
+      .single();
+    if (error || !data) {
+      if (error?.code === "23505") return { ok: false, error: "Já existe uma credencial com esse nome nesta base." };
+      return { ok: false, error: `Falha ao criar: ${error?.message}` };
+    }
+    credId = data.id;
+  }
+
+  // 2) segredo (cifrado). 'none' não tem segredo → limpa.
+  if (auth_type === "none") {
+    await supabase.rpc("set_base_credential_secret", { p_credential_id: credId!, p_secret_enc: null as unknown as string });
+  } else if (informouSegredo) {
+    const faltando = requiredKeys(auth_type).filter((k) => !secret[k]);
+    if (faltando.length) {
+      const rotulos = CREDENTIAL_FIELDS[auth_type as AuthType]
+        .filter((f) => faltando.includes(f.key))
+        .map((f) => f.label)
+        .join(", ");
+      return { ok: false, error: `Preencha: ${rotulos}.` };
+    }
+    const { error } = await supabase.rpc("set_base_credential_secret", {
+      p_credential_id: credId!,
+      p_secret_enc: encryptSecret(JSON.stringify(secret)),
+    });
+    if (error) return { ok: false, error: `Falha ao gravar as credenciais: ${error.message}` };
+  } else if (!id) {
+    // Credencial NOVA de um tipo que exige segredo, mas nada foi informado.
+    return { ok: false, error: "Informe as credenciais deste tipo de autenticação." };
+  }
+
+  await audit({
+    action: id ? "integrations.credential.update" : "integrations.credential.create",
+    entityType: "ai_base_credential",
+    entityId: credId!,
+    spaceId: null,
+    after: { name, auth_type, active, segredoAtualizado: informouSegredo || auth_type === "none" },
+  });
+  revalidatePath("/admin/integracoes");
+  return { ok: true, id: credId };
+}
+
+export async function deleteCredential(id: string): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const supabase = await createClient();
+  // O segredo cai por ON DELETE CASCADE de ai_base_credential_secrets.
+  const { error } = await supabase.from("ai_base_credentials").delete().eq("id", id);
+  if (error) return { ok: false, error: `Falha ao excluir: ${error.message}` };
+  await audit({ action: "integrations.credential.delete", entityType: "ai_base_credential", entityId: id, spaceId: null });
+  revalidatePath("/admin/integracoes");
+  return { ok: true };
+}

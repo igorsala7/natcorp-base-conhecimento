@@ -14,6 +14,296 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_agent_tools: {
+        Row: {
+          agent_id: string
+          tool_id: string
+        }
+        Insert: {
+          agent_id: string
+          tool_id: string
+        }
+        Update: {
+          agent_id?: string
+          tool_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_tools_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_tools_tool_id_fkey"
+            columns: ["tool_id"]
+            isOneToOne: false
+            referencedRelation: "ai_tools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agents: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          key: string
+          model: string | null
+          name: string
+          parent_agent_id: string | null
+          priority: number
+          provider_id: string | null
+          scope_permission: string | null
+          system_prompt: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          key: string
+          model?: string | null
+          name: string
+          parent_agent_id?: string | null
+          priority?: number
+          provider_id?: string | null
+          scope_permission?: string | null
+          system_prompt?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          key?: string
+          model?: string | null
+          name?: string
+          parent_agent_id?: string | null
+          priority?: number
+          provider_id?: string | null
+          scope_permission?: string | null
+          system_prompt?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agents_parent_agent_id_fkey"
+            columns: ["parent_agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agents_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "ai_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_base_credential_secrets: {
+        Row: {
+          credential_id: string
+          secret_enc: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          credential_id: string
+          secret_enc: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          credential_id?: string
+          secret_enc?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_base_credential_secrets_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: true
+            referencedRelation: "ai_base_credentials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_base_credentials: {
+        Row: {
+          active: boolean
+          auth_type: string
+          base_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          auth_type: string
+          base_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          auth_type?: string
+          base_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_base_credentials_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "ai_bases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_base_tools: {
+        Row: {
+          base_id: string
+          base_url: string | null
+          credential_id: string | null
+          enabled: boolean
+          tool_id: string
+        }
+        Insert: {
+          base_id: string
+          base_url?: string | null
+          credential_id?: string | null
+          enabled?: boolean
+          tool_id: string
+        }
+        Update: {
+          base_id?: string
+          base_url?: string | null
+          credential_id?: string | null
+          enabled?: boolean
+          tool_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_base_tools_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "ai_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_base_tools_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "ai_base_credentials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_base_tools_tool_id_fkey"
+            columns: ["tool_id"]
+            isOneToOne: false
+            referencedRelation: "ai_tools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_bases: {
+        Row: {
+          active: boolean
+          base_code: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          base_code: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          base_code?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_tools: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          auth_type: string
+          description: string
+          id: string
+          key: string
+          method: string
+          name: string
+          params: Json
+          path_template: string
+          response_hint: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          auth_type?: string
+          description: string
+          id?: string
+          key: string
+          method?: string
+          name: string
+          params?: Json
+          path_template?: string
+          response_hint?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          auth_type?: string
+          description?: string
+          id?: string
+          key?: string
+          method?: string
+          name?: string
+          params?: Json
+          path_template?: string
+          response_hint?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_assignments: {
         Row: {
           model: string
@@ -2866,6 +3156,14 @@ export type Database = {
       ai_provider_has_key: {
         Args: { p_provider_id: string }
         Returns: boolean
+      }
+      base_credential_has_secret: {
+        Args: { p_credential_id: string }
+        Returns: boolean
+      }
+      set_base_credential_secret: {
+        Args: { p_credential_id: string; p_secret_enc: string }
+        Returns: undefined
       }
       ai_usage_report: {
         Args: {

@@ -1,0 +1,72 @@
+/**
+ * Definição de um PARÂMETRO de uma API/Tool e as opções de cadastro.
+ *
+ * Compartilhado entre a tela (editor de params) e o motor (Fase E, que monta a
+ * requisição). Guardado em `ai_tools.params` (jsonb). Regras de segurança:
+ *  - `origem: 'identidade'` → o valor vem do TOKEN cifrado (nunca do modelo);
+ *  - `origem: 'modelo'`     → a IA extrai da conversa (validado por tipo);
+ *  - `origem: 'fixo'`       → valor constante definido aqui.
+ */
+
+export type ParamTipo = "string" | "number" | "date" | "enum" | "boolean";
+export type ParamOrigem = "modelo" | "identidade" | "fixo";
+export type ParamLocal = "query" | "path" | "body" | "header";
+/** Campos de identidade disponíveis no token (p_*). */
+export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal";
+
+export type ToolParam = {
+  /** Nome do parâmetro NA API. */
+  nome: string;
+  /** Explicação p/ a IA (só relevante quando origem = 'modelo'). */
+  descricao: string;
+  tipo: ParamTipo;
+  origem: ParamOrigem;
+  obrigatorio: boolean;
+  /** Onde entra na requisição. `path` casa com `{nome}` no path_template. */
+  local: ParamLocal;
+  /** Formato de saída (datas variam por API): dd/MM/yyyy, MM/yyyy, yyyy-MM-dd… */
+  mascara?: string | null;
+  /** Valores possíveis quando tipo = 'enum'. */
+  opcoes?: string[];
+  /** Campo do token a injetar quando origem = 'identidade'. */
+  campoIdentidade?: IdentityField | null;
+  /** Valor constante quando origem = 'fixo'. */
+  valorFixo?: string | null;
+};
+
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+
+export const PARAM_TIPOS: readonly { value: ParamTipo; label: string }[] = [
+  { value: "string", label: "Texto" },
+  { value: "number", label: "Número" },
+  { value: "date", label: "Data" },
+  { value: "enum", label: "Lista (enum)" },
+  { value: "boolean", label: "Booleano" },
+];
+
+export const PARAM_ORIGENS: readonly { value: ParamOrigem; label: string; hint: string }[] = [
+  { value: "modelo", label: "IA extrai da conversa", hint: "O modelo preenche a partir do que o usuário pedir." },
+  { value: "identidade", label: "Identidade (token)", hint: "Injetado do token cifrado — nunca do modelo." },
+  { value: "fixo", label: "Valor fixo", hint: "Constante definida aqui." },
+];
+
+export const PARAM_LOCAIS: readonly { value: ParamLocal; label: string }[] = [
+  { value: "query", label: "Query string" },
+  { value: "path", label: "Caminho (path)" },
+  { value: "body", label: "Corpo (body)" },
+  { value: "header", label: "Header" },
+];
+
+export const IDENTITY_FIELDS: readonly { value: IdentityField; label: string }[] = [
+  { value: "usuario", label: "Usuário (p_usuario)" },
+  { value: "cod_empresa", label: "Cód. empresa (p_empresa)" },
+  { value: "matricula", label: "Matrícula (p_matricula)" },
+  { value: "perfil", label: "Perfil (p_perfil)" },
+  { value: "portal", label: "Portal (p_portal)" },
+];
+
+/** Um parâmetro em branco para o editor. */
+export function paramVazio(): ToolParam {
+  return { nome: "", descricao: "", tipo: "string", origem: "modelo", obrigatorio: false, local: "query" };
+}

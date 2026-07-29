@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, stepCountIs } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -24,6 +24,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
+import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 
 export const runtime = "nodejs";
 
@@ -136,6 +137,13 @@ export async function POST(req: NextRequest) {
   // Identidade de rastreio (decodificada do token) — usada na conversa E para
   // atribuir o CONSUMO de IA a este usuário (não ao sistema).
   const track = await decodeTrackForSpace(key.space_id, payload.track);
+  // Integrações (Fase F): se o token traz `p_base`, o modelo ganha ferramentas
+  // para consultar as APIs daquela base. A identidade é injetada no servidor
+  // (identityFromTrack) — o modelo só preenche os parâmetros de consulta.
+  const integ = track.p_base
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track))
+    : { tools: {}, capabilities: "" };
+  const temTools = Object.keys(integ.tools).length > 0;
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
@@ -174,7 +182,8 @@ export async function POST(req: NextRequest) {
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
   // Com anexo, NÃO recusa: o usuário trouxe o próprio conteúdo para a resposta.
-  if (sources.length === 0 && !social && attach.ids.length === 0 && !scanBlock) {
+  // Com TOOLS de integração, também não recusa: o modelo pode buscar dados na API.
+  if (sources.length === 0 && !social && attach.ids.length === 0 && !scanBlock && !temTools) {
     const refusal =
       "Não encontrei exatamente isso na documentação. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
@@ -197,7 +206,7 @@ export async function POST(req: NextRequest) {
 
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
   // Pulada em turnos sociais — não se "desambigua" um "oi".
-  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock) {
+  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock && !temTools) {
     const dis =
       analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
       analyzeConfidence(ragSources, payload.contextScope ?? null);
@@ -223,9 +232,14 @@ export async function POST(req: NextRequest) {
     model: await chatModel({ kind: "user", ...track }),
     system: withContext(
       systemPrompt,
-      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page), scanBlock].filter(Boolean).join("\n\n"),
+      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page), scanBlock, integ.capabilities]
+        .filter(Boolean)
+        .join("\n\n"),
     ),
     messages: withImageParts(messages, attach.imageParts),
+    // Loop agêntico: o modelo pode chamar uma API, ler o resultado e responder
+    // (ou encadear). `stopWhen` trava o loop. Só quando há tools de integração.
+    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
   });
 
   const stream = new ReadableStream({
