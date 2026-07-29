@@ -3,9 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { hasEncryptionKey } from "@/lib/crypto/secrets";
+import { env } from "@/lib/env";
+import { listSpaces } from "@/lib/content/spaces";
 import type { AuthType } from "@/lib/integrations/credentials";
+import type { WhatsappBundle } from "./integrations-shell";
+import type { WhatsappSettings } from "./whatsapp-panel";
 import type { ToolParam } from "@/lib/integrations/tools";
-import type { BaseRow } from "./integrations-manager";
+import type { BaseRow, SpaceOption } from "./integrations-manager";
 import { IntegrationsShell } from "./integrations-shell";
 import type { ToolRow, BaseToolRow } from "./tools-manager";
 import type { AgentRow, ProviderOption } from "./agents-manager";
@@ -42,8 +46,9 @@ export default async function IntegracoesPage() {
     { data: agentsData },
     { data: agentToolsData },
     { data: providersData },
+    { data: waSettings },
   ] = await Promise.all([
-    supabase.from("ai_bases").select("id, base_code, name, active").order("name"),
+    supabase.from("ai_bases").select("id, base_code, name, active, chat_space_id").order("name"),
     supabase.from("ai_base_credentials").select("id, base_id, name, auth_type, active").order("name"),
     supabase
       .from("ai_tools")
@@ -57,20 +62,30 @@ export default async function IntegracoesPage() {
       .order("name"),
     supabase.from("ai_agent_tools").select("agent_id, tool_id"),
     supabase.from("ai_providers").select("id, name").eq("active", true).order("name"),
+    supabase.from("whatsapp_settings").select("*").eq("id", true).maybeSingle(),
   ]);
 
   // Presença de segredo: `ai_base_credential_secrets` é deny-all (só service-role
   // lê). Buscamos só os ids que TÊM segredo — o valor nunca sai do servidor.
-  const { data: secretRows } = await createAdminClient()
-    .from("ai_base_credential_secrets")
-    .select("credential_id");
+  const admin = createAdminClient();
+  const [{ data: secretRows }, { data: waSec }] = await Promise.all([
+    admin.from("ai_base_credential_secrets").select("credential_id"),
+    admin
+      .from("whatsapp_secrets")
+      .select("app_secret_enc, access_token_enc, verify_token_enc, identity_secret_enc")
+      .eq("id", true)
+      .maybeSingle(),
+  ]);
   const comSegredo = new Set((secretRows ?? []).map((r) => r.credential_id));
+
+  const spaceOptions: SpaceOption[] = (await listSpaces()).map((s) => ({ id: s.id, name: s.name }));
 
   const baseRows: BaseRow[] = (bases ?? []).map((b) => ({
     id: b.id,
     base_code: b.base_code,
     name: b.name,
     active: b.active,
+    chatSpaceId: b.chat_space_id,
     credentials: (creds ?? [])
       .filter((c) => c.base_id === b.id)
       .map((c) => ({
@@ -120,6 +135,29 @@ export default async function IntegracoesPage() {
 
   const providerOptions: ProviderOption[] = (providersData ?? []).map((p) => ({ id: p.id, name: p.name }));
 
+  const whatsapp: WhatsappBundle = {
+    settings: {
+      active: waSettings?.active ?? false,
+      phone_number_id: waSettings?.phone_number_id ?? null,
+      waba_id: waSettings?.waba_id ?? null,
+      business_account_id: waSettings?.business_account_id ?? null,
+      unidentified_message: waSettings?.unidentified_message ?? "",
+      identity_endpoint: waSettings?.identity_endpoint ?? null,
+      identity_method: waSettings?.identity_method ?? "GET",
+      identity_auth_type: (waSettings?.identity_auth_type ?? "none") as WhatsappSettings["identity_auth_type"],
+      identity_phone_param: waSettings?.identity_phone_param ?? "telefone",
+      identity_phone_local: waSettings?.identity_phone_local ?? "query",
+      identity_map: (waSettings?.identity_map as Record<string, string>) ?? {},
+    },
+    secretsPresent: {
+      app_secret: !!waSec?.app_secret_enc,
+      access_token: !!waSec?.access_token_enc,
+      verify_token: !!waSec?.verify_token_enc,
+      identity: !!waSec?.identity_secret_enc,
+    },
+    webhookUrl: `${env.NEXT_PUBLIC_SITE_URL}/api/whatsapp/webhook`,
+  };
+
   return (
     <div className="mx-auto max-w-5xl">
       <h1 className="text-2xl font-semibold tracking-tight">Integrações</h1>
@@ -134,6 +172,8 @@ export default async function IntegracoesPage() {
         baseTools={baseToolRows}
         agents={agentRows}
         providers={providerOptions}
+        spaces={spaceOptions}
+        whatsapp={whatsapp}
         temChaveMestra={hasEncryptionKey()}
       />
     </div>

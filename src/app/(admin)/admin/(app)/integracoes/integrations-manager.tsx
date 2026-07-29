@@ -40,8 +40,10 @@ export type BaseRow = {
   base_code: string;
   name: string;
   active: boolean;
+  chatSpaceId: string | null;
   credentials: CredentialRow[];
 };
+export type SpaceOption = { id: string; name: string };
 
 const AUTH_LABEL = Object.fromEntries(AUTH_TYPES.map((a) => [a.value, a.label])) as Record<AuthType, string>;
 
@@ -49,11 +51,13 @@ export function IntegrationsManager({
   bases,
   tools,
   baseTools,
+  spaces,
   temChaveMestra,
 }: {
   bases: BaseRow[];
   tools: ToolRow[];
   baseTools: BaseToolRow[];
+  spaces: SpaceOption[];
   temChaveMestra: boolean;
 }) {
   const router = useRouter();
@@ -280,6 +284,7 @@ export function IntegrationsManager({
       {baseDialog && (
         <BaseDialog
           base={baseDialog.base}
+          spaces={spaces}
           pending={pending}
           onClose={() => setBaseDialog(null)}
           onSave={(payload) =>
@@ -393,11 +398,13 @@ function BaseToolDialog({
 // ─────────────────────────────── Diálogo: Base ──────────────────────────────
 function BaseDialog({
   base,
+  spaces,
   pending,
   onClose,
   onSave,
 }: {
   base?: BaseRow;
+  spaces: SpaceOption[];
   pending: boolean;
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => void;
@@ -405,6 +412,7 @@ function BaseDialog({
   const [baseCode, setBaseCode] = useState(base?.base_code ?? "");
   const [name, setName] = useState(base?.name ?? "");
   const [active, setActive] = useState(base?.active ?? true);
+  const [chatSpaceId, setChatSpaceId] = useState(base?.chatSpaceId ?? "");
 
   return (
     <Dialog
@@ -416,7 +424,13 @@ function BaseDialog({
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
           <Button
             disabled={pending}
-            onClick={() => onSave(base ? { id: base.id, base_code: baseCode, name, active } : { base_code: baseCode, name })}
+            onClick={() =>
+              onSave(
+                base
+                  ? { id: base.id, base_code: baseCode, name, active, chat_space_id: chatSpaceId || null }
+                  : { base_code: baseCode, name, chat_space_id: chatSpaceId || null },
+              )
+            }
           >
             Salvar
           </Button>
@@ -429,6 +443,14 @@ function BaseDialog({
         </Field>
         <Field label="Nome do cliente" htmlFor="base_name">
           <input id="base_name" className={controlClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="ex.: Acme S/A" />
+        </Field>
+        <Field label="Documentação do chatbot" htmlFor="base_space" hint="Base de conhecimento que o chatbot usa (RAG) e onde as conversas do WhatsApp são registradas.">
+          <select id="base_space" className={controlClass} value={chatSpaceId} onChange={(e) => setChatSpaceId(e.target.value)}>
+            <option value="">— nenhuma —</option>
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
         </Field>
         {base && (
           <label className="flex items-center gap-2 text-sm text-text">

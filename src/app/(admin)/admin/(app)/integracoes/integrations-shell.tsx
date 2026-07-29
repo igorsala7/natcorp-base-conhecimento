@@ -2,9 +2,16 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { IntegrationsManager, type BaseRow } from "./integrations-manager";
+import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow } from "./tools-manager";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
+import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
+
+export type WhatsappBundle = {
+  settings: WhatsappSettings;
+  secretsPresent: { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
+  webhookUrl: string;
+};
 
 /** Abas do módulo de integrações. */
 export function IntegrationsShell({
@@ -13,6 +20,8 @@ export function IntegrationsShell({
   baseTools,
   agents,
   providers,
+  spaces,
+  whatsapp,
   temChaveMestra,
 }: {
   bases: BaseRow[];
@@ -20,13 +29,16 @@ export function IntegrationsShell({
   baseTools: BaseToolRow[];
   agents: AgentRow[];
   providers: ProviderOption[];
+  spaces: SpaceOption[];
+  whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
-  const [tab, setTab] = useState<"bases" | "apis" | "agentes">("bases");
+  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "whatsapp">("bases");
   const abas = [
     ["bases", "Bases / Clientes"],
     ["apis", "APIs / Tools"],
     ["agentes", "Agentes"],
+    ["whatsapp", "WhatsApp"],
   ] as const;
 
   return (
@@ -50,11 +62,18 @@ export function IntegrationsShell({
       </div>
 
       {tab === "bases" ? (
-        <IntegrationsManager bases={bases} tools={tools} baseTools={baseTools} temChaveMestra={temChaveMestra} />
+        <IntegrationsManager bases={bases} tools={tools} baseTools={baseTools} spaces={spaces} temChaveMestra={temChaveMestra} />
       ) : tab === "apis" ? (
         <ToolsManager tools={tools} />
-      ) : (
+      ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
+      ) : (
+        <WhatsappPanel
+          settings={whatsapp.settings}
+          secretsPresent={whatsapp.secretsPresent}
+          webhookUrl={whatsapp.webhookUrl}
+          temChaveMestra={temChaveMestra}
+        />
       )}
     </div>
   );

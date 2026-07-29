@@ -23,6 +23,7 @@ async function garantirPermissao(): Promise<string | null> {
 const baseSchema = z.object({
   base_code: z.string().trim().min(1, "Informe o código da base (p_base).").max(120),
   name: z.string().trim().min(1, "Informe o nome do cliente.").max(200),
+  chat_space_id: z.string().uuid().nullish(),
 });
 
 export async function createBase(input: unknown): Promise<IntegResult> {
@@ -35,7 +36,12 @@ export async function createBase(input: unknown): Promise<IntegResult> {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("ai_bases")
-    .insert({ base_code: parsed.data.base_code, name: parsed.data.name, created_by: user?.id ?? null })
+    .insert({
+      base_code: parsed.data.base_code,
+      name: parsed.data.name,
+      chat_space_id: parsed.data.chat_space_id ?? null,
+      created_by: user?.id ?? null,
+    })
     .select("id")
     .single();
   if (error || !data) {
@@ -55,10 +61,10 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const supabase = await createClient();
-  const { id, base_code, name, active } = parsed.data;
+  const { id, base_code, name, active, chat_space_id } = parsed.data;
   const { error } = await supabase
     .from("ai_bases")
-    .update({ base_code, name, active, updated_at: new Date().toISOString() })
+    .update({ base_code, name, active, chat_space_id: chat_space_id ?? null, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };

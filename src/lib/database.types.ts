@@ -14,6 +14,99 @@ export type Database = {
   }
   public: {
     Tables: {
+      whatsapp_events: {
+        Row: {
+          created_at: string
+          message_id: string
+        }
+        Insert: {
+          created_at?: string
+          message_id: string
+        }
+        Update: {
+          created_at?: string
+          message_id?: string
+        }
+        Relationships: []
+      }
+      whatsapp_settings: {
+        Row: {
+          active: boolean
+          business_account_id: string | null
+          id: boolean
+          identity_auth_type: string
+          identity_endpoint: string | null
+          identity_map: Json
+          identity_method: string
+          identity_phone_local: string
+          identity_phone_param: string
+          phone_number_id: string | null
+          unidentified_message: string
+          updated_at: string
+          updated_by: string | null
+          waba_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          business_account_id?: string | null
+          id?: boolean
+          identity_auth_type?: string
+          identity_endpoint?: string | null
+          identity_map?: Json
+          identity_method?: string
+          identity_phone_local?: string
+          identity_phone_param?: string
+          phone_number_id?: string | null
+          unidentified_message?: string
+          updated_at?: string
+          updated_by?: string | null
+          waba_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          business_account_id?: string | null
+          id?: boolean
+          identity_auth_type?: string
+          identity_endpoint?: string | null
+          identity_map?: Json
+          identity_method?: string
+          identity_phone_local?: string
+          identity_phone_param?: string
+          phone_number_id?: string | null
+          unidentified_message?: string
+          updated_at?: string
+          updated_by?: string | null
+          waba_id?: string | null
+        }
+        Relationships: []
+      }
+      whatsapp_secrets: {
+        Row: {
+          access_token_enc: string | null
+          app_secret_enc: string | null
+          id: boolean
+          identity_secret_enc: string | null
+          updated_at: string
+          verify_token_enc: string | null
+        }
+        Insert: {
+          access_token_enc?: string | null
+          app_secret_enc?: string | null
+          id?: boolean
+          identity_secret_enc?: string | null
+          updated_at?: string
+          verify_token_enc?: string | null
+        }
+        Update: {
+          access_token_enc?: string | null
+          app_secret_enc?: string | null
+          id?: boolean
+          identity_secret_enc?: string | null
+          updated_at?: string
+          verify_token_enc?: string | null
+        }
+        Relationships: []
+      }
       ai_agent_tools: {
         Row: {
           agent_id: string
@@ -230,6 +323,7 @@ export type Database = {
         Row: {
           active: boolean
           base_code: string
+          chat_space_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -239,6 +333,7 @@ export type Database = {
         Insert: {
           active?: boolean
           base_code: string
+          chat_space_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -248,13 +343,22 @@ export type Database = {
         Update: {
           active?: boolean
           base_code?: string
+          chat_space_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
           name?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_bases_chat_space_id_fkey"
+            columns: ["chat_space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_tools: {
         Row: {
@@ -3164,6 +3268,14 @@ export type Database = {
       set_base_credential_secret: {
         Args: { p_credential_id: string; p_secret_enc: string }
         Returns: undefined
+      }
+      set_whatsapp_secret: {
+        Args: { p_campo: string; p_valor_enc: string }
+        Returns: undefined
+      }
+      whatsapp_has_secret: {
+        Args: { p_campo: string }
+        Returns: boolean
       }
       ai_usage_report: {
         Args: {
