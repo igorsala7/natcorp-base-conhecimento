@@ -44,11 +44,22 @@ type Msg = {
   options?: ClarifyOption[];
 };
 
+/** Identidade simulada — testar o chat como um usuário de uma base (ferramentas). */
+export type SimIdentity = {
+  base_code?: string;
+  usuario?: string;
+  empresa?: string;
+  matricula?: string;
+  perfil?: string;
+  portal?: string;
+};
+
 export function ChatPanel({
   spaces = [],
   aiReady,
   fixedSpaceId,
   promptOverride,
+  sim,
 }: {
   spaces?: SpaceInfo[];
   aiReady: boolean;
@@ -56,6 +67,8 @@ export function ChatPanel({
   fixedSpaceId?: string;
   /** Persona de rascunho a testar (página Assistente) — vai no body do /api/chat. */
   promptOverride?: string;
+  /** Identidade simulada (página Assistente) — aciona as ferramentas da base. */
+  sim?: SimIdentity;
 }) {
   const [internalSpaceId, setInternalSpaceId] = useState(spaces[0]?.id ?? "");
   const spaceId = fixedSpaceId ?? internalSpaceId;
@@ -114,6 +127,7 @@ export function ChatPanel({
           conversationId: convRef.current,
           // Só manda quando a página forneceu um rascunho (a página Assistente).
           ...(promptOverride !== undefined ? { promptOverride } : {}),
+          ...(sim?.base_code ? { sim } : {}),
           ...(scope ? { scope } : {}),
           ...(contextScopeRef.current ? { contextScope: contextScopeRef.current } : {}),
         }),

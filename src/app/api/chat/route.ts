@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, stepCountIs } from "ai";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -7,7 +7,11 @@ import {
   retrieveContext,
   buildContextBlock,
 } from "@/lib/ai/rag";
-import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
+import { composeSystemPrompt } from "@/lib/ai/system-prompt";
+import { buildIntegrationTools, type IntegrationBundle } from "@/lib/integrations/tool-builder";
+import type { Identity } from "@/lib/integrations/params";
+import type { OutFile } from "@/lib/integrations/documents";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { limitarHistorico } from "@/lib/ai/history";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
@@ -18,7 +22,7 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export async function POST(req: NextRequest) {
-  const { spaceId, messages: messagesBrutas, conversationId, promptOverride, scope, contextScope } = (await req.json()) as {
+  const { spaceId, messages: messagesBrutas, conversationId, promptOverride, scope, contextScope, sim } = (await req.json()) as {
     spaceId: string;
     messages: ChatMessage[];
     conversationId?: string;
@@ -28,6 +32,8 @@ export async function POST(req: NextRequest) {
     scope?: ClarifyScope;
     /** Tema em foco na conversa (eco do servidor) — evita perguntar no mesmo assunto. */
     contextScope?: ClarifyScope;
+    /** Identidade SIMULADA (página Assistente testando como usuário de uma base). */
+    sim?: { base_code?: string; usuario?: string; empresa?: string; matricula?: string; perfil?: string; portal?: string };
   };
   // Mesmo teto das rotas públicas. Aqui o chamador é interno e autenticado,
   // mas o custo de tokens é o mesmo e o histórico vem do cliente.
@@ -65,25 +71,34 @@ export async function POST(req: NextRequest) {
   // (a cascata segue acrescentando citar fonte / não inventar). Rascunho vazio =
   // testar o padrão do produto. Sem o campo → lê a persona salva do espaço.
   const aP = await resolveCategory("assistente");
-  let systemPrompt: string;
+  let persona: string;
   if (promptOverride !== undefined) {
-    systemPrompt = buildSystemPrompt({
-      promptDoEspaco: promptOverride.trim() || null,
-      personaPadrao: aP.persona_padrao,
-      regrasAbsolutas: aP.regras_absolutas,
-    });
+    persona = resolvePersona({ promptDoEspaco: promptOverride.trim() || null, personaPadrao: aP.persona_padrao });
   } else {
     const { data: espaco } = await supabase
       .from("spaces")
       .select("chat_prompt")
       .eq("id", spaceId)
       .maybeSingle();
-    systemPrompt = buildSystemPrompt({
-      promptDoEspaco: espaco?.chat_prompt ?? null,
-      personaPadrao: aP.persona_padrao,
-      regrasAbsolutas: aP.regras_absolutas,
-    });
+    persona = resolvePersona({ promptDoEspaco: espaco?.chat_prompt ?? null, personaPadrao: aP.persona_padrao });
   }
+
+  // Identidade SIMULADA (página Assistente): monta as ferramentas da base (Nati)
+  // e resolve o login, como um usuário real do widget. Só quem administra
+  // integrações pode simular — o restante ignora `sim` (chat de documentação normal).
+  const outFiles: OutFile[] = [];
+  let integ: IntegrationBundle = { tools: {}, capabilities: "", agentPrompt: "" };
+  if (sim?.base_code && (await hasPermission("integrations.manage", null))) {
+    const identity: Identity = {
+      usuario: sim.usuario || undefined,
+      cod_empresa: sim.empresa || undefined,
+      matricula: sim.matricula || undefined,
+      perfil: sim.perfil || undefined,
+      portal: sim.portal || undefined,
+    };
+    integ = await buildIntegrationTools(sim.base_code, identity, outFiles);
+  }
+  const temTools = Object.keys(integ.tools).length > 0;
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:
   // uma conversationId de OUTRO espaço é descartada — nunca cruza espaços.
@@ -128,8 +143,9 @@ export async function POST(req: NextRequest) {
   const tema = resolveTheme(ragSources);
   if (tema) baseHeaders["X-Theme"] = Buffer.from(JSON.stringify(tema)).toString("base64");
 
-  // Contexto fraco → recusa (proibido responder por conhecimento geral).
-  if (sources.length === 0 && !social) {
+  // Contexto fraco → recusa (proibido responder por conhecimento geral). Quando
+  // há FERRAMENTAS (simulação de base), não recusa: a IA pode consultar as APIs.
+  if (sources.length === 0 && !social && !temTools) {
     const refusal =
       "Não encontrei exatamente isso na documentação deste espaço. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
@@ -146,7 +162,7 @@ export async function POST(req: NextRequest) {
   // temas e o assunto está fora do contexto atual, pergunta com botões em vez de
   // responder. NÃO persiste turno de assistente (é UI transitória). Pulada em
   // turnos sociais — não se "desambigua" um "oi".
-  if (!scope && !social && webSources.length === 0) {
+  if (!scope && !social && webSources.length === 0 && !temTools) {
     const dis =
       analyzeAmbiguity(ragSources, contextScope ?? null) ??
       analyzeConfidence(ragSources, contextScope ?? null);
@@ -161,8 +177,19 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel(),
-    system: withContext(systemPrompt, buildContextBlock(sources)),
+    system: composeSystemPrompt(
+      {
+        persona,
+        especializacao: integ.agentPrompt,
+        usoFerramentas: integ.capabilities,
+        regras: resolveRegras(aP.regras_absolutas),
+        comTools: temTools,
+      },
+      buildContextBlock(sources),
+    ),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    // Loop agêntico só quando a simulação trouxe ferramentas de uma base.
+    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
     onFinish: async ({ text, usage }) => {
       await supabase.from("messages").insert({
         conversation_id: convId!,

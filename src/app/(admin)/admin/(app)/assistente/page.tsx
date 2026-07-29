@@ -49,6 +49,14 @@ export default async function AssistentePage({
     hasAiKey(),
   ]);
 
+  // Bases de integração para SIMULAR um usuário no chat de teste. A RLS de
+  // `ai_bases` já filtra por `integrations.manage` — quem não tem, recebe [].
+  const { data: bases } = await supabase
+    .from("ai_bases")
+    .select("base_code, name")
+    .eq("active", true)
+    .order("name");
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3">
@@ -80,6 +88,7 @@ export default async function AssistentePage({
           chatPromptSalvo={row?.chat_prompt ?? ""}
           canEdit={canEdit}
           aiReady={aiReady}
+          bases={bases ?? []}
         />
       </div>
     </div>

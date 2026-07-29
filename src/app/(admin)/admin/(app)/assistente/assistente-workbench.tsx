@@ -5,7 +5,7 @@ import { Surface } from "@/components/ui/surface";
 import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
-import { ChatPanel } from "@/components/admin/chat-panel";
+import { ChatPanel, type SimIdentity } from "@/components/admin/chat-panel";
 import { useToast } from "@/components/ui/toast";
 import { updateSpaceChatPrompt } from "../configuracoes/actions";
 
@@ -20,17 +20,22 @@ export function AssistantWorkbench({
   chatPromptSalvo,
   canEdit,
   aiReady,
+  bases = [],
 }: {
   spaceId: string;
   chatPromptSalvo: string;
   canEdit: boolean;
   aiReady: boolean;
+  /** Bases de integração para SIMULAR um usuário (só admin de integrações). */
+  bases?: { base_code: string; name: string }[];
 }) {
   const [prompt, setPrompt] = useState(chatPromptSalvo);
   const [salvo, setSalvo] = useState(chatPromptSalvo);
   const [pending, startTransition] = useTransition();
   const toast = useToast();
   const sujo = prompt !== salvo;
+  const [sim, setSim] = useState<SimIdentity>({});
+  const setSimField = (k: keyof SimIdentity, v: string) => setSim((s) => ({ ...s, [k]: v || undefined }));
 
   function salvar() {
     startTransition(async () => {
@@ -102,11 +107,69 @@ export function AssistantWorkbench({
             </p>
           )}
         </Surface>
+
+        {bases.length > 0 && (
+          <Surface elevation={1} padding="lg" className="mt-4 space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+                Simular identidade
+              </h2>
+              <p className="mt-1 text-xs text-text-muted">
+                Teste o chat como um usuário de uma base: a IA ganha as ferramentas daquela base e
+                resolve o login (perfil, CPF…) como no widget. Base vazia = chat normal da documentação.
+              </p>
+            </div>
+
+            <Field label="Base (cliente)" htmlFor="sim-base">
+              <select
+                id="sim-base"
+                value={sim.base_code ?? ""}
+                onChange={(e) => setSimField("base_code", e.target.value)}
+                className={controlClass}
+              >
+                <option value="">— nenhuma (documentação) —</option>
+                {bases.map((b) => (
+                  <option key={b.base_code} value={b.base_code}>
+                    {b.name} ({b.base_code})
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            {sim.base_code && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Usuário" htmlFor="sim-usuario">
+                    <input id="sim-usuario" value={sim.usuario ?? ""} onChange={(e) => setSimField("usuario", e.target.value)} className={controlClass} placeholder="p_usuario" />
+                  </Field>
+                  <Field label="Empresa" htmlFor="sim-empresa">
+                    <input id="sim-empresa" value={sim.empresa ?? ""} onChange={(e) => setSimField("empresa", e.target.value)} className={controlClass} placeholder="cod_empresa" />
+                  </Field>
+                  <Field label="Matrícula" htmlFor="sim-matricula">
+                    <input id="sim-matricula" value={sim.matricula ?? ""} onChange={(e) => setSimField("matricula", e.target.value)} className={controlClass} placeholder="matrícula" />
+                  </Field>
+                  <Field label="Portal" htmlFor="sim-portal">
+                    <input id="sim-portal" value={sim.portal ?? ""} onChange={(e) => setSimField("portal", e.target.value)} className={controlClass} placeholder="p_portal" />
+                  </Field>
+                </div>
+                <Field label="Perfil" htmlFor="sim-perfil" hint="Se a base resolver o login, o perfil real vem de lá (sobrepõe este).">
+                  <select id="sim-perfil" value={sim.perfil ?? ""} onChange={(e) => setSimField("perfil", e.target.value)} className={controlClass}>
+                    <option value="">— (resolvido no login) —</option>
+                    <option value="colaborador">colaborador</option>
+                    <option value="gestor">gestor</option>
+                  </select>
+                </Field>
+                <p className="text-xs text-text-muted">Trocar a base começa uma conversa nova.</p>
+              </>
+            )}
+          </Surface>
+        )}
       </div>
 
       {/* ── Testar ─────────────────────────────────────────────────── */}
       <div className="flex min-h-[32rem] flex-1 flex-col lg:h-full lg:min-h-0">
-        <ChatPanel fixedSpaceId={spaceId} promptOverride={prompt} aiReady={aiReady} />
+        {/* key por base: trocar a base reinicia a conversa. */}
+        <ChatPanel key={sim.base_code ?? "doc"} fixedSpaceId={spaceId} promptOverride={prompt} aiReady={aiReady} sim={sim} />
       </div>
     </div>
   );
