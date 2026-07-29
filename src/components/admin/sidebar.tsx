@@ -8,6 +8,7 @@ import {
   Bot,
   CheckSquare,
   Code2,
+  KeyRound,
   LayoutDashboard,
   Library,
   MessagesSquare,
@@ -77,6 +78,7 @@ const GRUPOS = [
       { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
       { href: "/admin/sistema", label: "Sistema", icon: SlidersHorizontal, ready: true },
       { href: "/admin/integracoes", label: "Integrações", icon: Plug, ready: true },
+      { href: "/admin/chaves-api", label: "Chaves de API", icon: KeyRound, ready: true },
     ],
   },
 ] as const;
