@@ -15,6 +15,8 @@
     "seed:prod": "tsx scripts/seed-admin.ts",
     "bootstrap:owner": "tsx --env-file=.env.local scripts/bootstrap-owner.ts",
     "bootstrap:owner:prod": "tsx scripts/bootstrap-owner.ts",
+    "seed:natcorp": "tsx --env-file=.env.local scripts/seed-natcorp.ts",
+    "seed:natcorp:prod": "tsx scripts/seed-natcorp.ts",
     "worker": "tsx --tsconfig worker/tsconfig.json --env-file=.env.local worker/index.ts",
     "worker:prod": "tsx --tsconfig worker/tsconfig.json worker/index.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",

@@ -33,6 +33,13 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
     { key: "client_id", label: "Client ID", required: true, secret: false },
     { key: "client_secret", label: "Client Secret", required: true, secret: true },
     { key: "scope", label: "Scope", required: false, secret: false, hint: "Opcional." },
+    {
+      key: "session_key",
+      label: "Chave de sessão (login ORDS)",
+      required: false,
+      secret: true,
+      hint: "Opcional. Se preenchida, o sistema valida o usuário e busca o cadastro (CPF, perfil) via login/v1 antes de acionar as APIs.",
+    },
   ],
   bearer: [{ key: "token", label: "Token", required: true, secret: true }],
   api_key: [

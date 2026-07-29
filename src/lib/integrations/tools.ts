@@ -11,8 +11,13 @@
 export type ParamTipo = "string" | "number" | "date" | "enum" | "boolean";
 export type ParamOrigem = "modelo" | "identidade" | "fixo";
 export type ParamLocal = "query" | "path" | "body" | "header";
-/** Campos de identidade disponíveis no token (p_*). */
-export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal";
+/**
+ * Campos de identidade disponíveis para injeção nas tools.
+ * `usuario/cod_empresa/matricula/perfil/portal` vêm do TOKEN (p_*). `cpf` é
+ * resolvido no SERVIDOR (login ORDS) quando a credencial tem `session_key` —
+ * nunca vem do token nem do modelo.
+ */
+export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal" | "cpf";
 
 export type ToolParam = {
   /** Nome do parâmetro NA API. */
@@ -62,8 +67,9 @@ export const IDENTITY_FIELDS: readonly { value: IdentityField; label: string }[]
   { value: "usuario", label: "Usuário (p_usuario)" },
   { value: "cod_empresa", label: "Cód. empresa (p_empresa)" },
   { value: "matricula", label: "Matrícula (p_matricula)" },
-  { value: "perfil", label: "Perfil (p_perfil)" },
+  { value: "perfil", label: "Perfil (gestor/colaborador)" },
   { value: "portal", label: "Portal (p_portal)" },
+  { value: "cpf", label: "CPF (resolvido no login)" },
 ];
 
 /** Um parâmetro em branco para o editor. */
