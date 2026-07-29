@@ -516,15 +516,19 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     key: "estrutura_empresas",
     name: "Estrutura: empresas",
     description:
-      "Lista as EMPRESAS da organização (código e nome) que o gestor pode consultar. Use para " +
-      "obter o código da empresa antes de um BI ou de um filtro.",
+      "Lista as EMPRESAS da organização (código e nome). Use para RESOLVER um NOME de empresa em " +
+      "CÓDIGO (cod_empresa): case o nome que o usuário disse com o nome na lista. Não filtra por nome " +
+      "no servidor — vem a lista completa e você faz o casamento.",
     path_template: "/estrutura/v1/empresa",
     params: [filtro("empresa", "Código da empresa, se quiser filtrar."), usuario()],
   },
   {
     key: "estrutura_filiais",
     name: "Estrutura: filiais",
-    description: "Lista as FILIAIS (código e nome), opcionalmente de uma empresa.",
+    description:
+      "Lista as FILIAIS (código e nome) — informe o código da empresa (já resolvido). Use para " +
+      "RESOLVER um NOME de filial em CÓDIGO (cod_filial): case o nome dito (ex.: 'Matriz') com o nome " +
+      "na lista da empresa.",
     path_template: "/estrutura/v1/filial",
     params: [filtro("empresa", "Código da empresa."), filtro("filial", "Código da filial, se quiser filtrar."), usuario()],
   },
@@ -801,7 +805,9 @@ O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 - Antecipação salarial → ofereça o submenu com lista_opcoes (tipo_lista='antecipacao_salarial'). Saldo → antecipacao_saldo; regras → antecipacao_regras; simular um valor → antecipacao_simular (mostra líquido e taxas); histórico → antecipacao_historico. Para EFETIVAR o saque: primeiro simule e mostre valor, taxas e líquido, confirme a intenção, e chame antecipacao_efetivar — o servidor envia um CÓDIGO ao e-mail do usuário e recusa a 1ª vez; peça o código ao usuário e chame de novo passando-o no parâmetro codigo. NUNCA invente o código.
 - Dúvidas de "como fazer", conceitos, regras e leis trabalhistas → responda pela DOCUMENTAÇÃO (não há ferramenta para isso).
 
-SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas de gestão sobre DADOS GERAIS da organização (nunca de um colaborador específico por aqui). Prefira CÓDIGOS a nomes — descubra o código usando as ferramentas de estrutura (empresas, filiais, cargos, centros de custo, funções, locais) antes de filtrar.
+SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas de gestão sobre DADOS GERAIS da organização (nunca de um colaborador específico por aqui).
+
+RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): as ferramentas de BI e todos os filtros usam CÓDIGOS, não nomes. Se o usuário citar uma empresa, filial, centro de custo, cargo, função ou local pelo NOME (ex.: "os dados da empresa Natcorp, filial Matriz"), NÃO chute o código: PRIMEIRO chame a ferramenta de estrutura correspondente (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho), encontre na lista retornada o item cujo NOME mais se aproxima do que o usuário disse (ignore maiúsculas/minúsculas e acentos; "Matriz" casa com "NATCORP DO BRASIL - MATRIZ"; "Natcorp" casa com "NATCORP DO BRASIL"), pegue o CÓDIGO dele e só então chame a ferramenta-alvo (BI, etc.) passando esse código. Faça em CASCATA: resolva a EMPRESA primeiro; depois a FILIAL daquela empresa (chame estrutura_filiais com o código de empresa já resolvido) — a estrutura não filtra por nome, então venha pela empresa e filtre a filial pelo nome no retorno; e assim por diante para centro de custo/cargo/função/local. Se dois nomes forem parecidos e você ficar em dúvida de qual é, liste os candidatos (nome + código) e pergunte qual o usuário quis.
 - BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → escolha a ferramenta bi_hist_financeiro_* mais específica conforme os filtros; informe o mês (MM/AAAA). Parâmetros não informados ficam em branco.
 - BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e escolha a ferramenta bi_risco_* mais específica conforme os filtros.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.
