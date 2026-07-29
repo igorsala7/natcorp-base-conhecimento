@@ -27,7 +27,7 @@ import { createClient } from "@supabase/supabase-js";
 import { encryptSecret } from "../src/lib/crypto/secrets";
 import type { Database, Json } from "../src/lib/database.types";
 import {
-  NATCORP_AGENT,
+  NATCORP_AGENTS,
   NATCORP_BASE_CODE,
   NATCORP_BASE_NAME,
   NATCORP_BASE_URL,
@@ -143,6 +143,7 @@ async function main(): Promise<void> {
 
   // 4. Catálogo de ferramentas ----------------------------------------------
   const toolIds: string[] = [];
+  const toolIdByKey: Record<string, string> = {};
   for (const t of NATCORP_TOOLS) {
     const tool = must<{ id: string }>(
       `tool ${t.key}`,
@@ -153,12 +154,13 @@ async function main(): Promise<void> {
             key: t.key,
             name: t.name,
             description: t.description,
-            method: "GET",
+            method: t.method ?? "GET",
             path_template: t.path_template,
             auth_type: "oauth2",
             params: t.params as unknown as Json,
             response_hint: t.response_hint ?? null,
-            active: true,
+            body_mode: t.body_mode ?? null,
+            active: t.active ?? true,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "key" },
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
         .single(),
     );
     toolIds.push(tool.id);
+    toolIdByKey[t.key] = tool.id;
 
     // 5. Ativação por base (endpoint + credencial) ---------------------------
     must(
@@ -183,38 +186,47 @@ async function main(): Promise<void> {
   }
   console.log(`  ferramentas ......... ok (${toolIds.length} ativas)`);
 
-  // 6. Agente + vínculo com as ferramentas ----------------------------------
-  const agent = must<{ id: string }>(
-    "agente",
-    await db
-      .from("ai_agents")
-      .upsert(
-        {
-          key: NATCORP_AGENT.key,
-          name: NATCORP_AGENT.name,
-          description: NATCORP_AGENT.description,
-          system_prompt: NATCORP_AGENT.system_prompt,
-          active: true,
-          priority: 0,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "key" },
-      )
-      .select("id")
-      .single(),
-  );
-  // Re-sincroniza o conjunto de tools do agente (idempotente).
-  const del = await db.from("ai_agent_tools").delete().eq("agent_id", agent.id);
-  if (del.error) {
-    console.error(`✗ limpar vínculos do agente: ${del.error.message}`);
-    process.exit(1);
+  // 6. Agentes + vínculo com as ferramentas ---------------------------------
+  for (const a of NATCORP_AGENTS) {
+    const agent = must<{ id: string }>(
+      `agente ${a.key}`,
+      await db
+        .from("ai_agents")
+        .upsert(
+          {
+            key: a.key,
+            name: a.name,
+            description: a.description,
+            system_prompt: a.system_prompt,
+            requires_perfil: a.requires_perfil,
+            active: true,
+            priority: 0,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "key" },
+        )
+        .select("id")
+        .single(),
+    );
+    // Re-sincroniza o conjunto de tools do agente (idempotente).
+    const del = await db.from("ai_agent_tools").delete().eq("agent_id", agent.id);
+    if (del.error) {
+      console.error(`✗ limpar vínculos do agente ${a.key}: ${del.error.message}`);
+      process.exit(1);
+    }
+    const rows = a.toolKeys
+      .map((k) => toolIdByKey[k])
+      .filter((id): id is string => Boolean(id))
+      .map((tool_id) => ({ agent_id: agent.id, tool_id }));
+    const link = await db.from("ai_agent_tools").insert(rows);
+    if (link.error) {
+      console.error(`✗ vincular tools ao agente ${a.key}: ${link.error.message}`);
+      process.exit(1);
+    }
+    console.log(
+      `  agente .............. ok ${a.key} (${rows.length} tools${a.requires_perfil ? `, perfil=${a.requires_perfil}` : ""})`,
+    );
   }
-  const link = await db.from("ai_agent_tools").insert(toolIds.map((tool_id) => ({ agent_id: agent.id, tool_id })));
-  if (link.error) {
-    console.error(`✗ vincular tools ao agente: ${link.error.message}`);
-    process.exit(1);
-  }
-  console.log(`  agente .............. ok (${agent.id}, ${toolIds.length} tools)`);
 
   console.log("Concluído. Confira em /admin/integracoes.");
 }

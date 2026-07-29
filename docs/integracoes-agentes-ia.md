@@ -31,8 +31,9 @@ identificação (WhatsApp). O modelo só preenche os parâmetros de *consulta* (
 | **Credencial** | Como autenticar nas APIs daquele cliente: OAuth 2.0, Basic, API key, Bearer. Guardada **cifrada**. |
 | **API / Tool** | Uma API do catálogo (endpoint, método, parâmetros, descrição). Global; a URL e a credencial são por base. |
 | **Parâmetro** | Cada campo da API. Tem **tipo** (texto/número/data/…), **origem** e, para datas, **máscara**. |
-| **Origem do parâmetro** | `identidade` (injetado do token — seguro), `modelo` (a IA extrai da conversa), `fixo` (constante). |
-| **Agente** | Especialista num módulo: tem seu **modelo de IA**, suas **APIs/Tools** e, opcionalmente, um **agente‑pai** (hierarquia). Os agentes **curam** quais APIs a IA pode usar. |
+| **Origem do parâmetro** | `identidade` (injetado do token/login — seguro), `modelo` (a IA extrai da conversa), `fixo` (constante), `credencial` (um campo do segredo da credencial, ex.: `session_key` — nunca do modelo). |
+| **Envelope do corpo** (`body_mode`) | Para POST: `object` (padrão, `{...}`), `array` (`[{...}]`) ou `wrap:<chave>` (`{<chave>:[{...}]}`) — algumas APIs ORDS exigem o corpo embrulhado. |
+| **Agente** | Especialista num módulo: tem seu **modelo de IA**, suas **APIs/Tools**, opcional **agente‑pai** e um opcional **`requires_perfil`** (ex.: `gestor`). Os agentes **curam** quais APIs a IA pode usar; um agente com `requires_perfil` só é exposto quando o **perfil resolvido no login** confere (trava no servidor). |
 
 ## 3. Pré‑requisitos
 
@@ -237,6 +238,36 @@ em `scripts/seed-natcorp.ts`. Para adicionar/ajustar uma ferramenta, edite o cat
   cadastro (**CPF, perfil gestor/colaborador, nome, cargo**) antes das ferramentas. Assim o
   `docs_user` (assinatura eletrônica) recebe o **CPF pela identidade** — sem passar pelo modelo — e
   usuários não reconhecidos ficam sem acesso aos dados.
+
+## 6.2 NATCORP — gestor, escritas e antecipação
+
+Além das consultas do próprio colaborador (6.1), a base NATCORP traz mais três blocos, cada um com
+sua trava:
+
+**Gestor (agente `nati_gestor`, `requires_perfil = gestor`).** Só aparece quando o **perfil
+resolvido no login** é gestor — a trava é no servidor, o perfil nunca vem do modelo. Inclui a
+**estrutura** da organização (empresas, filiais, cargos, centros de custo, funções, locais — para
+descobrir códigos), o **BI de histórico financeiro** (8 agrupamentos por empresa/filial/cargo/centro
+de custo…), o **BI de riscos/SESMT** (5 agrupamentos), os **alertas** da equipe e a **listagem da
+equipe** (`listar_colaboradores_resumo`, já **escopada ao gestor** por `usuario`+`gestor`). São dados
+GERAIS da organização — a consulta dos **dados completos de um colaborador específico** da equipe
+fica de fora por ora (a API não escopa por gestor; exige uma checagem de pertencimento à equipe).
+
+**Escritas com confirmação (colaborador).** `atualizar_telefone` e `atualizar_email` alteram os
+dados do **próprio** colaborador. São `POST` com corpo embrulhado (`body_mode = array`) e a
+identidade vai no corpo. A **confirmação é obrigatória**: o agente mostra o novo valor e pede
+Sim/Não antes de chamar (instruído no prompt).
+
+**Antecipação salarial — só informativo/simulação.** `antecipacao_saldo`, `antecipacao_regras`,
+`antecipacao_simular` (com `simulacao=S` — não movimenta) e `antecipacao_historico`. Usam o corpo
+`wrap:saque` (`{saque:[{…}]}`) e a `session_key`. A **efetivação do saque** (`antecipacao_efetivar`)
+fica **registrada mas DESATIVADA e sem agente** — a IA não a aciona. Habilitá-la exige uma **trava
+de confirmação no servidor** (o "Sim" do chat não basta para mover dinheiro). O **PIX externo
+(Asaas)** não é registrado como ferramenta.
+
+> Reaplicar: `npm run seed:natcorp` registra tudo isso (39 ferramentas ativas + 1 desativada, agentes
+> `nati_rh` e `nati_gestor`). As três capacidades acima reusam mecanismos genéricos do módulo
+> (`requires_perfil`, origem `credencial`, `body_mode`) — servem a qualquer base ORDS‑like.
 
 ## 7. Segurança
 
