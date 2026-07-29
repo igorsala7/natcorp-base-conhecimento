@@ -62,6 +62,7 @@ export type ResolvedBuckets = {
  * Resolve os valores finais de cada parâmetro por ORIGEM e distribui por LOCAL.
  * - identidade → do token (obrigatório e ausente = erro, não chuta);
  * - fixo       → o valor cadastrado;
+ * - credencial → um campo do segredo da credencial (ex.: session_key);
  * - modelo     → o que a IA extraiu.
  * Datas recebem a máscara da API.
  */
@@ -69,6 +70,7 @@ export function resolveParams(
   params: ToolParam[],
   modelArgs: Record<string, unknown>,
   identity: Identity,
+  credentialSecret?: Record<string, string>,
 ): ResolvedBuckets {
   const buckets: ResolvedBuckets = { path: {}, query: {}, header: {}, body: {} };
 
@@ -76,6 +78,7 @@ export function resolveParams(
     let raw: unknown;
     if (p.origem === "identidade") raw = p.campoIdentidade ? identity[p.campoIdentidade] : undefined;
     else if (p.origem === "fixo") raw = p.valorFixo ?? undefined;
+    else if (p.origem === "credencial") raw = p.campoCredencial ? credentialSecret?.[p.campoCredencial] : undefined;
     else raw = modelArgs[p.nome];
 
     if (raw === undefined || raw === null || raw === "") {

@@ -150,6 +150,7 @@ export type Database = {
           parent_agent_id: string | null
           priority: number
           provider_id: string | null
+          requires_perfil: string | null
           scope_permission: string | null
           system_prompt: string
           updated_at: string
@@ -166,6 +167,7 @@ export type Database = {
           parent_agent_id?: string | null
           priority?: number
           provider_id?: string | null
+          requires_perfil?: string | null
           scope_permission?: string | null
           system_prompt?: string
           updated_at?: string
@@ -182,6 +184,7 @@ export type Database = {
           parent_agent_id?: string | null
           priority?: number
           provider_id?: string | null
+          requires_perfil?: string | null
           scope_permission?: string | null
           system_prompt?: string
           updated_at?: string
@@ -385,6 +388,7 @@ export type Database = {
       ai_tools: {
         Row: {
           active: boolean
+          body_mode: string | null
           created_at: string
           created_by: string | null
           auth_type: string
@@ -400,6 +404,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          body_mode?: string | null
           created_at?: string
           created_by?: string | null
           auth_type?: string
@@ -415,6 +420,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          body_mode?: string | null
           created_at?: string
           created_by?: string | null
           auth_type?: string

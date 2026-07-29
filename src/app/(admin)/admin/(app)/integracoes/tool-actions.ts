@@ -22,13 +22,14 @@ const paramSchema = z.object({
   nome: z.string().trim().min(1, "Todo parâmetro precisa de nome."),
   descricao: z.string().trim().default(""),
   tipo: z.enum(["string", "number", "date", "enum", "boolean"]),
-  origem: z.enum(["modelo", "identidade", "fixo"]),
+  origem: z.enum(["modelo", "identidade", "fixo", "credencial"]),
   obrigatorio: z.boolean().default(false),
   local: z.enum(["query", "path", "body", "header"]).default("query"),
   mascara: z.string().nullish(),
   opcoes: z.array(z.string()).optional(),
   campoIdentidade: z.enum(["usuario", "cod_empresa", "matricula", "perfil", "portal", "cpf"]).nullish(),
   valorFixo: z.string().nullish(),
+  campoCredencial: z.string().nullish(),
 });
 
 const toolSchema = z.object({

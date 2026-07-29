@@ -13,7 +13,18 @@ export type RuntimeTool = {
   auth_type: AuthType;
   params: ToolParam[];
   response_hint?: string | null;
+  /** Envelope do corpo: null/'object'={...}; 'array'=[{...}]; 'wrap:<chave>'={<chave>:[{...}]}. */
+  body_mode?: string | null;
 };
+
+/** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */
+export function envelopeBody(mode: string | null | undefined, obj: Record<string, unknown>): unknown {
+  const m = (mode ?? "").trim();
+  if (!m || m === "object") return obj;
+  if (m === "array") return [obj];
+  if (m.startsWith("wrap:")) return { [m.slice(5)]: [obj] };
+  return obj;
+}
 
 /** Credencial já DECIFRADA (o motor recebe o blob em claro; nunca a tela). */
 export type RuntimeCredential = {
@@ -56,7 +67,7 @@ export function buildHttpRequest(
   const method = tool.method.toUpperCase();
   let body: string | undefined;
   if (method !== "GET" && method !== "DELETE" && Object.keys(buckets.body).length > 0) {
-    body = JSON.stringify(buckets.body);
+    body = JSON.stringify(envelopeBody(tool.body_mode, buckets.body));
     headers["Content-Type"] = "application/json";
   }
   return { url: url.toString(), method, headers, body };
@@ -93,7 +104,7 @@ async function authHeaders(
  */
 export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const buckets = resolveParams(input.tool.params, input.modelArgs, input.identity);
+  const buckets = resolveParams(input.tool.params, input.modelArgs, input.identity, input.credential?.secret);
   const req = buildHttpRequest(input.tool, input.baseUrl, buckets);
 
   const auth = await authHeaders(input.credential, fetchImpl);

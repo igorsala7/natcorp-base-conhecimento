@@ -9,7 +9,8 @@
  */
 
 export type ParamTipo = "string" | "number" | "date" | "enum" | "boolean";
-export type ParamOrigem = "modelo" | "identidade" | "fixo";
+/** `credencial` injeta um campo do SEGREDO da credencial (ex.: session_key) — nunca do modelo. */
+export type ParamOrigem = "modelo" | "identidade" | "fixo" | "credencial";
 export type ParamLocal = "query" | "path" | "body" | "header";
 /**
  * Campos de identidade disponíveis para injeção nas tools.
@@ -37,6 +38,8 @@ export type ToolParam = {
   campoIdentidade?: IdentityField | null;
   /** Valor constante quando origem = 'fixo'. */
   valorFixo?: string | null;
+  /** Campo do segredo da credencial a injetar quando origem = 'credencial' (ex.: 'session_key'). */
+  campoCredencial?: string | null;
 };
 
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -54,6 +57,7 @@ export const PARAM_ORIGENS: readonly { value: ParamOrigem; label: string; hint: 
   { value: "modelo", label: "IA extrai da conversa", hint: "O modelo preenche a partir do que o usuário pedir." },
   { value: "identidade", label: "Identidade (token)", hint: "Injetado do token cifrado — nunca do modelo." },
   { value: "fixo", label: "Valor fixo", hint: "Constante definida aqui." },
+  { value: "credencial", label: "Segredo da credencial", hint: "Injeta um campo do segredo da credencial (ex.: session_key)." },
 ];
 
 export const PARAM_LOCAIS: readonly { value: ParamLocal; label: string }[] = [

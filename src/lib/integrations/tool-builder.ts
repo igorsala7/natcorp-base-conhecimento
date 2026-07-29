@@ -6,6 +6,7 @@ import { buildModelSchema, identityFromTrack, type Identity } from "./params";
 import { executeTool } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { resolveIdentity } from "./identity-resolver";
+import { perfilAtende } from "./gating";
 
 export { identityFromTrack };
 
@@ -66,12 +67,18 @@ export async function buildIntegrationTools(
 
   const db = createAdminClient();
   const [{ data: agents }, { data: links }] = await Promise.all([
-    db.from("ai_agents").select("id, name, description, system_prompt, priority").eq("active", true),
+    db.from("ai_agents").select("id, name, description, system_prompt, priority, requires_perfil").eq("active", true),
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
-  const activeIds = new Set((agents ?? []).map((a) => a.id));
-  const curated = new Set((links ?? []).filter((l) => activeIds.has(l.agent_id)).map((l) => l.tool_id));
-  const temAgentes = activeIds.size > 0;
+  // Trava por PERFIL: um agente que exige um perfil (ex.: "gestor") só entra
+  // quando o perfil resolvido no login confere — nunca vem do modelo.
+  const elegiveis = (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
+  const elegiveisIds = new Set(elegiveis.map((a) => a.id));
+  const curated = new Set((links ?? []).filter((l) => elegiveisIds.has(l.agent_id)).map((l) => l.tool_id));
+  // O fallback "expõe todas as habilitadas" só vale quando NÃO há NENHUM agente
+  // ativo (setup inicial). Com agentes ativos, quem não tem agente elegível
+  // fica sem tools — não com todas (senão a trava de perfil vazaria).
+  const temAgentes = (agents ?? []).length > 0;
 
   const tools: ToolSet = {};
   for (const bt of ctx.tools) {
@@ -106,7 +113,7 @@ export async function buildIntegrationTools(
   if (Object.keys(tools).length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
 
   // Nota de capacidades para o system prompt (ajuda a rotear documentação × API).
-  const especialidades = (agents ?? [])
+  const especialidades = elegiveis
     .filter((a) => (links ?? []).some((l) => l.agent_id === a.id && curated.has(l.tool_id)))
     .map((a) => `- ${a.name}: ${a.description}`)
     .join("\n");
@@ -119,10 +126,11 @@ export async function buildIntegrationTools(
       : "") +
     (especialidades ? `\nEspecialidades disponíveis:\n${especialidades}` : "");
 
-  // Persona especializada: o agente ATIVO de maior prioridade com ≥1 tool
-  // habilitada nesta base. Vira a seção "Especialização" do system prompt.
-  const agentePersona = (agents ?? [])
-    .filter((a) => (links ?? []).some((l) => l.agent_id === a.id && curated.has(l.tool_id)))
+  // Persona especializada: o agente ELEGÍVEL de maior prioridade COM prompt e
+  // ≥1 tool habilitada. Vira a seção "Especialização". Agentes só de tools
+  // (prompt vazio, ex.: o agente de gestor) não sobrescrevem a persona.
+  const agentePersona = elegiveis
+    .filter((a) => a.system_prompt?.trim() && (links ?? []).some((l) => l.agent_id === a.id && curated.has(l.tool_id)))
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0];
   const agentPrompt = agentePersona?.system_prompt?.trim() || "";
 
