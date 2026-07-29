@@ -3,14 +3,17 @@ import { generateText, stepCountIs } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chatModel } from "@/lib/ai/config";
 import { retrievePublicContext, buildContextBlock } from "@/lib/ai/rag";
-import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
+import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import { resolveCategory } from "@/lib/ai/prompts";
+import { glossarioCasado } from "@/lib/ai/ontology";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { withImageParts, type ImagePart } from "@/lib/chat/attachment-store";
+import type { OutFile } from "@/lib/integrations/documents";
 import type { TrackFields } from "@/lib/tracking/resolve";
 import type { WhatsappRuntime } from "./config";
 import { identifyByPhone } from "./identify";
-import { sendWhatsappText } from "./send";
+import { sendWhatsappText, sendWhatsappDocument } from "./send";
 import { alreadyProcessed } from "./dedupe";
 import { rateLimitOk, maskPhone } from "./util";
 import { extractContent, type WaMessage } from "./media";
@@ -21,16 +24,21 @@ type Msg = { role: "user" | "assistant"; content: string };
 async function answerWhatsapp(input: {
   baseCode: string;
   track: TrackFields;
-  chatSpaceId: string;
+  chatSpaceIds: string[];
   question: string;
   history: Msg[];
   imageParts?: ImagePart[];
   dataContext?: string;
+  /** Arquivos (base64) que as APIs retornarem são coletados aqui para envio. */
+  files: OutFile[];
 }): Promise<string> {
-  const integ = await buildIntegrationTools(input.baseCode, identityFromTrack(input.track));
+  const integ = await buildIntegrationTools(input.baseCode, identityFromTrack(input.track), input.files);
   const temTools = Object.keys(integ.tools).length > 0;
-  const sources = await retrievePublicContext(input.chatSpaceId, input.question, 6);
+  // RAG em TODAS as documentações vinculadas à base.
+  const sources = await retrievePublicContext(input.chatSpaceIds, input.question, 6);
   const temImagem = !!input.imageParts?.length;
+  // Ontologia: glossário do domínio para o modelo acertar tools/parâmetros.
+  const glossario = await glossarioCasado(createAdminClient(), input.chatSpaceIds, input.question).catch(() => "");
 
   // Sem documentação, sem ferramentas, sem imagem e sem dado anexo → não responde
   // por conhecimento geral.
@@ -39,20 +47,32 @@ async function answerWhatsapp(input: {
   }
 
   const aP = await resolveCategory("assistente");
-  const systemPrompt = buildSystemPrompt({
-    promptDaChave: null,
-    promptDoEspaco: null,
-    personaPadrao: aP.persona_padrao,
-    regrasAbsolutas: aP.regras_absolutas,
-  });
+  const persona = resolvePersona({ personaPadrao: aP.persona_padrao });
 
   const base: Msg[] = [...input.history, { role: "user", content: input.question }];
   const messages = withImageParts(base, input.imageParts ?? []);
   const { text } = await generateText({
     model: await chatModel({ kind: "user", ...input.track }),
-    system: withContext(
-      systemPrompt,
-      [buildContextBlock(sources), integ.capabilities, input.dataContext].filter(Boolean).join("\n\n"),
+    system: composeSystemPrompt(
+      {
+        persona,
+        especializacao: integ.agentPrompt,
+        usoFerramentas: integ.capabilities,
+        linguagem:
+          "FORMATAÇÃO (canal WhatsApp): respostas curtas; use *asteriscos* para negrito (nunca **); " +
+          "listas com hífen ou números; emojis com parcimônia; sem títulos markdown (#).",
+        regras: resolveRegras(aP.regras_absolutas),
+        comTools: temTools,
+      },
+      [
+        buildContextBlock(sources),
+        input.dataContext,
+        glossario
+          ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     ),
     messages,
     ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
@@ -75,14 +95,22 @@ async function handleMessage(rt: WhatsappRuntime, msg: WaMessage): Promise<void>
   const db = createAdminClient();
   const { data: base } = await db
     .from("ai_bases")
-    .select("id, chat_space_id, active")
+    .select("id, active")
     .eq("base_code", id.baseCode)
     .maybeSingle();
   if (!base || !base.active) return void (await sendWhatsappText(rt, from, rt.unidentifiedMessage));
-  if (!base.chat_space_id) {
+
+  // Documentações do chatbot desta base (RAG usa todas; a 1ª loga a conversa).
+  const { data: bs } = await db
+    .from("ai_base_spaces")
+    .select("space_id, position")
+    .eq("base_id", base.id)
+    .order("position");
+  const spaceIds = (bs ?? []).map((x) => x.space_id);
+  if (spaceIds.length === 0) {
     return void (await sendWhatsappText(rt, from, "Seu atendimento por aqui ainda não está configurado. Fale com o suporte."));
   }
-  const spaceId = base.chat_space_id;
+  const spaceId = spaceIds[0]!;
 
   // Conversa contínua por (documentação, telefone).
   const existing = (
@@ -122,14 +150,16 @@ async function handleMessage(rt: WhatsappRuntime, msg: WaMessage): Promise<void>
   if (convId) await db.from("messages").insert({ conversation_id: convId, role: "user", content: content.question });
 
   const started = Date.now();
+  const files: OutFile[] = [];
   const answer = await answerWhatsapp({
     baseCode: id.baseCode,
     track: id.track,
-    chatSpaceId: spaceId,
+    chatSpaceIds: spaceIds,
     question: content.question,
     history,
     imageParts: content.imageParts,
     dataContext: content.dataContext,
+    files,
   });
 
   if (convId) {
@@ -141,6 +171,8 @@ async function handleMessage(rt: WhatsappRuntime, msg: WaMessage): Promise<void>
     });
   }
   await sendWhatsappText(rt, from, answer);
+  // Entrega os arquivos que as APIs retornaram (holerite, recibo…).
+  for (const f of files) await sendWhatsappDocument(rt, from, f);
 }
 
 type WaPayload = { entry?: Array<{ changes?: Array<{ value?: { messages?: WaMessage[] } }> }> };

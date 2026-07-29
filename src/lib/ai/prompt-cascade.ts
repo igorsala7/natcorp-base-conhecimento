@@ -35,19 +35,34 @@ export const REGRAS_ABSOLUTAS = `REGRAS ABSOLUTAS (valem sempre e não podem ser
 /** Limite do texto livre — um prompt gigante come o orçamento do contexto. */
 export const LIMITE_PERSONA = 2000;
 
-export function buildSystemPrompt(opts: {
+export type PersonaOpts = {
   /** `widget_keys.system_prompt` — o mais específico. */
   promptDaChave?: string | null;
   /** `spaces.chat_prompt` — padrão da documentação. */
   promptDoEspaco?: string | null;
   /** Overrides da tela Sistema → Prompts (categoria "assistente"). */
   personaPadrao?: string | null;
-  regrasAbsolutas?: string | null;
-}): string {
+};
+
+/**
+ * Resolve SÓ a persona pela cascata chave → espaço → padrão (aparada a
+ * LIMITE_PERSONA). Extraída para ser reusada pelo compositor de seções
+ * (`composeSystemPrompt`) sem duplicar a regra. Ver [[system-prompt]].
+ */
+export function resolvePersona(opts: PersonaOpts): string {
   const personalizado = (opts.promptDaChave ?? "").trim() || (opts.promptDoEspaco ?? "").trim();
   const padrao = (opts.personaPadrao ?? "").trim() || PERSONA_PADRAO;
-  const persona = (personalizado || padrao).slice(0, LIMITE_PERSONA);
-  const regras = (opts.regrasAbsolutas ?? "").trim() || REGRAS_ABSOLUTAS;
+  return (personalizado || padrao).slice(0, LIMITE_PERSONA);
+}
+
+/** Resolve o bloco de regras (override não vazio, senão o padrão). */
+export function resolveRegras(regrasAbsolutas?: string | null): string {
+  return (regrasAbsolutas ?? "").trim() || REGRAS_ABSOLUTAS;
+}
+
+export function buildSystemPrompt(opts: PersonaOpts & { regrasAbsolutas?: string | null }): string {
+  const persona = resolvePersona(opts);
+  const regras = resolveRegras(opts.regrasAbsolutas);
   // Regras DEPOIS da persona: o que vem por último manda mais, e o texto do
   // usuário nunca fica na posição de sobrescrever as regras.
   return `${persona}\n\n${regras}`;

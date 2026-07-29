@@ -7,7 +7,8 @@ import {
   retrievePublicContext,
   buildContextBlock,
 } from "@/lib/ai/rag";
-import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
+import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import {
   resolveWidgetKey,
   originAllowed,
@@ -25,6 +26,8 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { glossarioCasado } from "@/lib/ai/ontology";
+import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
 
@@ -97,11 +100,10 @@ export async function POST(req: NextRequest) {
     .eq("id", key.space_id)
     .maybeSingle();
   const aP = await resolveCategory("assistente");
-  const systemPrompt = buildSystemPrompt({
+  const persona = resolvePersona({
     promptDaChave: key.system_prompt,
     promptDoEspaco: espacoDono?.chat_prompt ?? null,
     personaPadrao: aP.persona_padrao,
-    regrasAbsolutas: aP.regras_absolutas,
   });
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
@@ -140,10 +142,14 @@ export async function POST(req: NextRequest) {
   // Integrações (Fase F): se o token traz `p_base`, o modelo ganha ferramentas
   // para consultar as APIs daquela base. A identidade é injetada no servidor
   // (identityFromTrack) — o modelo só preenche os parâmetros de consulta.
+  const outFiles: OutFile[] = [];
   const integ = track.p_base
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track))
-    : { tools: {}, capabilities: "" };
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles)
+    : { tools: {}, capabilities: "", agentPrompt: "" };
   const temTools = Object.keys(integ.tools).length > 0;
+  // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
+  // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
+  const glossario = social ? "" : await glossarioCasado(supabase, key.space_ids, question).catch(() => "");
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
@@ -230,9 +236,23 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel({ kind: "user", ...track }),
-    system: withContext(
-      systemPrompt,
-      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page), scanBlock, integ.capabilities]
+    system: composeSystemPrompt(
+      {
+        persona,
+        especializacao: integ.agentPrompt,
+        usoFerramentas: integ.capabilities,
+        regras: resolveRegras(aP.regras_absolutas),
+        comTools: temTools,
+      },
+      [
+        buildContextBlock(sources),
+        attach.contextBlock,
+        pageContextNote(page),
+        scanBlock,
+        glossario
+          ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
+          : "",
+      ]
         .filter(Boolean)
         .join("\n\n"),
     ),
@@ -255,6 +275,12 @@ export async function POST(req: NextRequest) {
         }
       } catch {
         controller.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
+      }
+      // Arquivos retornados pelas APIs (base64) → link de download no chat.
+      for (const f of outFiles) {
+        controller.enqueue(
+          sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
+        );
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({

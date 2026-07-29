@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, stepCountIs } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,7 +7,8 @@ import {
   retrievePublicContext,
   buildContextBlock,
 } from "@/lib/ai/rag";
-import { buildSystemPrompt, withContext } from "@/lib/ai/prompt-cascade";
+import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
+import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import { getPortalAccess } from "@/lib/portal/data";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
@@ -17,6 +18,9 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote } from "@/lib/chat/page-context";
+import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { glossarioCasado } from "@/lib/ai/ontology";
+import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
 
@@ -101,10 +105,9 @@ export async function POST(req: NextRequest) {
     .eq("id", spaceId)
     .maybeSingle();
   const aP = await resolveCategory("assistente");
-  const systemPrompt = buildSystemPrompt({
+  const persona = resolvePersona({
     promptDoEspaco: espaco?.chat_prompt ?? null,
     personaPadrao: aP.persona_padrao,
-    regrasAbsolutas: aP.regras_absolutas,
   });
 
   let convId = payload.conversationId;
@@ -120,6 +123,15 @@ export async function POST(req: NextRequest) {
   // Identidade de rastreio — usada na conversa E para atribuir o CONSUMO de IA
   // a este usuário (não ao sistema).
   const track = await decodeTrackForSpace(spaceId, payload.track);
+  // Integrações: se o token traz `p_base`, o modelo ganha as ferramentas de API
+  // daquela base (identidade injetada no servidor). Arquivos base64 são coletados.
+  const outFiles: OutFile[] = [];
+  const integ = track.p_base
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles)
+    : { tools: {}, capabilities: "", agentPrompt: "" };
+  const temTools = Object.keys(integ.tools).length > 0;
+  // Ontologia: glossário do domínio para acertar tools/parâmetros.
+  const glossario = social ? "" : await glossarioCasado(supabase, [spaceId], question).catch(() => "");
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
@@ -160,7 +172,7 @@ export async function POST(req: NextRequest) {
     Connection: "keep-alive",
   };
 
-  if (sources.length === 0 && !social && attach.ids.length === 0) {
+  if (sources.length === 0 && !social && attach.ids.length === 0 && !temTools) {
     const refusal =
       "Não encontrei exatamente isso aqui na documentação. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda bastante), ou, se preferir, falar com um atendente humano.";
@@ -183,7 +195,7 @@ export async function POST(req: NextRequest) {
 
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
   // Pulada em turnos sociais e quando o leitor deu uma URL (intenção já é clara).
-  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0) {
+  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !temTools) {
     const dis =
       analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
       analyzeConfidence(ragSources, payload.contextScope ?? null);
@@ -207,11 +219,27 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel({ kind: "user", ...track }),
-    system: withContext(
-      systemPrompt,
-      [buildContextBlock(sources), attach.contextBlock, pageContextNote(page)].filter(Boolean).join("\n\n"),
+    system: composeSystemPrompt(
+      {
+        persona,
+        especializacao: integ.agentPrompt,
+        usoFerramentas: integ.capabilities,
+        regras: resolveRegras(aP.regras_absolutas),
+        comTools: temTools,
+      },
+      [
+        buildContextBlock(sources),
+        attach.contextBlock,
+        pageContextNote(page),
+        glossario
+          ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     ),
     messages: withImageParts(messages, attach.imageParts),
+    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
   });
 
   const stream = new ReadableStream({
@@ -227,6 +255,12 @@ export async function POST(req: NextRequest) {
         }
       } catch {
         c.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
+      }
+      // Arquivos retornados pelas APIs (base64) → link de download no chat.
+      for (const f of outFiles) {
+        c.enqueue(
+          sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
+        );
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({
