@@ -7,6 +7,8 @@ import { executeTool } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende } from "./gating";
+import { runGuard } from "./guards";
+import { buildConfirmDeps } from "./confirmations";
 
 export { identityFromTrack };
 
@@ -40,6 +42,7 @@ export async function buildIntegrationTools(
   // Falha na validação = sem tools de dados (mas o RAG segue).
   let ident = identity;
   let profileNote = "";
+  let profileEmail: string | null = null;
   const primary = ctx.tools.find((t) => t.credentialId && t.baseUrl);
   if (primary && identity.cod_empresa && identity.matricula) {
     const cred = await loadCredentialSecret(primary.credentialId!);
@@ -55,6 +58,7 @@ export async function buildIntegrationTools(
         };
       }
       ident = res.identity;
+      profileEmail = res.profile?.email ?? null;
       if (res.profile?.nome) {
         profileNote =
           `Usuário identificado: ${res.profile.nome}` +
@@ -90,11 +94,25 @@ export async function buildIntegrationTools(
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
+          const modelArgs = (args ?? {}) as Record<string, unknown>;
+          // Guard no servidor (ex.: gestor só consulta a própria equipe). Recusa
+          // ANTES de chamar a API — a matrícula-alvo nunca é confiada cega.
+          if (bt.tool.guard) {
+            const g = await runGuard(bt.tool.guard, {
+              baseUrl: bt.baseUrl,
+              baseCode,
+              credential,
+              identity: ident,
+              modelArgs,
+              confirm: buildConfirmDeps(baseCode, profileEmail),
+            });
+            if (!g.ok) return { erro: g.erro };
+          }
           const r = await executeTool({
             tool: bt.tool,
             baseUrl: bt.baseUrl,
             credential,
-            modelArgs: (args ?? {}) as Record<string, unknown>,
+            modelArgs,
             identity: ident,
           });
           if (!r.ok) return { erro: `A API retornou HTTP ${r.status}.`, dados: r.data };

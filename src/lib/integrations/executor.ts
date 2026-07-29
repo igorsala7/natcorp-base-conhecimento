@@ -15,6 +15,8 @@ export type RuntimeTool = {
   response_hint?: string | null;
   /** Envelope do corpo: null/'object'={...}; 'array'=[{...}]; 'wrap:<chave>'={<chave>:[{...}]}. */
   body_mode?: string | null;
+  /** Nome de um guard no servidor rodado ANTES da chamada (ver guards.ts). */
+  guard?: string | null;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */

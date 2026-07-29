@@ -34,6 +34,7 @@ type EmbeddedRow = {
     params: unknown;
     response_hint: string | null;
     body_mode: string | null;
+    guard: string | null;
     active: boolean;
   } | null;
 };
@@ -52,7 +53,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, active)",
+      "base_url, credential_id, enabled, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -74,6 +75,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
         params: (t.params as ToolParam[]) ?? [],
         response_hint: t.response_hint,
         body_mode: t.body_mode,
+        guard: t.guard,
       },
       baseUrl: r.base_url,
       credentialId: r.credential_id,

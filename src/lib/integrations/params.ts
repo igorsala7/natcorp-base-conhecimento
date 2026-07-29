@@ -86,6 +86,9 @@ export function resolveParams(
       continue;
     }
 
+    // `none`: a IA preenche (fica em modelArgs, para guards), mas não vai na requisição.
+    if (p.local === "none") continue;
+
     let val: string | number | boolean = raw as string | number | boolean;
     if (p.tipo === "date" && p.mascara && typeof val === "string") {
       val = applyDateMask(val, p.mascara);

@@ -16,7 +16,7 @@ import type { Identity } from "./params";
 import type { RuntimeCredential } from "./executor";
 import { getOAuthToken } from "./oauth";
 
-export type ResolvedProfile = { nome?: string; cargo?: string; perfil?: string };
+export type ResolvedProfile = { nome?: string; cargo?: string; perfil?: string; email?: string };
 export type ResolveResult = { ok: boolean; identity: Identity; profile?: ResolvedProfile };
 
 const AUTH_PATH = "/chatbot/login/v1/autenticacao";
@@ -112,10 +112,15 @@ export async function resolveIdentity(input: {
     const gestor = String(prof.gestor ?? "").toUpperCase() === "SIM";
     const perfil = gestor ? "gestor" : "colaborador";
     const enriched: Identity = { ...identity, perfil, ...(cpf ? { cpf } : {}) };
+    const email =
+      (typeof prof.email_pessoal === "string" && prof.email_pessoal) ||
+      (typeof prof.email_funcional === "string" && prof.email_funcional) ||
+      undefined;
     const profile: ResolvedProfile = {
       nome: typeof prof.nome === "string" ? prof.nome : undefined,
       cargo: typeof prof.nome_cargo === "string" ? prof.nome_cargo : undefined,
       perfil,
+      email: email || undefined,
     };
     return store({ ok: true, identity: enriched, profile });
   } catch {

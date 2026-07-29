@@ -393,6 +393,7 @@ export type Database = {
           created_by: string | null
           auth_type: string
           description: string
+          guard: string | null
           id: string
           key: string
           method: string
@@ -409,6 +410,7 @@ export type Database = {
           created_by?: string | null
           auth_type?: string
           description: string
+          guard?: string | null
           id?: string
           key: string
           method?: string
@@ -425,6 +427,7 @@ export type Database = {
           created_by?: string | null
           auth_type?: string
           description?: string
+          guard?: string | null
           id?: string
           key?: string
           method?: string
@@ -496,6 +499,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      ai_pending_confirmations: {
+        Row: {
+          action: string
+          base_code: string
+          code_hash: string
+          created_at: string
+          detail: string | null
+          expires_at: string
+          id: string
+          subject: string
+          used_at: string | null
+        }
+        Insert: {
+          action: string
+          base_code: string
+          code_hash: string
+          created_at?: string
+          detail?: string | null
+          expires_at: string
+          id?: string
+          subject: string
+          used_at?: string | null
+        }
+        Update: {
+          action?: string
+          base_code?: string
+          code_hash?: string
+          created_at?: string
+          detail?: string | null
+          expires_at?: string
+          id?: string
+          subject?: string
+          used_at?: string | null
+        }
+        Relationships: []
       }
       ai_providers: {
         Row: {

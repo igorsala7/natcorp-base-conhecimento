@@ -11,7 +11,8 @@
 export type ParamTipo = "string" | "number" | "date" | "enum" | "boolean";
 /** `credencial` injeta um campo do SEGREDO da credencial (ex.: session_key) — nunca do modelo. */
 export type ParamOrigem = "modelo" | "identidade" | "fixo" | "credencial";
-export type ParamLocal = "query" | "path" | "body" | "header";
+/** `none` = a IA preenche, mas NÃO vai na requisição (uso interno, ex.: código de um guard). */
+export type ParamLocal = "query" | "path" | "body" | "header" | "none";
 /**
  * Campos de identidade disponíveis para injeção nas tools.
  * `usuario/cod_empresa/matricula/perfil/portal` vêm do TOKEN (p_*). `cpf` é
@@ -65,6 +66,7 @@ export const PARAM_LOCAIS: readonly { value: ParamLocal; label: string }[] = [
   { value: "path", label: "Caminho (path)" },
   { value: "body", label: "Corpo (body)" },
   { value: "header", label: "Header" },
+  { value: "none", label: "Não enviar (uso interno)" },
 ];
 
 export const IDENTITY_FIELDS: readonly { value: IdentityField; label: string }[] = [

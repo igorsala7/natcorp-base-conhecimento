@@ -24,7 +24,7 @@ const paramSchema = z.object({
   tipo: z.enum(["string", "number", "date", "enum", "boolean"]),
   origem: z.enum(["modelo", "identidade", "fixo", "credencial"]),
   obrigatorio: z.boolean().default(false),
-  local: z.enum(["query", "path", "body", "header"]).default("query"),
+  local: z.enum(["query", "path", "body", "header", "none"]).default("query"),
   mascara: z.string().nullish(),
   opcoes: z.array(z.string()).optional(),
   campoIdentidade: z.enum(["usuario", "cod_empresa", "matricula", "perfil", "portal", "cpf"]).nullish(),
