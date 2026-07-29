@@ -106,6 +106,27 @@ describe("buildModelSchema com loop", () => {
     expect(shape.periodo_ini!.safeParse(undefined).success).toBe(false);
     expect(shape.periodo_fim!.safeParse(undefined).success).toBe(true);
   });
+
+  it("loop de VALORES: o param vira uma LISTA (aceita 1 ou vários)", () => {
+    const valoresTool: RuntimeTool = {
+      key: "dados_colab",
+      name: "Dados",
+      method: "GET",
+      path_template: "/x",
+      auth_type: "oauth2",
+      loop: { unit: "values", param: "matricula", max: 20 },
+      params: [
+        { nome: "empresa", descricao: "", tipo: "string", origem: "modelo", obrigatorio: true, local: "query" },
+        { nome: "matricula", descricao: "Matrícula", tipo: "string", origem: "modelo", obrigatorio: true, local: "query" },
+      ],
+    };
+    const shape = buildModelSchema(valoresTool.params, valoresTool.loop).shape;
+    expect(Object.keys(shape)).toContain("matricula"); // continua exposto (não é escondido como no month)
+    // aceita uma lista de valores...
+    expect(shape.matricula!.safeParse(["123", "456"]).success).toBe(true);
+    // ...e recusa um escalar (o modelo deve mandar lista)
+    expect(shape.matricula!.safeParse("123").success).toBe(false);
+  });
 });
 
 describe("executeTool (OAuth + identidade + máscara, fetch mockado)", () => {

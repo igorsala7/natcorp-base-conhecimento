@@ -113,24 +113,22 @@ export async function buildIntegrationTools(
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
           const modelArgs = (args ?? {}) as Record<string, unknown>;
-          // Guard no servidor (ex.: gestor só consulta a própria equipe). Recusa
-          // ANTES de chamar a API — a matrícula-alvo nunca é confiada cega. Roda
-          // UMA vez (independe do mês, no caso de período).
-          if (bt.tool.guard) {
-            const g = await runGuard(bt.tool.guard, {
-              baseUrl: bt.baseUrl,
-              baseCode,
-              credential,
-              identity: ident,
-              modelArgs,
-              confirm: buildConfirmDeps(baseCode, profileEmail),
-            });
-            if (!g.ok) return { erro: g.erro };
-          }
-          // UMA chamada à API, com o pipeline de cache/dedup/termo/arquivos.
-          // Cada chamada é REGISTRADA (entrada → requisição → saída, tempo, erro)
-          // em ai_tool_runs — o log passo a passo (segredos redigidos no run-log).
+          // runOnce: UMA chamada à API (guard por chamada + exec + cache/dedup/
+          // termo/arquivos + LOG em ai_tool_runs). O guard roda POR CHAMADA para
+          // validar CADA valor de um loop (ex.: cada matrícula da equipe do gestor)
+          // — a matrícula-alvo nunca é confiada cega.
           const runOnce = async (callArgs: Record<string, unknown>, stepIndex: number) => {
+            if (bt.tool.guard) {
+              const g = await runGuard(bt.tool.guard, {
+                baseUrl: bt.baseUrl!,
+                baseCode,
+                credential,
+                identity: ident,
+                modelArgs: callArgs,
+                confirm: buildConfirmDeps(baseCode, profileEmail),
+              });
+              if (!g.ok) return { erro: g.erro };
+            }
             const t0 = Date.now();
             const doExec = () =>
               executeTool({ tool: bt.tool, baseUrl: bt.baseUrl!, credential, modelArgs: callArgs, identity: ident });
@@ -191,35 +189,44 @@ export async function buildIntegrationTools(
             await registrar(cleaned, true, result.status, files.length, null);
             return cleaned;
           };
-          // Período (loop mês a mês): o usuário pediu um intervalo → o servidor
-          // itera e AGREGA num só resultado. O modelo faz UMA chamada em vez de N
-          // (menos steps, menos tokens).
+          // LOOP: o usuário pediu vários → o servidor itera e AGREGA num só
+          // resultado (o modelo faz UMA chamada em vez de N).
           const loop = bt.tool.loop;
-          if (loop) {
-            const inicio = typeof modelArgs[loop.from] === "string" ? (modelArgs[loop.from] as string) : "";
-            const fim = typeof modelArgs[loop.to] === "string" ? (modelArgs[loop.to] as string) : null;
-            const { lista, excedeu } = expandirMeses(inicio, fim, loop.max ?? 24);
-            if (lista.length === 0) {
-              return { erro: `Preciso do mês de referência (ou período) em ${loop.from}, no formato ISO AAAA-MM.` };
-            }
-            const semPeriodo = (a: Record<string, unknown>, iso: string) => {
+          // (a) Período mês a mês: modelo informa from/to; itera cada mês.
+          if (loop?.unit === "month") {
+            const inicio = loop.from ? String(modelArgs[loop.from] ?? "") : "";
+            const fim = loop.to ? String(modelArgs[loop.to] ?? "") : "";
+            const { lista, excedeu } = expandirMeses(inicio, fim || null, loop.max ?? 24);
+            if (lista.length === 0) return { erro: `Preciso do mês (ou período) em ${loop.from}, no formato ISO AAAA-MM.` };
+            const build = (a: Record<string, unknown>, iso: string) => {
               const c = { ...a, [loop.param]: iso };
-              delete c[loop.from];
-              delete c[loop.to];
+              if (loop.from) delete c[loop.from];
+              if (loop.to) delete c[loop.to];
               return c;
             };
-            // Um único mês: resultado direto (sem embrulho), mais enxuto.
-            if (lista.length === 1) return await runOnce(semPeriodo(modelArgs, lista[0]!.iso), 0);
+            if (lista.length === 1) return await runOnce(build(modelArgs, lista[0]!.iso), 0);
             const meses: Array<Record<string, unknown>> = [];
-            for (const [i, mes] of lista.entries())
-              meses.push({ competencia: mes.br, dados: await runOnce(semPeriodo(modelArgs, mes.iso), i) });
+            for (const [i, mes] of lista.entries()) meses.push({ competencia: mes.br, dados: await runOnce(build(modelArgs, mes.iso), i) });
             return {
               periodo: `${lista[0]!.br} a ${lista[lista.length - 1]!.br}`,
               meses,
-              ...(excedeu
-                ? { aviso: `Período longo: limitei aos primeiros ${lista.length} meses. Peça o restante em outra consulta.` }
-                : {}),
+              ...(excedeu ? { aviso: `Período longo: limitei aos primeiros ${lista.length} meses. Peça o restante em outra consulta.` } : {}),
             };
+          }
+          // (b) Lista de valores: a API aceita 1 por chamada; o modelo passa vários
+          // no `param` e o servidor consulta cada um (ex.: várias matrículas).
+          if (loop?.unit === "values") {
+            const raw = modelArgs[loop.param];
+            const valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
+              .map((v) => String(v).trim())
+              .filter(Boolean);
+            if (valores.length === 0) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+            const max = loop.max ?? 20;
+            const usados = valores.slice(0, max);
+            if (usados.length === 1) return await runOnce({ ...modelArgs, [loop.param]: usados[0]! }, 0);
+            const itens: Array<Record<string, unknown>> = [];
+            for (const [i, v] of usados.entries()) itens.push({ valor: v, dados: await runOnce({ ...modelArgs, [loop.param]: v }, i) });
+            return { itens, ...(valores.length > max ? { aviso: `Muitos valores: consultei os primeiros ${max}.` } : {}) };
           }
           return await runOnce(modelArgs, 0);
         } catch (e) {
@@ -244,8 +251,10 @@ export async function buildIntegrationTools(
     .join("\n");
   const capabilities =
     profileNote +
-    "Você tem FERRAMENTAS para consultar dados reais do sistema do usuário. Use-as quando ele pedir " +
-    "dados/registros específicos — nunca invente valores. Para dúvidas de uso ou como-fazer, use a documentação." +
+    "Você tem FERRAMENTAS para consultar dados reais do sistema do usuário. Decida sozinho a melhor fonte: " +
+    "use as FERRAMENTAS para dados/registros específicos (nunca invente valores) e a DOCUMENTAÇÃO para " +
+    "dúvidas de uso, conceitos e como-fazer. Você pode COMBINAR as duas quando ajudar — ex.: trazer o dado " +
+    "real por uma ferramenta e explicar o procedimento pela documentação na mesma resposta." +
     (sink
       ? " Quando uma ferramenta retornar um ARQUIVO, ele é entregue ao usuário automaticamente — apenas confirme na resposta, sem descrever bytes."
       : "") +

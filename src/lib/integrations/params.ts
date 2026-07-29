@@ -32,7 +32,7 @@ export function buildModelSchema(
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const p of params) {
     if (p.origem !== "modelo") continue;
-    if (loop && p.nome === loop.param) continue; // o servidor preenche por iteração
+    if (loop?.unit === "month" && p.nome === loop.param) continue; // o servidor preenche por mês
     let campo: z.ZodTypeAny;
     switch (p.tipo) {
       case "number":
@@ -54,15 +54,24 @@ export function buildModelSchema(
         campo = z.string();
     }
     if (p.descricao && p.tipo !== "date") campo = campo.describe(p.descricao);
+    // Loop por VALORES: o parâmetro vira uma LISTA (um valor, ou vários).
+    if (loop?.unit === "values" && p.nome === loop.param) {
+      campo = z
+        .array(campo)
+        .describe(
+          (p.descricao ? p.descricao + " " : "") +
+            "Passe UM valor, ou VÁRIOS numa lista se o usuário pedir mais de um — o sistema consulta cada um e junta os resultados.",
+        );
+    }
     shape[p.nome] = p.obrigatorio ? campo : campo.optional();
   }
-  if (loop) {
-    shape[loop.from] = z
+  if (loop?.unit === "month") {
+    shape[loop.from!] = z
       .string()
       .describe(
         `Início do período em ISO AAAA-MM. Para um ÚNICO mês, informe só este. Para um intervalo (ex.: o ano todo, ou abril a setembro), informe também ${loop.to}.`,
       );
-    shape[loop.to] = z
+    shape[loop.to!] = z
       .string()
       .describe(`Fim do período em ISO AAAA-MM (inclusive). Omita para consultar um único mês (${loop.from}).`)
       .optional();

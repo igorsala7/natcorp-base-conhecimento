@@ -50,20 +50,25 @@ export type ToolParam = {
 };
 
 /**
- * Expansão de PERÍODO de uma ferramenta mensal (ver `ai_tools.loop`). Quando o
- * usuário pede um intervalo, o servidor itera a `unit` de `from` a `to` e chama
- * a API uma vez por unidade, agregando o resultado — o modelo faz UMA chamada.
+ * Expansão/loop de uma ferramenta cuja API aceita UM valor por chamada, mas o
+ * usuário quer VÁRIOS (ver `ai_tools.loop`). O servidor itera e agrega — o modelo
+ * faz UMA chamada. Dois modos:
+ *  - `month`  : período mensal; o modelo informa `from`/`to` (ISO AAAA-MM) e o
+ *               servidor itera mês a mês, injetando cada mês em `param`.
+ *  - `values` : o modelo informa uma LISTA de valores em `param` (ex.: várias
+ *               matrículas) e o servidor consulta cada um. Só itera quando o
+ *               usuário pede mais de um.
  */
 export type LoopConfig = {
-  /** Unidade da iteração. Por ora, apenas "month". */
-  unit: "month";
-  /** Nome do parâmetro single-value que a API espera (recebe cada mês). */
+  /** Modo da iteração. */
+  unit: "month" | "values";
+  /** Nome do parâmetro single-value que a API espera (recebe cada valor/mês). */
   param: string;
-  /** Parâmetro (visível ao modelo) com o início do período (ISO AAAA-MM). */
-  from: string;
-  /** Parâmetro com o fim do período (opcional; ausente = 1 mês). */
-  to: string;
-  /** Teto de iterações (protege contra períodos absurdos). Padrão 24. */
+  /** (month) Parâmetro com o início do período (ISO AAAA-MM). */
+  from?: string;
+  /** (month) Parâmetro com o fim do período (opcional; ausente = 1 mês). */
+  to?: string;
+  /** Teto de iterações (protege contra pedidos absurdos). Padrão 24 (month) / 20 (values). */
   max?: number | null;
 };
 

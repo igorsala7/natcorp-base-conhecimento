@@ -32,12 +32,12 @@ const paramSchema = z.object({
   campoCredencial: z.string().nullish(),
 });
 
-/** Expansão de período (mês a mês) — ver LoopConfig / ai_tools.loop. */
+/** Loop/expansão — ver LoopConfig / ai_tools.loop. `month` usa from/to; `values` só param. */
 const loopSchema = z.object({
-  unit: z.literal("month"),
+  unit: z.enum(["month", "values"]),
   param: z.string().trim().min(1),
-  from: z.string().trim().min(1),
-  to: z.string().trim().min(1),
+  from: z.string().trim().nullish(),
+  to: z.string().trim().nullish(),
   max: z.number().int().positive().nullish(),
 });
 

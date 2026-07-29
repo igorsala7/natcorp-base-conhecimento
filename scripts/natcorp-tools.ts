@@ -152,6 +152,8 @@ const loopMensal = (param = "data_ref"): LoopConfig => ({
   to: "periodo_fim",
   max: 24,
 });
+/** Loop por VALORES: o modelo passa uma LISTA em `param` e o servidor consulta cada um. */
+const loopValores = (param: string, max = 20): LoopConfig => ({ unit: "values", param, max });
 /** Session key do login ORDS — injetada do segredo da credencial, nunca do modelo. */
 const sessionKey = (): ToolParam => ({
   nome: "key",
@@ -701,10 +703,11 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     key: "dados_colaborador_equipe",
     name: "Dados de um colaborador da equipe",
     description:
-      "Dados cadastrais e funcionais COMPLETOS de UM colaborador DA EQUIPE do gestor (cargo, " +
-      "admissão, situação, salário, etc.). Informe a empresa e a matrícula do colaborador — que " +
-      "PRECISA ser da equipe do gestor (o servidor valida; se não for, recusa). Descubra a matrícula " +
-      "com listar_colaboradores_resumo. Ao exibir, mascare dados sensíveis de terceiros.",
+      "Dados cadastrais e funcionais COMPLETOS de colaborador(es) DA EQUIPE do gestor (cargo, " +
+      "admissão, situação, salário, etc.). Informe a empresa e a(s) matrícula(s) — que PRECISAM ser " +
+      "da equipe do gestor (o servidor valida cada uma; recusa as que não forem). Para VÁRIOS " +
+      "colaboradores, passe uma LISTA de matrículas. Descubra a matrícula com listar_colaboradores_resumo. " +
+      "Ao exibir, mascare dados sensíveis de terceiros.",
     path_template: "/chatbot/login/v1/dados_colab_usuario",
     guard: "team_membership",
     params: [
@@ -713,6 +716,7 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
       filtro("matricula", "Matrícula do colaborador da equipe.", true),
       usuario(),
     ],
+    loop: loopValores("matricula"),
     response_hint:
       "É dado de OUTRA pessoa: mascare o sensível (CPF ...123-XX, conta ****-1234) e mostre só o que o gestor pediu.",
   },
@@ -777,7 +781,7 @@ RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): BI e filtros usam CÓDIGOS. Se
 - BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → use bi_hist_financeiro e escolha o agrupamento conforme os filtros que o usuário deu (ex.: "por filial" → agrupamento "empresa/filial"; "por cargo na filial" → "empresa/filial/cargo"). Informe a empresa e o período: para UM mês, só periodo_ini; para um INTERVALO (o ano todo, ou abril a setembro), periodo_ini E periodo_fim numa só chamada — o sistema consulta mês a mês e devolve tudo junto, você NÃO repete a chamada. Filtros não informados ficam em branco.
 - BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e use bi_risco, escolhendo o agrupamento conforme os filtros.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.
-- Dados completos de UM colaborador da equipe (cargo, situação, salário) → identifique a matrícula com listar_colaboradores_resumo e então dados_colaborador_equipe (o servidor só libera se for da sua equipe; senão recusa). Mascare dados sensíveis de terceiros (CPF, conta).
+- Dados completos de colaborador(es) da equipe (cargo, situação, salário) → identifique a(s) matrícula(s) com listar_colaboradores_resumo e então dados_colaborador_equipe. Para VÁRIOS colaboradores, passe a LISTA de matrículas numa só chamada (o servidor consulta cada um e valida a equipe; recusa quem não for). Mascare dados sensíveis de terceiros (CPF, conta).
 - Alertas, notificações ou pendências da equipe → alertas_gestor.
 - As ferramentas de gestor só existem para gestores; se o perfil não for gestor, elas não estarão disponíveis.
 
