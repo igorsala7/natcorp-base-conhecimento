@@ -33,6 +33,7 @@ identificação (WhatsApp). O modelo só preenche os parâmetros de *consulta* (
 | **Parâmetro** | Cada campo da API. Tem **tipo** (texto/número/data/…), **origem** e, para datas, **máscara**. |
 | **Origem do parâmetro** | `identidade` (injetado do token/login — seguro), `modelo` (a IA extrai da conversa), `fixo` (constante), `credencial` (um campo do segredo da credencial, ex.: `session_key` — nunca do modelo). |
 | **Envelope do corpo** (`body_mode`) | Para POST: `object` (padrão, `{...}`), `array` (`[{...}]`) ou `wrap:<chave>` (`{<chave>:[{...}]}`) — algumas APIs ORDS exigem o corpo embrulhado. |
+| **Guard** (`ai_tools.guard`) | Uma checagem no SERVIDOR rodada ANTES da chamada, que pode recusar: `team_membership` (gestor só consulta a própria equipe), `saque_confirmation` (só efetiva com código de confirmação válido). Falha fechada. |
 | **Agente** | Especialista num módulo: tem seu **modelo de IA**, suas **APIs/Tools**, opcional **agente‑pai** e um opcional **`requires_perfil`** (ex.: `gestor`). Os agentes **curam** quais APIs a IA pode usar; um agente com `requires_perfil` só é exposto quando o **perfil resolvido no login** confere (trava no servidor). |
 
 ## 3. Pré‑requisitos
@@ -249,9 +250,12 @@ resolvido no login** é gestor — a trava é no servidor, o perfil nunca vem do
 **estrutura** da organização (empresas, filiais, cargos, centros de custo, funções, locais — para
 descobrir códigos), o **BI de histórico financeiro** (8 agrupamentos por empresa/filial/cargo/centro
 de custo…), o **BI de riscos/SESMT** (5 agrupamentos), os **alertas** da equipe e a **listagem da
-equipe** (`listar_colaboradores_resumo`, já **escopada ao gestor** por `usuario`+`gestor`). São dados
-GERAIS da organização — a consulta dos **dados completos de um colaborador específico** da equipe
-fica de fora por ora (a API não escopa por gestor; exige uma checagem de pertencimento à equipe).
+equipe** (`listar_colaboradores_resumo`, já **escopada ao gestor** por `usuario`+`gestor`).
+
+Os **dados completos de um colaborador da equipe** (`dados_colaborador_equipe`) são liberados por um
+**guard `team_membership`**: como a API de dados não escopa por gestor, o servidor valida a matrícula
+pedida contra a **lista da equipe** (a `colaboradores_resumo`, essa sim escopada) e **recusa** se não
+for da equipe — antes de chamar a API.
 
 **Escritas com confirmação (colaborador).** `atualizar_telefone` e `atualizar_email` alteram os
 dados do **próprio** colaborador. São `POST` com corpo embrulhado (`body_mode = array`) e a
@@ -261,13 +265,16 @@ Sim/Não antes de chamar (instruído no prompt).
 **Antecipação salarial — só informativo/simulação.** `antecipacao_saldo`, `antecipacao_regras`,
 `antecipacao_simular` (com `simulacao=S` — não movimenta) e `antecipacao_historico`. Usam o corpo
 `wrap:saque` (`{saque:[{…}]}`) e a `session_key`. A **efetivação do saque** (`antecipacao_efetivar`)
-fica **registrada mas DESATIVADA e sem agente** — a IA não a aciona. Habilitá-la exige uma **trava
-de confirmação no servidor** (o "Sim" do chat não basta para mover dinheiro). O **PIX externo
-(Asaas)** não é registrado como ferramenta.
+fica **registrada mas DESATIVADA** — a IA não a aciona. Ela já vem protegida pelo **guard
+`saque_confirmation`**: um gate **fora‑da‑banda** — sem código, o servidor gera um código, guarda só o
+**hash** (`ai_pending_confirmations`), envia ao **e‑mail cadastrado** do usuário (o modelo NUNCA vê o
+código) e recusa pedindo o código; com o código correto (não usado, não expirado), efetiva. Assim a
+IA não consegue mover dinheiro sozinha — nem mesmo com um "Sim" no chat. **Habilitar** (pôr
+`active=true`) e um teste controlado é decisão do dono. O **PIX externo (Asaas)** não é registrado.
 
-> Reaplicar: `npm run seed:natcorp` registra tudo isso (39 ferramentas ativas + 1 desativada, agentes
-> `nati_rh` e `nati_gestor`). As três capacidades acima reusam mecanismos genéricos do módulo
-> (`requires_perfil`, origem `credencial`, `body_mode`) — servem a qualquer base ORDS‑like.
+> Reaplicar: `npm run seed:natcorp` registra tudo isso (44 ferramentas ativas + 1 desativada, agentes
+> `nati_rh` e `nati_gestor`). As capacidades acima reusam mecanismos genéricos do módulo
+> (`requires_perfil`, origem `credencial`, `body_mode`, `guard`) — servem a qualquer base ORDS‑like.
 
 ## 7. Segurança
 

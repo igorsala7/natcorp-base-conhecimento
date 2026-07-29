@@ -160,6 +160,7 @@ async function main(): Promise<void> {
             params: t.params as unknown as Json,
             response_hint: t.response_hint ?? null,
             body_mode: t.body_mode ?? null,
+            guard: t.guard ?? null,
             active: t.active ?? true,
             updated_at: new Date().toISOString(),
           },

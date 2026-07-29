@@ -32,6 +32,8 @@ export type NatcorpTool = {
   body_mode?: string | null;
   /** false = registrada no catálogo mas DESATIVADA (não acionável pela IA). Padrão true. */
   active?: boolean;
+  /** Guard no servidor rodado antes da chamada (ex.: 'team_membership'). */
+  guard?: string | null;
 };
 
 // ── Fábricas de parâmetro — COLABORADOR (identidade do próprio usuário) ───────
@@ -153,6 +155,15 @@ const corpoFixo = (nome: string, valorFixo: string): ToolParam => ({
   obrigatorio: false,
   local: "body",
   valorFixo,
+});
+/** Param que a IA preenche mas NÃO vai na requisição (uso de guard, ex.: código). */
+const interno = (nome: string, descricao: string): ToolParam => ({
+  nome,
+  descricao,
+  tipo: "string",
+  origem: "modelo",
+  obrigatorio: false,
+  local: "none",
 });
 /** Data no corpo (a IA entrega ISO; o motor formata pela máscara). */
 const corpoData = (nome: string, mascara: string, descricao: string, obrigatorio = false): ToolParam => ({
@@ -655,6 +666,25 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     path_template: "/chatbot/consultas/v1/colaboradores_resumo",
     params: [sessionKey(), fixo("gestor", "SIM"), usuario()],
   },
+  {
+    key: "dados_colaborador_equipe",
+    name: "Dados de um colaborador da equipe",
+    description:
+      "Dados cadastrais e funcionais COMPLETOS de UM colaborador DA EQUIPE do gestor (cargo, " +
+      "admissão, situação, salário, etc.). Informe a empresa e a matrícula do colaborador — que " +
+      "PRECISA ser da equipe do gestor (o servidor valida; se não for, recusa). Descubra a matrícula " +
+      "com listar_colaboradores_resumo. Ao exibir, mascare dados sensíveis de terceiros.",
+    path_template: "/chatbot/login/v1/dados_colab_usuario",
+    guard: "team_membership",
+    params: [
+      sessionKey(),
+      filtro("empresa", "Código da empresa do colaborador.", true),
+      filtro("matricula", "Matrícula do colaborador da equipe.", true),
+      usuario(),
+    ],
+    response_hint:
+      "É dado de OUTRA pessoa: mascare o sensível (CPF ...123-XX, conta ****-1234) e mostre só o que o gestor pediu.",
+  },
   // ── Alertas do gestor ──────────────────────────────────────────────────────
   {
     key: "alertas_gestor",
@@ -677,12 +707,14 @@ export const NATCORP_TOOLS_EXTRA: NatcorpTool[] = [
     key: "antecipacao_efetivar",
     name: "Antecipação: EFETIVAR saque (desativada)",
     description:
-      "EFETIVA o saque de antecipação — MOVIMENTA DINHEIRO. Desativada por padrão e sem agente: só " +
-      "habilite com uma trava de confirmação no servidor. A IA não a aciona automaticamente.",
+      "EFETIVA o saque de antecipação — MOVIMENTA DINHEIRO. Desativada por padrão. Protegida pelo " +
+      "guard `saque_confirmation`: sem código, o servidor envia um código ao e-mail do usuário e recusa; " +
+      "com o código correto, efetiva. A IA não a aciona automaticamente (habilitar é decisão do dono).",
     method: "POST",
     path_template: "/pagamento/v1/saque",
     body_mode: "wrap:saque",
     active: false,
+    guard: "saque_confirmation",
     params: [
       sessionKey(),
       corpoIdent("cod_empresa", "cod_empresa"),
@@ -691,6 +723,7 @@ export const NATCORP_TOOLS_EXTRA: NatcorpTool[] = [
       corpoFixo("simulacao", "N"),
       corpo("valor", "Valor do saque."),
       corpoData("data", "dd/MM/yyyy", "Data atual (ISO).", false),
+      interno("codigo", "Código de confirmação que o usuário recebeu por e-mail (para efetivar)."),
     ],
   },
 ];
@@ -745,12 +778,13 @@ SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas 
 - BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → escolha a ferramenta bi_hist_financeiro_* mais específica conforme os filtros; informe o mês (MM/AAAA). Parâmetros não informados ficam em branco.
 - BI de riscos / SESMT / segurança do trabalho → escolha a ferramenta bi_risco_* mais específica.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.
+- Dados completos de UM colaborador da equipe (cargo, situação, salário) → identifique a matrícula com listar_colaboradores_resumo e então dados_colaborador_equipe (o servidor só libera se for da sua equipe; senão recusa). Mascare dados sensíveis de terceiros (CPF, conta).
 - Alertas, notificações ou pendências da equipe → alertas_gestor.
 - As ferramentas de gestor só existem para gestores; se o perfil não for gestor, elas não estarão disponíveis.
 
 DATAS: exiba e aceite no formato DD/MM/AAAA (ou MM/AAAA quando a ferramenta pedir mês). Se um período não for informado, pergunte. Ao acionar a ferramenta, informe a data em ISO (AAAA-MM-DD) — a formatação exigida por cada API é aplicada automaticamente. Ao gerar um relatório/documento, apenas confirme o envio: o arquivo é anexado automaticamente.
 
-AINDA NÃO DISPONÍVEL POR AQUI: consultar os dados completos (salário, cadastro) de UM colaborador específico da equipe, e a EFETIVAÇÃO do saque de antecipação (só a simulação está disponível). Se pedirem, explique com gentileza que ainda não está disponível por este canal e ofereça o que dá para fazer.
+AINDA NÃO DISPONÍVEL POR AQUI: a EFETIVAÇÃO do saque de antecipação (só a simulação está disponível). Se pedirem, explique com gentileza que ainda não está disponível por este canal e ofereça o que dá para fazer.
 
 DÚVIDA OU FALHA: se não tiver certeza de qual recurso usar, pergunte de forma simples (você quer X ou Y?), sem termos técnicos. Se algo falhar, não exponha detalhes internos — reformule e tente entender melhor o pedido.`;
 
