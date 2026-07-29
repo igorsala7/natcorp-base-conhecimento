@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, KeyRound, Pencil, Plus, ShieldAlert, Trash2, Webhook } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -25,8 +25,6 @@ import {
   deleteCredential,
   type IntegResult,
 } from "./actions";
-import { setBaseTool, removeBaseTool } from "./tool-actions";
-import type { ToolRow, BaseToolRow } from "./tools-manager";
 
 export type CredentialRow = {
   id: string;
@@ -35,11 +33,15 @@ export type CredentialRow = {
   active: boolean;
   hasSecret: boolean;
 };
+export type NodePos = { x: number; y: number };
 export type BaseRow = {
   id: string;
   base_code: string;
   name: string;
   active: boolean;
+  base_url: string | null;
+  credential_id: string | null;
+  flow_layout: Record<string, NodePos> | null;
   spaceIds: string[];
   credentials: CredentialRow[];
 };
@@ -49,14 +51,10 @@ const AUTH_LABEL = Object.fromEntries(AUTH_TYPES.map((a) => [a.value, a.label]))
 
 export function IntegrationsManager({
   bases,
-  tools,
-  baseTools,
   spaces,
   temChaveMestra,
 }: {
   bases: BaseRow[];
-  tools: ToolRow[];
-  baseTools: BaseToolRow[];
   spaces: SpaceOption[];
   temChaveMestra: boolean;
 }) {
@@ -67,7 +65,6 @@ export function IntegrationsManager({
   const [aberta, setAberta] = useState<Set<string>>(new Set());
   const [baseDialog, setBaseDialog] = useState<{ base?: BaseRow } | null>(null);
   const [credDialog, setCredDialog] = useState<{ baseId: string; cred?: CredentialRow } | null>(null);
-  const [btDialog, setBtDialog] = useState<{ base: BaseRow; tool: ToolRow; current?: BaseToolRow } | null>(null);
 
   function toggle(id: string) {
     setAberta((prev) => {
@@ -221,58 +218,11 @@ export function IntegrationsManager({
                       </ul>
                     )}
 
-                    {/* APIs / Tools ativas nesta base */}
-                    <div className="mb-2 mt-4 flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                        APIs / Tools
-                      </span>
-                    </div>
-                    {tools.length === 0 ? (
-                      <p className="py-1 text-sm text-text-muted">
-                        Cadastre APIs na aba <strong>APIs / Tools</strong>.
-                      </p>
-                    ) : (
-                      <ul className="flex flex-col gap-1.5">
-                        {tools.map((t) => {
-                          const bt = baseTools.find((x) => x.base_id === b.id && x.tool_id === t.id);
-                          return (
-                            <li
-                              key={t.id}
-                              className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-2/40 px-3 py-2"
-                            >
-                              <Webhook className="size-4 shrink-0 text-text-muted" />
-                              <span className="min-w-0 flex-1">
-                                <span className="flex flex-wrap items-center gap-2">
-                                  <span className="truncate text-sm font-medium text-text">{t.name}</span>
-                                  {bt ? (
-                                    bt.enabled ? (
-                                      <Badge tone="info">Ativa</Badge>
-                                    ) : (
-                                      <Badge tone="warning">Desativada</Badge>
-                                    )
-                                  ) : (
-                                    <Badge tone="neutral">Não configurada</Badge>
-                                  )}
-                                </span>
-                                {bt?.base_url && (
-                                  <span className="mt-0.5 block truncate font-mono text-xs text-text-muted">
-                                    {bt.base_url}
-                                  </span>
-                                )}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setBtDialog({ base: b, tool: t, current: bt })}
-                                title="Configurar para esta base"
-                              >
-                                <Pencil />
-                              </Button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
+                    <p className="mt-4 text-xs text-text-muted">
+                      As APIs/Tools desta base são ligadas/desligadas no editor de cada tool (aba{" "}
+                      <strong>APIs / Tools</strong> → seletor de bases). A <strong>URL base</strong> e a{" "}
+                      <strong>credencial padrão</strong> ficam em <strong>Editar base</strong>.
+                    </p>
                   </div>
                 )}
               </li>
@@ -306,97 +256,12 @@ export function IntegrationsManager({
           onSave={(payload) => run(() => saveCredential(payload), "Credencial salva.", () => setCredDialog(null))}
         />
       )}
-
-      {btDialog && (
-        <BaseToolDialog
-          base={btDialog.base}
-          tool={btDialog.tool}
-          current={btDialog.current}
-          pending={pending}
-          onClose={() => setBtDialog(null)}
-          onSave={(payload) => run(() => setBaseTool(payload), "API configurada.", () => setBtDialog(null))}
-          onRemove={() =>
-            run(() => removeBaseTool(btDialog.base.id, btDialog.tool.id), "API removida da base.", () => setBtDialog(null))
-          }
-        />
-      )}
     </div>
   );
 }
 
-// ───────────────────── Diálogo: ativar API/Tool na base ──────────────────────
-function BaseToolDialog({
-  base,
-  tool,
-  current,
-  pending,
-  onClose,
-  onSave,
-  onRemove,
-}: {
-  base: BaseRow;
-  tool: ToolRow;
-  current?: BaseToolRow;
-  pending: boolean;
-  onClose: () => void;
-  onSave: (payload: Record<string, unknown>) => void;
-  onRemove: () => void;
-}) {
-  const [enabled, setEnabled] = useState(current?.enabled ?? true);
-  const [baseUrl, setBaseUrl] = useState(current?.base_url ?? "");
-  const [credentialId, setCredentialId] = useState(current?.credential_id ?? "");
-
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={`${tool.name} — ${base.name}`}
-      footer={
-        <div className="flex items-center justify-between gap-2">
-          {current ? (
-            <Button variant="ghost" onClick={onRemove} title="Remover esta API desta base">
-              <Trash2 /> Remover
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button
-              disabled={pending}
-              onClick={() =>
-                onSave({ baseId: base.id, toolId: tool.id, enabled, base_url: baseUrl, credentialId: credentialId || null })
-              }
-            >
-              Salvar
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        <label className="flex items-center gap-2 text-sm text-text">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
-          Ativa para esta base
-        </label>
-        <Field label="Endpoint (base_url)" htmlFor="bt_url" hint="Endereço-base desta API para este cliente.">
-          <input id="bt_url" className={controlClass} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.cliente.com/v1" />
-        </Field>
-        <Field label="Credencial" htmlFor="bt_cred" hint={tool.auth_type === "none" ? "Esta API não exige autenticação." : undefined}>
-          <select id="bt_cred" className={controlClass} value={credentialId} onChange={(e) => setCredentialId(e.target.value)} disabled={tool.auth_type === "none"}>
-            <option value="">— nenhuma —</option>
-            {base.credentials.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
 // ─────────────────────────────── Diálogo: Base ──────────────────────────────
-function BaseDialog({
+export function BaseDialog({
   base,
   spaces,
   pending,
@@ -412,7 +277,10 @@ function BaseDialog({
   const [baseCode, setBaseCode] = useState(base?.base_code ?? "");
   const [name, setName] = useState(base?.name ?? "");
   const [active, setActive] = useState(base?.active ?? true);
+  const [baseUrl, setBaseUrl] = useState(base?.base_url ?? "");
+  const [credentialId, setCredentialId] = useState(base?.credential_id ?? "");
   const [spaceIds, setSpaceIds] = useState<Set<string>>(new Set(base?.spaceIds ?? []));
+  const credenciais = base?.credentials ?? [];
 
   function toggleSpace(id: string) {
     setSpaceIds((prev) => {
@@ -436,8 +304,16 @@ function BaseDialog({
             onClick={() =>
               onSave(
                 base
-                  ? { id: base.id, base_code: baseCode, name, active, space_ids: [...spaceIds] }
-                  : { base_code: baseCode, name, space_ids: [...spaceIds] },
+                  ? {
+                      id: base.id,
+                      base_code: baseCode,
+                      name,
+                      active,
+                      base_url: baseUrl,
+                      credential_id: credentialId || null,
+                      space_ids: [...spaceIds],
+                    }
+                  : { base_code: baseCode, name, base_url: baseUrl, credential_id: credentialId || null, space_ids: [...spaceIds] },
               )
             }
           >
@@ -452,6 +328,31 @@ function BaseDialog({
         </Field>
         <Field label="Nome do cliente" htmlFor="base_name">
           <input id="base_name" className={controlClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="ex.: Acme S/A" />
+        </Field>
+        <Field label="URL base" htmlFor="base_url" hint="Endereço-base das APIs internas deste cliente. As tools internas usam esta URL + o caminho de cada uma.">
+          <input id="base_url" className={controlClass} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.cliente.com/v1" />
+        </Field>
+        <Field
+          label="Credencial padrão"
+          htmlFor="base_cred"
+          hint={
+            base
+              ? "Credencial usada pelas tools internas desta base."
+              : "Salve a base e cadastre credenciais; depois escolha a padrão aqui."
+          }
+        >
+          <select
+            id="base_cred"
+            className={controlClass}
+            value={credentialId}
+            onChange={(e) => setCredentialId(e.target.value)}
+            disabled={credenciais.length === 0}
+          >
+            <option value="">— sem autenticação —</option>
+            {credenciais.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </Field>
         <Field label="Documentações do chatbot" htmlFor="base_spaces" hint="Bases de conhecimento que o chatbot desta base usa (RAG). Pode marcar várias; a 1ª é onde as conversas do WhatsApp são registradas.">
           {spaces.length === 0 ? (

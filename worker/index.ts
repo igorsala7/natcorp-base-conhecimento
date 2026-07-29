@@ -1060,12 +1060,15 @@ async function main() {
   await boss.createQueue("backup-github-save");
   await boss.createQueue("backup-github-import");
   await boss.createQueue("digests");
+  await boss.createQueue("tool-runs-cleanup");
   await applyBackupSchedule(boss);
   // Digests de assinaturas: tick de 15 min (instant sai no próximo tick;
   // daily/weekly têm gate de horário dentro do processador).
   await boss.schedule("digests", "*/15 * * * *");
   // Cron do próprio pg-boss: um tick por minuto, singleton (não acumula).
   await boss.schedule("scheduled-publish", "* * * * *");
+  // Retenção do log de execução das ferramentas: apaga > 30 dias, 1×/dia.
+  await boss.schedule("tool-runs-cleanup", "17 3 * * *");
   console.log("Worker de importação pronto. Aguardando jobs…");
 
   await boss.work("capture", { batchSize: 1 }, async (jobs) => {
@@ -1116,6 +1119,17 @@ async function main() {
       await processScheduled(boss);
     } catch (e) {
       console.error("Varredura de agendados falhou:", e instanceof Error ? e.message : e);
+    }
+  });
+
+  await boss.work("tool-runs-cleanup", async () => {
+    try {
+      const limite = new Date(Date.now() - 30 * 86400_000).toISOString();
+      const { data, error } = await supabase.from("ai_tool_runs").delete().lt("created_at", limite).select("id");
+      if (error) console.error("Limpeza de ai_tool_runs falhou:", error.message);
+      else if (data?.length) console.log(`Log de execução: ${data.length} registro(s) antigos removidos.`);
+    } catch (e) {
+      console.error("Limpeza de ai_tool_runs falhou:", e instanceof Error ? e.message : e);
     }
   });
 

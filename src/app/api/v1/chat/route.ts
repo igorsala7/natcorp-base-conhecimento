@@ -27,6 +27,8 @@ import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/c
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { glossarioCasado } from "@/lib/ai/ontology";
+import { withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { notaDataAtual } from "@/lib/ai/current-date";
 import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
@@ -143,8 +145,10 @@ export async function POST(req: NextRequest) {
   // para consultar as APIs daquela base. A identidade é injetada no servidor
   // (identityFromTrack) — o modelo só preenche os parâmetros de consulta.
   const outFiles: OutFile[] = [];
+  // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
+  const runMeta: { conversationId: string | null } = { conversationId: convId ?? null };
   const integ = track.p_base
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   const temTools = Object.keys(integ.tools).length > 0;
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
@@ -163,6 +167,7 @@ export async function POST(req: NextRequest) {
       .single();
     convId = conv?.id;
   }
+  runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
   // desambiguação re-envia a mesma pergunta e não deve duplicá-la.
   if (!payload.scope) {
@@ -245,6 +250,7 @@ export async function POST(req: NextRequest) {
         comTools: temTools,
       },
       [
+        notaDataAtual(),
         buildContextBlock(sources),
         attach.contextBlock,
         pageContextNote(page),
@@ -256,7 +262,9 @@ export async function POST(req: NextRequest) {
         .filter(Boolean)
         .join("\n\n"),
     ),
-    messages: withImageParts(messages, attach.imageParts),
+    // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
+    // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
+    messages: withPrefixCache(withImageParts(messages, attach.imageParts), temTools),
     // Loop agêntico: o modelo pode chamar uma API, ler o resultado e responder
     // (ou encadear). `stopWhen` trava o loop. Só quando há tools de integração.
     ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),

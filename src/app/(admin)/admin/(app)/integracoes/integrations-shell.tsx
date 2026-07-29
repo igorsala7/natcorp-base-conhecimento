@@ -5,6 +5,9 @@ import { cn } from "@/lib/utils";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow } from "./tools-manager";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
+import { RunsManager, type RunRow } from "./runs-manager";
+import { FlowManager } from "./flow-manager";
+import { BuilderChat } from "./builder-chat";
 import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
 
 export type WhatsappBundle = {
@@ -21,6 +24,7 @@ export function IntegrationsShell({
   agents,
   providers,
   spaces,
+  runs,
   whatsapp,
   temChaveMestra,
 }: {
@@ -30,14 +34,18 @@ export function IntegrationsShell({
   agents: AgentRow[];
   providers: ProviderOption[];
   spaces: SpaceOption[];
+  runs: RunRow[];
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
-  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "whatsapp">("bases");
+  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
   const abas = [
     ["bases", "Bases / Clientes"],
     ["apis", "APIs / Tools"],
     ["agentes", "Agentes"],
+    ["fluxo", "Fluxo"],
+    ["construtor", "Construtor IA"],
+    ["execucoes", "Execuções"],
     ["whatsapp", "WhatsApp"],
   ] as const;
 
@@ -62,11 +70,25 @@ export function IntegrationsShell({
       </div>
 
       {tab === "bases" ? (
-        <IntegrationsManager bases={bases} tools={tools} baseTools={baseTools} spaces={spaces} temChaveMestra={temChaveMestra} />
+        <IntegrationsManager bases={bases} spaces={spaces} temChaveMestra={temChaveMestra} />
       ) : tab === "apis" ? (
-        <ToolsManager tools={tools} />
+        <ToolsManager tools={tools} bases={bases} baseTools={baseTools} />
       ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
+      ) : tab === "fluxo" ? (
+        <FlowManager
+          bases={bases}
+          tools={tools}
+          agents={agents}
+          baseTools={baseTools}
+          spaces={spaces}
+          providers={providers}
+          runs={runs}
+        />
+      ) : tab === "construtor" ? (
+        <BuilderChat />
+      ) : tab === "execucoes" ? (
+        <RunsManager runs={runs} />
       ) : (
         <WhatsappPanel
           settings={whatsapp.settings}

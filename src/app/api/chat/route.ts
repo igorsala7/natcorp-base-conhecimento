@@ -18,6 +18,8 @@ import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
+import { withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { notaDataAtual } from "@/lib/ai/current-date";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -95,6 +97,8 @@ export async function POST(req: NextRequest) {
   // e resolve o login, como um usuário real do widget. Só quem administra
   // integrações pode simular — o restante ignora `sim` (chat de documentação normal).
   const outFiles: OutFile[] = [];
+  // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
+  const runMeta: { conversationId: string | null } = { conversationId: null };
   let integ: IntegrationBundle = { tools: {}, capabilities: "", agentPrompt: "" };
   if (sim?.base_code && (await hasPermission("integrations.manage", null))) {
     const identity: Identity = {
@@ -104,7 +108,7 @@ export async function POST(req: NextRequest) {
       perfil: sim.perfil || undefined,
       portal: sim.portal || undefined,
     };
-    integ = await buildIntegrationTools(sim.base_code, identity, outFiles);
+    integ = await buildIntegrationTools(sim.base_code, identity, outFiles, runMeta);
   }
   const temTools = Object.keys(integ.tools).length > 0;
 
@@ -128,6 +132,7 @@ export async function POST(req: NextRequest) {
       .single();
     convId = conv?.id;
   }
+  runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // A pergunta do usuário é persistida UMA vez: na 1ª chamada (sem `scope`). O
   // clique num botão de desambiguação re-envia a MESMA pergunta com `scope` —
   // aí não persiste de novo (evita duplicar a mensagem do usuário).
@@ -193,9 +198,14 @@ export async function POST(req: NextRequest) {
         regras: resolveRegras(aP.regras_absolutas),
         comTools: temTools,
       },
-      buildContextBlock(sources),
+      [notaDataAtual(), buildContextBlock(sources)].filter(Boolean).join("\n\n"),
     ),
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    // Cache de prompt: com ferramentas, marca a ÚLTIMA mensagem para a Anthropic
+    // reaproveitar system + histórico entre os steps do loop agêntico.
+    messages: withPrefixCache(
+      messages.map((m) => ({ role: m.role, content: m.content })),
+      temTools,
+    ),
     // Loop agêntico só quando a simulação trouxe ferramentas de uma base.
     ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
     onFinish: async ({ text, usage }) => {

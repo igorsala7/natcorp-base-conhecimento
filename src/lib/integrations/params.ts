@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { TrackFields } from "@/lib/tracking/resolve";
-import type { IdentityField, ToolParam } from "./tools";
+import type { IdentityField, LoopConfig, ToolParam } from "./tools";
 import { applyDateMask } from "./mask";
 
 /** Identidade confiável, decifrada do token (nunca vinda do modelo). */
@@ -20,11 +20,19 @@ export function identityFromTrack(t: TrackFields): Identity {
 /**
  * Schema Zod SÓ com os parâmetros que a IA preenche (origem = 'modelo').
  * É o `inputSchema` da tool no AI SDK — o modelo nunca vê os de identidade/fixo.
+ *
+ * Com `loop`, o parâmetro mensal (`loop.param`) é OMITIDO do schema e trocado
+ * por dois campos de período (`loop.from` obrigatório, `loop.to` opcional): o
+ * modelo informa o intervalo e o servidor itera mês a mês (ver `loop.ts`).
  */
-export function buildModelSchema(params: ToolParam[]): z.ZodObject<Record<string, z.ZodTypeAny>> {
+export function buildModelSchema(
+  params: ToolParam[],
+  loop?: LoopConfig | null,
+): z.ZodObject<Record<string, z.ZodTypeAny>> {
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const p of params) {
     if (p.origem !== "modelo") continue;
+    if (loop && p.nome === loop.param) continue; // o servidor preenche por iteração
     let campo: z.ZodTypeAny;
     switch (p.tipo) {
       case "number":
@@ -47,6 +55,17 @@ export function buildModelSchema(params: ToolParam[]): z.ZodObject<Record<string
     }
     if (p.descricao && p.tipo !== "date") campo = campo.describe(p.descricao);
     shape[p.nome] = p.obrigatorio ? campo : campo.optional();
+  }
+  if (loop) {
+    shape[loop.from] = z
+      .string()
+      .describe(
+        `Início do período em ISO AAAA-MM. Para um ÚNICO mês, informe só este. Para um intervalo (ex.: o ano todo, ou abril a setembro), informe também ${loop.to}.`,
+      );
+    shape[loop.to] = z
+      .string()
+      .describe(`Fim do período em ISO AAAA-MM (inclusive). Omita para consultar um único mês (${loop.from}).`)
+      .optional();
   }
   return z.object(shape);
 }

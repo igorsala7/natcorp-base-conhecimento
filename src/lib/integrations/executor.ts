@@ -1,5 +1,5 @@
 import type { AuthType } from "./credentials";
-import type { ToolParam } from "./tools";
+import type { LoopConfig, ToolParam } from "./tools";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 
@@ -19,6 +19,10 @@ export type RuntimeTool = {
   guard?: string | null;
   /** Segundos de cache em memória do resultado (dados quase-estáticos). NULL = sem cache. */
   cache_ttl?: number | null;
+  /** Expansão de período (mês a mês): o servidor itera e agrega. NULL = sem loop. */
+  loop?: LoopConfig | null;
+  /** Instrução própria da tool, concatenada ao prompt quando a tool está ativa. */
+  system_prompt?: string | null;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */
@@ -49,7 +53,13 @@ export type ExecInput = {
   timeoutMs?: number;
 };
 
-export type ExecResult = { ok: boolean; status: number; data: unknown };
+export type ExecResult = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  /** Requisição montada (para o log). Contém segredos crus — sanitize antes de gravar. */
+  request?: { method: string; url: string; body?: string };
+};
 
 /** Monta a requisição HTTP a partir dos buckets resolvidos (função pura). */
 export function buildHttpRequest(
@@ -57,10 +67,14 @@ export function buildHttpRequest(
   baseUrl: string,
   buckets: ResolvedBuckets,
 ): { url: string; method: string; headers: Record<string, string>; body?: string } {
-  // Substitui {param} no caminho.
+  // Substitui {param} no caminho. Um param `rawPath` pode conter barras (um
+  // segmento composto, ex.: "empresa/filial/cargo" que escolhe o endpoint de
+  // agrupamento): encoda cada segmento, mas preserva as barras.
   let path = tool.path_template;
   for (const [k, v] of Object.entries(buckets.path)) {
-    path = path.replaceAll(`{${k}}`, encodeURIComponent(v));
+    const raw = tool.params.some((p) => p.nome === k && p.rawPath);
+    const encoded = raw ? v.split("/").map(encodeURIComponent).join("/") : encodeURIComponent(v);
+    path = path.replaceAll(`{${k}}`, encoded);
   }
   const base = baseUrl.replace(/\/+$/, "");
   const rel = path ? (path.startsWith("/") ? path : `/${path}`) : "";
@@ -140,7 +154,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     } catch {
       /* resposta não-JSON: devolve o texto cru */
     }
-    return { ok: res.ok, status: res.status, data };
+    return { ok: res.ok, status: res.status, data, request: { method: req.method, url: req.url, body: req.body } };
   } finally {
     clearTimeout(timer);
   }

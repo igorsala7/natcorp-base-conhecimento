@@ -56,6 +56,56 @@ describe("buildHttpRequest", () => {
     expect(url.searchParams.get("data_ini")).toBe("01/08/2026");
     expect(req.body).toBeUndefined();
   });
+
+  it("rawPath: um enum de agrupamento composto vira segmentos do caminho (barras preservadas)", () => {
+    const biTool: RuntimeTool = {
+      key: "bi_hist_financeiro",
+      name: "BI",
+      method: "GET",
+      path_template: "/bi/hist/{agrupamento}",
+      auth_type: "oauth2",
+      params: [
+        { nome: "agrupamento", descricao: "", tipo: "enum", origem: "modelo", obrigatorio: true, local: "path", rawPath: true, opcoes: ["empresa/filial/cargo"] },
+        { nome: "empresa", descricao: "", tipo: "string", origem: "modelo", obrigatorio: true, local: "query" },
+      ],
+    };
+    const b = resolveParams(biTool.params, { agrupamento: "empresa/filial/cargo", empresa: "700" }, {});
+    const req = buildHttpRequest(biTool, "https://api.cliente.com/v1/", b);
+    // Sem rawPath, a barra viraria %2F e quebraria a rota.
+    expect(new URL(req.url).pathname).toBe("/v1/bi/hist/empresa/filial/cargo");
+    expect(new URL(req.url).searchParams.get("empresa")).toBe("700");
+  });
+});
+
+describe("buildModelSchema com loop", () => {
+  const loopTool: RuntimeTool = {
+    key: "bi_hist_financeiro",
+    name: "BI",
+    method: "GET",
+    path_template: "/bi/{agrupamento}",
+    auth_type: "oauth2",
+    loop: { unit: "month", param: "data_ref", from: "periodo_ini", to: "periodo_fim", max: 24 },
+    params: [
+      { nome: "agrupamento", descricao: "", tipo: "enum", origem: "modelo", obrigatorio: true, local: "path", rawPath: true, opcoes: ["empresa"] },
+      { nome: "empresa", descricao: "", tipo: "string", origem: "modelo", obrigatorio: true, local: "query" },
+      { nome: "data_ref", descricao: "", tipo: "date", origem: "modelo", obrigatorio: true, local: "query", mascara: "MM/yyyy" },
+      { nome: "usuario", descricao: "", tipo: "string", origem: "identidade", obrigatorio: true, local: "query", campoIdentidade: "usuario" },
+    ],
+  };
+
+  it("esconde o param mensal e expõe periodo_ini/periodo_fim (fim opcional)", () => {
+    const shape = buildModelSchema(loopTool.params, loopTool.loop).shape;
+    const keys = Object.keys(shape);
+    expect(keys).toContain("agrupamento");
+    expect(keys).toContain("empresa");
+    expect(keys).toContain("periodo_ini");
+    expect(keys).toContain("periodo_fim");
+    expect(keys).not.toContain("data_ref"); // o servidor preenche por iteração
+    expect(keys).not.toContain("usuario"); // identidade nunca vai ao modelo
+    // periodo_ini obrigatório, periodo_fim opcional
+    expect(shape.periodo_ini!.safeParse(undefined).success).toBe(false);
+    expect(shape.periodo_fim!.safeParse(undefined).success).toBe(true);
+  });
 });
 
 describe("executeTool (OAuth + identidade + máscara, fetch mockado)", () => {

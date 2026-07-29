@@ -41,6 +41,30 @@ export type ToolParam = {
   valorFixo?: string | null;
   /** Campo do segredo da credencial a injetar quando origem = 'credencial' (ex.: 'session_key'). */
   campoCredencial?: string | null;
+  /**
+   * Só para `local: 'path'`: insere o valor no caminho SEM percent-encode das
+   * barras — permite um segmento composto (ex.: um enum "empresa/filial/cargo"
+   * que escolhe o endpoint de agrupamento). Cada segmento ainda é encodado.
+   */
+  rawPath?: boolean;
+};
+
+/**
+ * Expansão de PERÍODO de uma ferramenta mensal (ver `ai_tools.loop`). Quando o
+ * usuário pede um intervalo, o servidor itera a `unit` de `from` a `to` e chama
+ * a API uma vez por unidade, agregando o resultado — o modelo faz UMA chamada.
+ */
+export type LoopConfig = {
+  /** Unidade da iteração. Por ora, apenas "month". */
+  unit: "month";
+  /** Nome do parâmetro single-value que a API espera (recebe cada mês). */
+  param: string;
+  /** Parâmetro (visível ao modelo) com o início do período (ISO AAAA-MM). */
+  from: string;
+  /** Parâmetro com o fim do período (opcional; ausente = 1 mês). */
+  to: string;
+  /** Teto de iterações (protege contra períodos absurdos). Padrão 24. */
+  max?: number | null;
 };
 
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;

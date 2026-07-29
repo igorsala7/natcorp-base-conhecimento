@@ -108,6 +108,16 @@ async function main(): Promise<void> {
       .select("id")
       .single(),
   );
+  // Reestrutura: a URL base e a credencial padrão vivem na BASE (não mais por tool).
+  must(
+    "base_url+credencial",
+    await db
+      .from("ai_bases")
+      .update({ base_url: NATCORP_BASE_URL, credential_id: cred.id })
+      .eq("id", base.id)
+      .select("id")
+      .single(),
+  );
   if (clientId && clientSecret) {
     const blob: Record<string, string> = {
       token_url: NATCORP_TOKEN_URL,
@@ -141,6 +151,26 @@ async function main(): Promise<void> {
   // ativações e vínculos de agente). No-op após a 1ª execução.
   await db.from("ai_tools").delete().eq("key", "dados_colaborador");
 
+  // Limpeza: as 13 tools de BI quase-idênticas foram unificadas em `bi_hist_financeiro`
+  // e `bi_risco` (o agrupamento virou um enum no caminho). Remove as antigas para
+  // não ficarem órfãs no catálogo (cascata nas ativações/vínculos). No-op depois.
+  const KEYS_BI_ANTIGAS = [
+    "bi_hist_financeiro_empresa",
+    "bi_hist_financeiro_empresa_filial",
+    "bi_hist_financeiro_empresa_cargo",
+    "bi_hist_financeiro_empresa_ccusto",
+    "bi_hist_financeiro_empresa_filial_ccusto",
+    "bi_hist_financeiro_empresa_filial_cargo",
+    "bi_hist_financeiro_empresa_filial_unidade_adm",
+    "bi_hist_financeiro_empresa_filial_ccusto_cargo",
+    "bi_risco_empresa",
+    "bi_risco_empresa_filial",
+    "bi_risco_empresa_filial_ccusto",
+    "bi_risco_empresa_filial_ccusto_cargo_funcao",
+    "bi_risco_empresa_filial_ccusto_cargo_funcao_local",
+  ];
+  await db.from("ai_tools").delete().in("key", KEYS_BI_ANTIGAS);
+
   // 4. Catálogo de ferramentas ----------------------------------------------
   const toolIds: string[] = [];
   const toolIdByKey: Record<string, string> = {};
@@ -162,6 +192,7 @@ async function main(): Promise<void> {
             body_mode: t.body_mode ?? null,
             guard: t.guard ?? null,
             cache_ttl: t.cache_ttl ?? null,
+            loop: (t.loop ?? null) as unknown as Json,
             active: t.active ?? true,
             updated_at: new Date().toISOString(),
           },
@@ -179,7 +210,7 @@ async function main(): Promise<void> {
       await db
         .from("ai_base_tools")
         .upsert(
-          { base_id: base.id, tool_id: tool.id, enabled: true, base_url: NATCORP_BASE_URL, credential_id: cred.id },
+          { base_id: base.id, tool_id: tool.id, enabled: true },
           { onConflict: "base_id,tool_id" },
         )
         .select("tool_id")

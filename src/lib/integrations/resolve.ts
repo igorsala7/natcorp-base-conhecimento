@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import type { AuthType } from "./credentials";
-import type { ToolParam } from "./tools";
+import type { LoopConfig, ToolParam } from "./tools";
 import type { RuntimeTool, RuntimeCredential } from "./executor";
 
 /**
@@ -36,6 +36,11 @@ type EmbeddedRow = {
     body_mode: string | null;
     guard: string | null;
     cache_ttl: number | null;
+    loop: LoopConfig | null;
+    endpoint_kind: string | null;
+    external_url: string | null;
+    credential_id: string | null;
+    system_prompt: string | null;
     active: boolean;
   } | null;
 };
@@ -45,7 +50,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const db = createAdminClient();
   const { data: base } = await db
     .from("ai_bases")
-    .select("id, name, active")
+    .select("id, name, active, base_url, credential_id")
     .eq("base_code", baseCode)
     .eq("active", true)
     .maybeSingle();
@@ -54,7 +59,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, active)",
+      "base_url, credential_id, enabled, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -64,6 +69,12 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   for (const r of rows) {
     const t = r.tool;
     if (!t || !t.active) continue; // tool desativada no catálogo não aparece
+    // Origem do endpoint: EXTERNA usa a URL/credencial da própria tool; INTERNA
+    // usa a da BASE (com fallback às colunas antigas de ai_base_tools durante a
+    // transição, caso o backfill não as tenha preenchido).
+    const externa = t.endpoint_kind === "external";
+    const baseUrl = externa ? t.external_url : (base.base_url ?? r.base_url);
+    const credentialId = externa ? t.credential_id : (base.credential_id ?? r.credential_id);
     tools.push({
       toolId: t.id,
       tool: {
@@ -78,9 +89,11 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
         body_mode: t.body_mode,
         guard: t.guard,
         cache_ttl: t.cache_ttl,
+        loop: t.loop,
+        system_prompt: t.system_prompt,
       },
-      baseUrl: r.base_url,
-      credentialId: r.credential_id,
+      baseUrl,
+      credentialId,
     });
   }
   return { baseId: base.id, name: base.name, tools };

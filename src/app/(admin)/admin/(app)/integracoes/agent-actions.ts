@@ -101,6 +101,35 @@ export async function saveAgent(input: unknown): Promise<IntegResult> {
   return { ok: true, id: agentId };
 }
 
+/** Vincula UMA tool a UM agente (aresta do mapa visual). Idempotente. */
+export async function linkAgentTool(agentId: string, toolId: string): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  if (!z.string().uuid().safeParse(agentId).success || !z.string().uuid().safeParse(toolId).success) {
+    return { ok: false, error: "IDs inválidos." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ai_agent_tools")
+    .upsert({ agent_id: agentId, tool_id: toolId }, { onConflict: "agent_id,tool_id", ignoreDuplicates: true });
+  if (error) return { ok: false, error: `Falha ao vincular: ${error.message}` };
+  await audit({ action: "integrations.agent_tool.link", entityType: "ai_agent_tool", entityId: `${agentId}:${toolId}`, spaceId: null });
+  revalidatePath("/admin/integracoes");
+  return { ok: true };
+}
+
+/** Remove o vínculo tool↔agente (apagar a aresta). */
+export async function unlinkAgentTool(agentId: string, toolId: string): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const supabase = await createClient();
+  const { error } = await supabase.from("ai_agent_tools").delete().eq("agent_id", agentId).eq("tool_id", toolId);
+  if (error) return { ok: false, error: `Falha ao desvincular: ${error.message}` };
+  await audit({ action: "integrations.agent_tool.unlink", entityType: "ai_agent_tool", entityId: `${agentId}:${toolId}`, spaceId: null });
+  revalidatePath("/admin/integracoes");
+  return { ok: true };
+}
+
 export async function deleteAgent(id: string): Promise<IntegResult> {
   const negado = await garantirPermissao();
   if (negado) return { ok: false, error: negado };

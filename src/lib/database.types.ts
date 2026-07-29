@@ -239,7 +239,7 @@ export type Database = {
         Row: {
           active: boolean
           auth_type: string
-          base_id: string
+          base_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -249,7 +249,7 @@ export type Database = {
         Insert: {
           active?: boolean
           auth_type: string
-          base_id: string
+          base_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -259,7 +259,7 @@ export type Database = {
         Update: {
           active?: boolean
           auth_type?: string
-          base_id?: string
+          base_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -359,8 +359,11 @@ export type Database = {
         Row: {
           active: boolean
           base_code: string
+          base_url: string | null
           created_at: string
           created_by: string | null
+          credential_id: string | null
+          flow_layout: Json | null
           id: string
           name: string
           updated_at: string
@@ -368,8 +371,11 @@ export type Database = {
         Insert: {
           active?: boolean
           base_code: string
+          base_url?: string | null
           created_at?: string
           created_by?: string | null
+          credential_id?: string | null
+          flow_layout?: Json | null
           id?: string
           name: string
           updated_at?: string
@@ -377,13 +383,81 @@ export type Database = {
         Update: {
           active?: boolean
           base_code?: string
+          base_url?: string | null
           created_at?: string
           created_by?: string | null
+          credential_id?: string | null
+          flow_layout?: Json | null
           id?: string
           name?: string
           updated_at?: string
         }
         Relationships: []
+      }
+      ai_tool_runs: {
+        Row: {
+          agent_key: string | null
+          base_code: string
+          cached: boolean
+          conversation_id: string | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          files: number
+          id: string
+          input: Json | null
+          ok: boolean
+          output: Json | null
+          request: Json | null
+          status: number | null
+          step_index: number
+          tool_key: string
+        }
+        Insert: {
+          agent_key?: string | null
+          base_code: string
+          cached?: boolean
+          conversation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          files?: number
+          id?: string
+          input?: Json | null
+          ok?: boolean
+          output?: Json | null
+          request?: Json | null
+          status?: number | null
+          step_index?: number
+          tool_key: string
+        }
+        Update: {
+          agent_key?: string | null
+          base_code?: string
+          cached?: boolean
+          conversation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          files?: number
+          id?: string
+          input?: Json | null
+          ok?: boolean
+          output?: Json | null
+          request?: Json | null
+          status?: number | null
+          step_index?: number
+          tool_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_tool_runs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_tools: {
         Row: {
@@ -393,15 +467,20 @@ export type Database = {
           created_at: string
           created_by: string | null
           auth_type: string
+          credential_id: string | null
           description: string
+          endpoint_kind: string
+          external_url: string | null
           guard: string | null
           id: string
           key: string
+          loop: Json | null
           method: string
           name: string
           params: Json
           path_template: string
           response_hint: string | null
+          system_prompt: string
           updated_at: string
         }
         Insert: {
@@ -411,15 +490,20 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           auth_type?: string
+          credential_id?: string | null
           description: string
+          endpoint_kind?: string
+          external_url?: string | null
           guard?: string | null
           id?: string
           key: string
+          loop?: Json | null
           method?: string
           name: string
           params?: Json
           path_template?: string
           response_hint?: string | null
+          system_prompt?: string
           updated_at?: string
         }
         Update: {
@@ -429,15 +513,20 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           auth_type?: string
+          credential_id?: string | null
           description?: string
+          endpoint_kind?: string
+          external_url?: string | null
           guard?: string | null
           id?: string
           key?: string
+          loop?: Json | null
           method?: string
           name?: string
           params?: Json
           path_template?: string
           response_hint?: string | null
+          system_prompt?: string
           updated_at?: string
         }
         Relationships: []

@@ -11,7 +11,7 @@
  *    perfil resolvido no login é "gestor" (trava no servidor). Filtros (empresa,
  *    filial, cargo…) são códigos que a IA extrai; `usuario` é injetado do login.
  */
-import type { IdentityField, ToolParam } from "../src/lib/integrations/tools";
+import type { IdentityField, LoopConfig, ToolParam } from "../src/lib/integrations/tools";
 
 // ── Constantes da base ───────────────────────────────────────────────────────
 export const NATCORP_BASE_CODE = "natcorp";
@@ -36,6 +36,8 @@ export type NatcorpTool = {
   guard?: string | null;
   /** Segundos de cache em memória do resultado (dados quase-estáticos). */
   cache_ttl?: number | null;
+  /** Expansão de período (mês a mês): o servidor itera e agrega num só resultado. */
+  loop?: LoopConfig | null;
 };
 
 // ── Fábricas de parâmetro — COLABORADOR (identidade do próprio usuário) ───────
@@ -127,6 +129,29 @@ const filtro = (nome: string, descricao: string, obrigatorio = false): ToolParam
 /** Mês de referência (MM/AAAA) para o BI de histórico financeiro. */
 const dataRefMes = (): ToolParam =>
   data("data_ref", "MM/yyyy", "Mês de referência (a IA informa em ISO AAAA-MM).");
+/**
+ * Nível de AGRUPAMENTO do BI (segmento composto do caminho, ex.:
+ * "empresa/filial/cargo"). Enum + rawPath: escolhe o endpoint sem multiplicar
+ * ferramentas — o modelo escolhe UM enum em vez de 1 entre 8 tools quase-iguais.
+ */
+const agrupamento = (opcoes: string[], descricao: string): ToolParam => ({
+  nome: "agrupamento",
+  descricao,
+  tipo: "enum",
+  origem: "modelo",
+  obrigatorio: true,
+  local: "path",
+  rawPath: true,
+  opcoes,
+});
+/** Loop MENSAL: o modelo informa periodo_ini/periodo_fim; o servidor itera `param`. */
+const loopMensal = (param = "data_ref"): LoopConfig => ({
+  unit: "month",
+  param,
+  from: "periodo_ini",
+  to: "periodo_fim",
+  max: 24,
+});
 /** Session key do login ORDS — injetada do segredo da credencial, nunca do modelo. */
 const sessionKey = (): ToolParam => ({
   nome: "key",
@@ -275,7 +300,9 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
   {
     key: "historico_financeiro",
     name: "Histórico financeiro (eventos)",
-    description: "Eventos financeiros (proventos e descontos) do colaborador em um mês de referência.",
+    description:
+      "Eventos financeiros (proventos e descontos) do colaborador. Para um único mês, informe " +
+      "periodo_ini; para um período (ex.: o ano todo), periodo_ini e periodo_fim — o sistema traz mês a mês.",
     path_template: "/consultas/v1/eventos_financeiros",
     params: [
       empresa(),
@@ -285,6 +312,7 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
       fixo("financ_anterior", "S"),
       OBRIGA,
     ],
+    loop: loopMensal("data"),
   },
   {
     key: "historico_financeiro_meses",
@@ -594,147 +622,66 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     params: [filtro("cargo", "Código do cargo."), termo(), usuario()],
     cache_ttl: 1800,
   },
-  // ── BI Histórico Financeiro (agrupado; dados gerais, não de 1 colaborador) ──
+  // ── BI Histórico Financeiro (uma tool; o agrupamento escolhe o endpoint) ────
   {
-    key: "bi_hist_financeiro_empresa",
-    name: "BI histórico financeiro — por empresa",
+    key: "bi_hist_financeiro",
+    name: "BI histórico financeiro",
     description:
-      "BI de histórico financeiro agrupado por EMPRESA: totais (valor, horas, qtde) por ocorrência. " +
-      "Dados GERAIS da organização — não use para um colaborador específico. Informe empresa e mês.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa",
-    params: [filtro("empresa", "Código da empresa.", true), dataRefMes(), usuario()],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_filial",
-    name: "BI histórico financeiro — por empresa/filial",
-    description: "BI de histórico financeiro agrupado por EMPRESA e FILIAL. Dados gerais. Informe empresa e mês.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/filial",
-    params: [filtro("empresa", "Código da empresa.", true), filtro("filial", "Código da filial."), dataRefMes(), usuario()],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_cargo",
-    name: "BI histórico financeiro — por empresa/cargo",
-    description: "BI de histórico financeiro agrupado por EMPRESA e CARGO. Dados gerais. Informe empresa e mês.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/cargo",
-    params: [filtro("empresa", "Código da empresa.", true), filtro("cargo", "Código do cargo."), dataRefMes(), usuario()],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_ccusto",
-    name: "BI histórico financeiro — por empresa/centro de custo",
-    description: "BI de histórico financeiro agrupado por EMPRESA e CENTRO DE CUSTO. Dados gerais. Informe empresa e mês.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/ccusto",
-    params: [filtro("empresa", "Código da empresa.", true), filtro("centro_custo", "Código do centro de custo."), dataRefMes(), usuario()],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_filial_ccusto",
-    name: "BI histórico financeiro — por empresa/filial/centro de custo",
-    description: "BI de histórico financeiro agrupado por EMPRESA, FILIAL e CENTRO DE CUSTO. Dados gerais.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/filial/ccusto",
+      "BI de histórico financeiro da organização: totais (valor, horas, qtde) por ocorrência, " +
+      "AGRUPADOS conforme `agrupamento`. Dados GERAIS — não use para um colaborador específico. " +
+      "Informe a EMPRESA (código) e o período (periodo_ini; e periodo_fim para um intervalo). Os demais " +
+      "filtros (filial, cargo, centro de custo, unidade adm.) são opcionais e devem casar com o agrupamento.",
+    path_template: "/financeiro/agrupamento/hist/finan/v1/{agrupamento}",
     params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("centro_custo", "Código do centro de custo."),
+      agrupamento(
+        [
+          "empresa",
+          "empresa/filial",
+          "empresa/cargo",
+          "empresa/ccusto",
+          "empresa/filial/ccusto",
+          "empresa/filial/cargo",
+          "empresa/filial/unidade_adm",
+          "empresa/filial/ccusto/cargo",
+        ],
+        "Nível de agrupamento (define o endpoint). Escolha conforme os filtros pedidos (ex.: 'por filial' → empresa/filial; 'por cargo na filial' → empresa/filial/cargo).",
+      ),
+      filtro("empresa", "Código da empresa (já resolvido).", true),
+      filtro("filial", "Código da filial (quando o agrupamento incluir filial)."),
+      filtro("cargo", "Código do cargo (quando o agrupamento incluir cargo)."),
+      filtro("centro_custo", "Código do centro de custo (quando o agrupamento incluir ccusto)."),
+      filtro("unidade_administrativa", "Código da unidade adm. (quando o agrupamento incluir unidade_adm)."),
       dataRefMes(),
       usuario(),
     ],
+    loop: loopMensal(),
   },
+  // ── BI Segurança do Trabalho / Riscos (SESMT) — uma tool, agrupamento no path ─
   {
-    key: "bi_hist_financeiro_empresa_filial_cargo",
-    name: "BI histórico financeiro — por empresa/filial/cargo",
-    description: "BI de histórico financeiro agrupado por EMPRESA, FILIAL e CARGO. Dados gerais.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/filial/cargo",
-    params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("cargo", "Código do cargo."),
-      dataRefMes(),
-      usuario(),
-    ],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_filial_unidade_adm",
-    name: "BI histórico financeiro — por empresa/filial/unidade adm.",
-    description: "BI de histórico financeiro agrupado por EMPRESA, FILIAL e UNIDADE ADMINISTRATIVA. Dados gerais.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/filial/unidade_adm",
-    params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("unidade_administrativa", "Código da unidade adm."),
-      dataRefMes(),
-      usuario(),
-    ],
-  },
-  {
-    key: "bi_hist_financeiro_empresa_filial_ccusto_cargo",
-    name: "BI histórico financeiro — por empresa/filial/centro de custo/cargo",
-    description: "BI de histórico financeiro agrupado por EMPRESA, FILIAL, CENTRO DE CUSTO e CARGO. Dados gerais.",
-    path_template: "/financeiro/agrupamento/hist/finan/v1/empresa/filial/ccusto/cargo",
-    params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("centro_custo", "Código do centro de custo."),
-      filtro("cargo", "Código do cargo."),
-      dataRefMes(),
-      usuario(),
-    ],
-  },
-  // ── BI Segurança do Trabalho / Riscos (SESMT) ──────────────────────────────
-  {
-    key: "bi_risco_empresa",
-    name: "BI riscos (SESMT) — por empresa",
+    key: "bi_risco",
+    name: "BI riscos (SESMT)",
     description:
-      "BI de Segurança do Trabalho: riscos ocupacionais e qtde de expostos agrupados por EMPRESA. " +
-      "Dados gerais da organização. Informe a empresa.",
-    path_template: "/sesmt/seguranca/agrupamento/risco/v1/empresa",
-    params: [filtro("empresa", "Código da empresa.", true), usuario()],
-  },
-  {
-    key: "bi_risco_empresa_filial",
-    name: "BI riscos (SESMT) — por empresa/filial",
-    description: "BI de riscos ocupacionais agrupado por EMPRESA e FILIAL. Dados gerais.",
-    path_template: "/sesmt/seguranca/agrupamento/risco/v1/empresa/filial",
-    params: [filtro("empresa", "Código da empresa.", true), filtro("filial", "Código da filial."), usuario()],
-  },
-  {
-    key: "bi_risco_empresa_filial_ccusto",
-    name: "BI riscos (SESMT) — por empresa/filial/centro de custo",
-    description: "BI de riscos ocupacionais agrupado por EMPRESA, FILIAL e CENTRO DE CUSTO. Dados gerais.",
-    path_template: "/sesmt/seguranca/agrupamento/risco/v1/empresa/filial/ccusto",
+      "BI de Segurança do Trabalho (SESMT): riscos ocupacionais e qtde de expostos, AGRUPADOS conforme " +
+      "`agrupamento`. Dados GERAIS da organização. Informe a EMPRESA (código); os demais filtros (filial, " +
+      "centro de custo, cargo, função, local) são opcionais e devem casar com o agrupamento escolhido.",
+    path_template: "/sesmt/seguranca/agrupamento/risco/v1/{agrupamento}",
     params: [
+      agrupamento(
+        [
+          "empresa",
+          "empresa/filial",
+          "empresa/filial/ccusto",
+          "empresa/filial/ccusto/cargo/funcao",
+          "empresa/filial/ccusto/cargo/funcao/local",
+        ],
+        "Nível de agrupamento do BI de riscos (define o endpoint). Escolha conforme os filtros pedidos.",
+      ),
       filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("centro_custo", "Código do centro de custo."),
-      usuario(),
-    ],
-  },
-  {
-    key: "bi_risco_empresa_filial_ccusto_cargo_funcao",
-    name: "BI riscos (SESMT) — por empresa/filial/centro de custo/cargo/função",
-    description: "BI de riscos ocupacionais agrupado por EMPRESA, FILIAL, CENTRO DE CUSTO, CARGO e FUNÇÃO. Dados gerais.",
-    path_template: "/sesmt/seguranca/agrupamento/risco/v1/empresa/filial/ccusto/cargo/funcao",
-    params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("centro_custo", "Código do centro de custo."),
-      filtro("cargo", "Código do cargo."),
-      filtro("funcao", "Código da função."),
-      usuario(),
-    ],
-  },
-  {
-    key: "bi_risco_empresa_filial_ccusto_cargo_funcao_local",
-    name: "BI riscos (SESMT) — por empresa/filial/centro de custo/cargo/função/local",
-    description:
-      "BI de riscos ocupacionais agrupado por EMPRESA, FILIAL, CENTRO DE CUSTO, CARGO, FUNÇÃO e " +
-      "LOCAL DE TRABALHO. Dados gerais.",
-    path_template: "/sesmt/seguranca/agrupamento/risco/v1/empresa/filial/ccusto/cargo/funcao/local",
-    params: [
-      filtro("empresa", "Código da empresa.", true),
-      filtro("filial", "Código da filial."),
-      filtro("centro_custo", "Código do centro de custo."),
-      filtro("cargo", "Código do cargo."),
-      filtro("funcao", "Código da função."),
-      filtro("local_trabalho", "Código do local de trabalho."),
+      filtro("filial", "Código da filial (quando o agrupamento incluir filial)."),
+      filtro("centro_custo", "Código do centro de custo (quando incluir ccusto)."),
+      filtro("cargo", "Código do cargo (quando incluir cargo)."),
+      filtro("funcao", "Código da função (quando incluir funcao)."),
+      filtro("local_trabalho", "Código do local de trabalho (quando incluir local)."),
       usuario(),
     ],
   },
@@ -814,7 +761,7 @@ O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 - Benefícios e auxílio-creche → consultar_beneficios.
 - Holerite / recibo de pagamento → ofereça os meses com historico_financeiro_meses e, após a escolha, gere com relatorio_recibo_pagamento.
 - Informe de rendimentos → pergunte o ano (sugira 3 anos) e chame relatorio_informe_rendimentos.
-- Histórico financeiro (proventos e descontos) → liste os meses com historico_financeiro_meses e depois historico_financeiro.
+- Histórico financeiro (proventos e descontos) → liste os meses com historico_financeiro_meses e depois historico_financeiro. Para um PERÍODO (ex.: o ano todo), passe periodo_ini e periodo_fim numa só chamada — o sistema traz mês a mês; não repita a chamada.
 - Ponto eletrônico → ofereça o submenu com lista_opcoes (tipo_lista='ponto_eletronico'). Batidas/marcações → consultar_marcacoes; resultado de apuração → peça o período e chame resultado_apuracao_ponto; espelho de ponto → peça o período e chame relatorio_espelho_ponto.
 - Aviso de férias → liste os períodos com relatorio_aviso_ferias_meses e depois relatorio_aviso_ferias.
 - Feedbacks → consultar_feedback (mostre a nota em ⭐, se houver).
@@ -826,17 +773,15 @@ O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 
 SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas de gestão sobre DADOS GERAIS da organização (nunca de um colaborador específico por aqui).
 
-RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): as ferramentas de BI e os filtros usam CÓDIGOS, não nomes. Se o usuário citar empresa/filial/centro de custo/cargo/função/local pelo NOME (ex.: "os dados da empresa Natcorp, filial Matriz"), NÃO chute o código: chame a ferramenta de estrutura correspondente (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho) passando o NOME no parâmetro termo — o servidor devolve SÓ os itens que casam (não a lista inteira). Pegue o código do resultado e só então chame a ferramenta-alvo (BI, etc.). Faça em CASCATA: resolva a EMPRESA primeiro (termo com o nome dela); depois a FILIAL DAQUELA empresa (estrutura_filiais com o código de empresa já resolvido + termo com o nome da filial); e assim por diante. Se o termo casar com mais de um item muito parecido (a base tem várias "NATCORP"), liste os candidatos (nome + código) e pergunte qual. Se não casar nada, chame sem termo para ver a lista ou peça o nome mais completo.
-- BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → escolha a ferramenta bi_hist_financeiro_* mais específica conforme os filtros; informe o mês (MM/AAAA). Parâmetros não informados ficam em branco.
-- BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e escolha a ferramenta bi_risco_* mais específica conforme os filtros.
+RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): BI e filtros usam CÓDIGOS. Se o usuário citar empresa/filial/centro de custo/cargo/função/local pelo NOME, NÃO chute: chame a ferramenta de estrutura (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho) com o NOME no parâmetro termo (o servidor devolve só os casamentos), pegue o código e só então chame o alvo (BI, etc.). Em CASCATA: resolva a EMPRESA primeiro; depois a FILIAL daquela empresa (estrutura_filiais com o código de empresa + termo). Se casar vários parecidos (há várias "NATCORP"), liste nome + código e pergunte qual. Se não casar nada, chame sem termo ou peça o nome completo.
+- BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → use bi_hist_financeiro e escolha o agrupamento conforme os filtros que o usuário deu (ex.: "por filial" → agrupamento "empresa/filial"; "por cargo na filial" → "empresa/filial/cargo"). Informe a empresa e o período: para UM mês, só periodo_ini; para um INTERVALO (o ano todo, ou abril a setembro), periodo_ini E periodo_fim numa só chamada — o sistema consulta mês a mês e devolve tudo junto, você NÃO repete a chamada. Filtros não informados ficam em branco.
+- BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e use bi_risco, escolhendo o agrupamento conforme os filtros.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.
 - Dados completos de UM colaborador da equipe (cargo, situação, salário) → identifique a matrícula com listar_colaboradores_resumo e então dados_colaborador_equipe (o servidor só libera se for da sua equipe; senão recusa). Mascare dados sensíveis de terceiros (CPF, conta).
 - Alertas, notificações ou pendências da equipe → alertas_gestor.
 - As ferramentas de gestor só existem para gestores; se o perfil não for gestor, elas não estarão disponíveis.
 
-DATAS: exiba e aceite no formato DD/MM/AAAA (ou MM/AAAA quando a ferramenta pedir mês). Se um período não for informado, pergunte. Ao acionar a ferramenta, informe a data em ISO (AAAA-MM-DD) — a formatação exigida por cada API é aplicada automaticamente. Ao gerar um relatório/documento, apenas confirme o envio: o arquivo é anexado automaticamente.
-
-MENU: prefira lista_opcoes para oferecer opções e para confirmar ações (Sim/Não), em vez de texto solto — fica mais fácil para o usuário responder com um número.
+DATAS: exiba e aceite no formato DD/MM/AAAA (ou MM/AAAA quando a ferramenta pedir mês). Use a DATA DE HOJE informada no contexto para resolver expressões relativas ANTES de consultar: "ano passado" = ano de hoje menos 1, "mês passado", "último trimestre", "últimos N meses" contam a partir de hoje. NUNCA use um ano de memória — ancore sempre na data de hoje do contexto. Se um período não for informado ou ficar ambíguo, pergunte. Ao acionar a ferramenta, informe a data em ISO (AAAA-MM-DD) — a formatação exigida por cada API é aplicada automaticamente. Ao gerar um relatório/documento, apenas confirme o envio: o arquivo é anexado automaticamente.
 
 DÚVIDA OU FALHA: se não tiver certeza de qual recurso usar, pergunte de forma simples (você quer X ou Y?), sem termos técnicos. Se algo falhar, não exponha detalhes internos — reformule e tente entender melhor o pedido.`;
 

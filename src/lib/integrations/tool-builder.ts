@@ -3,13 +3,16 @@ import { tool, type ToolSet } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadBaseContext, loadCredentialSecret } from "./resolve";
 import { buildModelSchema, identityFromTrack, type Identity } from "./params";
-import { executeTool } from "./executor";
+import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende } from "./gating";
 import { runGuard } from "./guards";
 import { buildConfirmDeps } from "./confirmations";
-import { getCachedExec, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
+import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
+import { expandirMeses } from "./loop";
+import { logToolRun } from "./run-log";
+import { ANTHROPIC_CACHE } from "@/lib/ai/anthropic-cache";
 
 export { identityFromTrack };
 
@@ -34,6 +37,8 @@ export async function buildIntegrationTools(
   identity: Identity,
   /** Coletor de ARQUIVOS retornados pelas APIs (base64) — o canal os entrega. */
   sink?: OutFile[],
+  /** Metadados do turno para o log de execução (ex.: a conversa). */
+  runMeta?: { conversationId?: string | null },
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
@@ -72,7 +77,7 @@ export async function buildIntegrationTools(
 
   const db = createAdminClient();
   const [{ data: agents }, { data: links }] = await Promise.all([
-    db.from("ai_agents").select("id, name, description, system_prompt, priority, requires_perfil").eq("active", true),
+    db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil").eq("active", true),
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
   // Trava por PERFIL: um agente que exige um perfil (ex.: "gestor") só entra
@@ -80,24 +85,37 @@ export async function buildIntegrationTools(
   const elegiveis = (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
   const elegiveisIds = new Set(elegiveis.map((a) => a.id));
   const curated = new Set((links ?? []).filter((l) => elegiveisIds.has(l.agent_id)).map((l) => l.tool_id));
+  // Qual agente elegível "responde" por cada tool (para o log). O 1º vínculo vence.
+  const agentKeyById = new Map(elegiveis.map((a) => [a.id, a.key]));
+  const agentKeyByTool = new Map<string, string>();
+  for (const l of links ?? []) {
+    if (agentKeyById.has(l.agent_id) && curated.has(l.tool_id) && !agentKeyByTool.has(l.tool_id)) {
+      agentKeyByTool.set(l.tool_id, agentKeyById.get(l.agent_id)!);
+    }
+  }
   // O fallback "expõe todas as habilitadas" só vale quando NÃO há NENHUM agente
   // ativo (setup inicial). Com agentes ativos, quem não tem agente elegível
   // fica sem tools — não com todas (senão a trava de perfil vazaria).
   const temAgentes = (agents ?? []).length > 0;
 
   const tools: ToolSet = {};
+  // Instruções próprias das tools EXPOSTAS — concatenadas na nota de capacidades
+  // (ex.: uma tool externa que precisa de um passo/formato específico).
+  const promptsFerramentas: string[] = [];
   for (const bt of ctx.tools) {
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
+    if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
-      inputSchema: buildModelSchema(bt.tool.params),
+      inputSchema: buildModelSchema(bt.tool.params, bt.tool.loop),
       execute: async (args) => {
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
           const modelArgs = (args ?? {}) as Record<string, unknown>;
           // Guard no servidor (ex.: gestor só consulta a própria equipe). Recusa
-          // ANTES de chamar a API — a matrícula-alvo nunca é confiada cega.
+          // ANTES de chamar a API — a matrícula-alvo nunca é confiada cega. Roda
+          // UMA vez (independe do mês, no caso de período).
           if (bt.tool.guard) {
             const g = await runGuard(bt.tool.guard, {
               baseUrl: bt.baseUrl,
@@ -109,25 +127,101 @@ export async function buildIntegrationTools(
             });
             if (!g.ok) return { erro: g.erro };
           }
-          const doExec = () =>
-            executeTool({ tool: bt.tool, baseUrl: bt.baseUrl!, credential, modelArgs, identity: ident });
-          // Cache em memória p/ dados quase-estáticos (estrutura, equipe, cadastro):
-          // evita rebater na API a cada mensagem. Só guarda resultados OK.
-          const r = bt.tool.cache_ttl
-            ? await getCachedExec(`${baseCode}:${bt.tool.key}:${cacheArgsKey(modelArgs, ident)}`, bt.tool.cache_ttl, doExec)
-            : await doExec();
-          if (!r.ok) return { erro: `A API retornou HTTP ${r.status}.`, dados: r.data };
-          // Listas cacheáveis (estrutura, equipe): remove linhas duplicadas da API.
-          // E se a IA passou `termo`, filtra por nome — devolve só os casamentos
-          // (menos tokens). Sem termo, devolve a lista (já deduplicada).
-          let dados = bt.tool.cache_ttl ? dedupItems(r.data) : r.data;
-          const termo = typeof modelArgs.termo === "string" ? modelArgs.termo.trim() : "";
-          if (termo) dados = filtrarPorTermo(dados, termo);
-          // Arquivos em base64 são extraídos (para o canal entregar) e o base64
-          // é removido do que volta ao modelo.
-          const { cleaned, files } = extractDocumentsFromResult(dados);
-          if (sink && files.length) sink.push(...files);
-          return cleaned;
+          // UMA chamada à API, com o pipeline de cache/dedup/termo/arquivos.
+          // Cada chamada é REGISTRADA (entrada → requisição → saída, tempo, erro)
+          // em ai_tool_runs — o log passo a passo (segredos redigidos no run-log).
+          const runOnce = async (callArgs: Record<string, unknown>, stepIndex: number) => {
+            const t0 = Date.now();
+            const doExec = () =>
+              executeTool({ tool: bt.tool, baseUrl: bt.baseUrl!, credential, modelArgs: callArgs, identity: ident });
+            // Cache em memória p/ dados quase-estáticos (estrutura, equipe, cadastro):
+            // evita rebater na API a cada mensagem. Só guarda resultados OK.
+            let result: ExecResult | null = null;
+            let threw: string | null = null;
+            let cachedHit = false;
+            try {
+              if (bt.tool.cache_ttl) {
+                const m = await getCachedExecMeta(`${baseCode}:${bt.tool.key}:${cacheArgsKey(callArgs, ident)}`, bt.tool.cache_ttl, doExec);
+                result = m.result;
+                cachedHit = m.cached;
+              } else {
+                result = await doExec();
+              }
+            } catch (e) {
+              threw = e instanceof Error ? e.message : String(e);
+            }
+            const durationMs = Date.now() - t0;
+            const registrar = (saida: unknown, ok: boolean, status: number | null, files: number, error: string | null) =>
+              logToolRun({
+                baseCode,
+                conversationId: runMeta?.conversationId ?? null,
+                toolKey: bt.tool.key,
+                agentKey: agentKeyByTool.get(bt.toolId) ?? null,
+                stepIndex,
+                input: callArgs,
+                request: result?.request ?? null,
+                params: bt.tool.params,
+                status,
+                ok,
+                output: saida,
+                files,
+                cached: cachedHit,
+                durationMs,
+                error,
+              });
+
+            if (threw || !result) {
+              await registrar(null, false, null, 0, threw ?? "Sem resposta da API.");
+              return { erro: threw ?? "Falha na chamada à API." };
+            }
+            if (!result.ok) {
+              await registrar(result.data, false, result.status, 0, `HTTP ${result.status}`);
+              return { erro: `A API retornou HTTP ${result.status}.`, dados: result.data };
+            }
+            // Listas cacheáveis (estrutura, equipe): remove linhas duplicadas da API.
+            // E se a IA passou `termo`, filtra por nome — devolve só os casamentos
+            // (menos tokens). Sem termo, devolve a lista (já deduplicada).
+            let dados = bt.tool.cache_ttl ? dedupItems(result.data) : result.data;
+            const termo = typeof callArgs.termo === "string" ? callArgs.termo.trim() : "";
+            if (termo) dados = filtrarPorTermo(dados, termo);
+            // Arquivos em base64 são extraídos (para o canal entregar) e o base64
+            // é removido do que volta ao modelo.
+            const { cleaned, files } = extractDocumentsFromResult(dados);
+            if (sink && files.length) sink.push(...files);
+            await registrar(cleaned, true, result.status, files.length, null);
+            return cleaned;
+          };
+          // Período (loop mês a mês): o usuário pediu um intervalo → o servidor
+          // itera e AGREGA num só resultado. O modelo faz UMA chamada em vez de N
+          // (menos steps, menos tokens).
+          const loop = bt.tool.loop;
+          if (loop) {
+            const inicio = typeof modelArgs[loop.from] === "string" ? (modelArgs[loop.from] as string) : "";
+            const fim = typeof modelArgs[loop.to] === "string" ? (modelArgs[loop.to] as string) : null;
+            const { lista, excedeu } = expandirMeses(inicio, fim, loop.max ?? 24);
+            if (lista.length === 0) {
+              return { erro: `Preciso do mês de referência (ou período) em ${loop.from}, no formato ISO AAAA-MM.` };
+            }
+            const semPeriodo = (a: Record<string, unknown>, iso: string) => {
+              const c = { ...a, [loop.param]: iso };
+              delete c[loop.from];
+              delete c[loop.to];
+              return c;
+            };
+            // Um único mês: resultado direto (sem embrulho), mais enxuto.
+            if (lista.length === 1) return await runOnce(semPeriodo(modelArgs, lista[0]!.iso), 0);
+            const meses: Array<Record<string, unknown>> = [];
+            for (const [i, mes] of lista.entries())
+              meses.push({ competencia: mes.br, dados: await runOnce(semPeriodo(modelArgs, mes.iso), i) });
+            return {
+              periodo: `${lista[0]!.br} a ${lista[lista.length - 1]!.br}`,
+              meses,
+              ...(excedeu
+                ? { aviso: `Período longo: limitei aos primeiros ${lista.length} meses. Peça o restante em outra consulta.` }
+                : {}),
+            };
+          }
+          return await runOnce(modelArgs, 0);
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
         }
@@ -136,6 +230,12 @@ export async function buildIntegrationTools(
   }
 
   if (Object.keys(tools).length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
+
+  // Cache de prompt (Anthropic): um breakpoint na ÚLTIMA ferramenta cacheia todo
+  // o bloco de ferramentas (idêntico entre turnos) — re-chamadas ~10× mais
+  // baratas. Ignorado por OpenAI/Google.
+  const chaves = Object.keys(tools);
+  (tools[chaves[chaves.length - 1]!] as { providerOptions?: unknown }).providerOptions = ANTHROPIC_CACHE;
 
   // Nota de capacidades para o system prompt (ajuda a rotear documentação × API).
   const especialidades = elegiveis
@@ -149,7 +249,8 @@ export async function buildIntegrationTools(
     (sink
       ? " Quando uma ferramenta retornar um ARQUIVO, ele é entregue ao usuário automaticamente — apenas confirme na resposta, sem descrever bytes."
       : "") +
-    (especialidades ? `\nEspecialidades disponíveis:\n${especialidades}` : "");
+    (especialidades ? `\nEspecialidades disponíveis:\n${especialidades}` : "") +
+    (promptsFerramentas.length ? `\n\n${promptsFerramentas.join("\n\n")}` : "");
 
   // Persona especializada: o agente ELEGÍVEL de maior prioridade COM prompt e
   // ≥1 tool habilitada. Vira a seção "Especialização". Agentes só de tools

@@ -13,17 +13,29 @@ import type { Identity } from "./params";
 type Entry = { exp: number; result: ExecResult };
 const cache = new Map<string, Entry>();
 
+/**
+ * Executa via cache e informa se foi HIT (útil p/ o log de execução). Só guarda
+ * resultados OK (erro é transitório, não cacheia).
+ */
+export async function getCachedExecMeta(
+  key: string,
+  ttlSeconds: number,
+  fetcher: () => Promise<ExecResult>,
+): Promise<{ result: ExecResult; cached: boolean }> {
+  const hit = cache.get(key);
+  if (hit && hit.exp > Date.now()) return { result: hit.result, cached: true };
+  const result = await fetcher();
+  if (result.ok) cache.set(key, { exp: Date.now() + ttlSeconds * 1000, result });
+  return { result, cached: false };
+}
+
 /** Executa via cache; só guarda resultados OK (erro é transitório, não cacheia). */
 export async function getCachedExec(
   key: string,
   ttlSeconds: number,
   fetcher: () => Promise<ExecResult>,
 ): Promise<ExecResult> {
-  const hit = cache.get(key);
-  if (hit && hit.exp > Date.now()) return hit.result;
-  const result = await fetcher();
-  if (result.ok) cache.set(key, { exp: Date.now() + ttlSeconds * 1000, result });
-  return result;
+  return (await getCachedExecMeta(key, ttlSeconds, fetcher)).result;
 }
 
 /** Chave de cache: parâmetros que afetam a API (menos `termo`) + identidade que escopa. */

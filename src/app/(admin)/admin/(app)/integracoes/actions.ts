@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { encryptSecret } from "@/lib/crypto/secrets";
 import { CREDENTIAL_FIELDS, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
+import type { Json } from "@/lib/database.types";
 
 export type IntegResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -23,6 +24,8 @@ async function garantirPermissao(): Promise<string | null> {
 const baseSchema = z.object({
   base_code: z.string().trim().min(1, "Informe o código da base (p_base).").max(120),
   name: z.string().trim().min(1, "Informe o nome do cliente.").max(200),
+  base_url: z.string().trim().nullish(),
+  credential_id: z.string().uuid().nullish(),
   space_ids: z.array(z.string().uuid()).default([]),
 });
 
@@ -54,6 +57,8 @@ export async function createBase(input: unknown): Promise<IntegResult> {
     .insert({
       base_code: parsed.data.base_code,
       name: parsed.data.name,
+      base_url: parsed.data.base_url?.trim() || null,
+      credential_id: parsed.data.credential_id ?? null,
       created_by: user?.id ?? null,
     })
     .select("id")
@@ -76,10 +81,17 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const supabase = await createClient();
-  const { id, base_code, name, active, space_ids } = parsed.data;
+  const { id, base_code, name, active, base_url, credential_id, space_ids } = parsed.data;
   const { error } = await supabase
     .from("ai_bases")
-    .update({ base_code, name, active, updated_at: new Date().toISOString() })
+    .update({
+      base_code,
+      name,
+      active,
+      base_url: base_url?.trim() || null,
+      credential_id: credential_id ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
   if (error) {
     if (error.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
@@ -89,6 +101,27 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   await audit({ action: "integrations.base.update", entityType: "ai_base", entityId: id, spaceId: null, after: { base_code, name, active } });
   revalidatePath("/admin/integracoes");
   return { ok: true, id };
+}
+
+/** Salva o layout do mapa visual (posições dos nós) de uma base. Cosmético — sem auditoria. */
+const layoutSchema = z.object({
+  baseId: z.string().uuid(),
+  layout: z.record(z.string(), z.object({ x: z.number(), y: z.number() })),
+});
+
+export async function saveFlowLayout(input: unknown): Promise<IntegResult> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = layoutSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Layout inválido." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ai_bases")
+    .update({ flow_layout: parsed.data.layout as unknown as Json })
+    .eq("id", parsed.data.baseId);
+  if (error) return { ok: false, error: `Falha ao salvar o layout: ${error.message}` };
+  // Cosmético: não revalida (evita refetch a cada arraste).
+  return { ok: true };
 }
 
 export async function deleteBase(id: string): Promise<IntegResult> {

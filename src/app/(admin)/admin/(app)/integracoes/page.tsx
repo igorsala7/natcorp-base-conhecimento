@@ -8,11 +8,12 @@ import { listSpaces } from "@/lib/content/spaces";
 import type { AuthType } from "@/lib/integrations/credentials";
 import type { WhatsappBundle } from "./integrations-shell";
 import type { WhatsappSettings } from "./whatsapp-panel";
-import type { ToolParam } from "@/lib/integrations/tools";
-import type { BaseRow, SpaceOption } from "./integrations-manager";
+import type { LoopConfig, ToolParam } from "@/lib/integrations/tools";
+import type { BaseRow, NodePos, SpaceOption } from "./integrations-manager";
 import { IntegrationsShell } from "./integrations-shell";
-import type { ToolRow, BaseToolRow } from "./tools-manager";
+import type { EndpointKind, ToolRow, BaseToolRow } from "./tools-manager";
 import type { AgentRow, ProviderOption } from "./agents-manager";
+import type { RunRow } from "./runs-manager";
 
 export const metadata: Metadata = { title: "Integrações" };
 
@@ -48,13 +49,16 @@ export default async function IntegracoesPage() {
     { data: agentToolsData },
     { data: providersData },
     { data: waSettings },
+    { data: runsData },
   ] = await Promise.all([
-    supabase.from("ai_bases").select("id, base_code, name, active").order("name"),
+    supabase.from("ai_bases").select("id, base_code, name, active, base_url, credential_id, flow_layout").order("name"),
     supabase.from("ai_base_spaces").select("base_id, space_id, position"),
     supabase.from("ai_base_credentials").select("id, base_id, name, auth_type, active").order("name"),
     supabase
       .from("ai_tools")
-      .select("id, key, name, description, method, path_template, auth_type, params, response_hint, active")
+      .select(
+        "id, key, name, description, method, path_template, auth_type, params, response_hint, active, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, loop",
+      )
       .order("name"),
     supabase.from("ai_base_tools").select("base_id, tool_id, enabled, base_url, credential_id"),
     supabase
@@ -65,6 +69,13 @@ export default async function IntegracoesPage() {
     supabase.from("ai_agent_tools").select("agent_id, tool_id"),
     supabase.from("ai_providers").select("id, name").eq("active", true).order("name"),
     supabase.from("whatsapp_settings").select("*").eq("id", true).maybeSingle(),
+    supabase
+      .from("ai_tool_runs")
+      .select(
+        "id, created_at, base_code, tool_key, agent_key, step_index, ok, status, cached, files, duration_ms, error, input, request, output",
+      )
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
 
   // Presença de segredo: `ai_base_credential_secrets` é deny-all (só service-role
@@ -87,6 +98,9 @@ export default async function IntegracoesPage() {
     base_code: b.base_code,
     name: b.name,
     active: b.active,
+    base_url: b.base_url,
+    credential_id: b.credential_id,
+    flow_layout: (b.flow_layout as unknown as Record<string, NodePos> | null) ?? null,
     spaceIds: (baseSpacesData ?? [])
       .filter((x) => x.base_id === b.id)
       .sort((a, z) => a.position - z.position)
@@ -113,6 +127,14 @@ export default async function IntegracoesPage() {
     params: (t.params as unknown as ToolParam[]) ?? [],
     response_hint: t.response_hint,
     active: t.active,
+    endpoint_kind: (t.endpoint_kind as EndpointKind) ?? "base",
+    external_url: t.external_url,
+    credential_id: t.credential_id,
+    system_prompt: t.system_prompt ?? "",
+    body_mode: t.body_mode,
+    guard: t.guard,
+    cache_ttl: t.cache_ttl,
+    loop: (t.loop as unknown as LoopConfig | null) ?? null,
   }));
 
   const baseToolRows: BaseToolRow[] = (baseToolsData ?? []).map((x) => ({
@@ -139,6 +161,24 @@ export default async function IntegracoesPage() {
   }));
 
   const providerOptions: ProviderOption[] = (providersData ?? []).map((p) => ({ id: p.id, name: p.name }));
+
+  const runRows: RunRow[] = (runsData ?? []).map((r) => ({
+    id: r.id,
+    created_at: r.created_at,
+    base_code: r.base_code,
+    tool_key: r.tool_key,
+    agent_key: r.agent_key,
+    step_index: r.step_index,
+    ok: r.ok,
+    status: r.status,
+    cached: r.cached,
+    files: r.files,
+    duration_ms: r.duration_ms,
+    error: r.error,
+    input: r.input,
+    request: r.request,
+    output: r.output,
+  }));
 
   const whatsapp: WhatsappBundle = {
     settings: {
@@ -178,6 +218,7 @@ export default async function IntegracoesPage() {
         agents={agentRows}
         providers={providerOptions}
         spaces={spaceOptions}
+        runs={runRows}
         whatsapp={whatsapp}
         temChaveMestra={hasEncryptionKey()}
       />

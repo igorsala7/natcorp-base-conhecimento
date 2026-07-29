@@ -138,7 +138,7 @@ export function AgentsManager({
 }
 
 // ──────────────────────────── Diálogo: Agente ───────────────────────────────
-function AgentDialog({
+export function AgentDialog({
   agent,
   agents,
   tools,
