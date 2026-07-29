@@ -34,6 +34,7 @@ identificação (WhatsApp). O modelo só preenche os parâmetros de *consulta* (
 | **Origem do parâmetro** | `identidade` (injetado do token/login — seguro), `modelo` (a IA extrai da conversa), `fixo` (constante), `credencial` (um campo do segredo da credencial, ex.: `session_key` — nunca do modelo). |
 | **Envelope do corpo** (`body_mode`) | Para POST: `object` (padrão, `{...}`), `array` (`[{...}]`) ou `wrap:<chave>` (`{<chave>:[{...}]}`) — algumas APIs ORDS exigem o corpo embrulhado. |
 | **Guard** (`ai_tools.guard`) | Uma checagem no SERVIDOR rodada ANTES da chamada, que pode recusar: `team_membership` (gestor só consulta a própria equipe), `saque_confirmation` (só efetiva com código de confirmação válido). Falha fechada. |
+| **Cache + filtro por nome** (`ai_tools.cache_ttl` + param `termo`) | Dados quase‑estáticos (estrutura, equipe, cadastro do usuário) ficam em **cache em memória** por `cache_ttl` segundos — não rebatem na API a cada mensagem. O servidor **deduplica** linhas repetidas e, se a IA passar `termo` (um nome), **filtra** e devolve só os casamentos — **menos tokens** (ex.: 148 empresas → 6 "Natcorp"). |
 | **Agente** | Especialista num módulo: tem seu **modelo de IA**, suas **APIs/Tools**, opcional **agente‑pai** e um opcional **`requires_perfil`** (ex.: `gestor`). Os agentes **curam** quais APIs a IA pode usar; um agente com `requires_perfil` só é exposto quando o **perfil resolvido no login** confere (trava no servidor). |
 
 ## 3. Pré‑requisitos

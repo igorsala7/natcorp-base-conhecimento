@@ -34,6 +34,8 @@ export type NatcorpTool = {
   active?: boolean;
   /** Guard no servidor rodado antes da chamada (ex.: 'team_membership'). */
   guard?: string | null;
+  /** Segundos de cache em memória do resultado (dados quase-estáticos). */
+  cache_ttl?: number | null;
 };
 
 // ── Fábricas de parâmetro — COLABORADOR (identidade do próprio usuário) ───────
@@ -175,6 +177,13 @@ const interno = (nome: string, descricao: string): ToolParam => ({
   obrigatorio: false,
   local: "none",
 });
+/** Filtro por NOME no servidor: a IA passa o nome e recebe só os casamentos (menos tokens). */
+const termo = (): ToolParam =>
+  interno(
+    "termo",
+    "Se o usuário citou um NOME (não um código), informe-o aqui: o servidor filtra a lista por nome " +
+      "(ex.: 'Natcorp', 'Matriz'). Vazio = lista completa.",
+  );
 /** Data no corpo (a IA entrega ISO; o motor formata pela máscara). */
 const corpoData = (nome: string, mascara: string, descricao: string, obrigatorio = false): ToolParam => ({
   nome,
@@ -218,6 +227,17 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
     ],
     response_hint:
       "As opções vêm separadas por ';'. Apresente-as numeradas e peça o número. Se tipo_retorno='botao', são botões (ex.: Sim/Não).",
+  },
+  {
+    key: "meus_dados",
+    name: "Meus dados cadastrais",
+    description:
+      "Dados cadastrais e funcionais do PRÓPRIO usuário (nome, cargo, admissão, situação, lotação, " +
+      "salário, etc.). Use quando o usuário perguntar sobre os DADOS DELE MESMO (meu cargo, minha " +
+      "admissão, minha lotação, meu salário). Fica em cache — não repete a consulta a cada mensagem.",
+    path_template: "/chatbot/login/v1/dados_colab_usuario",
+    params: [sessionKey(), empresa(), matricula(), usuario()],
+    cache_ttl: 300,
   },
   {
     key: "consultar_beneficios",
@@ -520,7 +540,8 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
       "CÓDIGO (cod_empresa): case o nome que o usuário disse com o nome na lista. Não filtra por nome " +
       "no servidor — vem a lista completa e você faz o casamento.",
     path_template: "/estrutura/v1/empresa",
-    params: [filtro("empresa", "Código da empresa, se quiser filtrar."), usuario()],
+    params: [filtro("empresa", "Código da empresa, se quiser filtrar."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_filiais",
@@ -530,52 +551,48 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
       "RESOLVER um NOME de filial em CÓDIGO (cod_filial): case o nome dito (ex.: 'Matriz') com o nome " +
       "na lista da empresa.",
     path_template: "/estrutura/v1/filial",
-    params: [filtro("empresa", "Código da empresa."), filtro("filial", "Código da filial, se quiser filtrar."), usuario()],
+    params: [filtro("empresa", "Código da empresa (já resolvido)."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_centros_custo",
     name: "Estrutura: centros de custo",
     description: "Lista os CENTROS DE CUSTO (código e nome), opcionalmente de uma empresa.",
     path_template: "/estrutura/v1/centro_custo",
-    params: [filtro("empresa", "Código da empresa."), filtro("centro_custo", "Código do centro de custo, se filtrar."), usuario()],
+    params: [filtro("empresa", "Código da empresa."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_unidades_adm",
     name: "Estrutura: unidades administrativas",
     description: "Lista as UNIDADES ADMINISTRATIVAS (código e nome).",
     path_template: "/estrutura/v1/unidade_adm",
-    params: [
-      filtro("empresa", "Código da empresa."),
-      filtro("filial", "Código da filial."),
-      filtro("unidade_administrativa", "Código da unidade adm., se filtrar."),
-      usuario(),
-    ],
+    params: [filtro("empresa", "Código da empresa."), filtro("filial", "Código da filial."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_locais_trabalho",
     name: "Estrutura: locais de trabalho",
     description: "Lista os LOCAIS DE TRABALHO (código e nome).",
     path_template: "/estrutura/v1/local_trab",
-    params: [
-      filtro("empresa", "Código da empresa."),
-      filtro("filial", "Código da filial."),
-      filtro("local_trabalho", "Código do local de trabalho, se filtrar."),
-      usuario(),
-    ],
+    params: [filtro("empresa", "Código da empresa."), filtro("filial", "Código da filial."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_cargos",
     name: "Estrutura: cargos",
     description: "Lista os CARGOS (código e nome). Use para obter o código do cargo (pode ter zero à esquerda).",
     path_template: "/estrutura/v1/cargo",
-    params: [filtro("cargo", "Código do cargo, se quiser filtrar."), usuario()],
+    params: [filtro("cargo", "Código do cargo, se quiser filtrar."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   {
     key: "estrutura_funcoes",
     name: "Estrutura: funções",
     description: "Lista as FUNÇÕES (código e nome) de um cargo.",
     path_template: "/estrutura/v1/funcao",
-    params: [filtro("cargo", "Código do cargo."), filtro("funcao", "Código da função, se filtrar."), usuario()],
+    params: [filtro("cargo", "Código do cargo."), termo(), usuario()],
+    cache_ttl: 1800,
   },
   // ── BI Histórico Financeiro (agrupado; dados gerais, não de 1 colaborador) ──
   {
@@ -730,7 +747,8 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
       "pedir sua equipe, colaboradores, subordinados ou 'meus diretos'. Agrupe por empresa/filial, " +
       "ordene por nome e traga o total ao final. A lista já vem escopada ao gestor.",
     path_template: "/chatbot/consultas/v1/colaboradores_resumo",
-    params: [sessionKey(), fixo("gestor", "SIM"), usuario()],
+    params: [sessionKey(), fixo("gestor", "SIM"), termo(), usuario()],
+    cache_ttl: 300,
   },
   {
     key: "dados_colaborador_equipe",
@@ -791,6 +809,7 @@ PRIVACIDADE: os dados retornados são do próprio colaborador — pode exibi-los
 SAUDAÇÃO: apresente-se em uma linha e mostre o MENU inicial com a ferramenta lista_opcoes (tipo_lista='opcao_colaborador'; se o usuário for gestor, 'opcao_gestor'). Apresente as opções numeradas e peça o número. Use lista_opcoes sempre que fizer sentido oferecer opções ou confirmar (tipo_lista='confirmar_padrao' = Sim/Não).
 
 O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
+- Dados do PRÓPRIO usuário (meu cargo, minha admissão, minha lotação, meu salário, minha situação) → meus_dados.
 - Férias → consultar_ferias.
 - Benefícios e auxílio-creche → consultar_beneficios.
 - Holerite / recibo de pagamento → ofereça os meses com historico_financeiro_meses e, após a escolha, gere com relatorio_recibo_pagamento.
@@ -807,7 +826,7 @@ O QUE VOCÊ FAZ (colaborador — intenção → ferramenta):
 
 SE O USUÁRIO FOR GESTOR (perfil=gestor): além do acima, você tem ferramentas de gestão sobre DADOS GERAIS da organização (nunca de um colaborador específico por aqui).
 
-RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): as ferramentas de BI e todos os filtros usam CÓDIGOS, não nomes. Se o usuário citar uma empresa, filial, centro de custo, cargo, função ou local pelo NOME (ex.: "os dados da empresa Natcorp, filial Matriz"), NÃO chute o código: PRIMEIRO chame a ferramenta de estrutura correspondente (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho), encontre na lista retornada o item cujo NOME mais se aproxima do que o usuário disse (ignore maiúsculas/minúsculas e acentos; "Matriz" casa com "NATCORP DO BRASIL - MATRIZ"; "Natcorp" casa com "NATCORP DO BRASIL"), pegue o CÓDIGO dele e só então chame a ferramenta-alvo (BI, etc.) passando esse código. Faça em CASCATA: resolva a EMPRESA primeiro; depois a FILIAL daquela empresa (chame estrutura_filiais com o código de empresa já resolvido) — a estrutura não filtra por nome, então venha pela empresa e filtre a filial pelo nome no retorno; e assim por diante para centro de custo/cargo/função/local. Se dois nomes forem parecidos e você ficar em dúvida de qual é, liste os candidatos (nome + código) e pergunte qual o usuário quis.
+RESOLUÇÃO DE NOMES → CÓDIGOS (OBRIGATÓRIO): as ferramentas de BI e os filtros usam CÓDIGOS, não nomes. Se o usuário citar empresa/filial/centro de custo/cargo/função/local pelo NOME (ex.: "os dados da empresa Natcorp, filial Matriz"), NÃO chute o código: chame a ferramenta de estrutura correspondente (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho) passando o NOME no parâmetro termo — o servidor devolve SÓ os itens que casam (não a lista inteira). Pegue o código do resultado e só então chame a ferramenta-alvo (BI, etc.). Faça em CASCATA: resolva a EMPRESA primeiro (termo com o nome dela); depois a FILIAL DAQUELA empresa (estrutura_filiais com o código de empresa já resolvido + termo com o nome da filial); e assim por diante. Se o termo casar com mais de um item muito parecido (a base tem várias "NATCORP"), liste os candidatos (nome + código) e pergunte qual. Se não casar nada, chame sem termo para ver a lista ou peça o nome mais completo.
 - BI de histórico financeiro (totais por empresa/filial/cargo/centro de custo…) → escolha a ferramenta bi_hist_financeiro_* mais específica conforme os filtros; informe o mês (MM/AAAA). Parâmetros não informados ficam em branco.
 - BI de riscos / SESMT / segurança do trabalho → ofereça o submenu com lista_opcoes (tipo_lista='opcao_sesmt') e escolha a ferramenta bi_risco_* mais específica conforme os filtros.
 - Listar a equipe / colaboradores / subordinados / meus diretos → listar_colaboradores_resumo (já vem escopada ao gestor); agrupe por empresa/filial, ordene por nome e some o total ao final.

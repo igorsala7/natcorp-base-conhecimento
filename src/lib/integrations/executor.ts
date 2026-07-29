@@ -17,6 +17,8 @@ export type RuntimeTool = {
   body_mode?: string | null;
   /** Nome de um guard no servidor rodado ANTES da chamada (ver guards.ts). */
   guard?: string | null;
+  /** Segundos de cache em memória do resultado (dados quase-estáticos). NULL = sem cache. */
+  cache_ttl?: number | null;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */

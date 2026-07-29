@@ -389,6 +389,7 @@ export type Database = {
         Row: {
           active: boolean
           body_mode: string | null
+          cache_ttl: number | null
           created_at: string
           created_by: string | null
           auth_type: string
@@ -406,6 +407,7 @@ export type Database = {
         Insert: {
           active?: boolean
           body_mode?: string | null
+          cache_ttl?: number | null
           created_at?: string
           created_by?: string | null
           auth_type?: string
@@ -423,6 +425,7 @@ export type Database = {
         Update: {
           active?: boolean
           body_mode?: string | null
+          cache_ttl?: number | null
           created_at?: string
           created_by?: string | null
           auth_type?: string

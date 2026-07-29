@@ -161,6 +161,7 @@ async function main(): Promise<void> {
             response_hint: t.response_hint ?? null,
             body_mode: t.body_mode ?? null,
             guard: t.guard ?? null,
+            cache_ttl: t.cache_ttl ?? null,
             active: t.active ?? true,
             updated_at: new Date().toISOString(),
           },

@@ -9,6 +9,7 @@ import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende } from "./gating";
 import { runGuard } from "./guards";
 import { buildConfirmDeps } from "./confirmations";
+import { getCachedExec, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 
 export { identityFromTrack };
 
@@ -108,17 +109,23 @@ export async function buildIntegrationTools(
             });
             if (!g.ok) return { erro: g.erro };
           }
-          const r = await executeTool({
-            tool: bt.tool,
-            baseUrl: bt.baseUrl,
-            credential,
-            modelArgs,
-            identity: ident,
-          });
+          const doExec = () =>
+            executeTool({ tool: bt.tool, baseUrl: bt.baseUrl!, credential, modelArgs, identity: ident });
+          // Cache em memória p/ dados quase-estáticos (estrutura, equipe, cadastro):
+          // evita rebater na API a cada mensagem. Só guarda resultados OK.
+          const r = bt.tool.cache_ttl
+            ? await getCachedExec(`${baseCode}:${bt.tool.key}:${cacheArgsKey(modelArgs, ident)}`, bt.tool.cache_ttl, doExec)
+            : await doExec();
           if (!r.ok) return { erro: `A API retornou HTTP ${r.status}.`, dados: r.data };
+          // Listas cacheáveis (estrutura, equipe): remove linhas duplicadas da API.
+          // E se a IA passou `termo`, filtra por nome — devolve só os casamentos
+          // (menos tokens). Sem termo, devolve a lista (já deduplicada).
+          let dados = bt.tool.cache_ttl ? dedupItems(r.data) : r.data;
+          const termo = typeof modelArgs.termo === "string" ? modelArgs.termo.trim() : "";
+          if (termo) dados = filtrarPorTermo(dados, termo);
           // Arquivos em base64 são extraídos (para o canal entregar) e o base64
           // é removido do que volta ao modelo.
-          const { cleaned, files } = extractDocumentsFromResult(r.data);
+          const { cleaned, files } = extractDocumentsFromResult(dados);
           if (sink && files.length) sink.push(...files);
           return cleaned;
         } catch (e) {
