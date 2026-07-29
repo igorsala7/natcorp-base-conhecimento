@@ -36,10 +36,12 @@ const FALHA_RESPOSTA =
   "Não foi possível gerar a resposta agora. As fontes encontradas estão abaixo — tente de novo em instantes ou avise a equipe.";
 
 /** Marcador que separa o texto dos ARQUIVOS no fim do stream (idêntico ao /api/chat). */
-const ARQUIVOS_MARK = "\n__ARQUIVOS__";
+const META_MARK = "\n__META__";
 
 /** Arquivo (base64) retornado por uma ferramenta — vira link de download. */
 type FileAtt = { filename: string; mimeType: string; dataUrl: string };
+/** Consumo de tokens do turno. */
+type Usage = { total: number | null; input: number | null; output: number | null };
 
 type Msg = {
   role: "user" | "assistant";
@@ -50,7 +52,12 @@ type Msg = {
   options?: ClarifyOption[];
   /** Arquivos (PDF etc.) retornados por ferramentas — download. */
   files?: FileAtt[];
+  /** Tokens consumidos no turno (mostrado abaixo da resposta). */
+  usage?: Usage;
 };
+
+/** "1.234" com separador de milhar pt-BR. */
+const fmtNum = (n: number) => n.toLocaleString("pt-BR");
 
 /** Identidade simulada — testar o chat como um usuário de uma base (ferramentas). */
 export type SimIdentity = {
@@ -180,24 +187,27 @@ export function ChatPanel({
           if (done) break;
           acc += dec.decode(value, { stream: true });
           // Durante o stream mostra só o texto ANTES do marcador de arquivos.
-          updateLast((m) => ({ ...m, content: acc.split(ARQUIVOS_MARK)[0] ?? acc }));
+          updateLast((m) => ({ ...m, content: acc.split(META_MARK)[0] ?? acc }));
         }
-        // Separa o texto dos ARQUIVOS (base64 → links de download).
+        // Separa o texto dos METADADOS (arquivos p/ download + consumo de tokens).
         let texto = acc;
         let files: FileAtt[] | undefined;
-        const iMark = acc.indexOf(ARQUIVOS_MARK);
+        let usage: Usage | undefined;
+        const iMark = acc.indexOf(META_MARK);
         if (iMark >= 0) {
           texto = acc.slice(0, iMark);
           try {
-            files = JSON.parse(acc.slice(iMark + ARQUIVOS_MARK.length)) as FileAtt[];
+            const meta = JSON.parse(acc.slice(iMark + META_MARK.length)) as { files?: FileAtt[]; usage?: Usage };
+            files = meta.files;
+            usage = meta.usage;
           } catch {
-            /* marcador incompleto/corrompido: ignora os arquivos */
+            /* marcador incompleto/corrompido: ignora os metadados */
           }
         }
         // Stream vazio = a chamada ao provedor falhou (chave, crédito,
         // timeout). Sem esta mensagem o usuário vê só as fontes e conclui que
         // o produto está quebrado, sem saber o porquê.
-        updateLast((m) => ({ ...m, citations, files, content: texto || FALHA_RESPOSTA }));
+        updateLast((m) => ({ ...m, citations, files, usage, content: texto || FALHA_RESPOSTA }));
       }
     } catch (e) {
       updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
@@ -371,6 +381,19 @@ export function ChatPanel({
                     })}
                   </div>
                 </details>
+              )}
+              {m.role === "assistant" && m.usage && (m.usage.total ?? 0) > 0 && (
+                <p
+                  className="mt-1.5 text-[11px] tabular-nums text-text-muted"
+                  title="Tokens consumidos neste turno (entrada + saída)"
+                >
+                  {fmtNum(m.usage.total ?? 0)} tokens
+                  {m.usage.input != null && m.usage.output != null && (
+                    <span className="opacity-70">
+                      {" · "}entrada {fmtNum(m.usage.input)} · saída {fmtNum(m.usage.output)}
+                    </span>
+                  )}
+                </p>
               )}
               {m.role === "assistant" && m.content && i === messages.length - 1 && !streaming && (
                 <div className="mt-2 flex items-center gap-1">

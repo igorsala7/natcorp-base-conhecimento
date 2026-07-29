@@ -27,7 +27,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
  * Usa o caractere de controle RS (), que não aparece em texto do modelo.
  * DEVE ser idêntico ao do ChatPanel.
  */
-const ARQUIVOS_MARK = "\n__ARQUIVOS__";
+const META_MARK = "\n__META__";
 
 export async function POST(req: NextRequest) {
   const { spaceId, messages: messagesBrutas, conversationId, promptOverride, scope, contextScope, sim } = (await req.json()) as {
@@ -212,9 +212,10 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Stream de texto do modelo; se alguma ferramenta retornou ARQUIVO(s) base64,
-  // eles são anexados no fim, após o marcador, como data URLs para download.
-  // (`onFinish` acima persiste só o texto — sem os bytes.)
+  // Stream de texto do modelo; no fim, após o marcador, vai um bloco de METADADOS
+  // (JSON): os ARQUIVOS (base64 → download) e o CONSUMO de tokens deste turno.
+  // O cliente corta o marcador, mostra os arquivos e a contagem de tokens.
+  // (`onFinish` acima persiste só o texto e os tokens — sem os bytes.)
   const enc = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -223,14 +224,20 @@ export async function POST(req: NextRequest) {
       } catch {
         /* stream vazio/erro do provedor: o cliente exibe a mensagem de falha */
       }
+      const meta: {
+        files?: { filename: string; mimeType: string; dataUrl: string }[];
+        usage?: { total: number | null; input: number | null; output: number | null };
+      } = {};
       if (outFiles.length) {
-        const files = outFiles.map((f) => ({
+        meta.files = outFiles.map((f) => ({
           filename: f.filename,
           mimeType: f.mimeType,
           dataUrl: `data:${f.mimeType};base64,${f.base64}`,
         }));
-        controller.enqueue(enc.encode(ARQUIVOS_MARK + JSON.stringify(files)));
       }
+      const u = await Promise.resolve(result.usage).catch(() => null);
+      if (u) meta.usage = { total: u.totalTokens ?? null, input: u.inputTokens ?? null, output: u.outputTokens ?? null };
+      if (Object.keys(meta).length) controller.enqueue(enc.encode(META_MARK + JSON.stringify(meta)));
       controller.close();
     },
   });
