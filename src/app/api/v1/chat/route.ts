@@ -25,7 +25,11 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, buildFormTools, type FillAction } from "@/lib/chat/form-fields";
+import { parseFields, fieldsContextBlock, formAssistDirective, buildFormTools, type FillAction } from "@/lib/chat/form-fields";
+import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
+import type { ChartSpec } from "@/lib/chat/chart-spec";
+import type { ReportSpec } from "@/lib/reports/report-spec";
+import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -159,7 +163,15 @@ export async function POST(req: NextRequest) {
   const screenFields = formAssist ? parseFields(payload.fields) : [];
   const fillActions: FillAction[] = [];
   const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, fillActions) : {};
-  const allTools = { ...integ.tools, ...formTools };
+  // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados
+  // (senão não há o que plotar). A IA monta o gráfico com os valores reais.
+  const temIntegTools = Object.keys(integ.tools).length > 0;
+  const chartSpecs: ChartSpec[] = [];
+  const reportSpecs: ReportSpec[] = [];
+  const visualTools = temIntegTools
+    ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs) }
+    : {};
+  const allTools = { ...integ.tools, ...formTools, ...visualTools };
   const temTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
   // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
@@ -255,7 +267,13 @@ export async function POST(req: NextRequest) {
       {
         persona,
         especializacao: integ.agentPrompt,
-        usoFerramentas: integ.capabilities,
+        usoFerramentas: [
+          integ.capabilities,
+          screenFields.length > 0 ? formAssistDirective() : "",
+          temIntegTools ? visualsDirective() : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         regras: resolveRegras(aP.regras_absolutas),
         comTools: temTools,
       },
@@ -295,11 +313,32 @@ export async function POST(req: NextRequest) {
       } catch {
         controller.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
       }
+      // Relatórios: gera o PDF (layout de marca) a partir da spec da IA e o
+      // adiciona aos arquivos entregues abaixo.
+      if (reportSpecs.length) {
+        const brand: BrandInfo = {
+          marca: key.config?.title || "Relatório",
+          primariaHex: key.config?.primaryColor || "#511C76",
+          dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+        };
+        for (const spec of reportSpecs) {
+          try {
+            outFiles.push(await renderReportPdf(spec, brand));
+          } catch (e) {
+            console.error("[chat] falha ao gerar PDF do relatório:", e);
+          }
+        }
+      }
       // Arquivos retornados pelas APIs (base64) → link de download no chat.
       for (const f of outFiles) {
         controller.enqueue(
           sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
         );
+      }
+      // Gráficos montados pela IA → o widget renderiza um card interativo
+      // (troca de tipo + exportar CSV/PNG).
+      for (const c of chartSpecs) {
+        controller.enqueue(sse({ type: "chart", chart: c }));
       }
       // Assistente de formulário: a IA propôs preencher campos → o widget destaca
       // e pede confirmação antes de escrever.

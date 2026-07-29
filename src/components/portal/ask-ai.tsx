@@ -17,6 +17,8 @@ import {
 } from "@/app/(portal)/actions";
 import { readPortalIdentity } from "@/lib/portal/track-client";
 import { PromptLibrary, SavePromptButton, type PromptBackend } from "@/components/chat/prompt-library";
+import { AskAiChart } from "./ask-ai-chart";
+import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
 
 /** Espelha `RetrievedSource` do servidor. `url` é nulo quando a fonte é um
@@ -44,6 +46,8 @@ type Msg = {
   attachments?: AttMeta[];
   /** Arquivos retornados por APIs (base64) — links de download. */
   files?: { filename: string; mimeType: string; dataUrl: string }[];
+  /** Gráficos montados pela IA — cards interativos (trocar tipo + exportar). */
+  charts?: ChartSpec[];
 };
 
 /** Painel "Perguntar à IA" do leitor — responde com base na doc do espaço. */
@@ -287,6 +291,7 @@ export function AskAiPanel({
             filename?: string;
             mimeType?: string;
             dataUrl?: string;
+            chart?: ChartSpec;
           };
           try {
             evt = JSON.parse(line);
@@ -307,6 +312,12 @@ export function AskAiPanel({
             const f = { filename: evt.filename ?? "arquivo", mimeType: evt.mimeType ?? "", dataUrl: evt.dataUrl ?? "" };
             updateLast((m) => ({ ...m, files: [...(m.files ?? []), f] }));
             scrollDown();
+          } else if (evt.type === "chart") {
+            const ch = evt.chart;
+            if (ch) {
+              updateLast((m) => ({ ...m, charts: [...(m.charts ?? []), ch] }));
+              scrollDown();
+            }
           } else if (evt.type === "done") {
             convRef.current = evt.conversationId || convRef.current;
             // Resposta vazia = falha na chamada ao modelo (mas não quando foi
@@ -458,6 +469,13 @@ export function AskAiPanel({
                         >
                           📎 {f.filename}
                         </a>
+                      ))}
+                    </div>
+                  )}
+                  {m.charts && m.charts.length > 0 && (
+                    <div className="flex flex-col">
+                      {m.charts.map((ch, i) => (
+                        <AskAiChart key={i} spec={ch} />
                       ))}
                     </div>
                   )}

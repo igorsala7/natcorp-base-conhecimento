@@ -19,6 +19,10 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
+import type { ChartSpec } from "@/lib/chat/chart-spec";
+import type { ReportSpec } from "@/lib/reports/report-spec";
+import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import type { OutFile } from "@/lib/integrations/documents";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
   // Ask-AI do portal usa a persona da própria documentação.
   const { data: espaco } = await supabase
     .from("spaces")
-    .select("chat_prompt")
+    .select("name, chat_prompt")
     .eq("id", spaceId)
     .maybeSingle();
   const aP = await resolveCategory("assistente");
@@ -134,6 +138,12 @@ export async function POST(req: NextRequest) {
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   const temTools = Object.keys(integ.tools).length > 0;
+  // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados.
+  const chartSpecs: ChartSpec[] = [];
+  const reportSpecs: ReportSpec[] = [];
+  const visualTools = temTools ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs) } : {};
+  const allTools = { ...integ.tools, ...visualTools };
+  const comTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio para acertar tools/parâmetros.
   const glossario = social ? "" : await glossarioCasado(supabase, [spaceId], question).catch(() => "");
   if (!convId) {
@@ -228,9 +238,9 @@ export async function POST(req: NextRequest) {
       {
         persona,
         especializacao: integ.agentPrompt,
-        usoFerramentas: integ.capabilities,
+        usoFerramentas: [integ.capabilities, temTools ? visualsDirective() : ""].filter(Boolean).join("\n\n"),
         regras: resolveRegras(aP.regras_absolutas),
-        comTools: temTools,
+        comTools,
       },
       [
         notaDataAtual(),
@@ -246,8 +256,8 @@ export async function POST(req: NextRequest) {
     ),
     // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
     // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
-    messages: withPrefixCache(withImageParts(messages, attach.imageParts), temTools),
-    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
+    messages: withPrefixCache(withImageParts(messages, attach.imageParts), comTools),
+    ...(comTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
   });
 
   const stream = new ReadableStream({
@@ -264,11 +274,30 @@ export async function POST(req: NextRequest) {
       } catch {
         c.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
       }
+      // Relatórios: gera o PDF (layout de marca) e o adiciona aos arquivos.
+      if (reportSpecs.length) {
+        const brand: BrandInfo = {
+          marca: espaco?.name || "Relatório",
+          primariaHex: "#511C76",
+          dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+        };
+        for (const spec of reportSpecs) {
+          try {
+            outFiles.push(await renderReportPdf(spec, brand));
+          } catch (e) {
+            console.error("[chat] falha ao gerar PDF do relatório:", e);
+          }
+        }
+      }
       // Arquivos retornados pelas APIs (base64) → link de download no chat.
       for (const f of outFiles) {
         c.enqueue(
           sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
         );
+      }
+      // Gráficos montados pela IA → o cliente do portal renderiza (Fase 3).
+      for (const ch of chartSpecs) {
+        c.enqueue(sse({ type: "chart", chart: ch }));
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({

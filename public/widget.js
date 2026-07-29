@@ -239,6 +239,518 @@
     timer = setTimeout(function () { if (_picking) { cleanup(); addMsg("assistant", "Cancelei o preenchimento — é só pedir de novo."); processFills(); } }, 30000);
   }
 
+  // ==== Gráficos (montar_grafico): card interativo — trocar tipo + exportar ====
+  var _charts = []; // specs recebidas NESTE turno (guard de stream vazio)
+  var CHART_PAL = ["#511C76","#C95788","#2C1A63","#2563EB","#10B981","#F59E0B","#EF4444","#8B5CF6","#0EA5E9","#EC4899"];
+  var CHART_TIPOS = [["colunas","Colunas"],["barras","Barras"],["linha","Linha"],["area","Área"],["pizza","Pizza"],["rosca","Rosca"]];
+
+  function kbChartBtn(txt, pc, fn) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = txt;
+    b.style.cssText =
+      "font-size:12px;font-weight:600;padding:5px 10px;border-radius:9px;cursor:pointer;white-space:nowrap;" +
+      "border:1px solid " + pc + "44;background:" + pc + "14;color:" + pc + ";";
+    b.addEventListener("click", fn);
+    return b;
+  }
+  function kbBaixar(nome, href) {
+    var a = document.createElement("a");
+    a.href = href; a.download = nome; a.rel = "noopener";
+    (document.body || document.documentElement).appendChild(a);
+    a.click();
+    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+  }
+  function kbFmt(v) {
+    var a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(1).replace(".", ",") + "M";
+    if (a >= 1e3) return (v / 1e3).toFixed(1).replace(".", ",") + "k";
+    return String(Math.round(v * 100) / 100).replace(".", ",");
+  }
+  function kbTrunc(ctx, txt, maxW) {
+    txt = String(txt == null ? "" : txt);
+    if (ctx.measureText(txt).width <= maxW) return txt;
+    while (txt.length > 1 && ctx.measureText(txt + "…").width > maxW) txt = txt.slice(0, -1);
+    return txt + "…";
+  }
+  function kbNum(v) {
+    try { return Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 }); } catch { return String(v); }
+  }
+  function kbMediana(arr) {
+    var xs = arr.filter(function (n) { return isFinite(n); }).sort(function (a, b) { return a - b; });
+    if (!xs.length) return null;
+    var m = Math.floor(xs.length / 2);
+    return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+  }
+  function kbReg(ys) {
+    var n = ys.length; if (n < 2) return null;
+    var sx = 0, sy = 0, sxy = 0, sxx = 0;
+    for (var i = 0; i < n; i++) { var y = ys[i] || 0; sx += i; sy += y; sxy += i * y; sxx += i * i; }
+    var den = n * sxx - sx * sx; if (den === 0) return null;
+    var b = (n * sxy - sx * sy) / den;
+    return { a: (sy - b * sx) / n, b: b };
+  }
+  // Testa o ponteiro contra as "hit regions" registradas pelo desenho (retângulos
+  // e fatias de pizza). Devolve a região sob o cursor (com .html do tooltip).
+  function kbHitTest(hits, px, py) {
+    if (!hits) return null;
+    for (var i = 0; i < hits.length; i++) {
+      var r = hits[i];
+      if (r.pie) {
+        var dx = px - r.pie.cx, dy = py - r.pie.cy, d = Math.sqrt(dx * dx + dy * dy);
+        if (d >= r.pie.ri && d <= r.pie.ro) {
+          var two = Math.PI * 2;
+          var aa = ((Math.atan2(dy, dx) - r.pie.a0) % two + two) % two;
+          var sp = ((r.pie.a1 - r.pie.a0) % two + two) % two;
+          if (aa <= sp) return r;
+        }
+      } else if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+        return r;
+      }
+    }
+    return null;
+  }
+  // Liga o tooltip de hover a um canvas de gráfico (lê canvas._hits do último draw).
+  function attachChartHover(canvas, wrap) {
+    var tip = document.createElement("div");
+    tip.style.cssText =
+      "position:absolute;pointer-events:none;z-index:6;display:none;background:#17171a;color:#fff;" +
+      "font-size:11px;line-height:1.4;padding:6px 8px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.28);max-width:240px;";
+    wrap.appendChild(tip);
+    canvas.addEventListener("mousemove", function (e) {
+      var rect = canvas.getBoundingClientRect();
+      var hit = kbHitTest(canvas._hits, e.clientX - rect.left, e.clientY - rect.top);
+      if (!hit) { tip.style.display = "none"; canvas.style.cursor = ""; return; }
+      tip.innerHTML = hit.html;
+      tip.style.display = "block";
+      canvas.style.cursor = "pointer";
+      var px = e.clientX - rect.left, py = e.clientY - rect.top;
+      var left = px + 12, top = py - tip.offsetHeight - 8;
+      if (left + tip.offsetWidth > wrap.clientWidth) left = px - tip.offsetWidth - 12;
+      if (left < 0) left = 2;
+      if (top < 0) top = py + 16;
+      tip.style.left = left + "px";
+      tip.style.top = top + "px";
+    });
+    canvas.addEventListener("mouseleave", function () { tip.style.display = "none"; canvas.style.cursor = ""; });
+  }
+  function kbChartCsv(spec) {
+    function cell(v) { v = String(v); return /[",\r\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    var head = ["Categoria"].concat(spec.series.map(function (s) { return s.nome; }));
+    var linhas = spec.categorias.map(function (c, r) {
+      return [c].concat(spec.series.map(function (s) { return s.valores[r] == null ? "" : s.valores[r]; }));
+    });
+    return [head].concat(linhas).map(function (cols) { return cols.map(cell).join(","); }).join("\r\n");
+  }
+
+  // Tabela dos dados do gráfico (aba "Tabela"): categorias × séries + linha de total.
+  function kbChartTable(spec, pc) {
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "overflow:auto;max-height:300px;margin-top:2px;";
+    var t = document.createElement("table");
+    t.style.cssText = "border-collapse:collapse;width:100%;font-size:12px;color:#1a1a1a;";
+    var cols = ["Categoria"].concat(spec.series.map(function (s) { return s.nome; }));
+    var thr = document.createElement("tr");
+    cols.forEach(function (c, i) {
+      var th = document.createElement("th");
+      th.textContent = c;
+      th.style.cssText = "position:sticky;top:0;text-align:" + (i ? "right" : "left") + ";padding:7px 9px;background:" + pc + ";color:#fff;font-weight:600;white-space:nowrap;";
+      thr.appendChild(th);
+    });
+    var thead = document.createElement("thead"); thead.appendChild(thr); t.appendChild(thead);
+    var tb = document.createElement("tbody");
+    spec.categorias.forEach(function (cat, r) {
+      var tr = document.createElement("tr");
+      if (r % 2) tr.style.background = "rgba(0,0,0,.035)";
+      var td0 = document.createElement("td"); td0.textContent = cat;
+      td0.style.cssText = "text-align:left;padding:6px 9px;border-bottom:1px solid rgba(0,0,0,.08);white-space:nowrap;";
+      tr.appendChild(td0);
+      spec.series.forEach(function (s) {
+        var td = document.createElement("td");
+        td.textContent = kbNum(s.valores[r] == null ? 0 : s.valores[r]);
+        td.style.cssText = "text-align:right;padding:6px 9px;border-bottom:1px solid rgba(0,0,0,.08);white-space:nowrap;font-variant-numeric:tabular-nums;";
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    var trt = document.createElement("tr");
+    var tdt = document.createElement("td"); tdt.textContent = "Total";
+    tdt.style.cssText = "text-align:left;padding:7px 9px;font-weight:700;border-top:2px solid rgba(0,0,0,.14);";
+    trt.appendChild(tdt);
+    spec.series.forEach(function (s) {
+      var tot = s.valores.reduce(function (a, b) { return a + (b || 0); }, 0);
+      var td = document.createElement("td"); td.textContent = kbNum(tot);
+      td.style.cssText = "text-align:right;padding:7px 9px;font-weight:700;border-top:2px solid rgba(0,0,0,.14);font-variant-numeric:tabular-nums;";
+      trt.appendChild(td);
+    });
+    tb.appendChild(trt); t.appendChild(tb); wrap.appendChild(t);
+    return wrap;
+  }
+  function kbTab(txt) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = txt;
+    b.style.cssText = "font-size:12px;font-weight:600;padding:4px 11px;border-radius:8px;cursor:pointer;border:1px solid transparent;background:transparent;";
+    return b;
+  }
+  function kbTabState(btn, active, pc) {
+    btn.style.background = active ? pc + "14" : "transparent";
+    btn.style.color = active ? pc : "#6b6b72";
+    btn.style.borderColor = active ? pc + "40" : "transparent";
+  }
+
+  function renderChart(spec) {
+    _charts.push(spec);
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var card = document.createElement("div");
+    card.style.cssText =
+      "margin:6px 0 6px 40px;padding:12px;border-radius:14px;max-width:88%;" +
+      "border:1px solid rgba(0,0,0,.10);background:#ffffff;";
+    // Cabeçalho: título + abas Gráfico / Tabela.
+    var head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px;";
+    if (spec.titulo) {
+      var h = document.createElement("div");
+      h.textContent = spec.titulo;
+      h.style.cssText = "font-size:13px;font-weight:700;color:#17171a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      head.appendChild(h);
+    } else {
+      var sp0 = document.createElement("span"); sp0.style.cssText = "flex:1;"; head.appendChild(sp0);
+    }
+    var tabs = document.createElement("div"); tabs.style.cssText = "display:flex;gap:4px;";
+    var tabG = kbTab("Gráfico"), tabT = kbTab("Tabela");
+    tabs.appendChild(tabG); tabs.appendChild(tabT); head.appendChild(tabs);
+    card.appendChild(head);
+    // Conteúdo: gráfico (canvas) e tabela.
+    var cwrap = document.createElement("div");
+    cwrap.style.cssText = "position:relative;";
+    var canvas = document.createElement("canvas");
+    canvas.style.cssText = "width:100%;height:240px;display:block;";
+    cwrap.appendChild(canvas);
+    card.appendChild(cwrap);
+    attachChartHover(canvas, cwrap);
+    var twrap = kbChartTable(spec, pc);
+    twrap.style.display = "none";
+    card.appendChild(twrap);
+    // Barra de ações.
+    var bar = document.createElement("div");
+    bar.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;";
+    var sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Tipo do gráfico");
+    sel.style.cssText =
+      "font-size:12px;padding:5px 8px;border-radius:9px;cursor:pointer;" +
+      "border:1px solid rgba(0,0,0,.15);background:#fff;color:#222;";
+    CHART_TIPOS.forEach(function (t) {
+      var o = document.createElement("option");
+      o.value = t[0]; o.textContent = t[1];
+      if (t[0] === spec.tipo) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { spec.tipo = sel.value; drawChart(canvas, spec); });
+    var espaco = document.createElement("span"); espaco.style.cssText = "flex:1;";
+    var amp = kbChartBtn("⤢ Ampliar", pc, function () { abrirModalGrafico(spec, canvas); });
+    amp.title = "Ampliar no centro da tela";
+    var png = kbChartBtn("⬇ PNG", pc, function () {
+      try { kbBaixar((spec.titulo || "grafico") + ".png", canvas.toDataURL("image/png")); } catch {}
+    });
+    bar.appendChild(sel);
+    bar.appendChild(espaco);
+    bar.appendChild(amp);
+    bar.appendChild(kbChartBtn("⬇ CSV", pc, function () {
+      kbBaixar((spec.titulo || "grafico") + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + kbChartCsv(spec)));
+    }));
+    bar.appendChild(png);
+    card.appendChild(bar);
+    // Alternância de abas (esconde os controles só-do-gráfico na aba Tabela).
+    function setTab(g) {
+      cwrap.style.display = g ? "" : "none";
+      twrap.style.display = g ? "none" : "";
+      sel.style.display = g ? "" : "none";
+      amp.style.display = g ? "" : "none";
+      png.style.display = g ? "" : "none";
+      kbTabState(tabG, g, pc); kbTabState(tabT, !g, pc);
+      if (g) drawChart(canvas, spec);
+    }
+    tabG.addEventListener("click", function () { setTab(true); });
+    tabT.addEventListener("click", function () { setTab(false); });
+    kbTabState(tabG, true, pc); kbTabState(tabT, false, pc);
+    messagesEl.appendChild(card);
+    requestAnimationFrame(function () { drawChart(canvas, spec); });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // Abre o gráfico ampliado, centralizado na tela (overlay dentro do shadow do
+  // widget — fica acima da página e herda o z-index máximo do host).
+  function abrirModalGrafico(spec, inlineCanvas) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
+    var ov = document.createElement("div");
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(15,15,20,.55);padding:16px;";
+    var card = document.createElement("div");
+    card.style.cssText =
+      "background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.4);width:min(940px,94vw);" +
+      "display:flex;flex-direction:column;padding:16px;";
+    var hd = document.createElement("div");
+    hd.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:10px;";
+    var ttl = document.createElement("div");
+    ttl.textContent = spec.titulo || "Gráfico";
+    ttl.style.cssText = "font-size:15px;font-weight:700;color:#17171a;flex:1;";
+    var fechar = document.createElement("button");
+    fechar.type = "button"; fechar.setAttribute("aria-label", "Fechar"); fechar.innerHTML = "&times;";
+    fechar.style.cssText = "border:none;background:transparent;font-size:26px;line-height:1;cursor:pointer;color:#555;padding:0 6px;";
+    hd.appendChild(ttl); hd.appendChild(fechar);
+    var bwrap = document.createElement("div");
+    bwrap.style.cssText = "position:relative;";
+    var big = document.createElement("canvas");
+    big.style.cssText = "width:100%;height:min(64vh,560px);display:block;";
+    bwrap.appendChild(big);
+    var ft = document.createElement("div");
+    ft.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;";
+    var sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Tipo do gráfico");
+    sel.style.cssText = "font-size:13px;padding:6px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(0,0,0,.15);background:#fff;color:#222;";
+    CHART_TIPOS.forEach(function (t) {
+      var o = document.createElement("option"); o.value = t[0]; o.textContent = t[1];
+      if (t[0] === spec.tipo) o.selected = true; sel.appendChild(o);
+    });
+    var espaco = document.createElement("span"); espaco.style.cssText = "flex:1;";
+    ft.appendChild(sel); ft.appendChild(espaco);
+    ft.appendChild(kbChartBtn("⬇ CSV", pc, function () {
+      kbBaixar((spec.titulo || "grafico") + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + kbChartCsv(spec)));
+    }));
+    ft.appendChild(kbChartBtn("⬇ PNG", pc, function () {
+      try { kbBaixar((spec.titulo || "grafico") + ".png", big.toDataURL("image/png")); } catch {}
+    }));
+    card.appendChild(hd); card.appendChild(bwrap); card.appendChild(ft);
+    ov.appendChild(card);
+    raiz.appendChild(ov);
+    attachChartHover(big, bwrap);
+    function redraw() { drawChart(big, spec, big.clientHeight || 520); }
+    requestAnimationFrame(redraw);
+    function fecharModal() {
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("keydown", onKey);
+      if (inlineCanvas) drawChart(inlineCanvas, spec); // sincroniza o tipo escolhido
+    }
+    function onKey(e) { if (e.key === "Escape") fecharModal(); }
+    function onResize() { redraw(); }
+    fechar.addEventListener("click", fecharModal);
+    ov.addEventListener("click", function (e) { if (e.target === ov) fecharModal(); });
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    sel.addEventListener("change", function () {
+      spec.tipo = sel.value; redraw(); if (inlineCanvas) drawChart(inlineCanvas, spec);
+    });
+  }
+
+  function drawChart(canvas, spec, cssHArg) {
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = canvas.clientWidth || (canvas.parentNode ? canvas.parentNode.clientWidth - 24 : 300);
+    var cssH = cssHArg || 240;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    var hits = []; canvas._hits = hits; // regiões de hover (rebuild a cada draw)
+    var fg = "#1a1a1a", muted = "#6b6b72", gridc = "rgba(0,0,0,.08)";
+    ctx.font = "11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    ctx.textBaseline = "middle";
+    var cats = spec.categorias || [], series = spec.series || [];
+    if (!cats.length || !series.length) return;
+    var tipo = spec.tipo;
+    // Somas por série → percentuais no tooltip.
+    var somas = series.map(function (s) { return s.valores.reduce(function (a, b) { return a + (b || 0); }, 0); });
+    function pct(v, si) { var t = somas[si] || 0; return t ? Math.round((v / t) * 1000) / 10 : 0; }
+    function tipCat(ci) {
+      var out = "<b>" + esc(cats[ci]) + "</b>";
+      for (var s = 0; s < series.length; s++) {
+        var v = series[s].valores[ci] || 0;
+        out += "<br>" + (series.length > 1 ? esc(series[s].nome) + ": " : "") + kbNum(v) + " (" + pct(v, s) + "%)";
+      }
+      return out;
+    }
+    function tipVal(ci, si) {
+      var v = series[si].valores[ci] || 0;
+      return "<b>" + esc(cats[ci]) + "</b><br>" + (series.length > 1 ? esc(series[si].nome) + ": " : "") + kbNum(v) + " (" + pct(v, si) + "%)";
+    }
+    if (tipo === "pizza" || tipo === "rosca") { drawPie(ctx, cssW, cssH, spec, tipo === "rosca", fg, hits); return; }
+    var topo = 8;
+    if (series.length > 1) topo = drawLegend(ctx, cssW, series, fg);
+    var padT = topo, padR = 12, steps = 4;
+    var vmax = -Infinity, vmin = Infinity;
+    for (var si2 = 0; si2 < series.length; si2++) for (var ri = 0; ri < cats.length; ri++) {
+      var v0 = series[si2].valores[ri] || 0; if (v0 > vmax) vmax = v0; if (v0 < vmin) vmin = v0;
+    }
+    if (vmax === -Infinity) return;
+    vmin = Math.min(0, vmin); if (vmax === vmin) vmax = vmin + 1;
+    var span = vmax - vmin, zeroFrac = (0 - vmin) / span;
+    // Mediana (de todos os valores) e tendência (regressão da 1ª série), quando
+    // a IA marcou pelo contexto. Nunca em pizza/rosca (já retornou acima).
+    var COR_MED = "#C95788", COR_TREND = "#2563EB";
+    var fontMed = "10px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    var todos = []; for (var ai = 0; ai < series.length; ai++) todos = todos.concat(series[ai].valores);
+    var med = spec.mediana ? kbMediana(todos) : null;
+    var reg = spec.tendencia ? kbReg(series[0].valores) : null;
+
+    if (tipo === "barras") {
+      // Rótulos à esquerda: largura DINÂMICA para não truncar quando há espaço.
+      var maxLab = 0;
+      for (var m = 0; m < cats.length; m++) { var lw = ctx.measureText(cats[m]).width; if (lw > maxLab) maxLab = lw; }
+      var padL = Math.max(44, Math.min(Math.ceil(maxLab) + 12, Math.floor(cssW * 0.42)));
+      var padB = 26;
+      var plotW = Math.max(10, cssW - padL - padR), plotH = Math.max(10, cssH - padT - padB);
+      var x0 = padL, y0 = padT;
+      for (var g = 0; g <= steps; g++) {
+        var vv = vmin + span * g / steps, gx = x0 + plotW * (vv - vmin) / span;
+        ctx.strokeStyle = gridc; ctx.beginPath(); ctx.moveTo(gx, y0); ctx.lineTo(gx, y0 + plotH); ctx.stroke();
+        ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(kbFmt(vv), gx, y0 + plotH + 12);
+      }
+      var bandH = plotH / cats.length, zeroX = x0 + plotW * zeroFrac;
+      for (var c = 0; c < cats.length; c++) {
+        var by = y0 + bandH * c;
+        ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbTrunc(ctx, cats[c], padL - 8), x0 - 6, by + bandH / 2);
+        hits.push({ x: 0, y: by, w: padL, h: bandH, html: tipCat(c) });
+        var sh = (bandH * 0.7) / series.length;
+        for (var s2 = 0; s2 < series.length; s2++) {
+          var val = series[s2].valores[c] || 0, bw = plotW * val / span, ry = by + bandH * 0.15 + sh * s2;
+          ctx.fillStyle = CHART_PAL[s2 % CHART_PAL.length];
+          ctx.fillRect(zeroX, ry, bw, sh * 0.86);
+          hits.push({ x: Math.min(zeroX, zeroX + bw), y: ry, w: Math.max(3, Math.abs(bw)), h: sh * 0.86, html: tipVal(c, s2) });
+        }
+        hits.push({ x: x0, y: by, w: plotW, h: bandH, html: tipCat(c) }); // faixa (fallback)
+      }
+      if (med != null) {
+        var mvx = x0 + plotW * (med - vmin) / span;
+        ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = COR_MED; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(mvx, y0); ctx.lineTo(mvx, y0 + plotH); ctx.stroke(); ctx.restore();
+        ctx.fillStyle = COR_MED; ctx.textAlign = "left"; ctx.font = fontMed;
+        ctx.fillText("Mediana " + kbFmt(med), Math.min(mvx + 4, x0 + plotW - 58), y0 + 7);
+      }
+      return;
+    }
+
+    // colunas / linha / área
+    var padL2 = 44;
+    var plotW2 = Math.max(10, cssW - padL2 - padR);
+    var band = plotW2 / cats.length;
+    // Rótulos X responsivos: inteiros se couberem; senão rotaciona (usa o espaço).
+    var maxLab2 = 0;
+    for (var mm = 0; mm < cats.length; mm++) { var lw2 = ctx.measureText(cats[mm]).width; if (lw2 > maxLab2) maxLab2 = lw2; }
+    var girar = maxLab2 > band - 6;
+    var padB2 = girar ? Math.min(Math.floor(cssH * 0.30), 56) : 24;
+    var plotH2 = Math.max(10, cssH - padT - padB2);
+    var x02 = padL2, y02 = padT;
+    var valorY = function (val) { return y02 + plotH2 - plotH2 * (val - vmin) / span; };
+    var zeroY = valorY(0);
+    for (var g2 = 0; g2 <= steps; g2++) {
+      var vv2 = vmin + span * g2 / steps, gy = valorY(vv2);
+      ctx.strokeStyle = gridc; ctx.beginPath(); ctx.moveTo(x02, gy); ctx.lineTo(x02 + plotW2, gy); ctx.stroke();
+      ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbFmt(vv2), x02 - 6, gy);
+    }
+    for (var c2 = 0; c2 < cats.length; c2++) {
+      var cxp = x02 + band * c2 + band / 2;
+      ctx.fillStyle = muted;
+      if (girar) {
+        ctx.save(); ctx.translate(cxp, y02 + plotH2 + 8); ctx.rotate(-Math.PI / 5); ctx.textAlign = "right";
+        ctx.fillText(kbTrunc(ctx, cats[c2], padB2 * 1.9), 0, 0); ctx.restore();
+      } else {
+        ctx.textAlign = "center"; ctx.fillText(cats[c2], cxp, y02 + plotH2 + 12);
+      }
+      hits.push({ x: x02 + band * c2, y: y02 + plotH2, w: band, h: padB2, html: tipCat(c2) });
+    }
+    if (tipo === "colunas") {
+      var sw = (band * 0.7) / series.length;
+      for (var c3 = 0; c3 < cats.length; c3++) {
+        for (var s3 = 0; s3 < series.length; s3++) {
+          var val3 = series[s3].valores[c3] || 0, vy = valorY(val3), bx = x02 + band * c3 + band * 0.15 + sw * s3;
+          ctx.fillStyle = CHART_PAL[s3 % CHART_PAL.length];
+          ctx.fillRect(bx, Math.min(vy, zeroY), sw * 0.9, Math.abs(zeroY - vy));
+          hits.push({ x: bx, y: Math.min(vy, zeroY), w: sw * 0.9, h: Math.max(3, Math.abs(zeroY - vy)), html: tipVal(c3, s3) });
+        }
+        hits.push({ x: x02 + band * c3, y: y02, w: band, h: plotH2, html: tipCat(c3) }); // faixa (fallback)
+      }
+    } else {
+      for (var s4 = 0; s4 < series.length; s4++) {
+        var col = CHART_PAL[s4 % CHART_PAL.length]; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+        var pts = [];
+        for (var c4 = 0; c4 < cats.length; c4++) {
+          var v4 = series[s4].valores[c4] || 0, px2 = x02 + band * c4 + band / 2, py2 = valorY(v4);
+          pts.push([px2, py2]); if (c4 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+        }
+        ctx.stroke();
+        if (tipo === "area" && pts.length) {
+          ctx.lineTo(pts[pts.length - 1][0], zeroY); ctx.lineTo(pts[0][0], zeroY); ctx.closePath();
+          ctx.globalAlpha = 0.15; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = col;
+        for (var pi = 0; pi < pts.length; pi++) { ctx.beginPath(); ctx.arc(pts[pi][0], pts[pi][1], 2.5, 0, 6.2832); ctx.fill(); }
+      }
+      for (var c5 = 0; c5 < cats.length; c5++) {
+        hits.push({ x: x02 + band * c5, y: y02, w: band, h: plotH2, html: tipCat(c5) }); // faixa por X
+      }
+    }
+    if (med != null) {
+      var my = valorY(med);
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = COR_MED; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x02, my); ctx.lineTo(x02 + plotW2, my); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = COR_MED; ctx.textAlign = "right"; ctx.font = fontMed;
+      ctx.fillText("Mediana " + kbFmt(med), x02 + plotW2, my - 6);
+    }
+    if (reg) {
+      var clY = function (y) { return Math.max(y02, Math.min(y02 + plotH2, y)); };
+      var xa = x02 + band / 2, xb = x02 + band * (cats.length - 1) + band / 2;
+      var ya = clY(valorY(reg.a)), yb = clY(valorY(reg.a + reg.b * (cats.length - 1)));
+      ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = COR_TREND; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(xa, ya); ctx.lineTo(xb, yb); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = COR_TREND; ctx.textAlign = "right"; ctx.font = fontMed;
+      ctx.fillText("Tendência " + (reg.b > 0 ? "↗" : reg.b < 0 ? "↘" : "→"), xb - 2, yb - 6);
+    }
+  }
+
+  function drawLegend(ctx, w, series, fg) {
+    var x = 6, y = 12; ctx.textAlign = "left";
+    for (var i = 0; i < series.length; i++) {
+      var lbl = series[i].nome || ("Série " + (i + 1));
+      ctx.fillStyle = CHART_PAL[i % CHART_PAL.length]; ctx.fillRect(x, y - 4, 9, 9);
+      ctx.fillStyle = fg; ctx.fillText(lbl, x + 13, y);
+      x += 13 + ctx.measureText(lbl).width + 14;
+      if (x > w - 60 && i < series.length - 1) { x = 6; y += 15; }
+    }
+    return y + 8;
+  }
+
+  function drawPie(ctx, w, h, spec, donut, fg, hits) {
+    var serie = spec.series[0]; if (!serie) return;
+    var cats = spec.categorias;
+    var vals = cats.map(function (_, i) { return Math.max(0, serie.valores[i] || 0); });
+    var total = vals.reduce(function (a, b) { return a + b; }, 0);
+    if (total <= 0) return;
+    var cx = w * 0.32, cy = h / 2, R = Math.min(w * 0.28, h * 0.40), ang = -Math.PI / 2;
+    var ri = donut ? R * 0.55 : 0;
+    for (var i = 0; i < vals.length; i++) {
+      var frac = vals[i] / total, a2 = ang + frac * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, ang, a2); ctx.closePath();
+      ctx.fillStyle = CHART_PAL[i % CHART_PAL.length]; ctx.fill();
+      if (hits) hits.push({ pie: { cx: cx, cy: cy, ri: ri, ro: R, a0: ang, a1: a2 },
+        html: "<b>" + esc(cats[i]) + "</b><br>" + kbNum(vals[i]) + " (" + (Math.round(frac * 1000) / 10) + "%)" });
+      ang = a2;
+    }
+    if (donut) { ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(cx, cy, R * 0.55, 0, 6.2832); ctx.fill(); }
+    var lx = w * 0.60, ly = cy - (cats.length * 16) / 2 + 8; ctx.textAlign = "left";
+    for (var j = 0; j < cats.length; j++) {
+      ctx.fillStyle = CHART_PAL[j % CHART_PAL.length]; ctx.fillRect(lx, ly - 5, 10, 10);
+      ctx.fillStyle = fg;
+      var p = Math.round((vals[j] / total) * 1000) / 10;
+      ctx.fillText(kbTrunc(ctx, cats[j], w - lx - 60) + " " + p + "%", lx + 15, ly);
+      if (hits) hits.push({ x: lx - 2, y: ly - 9, w: w - lx, h: 16,
+        html: "<b>" + esc(cats[j]) + "</b><br>" + kbNum(vals[j]) + " (" + p + "%)" });
+      ly += 16;
+    }
+  }
+
   // Sessão anônima estável (para agrupar a conversa).
   var sessionId = localStorage.getItem(LS_SID);
   if (!sessionId) {
@@ -496,12 +1008,48 @@
     return ICON_CHAT;
   }
 
+  // Ensina o jQuery UI Dialog (usado pelo APEX) a PERMITIR interação com o widget:
+  // sem isto, um dialog modal aberto rouba o foco do nosso textarea (não dá para
+  // digitar). Idempotente; se o jQuery UI ainda não carregou, tenta de novo.
+  function permitirNoModal(tentativas) {
+    try {
+      var jq = (window.apex && window.apex.jQuery) || window.jQuery || window.$;
+      if (jq && jq.ui && jq.ui.dialog && jq.ui.dialog.prototype) {
+        var proto = jq.ui.dialog.prototype;
+        if (!proto.__kbAllow) {
+          proto.__kbAllow = true;
+          var orig = proto._allowInteraction;
+          proto._allowInteraction = function (e) {
+            try {
+              if (e && e.target && e.target.closest && e.target.closest("[data-kb-widget]")) return true;
+            } catch {}
+            return orig ? orig.apply(this, arguments) : false;
+          };
+        }
+        return;
+      }
+    } catch {}
+    // jQuery UI ainda não disponível → tenta mais algumas vezes.
+    if ((tentativas || 0) < 20) setTimeout(function () { permitirNoModal((tentativas || 0) + 1); }, 300);
+  }
+
   // ==== Montagem ====
   function mount() {
     host = document.createElement("div");
     host.setAttribute("data-kb-widget", "");
     document.body.appendChild(host);
     root = host.attachShadow({ mode: "open" });
+
+    // Compatibilidade com MODAIS (APEX/jQuery UI e afins): um dialog modal "rouba"
+    // o foco de tudo que está fora dele — como o widget vive no <body>, fora do
+    // dialog, o textarea perdia o foco na hora. Duas camadas:
+    //  (1) barra os eventos de foco do widget antes de chegarem ao document;
+    ["focusin", "focusout"].forEach(function (ev) {
+      host.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
+    });
+    //  (2) correção canônica: ensina o jQuery UI Dialog a PERMITIR interação com o
+    //      widget (patch em _allowInteraction) — é o que realmente destrava o foco.
+    permitirNoModal();
 
     var st = document.createElement("style");
     st.textContent = styles();
@@ -1217,6 +1765,7 @@
     var full = ""; // texto completo já recebido do servidor
     var citations = [];
     var clarified = false;
+    _charts = []; // gráficos recebidos NESTE turno (guard de stream vazio)
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
     // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
     var shown = 0, stopped = false, rafId = null, feito = false;
@@ -1339,6 +1888,10 @@
         // A IA propôs preencher um campo → enfileira; processa no fim (com confirmação).
         if (typing.parentNode) typing.remove();
         _fills.push(evt);
+      } else if (evt.type === "chart") {
+        // A IA montou um gráfico → card interativo (trocar tipo + exportar CSV/PNG).
+        if (typing.parentNode) typing.remove();
+        if (evt.chart) renderChart(evt.chart);
       }
     }
     function finish() {
@@ -1353,9 +1906,9 @@
         // e o feedback (feito dentro de passoReveal).
         stopped = true;
         agendarReveal();
-      } else {
-        // Stream vazio = a chamada ao provedor falhou. Antes daqui não saía
-        // nada na tela e o widget parecia simplesmente ignorar a pergunta.
+      } else if (!_fills.length && !_charts.length) {
+        // Stream vazio SEM preenchimento nem gráfico = a chamada ao provedor
+        // falhou. (Se a IA só chamou uma tool visual, não há texto — mas o card aparece.)
         addMsg(
           "assistant",
           "Não foi possível gerar a resposta agora. Tente de novo em instantes."

@@ -277,6 +277,7 @@ export type ChartData = {
   series: ChartSeries[]; // colunas plotadas (Y)
   zKey?: string; // coluna Z (tamanho da bolha, só bubble)
   showMedian?: boolean; // linha de mediana (barras/colunas/linha/área/combo)
+  showTrend?: boolean; // linha de tendência (regressão da 1ª série; colunas/linha/área)
   legend?: boolean;
   grid?: boolean;
 };

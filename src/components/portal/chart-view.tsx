@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import type { ChartData, ChartRow } from "@/lib/blocks/schema";
 import { chartIsCircular } from "@/lib/blocks/schema";
+import { linReg } from "@/lib/chat/chart-spec";
 
 /**
  * Render de gráfico (Recharts) — usado no portal E no editor (prévia). É o mesmo
@@ -85,6 +86,22 @@ export function ChartView({ data }: { data: ChartData }) {
       ? mediana(dados.flatMap((r) => series.map((s) => num(r[s.key]))))
       : null;
 
+  // Tendência (regressão linear da 1ª série) — só em tipos ordenados no eixo X.
+  const trendTipos = ["column", "line", "area", "stackedColumn", "stackedArea", "combo"];
+  const reg =
+    data.showTrend && series.length && dados.length >= 2 && trendTipos.includes(chartType)
+      ? linReg(dados.map((r) => num(r[series[0]!.key])))
+      : null;
+  const trendSeg:
+    | [{ x: string | number | undefined; y: number }, { x: string | number | undefined; y: number }]
+    | null =
+    reg && dados.length >= 2
+      ? [
+          { x: dados[0]![xKey], y: reg.a },
+          { x: dados[dados.length - 1]![xKey], y: reg.a + reg.b * (dados.length - 1) },
+        ]
+      : null;
+
   const vazio = dados.length === 0 || series.length === 0;
 
   const comum = (
@@ -105,6 +122,15 @@ export function ChartView({ data }: { data: ChartData }) {
           stroke="#C95788"
           strokeDasharray="5 4"
           label={{ value: `Mediana ${med}`, position: "right", fill: "#C95788", fontSize: 11 }}
+        />
+      )}
+      {trendSeg && (
+        <ReferenceLine
+          segment={trendSeg}
+          stroke="#2563EB"
+          strokeDasharray="6 4"
+          strokeWidth={2}
+          label={{ value: "Tendência", position: "insideTopRight", fill: "#2563EB", fontSize: 11 }}
         />
       )}
     </>
