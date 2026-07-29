@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import type { Json } from "@/lib/database.types";
 import type { IntegResult } from "./actions";
+import { listarPerfis } from "@/lib/integrations/perfis";
 
 async function garantirPermissao(): Promise<string | null> {
   try {
@@ -66,8 +67,19 @@ const toolSchema = z.object({
   guard: z.string().trim().nullish(),
   cache_ttl: z.number().int().positive().nullish(),
   loop: loopSchema.nullish(),
-  /** Bases onde a tool fica ATIVA (grava ai_base_tools.enabled). undefined = não mexe. */
-  baseIds: z.array(z.string().uuid()).optional(),
+  /**
+   * Acesso por base: cada base onde a tool fica ATIVA, com as allowlists de
+   * PORTAL e PERFIL (#4). Vazio = liberado. `undefined` = não mexe nas bases.
+   */
+  bases: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        portais: z.array(z.string().trim().min(1).max(20)).default([]),
+        perfis: z.array(z.string().trim().min(1).max(80)).default([]),
+      }),
+    )
+    .optional(),
 });
 
 export async function saveTool(input: unknown): Promise<IntegResult> {
@@ -121,14 +133,22 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     toolId = data.id;
   }
 
-  // Acesso por base: reescreve ai_base_tools.enabled a partir do seletor de bases.
-  // Só quando `baseIds` foi enviado (o diálogo sempre envia a seleção atual).
-  if (t.baseIds) {
+  // Acesso por base: reescreve ai_base_tools (enabled + allowlists portal/perfil)
+  // a partir do editor de bases. Só quando `bases` foi enviado (o diálogo sempre
+  // envia a seleção atual).
+  if (t.bases) {
     await supabase.from("ai_base_tools").delete().eq("tool_id", toolId!);
-    if (t.baseIds.length) {
-      await supabase
-        .from("ai_base_tools")
-        .insert([...new Set(t.baseIds)].map((base_id) => ({ base_id, tool_id: toolId!, enabled: true })));
+    if (t.bases.length) {
+      const byId = new Map(t.bases.map((b) => [b.id, b])); // dedup: última vence
+      await supabase.from("ai_base_tools").insert(
+        [...byId.values()].map((b) => ({
+          base_id: b.id,
+          tool_id: toolId!,
+          enabled: true,
+          portais: [...new Set(b.portais)],
+          perfis: [...new Set(b.perfis)],
+        })),
+      );
     }
   }
 
@@ -137,7 +157,7 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     entityType: "ai_tool",
     entityId: toolId!,
     spaceId: null,
-    after: { key: t.key, endpoint_kind: t.endpoint_kind, bases: t.baseIds?.length },
+    after: { key: t.key, endpoint_kind: t.endpoint_kind, bases: t.bases?.length },
   });
   revalidatePath("/admin/integracoes");
   return { ok: true, id: toolId };
@@ -189,4 +209,18 @@ export async function removeBaseTool(baseId: string, toolId: string): Promise<In
   await audit({ action: "integrations.base_tool.remove", entityType: "ai_base_tool", entityId: `${baseId}:${toolId}`, spaceId: null });
   revalidatePath("/admin/integracoes");
   return { ok: true };
+}
+
+// ─────── Perfis do cliente (API da base) para popular a allowlist (#4) ────────
+export async function listarPerfisDaBase(
+  baseId: string,
+): Promise<{ ok: boolean; perfis?: string[]; error?: string }> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  if (!z.string().uuid().safeParse(baseId).success) return { ok: false, error: "Base inválida." };
+  try {
+    return { ok: true, perfis: await listarPerfis(baseId) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar perfis." };
+  }
 }

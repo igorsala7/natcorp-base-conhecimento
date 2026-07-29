@@ -16,6 +16,9 @@ export type BaseToolContext = {
   tool: RuntimeTool;
   baseUrl: string | null;
   credentialId: string | null;
+  /** Allowlist de acesso (#4): portais/perfis liberados. Vazio = liberado. */
+  portais: string[];
+  perfis: string[];
 };
 export type BaseContext = { baseId: string; name: string; tools: BaseToolContext[] };
 
@@ -23,6 +26,8 @@ type EmbeddedRow = {
   base_url: string | null;
   credential_id: string | null;
   enabled: boolean;
+  portais: string[] | null;
+  perfis: string[] | null;
   tool: {
     id: string;
     key: string;
@@ -48,18 +53,24 @@ type EmbeddedRow = {
 /** Base ATIVA + suas tools HABILITADAS (com base_url e credencial). */
 export async function loadBaseContext(baseCode: string): Promise<BaseContext | null> {
   const db = createAdminClient();
+  // `base_code` é um slug, mas o `p_base` chega do APEX do cliente em qualquer
+  // caixa (ex.: manda "NATCORP" e no banco está "natcorp"): casamos SEM
+  // diferenciar maiúsc./minúsc.. Escapamos %/_/\ para o valor do cliente não
+  // virar curinga de LIKE. Sem isto, um p_base fora da caixa = 0 tools no chat.
+  const alvo = baseCode.trim().replace(/([\\%_])/g, "\\$1");
   const { data: base } = await db
     .from("ai_bases")
     .select("id, name, active, base_url, credential_id")
-    .eq("base_code", baseCode)
+    .ilike("base_code", alvo)
     .eq("active", true)
+    .limit(1)
     .maybeSingle();
   if (!base) return null;
 
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, active)",
+      "base_url, credential_id, enabled, portais, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -94,6 +105,8 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
       },
       baseUrl,
       credentialId,
+      portais: r.portais ?? [],
+      perfis: r.perfis ?? [],
     });
   }
   return { baseId: base.id, name: base.name, tools };

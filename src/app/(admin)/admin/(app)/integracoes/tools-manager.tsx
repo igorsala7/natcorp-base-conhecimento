@@ -24,7 +24,8 @@ import {
   type LoopConfig,
   type ToolParam,
 } from "@/lib/integrations/tools";
-import { saveTool, deleteTool } from "./tool-actions";
+import { saveTool, deleteTool, listarPerfisDaBase } from "./tool-actions";
+import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
 
@@ -67,7 +68,11 @@ export function ToolsManager({
   const toast = useToast();
   const { confirmar } = useConfirm();
   const [pending, startTransition] = useTransition();
-  const [dialog, setDialog] = useState<{ tool?: ToolRow; baseIds: string[] } | null>(null);
+  const [dialog, setDialog] = useState<{
+    tool?: ToolRow;
+    baseIds: string[];
+    acesso: Record<string, { portais: string[]; perfis: string[] }>;
+  } | null>(null);
 
   // Bases onde CADA tool está ativa hoje (ai_base_tools.enabled). Nova tool =
   // ativa em TODAS por padrão.
@@ -81,6 +86,17 @@ export function ToolsManager({
     }
     return m;
   }, [baseTools]);
+  // Allowlists (#4) por (tool, base): { baseId: { portais, perfis } }.
+  const acessoByTool = useMemo(() => {
+    const m = new Map<string, Record<string, { portais: string[]; perfis: string[] }>>();
+    for (const bt of baseTools) {
+      if (!bt.enabled) continue;
+      const rec = m.get(bt.tool_id) ?? {};
+      rec[bt.base_id] = { portais: bt.portais ?? [], perfis: bt.perfis ?? [] };
+      m.set(bt.tool_id, rec);
+    }
+    return m;
+  }, [baseTools]);
   const credentialOptions = useMemo<CredentialOption[]>(
     () => bases.flatMap((b) => b.credentials.map((c) => ({ id: c.id, name: c.name, base: b.name }))),
     [bases],
@@ -89,7 +105,8 @@ export function ToolsManager({
 
   function abrir(tool?: ToolRow) {
     const baseIds = tool ? (enabledByTool.get(tool.id) ?? []) : bases.map((b) => b.id);
-    setDialog({ tool, baseIds });
+    const acesso = tool ? (acessoByTool.get(tool.id) ?? {}) : {};
+    setDialog({ tool, baseIds, acesso });
   }
 
   function run(fn: () => Promise<IntegResult>, okMsg?: string, onOk?: () => void) {
@@ -174,7 +191,9 @@ export function ToolsManager({
         <ToolDialog
           tool={dialog.tool}
           initialBaseIds={dialog.baseIds}
+          initialAcesso={dialog.acesso}
           baseItems={baseItems}
+          bases={bases}
           credentialOptions={credentialOptions}
           pending={pending}
           onClose={() => setDialog(null)}
@@ -189,7 +208,9 @@ export function ToolsManager({
 export function ToolDialog({
   tool,
   initialBaseIds,
+  initialAcesso,
   baseItems,
+  bases,
   credentialOptions,
   pending,
   onClose,
@@ -197,7 +218,9 @@ export function ToolDialog({
 }: {
   tool?: ToolRow;
   initialBaseIds: string[];
+  initialAcesso: Record<string, { portais: string[]; perfis: string[] }>;
   baseItems: ShuttleItem[];
+  bases: BaseRow[];
   credentialOptions: CredentialOption[];
   pending: boolean;
   onClose: () => void;
@@ -228,8 +251,11 @@ export function ToolDialog({
   const [loopFrom, setLoopFrom] = useState(tool?.loop?.from ?? "periodo_ini");
   const [loopTo, setLoopTo] = useState(tool?.loop?.to ?? "periodo_fim");
   const [loopMax, setLoopMax] = useState(tool?.loop?.max != null ? String(tool.loop.max) : "24");
-  // Acesso por base (shuttle).
+  // Acesso por base (shuttle) + allowlists de portal/perfil por base (#4).
   const [baseIds, setBaseIds] = useState<Set<string>>(new Set(initialBaseIds));
+  const [acesso, setAcesso] = useState<Record<string, { portais: string[]; perfis: string[] }>>(initialAcesso);
+  const setAcessoBase = (id: string, v: { portais: string[]; perfis: string[] }) =>
+    setAcesso((prev) => ({ ...prev, [id]: v }));
 
   const externa = endpointKind === "external";
 
@@ -263,7 +289,11 @@ export function ToolDialog({
       guard: guard.trim() || null,
       cache_ttl: cache && Number.isFinite(cache) ? cache : null,
       loop,
-      baseIds: [...baseIds],
+      bases: [...baseIds].map((id) => ({
+        id,
+        portais: acesso[id]?.portais ?? [],
+        perfis: acesso[id]?.perfis ?? [],
+      })),
     };
   }
 
@@ -376,6 +406,29 @@ export function ToolDialog({
         <Field label="Bases onde esta tool fica ativa" htmlFor="tool_bases" hint="Padrão: todas. Só as bases da coluna direita enxergam a tool.">
           <Shuttle items={baseItems} selected={baseIds} onChange={setBaseIds} leftTitle="Sem acesso" rightTitle="Com acesso" />
         </Field>
+
+        {/* Restrição de acesso por portal/perfil, por base (#4) */}
+        {baseIds.size > 0 && (
+          <Field
+            label="Quem pode usar (por base)"
+            htmlFor="tool_acesso"
+            hint="Vazio = liberado para todos. O operador (PO) ignora a restrição de portal, mas a de perfil sempre vale."
+          >
+            <div className="flex flex-col gap-2">
+              {bases
+                .filter((b) => baseIds.has(b.id))
+                .map((b) => (
+                  <AcessoBase
+                    key={b.id}
+                    base={b}
+                    portais={acesso[b.id]?.portais ?? []}
+                    perfis={acesso[b.id]?.perfis ?? []}
+                    onChange={(v) => setAcessoBase(b.id, v)}
+                  />
+                ))}
+            </div>
+          </Field>
+        )}
 
         {/* Avançado */}
         <div className="rounded-lg border border-border bg-surface-2/40 p-3">
@@ -537,10 +590,117 @@ function ParamEditor({
   );
 }
 
+// ─────── Editor de acesso (portais + perfis) de UMA tool em UMA base (#4) ─────
+function AcessoBase({
+  base,
+  portais,
+  perfis,
+  onChange,
+}: {
+  base: BaseRow;
+  portais: string[];
+  perfis: string[];
+  onChange: (v: { portais: string[]; perfis: string[] }) => void;
+}) {
+  const toast = useToast();
+  const [novo, setNovo] = useState("");
+  const [sugestoes, setSugestoes] = useState<string[] | null>(null);
+  const [buscando, setBuscando] = useState(false);
+
+  const togglePortal = (code: string) =>
+    onChange({ portais: portais.includes(code) ? portais.filter((p) => p !== code) : [...portais, code], perfis });
+  const addPerfil = (p: string) => {
+    const v = p.trim();
+    if (v && !perfis.some((x) => x.toLowerCase() === v.toLowerCase())) onChange({ portais, perfis: [...perfis, v] });
+    setNovo("");
+  };
+  const removePerfil = (p: string) => onChange({ portais, perfis: perfis.filter((x) => x !== p) });
+
+  async function buscar() {
+    setBuscando(true);
+    const r = await listarPerfisDaBase(base.id);
+    setBuscando(false);
+    if (!r.ok) return toast.error(r.error ?? "Falha ao buscar perfis.");
+    setSugestoes(r.perfis ?? []);
+    if (!r.perfis?.length) {
+      toast.info(base.perfis_endpoint ? "A API não retornou perfis." : "Configure a API de perfis nesta base (editar base).");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-2/40 p-3">
+      <div className="mb-2 text-sm font-medium text-text">{base.name}</div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="text-xs text-text-muted">Portais:</span>
+        {PORTAIS.map((p) => (
+          <label key={p.code} className="inline-flex items-center gap-1.5 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={portais.includes(p.code)}
+              onChange={() => togglePortal(p.code)}
+              className="size-4 accent-[var(--color-primary)]"
+            />
+            {p.code} <span className="text-text-muted">({p.label})</span>
+          </label>
+        ))}
+      </div>
+      <div>
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-xs text-text-muted">Perfis:</span>
+          <Button size="sm" variant="ghost" onClick={buscar} disabled={buscando}>
+            {buscando ? "Buscando…" : "Buscar da API"}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {perfis.map((p) => (
+            <span key={p} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+              {p}
+              <button type="button" onClick={() => removePerfil(p)} aria-label={`Remover ${p}`} className="text-primary/70 hover:text-primary">
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            className="min-w-[140px] flex-1 rounded border border-border bg-surface px-2 py-1 text-xs"
+            value={novo}
+            onChange={(e) => setNovo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addPerfil(novo);
+              }
+            }}
+            placeholder="digite um perfil e Enter (ex.: MASTER)"
+          />
+        </div>
+        {sugestoes && sugestoes.filter((s) => !perfis.some((p) => p.toLowerCase() === s.toLowerCase())).length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {sugestoes
+              .filter((s) => !perfis.some((p) => p.toLowerCase() === s.toLowerCase()))
+              .map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => addPerfil(s)}
+                  className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted hover:text-text"
+                >
+                  + {s}
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export type BaseToolRow = {
   base_id: string;
   tool_id: string;
   enabled: boolean;
   base_url: string | null;
   credential_id: string | null;
+  /** Allowlist de acesso (#4): portais/perfis liberados. Vazio = liberado. */
+  portais: string[];
+  perfis: string[];
 };

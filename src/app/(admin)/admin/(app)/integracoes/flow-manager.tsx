@@ -349,7 +349,13 @@ export function FlowManager({
               ? baseTools.filter((bt) => bt.tool_id === editing.id && bt.enabled).map((bt) => bt.base_id)
               : bases.map((b) => b.id)
           }
+          initialAcesso={Object.fromEntries(
+            baseTools
+              .filter((bt) => bt.tool_id === editing.id && bt.enabled)
+              .map((bt) => [bt.base_id, { portais: bt.portais ?? [], perfis: bt.perfis ?? [] }]),
+          )}
           baseItems={bases.map((b) => ({ id: b.id, label: b.name, sub: b.base_code }))}
+          bases={bases}
           credentialOptions={bases.flatMap((b) => b.credentials.map((c) => ({ id: c.id, name: c.name, base: b.name })))}
           pending={pending}
           onClose={() => setEditing(null)}

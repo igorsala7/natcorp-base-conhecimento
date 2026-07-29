@@ -6,7 +6,7 @@ import { buildModelSchema, identityFromTrack, type Identity } from "./params";
 import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { resolveIdentity } from "./identity-resolver";
-import { perfilAtende } from "./gating";
+import { perfilAtende, acessoFerramenta } from "./gating";
 import { runGuard } from "./guards";
 import { buildConfirmDeps } from "./confirmations";
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
@@ -46,6 +46,14 @@ export async function buildIntegrationTools(
   // "Login" no servidor: se a credencial da base tem session_key, valida o
   // usuário e enriquece a identidade (CPF, perfil) antes de montar as tools.
   // Falha na validação = sem tools de dados (mas o RAG segue).
+  // Eixos de permissão (#4): o PERFIL de acesso à ferramenta é o p_perfil CRU do
+  // token (ex.: "MASTER") — não o gestor/colaborador do login (esse só escolhe o
+  // AGENTE). O OPERADOR (portal PO) tem acesso full às tools, restrito apenas pela
+  // allowlist de perfil. Capturado ANTES do login sobrescrever `ident.perfil`.
+  const perfilAcesso = identity.perfil;
+  const portalAcesso = identity.portal;
+  const operador = (portalAcesso ?? "").trim().toUpperCase() === "PO";
+
   let ident = identity;
   let profileNote = "";
   let profileEmail: string | null = null;
@@ -81,8 +89,11 @@ export async function buildIntegrationTools(
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
   // Trava por PERFIL: um agente que exige um perfil (ex.: "gestor") só entra
-  // quando o perfil resolvido no login confere — nunca vem do modelo.
-  const elegiveis = (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
+  // quando o perfil resolvido no login confere — nunca vem do modelo. O OPERADOR
+  // (portal PO) é elegível a TODOS os agentes (acesso full).
+  const elegiveis = operador
+    ? (agents ?? [])
+    : (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
   const elegiveisIds = new Set(elegiveis.map((a) => a.id));
   const curated = new Set((links ?? []).filter((l) => elegiveisIds.has(l.agent_id)).map((l) => l.tool_id));
   // Qual agente elegível "responde" por cada tool (para o log). O 1º vínculo vence.
@@ -104,6 +115,8 @@ export async function buildIntegrationTools(
   const promptsFerramentas: string[] = [];
   for (const bt of ctx.tools) {
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
+    // Allowlist (#4): portal × perfil por (base, ferramenta). Vazio = liberado.
+    if (!acessoFerramenta({ portais: bt.portais, perfis: bt.perfis }, { portal: portalAcesso, perfil: perfilAcesso, operador })) continue;
     if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),

@@ -51,7 +51,7 @@ export default async function IntegracoesPage() {
     { data: waSettings },
     { data: runsData },
   ] = await Promise.all([
-    supabase.from("ai_bases").select("id, base_code, name, active, base_url, credential_id, flow_layout").order("name"),
+    supabase.from("ai_bases").select("id, base_code, name, active, base_url, credential_id, flow_layout, perfis_endpoint, perfis_campo").order("name"),
     supabase.from("ai_base_spaces").select("base_id, space_id, position"),
     supabase.from("ai_base_credentials").select("id, base_id, name, auth_type, active").order("name"),
     supabase
@@ -60,7 +60,7 @@ export default async function IntegracoesPage() {
         "id, key, name, description, method, path_template, auth_type, params, response_hint, active, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, loop",
       )
       .order("name"),
-    supabase.from("ai_base_tools").select("base_id, tool_id, enabled, base_url, credential_id"),
+    supabase.from("ai_base_tools").select("base_id, tool_id, enabled, base_url, credential_id, portais, perfis"),
     supabase
       .from("ai_agents")
       .select("id, key, name, description, provider_id, model, system_prompt, parent_agent_id, scope_permission, priority, active")
@@ -100,6 +100,8 @@ export default async function IntegracoesPage() {
     active: b.active,
     base_url: b.base_url,
     credential_id: b.credential_id,
+    perfis_endpoint: b.perfis_endpoint,
+    perfis_campo: b.perfis_campo,
     flow_layout: (b.flow_layout as unknown as Record<string, NodePos> | null) ?? null,
     spaceIds: (baseSpacesData ?? [])
       .filter((x) => x.base_id === b.id)
@@ -143,6 +145,8 @@ export default async function IntegracoesPage() {
     enabled: x.enabled,
     base_url: x.base_url,
     credential_id: x.credential_id,
+    portais: x.portais ?? [],
+    perfis: x.perfis ?? [],
   }));
 
   const agentRows: AgentRow[] = (agentsData ?? []).map((a) => ({

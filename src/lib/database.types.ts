@@ -282,6 +282,8 @@ export type Database = {
           base_url: string | null
           credential_id: string | null
           enabled: boolean
+          perfis: string[]
+          portais: string[]
           tool_id: string
         }
         Insert: {
@@ -289,6 +291,8 @@ export type Database = {
           base_url?: string | null
           credential_id?: string | null
           enabled?: boolean
+          perfis?: string[]
+          portais?: string[]
           tool_id: string
         }
         Update: {
@@ -296,6 +300,8 @@ export type Database = {
           base_url?: string | null
           credential_id?: string | null
           enabled?: boolean
+          perfis?: string[]
+          portais?: string[]
           tool_id?: string
         }
         Relationships: [
@@ -366,6 +372,8 @@ export type Database = {
           flow_layout: Json | null
           id: string
           name: string
+          perfis_campo: string | null
+          perfis_endpoint: string | null
           updated_at: string
         }
         Insert: {
@@ -378,6 +386,8 @@ export type Database = {
           flow_layout?: Json | null
           id?: string
           name: string
+          perfis_campo?: string | null
+          perfis_endpoint?: string | null
           updated_at?: string
         }
         Update: {
@@ -390,6 +400,8 @@ export type Database = {
           flow_layout?: Json | null
           id?: string
           name?: string
+          perfis_campo?: string | null
+          perfis_endpoint?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -845,6 +857,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      api_keys: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          name: string
+          scopes: string[]
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          name: string
+          scopes?: string[]
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          name?: string
+          scopes?: string[]
+        }
+        Relationships: []
       }
       article_versions: {
         Row: {

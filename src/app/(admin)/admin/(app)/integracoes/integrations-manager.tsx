@@ -41,6 +41,8 @@ export type BaseRow = {
   active: boolean;
   base_url: string | null;
   credential_id: string | null;
+  perfis_endpoint: string | null;
+  perfis_campo: string | null;
   flow_layout: Record<string, NodePos> | null;
   spaceIds: string[];
   credentials: CredentialRow[];
@@ -279,6 +281,8 @@ export function BaseDialog({
   const [active, setActive] = useState(base?.active ?? true);
   const [baseUrl, setBaseUrl] = useState(base?.base_url ?? "");
   const [credentialId, setCredentialId] = useState(base?.credential_id ?? "");
+  const [perfisEndpoint, setPerfisEndpoint] = useState(base?.perfis_endpoint ?? "");
+  const [perfisCampo, setPerfisCampo] = useState(base?.perfis_campo ?? "");
   const [spaceIds, setSpaceIds] = useState<Set<string>>(new Set(base?.spaceIds ?? []));
   const credenciais = base?.credentials ?? [];
 
@@ -311,9 +315,19 @@ export function BaseDialog({
                       active,
                       base_url: baseUrl,
                       credential_id: credentialId || null,
+                      perfis_endpoint: perfisEndpoint,
+                      perfis_campo: perfisCampo,
                       space_ids: [...spaceIds],
                     }
-                  : { base_code: baseCode, name, base_url: baseUrl, credential_id: credentialId || null, space_ids: [...spaceIds] },
+                  : {
+                      base_code: baseCode,
+                      name,
+                      base_url: baseUrl,
+                      credential_id: credentialId || null,
+                      perfis_endpoint: perfisEndpoint,
+                      perfis_campo: perfisCampo,
+                      space_ids: [...spaceIds],
+                    },
               )
             }
           >
@@ -353,6 +367,32 @@ export function BaseDialog({
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
+        </Field>
+        <Field
+          label="API de perfis (opcional)"
+          htmlFor="base_perfis_endpoint"
+          hint="Path (relativo à URL base) que lista os perfis do cliente — usado para popular a allowlist de acesso das ferramentas. Deixe em branco para digitar os perfis à mão."
+        >
+          <input
+            id="base_perfis_endpoint"
+            className={controlClass}
+            value={perfisEndpoint}
+            onChange={(e) => setPerfisEndpoint(e.target.value)}
+            placeholder="/rh/v1/perfis"
+          />
+        </Field>
+        <Field
+          label="Campo do perfil na resposta"
+          htmlFor="base_perfis_campo"
+          hint="Nome do campo do JSON que contém o perfil (código/nome). Vazio = a resposta é uma lista simples de valores."
+        >
+          <input
+            id="base_perfis_campo"
+            className={controlClass}
+            value={perfisCampo}
+            onChange={(e) => setPerfisCampo(e.target.value)}
+            placeholder="ex.: perfil"
+          />
         </Field>
         <Field label="Documentações do chatbot" htmlFor="base_spaces" hint="Bases de conhecimento que o chatbot desta base usa (RAG). Pode marcar várias; a 1ª é onde as conversas do WhatsApp são registradas.">
           {spaces.length === 0 ? (
