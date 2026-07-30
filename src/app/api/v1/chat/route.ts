@@ -24,8 +24,8 @@ import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
-import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, buildFormTools, type FillAction } from "@/lib/chat/form-fields";
+import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
+import { parseFields, fieldsContextBlock, formAssistDirective, buildFormTools, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
@@ -78,10 +78,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return json({ error: "JSON inválido." }, 400);
   }
-  // Tela atual do usuário (Fase 4) — DADO de contexto, nunca instrução.
+  // Tela atual do usuário (Fase 4) — DADO de contexto, nunca instrução. É só a
+  // LOCALIZAÇÃO (título/caminho), não valores — segue permitida para desambiguar.
   const page = pageContextFields(payload.page);
-  // Varredura da tela (campos/dados/modais/iframes) que o widget coletou.
-  const scanBlock = pageContentBlock(payload.pageContent);
 
   const key = await resolveWidgetKey(extractKey(req, payload.key));
   if (!key) return json({ error: "Chave inválida ou inativa." }, 401);
@@ -135,14 +134,16 @@ export async function POST(req: NextRequest) {
   // Garante a conversa (persiste histórico com session_id anônimo). Isola por
   // base de cliente: uma conversationId de outro espaço/chave é descartada.
   let convId = payload.conversationId;
+  let prevPage: PageContext | null = null;
   if (convId) {
     const { data: existing } = await supabase
       .from("conversations")
-      .select("id")
+      .select("id, page")
       .eq("id", convId)
       .eq("space_id", key.space_id)
       .maybeSingle();
     if (!existing) convId = undefined;
+    else prevPage = pageContextFields(existing.page);
   }
   // Identidade de rastreio (decodificada do token) — usada na conversa E para
   // atribuir o CONSUMO de IA a este usuário (não ao sistema).
@@ -160,9 +161,14 @@ export async function POST(req: NextRequest) {
   // preencher um deles. `preencher_campo` só coleta a intenção; o widget executa
   // com confirmação. As ações vão ao cliente por SSE `fill` no fim do stream.
   const formAssist = key.config?.formAssist === true;
+  // Ler DADOS/VALORES da tela (varredura de campos, textos, tabelas, modais) só
+  // acontece com o "Assistente de formulário" LIGADO. Desligado, o servidor
+  // IGNORA payload.pageContent — o bot não recebe nem retorna valores da tela
+  // (só a localização, que é metadado). Gate autoritativo (não confia no cliente).
+  const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : "";
   const screenFields = formAssist ? parseFields(payload.fields) : [];
-  const fillActions: FillAction[] = [];
-  const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, fillActions) : {};
+  const uiActions: UiAction[] = [];
+  const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, uiActions) : {};
   // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados
   // (senão não há o que plotar). A IA monta o gráfico com os valores reais.
   const temIntegTools = Object.keys(integ.tools).length > 0;
@@ -188,6 +194,10 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
     convId = conv?.id;
+  } else if (convId && page && !mesmaPagina(prevPage, page)) {
+    // Conversa existente e a TELA mudou → atualiza a página guardada (o próximo
+    // turno compara contra esta); o modelo recebe a nota de mudança de tela abaixo.
+    await supabase.from("conversations").update({ page }).eq("id", convId);
   }
   runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
@@ -281,6 +291,7 @@ export async function POST(req: NextRequest) {
         notaDataAtual(),
         buildContextBlock(sources),
         attach.contextBlock,
+        pageChangeNote(prevPage, page),
         pageContextNote(page),
         scanBlock,
         fieldsContextBlock(screenFields),
@@ -340,10 +351,12 @@ export async function POST(req: NextRequest) {
       for (const c of chartSpecs) {
         controller.enqueue(sse({ type: "chart", chart: c }));
       }
-      // Assistente de formulário: a IA propôs preencher campos → o widget destaca
-      // e pede confirmação antes de escrever.
-      for (const a of fillActions) {
-        controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor }));
+      // Assistente de tela: a IA propôs operar a tela (preencher, marcar, clicar) →
+      // o widget executa em ordem, confirmando só o que grava/navega.
+      for (const a of uiActions) {
+        if (a.tipo === "fill") controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor }));
+        else if (a.tipo === "check") controller.enqueue(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
+        else controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({

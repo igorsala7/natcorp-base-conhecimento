@@ -118,38 +118,85 @@
   // Só roda quando `cfg.formAssist`. Lê um mapa {ref,label,type,value} da tela e
   // guarda os elementos para escrever depois (com confirmação visual do usuário).
   var _fieldRefs = [];       // ref (índice) -> elemento, do último scan
-  var _fills = [];           // preenchimentos propostos pela IA, processados 1 a 1
+  var _acoes = [];           // ações propostas pela IA (fill/check/click), em ordem
   var _picking = null;       // ativo enquanto aguardamos o usuário clicar num campo
   var _hlAdded = false;
+  // Botões/links cujo clique GRAVA/ENVIA/EXCLUI/NAVEGA → pedem confirmação. Ações de
+  // VISUALIZAÇÃO (abrir menu, filtrar, ordenar, gráfico…) rodam direto.
+  var RX_VIEW = /a[çc][õo]es|filtr|ordenar|classificar|pesquisar|buscar|expandir|recolher|abrir|menu|mostrar|exibir|detalhes|op[çc][õo]es|ajuda|colunas|agrupar|gr[áa]fico|destaqu|totaliz|cubo|refresh|atualizar lista|recarregar/i;
+  function ehVisualizacao(label, el) {
+    if ((el.type || "").toLowerCase() === "submit") return false;
+    return RX_VIEW.test(String(label || ""));
+  }
   function fieldTipo(el) {
     var tag = (el.tagName || "").toLowerCase();
     if (tag === "textarea") return "textarea";
     if (tag === "select") return "select";
     if (el.isContentEditable) return "richtext";
-    return (el.type || "text").toLowerCase();
+    var t = (el.type || "text").toLowerCase();
+    if (t === "radio" || t === "checkbox") return t;
+    return t;
   }
   function fieldValor(el) {
     if (el.isContentEditable) return scanTexto(el.textContent).slice(0, 400);
     return scanValor(el);
   }
+  // Rótulo "limpo": tira marcadores de obrigatório que o APEX embute no label
+  // ("(valor obrigatório)", "(obrigatório)", "*") — o chat cita só o nome do campo.
+  function limparRotulo(s) {
+    return String(s || "")
+      .replace(/[([{]\s*(?:valor\s+)?obrigat[óo]ri[ao]\s*[)\]}]/gi, "")
+      .replace(/[([{]\s*required\s*[)\]}]/gi, "")
+      .replace(/\s*\*\s*$/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
   function scanFields() {
     _fieldRefs = [];
     var out = [], lm = {};
+    function push(el, label, type, value) {
+      var ref = String(_fieldRefs.length);
+      try { el.setAttribute("data-kb-field", ref); } catch {}
+      _fieldRefs.push(el);
+      out.push({ ref: ref, label: limparRotulo(scanTexto(label)).slice(0, 120), type: type, value: value });
+    }
     function collect(doc) {
       if (!doc) return;
       try { doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); }); } catch {}
+      // Campos editáveis + radios/checkboxes (o modelo preenche/marca).
       try {
         doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
-          if (out.length >= 60) return;
+          if (out.length >= 80) return;
+          if (host && host.contains && host.contains(el)) return;
           var t = (el.type || "").toLowerCase();
           if (t === "hidden" || t === "password" || t === "submit" || t === "button" || t === "reset" || t === "file") return;
-          if (el.disabled) return;
+          // NUNCA expõe/mexe em campos restritos: desabilitados, somente-leitura
+          // ou marcados como não-editáveis (aria-readonly). O modelo nem os vê.
+          if (el.disabled || el.readOnly || el.getAttribute("aria-readonly") === "true") return;
           if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
           var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
-          var ref = String(_fieldRefs.length);
-          try { el.setAttribute("data-kb-field", ref); } catch {}
-          _fieldRefs.push(el);
-          out.push({ ref: ref, label: scanTexto(rot).slice(0, 120), type: fieldTipo(el), value: fieldValor(el) });
+          // radio/checkbox costumam ter o texto no <label> que os envolve.
+          if (t === "radio" || t === "checkbox") {
+            var wrap = el.closest && el.closest("label");
+            if (wrap) { var wt = scanTexto(wrap.textContent); if (wt) rot = wt; }
+          }
+          push(el, rot, fieldTipo(el), fieldValor(el));
+        });
+      } catch {}
+      // Botões/links de ação (o modelo clica).
+      try {
+        doc.querySelectorAll(
+          "button,input[type='submit'],input[type='button'],input[type='reset'],[role='button'],a.t-Button,a.a-Button,a[role='menuitem']"
+        ).forEach(function (el) {
+          if (out.length >= 80) return;
+          if (host && host.contains && host.contains(el)) return;
+          if (el.disabled || el.getAttribute("aria-disabled") === "true") return;
+          if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
+          var tag = (el.tagName || "").toLowerCase();
+          var lbl = el.getAttribute("aria-label") || (tag === "input" ? el.value : scanTexto(el.textContent)) || el.title || el.name || "";
+          lbl = limparRotulo(scanTexto(lbl));
+          if (!lbl) return; // sem rótulo o modelo não consegue referenciar
+          push(el, lbl, "botao", "");
         });
       } catch {}
       try {
@@ -182,6 +229,9 @@
   function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {} }
   function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch {} }
   function fillField(el, valor) {
+    // Blindagem: nunca escreve em campo restrito (mesmo se o usuário clicar nele
+    // no modo "escolher"). O scan já os oculta; aqui é a garantia técnica.
+    if (!el || el.disabled || el.readOnly || el.getAttribute("aria-readonly") === "true") return false;
     try {
       if (el.isContentEditable) {
         el.textContent = valor;
@@ -201,25 +251,131 @@
         el.dispatchEvent(new Event("change", { bubbles: true }));
       }
       try { el.focus(); } catch {}
-    } catch {}
+      return true;
+    } catch { return false; }
   }
-  function processFills() {
+  // Marca/desmarca radio ou checkbox (blindado contra restritos, como fillField).
+  function checkOption(el, marcar) {
+    if (!el || el.disabled || el.readOnly || el.getAttribute("aria-readonly") === "true") return false;
+    try {
+      var t = (el.type || "").toLowerCase();
+      if (t === "checkbox") {
+        if (el.checked !== marcar) el.click();
+      } else if (t === "radio") {
+        if (marcar) { if (!el.checked) el.click(); }
+        else { el.checked = false; el.dispatchEvent(new Event("change", { bubbles: true })); }
+      } else {
+        el.checked = marcar; el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      // Garantia: se o click foi barrado, reflete o estado direto (exceto radio, que
+      // não se "desmarca" por click).
+      if (el.checked !== marcar && t !== "radio") { el.checked = marcar; el.dispatchEvent(new Event("change", { bubbles: true })); }
+      try { el.focus(); } catch {}
+      return true;
+    } catch { return false; }
+  }
+  // Clica um botão/link (blindado contra desabilitados).
+  function clickElement(el) {
+    if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return false;
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {}
+    try { el.focus(); } catch {}
+    try { el.click(); return true; } catch { return false; }
+  }
+  // Linha compacta de status (sem botões) — informa uma ação já executada.
+  function statusMsg(txt, cor) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var d = document.createElement("div");
+    d.style.cssText =
+      "margin:6px 0 6px 40px;padding:8px 12px;border-radius:14px;max-width:88%;font-size:12.5px;font-weight:700;" +
+      "color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
+    d.textContent = txt;
+    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  // Processa as ações da IA EM ORDEM (fill → preencher, check → marcar, click →
+  // clicar). Confirma só o que GRAVA/NAVEGA; ações de visualização rodam direto.
+  function proximaAcao() {
     if (_picking) return;
-    var a = _fills.shift();
+    var a = _acoes.shift();
     if (!a) return;
     var el = fieldEl(a.ref);
-    if (!el) { pickField(a); return; } // campo sumiu -> pede o clique
+    if (a.tipo === "fill") {
+      if (!el) { pickField(a); return; } // campo sumiu -> pede o clique
+      cardConfirmar(a, el); return;
+    }
+    if (!el) { statusMsg("⚠️ Não encontrei “" + a.label + "” na tela.", "#b45309"); proximaAcao(); return; }
+    if (a.tipo === "click" && ehVisualizacao(a.label, el)) {
+      // Visualização (abrir menu, filtrar, ordenar…) → executa direto.
+      highlightField(el);
+      var okc = clickElement(el);
+      setTimeout(function () { unhighlightField(el); }, 700);
+      statusMsg((okc ? "✅ Cliquei em “" : "⚠️ Não consegui clicar em “") + a.label + "”", okc ? "#15803d" : "#b45309");
+      proximaAcao();
+      return;
+    }
+    cardConfirmar(a, el);
+  }
+  // Card compacto que se ATUALIZA no lugar (título + valor + ações). Confirma
+  // preenchimentos, marcações e cliques que gravam/navegam. Evita poluir o chat.
+  function cardConfirmar(a, el) {
     highlightField(el);
-    var trecho = a.valor.length > 160 ? a.valor.slice(0, 160) + "…" : a.valor;
-    addMsg("assistant", "Preencher o campo destacado (“" + a.label + "”) com:\n“" + trecho + "”?");
-    var box = document.createElement("div");
-    box.className = "opts";
-    var sim = document.createElement("button"); sim.textContent = "Sim, preencher";
-    var nao = document.createElement("button"); nao.textContent = "Não, eu escolho o campo";
-    sim.addEventListener("click", function () { box.remove(); unhighlightField(el); fillField(el, a.valor); addMsg("assistant", "Pronto ✅ Preenchi “" + a.label + "”."); processFills(); });
-    nao.addEventListener("click", function () { box.remove(); unhighlightField(el); pickField(a); });
-    box.appendChild(sim); box.appendChild(nao);
-    messagesEl.appendChild(box); messagesEl.scrollTop = messagesEl.scrollHeight;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var trecho = a.tipo === "fill" ? (a.valor.length > 220 ? a.valor.slice(0, 220) + "…" : a.valor) : "";
+    var titulo =
+      a.tipo === "fill" ? "Preencher “" + a.label + "”"
+        : a.tipo === "check" ? (a.marcar ? "Marcar “" : "Desmarcar “") + a.label + "”"
+          : "Clicar em “" + a.label + "”";
+    var okTxt =
+      a.tipo === "fill" ? "✅ Preenchido: “" + a.label + "”"
+        : a.tipo === "check" ? (a.marcar ? "✅ Marcado: “" : "✅ Desmarcado: “") + a.label + "”"
+          : "✅ Cliquei em “" + a.label + "”";
+    var falhaTxt =
+      a.tipo === "fill" ? "⚠️ Não consegui preencher “" + a.label + "”"
+        : a.tipo === "check" ? "⚠️ Não consegui alterar “" + a.label + "”"
+          : "⚠️ Não consegui clicar em “" + a.label + "”";
+    var acaoTxt = a.tipo === "fill" ? "Preencher" : a.tipo === "check" ? (a.marcar ? "Marcar" : "Desmarcar") : "Clicar";
+    var card = document.createElement("div");
+    card.style.cssText =
+      "margin:6px 0 6px 40px;padding:10px 12px;border-radius:14px;max-width:88%;" +
+      "border:1px solid " + pc + "40;background:" + pc + "0d;";
+    var head = document.createElement("div");
+    head.style.cssText = "font-size:12.5px;font-weight:700;color:" + pc + ";margin-bottom:" + (trecho ? "5px" : "8px") + ";";
+    head.textContent = titulo;
+    card.appendChild(head);
+    var val = null;
+    if (trecho) {
+      val = document.createElement("div");
+      val.style.cssText = "font-size:13px;color:#333;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow:auto;margin-bottom:8px;";
+      val.textContent = trecho;
+      card.appendChild(val);
+    }
+    var acts = document.createElement("div");
+    acts.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;";
+    function botao(txt, primario) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = txt;
+      b.style.cssText = "font-size:12px;font-weight:600;padding:5px 12px;border-radius:9px;cursor:pointer;border:1px solid " + pc + "44;" +
+        (primario ? "background:" + pc + ";color:#fff;border-color:" + pc + ";" : "background:transparent;color:" + pc + ";");
+      return b;
+    }
+    function encerrar(txt, cor) {
+      acts.remove(); if (val) val.remove();
+      head.style.color = cor; head.style.marginBottom = "0"; head.textContent = txt;
+      proximaAcao();
+    }
+    var sim = botao(acaoTxt, true);
+    var nao = botao(a.tipo === "fill" ? "Escolher outro campo" : "Cancelar", false);
+    sim.addEventListener("click", function () {
+      unhighlightField(el);
+      var ok = a.tipo === "fill" ? fillField(el, a.valor) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
+      encerrar(ok ? okTxt : falhaTxt, ok ? "#15803d" : "#b45309");
+    });
+    nao.addEventListener("click", function () {
+      unhighlightField(el);
+      if (a.tipo === "fill") { card.remove(); pickField(a); return; }
+      encerrar("Cancelado: “" + a.label + "”", "#6b7280");
+    });
+    acts.appendChild(sim); acts.appendChild(nao);
+    card.appendChild(acts);
+    messagesEl.appendChild(card); messagesEl.scrollTop = messagesEl.scrollHeight;
   }
   function pickField(a) {
     addMsg("assistant", "Clique no campo da tela onde você quer que eu escreva.");
@@ -231,12 +387,12 @@
       cleanup();
       fillField(el, a.valor);
       addMsg("assistant", "Pronto ✅ Escrevi no campo que você escolheu.");
-      processFills();
+      proximaAcao();
     }
     function cleanup() { _picking = null; document.removeEventListener("click", onClick, true); if (timer) clearTimeout(timer); }
     _picking = { cancel: cleanup };
     document.addEventListener("click", onClick, true);
-    timer = setTimeout(function () { if (_picking) { cleanup(); addMsg("assistant", "Cancelei o preenchimento — é só pedir de novo."); processFills(); } }, 30000);
+    timer = setTimeout(function () { if (_picking) { cleanup(); addMsg("assistant", "Cancelei o preenchimento — é só pedir de novo."); proximaAcao(); } }, 30000);
   }
 
   // ==== Gráficos (montar_grafico): card interativo — trocar tipo + exportar ====
@@ -1765,6 +1921,7 @@
     var full = ""; // texto completo já recebido do servidor
     var citations = [];
     var clarified = false;
+    _acoes = []; // ações de tela recebidas NESTE turno (guard de stream vazio)
     _charts = []; // gráficos recebidos NESTE turno (guard de stream vazio)
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
     // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
@@ -1799,9 +1956,11 @@
     if (attachmentIds && attachmentIds.length) body.attachmentIds = attachmentIds;
     var pg = pageContext();
     if (pg) body.page = pg;
-    // Varredura da tela: só se habilitada na config deste widget (padrão ligado;
-    // o admin pode desligar por widget, em telas com dados sensíveis).
-    if (cfg.scan !== false) {
+    // Varredura da tela (DADOS/VALORES) — só quando o "Assistente de formulário
+    // (ler e preencher campos)" está LIGADO: é a leitura da tela. Desligado, NADA
+    // dos dados/valores da tela é enviado. (`cfg.scan === false` desliga mesmo
+    // com o assistente ligado.) O servidor também ignora sem formAssist.
+    if (cfg.formAssist && cfg.scan !== false) {
       var scan = scanPage();
       if (scan) body.pageContent = scan;
     }
@@ -1887,7 +2046,15 @@
       } else if (evt.type === "fill") {
         // A IA propôs preencher um campo → enfileira; processa no fim (com confirmação).
         if (typing.parentNode) typing.remove();
-        _fills.push(evt);
+        _acoes.push({ tipo: "fill", ref: evt.ref, label: evt.label, valor: evt.valor });
+      } else if (evt.type === "check") {
+        // A IA propôs marcar/desmarcar um radio/checkbox → enfileira.
+        if (typing.parentNode) typing.remove();
+        _acoes.push({ tipo: "check", ref: evt.ref, label: evt.label, marcar: evt.marcar });
+      } else if (evt.type === "click") {
+        // A IA propôs clicar num botão/link → enfileira (confirma só se grava/navega).
+        if (typing.parentNode) typing.remove();
+        _acoes.push({ tipo: "click", ref: evt.ref, label: evt.label });
       } else if (evt.type === "chart") {
         // A IA montou um gráfico → card interativo (trocar tipo + exportar CSV/PNG).
         if (typing.parentNode) typing.remove();
@@ -1906,8 +2073,8 @@
         // e o feedback (feito dentro de passoReveal).
         stopped = true;
         agendarReveal();
-      } else if (!_fills.length && !_charts.length) {
-        // Stream vazio SEM preenchimento nem gráfico = a chamada ao provedor
+      } else if (!_acoes.length && !_charts.length) {
+        // Stream vazio SEM ação de tela nem gráfico = a chamada ao provedor
         // falhou. (Se a IA só chamou uma tool visual, não há texto — mas o card aparece.)
         addMsg(
           "assistant",
@@ -1916,7 +2083,7 @@
         if (citations.length) renderCitations(citations);
       }
       done();
-      if (_fills.length) processFills(); // preenchimentos propostos pela IA
+      if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
     }
     function done() {
       busy = false;
