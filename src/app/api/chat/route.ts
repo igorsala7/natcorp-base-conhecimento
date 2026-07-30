@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
       perfil: sim.perfil || undefined,
       portal: sim.portal || undefined,
     };
-    integ = await buildIntegrationTools(sim.base_code, identity, outFiles, runMeta);
+    integ = await buildIntegrationTools(sim.base_code, identity, outFiles, runMeta, question);
   }
   const temTools = Object.keys(integ.tools).length > 0;
 

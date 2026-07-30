@@ -21,12 +21,17 @@ export type HistoryCitation = {
 };
 /** Metadado leve do anexo, para reexibir o "chip" no histórico. */
 export type HistoryAttachment = { id: string; name: string; mime: string; size: number };
+/** Mídia do assistente reexibida no histórico (gráfico inline ou arquivo assinado). */
+export type HistoryMedia =
+  | { kind: "chart"; spec: unknown }
+  | { kind: "file"; url: string; filename: string; mimeType: string };
 export type HistoryMessage = {
   role: "user" | "assistant";
   content: string;
   citations?: HistoryCitation[];
   feedback?: 1 | -1;
   attachments?: HistoryAttachment[];
+  media?: HistoryMedia[];
 };
 export type ChatHistory = { conversationId: string; messages: HistoryMessage[] };
 
@@ -60,28 +65,55 @@ export async function fetchLatestHistory(
 
   let mq = supabase
     .from("messages")
-    .select("role, content, citations, feedback, attachments, created_at")
+    .select("role, content, citations, feedback, attachments, media, created_at")
     .eq("conversation_id", conv.id)
     .order("created_at", { ascending: true })
     .limit(MAX_MESSAGES);
   if (afterIso) mq = mq.gt("created_at", afterIso);
   const { data: rows } = await mq;
 
-  const messages: HistoryMessage[] = (rows ?? [])
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => {
-      const cites = Array.isArray(m.citations) ? (m.citations as unknown as HistoryCitation[]) : undefined;
-      const atts = Array.isArray(m.attachments) ? (m.attachments as unknown as HistoryAttachment[]) : undefined;
-      return {
-        role: m.role as "user" | "assistant",
-        content: m.content,
-        ...(cites && cites.length ? { citations: cites } : {}),
-        ...(atts && atts.length ? { attachments: atts } : {}),
-        ...(m.feedback === 1 || m.feedback === -1 ? { feedback: m.feedback as 1 | -1 } : {}),
-      };
+  const messages: HistoryMessage[] = [];
+  for (const m of rows ?? []) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const cites = Array.isArray(m.citations) ? (m.citations as unknown as HistoryCitation[]) : undefined;
+    const atts = Array.isArray(m.attachments) ? (m.attachments as unknown as HistoryAttachment[]) : undefined;
+    const media = await resolveMedia(supabase, m.media);
+    messages.push({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      ...(cites && cites.length ? { citations: cites } : {}),
+      ...(atts && atts.length ? { attachments: atts } : {}),
+      ...(media.length ? { media } : {}),
+      ...(m.feedback === 1 || m.feedback === -1 ? { feedback: m.feedback as 1 | -1 } : {}),
     });
+  }
   if (messages.length === 0) return null;
   return { conversationId: conv.id, messages };
+}
+
+/** Converte a mídia gravada em itens reexibíveis: gráfico inline; arquivo vira
+ *  URL assinada de curta duração (bucket privado). Falhas são ignoradas. */
+async function resolveMedia(supabase: Client, raw: unknown): Promise<HistoryMedia[]> {
+  if (!Array.isArray(raw)) return [];
+  const out: HistoryMedia[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    if (o.kind === "chart" && o.spec) {
+      out.push({ kind: "chart", spec: o.spec });
+    } else if (o.kind === "file" && typeof o.path === "string") {
+      const { data } = await supabase.storage.from("chat-media").createSignedUrl(o.path, 3600);
+      if (data?.signedUrl) {
+        out.push({
+          kind: "file",
+          url: data.signedUrl,
+          filename: String(o.filename ?? "arquivo"),
+          mimeType: String(o.mimeType ?? "application/octet-stream"),
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** Constrói o `match` a partir do rastreio: prioriza a identidade (p_base +

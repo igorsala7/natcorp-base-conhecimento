@@ -19,8 +19,18 @@ export type BaseToolContext = {
   /** Allowlist de acesso (#4): portais/perfis liberados. Vazio = liberado. */
   portais: string[];
   perfis: string[];
+  /** Tags de assunto (Opção A): módulos/submódulos que esta tool serve. */
+  modules: { modulo: string; submodulo: string | null }[];
+  /** Tool "essencial": entra sempre, ignorando o roteamento por assunto. */
+  alwaysInclude: boolean;
 };
-export type BaseContext = { baseId: string; name: string; tools: BaseToolContext[] };
+export type BaseContext = {
+  baseId: string;
+  name: string;
+  tools: BaseToolContext[];
+  /** Seleção de tools por assunto ligada para esta base (Opção A). */
+  toolRouting: boolean;
+};
 
 type EmbeddedRow = {
   base_url: string | null;
@@ -46,6 +56,7 @@ type EmbeddedRow = {
     external_url: string | null;
     credential_id: string | null;
     system_prompt: string | null;
+    always_include: boolean | null;
     active: boolean;
   } | null;
 };
@@ -60,7 +71,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const alvo = baseCode.trim().replace(/([\\%_])/g, "\\$1");
   const { data: base } = await db
     .from("ai_bases")
-    .select("id, name, active, base_url, credential_id")
+    .select("id, name, active, base_url, credential_id, tool_routing")
     .ilike("base_code", alvo)
     .eq("active", true)
     .limit(1)
@@ -70,12 +81,29 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, active)",
+      "base_url, credential_id, enabled, portais, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
 
   const rows = (data ?? []) as unknown as EmbeddedRow[];
+
+  // Tags de assunto (Opção A): módulos/submódulos que cada tool serve. Carregadas
+  // só quando a base usa roteamento por assunto (senão nem consulta).
+  const toolIds = rows.map((r) => r.tool?.id).filter((x): x is string => !!x);
+  const tagsPorTool = new Map<string, { modulo: string; submodulo: string | null }[]>();
+  if (base.tool_routing && toolIds.length > 0) {
+    const { data: tagRows } = await db
+      .from("ai_tool_modules")
+      .select("tool_id, modulo, submodulo")
+      .in("tool_id", toolIds);
+    for (const tr of tagRows ?? []) {
+      const arr = tagsPorTool.get(tr.tool_id) ?? [];
+      arr.push({ modulo: tr.modulo, submodulo: tr.submodulo });
+      tagsPorTool.set(tr.tool_id, arr);
+    }
+  }
+
   const tools: BaseToolContext[] = [];
   for (const r of rows) {
     const t = r.tool;
@@ -107,9 +135,11 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
       credentialId,
       portais: r.portais ?? [],
       perfis: r.perfis ?? [],
+      modules: tagsPorTool.get(t.id) ?? [],
+      alwaysInclude: t.always_include === true,
     });
   }
-  return { baseId: base.id, name: base.name, tools };
+  return { baseId: base.id, name: base.name, tools, toolRouting: base.tool_routing === true };
 }
 
 /** Carrega e DECIFRA a credencial (o blob de segredo em claro para o motor). */

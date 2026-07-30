@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { encryptSecret } from "@/lib/crypto/secrets";
 import { CREDENTIAL_FIELDS, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
+import { syncBaseModules } from "@/lib/integrations/module-sync";
 import type { Json } from "@/lib/database.types";
 
 export type IntegResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -18,6 +19,21 @@ async function garantirPermissao(): Promise<string | null> {
   } catch {
     return "Sem permissão para gerenciar integrações.";
   }
+}
+
+/**
+ * Sincroniza a taxonomia de módulos/submódulos da base a partir do endpoint do
+ * cliente (Fase 2b) → alimenta o seletor de módulo/submódulo das tools. Reusa a
+ * credencial da base (OAuth ORDS).
+ */
+export async function syncModulesAction(baseCode: string): Promise<IntegResult & { count?: number }> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const r = await syncBaseModules(String(baseCode ?? "").trim());
+  if (!r.ok) return { ok: false, error: r.error ?? "Falha ao sincronizar módulos." };
+  await audit({ action: "integrations.modules.sync", entityType: "ai_base", entityId: baseCode, spaceId: null, after: { count: r.count } });
+  revalidatePath("/admin/integracoes");
+  return { ok: true, count: r.count };
 }
 
 // ─────────────────────────────── Bases ──────────────────────────────────────

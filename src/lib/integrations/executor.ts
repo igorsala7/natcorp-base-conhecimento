@@ -92,7 +92,7 @@ export function buildHttpRequest(
 }
 
 /** Cabeçalho de autenticação por tipo. OAuth busca/renova o token (cacheado). */
-async function authHeaders(
+export async function authHeaders(
   cred: RuntimeCredential | null,
   fetchImpl: typeof fetch,
 ): Promise<Record<string, string>> {

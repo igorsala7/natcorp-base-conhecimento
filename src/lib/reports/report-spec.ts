@@ -18,7 +18,9 @@ export type ReportSpec = { titulo: string; subtitulo?: string; blocos: ReportBlo
 
 const MAX_BLOCOS = 40;
 const MAX_COLS = 8;
-const MAX_LINHAS = 200;
+// Teto alto: tabelas de relatório podem vir de um DATASET completo (o servidor
+// expande TODAS as linhas reais — não são redigitadas pelo modelo). Ver datasets.ts.
+const MAX_LINHAS = 5000;
 const MAX_TEXTO = 4000;
 
 function str(v: unknown, max: number): string {

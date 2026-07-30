@@ -2,6 +2,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { normalizeSpec, CHART_TIPO_KEYS, type ChartSpec } from "./chart-spec";
 import { normalizeReport, type ReportSpec } from "@/lib/reports/report-spec";
+import { expandirTabela, type DatasetRegistry } from "./datasets";
 
 /**
  * Ferramentas de VISUALIZAÇÃO do chat (widget/portal): a IA já obteve os dados
@@ -12,6 +13,14 @@ import { normalizeReport, type ReportSpec } from "@/lib/reports/report-spec";
  * (SSE `chart` / arquivo `file`) materializa depois do stream. Só entram quando
  * a chave já tem ferramentas de dados (senão não há o que visualizar).
  */
+
+/** O pedido do usuário é por uma VISUALIZAÇÃO/exportação (relatório/PDF/gráfico…)?
+ *  Usado para liberar as ferramentas visuais MESMO sem integração — um relatório
+ *  pode sair do conteúdo da DOCUMENTAÇÃO, não só de dados de API. */
+export const RX_VISUAL = /relat[óo]ri|\bpdf\b|gr[áa]fico|dashboard|exportar|\bexport\b|planilha|\bcsv\b|\bxlsx?\b|\bexcel\b|documento com os dados/i;
+export function pedeVisualizacao(pergunta: string): boolean {
+  return RX_VISUAL.test(String(pergunta ?? ""));
+}
 
 const chartObject = z.object({
   tipo: z
@@ -80,7 +89,20 @@ const reportInput = z.object({
           .object({
             titulo: z.string().optional().describe("Título da tabela (opcional)."),
             colunas: z.array(z.string()).describe("Cabeçalhos das colunas."),
-            linhas: z.array(z.array(z.string())).describe("Linhas; cada uma com as células na ordem das colunas."),
+            linhas: z
+              .array(z.array(z.string()))
+              .optional()
+              .describe("Linhas digitadas (só para tabelas PEQUENAS montadas por você). Para dados de uma ferramenta, use `dados_de`."),
+            dados_de: z
+              .string()
+              .optional()
+              .describe(
+                "Id do DATASET (o campo `_dataset` que a ferramenta retornou). Quando presente, o servidor inclui TODAS as linhas reais — não redigite os dados. Use SEMPRE que o usuário pedir 'todos os dados'.",
+              ),
+            campos: z
+              .array(z.string())
+              .optional()
+              .describe("Chave de cada coluna na linha do dataset (nomes de `_colunas`), na MESMA ordem de `colunas`. Só com `dados_de`."),
           })
           .optional()
           .describe("Tabela — use quando tipo='tabela'. PREFIRA tabelas para dados estruturados."),
@@ -92,22 +114,40 @@ const reportInput = z.object({
 });
 
 /** Tool `gerar_relatorio` — coleta a spec; o servidor gera o PDF (entregue como arquivo). */
-export function buildReportTool(sink: ReportSpec[]): ToolSet {
+export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry): ToolSet {
   return {
     gerar_relatorio: tool({
       description:
-        "Gera um RELATÓRIO em PDF (layout de marca) a partir dos dados que você JÁ obteve pelas ferramentas. Use " +
-        "quando o usuário pedir um relatório/documento dos dados. Estruture em blocos, na ordem: 'texto' para " +
+        "Gera um RELATÓRIO em PDF (layout de marca) a partir dos dados que você obteve pelas ferramentas OU do conteúdo " +
+        "da DOCUMENTAÇÃO (ex.: um passo a passo/guia que você montou a partir dos artigos). Use SEMPRE que o usuário " +
+        "pedir o resultado 'em PDF', um relatório ou um documento. Estruture em blocos, na ordem: 'texto' para " +
         "introdução/observações, 'tabela' para os DADOS (prefira tabelas) e 'grafico' para uma visão visual " +
-        "opcional. Não invente dados. O PDF é entregue como download no chat — não repita a tabela inteira no texto.",
+        "opcional. Para incluir TODOS os dados de uma consulta, NÃO redigite as linhas: passe `tabela.dados_de` com " +
+        "o id `_dataset` que a ferramenta retornou (+ `colunas` e `campos`) — o servidor inclui todas as linhas reais. " +
+        "Não invente dados. O PDF é entregue como download no chat — não repita a tabela inteira no texto.",
       inputSchema: reportInput,
       execute: async (input) => {
-        const spec = normalizeReport(input);
+        let truncadoAviso = "";
+        // Expande no servidor as tabelas que referenciam um DATASET (todas as
+        // linhas reais), antes de sanear — assim o PDF não depende do modelo
+        // redigitar centenas de linhas.
+        const blocos = input.blocos.map((b) => {
+          const t = b.tabela;
+          if (b.tipo === "tabela" && t?.dados_de && datasets) {
+            const exp = expandirTabela(datasets, t.dados_de, t.campos, t.colunas);
+            if (exp) {
+              if (exp.truncado) truncadoAviso = ` (limitei às primeiras ${exp.linhas.length} de ${exp.total} linhas)`;
+              return { ...b, tabela: { titulo: t.titulo, colunas: exp.colunas, linhas: exp.linhas } };
+            }
+          }
+          return b;
+        });
+        const spec = normalizeReport({ ...input, blocos });
         if (!spec) return { erro: "Não consegui montar o relatório: preciso de ao menos um bloco válido (tabela, texto ou gráfico)." };
         sink.push(spec);
         return {
           ok: true,
-          mensagem: `Relatório "${spec.titulo}" gerado (${spec.blocos.length} bloco(s)). Entreguei o PDF ao usuário como download.`,
+          mensagem: `Relatório "${spec.titulo}" gerado (${spec.blocos.length} bloco(s))${truncadoAviso}. Entreguei o PDF ao usuário como download.`,
         };
       },
     }),
@@ -127,8 +167,17 @@ export function visualsDirective(): string {
     "- MEDIANA e TENDÊNCIA: pela sua leitura do CONTEXTO, ative `mediana` quando ajudar a comparar os valores e " +
     "`tendencia` quando houver progressão/série temporal (ambas só em colunas/linha/área/barras — nunca em " +
     "pizza/rosca). Não ative nas duas por padrão: só quando agregam.\n" +
-    "- RELATÓRIO: chame `gerar_relatorio` com título + blocos (tabelas para os dados, texto para observações, " +
-    "gráfico opcional). O PDF vai como download — não repita a tabela inteira no chat.\n" +
+    "- RELATÓRIO/PDF: quando o usuário pedir o resultado 'em PDF', um relatório ou um documento, CHAME `gerar_relatorio` " +
+    "(título + blocos: 'texto' para as explicações/passos, 'tabela' para dados, 'gráfico' opcional). O conteúdo pode vir " +
+    "das ferramentas OU da DOCUMENTAÇÃO (ex.: monte o passo a passo com o que os artigos trazem). NÃO se recuse a gerar o " +
+    "PDF só porque a documentação é parcial: compile o que existe (e diga no texto o que ficou de fora). O PDF vai como " +
+    "download — não repita a tabela inteira no chat.\n" +
+    "- TODOS OS DADOS no relatório: quando a ferramenta retornar uma LISTA, ela vem com um id em `_dataset` (e `_total`, " +
+    "`_colunas`). Para a tabela do relatório, NÃO redigite as linhas — passe `tabela.dados_de` com esse id, `colunas` " +
+    "(cabeçalhos) e `campos` (as chaves de `_colunas`, na mesma ordem). O servidor inclui TODAS as linhas reais. Redigite " +
+    "linhas só em tabelas pequenas que você mesmo montou. Ignore os campos `_dataset`/`_total`/`_colunas` na sua resposta " +
+    "em texto (são metadados internos). IMPORTANTE: o `_dataset` só vale NESTE turno — para gerar o relatório com todos os " +
+    "dados, CHAME a ferramenta de dados AGORA (mesmo que já tenha consultado antes) e use o `_dataset` que ela retornar.\n" +
     "Nunca invente dados para preencher um gráfico ou relatório: use apenas o que as ferramentas retornaram."
   );
 }

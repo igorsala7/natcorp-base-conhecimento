@@ -7,6 +7,8 @@ import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende, acessoFerramenta } from "./gating";
+import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
+import { injetarDataset, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { buildConfirmDeps } from "./confirmations";
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
@@ -39,9 +41,28 @@ export async function buildIntegrationTools(
   sink?: OutFile[],
   /** Metadados do turno para o log de execução (ex.: a conversa). */
   runMeta?: { conversationId?: string | null },
+  /** Pergunta do usuário (Opção A) — habilita a análise do pedido. */
+  question?: string,
+  /** Assistente de tela (formAssist) ligado — habilita o gate "precisa de dados?". */
+  screenAssist?: boolean,
+  /** Registro de datasets do turno — para o relatório usar os dados COMPLETOS (#4). */
+  datasets?: DatasetRegistry,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
+
+  // ANÁLISE DO PEDIDO (Opção A + gate de dados) — ANTES do login/agentes, para
+  // sair cedo quando é só INTERAÇÃO DE TELA / how-to (não precisa de nada disso →
+  // menos tokens e resposta mais rápida). Só classifica quando faz sentido: a base
+  // usa roteamento por assunto OU o assistente de tela está ligado.
+  let recorte: ModuleTag[] = [];
+  if (question?.trim() && (ctx.toolRouting || screenAssist)) {
+    const tags = ctx.tools.flatMap((t) => t.modules);
+    const analise = await analisarPedido(question, tags);
+    if (!analise.precisaDados) return { tools: {}, capabilities: "", agentPrompt: "" };
+    recorte = analise.modulos;
+  }
+  const routingAtivo = recorte.length > 0;
 
   // "Login" no servidor: se a credencial da base tem session_key, valida o
   // usuário e enriquece a identidade (CPF, perfil) antes de montar as tools.
@@ -117,11 +138,17 @@ export async function buildIntegrationTools(
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
     // Allowlist (#4): portal × perfil por (base, ferramenta). Vazio = liberado.
     if (!acessoFerramenta({ portais: bt.portais, perfis: bt.perfis }, { portal: portalAcesso, perfil: perfilAcesso, operador })) continue;
+    // Recorte por assunto (Opção A): só filtra tools QUE TÊM módulo/submódulo
+    // parametrizado. Tool sem tag = sempre consultada (não há assunto para
+    // excluir). Essenciais também passam sempre.
+    if (routingAtivo && !bt.alwaysInclude && bt.modules.length > 0 && !toolNoRecorte(bt.modules, recorte)) continue;
     if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
       inputSchema: buildModelSchema(bt.tool.params, bt.tool.loop),
-      execute: async (args) => {
+      // Envelopa o retorno: se for uma LISTA, registra o dataset completo e injeta
+      // `_dataset` (o relatório usa isso p/ incluir todas as linhas — ver #4).
+      execute: async (args) => injetarDataset(datasets, await (async () => {
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
@@ -245,7 +272,7 @@ export async function buildIntegrationTools(
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
         }
-      },
+      })()),
     });
   }
 
