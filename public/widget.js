@@ -1368,12 +1368,14 @@
     bubble.className = "bubble";
     bubble.setAttribute("aria-label", "Abrir assistente");
     bubble.innerHTML = bubbleInner();
-    // Badge de notificação (novo) — pontinho no canto da bolha.
+    // Badge de notificação (contador) no canto da bolha.
     badge = document.createElement("span");
     badge.setAttribute("aria-hidden", "true");
     badge.style.cssText =
-      "position:absolute;top:3px;right:3px;min-width:13px;height:13px;border-radius:7px;" +
-      "background:#e5484d;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:none;pointer-events:none;";
+      "position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;" +
+      "background:#e5484d;color:#fff;font:700 11px/1 system-ui,-apple-system,sans-serif;" +
+      "align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);" +
+      "display:none;pointer-events:none;box-sizing:border-box;z-index:1;";
     bubble.appendChild(badge);
 
     panel = document.createElement("div");
@@ -1667,16 +1669,29 @@
     });
   } catch {}
 
-  // ==== Notificação (badge + som) quando chega resposta com o widget minimizado ====
-  var badge = null;       // pontinho na bolha
-  var _naoLido = false;   // há resposta não lida (widget minimizado)
-  var _avisouTurno = false; // já avisou nesta resposta (evita beep repetido)
+  // ==== Notificação (badge na bolha + contagem na aba + som) quando chega
+  //      resposta com o widget minimizado ====
+  var badge = null;         // contador na bolha
+  var _naoLidas = 0;        // nº de respostas não lidas (widget minimizado)
+  var _avisouTurno = false; // já avisou nesta resposta (evita repetir)
   var _audioCtx = null;
-  function mostrarBadge(v) {
+  function mostrarBadge() {
     if (!badge) return;
     try {
-      if (v && badge.parentNode !== bubble) bubble.appendChild(badge); // re-insere (innerHTML da bolha é trocado ao abrir/fechar)
-      badge.style.display = v ? "block" : "none";
+      if (_naoLidas > 0) {
+        if (badge.parentNode !== bubble) bubble.appendChild(badge); // re-insere (innerHTML da bolha muda ao abrir/fechar)
+        badge.textContent = _naoLidas > 9 ? "9+" : String(_naoLidas);
+        badge.style.display = "flex";
+      } else {
+        badge.style.display = "none";
+      }
+    } catch {}
+  }
+  // Contagem na ABA do navegador: prefixa "(N) " no título; some ao ler.
+  function atualizarTitulo() {
+    try {
+      var base = String(document.title || "").replace(/^\(\d+\)\s*/, "");
+      document.title = _naoLidas > 0 ? "(" + _naoLidas + ") " + base : base;
     } catch {}
   }
   // Destrava o áudio num gesto do usuário (política de autoplay dos navegadores).
@@ -1686,30 +1701,42 @@
       if (_audioCtx && _audioCtx.state === "suspended") _audioCtx.resume();
     } catch {}
   }
-  // Bip curto e DISCRETO (dois tons suaves, volume baixo) — sem arquivo externo.
+  // Bip curto e DISCRETO (dois tons suaves) — sem arquivo externo. Retoma o
+  // contexto (se suspenso) e só então toca.
   function tocarBip() {
     try {
-      desbloquearAudio();
-      if (!_audioCtx) return;
-      var ctx = _audioCtx, t = ctx.currentTime;
-      var o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.setValueAtTime(660, t);
-      o.frequency.setValueAtTime(880, t + 0.09);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.05, t + 0.02); // baixo = discreto
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
-      o.connect(g); g.connect(ctx.destination);
-      o.start(t); o.stop(t + 0.26);
+      if (!_audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; _audioCtx = new AC(); }
+      var ctx = _audioCtx;
+      var play = function () {
+        var t = ctx.currentTime;
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(660, t);
+        o.frequency.setValueAtTime(880, t + 0.09);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.09, t + 0.02); // discreto, mas audível
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t); o.stop(t + 0.28);
+      };
+      if (ctx.state === "suspended") ctx.resume().then(play).catch(function () {});
+      else play();
     } catch {}
   }
-  // Chegou resposta com o widget MINIMIZADO → badge + som (uma vez por resposta).
+  // Chegou resposta com o widget MINIMIZADO → conta, badge, título e som (1×/resposta).
   function avisarMensagem() {
     if (open || _avisouTurno) return;
     _avisouTurno = true;
-    _naoLido = true;
-    mostrarBadge(true);
+    _naoLidas += 1;
+    mostrarBadge();
+    atualizarTitulo();
     tocarBip();
+  }
+  // Abriu o widget = confirmou a leitura → zera contagem/badge/título.
+  function marcarLido() {
+    _naoLidas = 0;
+    mostrarBadge();
+    atualizarTitulo();
   }
 
   function toggle() {
@@ -1723,7 +1750,7 @@
       limparBloqueiosHost(); // caso um modal já tenha marcado o host
       ligarEscapeFoco(true); // escapa da armadilha de foco do modal
       desbloquearAudio(); // gesto do usuário: libera o som de notificação
-      _naoLido = false; mostrarBadge(false); // abrir = confirmou a leitura → some o badge
+      marcarLido(); // abrir = confirmou a leitura → zera badge/contagem/título
       if (_revealFlush) _revealFlush(); // completa a resposta que ficou parada enquanto minimizado
       // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
       // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
@@ -2261,7 +2288,7 @@
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         if (!answerEl) answerEl = addMsg("assistant", "");
-        if (!full) avisarMensagem(); // 1º pedaço da resposta com o widget minimizado → badge + som
+        avisarMensagem(); // resposta chegando com o widget minimizado → badge + som (1×/resposta)
         full += evt.value;
         agendarReveal(); // exibe suave, no ritmo do rAF (não em blocos)
       } else if (evt.type === "done") {
