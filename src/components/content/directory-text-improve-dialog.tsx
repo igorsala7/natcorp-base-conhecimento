@@ -6,7 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { wordDiff, type DiffOp } from "@/lib/content/word-diff";
 import type { Criatividade } from "@/lib/ai/creativity";
-import { saveArticle, type TextoAcao, type TomAlvo } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
+import { saveArticle, sanitizeEmptyArticles, type TextoAcao, type TomAlvo } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import {
   directoryArticlesOrdered,
   proporTextoArtigo,
@@ -80,11 +80,15 @@ export function DirectoryTextImproveDialog({
   const [prog, setProg] = useState({ feitos: 0, total: 0, falhas: 0 });
   const [itens, setItens] = useState<Item[]>([]);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [removidos, setRemovidos] = useState(0);
 
   const ocupado = fase === "processando" || fase === "aplicando";
 
   async function rodar() {
     setErro(null);
+    // Saneia primeiro: remove (lixeira) os artigos vazios (título duplicado sem corpo).
+    const san = await sanitizeEmptyArticles(nodeId);
+    setRemovidos(san.ok ? san.removidos : 0);
     const r = await directoryArticlesOrdered(nodeId);
     if (!r.ok) {
       setErro(r.error);
@@ -260,6 +264,9 @@ export function DirectoryTextImproveDialog({
           {itens.length === 0
             ? "Nenhuma alteração foi identificada — os textos já estão bons."
             : `Aplicado. Nos artigos publicados as mudanças ficaram como rascunho — abra cada um para revisar e publicar.`}
+          {removidos > 0 && (
+            <span className="text-text-muted"> {removidos} artigo(s) vazio(s) removido(s) para a lixeira.</span>
+          )}
         </p>
       )}
 

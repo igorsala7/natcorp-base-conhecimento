@@ -10,6 +10,7 @@ import { enqueueImport, enqueueImportImprove } from "@/lib/jobs/boss";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
 import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
+import { docTemConteudo } from "@/lib/blocks/empty";
 import type { Json } from "@/lib/database.types";
 import { proposeLayoutQuestions } from "@/lib/importer/questions";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
@@ -166,8 +167,17 @@ async function insertProposed(
   prevPos: string | null,
   /** Ids criados, na ordem — usados para desfazer se a materialização falhar. */
   criados: string[],
-): Promise<string> {
+): Promise<string | null> {
   const isFolder = node.children.length > 0;
+  // FOLHA VAZIA (título sem corpo, ou só parágrafos vazios) = artefato da
+  // estruturação da IA — o corpo foi para outro nó / o título ficou duplicado.
+  // NÃO cria artigo vazio: pula o nó e devolve `prevPos` para os irmãos manterem
+  // a ordem. (Só folhas; pasta sem corpo continua válida como agrupador.)
+  let leafDoc: BlockDoc | null = null;
+  if (!isFolder) {
+    leafDoc = node.blocks ?? toBlocks(node.content, images);
+    if (!docTemConteudo(leafDoc)) return prevPos;
+  }
   const type = isFolder ? "folder" : "article";
   const position = generateKeyBetween(prevPos, null);
   // Slug legível e único no destino (antes usava sufixo aleatório, que sujava a URL).
@@ -188,13 +198,12 @@ async function insertProposed(
   if (error || !created) throw new Error(error?.message ?? "insert falhou");
   criados.push(created.id);
 
-  if (!isFolder) {
+  if (!isFolder && leafDoc) {
     // Conteúdo rico da Passa B (node.blocks) vence; senão, parágrafos/imagens.
-    const doc = node.blocks ?? toBlocks(node.content, images);
-    const texto = blocksToText(doc.blocks);
+    const texto = blocksToText(leafDoc.blocks);
     await supabase.from("articles").insert({
       node_id: created.id,
-      content_json: doc as unknown as Json,
+      content_json: leafDoc as unknown as Json,
       content_text: texto,
       excerpt: texto.slice(0, 200),
     });

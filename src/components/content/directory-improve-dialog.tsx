@@ -10,6 +10,7 @@ import {
   directoryArticleIds,
   proposeDirectoryLayoutQuestions,
   improveNodeLayoutAndSave,
+  sanitizeEmptyArticles,
 } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 
 type Fase = "carregando" | "vazio" | "erro" | "confirmar" | "rodando" | "concluido";
@@ -36,7 +37,7 @@ export function DirectoryImproveDialog({
   const [perguntas, setPerguntas] = useState<LayoutQuestion[] | null>(null);
   const [respostas, setRespostas] = useState<Record<string, number>>({});
   const [carregandoPerg, setCarregandoPerg] = useState(false);
-  const [prog, setProg] = useState({ feitos: 0, total: 0, falhas: 0 });
+  const [prog, setProg] = useState({ feitos: 0, total: 0, falhas: 0, removidos: 0 });
 
   useEffect(() => {
     let vivo = true;
@@ -73,12 +74,22 @@ export function DirectoryImproveDialog({
   async function rodar() {
     const direcao = perguntas ? diretivasParaDirecao(diretivasEscolhidas(perguntas, respostas)) : undefined;
     setFase("rodando");
-    setProg({ feitos: 0, total: ids.length, falhas: 0 });
+    setProg({ feitos: 0, total: ids.length, falhas: 0, removidos: 0 });
+    // Saneia primeiro: remove (lixeira) os artigos VAZIOS (título duplicado sem
+    // corpo). Depois re-lê a lista, pois alguns ids podem ter sido removidos.
+    const san = await sanitizeEmptyArticles(nodeId);
+    const removidos = san.ok ? san.removidos : 0;
+    let alvo = ids;
+    if (removidos > 0) {
+      const rid = await directoryArticleIds(nodeId);
+      if (rid.ok) { alvo = rid.ids; setIds(rid.ids); }
+    }
+    setProg({ feitos: 0, total: alvo.length, falhas: 0, removidos });
     let falhas = 0;
-    for (let i = 0; i < ids.length; i++) {
-      const r = await improveNodeLayoutAndSave(ids[i]!, direcao);
+    for (let i = 0; i < alvo.length; i++) {
+      const r = await improveNodeLayoutAndSave(alvo[i]!, direcao);
       if (!r.ok) falhas += 1;
-      setProg({ feitos: i + 1, total: ids.length, falhas });
+      setProg({ feitos: i + 1, total: alvo.length, falhas, removidos });
     }
     setFase("concluido");
     router.refresh();
@@ -149,6 +160,9 @@ export function DirectoryImproveDialog({
             {rodando
               ? `Melhorando ${prog.feitos} de ${prog.total}…`
               : `Pronto: ${prog.feitos - prog.falhas} de ${prog.total} artigo(s) melhorado(s).`}
+            {prog.removidos > 0 && (
+              <span className="text-text-muted"> {prog.removidos} artigo(s) vazio(s) removido(s) para a lixeira.</span>
+            )}
             {prog.falhas > 0 && (
               <span className="text-red-600 dark:text-red-400"> {prog.falhas} falhou(aram).</span>
             )}
