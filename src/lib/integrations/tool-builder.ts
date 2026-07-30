@@ -136,8 +136,14 @@ export async function buildIntegrationTools(
   const promptsFerramentas: string[] = [];
   for (const bt of ctx.tools) {
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
-    // Allowlist (#4): portal × perfil por (base, ferramenta). Vazio = liberado.
-    if (!acessoFerramenta({ portais: bt.portais, perfis: bt.perfis }, { portal: portalAcesso, perfil: perfilAcesso, operador })) continue;
+    // Allowlist (#4): portal × empresa × perfil por (base, ferramenta). Vazio = liberado.
+    if (
+      !acessoFerramenta(
+        { portais: bt.portais, empresas: bt.empresas, perfis: bt.perfis },
+        { portal: portalAcesso, empresa: identity.cod_empresa, perfil: perfilAcesso, operador },
+      )
+    )
+      continue;
     // Recorte por assunto (Opção A): só filtra tools QUE TÊM módulo/submódulo
     // parametrizado. Tool sem tag = sempre consultada (não há assunto para
     // excluir). Essenciais também passam sempre.

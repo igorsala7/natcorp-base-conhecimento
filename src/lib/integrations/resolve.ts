@@ -16,8 +16,9 @@ export type BaseToolContext = {
   tool: RuntimeTool;
   baseUrl: string | null;
   credentialId: string | null;
-  /** Allowlist de acesso (#4): portais/perfis liberados. Vazio = liberado. */
+  /** Allowlist de acesso (#4): portais/empresas/perfis liberados. Vazio = liberado. */
   portais: string[];
+  empresas: string[];
   perfis: string[];
   /** Tags de assunto (Opção A): módulos/submódulos que esta tool serve. */
   modules: { modulo: string; submodulo: string | null }[];
@@ -37,6 +38,7 @@ type EmbeddedRow = {
   credential_id: string | null;
   enabled: boolean;
   portais: string[] | null;
+  empresas: string[] | null;
   perfis: string[] | null;
   tool: {
     id: string;
@@ -81,7 +83,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -134,6 +136,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
       baseUrl,
       credentialId,
       portais: r.portais ?? [],
+      empresas: r.empresas ?? [],
       perfis: r.perfis ?? [],
       modules: tagsPorTool.get(t.id) ?? [],
       alwaysInclude: t.always_include === true,

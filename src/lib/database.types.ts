@@ -281,6 +281,7 @@ export type Database = {
           base_id: string
           base_url: string | null
           credential_id: string | null
+          empresas: string[]
           enabled: boolean
           perfis: string[]
           portais: string[]
@@ -290,6 +291,7 @@ export type Database = {
           base_id: string
           base_url?: string | null
           credential_id?: string | null
+          empresas?: string[]
           enabled?: boolean
           perfis?: string[]
           portais?: string[]
@@ -299,6 +301,7 @@ export type Database = {
           base_id?: string
           base_url?: string | null
           credential_id?: string | null
+          empresas?: string[]
           enabled?: boolean
           perfis?: string[]
           portais?: string[]

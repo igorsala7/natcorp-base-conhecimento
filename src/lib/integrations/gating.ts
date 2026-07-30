@@ -22,21 +22,26 @@ export const PORTAIS = [
 const eqCI = (a: string, b: string | undefined) => (b ?? "").trim().toLowerCase() === a.trim().toLowerCase();
 
 /**
- * Acesso a uma FERRAMENTA por PORTAL e PERFIL — allowlists por (base, ferramenta).
- * Vazio = liberado (100%). Regra (#4):
- *   (operador OU portais vazio OU p_portal ∈ portais)  E  (perfis vazio OU p_perfil ∈ perfis)
+ * Acesso a uma FERRAMENTA por PORTAL, EMPRESA e PERFIL — allowlists por
+ * (base, ferramenta). Vazio = liberado (100%). Regra (#4):
+ *   (operador OU portais vazio OU p_portal ∈ portais)
+ *   E (empresas vazio OU p_empresa ∈ empresas)
+ *   E (perfis vazio OU p_perfil ∈ perfis)
  *
  * O `perfil` aqui é o **p_perfil CRU do token** (ex.: "MASTER") — NÃO o
- * gestor/colaborador do login (esse só escolhe o agente). O operador (portal PO)
- * ignora a lista de portais, mas a de perfil continua valendo.
+ * gestor/colaborador do login (esse só escolhe o agente). A `empresa` é o
+ * cod_empresa da identidade. O operador (portal PO) ignora a lista de PORTAIS,
+ * mas as de EMPRESA e PERFIL continuam valendo (empresa é escopo de dado).
  */
 export function acessoFerramenta(
-  regra: { portais?: string[] | null; perfis?: string[] | null },
-  ctx: { portal?: string; perfil?: string; operador?: boolean },
+  regra: { portais?: string[] | null; empresas?: string[] | null; perfis?: string[] | null },
+  ctx: { portal?: string; empresa?: string; perfil?: string; operador?: boolean },
 ): boolean {
   const portais = regra.portais ?? [];
+  const empresas = regra.empresas ?? [];
   const perfis = regra.perfis ?? [];
   const portalOk = !!ctx.operador || portais.length === 0 || portais.some((p) => eqCI(p, ctx.portal));
+  const empresaOk = empresas.length === 0 || empresas.some((e) => eqCI(e, ctx.empresa));
   const perfilOk = perfis.length === 0 || perfis.some((p) => eqCI(p, ctx.perfil));
-  return portalOk && perfilOk;
+  return portalOk && empresaOk && perfilOk;
 }
