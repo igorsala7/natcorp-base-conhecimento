@@ -28,7 +28,7 @@ export async function interpretarConsulta(
 ): Promise<string> {
   const p = (pergunta ?? "").trim();
   if (p.length < 3) return pergunta;
-  if (!(await hasAiKey("chat"))) return pergunta;
+  if (!(await hasAiKey("query_rewrite"))) return pergunta;
 
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
   try {
@@ -43,8 +43,8 @@ export async function interpretarConsulta(
     const vocab = await vocabularioProximo(supabase, ids, `${p}\n${recentes}`).catch(() => "");
 
     const { text } = await generateText({
-      model: await languageModel("chat"),
-      abortSignal: aiTimeout("embedding_query"), // curto: está no caminho crítico
+      model: await languageModel("query_rewrite"), // finalidade própria: atribua um modelo RÁPIDO na tela (fallback → Chat)
+      abortSignal: aiTimeout("query_rewrite"), // curto: está no caminho crítico
       prompt: `Você normaliza a CONSULTA DE BUSCA de um sistema de documentação, em português do Brasil. O usuário pode escrever mal: gíria, erro de digitação, vago, ou dependente do contexto da conversa. Produza UMA consulta de busca curta e clara que capture a real INTENÇÃO, no vocabulário da documentação.
 
 REGRAS:

@@ -22,6 +22,7 @@ export const PROVIDER_HELP: Record<ProviderKind, string> = {
 
 export type Purpose =
   | "chat"
+  | "query_rewrite"
   | "embedding"
   | "import_structure"
   | "import_layout"
@@ -31,6 +32,11 @@ export type Purpose =
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
+  {
+    key: "query_rewrite",
+    label: "Reescrita de busca",
+    desc: "Reescreve a pergunta do usuário para o vocabulário da documentação ANTES do RAG. Roda no caminho crítico do chat — atribua um modelo RÁPIDO e barato (ex.: Gemini Flash-Lite / Haiku). Sem atribuição própria, usa o modelo do Chat.",
+  },
   {
     key: "embedding",
     label: "Embeddings",

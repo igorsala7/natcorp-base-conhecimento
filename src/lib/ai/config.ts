@@ -85,6 +85,7 @@ export function invalidateAiCache(): void {
  */
 const TIMEOUT_MS: Record<Purpose | "embedding_query" | "ontology_scan", number> = {
   chat: 60_000,
+  query_rewrite: 15_000, // caminho crítico do chat — modelo rápido
   embedding: 120_000,
   embedding_query: 15_000,
   import_structure: 90_000,
