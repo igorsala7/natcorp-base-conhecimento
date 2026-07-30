@@ -72,7 +72,7 @@ export default async function IntegracoesPage() {
     supabase
       .from("ai_tool_runs")
       .select(
-        "id, created_at, base_code, tool_key, agent_key, step_index, ok, status, cached, files, duration_ms, error, input, request, output",
+        "id, created_at, base_code, tool_key, agent_key, step_index, ok, status, cached, files, duration_ms, error, input, request, output, conversation:conversations(p_perfil, p_usuario, p_empresa, p_matricula, p_portal)",
       )
       .order("created_at", { ascending: false })
       .limit(200),
@@ -166,23 +166,35 @@ export default async function IntegracoesPage() {
 
   const providerOptions: ProviderOption[] = (providersData ?? []).map((p) => ({ id: p.id, name: p.name }));
 
-  const runRows: RunRow[] = (runsData ?? []).map((r) => ({
-    id: r.id,
-    created_at: r.created_at,
-    base_code: r.base_code,
-    tool_key: r.tool_key,
-    agent_key: r.agent_key,
-    step_index: r.step_index,
-    ok: r.ok,
-    status: r.status,
-    cached: r.cached,
-    files: r.files,
-    duration_ms: r.duration_ms,
-    error: r.error,
-    input: r.input,
-    request: r.request,
-    output: r.output,
-  }));
+  const runRows: RunRow[] = (runsData ?? []).map((r) => {
+    // conversation vem como objeto (FK to-one) ou array, conforme o embed; normaliza.
+    const conv = (Array.isArray(r.conversation) ? r.conversation[0] : r.conversation) as
+      | { p_perfil: string | null; p_usuario: string | null; p_empresa: string | null; p_matricula: string | null; p_portal: string | null }
+      | null
+      | undefined;
+    return {
+      id: r.id,
+      created_at: r.created_at,
+      base_code: r.base_code,
+      tool_key: r.tool_key,
+      agent_key: r.agent_key,
+      step_index: r.step_index,
+      ok: r.ok,
+      status: r.status,
+      cached: r.cached,
+      files: r.files,
+      duration_ms: r.duration_ms,
+      error: r.error,
+      input: r.input,
+      request: r.request,
+      output: r.output,
+      perfil: conv?.p_perfil ?? null,
+      usuario: conv?.p_usuario ?? null,
+      empresa: conv?.p_empresa ?? null,
+      matricula: conv?.p_matricula ?? null,
+      portal: conv?.p_portal ?? null,
+    };
+  });
 
   const whatsapp: WhatsappBundle = {
     settings: {

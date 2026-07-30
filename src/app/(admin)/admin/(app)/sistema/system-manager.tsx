@@ -31,6 +31,7 @@ import {
   saveEmailSettings,
   sendTestEmail,
   getAiUsageReport,
+  getAiUsageFacets,
   type AiUsageRow,
 } from "./actions";
 import { BackupPanel, type BackupRow, type BackupSettingsRow } from "./backup-panel";
@@ -451,6 +452,13 @@ function ConsumoIA() {
   const [rows, setRows] = useState<AiUsageRow[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, startLoad] = useTransition();
+  // Valores já registrados, para os filtros virarem listas (digita e filtra).
+  const [facetas, setFacetas] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    getAiUsageFacets().then((r) => {
+      if (r.ok) setFacetas(r.facets);
+    });
+  }, []);
 
   // Debounce: digitar nos filtros de identidade não dispara uma consulta por tecla.
   useEffect(() => {
@@ -581,7 +589,14 @@ function ConsumoIA() {
                 onChange={(e) => setFiltros((f) => ({ ...f, [campo]: e.target.value }))}
                 placeholder="—"
                 className="h-8"
+                list={`uso-${campo}`}
+                autoComplete="off"
               />
+              <datalist id={`uso-${campo}`}>
+                {(facetas[campo] ?? []).map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
             </label>
           ))}
         </div>

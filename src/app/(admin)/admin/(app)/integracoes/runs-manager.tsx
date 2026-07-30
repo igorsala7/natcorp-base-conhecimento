@@ -24,6 +24,12 @@ export type RunRow = {
   input: unknown;
   request: unknown;
   output: unknown;
+  // Identidade do usuário da conversa (via join com conversations).
+  perfil: string | null;
+  usuario: string | null;
+  empresa: string | null;
+  matricula: string | null;
+  portal: string | null;
 };
 
 function norm(s: string): string {
@@ -43,19 +49,26 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState<"todas" | "ok" | "erro">("todas");
+  const [de, setDe] = useState("");
+  const [ate, setAte] = useState("");
   const [aberta, setAberta] = useState<string | null>(null);
 
   const nq = norm(q.trim());
-  const visiveis = useMemo(
-    () =>
-      runs.filter((r) => {
-        if (filtro === "ok" && !r.ok) return false;
-        if (filtro === "erro" && r.ok) return false;
-        if (!nq) return true;
-        return norm(`${r.tool_key} ${r.base_code} ${r.agent_key ?? ""}`).includes(nq);
-      }),
-    [runs, filtro, nq],
-  );
+  const visiveis = useMemo(() => {
+    const tDe = de ? new Date(de + "T00:00:00").getTime() : null;
+    const tAte = ate ? new Date(ate + "T23:59:59").getTime() : null;
+    return runs.filter((r) => {
+      if (filtro === "ok" && !r.ok) return false;
+      if (filtro === "erro" && r.ok) return false;
+      const t = new Date(r.created_at).getTime();
+      if (tDe != null && t < tDe) return false;
+      if (tAte != null && t > tAte) return false;
+      if (!nq) return true;
+      return norm(
+        `${r.tool_key} ${r.base_code} ${r.agent_key ?? ""} ${r.perfil ?? ""} ${r.usuario ?? ""} ${r.empresa ?? ""} ${r.matricula ?? ""} ${r.portal ?? ""}`,
+      ).includes(nq);
+    });
+  }, [runs, filtro, nq, de, ate]);
 
   return (
     <div>
@@ -76,11 +89,31 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Filtrar por tool, base ou agente…"
+            placeholder="Filtrar por tool, base, agente, perfil, usuário, empresa, matrícula, portal…"
             aria-label="Filtrar execuções"
             className="w-full rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-sm text-text outline-none placeholder:text-text-muted focus:border-[var(--color-primary)]"
           />
         </div>
+        <label className="flex items-center gap-1 text-xs text-text-muted">
+          De
+          <input
+            type="date"
+            value={de}
+            onChange={(e) => setDe(e.target.value)}
+            aria-label="Data inicial"
+            className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-[var(--color-primary)]"
+          />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-text-muted">
+          Até
+          <input
+            type="date"
+            value={ate}
+            onChange={(e) => setAte(e.target.value)}
+            aria-label="Data final"
+            className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-[var(--color-primary)]"
+          />
+        </label>
         <Segmented
           value={filtro}
           onChange={setFiltro}
@@ -124,6 +157,8 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="truncate font-mono text-sm font-medium text-text">{r.tool_key}</span>
                       <Badge tone="neutral">{r.base_code}</Badge>
+                      {r.portal && <Badge tone="info">{r.portal}</Badge>}
+                      {r.perfil && <Badge tone="neutral">{r.perfil}</Badge>}
                       {r.status != null && <Badge tone={r.ok ? "info" : "warning"}>HTTP {r.status}</Badge>}
                       {r.cached && <Badge tone="neutral">cache</Badge>}
                       {r.files > 0 && <Badge tone="neutral">{r.files} arquivo(s)</Badge>}
@@ -133,6 +168,10 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
                         <Clock className="size-3" /> {new Date(r.created_at).toLocaleString("pt-BR")}
                       </span>
                       {r.duration_ms != null && <span>· {r.duration_ms} ms</span>}
+                      {r.usuario && <span>· usuário {r.usuario}</span>}
+                      {(r.empresa || r.matricula) && (
+                        <span>· {[r.empresa, r.matricula].filter(Boolean).join(" / ")}</span>
+                      )}
                       {r.agent_key && <span>· {r.agent_key}</span>}
                       {r.step_index > 0 && <span>· passo {r.step_index}</span>}
                     </span>

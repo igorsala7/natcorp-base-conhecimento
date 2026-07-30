@@ -317,6 +317,38 @@ export async function getAiUsageReport(input: {
   return { ok: true, rows };
 }
 
+/**
+ * Valores DISTINTOS já registrados em ai_usage (kind='user') para popular os
+ * filtros do relatório como listas (o admin digita e filtra pelos dados reais,
+ * não em campo livre). Só leitura, gateada por `ai.configure`.
+ */
+export async function getAiUsageFacets(): Promise<
+  { ok: true; facets: Record<string, string[]> } | { ok: false; error: string }
+> {
+  if (!(await hasPermission("ai.configure", null))) return { ok: false, error: "Sem permissão." };
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("ai_usage")
+    .select("p_base, p_portal, p_perfil, p_usuario, p_empresa, p_matricula")
+    .eq("kind", "user")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  if (error) return { ok: false, error: error.message };
+  const col: Record<string, keyof (typeof data)[number]> = {
+    base: "p_base", portal: "p_portal", perfil: "p_perfil", usuario: "p_usuario", empresa: "p_empresa", matricula: "p_matricula",
+  };
+  const facets: Record<string, string[]> = {};
+  for (const [campo, coluna] of Object.entries(col)) {
+    const set = new Set<string>();
+    for (const r of data ?? []) {
+      const v = r[coluna];
+      if (typeof v === "string" && v.trim()) set.add(v.trim());
+    }
+    facets[campo] = [...set].sort((a, b) => a.localeCompare(b, "pt-BR")).slice(0, 500);
+  }
+  return { ok: true, facets };
+}
+
 // ────────────────────────────── E-mail ─────────────────────────────────────
 
 export async function saveEmailSettings(input: {
