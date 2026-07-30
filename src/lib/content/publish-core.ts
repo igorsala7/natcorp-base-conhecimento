@@ -47,14 +47,22 @@ export type CoreResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Publica um nó: rascunho vira oficial, status muda, snapshot de versão e
- * reindex com embeddings (a falha do reindex NÃO desfaz a publicação — sem
- * chave de IA o conteúdo ainda precisa ir ao ar; regenera-se depois).
+ * reindex (a falha do reindex NÃO desfaz a publicação — sem chave de IA o
+ * conteúdo ainda precisa ir ao ar; regenera-se depois).
+ *
+ * Embeddings:
+ *  - com `opts.enqueueEmbedding` (server action): faz só o rápido/confiável —
+ *    chunk SEM vetores (a busca léxica já funciona) e delega os embeddings ao
+ *    worker (com retentativa). Evita o timeout ao publicar artigo grande/pasta.
+ *  - sem callback (worker de agendamento/lote, processo longo sem timeout):
+ *    gera os embeddings inline, como antes.
  */
 export async function publishNodeCore(
   db: PublishDb,
   nodeId: string,
   spaceId: string,
   versionLabel = "Publicação",
+  opts?: { enqueueEmbedding?: (nodeId: string, spaceId: string) => Promise<void> },
 ): Promise<CoreResult> {
   await commitDraftIfAny(db, nodeId);
 
@@ -76,16 +84,25 @@ export async function publishNodeCore(
     .eq("node_id", nodeId)
     .maybeSingle();
   if (art) {
+    const doc = art.content_json as { type: string; content?: never[] };
     try {
+      // Léxico já: com fila, só chunk (vetores vêm depois); sem fila, inline.
       await reindexNodeChunks(db, {
         nodeId,
         articleId: art.id,
         spaceId,
-        doc: art.content_json as { type: string; content?: never[] },
-        withEmbeddings: true,
+        doc,
+        withEmbeddings: !opts?.enqueueEmbedding,
       });
     } catch {
       // Publicado fica publicado; embeddings são regeneráveis pela UI.
+    }
+    if (opts?.enqueueEmbedding) {
+      try {
+        await opts.enqueueEmbedding(nodeId, spaceId);
+      } catch {
+        // Fila indisponível não desfaz a publicação — regenerável pela UI.
+      }
     }
   }
   return { ok: true };

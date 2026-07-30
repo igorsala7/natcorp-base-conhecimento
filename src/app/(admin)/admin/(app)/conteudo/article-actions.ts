@@ -14,13 +14,14 @@ import {
 } from "@/lib/content/publish-core";
 import { languageModel, hasAiKey, aiTimeout, ehTimeout } from "@/lib/ai/config";
 import { criarJobOntologia } from "@/lib/ai/ontology-enqueue";
-import { enqueueOntologyScan } from "@/lib/jobs/boss";
+import { enqueueOntologyScan, enqueueNodeEmbedding } from "@/lib/jobs/boss";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { improveLayout } from "@/lib/importer/improve";
 import { proposeLayoutQuestions } from "@/lib/importer/questions";
 import { resolveCategory, resolveTempLayout, resolveTempTexto } from "@/lib/ai/prompts";
 import type { Criatividade } from "@/lib/ai/creativity";
 import { normalizeDoc } from "@/lib/blocks/convert";
+import { docTemConteudo } from "@/lib/blocks/empty";
 import { isBlockDoc, BlockDocSchema } from "@/lib/blocks/schema";
 import { blocksToPlainWithImageMarkers } from "@/lib/blocks/serialize";
 import type { Json } from "@/lib/database.types";
@@ -265,6 +266,41 @@ export async function directoryArticleIds(
 }
 
 /**
+ * SANEAMENTO: remove (lixeira) os artigos VAZIOS da subárvore de um diretório —
+ * o artefato da estruturação da IA que duplica o título num artigo sem conteúdo.
+ * Roda antes de "Melhorar layout"/"Editar IA" no diretório. Soft-delete (30 dias),
+ * reversível. Só toca artigos SEM texto nem bloco não-textual.
+ */
+export async function sanitizeEmptyArticles(
+  nodeId: string,
+): Promise<{ ok: true; removidos: number } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  const spaceId = await spaceIdOfNode(supabase, nodeId);
+  if (!spaceId) return { ok: false, error: "Nó não encontrado." };
+  try {
+    await requirePermission("content.edit", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+
+  const { data: subtree } = await supabase.rpc("subtree_ids", { p_node_id: nodeId });
+  const artIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
+  if (!artIds.length) return { ok: true, removidos: 0 };
+
+  const { data: arts } = await supabase.from("articles").select("node_id, content_json").in("node_id", artIds);
+  const vazios = (arts ?? []).filter((a) => !docTemConteudo(a.content_json)).map((a) => a.node_id);
+
+  for (const id of vazios) {
+    await supabase.rpc("soft_delete_subtree", { p_node_id: id }); // lixeira (reversível)
+  }
+  if (vazios.length) {
+    await audit({ action: "content.sanitize_empty", entityType: "node", entityId: nodeId, after: { removidos: vazios.length } });
+    revalidatePath("/admin/conteudo");
+  }
+  return { ok: true, removidos: vazios.length };
+}
+
+/**
  * Perguntas de layout do DIRETÓRIO: amostra o texto dos artigos da subárvore e
  * gera preferências genéricas (uma direção só, aplicada a todos) — como na
  * importação. As respostas viram a `direcao` passada por artigo.
@@ -395,15 +431,19 @@ export async function publishNode(nodeId: string): Promise<SaveResult> {
     return { ok: false, error: "Sem permissão para publicar." };
   }
 
-  // Núcleo compartilhado com o agendador do worker: rascunho → oficial,
-  // snapshot de versão e reindex com embeddings.
-  const core = await publishNodeCore(supabase, nodeId, spaceId);
-  if (!core.ok) return core;
-
-  // Acopla a ontologia ao publicar, em SEGUNDO PLANO (embedding já saiu inline).
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Núcleo compartilhado com o agendador do worker: rascunho → oficial,
+  // snapshot de versão e chunk léxico. Os embeddings vão para o worker (fila
+  // com retentativa) — o "Publicar" fica rápido e não estoura o timeout.
+  const core = await publishNodeCore(supabase, nodeId, spaceId, "Publicação", {
+    enqueueEmbedding: (n, s) => enqueueNodeEmbedding(n, s, user?.id ?? null),
+  });
+  if (!core.ok) return core;
+
+  // Acopla a ontologia ao publicar, em SEGUNDO PLANO.
   await enfileirarOntologiaPublicacao(spaceId, "article", nodeId, user?.id ?? null);
 
   await audit({
@@ -552,7 +592,13 @@ export async function publishSubtree(
     .update({ status: "published", published_at: now })
     .in("id", ids);
 
-  // Reindexa (com embeddings) cada artigo da subárvore.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Chunk léxico de cada artigo (busca já funciona) e delega os EMBEDDINGS ao
+  // worker (um job por artigo, com retentativa). Publicar pasta grande não pode
+  // gerar N embeddings inline: estoura o timeout e deixa itens em rascunho.
   const articleIds = (subtree ?? []).filter((r) => r.type === "article").map((r) => r.id);
   let count = 0;
   for (const artNodeId of articleIds) {
@@ -576,16 +622,18 @@ export async function publishSubtree(
       articleId: art.id,
       spaceId,
       doc: (fresh?.content_json ?? art.content_json) as { type: string; content?: never[] },
-      withEmbeddings: true,
+      withEmbeddings: false,
     });
+    try {
+      await enqueueNodeEmbedding(artNodeId, spaceId, user?.id ?? null);
+    } catch {
+      // Fila indisponível não desfaz a publicação — regenerável pela UI.
+    }
     count += 1;
   }
 
   // Ontologia acoplada: UMA varredura em lote para a pasta inteira (segundo
-  // plano), em vez de um job por artigo. O embedding de cada artigo já saiu acima.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // plano), em vez de um job por artigo. Os embeddings vão pela fila acima.
   await enfileirarOntologiaPublicacao(spaceId, "subtree", nodeId, user?.id ?? null);
 
   await audit({ action: "content.publish_subtree", entityType: "node", entityId: nodeId, spaceId, after: { count } });
@@ -655,6 +703,10 @@ export async function publishPendingDrafts(
   const ids = (nodes ?? []).map((n) => n.id);
   if (ids.length === 0) return { ok: true, count: 0 };
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const now = new Date().toISOString();
   let count = 0;
   for (const nodeId of ids) {
@@ -675,13 +727,19 @@ export async function publishPendingDrafts(
       p_node_id: nodeId,
       p_label: "Publicação em massa",
     });
+    // Chunk léxico agora; embeddings pela fila do worker (com retentativa).
     await reindexNodeChunks(supabase, {
       nodeId,
       articleId: art.id,
       spaceId,
       doc: art.content_json as { type: string; content?: never[] },
-      withEmbeddings: true,
+      withEmbeddings: false,
     });
+    try {
+      await enqueueNodeEmbedding(nodeId, spaceId, user?.id ?? null);
+    } catch {
+      // Fila indisponível não desfaz a publicação — regenerável pela UI.
+    }
   }
 
   await audit({

@@ -18,6 +18,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("capture");
       await boss.createQueue("quality-scan");
       await boss.createQueue("embeddings-generate");
+      await boss.createQueue("node-embedding");
       await boss.createQueue("ontology-scan");
       await boss.createQueue("bulk-process");
       await boss.createQueue("backup");
@@ -63,6 +64,25 @@ export async function enqueueQualityScan(spaceId: string): Promise<void> {
 export async function enqueueEmbeddings(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("embeddings-generate", { jobId });
+}
+
+/**
+ * Gera os embeddings de UM nó publicado, em segundo plano e com retentativa.
+ * O "Publicar" faz só o rápido/confiável (status + versão + chunk léxico) e
+ * delega os vetores ao worker — evita o timeout da server action ao publicar
+ * artigo grande ou pasta inteira. Reprocessar o mesmo nó é idempotente.
+ */
+export async function enqueueNodeEmbedding(
+  nodeId: string,
+  spaceId: string,
+  embeddedBy?: string | null,
+): Promise<void> {
+  const boss = await getBoss();
+  await boss.send(
+    "node-embedding",
+    { nodeId, spaceId, embeddedBy: embeddedBy ?? null },
+    { retryLimit: 3, retryDelay: 30, retryBackoff: true },
+  );
 }
 
 /** Varredura de ontologia pela IA (Gemini lê os artigos e sugere termos). */

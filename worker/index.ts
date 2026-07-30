@@ -1051,6 +1051,7 @@ async function main() {
   await boss.createQueue("scheduled-publish");
   await boss.createQueue("quality-scan");
   await boss.createQueue("embeddings-generate");
+  await boss.createQueue("node-embedding");
   await boss.createQueue("ontology-scan");
   await boss.createQueue("bulk-process");
   await boss.createQueue("backup");
@@ -1145,6 +1146,36 @@ async function main() {
         console.error(`Embeddings job ${jobId} falhou:`, msg);
         await supabase.from("embedding_jobs").update({ status: "error", error: msg }).eq("id", jobId);
       }
+    }
+  });
+
+  await boss.work("node-embedding", async (jobs) => {
+    for (const job of jobs) {
+      const { nodeId, spaceId, embeddedBy } = job.data as {
+        nodeId: string;
+        spaceId: string;
+        embeddedBy: string | null;
+      };
+      const { data: art } = await supabase
+        .from("articles")
+        .select("id, content_json")
+        .eq("node_id", nodeId)
+        .maybeSingle();
+      if (!art) {
+        console.log(`Embedding do nó ${nodeId}: artigo não encontrado (ignorado).`);
+        continue;
+      }
+      // Deixa a exceção subir: pg-boss reprocessa (retryLimit) — a publicação
+      // já ocorreu; aqui só (re)geramos os vetores até conseguir.
+      await reindexNodeChunks(supabase, {
+        nodeId,
+        articleId: art.id,
+        spaceId,
+        doc: art.content_json,
+        withEmbeddings: true,
+        embeddedBy: embeddedBy ?? undefined,
+      });
+      console.log(`Embedding do nó ${nodeId} concluído.`);
     }
   });
 

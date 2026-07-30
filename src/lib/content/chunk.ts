@@ -61,10 +61,34 @@ async function documentContext(
 
 export type Chunk = { heading_path: string; content: string };
 
+// Tamanho-alvo do chunk (chars). ~500 tokens: bom para embedding (fica MUITO
+// abaixo do limite do modelo) e para precisão da busca. Uma seção grande SEM
+// heading (ex.: um artigo com milhares de parágrafos) era virava 1 chunk gigante
+// que estourava o modelo e era inútil na busca — por isso o corte por tamanho.
+const CHUNK_MAX = 2000;
+
+/** Fatia um texto longo em pedaços de até `max`, cortando em espaço quando dá. */
+function fatiar(s: string, max: number): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < s.length) {
+    let end = Math.min(i + max, s.length);
+    if (end < s.length) {
+      const sp = s.lastIndexOf(" ", end);
+      if (sp > i + max * 0.6) end = sp; // corta numa palavra, se razoável
+    }
+    const p = s.slice(i, end).trim();
+    if (p) out.push(p);
+    i = end;
+  }
+  return out;
+}
+
 /**
  * Particiona o documento por headings: cada H1/H2/H3 inicia um chunk, cujo
  * conteúdo é o texto até o próximo heading. heading_path acumula a trilha.
- * Aceita BlockDoc v2 ou TipTap legado (normalizeDoc converte na leitura).
+ * Seções grandes são ainda sub-divididas por TAMANHO (~CHUNK_MAX). Aceita
+ * BlockDoc v2 ou TipTap legado (normalizeDoc converte na leitura).
  */
 export function chunkArticle(docInput: unknown): Chunk[] {
   const { blocks } = normalizeDoc(docInput);
@@ -75,9 +99,23 @@ export function chunkArticle(docInput: unknown): Chunk[] {
     parts: [],
   };
 
-  const flush = () => {
-    const content = current.parts.join("\n").replace(/\s+\n/g, "\n").trim();
+  const push = (texto: string) => {
+    const content = texto.replace(/\s+\n/g, "\n").trim();
     if (content) chunks.push({ heading_path: current.heading_path, content });
+  };
+  const flush = () => {
+    let buf = "";
+    for (const p of current.parts) {
+      if (p.length > CHUNK_MAX) {
+        // parágrafo isolado maior que o limite → fecha o buffer e fatia por tamanho
+        if (buf) { push(buf); buf = ""; }
+        for (const pedaco of fatiar(p, CHUNK_MAX)) push(pedaco);
+        continue;
+      }
+      if (buf && buf.length + 1 + p.length > CHUNK_MAX) { push(buf); buf = ""; }
+      buf = buf ? buf + "\n" + p : p;
+    }
+    if (buf) push(buf);
   };
 
   for (const block of blocks) {
