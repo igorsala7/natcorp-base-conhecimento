@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
-import { ToolsManager, type ToolRow, type BaseToolRow } from "./tools-manager";
+import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
 import { RunsManager, type RunRow } from "./runs-manager";
 import { FlowManager } from "./flow-manager";
@@ -25,6 +25,7 @@ export function IntegrationsShell({
   providers,
   spaces,
   runs,
+  moduleOptions,
   whatsapp,
   temChaveMestra,
 }: {
@@ -35,6 +36,7 @@ export function IntegrationsShell({
   providers: ProviderOption[];
   spaces: SpaceOption[];
   runs: RunRow[];
+  moduleOptions: ModuleTag[];
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
@@ -72,7 +74,7 @@ export function IntegrationsShell({
       {tab === "bases" ? (
         <IntegrationsManager bases={bases} spaces={spaces} temChaveMestra={temChaveMestra} />
       ) : tab === "apis" ? (
-        <ToolsManager tools={tools} bases={bases} baseTools={baseTools} />
+        <ToolsManager tools={tools} bases={bases} baseTools={baseTools} moduleOptions={moduleOptions} />
       ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
       ) : tab === "fluxo" ? (
@@ -84,6 +86,7 @@ export function IntegrationsShell({
           spaces={spaces}
           providers={providers}
           runs={runs}
+          moduleOptions={moduleOptions}
         />
       ) : tab === "construtor" ? (
         <BuilderChat />

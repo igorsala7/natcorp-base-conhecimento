@@ -23,6 +23,7 @@ import {
   deleteBase,
   saveCredential,
   deleteCredential,
+  syncModulesAction,
   type IntegResult,
 } from "./actions";
 
@@ -41,6 +42,7 @@ export type BaseRow = {
   active: boolean;
   base_url: string | null;
   credential_id: string | null;
+  tool_routing: boolean;
   perfis_endpoint: string | null;
   perfis_campo: string | null;
   flow_layout: Record<string, NodePos> | null;
@@ -281,10 +283,22 @@ export function BaseDialog({
   const [active, setActive] = useState(base?.active ?? true);
   const [baseUrl, setBaseUrl] = useState(base?.base_url ?? "");
   const [credentialId, setCredentialId] = useState(base?.credential_id ?? "");
+  const [toolRouting, setToolRouting] = useState(base?.tool_routing ?? false);
   const [perfisEndpoint, setPerfisEndpoint] = useState(base?.perfis_endpoint ?? "");
   const [perfisCampo, setPerfisCampo] = useState(base?.perfis_campo ?? "");
   const [spaceIds, setSpaceIds] = useState<Set<string>>(new Set(base?.spaceIds ?? []));
   const credenciais = base?.credentials ?? [];
+  const toast = useToast();
+  const [syncing, startSync] = useTransition();
+
+  function sincronizarModulos() {
+    if (!base) return;
+    startSync(async () => {
+      const r = await syncModulesAction(base.base_code);
+      if (!r.ok) return toast.error(r.error);
+      toast.success(`${r.count ?? 0} módulo(s) sincronizado(s). Tagueie as tools na aba APIs / Tools.`);
+    });
+  }
 
   function toggleSpace(id: string) {
     setSpaceIds((prev) => {
@@ -315,6 +329,7 @@ export function BaseDialog({
                       active,
                       base_url: baseUrl,
                       credential_id: credentialId || null,
+                      tool_routing: toolRouting,
                       perfis_endpoint: perfisEndpoint,
                       perfis_campo: perfisCampo,
                       space_ids: [...spaceIds],
@@ -324,6 +339,7 @@ export function BaseDialog({
                       name,
                       base_url: baseUrl,
                       credential_id: credentialId || null,
+                      tool_routing: toolRouting,
                       perfis_endpoint: perfisEndpoint,
                       perfis_campo: perfisCampo,
                       space_ids: [...spaceIds],
@@ -368,6 +384,31 @@ export function BaseDialog({
             ))}
           </select>
         </Field>
+
+        {/* Roteamento por assunto (Opção A) — economiza tokens */}
+        <div className="rounded-lg border border-border bg-surface-2/40 p-3">
+          <label className="flex items-center gap-2 text-sm text-text">
+            <input type="checkbox" checked={toolRouting} onChange={(e) => setToolRouting(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
+            Roteamento de tools por assunto (economiza tokens)
+          </label>
+          <p className="mt-1.5 text-xs text-text-muted">
+            Um classificador rápido escolhe o(s) módulo(s) do assunto e só as tools daquele recorte entram no passo.
+            Tools sem tag e as marcadas como <strong>essencial</strong> entram sempre. Desligado = todas as tools do perfil.
+          </p>
+          {base ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={sincronizarModulos} disabled={syncing}>
+                {syncing ? "Sincronizando…" : "Sincronizar módulos"}
+              </Button>
+              <span className="text-xs text-text-muted">
+                Traz a taxonomia (módulos/submódulos) do endpoint do cliente para taguear as tools.
+              </span>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-text-muted">Salve a base para sincronizar os módulos do cliente.</p>
+          )}
+        </div>
+
         <Field
           label="API de perfis (opcional)"
           htmlFor="base_perfis_endpoint"

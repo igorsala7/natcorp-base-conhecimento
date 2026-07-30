@@ -42,6 +42,8 @@ const baseSchema = z.object({
   name: z.string().trim().min(1, "Informe o nome do cliente.").max(200),
   base_url: z.string().trim().nullish(),
   credential_id: z.string().uuid().nullish(),
+  // Roteamento por assunto (Opção A): liga o recorte de tools por módulo nesta base.
+  tool_routing: z.boolean().default(false),
   // API que lista os perfis do cliente (para a allowlist das ferramentas, #4).
   perfis_endpoint: z.string().trim().nullish(),
   perfis_campo: z.string().trim().nullish(),
@@ -78,6 +80,7 @@ export async function createBase(input: unknown): Promise<IntegResult> {
       name: parsed.data.name,
       base_url: parsed.data.base_url?.trim() || null,
       credential_id: parsed.data.credential_id ?? null,
+      tool_routing: parsed.data.tool_routing,
       perfis_endpoint: parsed.data.perfis_endpoint?.trim() || null,
       perfis_campo: parsed.data.perfis_campo?.trim() || null,
       created_by: user?.id ?? null,
@@ -102,7 +105,7 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const supabase = await createClient();
-  const { id, base_code, name, active, base_url, credential_id, perfis_endpoint, perfis_campo, space_ids } = parsed.data;
+  const { id, base_code, name, active, base_url, credential_id, tool_routing, perfis_endpoint, perfis_campo, space_ids } = parsed.data;
   const { error } = await supabase
     .from("ai_bases")
     .update({
@@ -111,6 +114,7 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
       active,
       base_url: base_url?.trim() || null,
       credential_id: credential_id ?? null,
+      tool_routing,
       perfis_endpoint: perfis_endpoint?.trim() || null,
       perfis_campo: perfis_campo?.trim() || null,
       updated_at: new Date().toISOString(),

@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { ToolDialog, type ToolRow, type BaseToolRow } from "./tools-manager";
+import { ToolDialog, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { BaseDialog, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { AgentDialog, type AgentRow, type ProviderOption } from "./agents-manager";
 import type { RunRow } from "./runs-manager";
@@ -106,6 +106,7 @@ export function FlowManager({
   spaces,
   providers,
   runs,
+  moduleOptions,
 }: {
   bases: BaseRow[];
   tools: ToolRow[];
@@ -114,6 +115,7 @@ export function FlowManager({
   spaces: SpaceOption[];
   providers: ProviderOption[];
   runs: RunRow[];
+  moduleOptions: ModuleTag[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -352,10 +354,11 @@ export function FlowManager({
           initialAcesso={Object.fromEntries(
             baseTools
               .filter((bt) => bt.tool_id === editing.id && bt.enabled)
-              .map((bt) => [bt.base_id, { portais: bt.portais ?? [], perfis: bt.perfis ?? [] }]),
+              .map((bt) => [bt.base_id, { portais: bt.portais ?? [], empresas: bt.empresas ?? [], perfis: bt.perfis ?? [] }]),
           )}
           baseItems={bases.map((b) => ({ id: b.id, label: b.name, sub: b.base_code }))}
           bases={bases}
+          moduleOptions={moduleOptions}
           credentialOptions={bases.flatMap((b) => b.credentials.map((c) => ({ id: c.id, name: c.name, base: b.name })))}
           pending={pending}
           onClose={() => setEditing(null)}
