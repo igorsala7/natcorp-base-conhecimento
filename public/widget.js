@@ -121,12 +121,27 @@
   var _acoes = [];           // ações propostas pela IA (fill/check/click), em ordem
   var _picking = null;       // ativo enquanto aguardamos o usuário clicar num campo
   var _hlAdded = false;
+  // Loop autônomo (Fase B): após executar uma ação, re-varremos a tela e reenviamos
+  // à IA p/ ela DAR O PRÓXIMO PASSO (menus/janelas do APEX abrem em etapas), até
+  // concluir. Confirma só o que grava/navega — o resto roda direto.
+  var LOOP_CAP = 14;         // teto de passos (evita loop infinito)
+  var _loopStep = 0;         // passo atual do loop autônomo
+  var _turnActed = false;    // a IA executou alguma ação NESTE turno?
+  var _loopCancel = false;   // usuário cancelou → interrompe o loop
+  var _execLabels = [];      // trilha de ações executadas (nota de continuação)
   // Botões/links cujo clique GRAVA/ENVIA/EXCLUI/NAVEGA → pedem confirmação. Ações de
   // VISUALIZAÇÃO (abrir menu, filtrar, ordenar, gráfico…) rodam direto.
-  var RX_VIEW = /a[çc][õo]es|filtr|ordenar|classificar|pesquisar|buscar|expandir|recolher|abrir|menu|mostrar|exibir|detalhes|op[çc][õo]es|ajuda|colunas|agrupar|gr[áa]fico|destaqu|totaliz|cubo|refresh|atualizar lista|recarregar/i;
+  var RX_VIEW = /a[çc][õo]es|filtr|ordenar|classificar|pesquisar|buscar|expandir|recolher|abrir|menu|mostrar|exibir|detalhes|op[çc][õo]es|ajuda|colunas|agrupar|gr[áa]fico|destac|destaqu|real[çc]|formatar|format|highlight|totaliz|cubo|refresh|atualizar lista|recarregar|aplicar|apply|fechar/i;
+  // Rótulos que GRAVAM/ENVIAM/EXCLUEM/NAVEGAM → sempre confirmam (têm prioridade
+  // sobre a lista de visualização; ex.: "Salvar Relatório" no menu Ações).
+  var RX_GRAVA = /salvar|gravar|enviar|submeter|confirmar|excluir|apagar|deletar|\bremover\b|logout|encerrar sess|sair da conta|finalizar|efetivar|\bpagar\b|processar/i;
   function ehVisualizacao(label, el) {
+    var s = String(label || "");
     if ((el.type || "").toLowerCase() === "submit") return false;
-    return RX_VIEW.test(String(label || ""));
+    if (RX_GRAVA.test(s)) return false; // grava/navega vence → confirma
+    var role = (el.getAttribute && el.getAttribute("role")) || "";
+    if (/^menuitem/.test(role)) return true; // item do menu Ações = navegação do relatório
+    return RX_VIEW.test(s);
   }
   function fieldTipo(el) {
     var tag = (el.tagName || "").toLowerCase();
@@ -166,7 +181,7 @@
       // Campos editáveis + radios/checkboxes (o modelo preenche/marca).
       try {
         doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
-          if (out.length >= 80) return;
+          if (out.length >= 80) return; // campos: até 80 (botões têm folga própria até 120)
           if (host && host.contains && host.contains(el)) return;
           var t = (el.type || "").toLowerCase();
           if (t === "hidden" || t === "password" || t === "submit" || t === "button" || t === "reset" || t === "file") return;
@@ -186,9 +201,10 @@
       // Botões/links de ação (o modelo clica).
       try {
         doc.querySelectorAll(
-          "button,input[type='submit'],input[type='button'],input[type='reset'],[role='button'],a.t-Button,a.a-Button,a[role='menuitem']"
+          "button,input[type='submit'],input[type='button'],input[type='reset'],[role='button']," +
+          "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],a.t-Button,a.a-Button,.a-Menu a,.a-Menu-content a"
         ).forEach(function (el) {
-          if (out.length >= 80) return;
+          if (out.length >= 120) return; // botões: teto total 120 (garante espaço p/ itens de menu)
           if (host && host.contains && host.contains(el)) return;
           if (el.disabled || el.getAttribute("aria-disabled") === "true") return;
           if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
@@ -274,10 +290,22 @@
       return true;
     } catch { return false; }
   }
-  // Clica um botão/link (blindado contra desabilitados).
+  // Clica um botão/link (blindado contra desabilitados). Dispara hover antes do
+  // clique porque menus do APEX (a-Menu) abrem submenus no passar do mouse — e o
+  // menu escuta o hover no <li> do item, não só no <button>.
   function clickElement(el) {
     if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return false;
     try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {}
+    try {
+      var alvos = [el];
+      var li = el.closest ? el.closest("li.a-Menu-item, li[role='menuitem'], li") : null;
+      if (li && li !== el) alvos.push(li);
+      alvos.forEach(function (t) {
+        ["pointerover", "mouseover", "mouseenter", "mousemove"].forEach(function (tp) {
+          t.dispatchEvent(new MouseEvent(tp, { bubbles: true, cancelable: true, view: window }));
+        });
+      });
+    } catch {}
     try { el.focus(); } catch {}
     try { el.click(); return true; } catch { return false; }
   }
@@ -291,28 +319,52 @@
     d.textContent = txt;
     messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
   }
-  // Processa as ações da IA EM ORDEM (fill → preencher, check → marcar, click →
-  // clicar). Confirma só o que GRAVA/NAVEGA; ações de visualização rodam direto.
+  // Trilha curta da ação (para a nota de continuação enviada à IA).
+  function labelExec(a) {
+    return (a.tipo === "fill" ? "preencheu " : a.tipo === "check" ? (a.marcar ? "marcou " : "desmarcou ") : "clicou em ") + a.label;
+  }
+  // Marca que a IA agiu neste turno (habilita o próximo passo do loop autônomo).
+  function registrarExec(a) { _turnActed = true; _execLabels.push(labelExec(a)); }
+  // Executa a ação SEM confirmação (preencher/marcar e cliques de visualização),
+  // mostra um status compacto e segue a fila.
+  function execDireto(a, el) {
+    highlightField(el);
+    var ok = a.tipo === "fill" ? fillField(el, a.valor) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
+    setTimeout(function () { unhighlightField(el); }, 700);
+    var nome = a.tipo === "fill" ? "Preenchi " : a.tipo === "check" ? (a.marcar ? "Marquei " : "Desmarquei ") : "Cliquei em ";
+    var extra = a.tipo === "fill" && a.valor ? ": " + (a.valor.length > 60 ? a.valor.slice(0, 60) + "…" : a.valor) : "";
+    if (ok) { registrarExec(a); statusMsg("✅ " + nome + "“" + a.label + "”" + extra, "#15803d"); }
+    else { statusMsg("⚠️ Não consegui " + nome.toLowerCase() + "“" + a.label + "”", "#b45309"); }
+    proximaAcao();
+  }
+  // Processa as ações da IA EM ORDEM. Preencher/marcar e cliques de VISUALIZAÇÃO
+  // rodam direto; só cliques que GRAVAM/NAVEGAM pedem confirmação.
   function proximaAcao() {
     if (_picking) return;
     var a = _acoes.shift();
-    if (!a) return;
+    if (!a) { aoTerminarAcoes(); return; } // fila vazia → decide se continua o loop
     var el = fieldEl(a.ref);
     if (a.tipo === "fill") {
       if (!el) { pickField(a); return; } // campo sumiu -> pede o clique
-      cardConfirmar(a, el); return;
+      execDireto(a, el); return;
     }
     if (!el) { statusMsg("⚠️ Não encontrei “" + a.label + "” na tela.", "#b45309"); proximaAcao(); return; }
-    if (a.tipo === "click" && ehVisualizacao(a.label, el)) {
-      // Visualização (abrir menu, filtrar, ordenar…) → executa direto.
-      highlightField(el);
-      var okc = clickElement(el);
-      setTimeout(function () { unhighlightField(el); }, 700);
-      statusMsg((okc ? "✅ Cliquei em “" : "⚠️ Não consegui clicar em “") + a.label + "”", okc ? "#15803d" : "#b45309");
-      proximaAcao();
+    if (a.tipo === "check" || ehVisualizacao(a.label, el)) { execDireto(a, el); return; }
+    cardConfirmar(a, el); // clique que grava/navega → confirma
+  }
+  // Fila esvaziada: se a IA agiu, re-varre a tela e pede que ela dê o PRÓXIMO passo
+  // (menus/janelas do APEX abrem em etapas), até concluir ou bater o teto.
+  function aoTerminarAcoes() {
+    if (_loopCancel || !_turnActed) return;      // usuário cancelou, ou a IA não agiu → fim
+    if (_loopStep >= LOOP_CAP) {
+      statusMsg("⏹️ Parei após " + LOOP_CAP + " passos. Se faltou algo, me diga como seguir.", "#6b7280");
       return;
     }
-    cardConfirmar(a, el);
+    _loopStep++;
+    busy = true; sendBtn.disabled = true;        // segura a UI enquanto o loop roda
+    // Espera o DOM assentar (hover-intent do submenu + animação de menu/janela do
+    // APEX) antes de re-varrer, senão o item recém-revelado ainda não apareceu.
+    setTimeout(function () { if (!_loopCancel) ask(undefined, undefined, { continuation: true }); }, 550);
   }
   // Card compacto que se ATUALIZA no lugar (título + valor + ações). Confirma
   // preenchimentos, marcações e cliques que gravam/navegam. Evita poluir o chat.
@@ -366,10 +418,12 @@
     sim.addEventListener("click", function () {
       unhighlightField(el);
       var ok = a.tipo === "fill" ? fillField(el, a.valor) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
+      if (ok) registrarExec(a);
       encerrar(ok ? okTxt : falhaTxt, ok ? "#15803d" : "#b45309");
     });
     nao.addEventListener("click", function () {
       unhighlightField(el);
+      _loopCancel = true; // cancelar interrompe o loop autônomo
       if (a.tipo === "fill") { card.remove(); pickField(a); return; }
       encerrar("Cancelado: “" + a.label + "”", "#6b7280");
     });
@@ -1907,7 +1961,11 @@
     ask(undefined, ids);
   }
 
-  function ask(scope, attachmentIds) {
+  function ask(scope, attachmentIds, opts) {
+    var continuacao = !!(opts && opts.continuation);
+    // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo.
+    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; }
+    _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
     busy = true;
     sendBtn.disabled = true;
     var typingBubble = document.createElement("div");
@@ -1921,6 +1979,7 @@
     var full = ""; // texto completo já recebido do servidor
     var citations = [];
     var clarified = false;
+    var ehFinalTurno = true; // false em passos intermediários do loop (sem feedback/citações)
     _acoes = []; // ações de tela recebidas NESTE turno (guard de stream vazio)
     _charts = []; // gráficos recebidos NESTE turno (guard de stream vazio)
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
@@ -1944,8 +2003,11 @@
       if (shown < full.length) agendarReveal();
       else if (stopped && !feito) {
         feito = true;
-        if (citations.length) renderCitations(citations);
-        renderFeedback();
+        // Passos intermediários do loop não mostram citações/feedback (só o resumo final).
+        if (ehFinalTurno) {
+          if (citations.length) renderCitations(citations);
+          renderFeedback();
+        }
       }
     }
 
@@ -1954,6 +2016,8 @@
     if (contextScope) body.contextScope = contextScope;
     if (track) body.track = track;
     if (attachmentIds && attachmentIds.length) body.attachmentIds = attachmentIds;
+    // Loop autônomo: pede à IA que CONTINUE a tarefa com a tela já atualizada.
+    if (continuacao) { body.continuation = true; body.executedActions = _execLabels.slice(-40); }
     var pg = pageContext();
     if (pg) body.page = pg;
     // Varredura da tela (DADOS/VALORES) — só quando o "Assistente de formulário
@@ -2067,6 +2131,9 @@
         done();
         return;
       }
+      // Se a IA emitiu ações neste turno, é um passo do loop (segue outra rodada) —
+      // não é o resumo final, então não mostra citações/feedback ainda.
+      ehFinalTurno = _acoes.length === 0;
       if (full) {
         history.push({ role: "assistant", content: full });
         // Deixa a revelação suave terminar; ao chegar ao fim, mostra as fontes

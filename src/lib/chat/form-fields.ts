@@ -21,7 +21,7 @@ export type UiAction =
 /** @deprecated use UiAction — mantido só para compat de importação. */
 export type FillAction = UiAction;
 
-const MAX_FIELDS = 80;
+const MAX_FIELDS = 120;
 
 /** Saneia o mapa de campos recebido do cliente (não confiável). */
 export function parseFields(raw: unknown): ScreenField[] {
@@ -84,7 +84,34 @@ export function formAssistDirective(): string {
     "aquela ação. NUNCA mexa em campos desabilitados, somente-leitura ou restritos (o sistema já os remove da lista, então " +
     "use apenas os elementos que aparecem em ELEMENTOS DA TELA). Faça só o que o usuário indicou; não aproveite para mexer " +
     "em outros elementos. Ações que GRAVAM, ENVIAM, EXCLUEM ou NAVEGAM pedem a confirmação do usuário antes de executar " +
-    "(o sistema cuida disso) — chame a ferramenta direto, sem pedir confirmação em texto."
+    "(o sistema cuida disso) — chame a ferramenta direto, sem pedir confirmação em texto.\n" +
+    "AUTONOMIA (execute a tarefa INTEIRA sozinho): muitas telas do APEX abrem em ETAPAS — primeiro você clica num botão " +
+    "(ex.: \"Ações\"), aí surgem NOVOS itens (ex.: \"Formatar\" → \"Destacar\"), e só então aparece a JANELA com os campos " +
+    "(cor, coluna, operador, expressão) e o botão \"Aplicar\". A cada ação que você executa, o sistema REVARRE a tela e te " +
+    "reenvia os elementos atualizados para você DAR O PRÓXIMO PASSO. Portanto: aja um passo por vez com o que está visível " +
+    "AGORA, e continue até CONCLUIR toda a tarefa. É PROIBIDO devolver ao usuário uma lista de passos manuais (\"clique aqui, " +
+    "depois ali\") — quem clica é VOCÊ. Respeite EXATAMENTE os valores pedidos (a cor, a coluna, o texto — não troque).\n" +
+    "MENU \"AÇÕES\" DO APEX (Interactive Report/Grid): clique no botão \"Ações\" para abrir o menu; os itens são \"Selecionar " +
+    "Colunas\", \"Filtro\", \"Linhas Por Página\", \"Formato\", \"Flashback\", \"Salvar Relatório\", \"Redefinir\", \"Fazer " +
+    "Download\". Vários vivem DENTRO de submenus: \"Destacar\", \"Classificar\", \"Quebra de Controle\", \"Calcular\", " +
+    "\"Agregar\", \"Gráfico\", \"Agrupar por\" e \"Pivô\" ficam DENTRO de \"Formato\" — então, para destacar/realçar linhas, " +
+    "clique em \"Ações\" → \"Formato\" → \"Destacar\", e só depois a janela com Coluna/Operador/Expressão/Cor e o botão " +
+    "\"Aplicar\" aparece. Abra um submenu por vez (clique no pai) e espere ele aparecer na lista antes do próximo clique."
+  );
+}
+
+/** Nota injetada quando o widget re-varre a tela e pede que a IA CONTINUE a tarefa. */
+export function continuationNote(executed: string[]): string {
+  const trail = executed.length
+    ? "Passos já executados por você: " + executed.map((e) => `“${e}”`).join(" → ") + ". "
+    : "";
+  return (
+    "AUTOMAÇÃO EM ANDAMENTO (isto NÃO é uma nova pergunta): a ação anterior foi executada e a TELA FOI ATUALIZADA — " +
+    "os menus/janelas/campos que abriram agora aparecem na lista ELEMENTOS DA TELA. " + trail +
+    "CONTINUE a tarefa que o usuário pediu, um passo por vez, chamando as ferramentas (clicar_elemento / marcar_opcao / " +
+    "preencher_campo) conforme os elementos AGORA visíveis, até concluir TUDO. NUNCA peça passos manuais ao usuário — faça " +
+    "você. Quando (e só quando) a tarefa estiver 100% concluída, responda um resumo curto do que fez SEM chamar mais " +
+    "nenhuma ferramenta."
   );
 }
 

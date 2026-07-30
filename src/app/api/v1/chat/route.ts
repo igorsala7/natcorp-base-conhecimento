@@ -25,7 +25,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, buildFormTools, type UiAction } from "@/lib/chat/form-fields";
+import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
@@ -72,6 +72,8 @@ export async function POST(req: NextRequest) {
     page?: unknown;
     pageContent?: unknown;
     fields?: unknown;
+    continuation?: unknown;
+    executedActions?: unknown;
   };
   try {
     payload = await req.json();
@@ -167,6 +169,12 @@ export async function POST(req: NextRequest) {
   // (só a localização, que é metadado). Gate autoritativo (não confia no cliente).
   const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : "";
   const screenFields = formAssist ? parseFields(payload.fields) : [];
+  // Loop autônomo do assistente de tela: o widget executou uma ação, re-varreu a
+  // tela e pede que a IA CONTINUE (não é nova pergunta do usuário).
+  const continuation = formAssist && payload.continuation === true;
+  const executedActions = continuation && Array.isArray(payload.executedActions)
+    ? payload.executedActions.slice(0, 40).map((x) => String(x).slice(0, 100))
+    : [];
   const uiActions: UiAction[] = [];
   const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, uiActions) : {};
   // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados
@@ -201,8 +209,9 @@ export async function POST(req: NextRequest) {
   }
   runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
-  // desambiguação re-envia a mesma pergunta e não deve duplicá-la.
-  if (!payload.scope) {
+  // desambiguação re-envia a mesma pergunta e não deve duplicá-la. A continuação do
+  // loop autônomo também não é nova pergunta — não reinsere.
+  if (!payload.scope && !continuation) {
     await supabase.from("messages").insert({
       conversation_id: convId!,
       role: "user",
@@ -294,6 +303,7 @@ export async function POST(req: NextRequest) {
         pageChangeNote(prevPage, page),
         pageContextNote(page),
         scanBlock,
+        continuation ? continuationNote(executedActions) : "",
         fieldsContextBlock(screenFields),
         glossario
           ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
