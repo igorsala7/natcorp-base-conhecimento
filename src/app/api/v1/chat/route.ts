@@ -26,7 +26,8 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, type UiAction } from "@/lib/chat/form-fields";
-import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
+import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
+import { newRegistry } from "@/lib/chat/datasets";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
@@ -34,6 +35,7 @@ import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/too
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
+import { pedeCompletude, notaCompletude } from "@/lib/ai/answer-style";
 import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
@@ -117,6 +119,9 @@ export async function POST(req: NextRequest) {
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
+  // Pedido de passo a passo/guia → busca MAIS trechos (conteúdo completo) e reforça
+  // a completude no prompt; perguntas comuns seguem enxutas.
+  const completo = pedeCompletude(question);
   // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
   // por botão só NARROW dentro delas — nunca escapa da chave).
   const ragSources = social
@@ -124,7 +129,7 @@ export async function POST(req: NextRequest) {
     : await retrievePublicContext(
         key.space_ids,
         await interpretarConsulta(key.space_ids, question, messages, pageContextHint(page)),
-        8,
+        completo ? 18 : 8,
         payload.scope,
       );
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
@@ -156,13 +161,16 @@ export async function POST(req: NextRequest) {
   const outFiles: OutFile[] = [];
   // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
   const runMeta: { conversationId: string | null } = { conversationId: convId ?? null };
-  const integ = track.p_base
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta)
-    : { tools: {}, capabilities: "", agentPrompt: "" };
   // Assistente de formulário (por chave): a IA lê os campos da tela e pode PROPOR
-  // preencher um deles. `preencher_campo` só coleta a intenção; o widget executa
-  // com confirmação. As ações vão ao cliente por SSE `fill` no fim do stream.
+  // preencher/operar. Declarado ANTES das tools porque habilita o gate "precisa de
+  // dados?" (interação de tela não carrega as ferramentas de dados).
   const formAssist = key.config?.formAssist === true;
+  // Datasets do turno: as ferramentas registram as listas completas aqui e o
+  // relatório referencia por id — o PDF sai com TODAS as linhas (#4).
+  const datasets = newRegistry();
+  const integ = track.p_base
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets)
+    : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ler DADOS/VALORES da tela (varredura de campos, textos, tabelas, modais) só
   // acontece com o "Assistente de formulário" LIGADO. Desligado, o servidor
   // IGNORA payload.pageContent — o bot não recebe nem retorna valores da tela
@@ -177,13 +185,15 @@ export async function POST(req: NextRequest) {
     : [];
   const uiActions: UiAction[] = [];
   const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, uiActions) : {};
-  // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados
-  // (senão não há o que plotar). A IA monta o gráfico com os valores reais.
+  // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados
+  // (para plotar valores reais) OU quando o usuário PEDE um PDF/relatório/gráfico
+  // — aí o conteúdo pode vir da DOCUMENTAÇÃO (ex.: um passo a passo em PDF).
   const temIntegTools = Object.keys(integ.tools).length > 0;
+  const temVisual = temIntegTools || pedeVisualizacao(question);
   const chartSpecs: ChartSpec[] = [];
   const reportSpecs: ReportSpec[] = [];
-  const visualTools = temIntegTools
-    ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs) }
+  const visualTools = temVisual
+    ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs, datasets) }
     : {};
   const allTools = { ...integ.tools, ...formTools, ...visualTools };
   const temTools = Object.keys(allTools).length > 0;
@@ -282,6 +292,9 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel({ kind: "user", ...track }),
+    // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o
+    // padrão conservador do provedor cortar a resposta pela metade.
+    maxOutputTokens: completo ? 8192 : 4096,
     system: composeSystemPrompt(
       {
         persona,
@@ -289,7 +302,7 @@ export async function POST(req: NextRequest) {
         usoFerramentas: [
           integ.capabilities,
           screenFields.length > 0 ? formAssistDirective() : "",
-          temIntegTools ? visualsDirective() : "",
+          temVisual ? visualsDirective() : "",
         ]
           .filter(Boolean)
           .join("\n\n"),
@@ -298,6 +311,7 @@ export async function POST(req: NextRequest) {
       },
       [
         notaDataAtual(),
+        completo ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,
         pageChangeNote(prevPage, page),
@@ -364,9 +378,26 @@ export async function POST(req: NextRequest) {
       // Assistente de tela: a IA propôs operar a tela (preencher, marcar, clicar) →
       // o widget executa em ordem, confirmando só o que grava/navega.
       for (const a of uiActions) {
-        if (a.tipo === "fill") controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor }));
+        if (a.tipo === "fill") controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor, ...(a.valores ? { valores: a.valores } : {}) }));
         else if (a.tipo === "check") controller.enqueue(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
         else controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
+      }
+      // Persiste a MÍDIA na mensagem para reexibir no histórico: gráfico = spec
+      // inline (leve); arquivo = upload no bucket privado `chat-media` (o caminho
+      // fica na mensagem; a URL assinada é emitida ao ler o histórico).
+      const media: Array<Record<string, unknown>> = [];
+      for (const c of chartSpecs) media.push({ kind: "chart", spec: c });
+      for (const f of outFiles) {
+        try {
+          const nome = (f.filename || "arquivo").replace(/[^\w.\-]+/g, "_").slice(0, 120);
+          const path = `${convId}/${crypto.randomUUID()}-${nome}`;
+          const { error } = await supabase.storage
+            .from("chat-media")
+            .upload(path, Buffer.from(f.base64, "base64"), { contentType: f.mimeType, upsert: false });
+          if (!error) media.push({ kind: "file", path, filename: f.filename, mimeType: f.mimeType });
+        } catch (e) {
+          console.error("[chat] falha ao persistir mídia:", e);
+        }
       }
       const usage = await Promise.resolve(result.usage).catch(() => null);
       await supabase.from("messages").insert({
@@ -374,6 +405,7 @@ export async function POST(req: NextRequest) {
         role: "assistant",
         content: full,
         citations: citations as never,
+        media: (media.length ? media : null) as never,
         latency_ms: Date.now() - started,
         tokens: usage?.totalTokens ?? null,
         input_tokens: usage?.inputTokens ?? null,

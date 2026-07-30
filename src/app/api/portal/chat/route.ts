@@ -19,7 +19,8 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
-import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
+import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
+import { newRegistry } from "@/lib/chat/datasets";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
@@ -27,6 +28,7 @@ import { glossarioCasado } from "@/lib/ai/ontology";
 import type { OutFile } from "@/lib/integrations/documents";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
+import { pedeCompletude, notaCompletude } from "@/lib/ai/answer-style";
 
 export const runtime = "nodejs";
 
@@ -89,12 +91,14 @@ export async function POST(req: NextRequest) {
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
+  // Passo a passo/guia → mais trechos + reforço de completude no prompt.
+  const completo = pedeCompletude(question);
   const ragSources = social
     ? []
     : await retrievePublicContext(
         spaceId,
         await interpretarConsulta(spaceId, question, messages, pageContextHint(page)),
-        8,
+        completo ? 18 : 8,
         payload.scope,
       );
   // Fontes da web (se o leitor citou uma URL permitida): numeradas após as da
@@ -136,14 +140,19 @@ export async function POST(req: NextRequest) {
   const outFiles: OutFile[] = [];
   // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
   const runMeta: { conversationId: string | null } = { conversationId: convId ?? null };
+  // Datasets do turno: as tools registram as listas completas e o relatório
+  // referencia por id (PDF com todas as linhas — #4).
+  const datasets = newRegistry();
   const integ = track.p_base
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, undefined, datasets)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   const temTools = Object.keys(integ.tools).length > 0;
-  // Visualização (gráfico/relatório): habilitada onde já há ferramentas de dados.
+  // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados OU
+  // quando o usuário PEDE PDF/relatório/gráfico (aí sai da DOCUMENTAÇÃO).
+  const temVisual = temTools || pedeVisualizacao(question);
   const chartSpecs: ChartSpec[] = [];
   const reportSpecs: ReportSpec[] = [];
-  const visualTools = temTools ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs) } : {};
+  const visualTools = temVisual ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs, datasets) } : {};
   const allTools = { ...integ.tools, ...visualTools };
   const comTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio para acertar tools/parâmetros.
@@ -238,16 +247,19 @@ export async function POST(req: NextRequest) {
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: await chatModel({ kind: "user", ...track }),
+    // Teto de saída generoso p/ passo a passo/guia (não cortar a resposta longa).
+    maxOutputTokens: completo ? 8192 : 4096,
     system: composeSystemPrompt(
       {
         persona,
         especializacao: integ.agentPrompt,
-        usoFerramentas: [integ.capabilities, temTools ? visualsDirective() : ""].filter(Boolean).join("\n\n"),
+        usoFerramentas: [integ.capabilities, temVisual ? visualsDirective() : ""].filter(Boolean).join("\n\n"),
         regras: resolveRegras(aP.regras_absolutas),
         comTools,
       },
       [
         notaDataAtual(),
+        completo ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,
         pageChangeNote(prevPage, page),
