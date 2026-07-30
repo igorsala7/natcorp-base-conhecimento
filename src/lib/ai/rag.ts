@@ -350,6 +350,25 @@ export async function retrieveContext(
 }
 
 /**
+ * Busca autenticada em VÁRIAS documentações de uma vez (fusão RRF única no
+ * Postgres). Usada pela IA de criação do Estúdio/editor, que enxerga TODAS as
+ * docs para se apoiar. A RLS da sessão já limita ao que o autor pode ler.
+ */
+export async function retrieveContextMulti(
+  spaceIds: string[],
+  query: string,
+  limit = 8,
+): Promise<RetrievedSource[]> {
+  const ids = [...new Set(spaceIds.filter(Boolean))];
+  if (!ids.length) return [];
+  const supabase = await createClient();
+  const escopos = await Promise.all(
+    ids.map(async (spaceId) => ({ spaceId, tree: await getEffectiveTreeAdmin(spaceId) })),
+  );
+  return retrieveWith(supabase as DbClient, escopos, query, limit);
+}
+
+/**
  * Caminho PÚBLICO (widget / API v1): sem sessão. Escopo = árvore pública do
  * espaço (só publicado, respeitando overlays). Usa service-role para ler os
  * chunks e escrever conversas mesmo em espaços privados vinculados à chave.

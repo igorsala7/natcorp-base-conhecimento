@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { retrieveContext, buildContextBlock } from "./rag";
+import { retrieveContextMulti, buildContextBlock } from "./rag";
 import { glossarioCasado } from "./ontology";
 
 /**
@@ -26,9 +26,14 @@ export async function contextoParaCriacao(
   if (!query.trim()) return "";
   try {
     const supabase = await createClient();
+    // TODAS as documentações acessíveis (não só a atual): a IA de criação enxerga
+    // o domínio inteiro para se apoiar. A RLS da sessão limita ao que o autor pode
+    // ler; a documentação ATUAL vai na frente da lista.
+    const { data: rows } = await supabase.from("spaces").select("id");
+    const spaceIds = [...new Set([spaceId, ...(rows ?? []).map((r) => r.id)])];
     const [sources, glossario] = await Promise.all([
-      retrieveContext(spaceId, query, limit).catch(() => []),
-      glossarioCasado(supabase, [spaceId], query).catch(() => ""),
+      retrieveContextMulti(spaceIds, query, limit).catch(() => []),
+      glossarioCasado(supabase, spaceIds, query).catch(() => ""),
     ]);
 
     const partes: string[] = [];
