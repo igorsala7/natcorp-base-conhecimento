@@ -138,27 +138,33 @@ function Column({
         <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{title}</span>
         <span className="text-xs tabular-nums text-text-muted">{count}</span>
       </div>
-      <ul className="max-h-56 min-h-[6rem] overflow-auto p-1">
+      {/* overflow-auto = rola nos DOIS eixos; o <ul> w-max cresce até o item
+          mais largo (min-w-full mantém linhas curtas ocupando a coluna toda),
+          então rótulos longos NÃO são cortados: rola na horizontal. */}
+      <div className="slim-scroll max-h-56 min-h-[6rem] overflow-auto p-1">
         {items.length === 0 ? (
-          <li className="px-2 py-3 text-center text-xs text-text-muted">{empty}</li>
+          <p className="px-2 py-3 text-center text-xs text-text-muted">{empty}</p>
         ) : (
-          items.map((i) => (
-            <li key={i.id}>
-              <button
-                type="button"
-                onClick={() => onItem(i.id)}
-                className={cn(
-                  "flex w-full min-w-0 flex-col rounded-md px-2 py-1.5 text-left text-sm text-text",
-                  "hover:bg-[var(--color-primary)]/8 focus:bg-[var(--color-primary)]/8 focus:outline-none",
-                )}
-              >
-                <span className="truncate">{i.label}</span>
-                {i.sub && <span className="truncate text-xs text-text-muted">{i.sub}</span>}
-              </button>
-            </li>
-          ))
+          <ul className="w-max min-w-full">
+            {items.map((i) => (
+              <li key={i.id}>
+                <button
+                  type="button"
+                  onClick={() => onItem(i.id)}
+                  title={i.sub ? `${i.label} — ${i.sub}` : i.label}
+                  className={cn(
+                    "flex w-full flex-col whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-text",
+                    "hover:bg-[var(--color-primary)]/8 focus:bg-[var(--color-primary)]/8 focus:outline-none",
+                  )}
+                >
+                  <span>{i.label}</span>
+                  {i.sub && <span className="text-xs text-text-muted">{i.sub}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-      </ul>
+      </div>
     </div>
   );
 }

@@ -569,6 +569,7 @@ function BulkModulesDialog({
       open
       onClose={onClose}
       title={`Módulos — ${count} tool(s)`}
+      resizable
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
@@ -888,6 +889,7 @@ export function ToolDialog({
       onClose={onClose}
       title={tool ? "Editar API/Tool" : "Nova API/Tool"}
       size="lg"
+      resizable
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
