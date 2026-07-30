@@ -5,7 +5,7 @@ import { FilePlus2, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ingestKnowledgeFile } from "@/app/(admin)/admin/(app)/base-conhecimento/actions";
-import { MAX_BYTES, MAX_MB, EXTENSOES } from "@/app/(admin)/admin/(app)/base-conhecimento/constants";
+import { MAX_BYTES, MAX_MB, ACCEPT } from "@/app/(admin)/admin/(app)/base-conhecimento/constants";
 
 /**
  * "Adicionar documentos" à base de conhecimento do CHATBOT, de qualquer tela.
@@ -27,7 +27,7 @@ export function useKbUpload(spaceId: string, onDone?: (resumo: string) => void) 
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.accept = EXTENSOES.join(",");
+    input.accept = ACCEPT;
     input.onchange = async () => {
       const files = [...(input.files ?? [])];
       if (!files.length) return;

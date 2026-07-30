@@ -663,6 +663,25 @@ async function extractPptx(buf: Buffer): Promise<Extraction> {
   return { source: "pptx", blocks, images: [] };
 }
 
+/**
+ * Decodifica bytes de um arquivo de TEXTO respeitando a codificação. Tenta
+ * UTF-8 estrito; se falhar (bytes inválidos), assume Windows-1252/Latin-1 — o
+ * caso clássico do CSV exportado pelo Excel em pt-BR, onde `toString("utf8")`
+ * transformaria "Módulo" em "MÃ³dulo". BOM inicial é removido.
+ */
+export function decodeText(buf: Buffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    try {
+      return new TextDecoder("windows-1252").decode(bytes);
+    } catch {
+      return Buffer.from(bytes).toString("latin1"); // fallback sempre disponível
+    }
+  }
+}
+
 export async function extractDocument(
   buf: Buffer,
   filename: string,
@@ -676,14 +695,19 @@ export async function extractDocument(
   if (name.endsWith(".docx") || mime?.includes("word"))
     return extractDocx(buf);
   if (name.endsWith(".md") || name.endsWith(".markdown"))
-    return extractMarkdown(buf.toString("utf8"));
+    return extractMarkdown(decodeText(buf));
   if (name.endsWith(".xlsx") || name.endsWith(".xlsm") || mime?.includes("spreadsheet")) {
     // Import dinâmico: o exceljs é pesado e só o caminho de planilha precisa dele.
     const { extractSheet } = await import("./extract-sheet");
     return extractSheet(buf);
   }
+  if (name.endsWith(".csv") || name.endsWith(".tsv") || mime === "text/csv" || mime === "text/tab-separated-values") {
+    // Tabela como a planilha, mas sem ExcelJS (módulo próprio).
+    const { extractCsv } = await import("./extract-csv");
+    return extractCsv(decodeText(buf), name.endsWith(".tsv") ? "tsv" : "csv");
+  }
   if (name.endsWith(".html") || name.endsWith(".htm") || mime === "text/html")
-    return extractHtml(buf.toString("utf8"));
+    return extractHtml(decodeText(buf));
   // Texto puro como fallback.
-  return extractMarkdown(buf.toString("utf8"));
+  return extractMarkdown(decodeText(buf));
 }

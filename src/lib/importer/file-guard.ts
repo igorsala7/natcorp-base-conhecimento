@@ -43,8 +43,31 @@ export function ehImagem(name: string): boolean {
   return (EXT_IMAGEM as readonly string[]).includes(extDe(name));
 }
 
+/**
+ * MIME types acrescentados ao `accept` além das extensões. Sem eles, o seletor
+ * de arquivos do macOS costuma DESABILITAR o .csv — em especial os salvos pelo
+ * Excel, que ficam com o tipo `application/vnd.ms-excel` no sistema — porque o
+ * `accept` só com extensão vira uma UTI estrita que o arquivo não bate. Os MIMEs
+ * (e o `text/plain` como rede) deixam o seletor reconhecê-los. O portão de
+ * verdade continua sendo a allowlist de EXTENSÃO em `assertArquivoSeguro`.
+ */
+const ACCEPT_MIMES = [
+  "text/plain",
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel", // .csv salvo pelo Excel costuma vir assim
+  "text/tab-separated-values",
+  "text/markdown",
+  "text/html",
+  "application/json",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+] as const;
+
 /** Valor do atributo `accept` do <input type=file> (hint no cliente). */
-export const ACCEPT_ATTR = [...EXT_ACEITAS].map((e) => `.${e}`).join(",");
+export const ACCEPT_ATTR = [...[...EXT_ACEITAS].map((e) => `.${e}`), ...ACCEPT_MIMES].join(",");
 
 /** Limite padrão por arquivo (bytes). Documentos grandes vão pela Importação. */
 export const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;

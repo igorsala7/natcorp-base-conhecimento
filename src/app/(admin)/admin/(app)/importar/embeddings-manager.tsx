@@ -20,7 +20,7 @@ import {
   type EmbeddingReportRow,
 } from "./embeddings-actions";
 import { ingestKnowledgeFile } from "../base-conhecimento/actions";
-import { MAX_BYTES, MAX_MB, EXTENSOES } from "../base-conhecimento/constants";
+import { MAX_BYTES, MAX_MB, ACCEPT } from "../base-conhecimento/constants";
 
 export type EmbJobRow = {
   id: string;
@@ -307,11 +307,11 @@ export function EmbeddingsManager({
               {enviando ? "Processando…" : "Clique para escolher um arquivo"}
             </span>
             <span className="text-xs text-text-muted">
-              PDF, Word, Excel, HTML, Markdown · até {MAX_MB} MB — indexado só para o chatbot
+              PDF, Word, Excel, CSV, HTML, Markdown · até {MAX_MB} MB — indexado só para o chatbot
             </span>
             <input
               type="file"
-              accept={EXTENSOES.join(",")}
+              accept={ACCEPT}
               className="hidden"
               disabled={enviando}
               onChange={(e) => {

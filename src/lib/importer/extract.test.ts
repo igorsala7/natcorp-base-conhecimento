@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { extractDocument, podarChromeDePaginas } from "./extract";
+import { extractDocument, podarChromeDePaginas, decodeText } from "./extract";
+
+describe("decodeText (encoding de arquivos de texto)", () => {
+  it("UTF-8 válido é decodificado como UTF-8", () => {
+    expect(decodeText(Buffer.from("Módulo — Benefícios", "utf8"))).toBe("Módulo — Benefícios");
+  });
+  it("Windows-1252/Latin-1 (CSV do Excel) NÃO vira mojibake", () => {
+    // "Módulo" em Windows-1252: ó = 0xF3 (byte único), inválido em UTF-8.
+    const bytes = Buffer.from([0x4d, 0xf3, 0x64, 0x75, 0x6c, 0x6f]);
+    expect(decodeText(bytes)).toBe("Módulo");
+  });
+  it("BOM inicial é removido", () => {
+    expect(decodeText(Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0x62]))).toBe("ab");
+  });
+});
 
 /**
  * O manual real que motivou estes testes tinha 33 `<img>` em data URI, todas

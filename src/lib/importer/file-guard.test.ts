@@ -17,6 +17,11 @@ describe("extDe / extensaoAceita", () => {
     expect(ACCEPT_ATTR).toContain(".pptx");
     expect(ACCEPT_ATTR).toContain(".sql");
   });
+  it("ACCEPT_ATTR habilita CSV (extensão + MIMEs, p/ o seletor do macOS)", () => {
+    expect(ACCEPT_ATTR).toContain(".csv");
+    expect(ACCEPT_ATTR).toContain("text/csv");
+    expect(ACCEPT_ATTR).toContain("application/vnd.ms-excel");
+  });
 });
 
 describe("pareceBinario", () => {

@@ -153,7 +153,7 @@ export function ImportManager({
           {uploading ? (progressoUp ?? "Enviando…") : "Clique para escolher arquivos"}
         </span>
         <span className="text-xs text-text-muted">
-          PDF, DOCX, PPTX, XLSX, HTML, Markdown e arquivos de desenvolvimento (SQL, JS, TS, CSS, JSON…) — pode escolher vários (processa um de cada vez)
+          PDF, DOCX, PPTX, XLSX, CSV/TSV, HTML, Markdown e arquivos de desenvolvimento (SQL, JS, TS, CSS, JSON…) — pode escolher vários (processa um de cada vez)
         </span>
         <input
           type="file"

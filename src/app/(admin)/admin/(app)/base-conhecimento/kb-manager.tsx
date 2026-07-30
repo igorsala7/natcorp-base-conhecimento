@@ -11,7 +11,7 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import { ingestKnowledgeFile, deleteKnowledgeFile } from "./actions";
-import { MAX_BYTES, MAX_MB, EXTENSOES } from "./constants";
+import { MAX_BYTES, MAX_MB, ACCEPT } from "./constants";
 
 export type KbRow = {
   id: string;
@@ -92,11 +92,11 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
           {enviando ? "Processando…" : "Clique para escolher um arquivo"}
         </span>
         <span className="text-xs text-text-muted">
-          PDF, Word, Excel, HTML, Markdown · até {MAX_MB} MB
+          PDF, Word, Excel, CSV, HTML, Markdown · até {MAX_MB} MB
         </span>
         <input
           type="file"
-          accept={EXTENSOES.join(",")}
+          accept={ACCEPT}
           className="hidden"
           disabled={enviando}
           onChange={(e) => {
