@@ -17,7 +17,7 @@ import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
-import { pageContextFields, pageContextHint, pageContextNote } from "@/lib/chat/page-context";
+import { pageContextFields, pageContextHint, pageContextNote, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { buildChartTool, buildReportTool, visualsDirective } from "@/lib/chat/report-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
@@ -117,14 +117,16 @@ export async function POST(req: NextRequest) {
   });
 
   let convId = payload.conversationId;
+  let prevPage: PageContext | null = null;
   if (convId) {
     const { data: existing } = await supabase
       .from("conversations")
-      .select("id")
+      .select("id, page")
       .eq("id", convId)
       .eq("space_id", spaceId)
       .maybeSingle();
     if (!existing) convId = undefined;
+    else prevPage = pageContextFields(existing.page);
   }
   // Identidade de rastreio — usada na conversa E para atribuir o CONSUMO de IA
   // a este usuário (não ao sistema).
@@ -158,6 +160,8 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
     convId = conv?.id;
+  } else if (convId && page && !mesmaPagina(prevPage, page)) {
+    await supabase.from("conversations").update({ page }).eq("id", convId);
   }
   runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
@@ -246,6 +250,7 @@ export async function POST(req: NextRequest) {
         notaDataAtual(),
         buildContextBlock(sources),
         attach.contextBlock,
+        pageChangeNote(prevPage, page),
         pageContextNote(page),
         glossario
           ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`

@@ -1,5 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { pageContextFields, pageContextHint, pageContextNote } from "./page-context";
+import { pageContextFields, pageContextHint, pageContextNote, mesmaPagina, pageChangeNote } from "./page-context";
+
+describe("mudança de tela (#5)", () => {
+  it("mesmaPagina compara por path; null nunca é igual", () => {
+    expect(mesmaPagina({ path: "/a" }, { path: "/a", title: "X" })).toBe(true);
+    expect(mesmaPagina({ path: "/a" }, { path: "/b" })).toBe(false);
+    expect(mesmaPagina(null, { path: "/a" })).toBe(false);
+    expect(mesmaPagina({ title: "" }, { title: "" })).toBe(false); // chave vazia
+  });
+
+  it("pageChangeNote só aparece quando a tela mudou", () => {
+    expect(pageChangeNote({ path: "/a" }, { path: "/a" })).toBe("");
+    expect(pageChangeNote(null, null)).toBe("");
+    const nota = pageChangeNote({ path: "/ferias", title: "Férias" }, { path: "/ponto", title: "Ponto" });
+    expect(nota).toContain("MUDANÇA DE TELA");
+    expect(nota).toContain("Férias");
+    expect(nota).toContain("Ponto");
+  });
+});
 
 describe("page-context", () => {
   it("saneia e mantém só os campos presentes", () => {
