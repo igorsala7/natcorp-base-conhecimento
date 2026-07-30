@@ -141,16 +141,43 @@
     if (RX_GRAVA.test(s)) return false; // grava/navega vence → confirma
     var role = (el.getAttribute && el.getAttribute("role")) || "";
     if (/^menuitem/.test(role)) return true; // item do menu Ações = navegação do relatório
+    // Cabeçalho de coluna do IR/IG: clicar apenas ABRE o menu de filtro/ordenação.
+    if (el.closest && el.closest("[role='columnheader'],.a-IRR-header,.a-GV-header,.a-IRR-headerLink,.a-GV-headerLabel")) return true;
     return RX_VIEW.test(s);
   }
+  // Campo de POPUP LOV do APEX (abre uma janela de busca em vez de preencher direto)?
+  function ehPopupLov(el) {
+    try {
+      if (/popup.?lov|apex-item-popup/i.test(el.className || "")) return true;
+      if (el.closest && el.closest(".apex-item-group--popup-lov,.a-PopupLOV,.apex-item-popup-lov")) return true;
+      var p = el.parentElement;
+      if (p && p.querySelector && p.querySelector(".a-Button--popupLov,.a-Button--popupLOV,button[id$='_lov'],.apex-item-popup-lov-button")) return true;
+    } catch {}
+    return false;
+  }
+  // Tipo/formato do campo — o modelo precisa saber se é número, texto, data,
+  // tamanho máximo, lista nativa ou lista de valores (para não preencher errado).
   function fieldTipo(el) {
     var tag = (el.tagName || "").toLowerCase();
-    if (tag === "textarea") return "textarea";
-    if (tag === "select") return "select";
-    if (el.isContentEditable) return "richtext";
+    if (tag === "textarea") return "texto longo";
+    if (tag === "select") return el.multiple ? "select-multiplo" : "lista";
+    if (el.isContentEditable) return "texto";
     var t = (el.type || "text").toLowerCase();
     if (t === "radio" || t === "checkbox") return t;
-    return t;
+    if (ehPopupLov(el)) return "lista de valores";
+    var base = (t === "number" || el.inputMode === "numeric" || el.inputMode === "decimal") ? "número"
+      : t === "date" ? "data"
+      : t === "email" ? "email"
+      : t === "tel" ? "telefone"
+      : t === "url" ? "url"
+      : t === "time" ? "hora"
+      : "texto";
+    var extra = [];
+    try {
+      if (el.maxLength && el.maxLength > 0 && el.maxLength < 4000) extra.push("máx " + el.maxLength);
+      if (el.getAttribute && el.getAttribute("pattern")) extra.push("formato específico");
+    } catch {}
+    return base + (extra.length ? " (" + extra.join(", ") + ")" : "");
   }
   function fieldValor(el) {
     if (el.isContentEditable) return scanTexto(el.textContent).slice(0, 400);
@@ -202,7 +229,9 @@
       try {
         doc.querySelectorAll(
           "button,input[type='submit'],input[type='button'],input[type='reset'],[role='button']," +
-          "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],a.t-Button,a.a-Button,.a-Menu a,.a-Menu-content a"
+          "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio'],a.t-Button,a.a-Button,.a-Menu a,.a-Menu-content a," +
+          // Cabeçalhos de coluna do Interactive Report/Grid (abrem o menu de filtro/ordenação da coluna).
+          ".a-IRR-headerLink,.a-GV-headerLabel,[role='columnheader'] a,[role='columnheader'] button"
         ).forEach(function (el) {
           if (out.length >= 120) return; // botões: teto total 120 (garante espaço p/ itens de menu)
           if (host && host.contains && host.contains(el)) return;
@@ -244,7 +273,17 @@
   }
   function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {} }
   function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch {} }
-  function fillField(el, valor) {
+  // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
+  // NOME (texto), com limite de palavra para "200" não casar "2000" nem "1200".
+  function opcaoCasa(o, v) {
+    var nv = scanTexto(v).toLowerCase(); if (!nv) return false;
+    if (o.value != null && String(o.value).toLowerCase() === nv) return true;
+    var ot = scanTexto(o.textContent).toLowerCase();
+    if (ot === nv) return true;
+    var esc = nv.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    try { return new RegExp("(^|[^0-9a-zà-ú])" + esc + "([^0-9a-zà-ú]|$)", "i").test(ot); } catch { return ot.indexOf(nv) >= 0; }
+  }
+  function fillField(el, valor, valores) {
     // Blindagem: nunca escreve em campo restrito (mesmo se o usuário clicar nele
     // no modo "escolher"). O scan já os oculta; aqui é a garantia técnica.
     if (!el || el.disabled || el.readOnly || el.getAttribute("aria-readonly") === "true") return false;
@@ -253,11 +292,25 @@
         el.textContent = valor;
         el.dispatchEvent(new Event("input", { bubbles: true }));
       } else if ((el.tagName || "").toLowerCase() === "select") {
-        var achou = false;
-        Array.prototype.forEach.call(el.options, function (o) {
-          if (!achou && (o.value === valor || scanTexto(o.textContent) === scanTexto(valor))) { el.value = o.value; achou = true; }
-        });
-        el.dispatchEvent(new Event("change", { bubbles: true }));
+        var alvos = (valores && valores.length) ? valores : [valor];
+        if (el.multiple) {
+          // Múltipla seleção: marca TODAS as opções que casam qualquer alvo.
+          var algum = false;
+          Array.prototype.forEach.call(el.options, function (o) {
+            var sel = alvos.some(function (v) { return opcaoCasa(o, v); });
+            o.selected = sel; if (sel) algum = true;
+          });
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          if (!algum) return false; // nenhum item casou → falha (não finge sucesso)
+        } else {
+          var achou = false;
+          Array.prototype.forEach.call(el.options, function (o) {
+            if (!achou && opcaoCasa(o, alvos[0])) { el.value = o.value; achou = true; }
+          });
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          if (!achou) return false;
+        }
       } else {
         // setter nativo -> React/Angular percebem a mudança
         var proto = (el.tagName || "").toLowerCase() === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -329,13 +382,20 @@
   // mostra um status compacto e segue a fila.
   function execDireto(a, el) {
     highlightField(el);
-    var ok = a.tipo === "fill" ? fillField(el, a.valor) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
+    var ok = a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
     setTimeout(function () { unhighlightField(el); }, 700);
     var nome = a.tipo === "fill" ? "Preenchi " : a.tipo === "check" ? (a.marcar ? "Marquei " : "Desmarquei ") : "Cliquei em ";
-    var extra = a.tipo === "fill" && a.valor ? ": " + (a.valor.length > 60 ? a.valor.slice(0, 60) + "…" : a.valor) : "";
+    var multi = a.tipo === "fill" && a.valores && a.valores.length;
+    var extra = multi ? " (" + a.valores.length + " itens)"
+      : (a.tipo === "fill" && a.valor ? ": " + (a.valor.length > 60 ? a.valor.slice(0, 60) + "…" : a.valor) : "");
     if (ok) { registrarExec(a); statusMsg("✅ " + nome + "“" + a.label + "”" + extra, "#15803d"); }
     else { statusMsg("⚠️ Não consegui " + nome.toLowerCase() + "“" + a.label + "”", "#b45309"); }
-    proximaAcao();
+    // Campos em CASCATA: preencher/marcar um campo pode disparar o carregamento
+    // (AJAX) das opções do campo dependente. Se há mais ações na fila, espera o
+    // dependente assentar antes da próxima — senão o filho ainda estaria vazio.
+    var mudouValor = ok && (a.tipo === "fill" || a.tipo === "check");
+    if (mudouValor && _acoes.length > 0) setTimeout(proximaAcao, 550);
+    else proximaAcao();
   }
   // Processa as ações da IA EM ORDEM. Preencher/marcar e cliques de VISUALIZAÇÃO
   // rodam direto; só cliques que GRAVAM/NAVEGAM pedem confirmação.
@@ -417,7 +477,7 @@
     var nao = botao(a.tipo === "fill" ? "Escolher outro campo" : "Cancelar", false);
     sim.addEventListener("click", function () {
       unhighlightField(el);
-      var ok = a.tipo === "fill" ? fillField(el, a.valor) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
+      var ok = a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
       if (ok) registrarExec(a);
       encerrar(ok ? okTxt : falhaTxt, ok ? "#15803d" : "#b45309");
     });
@@ -439,7 +499,7 @@
       if (!el) return;                       // clicou fora de um campo -> segue esperando
       if (host && host.contains && host.contains(el)) return; // ignora o próprio widget
       cleanup();
-      fillField(el, a.valor);
+      fillField(el, a.valor, a.valores);
       addMsg("assistant", "Pronto ✅ Escrevi no campo que você escolheu.");
       proximaAcao();
     }
@@ -605,6 +665,31 @@
     btn.style.background = active ? pc + "14" : "transparent";
     btn.style.color = active ? pc : "#6b6b72";
     btn.style.borderColor = active ? pc + "40" : "transparent";
+  }
+
+  // Link de download de arquivo (holerite, relatório PDF…) — live (dataURL) ou
+  // do histórico (URL assinada). `target=_blank` cobre URL assinada cross-origin.
+  function appendFileLink(href, filename) {
+    if (!href) return null;
+    var fa = document.createElement("a");
+    fa.href = href;
+    fa.download = filename || "arquivo";
+    fa.rel = "noopener";
+    fa.target = "_blank";
+    fa.textContent = "📎 " + (filename || "arquivo");
+    fa.style.cssText =
+      "display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 40px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;max-width:80%;";
+    messagesEl.appendChild(fa);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return fa;
+  }
+  // Reexibe a mídia persistida do assistente ao recarregar o histórico.
+  function renderMedia(media) {
+    if (!media || !media.length) return;
+    media.forEach(function (it) {
+      if (it && it.kind === "chart" && it.spec) renderChart(it.spec);
+      else if (it && it.kind === "file" && it.url) appendFileLink(it.url, it.filename);
+    });
   }
 
   function renderChart(spec) {
@@ -1283,6 +1368,13 @@
     bubble.className = "bubble";
     bubble.setAttribute("aria-label", "Abrir assistente");
     bubble.innerHTML = bubbleInner();
+    // Badge de notificação (novo) — pontinho no canto da bolha.
+    badge = document.createElement("span");
+    badge.setAttribute("aria-hidden", "true");
+    badge.style.cssText =
+      "position:absolute;top:3px;right:3px;min-width:13px;height:13px;border-radius:7px;" +
+      "background:#e5484d;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:none;pointer-events:none;";
+    bubble.appendChild(badge);
 
     panel = document.createElement("div");
     panel.className = "panel";
@@ -1564,6 +1656,62 @@
     });
   }
 
+  // Completa a revelação da resposta em curso (definida por `ask`). Chamado ao
+  // reabrir o chat e quando a aba volta ao primeiro plano — porque o navegador
+  // PAUSA o requestAnimationFrame com a aba em segundo plano, e sem isto a
+  // resposta ficaria "parada" (o usuário via como se o chat pausasse a sessão).
+  var _revealFlush = null;
+  try {
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden && _revealFlush) _revealFlush();
+    });
+  } catch {}
+
+  // ==== Notificação (badge + som) quando chega resposta com o widget minimizado ====
+  var badge = null;       // pontinho na bolha
+  var _naoLido = false;   // há resposta não lida (widget minimizado)
+  var _avisouTurno = false; // já avisou nesta resposta (evita beep repetido)
+  var _audioCtx = null;
+  function mostrarBadge(v) {
+    if (!badge) return;
+    try {
+      if (v && badge.parentNode !== bubble) bubble.appendChild(badge); // re-insere (innerHTML da bolha é trocado ao abrir/fechar)
+      badge.style.display = v ? "block" : "none";
+    } catch {}
+  }
+  // Destrava o áudio num gesto do usuário (política de autoplay dos navegadores).
+  function desbloquearAudio() {
+    try {
+      if (!_audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) _audioCtx = new AC(); }
+      if (_audioCtx && _audioCtx.state === "suspended") _audioCtx.resume();
+    } catch {}
+  }
+  // Bip curto e DISCRETO (dois tons suaves, volume baixo) — sem arquivo externo.
+  function tocarBip() {
+    try {
+      desbloquearAudio();
+      if (!_audioCtx) return;
+      var ctx = _audioCtx, t = ctx.currentTime;
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(660, t);
+      o.frequency.setValueAtTime(880, t + 0.09);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05, t + 0.02); // baixo = discreto
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + 0.26);
+    } catch {}
+  }
+  // Chegou resposta com o widget MINIMIZADO → badge + som (uma vez por resposta).
+  function avisarMensagem() {
+    if (open || _avisouTurno) return;
+    _avisouTurno = true;
+    _naoLido = true;
+    mostrarBadge(true);
+    tocarBip();
+  }
+
   function toggle() {
     open = !open;
     if (open) {
@@ -1574,6 +1722,9 @@
       bubble.style.fontSize = "28px";
       limparBloqueiosHost(); // caso um modal já tenha marcado o host
       ligarEscapeFoco(true); // escapa da armadilha de foco do modal
+      desbloquearAudio(); // gesto do usuário: libera o som de notificação
+      _naoLido = false; mostrarBadge(false); // abrir = confirmou a leitura → some o badge
+      if (_revealFlush) _revealFlush(); // completa a resposta que ficou parada enquanto minimizado
       // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
       // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
       setTimeout(function () {
@@ -1688,6 +1839,7 @@
       if (m.role === "assistant") {
         el.innerHTML = mdToHtml(m.content);
         if (m.citations && m.citations.length) renderCitations(m.citations);
+        if (m.media && m.media.length) renderMedia(m.media); // gráficos/PDFs persistidos
       } else if (m.attachments && m.attachments.length) {
         renderMsgAtts(m.attachments);
       }
@@ -1966,6 +2118,8 @@
     // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo.
     if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; }
     _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
+    _avisouTurno = continuacao; // continuação do loop não toca o som; resposta nova pode
+    desbloquearAudio(); // envio é gesto do usuário → libera o som p/ tocar depois
     busy = true;
     sendBtn.disabled = true;
     var typingBubble = document.createElement("div");
@@ -1985,8 +2139,33 @@
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
     // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
     var shown = 0, stopped = false, rafId = null, feito = false;
+    function finalizarReveal() {
+      // Passos intermediários do loop não mostram citações/feedback (só o resumo final).
+      feito = true;
+      if (ehFinalTurno) {
+        if (citations.length) renderCitations(citations);
+        renderFeedback();
+      }
+      if (_revealFlush === flushReveal) _revealFlush = null;
+    }
+    // Pinta a resposta INTEIRA de uma vez (sem a animação) e conclui se o stream
+    // já acabou. Usado quando o rAF está pausado (aba oculta) ou ao reabrir o chat.
+    function flushReveal() {
+      if (feito) return;
+      if (rafId != null) { try { cancelAnimationFrame(rafId); } catch {} rafId = null; }
+      if (answerEl) {
+        shown = full.length;
+        answerEl.innerHTML = mdToHtml(full);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+      if (stopped) finalizarReveal();
+    }
+    _revealFlush = flushReveal; // exposto p/ toggle()/visibilitychange completarem se travar
     function agendarReveal() {
       if (rafId != null) return;
+      // Aba em segundo plano: o navegador PAUSA o rAF → pinta tudo já, senão a
+      // resposta fica "parada" enquanto está oculta e só apareceria ao voltar.
+      if (typeof document !== "undefined" && document.hidden) { flushReveal(); return; }
       rafId = requestAnimationFrame(passoReveal);
     }
     function passoReveal() {
@@ -2001,14 +2180,7 @@
         if (perto) messagesEl.scrollTop = messagesEl.scrollHeight;
       }
       if (shown < full.length) agendarReveal();
-      else if (stopped && !feito) {
-        feito = true;
-        // Passos intermediários do loop não mostram citações/feedback (só o resumo final).
-        if (ehFinalTurno) {
-          if (citations.length) renderCitations(citations);
-          renderFeedback();
-        }
-      }
+      else if (stopped && !feito) finalizarReveal();
     }
 
     var body = { messages: history, conversationId: conversationId, sessionId: sessionId };
@@ -2084,10 +2256,12 @@
       } else if (evt.type === "clarify") {
         clarified = true;
         if (typing.parentNode) typing.remove();
+        avisarMensagem();
         renderClarify(evt.question, evt.options);
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         if (!answerEl) answerEl = addMsg("assistant", "");
+        if (!full) avisarMensagem(); // 1º pedaço da resposta com o widget minimizado → badge + som
         full += evt.value;
         agendarReveal(); // exibe suave, no ritmo do rAF (não em blocos)
       } else if (evt.type === "done") {
@@ -2098,19 +2272,12 @@
       } else if (evt.type === "file") {
         // Arquivo retornado por uma API (holerite, recibo…) → link de download.
         if (typing.parentNode) typing.remove();
-        var fa = document.createElement("a");
-        fa.href = evt.dataUrl;
-        fa.download = evt.filename || "arquivo";
-        fa.rel = "noopener";
-        fa.textContent = "📎 " + (evt.filename || "arquivo");
-        fa.style.cssText =
-          "display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 40px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;max-width:80%;";
-        messagesEl.appendChild(fa);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        avisarMensagem();
+        appendFileLink(evt.dataUrl, evt.filename);
       } else if (evt.type === "fill") {
         // A IA propôs preencher um campo → enfileira; processa no fim (com confirmação).
         if (typing.parentNode) typing.remove();
-        _acoes.push({ tipo: "fill", ref: evt.ref, label: evt.label, valor: evt.valor });
+        _acoes.push({ tipo: "fill", ref: evt.ref, label: evt.label, valor: evt.valor, valores: evt.valores });
       } else if (evt.type === "check") {
         // A IA propôs marcar/desmarcar um radio/checkbox → enfileira.
         if (typing.parentNode) typing.remove();
@@ -2122,6 +2289,7 @@
       } else if (evt.type === "chart") {
         // A IA montou um gráfico → card interativo (trocar tipo + exportar CSV/PNG).
         if (typing.parentNode) typing.remove();
+        avisarMensagem();
         if (evt.chart) renderChart(evt.chart);
       }
     }

@@ -15,7 +15,7 @@ export type ScreenField = { ref: string; label: string; type: string; value: str
 
 /** Ação de UI proposta pela IA (o widget executa, em ordem, com confirmação por política). */
 export type UiAction =
-  | { tipo: "fill"; ref: string; label: string; valor: string }
+  | { tipo: "fill"; ref: string; label: string; valor: string; valores?: string[] }
   | { tipo: "check"; ref: string; label: string; marcar: boolean }
   | { tipo: "click"; ref: string; label: string };
 /** @deprecated use UiAction — mantido só para compat de importação. */
@@ -52,7 +52,9 @@ export function fieldsContextBlock(fields: ScreenField[]): string {
           ? "clique com clicar_elemento"
           : f.type === "radio" || f.type === "checkbox"
             ? "marque com marcar_opcao"
-            : "preencha com preencher_campo";
+            : f.type === "lista de valores"
+              ? "CLIQUE para abrir e pesquisar (clicar_elemento) — não digite"
+              : "preencha com preencher_campo";
       const val = f.type === "botao" ? "" : ` = ${f.value || "(vazio)"}`;
       return `- [${f.ref}] "${f.label}" (${f.type} → ${acao})${val}`;
     })
@@ -67,18 +69,52 @@ export function fieldsContextBlock(fields: ScreenField[]): string {
 /** Diretriz de USO DAS FERRAMENTAS para o assistente de formulário (alta prioridade). */
 export function formAssistDirective(): string {
   return (
-    "ASSISTENTE DE TELA (a tela do usuário tem elementos — veja ELEMENTOS DA TELA no contexto: campos, botões, " +
-    "opções): quando o usuário pedir para OPERAR a tela, você AGE nela chamando a ferramenta certa (nunca responda só em " +
-    "texto — só a ferramenta muda a tela). INTERPRETE o pedido do usuário pelos RÓTULOS dos elementos (títulos de região, " +
-    "nomes de campo/botão/coluna), mesmo que a redação seja diferente; escolha o elemento cujo rótulo corresponde à intenção.\n" +
+    "ASSISTENTE DE TELA (a tela do usuário tem elementos — veja ELEMENTOS DA TELA no contexto: campos, botões, opções).\n" +
+    "QUANDO AGIR × QUANDO RESPONDER (regra nº 1 — evita preencher errado): só OPERE a tela quando o usuário der um COMANDO " +
+    "explícito de ação (verbo no imperativo: \"preencha\", \"escreva\", \"marque\", \"selecione\", \"clique\", \"filtre\", " +
+    "\"ordene\", \"abra\"…). Se a mensagem for uma PERGUNTA ou uma AFIRMAÇÃO (ex.: \"o que é esse campo?\", \"qual o valor " +
+    "de X?\", \"esse campo é obrigatório?\", \"como faço Y?\", \"o sistema faz Z?\"), NÃO toque na tela — RESPONDA. NUNCA " +
+    "preencha/clique com base em algo que o usuário só MENCIONOU ou PERGUNTOU. Na dúvida entre agir e responder, RESPONDA e " +
+    "ofereça fazer na tela.\n" +
+    "PERGUNTAS DE DOCUMENTAÇÃO: dúvidas sobre COMO o sistema funciona, conceitos ou procedimentos → responda pela " +
+    "DOCUMENTAÇÃO fornecida no contexto (os artigos citados), NÃO pelos campos da tela nem por conhecimento geral, e sem " +
+    "trocar de assunto. A tela mostra ONDE o usuário está — é apoio, não a fonte da resposta.\n" +
+    "Ao AGIR: interprete o pedido pelos RÓTULOS dos elementos (títulos de região, nomes de campo/botão/coluna), mesmo que a " +
+    "redação seja diferente; escolha o elemento cujo rótulo corresponde à intenção. Só a ferramenta muda a tela.\n" +
     "- ESCREVER/PREENCHER/GERAR um texto ou valor num campo (ex.: \"escreva a descrição da vaga\", \"preencha o campo X\", " +
-    "\"coloque a data\") → preencher_campo(ref, valor). Serve para texto, listas nativas (select) e datas nativas.\n" +
+    "\"coloque a data\") → preencher_campo(ref, valor). Serve para texto, listas nativas (select) e datas nativas. Se o " +
+    "campo for de MÚLTIPLA seleção (type select-multiplo) e o usuário pedir vários itens (ex.: \"Empresa 1, 200, 400 e 500\", " +
+    "por código ou por nome), passe todos de uma vez em `valores`.\n" +
     "- MARCAR/DESMARCAR/SELECIONAR uma opção de radio ou checkbox (ex.: \"marque Ativo\", \"selecione a opção Sim\") → " +
     "marcar_opcao(ref, marcar).\n" +
     "- CLICAR/ACIONAR um botão ou link (ex.: \"clique em Salvar\", \"abra o menu Ações\", \"clique em Adicionar linha\") → " +
     "clicar_elemento(ref).\n" +
+    "RESPEITE O TIPO/FORMATO do campo (indicado entre parênteses em ELEMENTOS DA TELA — número, texto, data, tamanho " +
+    "máximo): num campo NUMÉRICO não escreva letras nem símbolos; respeite o tamanho máximo e a máscara; datas no formato " +
+    "do campo. Se o valor pedido não couber no tipo do campo, AVISE o usuário em vez de forçar um valor inválido.\n" +
+    "LISTAS DE VALORES: um SELECT nativo (tipo lista) você preenche direto — preencher_campo casa por CÓDIGO ou por NOME. " +
+    "Já um POPUP LOV (campo do tipo \"lista de valores\", que abre uma JANELA de busca) NÃO se preenche digitando: primeiro " +
+    "CLIQUE para abrir a janela (o campo ou o botão de lupa ao lado), espere ela aparecer, PESQUISE pelo termo do pedido no " +
+    "campo de busca da janela e então SELECIONE (clique) o resultado que faz sentido para o pedido. Faça um passo por vez — " +
+    "o sistema re-varre a tela entre eles e te devolve os resultados carregados.\n" +
+    "IDENTIFICAR O CAMPO: primeiro procure o campo cujo rótulo corresponde ao que o usuário pediu. Se NÃO existir um campo " +
+    "para aquilo, use a coluna do relatório (Interactive Report/Grid) — clique no cabeçalho da coluna ou em Ações → Filtro.\n" +
+    "Se precisar saber COMO preencher um campo ou COMO prosseguir numa tela (o passo a passo, o formato de um valor, o " +
+    "que cada opção significa), consulte a DOCUMENTAÇÃO no contexto — ela descreve o funcionamento do sistema. Operar a " +
+    "tela normalmente NÃO exige buscar dados em ferramentas; só busque um dado quando o valor a preencher vier do sistema.\n" +
+    "CAMPOS DE ESTRUTURA (Empresa, Filial, Centro de Custo, Departamento, Cargo e afins): se o usuário indicar um desses " +
+    "pelo NOME e o campo esperar o CÓDIGO (ou as opções não estiverem visíveis na tela), use as FERRAMENTAS DE ESTRUTURA " +
+    "para converter nome↔código antes de preencher — são as ferramentas mais usadas ao operar a tela. Se as opções já " +
+    "estiverem na tela, o próprio preencher_campo casa por código ou por nome, sem precisar de ferramenta.\n" +
     "Gerar textos a partir dos OUTROS campos da tela é tarefa válida e esperada — não é \"inventar dados\". Você pode " +
     "encadear ações (ex.: preencher um campo e depois clicar em Salvar); chame uma ferramenta por elemento, na ordem certa.\n" +
+    "ORDEM E CAMPOS EM CASCATA (importante): ao preencher VÁRIOS campos, respeite a ORDEM em que aparecem na tela (de cima " +
+    "para baixo) — muitos são DEPENDENTES/CASCATA: o campo seguinte só carrega suas opções DEPOIS que o anterior é " +
+    "preenchido (ex.: escolher a Empresa carrega as Filiais; escolher a Filial carrega os Departamentos). Portanto preencha " +
+    "o PAI antes do FILHO. Se você já identificar a dependência (qual campo depende de qual), use essa ordem mesmo que não " +
+    "seja de cima para baixo. Na dúvida, preencha UM campo por vez: o sistema re-varre a tela e te devolve o próximo campo " +
+    "já com as opções carregadas, e você continua — não tente adivinhar de uma vez o valor de um campo cujas opções ainda " +
+    "não apareceram.\n" +
     "Ao se referir a um elemento, use SOMENTE o nome dele — sem marcadores como \"(valor obrigatório)\", \"(obrigatório)\" ou \"*\".\n" +
     "REGRAS DE SEGURANÇA (obrigatórias): NUNCA opere a tela por conta própria — só quando o usuário PEDIR explicitamente " +
     "aquela ação. NUNCA mexa em campos desabilitados, somente-leitura ou restritos (o sistema já os remove da lista, então " +
@@ -96,7 +132,11 @@ export function formAssistDirective(): string {
     "Download\". Vários vivem DENTRO de submenus: \"Destacar\", \"Classificar\", \"Quebra de Controle\", \"Calcular\", " +
     "\"Agregar\", \"Gráfico\", \"Agrupar por\" e \"Pivô\" ficam DENTRO de \"Formato\" — então, para destacar/realçar linhas, " +
     "clique em \"Ações\" → \"Formato\" → \"Destacar\", e só depois a janela com Coluna/Operador/Expressão/Cor e o botão " +
-    "\"Aplicar\" aparece. Abra um submenu por vez (clique no pai) e espere ele aparecer na lista antes do próximo clique."
+    "\"Aplicar\" aparece. Abra um submenu por vez (clique no pai) e espere ele aparecer na lista antes do próximo clique.\n" +
+    "FILTRAR SEM CAMPO DE FILTRO: se o usuário pedir para filtrar/localizar registros e NÃO houver um campo de filtro/" +
+    "busca na tela para aquilo, use o RELATÓRIO: clique no CABEÇALHO da coluna correspondente (ele abre o menu de filtro/" +
+    "ordenação daquela coluna) ou vá em \"Ações\" → \"Filtro\". Filtre pelo que o usuário disse, casando pelo TEXTO exibido " +
+    "na coluna — lembre que ele pode informar o NOME/descrição, não o código."
   );
 }
 
@@ -125,16 +165,26 @@ export function buildFormTools(fields: ScreenField[], sink: UiAction[]): ToolSet
         "ESCREVE um valor num campo da tela do usuário (identificado pelo `ref` da lista ELEMENTOS DA TELA). " +
         "CHAME esta ferramenta SEMPRE que o usuário pedir para preencher/escrever/gerar um texto num campo, " +
         "escolher um valor numa lista nativa (select) ou informar uma data nativa — é a ÚNICA forma de o campo ser " +
-        "preenchido na tela (responder só em texto não preenche nada). Uma chamada por campo.",
+        "preenchido na tela (responder só em texto não preenche nada). Uma chamada por campo. Se o campo aceitar " +
+        "MÚLTIPLA seleção (tipo select-multiplo) e o usuário pedir vários itens, passe TODOS em `valores` (por código " +
+        "ou por nome) — o sistema seleciona os que casarem.",
       inputSchema: z.object({
         ref: z.string().describe("O ref do campo (o texto entre colchetes na lista ELEMENTOS DA TELA)."),
-        valor: z.string().describe("O texto/valor a escrever no campo."),
+        valor: z.string().describe("O texto/valor a escrever no campo (para seleção múltipla, repita aqui o primeiro item)."),
+        valores: z
+          .array(z.string())
+          .optional()
+          .describe("SÓ para campo de múltipla seleção (select-multiplo): a lista COMPLETA de itens a selecionar (código ou nome)."),
       }),
-      execute: async ({ ref, valor }) => {
+      execute: async ({ ref, valor, valores }) => {
         const f = acha(ref);
         if (!f) return semRef(ref);
-        sink.push({ tipo: "fill", ref, label: f.label, valor });
-        return { ok: true, mensagem: `Vou preencher o campo "${f.label}".` };
+        const multi = Array.isArray(valores) && valores.length > 0;
+        sink.push({ tipo: "fill", ref, label: f.label, valor, ...(multi ? { valores } : {}) });
+        return {
+          ok: true,
+          mensagem: multi ? `Vou selecionar ${valores!.length} itens em "${f.label}".` : `Vou preencher o campo "${f.label}".`,
+        };
       },
     }),
     marcar_opcao: tool({
