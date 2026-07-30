@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Network, Pencil, Plus, ScanSearch, Sparkles, Target, Trash2, X } from "lucide-react";
+import { FileText, Loader2, Network, Pencil, Plus, ScanSearch, Sparkles, Target, Trash2, Upload, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { ACCEPT_ATTR } from "@/lib/importer/file-guard";
 import { Button } from "@/components/ui/button";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -18,10 +19,12 @@ import {
   addAlias,
   deleteAlias,
   deleteTerm,
+  enqueueOntologyImportJob,
   enqueueOntologyScanJob,
   saveTerm,
   type OntologyJobRow,
   type OntologyKind,
+  type OntologySource,
   type OntologyTermRow,
 } from "./actions";
 
@@ -66,11 +69,13 @@ export function OntologyManager({
   const [jobs, setJobs] = useState<OntologyJobRow[]>(initialJobs);
   const ativos = jobs.filter((j) => j.status === "queued" || j.status === "running");
   const [gerando, setGerando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [nodeSel, setNodeSel] = useState("__all__");
 
   const [q, setQ] = useState("");
   const [kindFilter, setKindFilter] = useState<OntologyKind | "">("");
-  const [sourceFilter, setSourceFilter] = useState<"" | "ia" | "manual">("");
+  const [sourceFilter, setSourceFilter] = useState<"" | OntologySource>("");
   const [editando, setEditando] = useState<typeof VAZIO | null>(null);
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
 
@@ -148,6 +153,24 @@ export function OntologyManager({
     else toast.error(r.error);
   }
 
+  async function subirArquivo(file: File) {
+    setEnviando(true);
+    try {
+      // 1º segmento = spaceId (a policy do bucket `imports` extrai o espaço do
+      // path via storage_space_id e exige content.edit). Nome sanitizado no path;
+      // o nome real vai à action para a IA detectar a extensão.
+      const path = `${spaceId}/${Date.now()}-ontologia-${file.name.replace(/[^\w.-]/g, "_")}`;
+      const { error } = await supabase.storage.from("imports").upload(path, file);
+      if (error) return toast.error(`Falha no upload: ${error.message}`);
+      const r = await enqueueOntologyImportJob({ spaceId, sourceFile: path, originalName: file.name, sizeBytes: file.size });
+      if (!r.ok) return toast.error(r.error);
+      toast.success("Arquivo enviado — gerando termos e sinônimos por IA. Acompanhe o progresso.");
+      router.refresh();
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   const filtrados = useMemo(() => {
     const termo = q.trim().toLowerCase();
     return initialTerms.filter((t) => {
@@ -215,7 +238,9 @@ export function OntologyManager({
               <span className="text-text-muted">
                 {j.status === "queued"
                   ? "Na fila — aguardando o worker (npm run worker)…"
-                  : "Lendo os artigos e extraindo termos…"}
+                  : j.scope === "import"
+                    ? "Importando termos do arquivo e gerando sinônimos…"
+                    : "Lendo os artigos e extraindo termos…"}
               </span>
               <span className="tabular-nums text-text-muted">
                 {j.status === "queued" ? "na fila" : j.total ? `${j.done}/${j.total}` : "iniciando…"}
@@ -233,6 +258,45 @@ export function OntologyManager({
           </div>
         ))}
       </Surface>
+
+      {/* ── Importar termos de arquivo ────────────────────────────────────── */}
+      {canManage && (
+        <Surface elevation={1} padding="lg" className="space-y-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <Upload className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold">Importar termos de arquivo</h2>
+              <p className="mt-0.5 text-sm text-text-muted">
+                Suba um arquivo com uma lista de palavras (txt, csv, planilha, Word, PDF…). O sistema
+                cria cada termo e <strong>gera os sinônimos por IA</strong>, sem duplicar o que já existe.
+                Um termo por linha; se a linha tiver vírgula/ponto-e-vírgula, o 1º campo é o termo e o
+                restante são sinônimos que você já quer incluir.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept={ACCEPT_ATTR}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void subirArquivo(f);
+              }}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => fileRef.current?.click()}
+              disabled={enviando || ativos.length > 0}
+            >
+              {enviando ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+              {ativos.length > 0 ? "Aguarde o job atual…" : "Escolher arquivo…"}
+            </Button>
+          </div>
+        </Surface>
+      )}
 
       {/* ── Toolbar do CRUD ───────────────────────────────────────────────── */}
       <div>
@@ -262,12 +326,13 @@ export function OntologyManager({
               </option>
             ))}
           </select>
-          <Segmented<"" | "ia" | "manual">
+          <Segmented<"" | OntologySource>
             value={sourceFilter}
             onChange={setSourceFilter}
             options={[
               { value: "", label: "Todos" },
               { value: "ia", label: "IA" },
+              { value: "upload", label: "Arquivo" },
               { value: "manual", label: "Manual" },
             ]}
           />
@@ -300,6 +365,11 @@ export function OntologyManager({
                       {t.source === "ia" && (
                         <Badge tone="neutral" className="inline-flex items-center gap-1">
                           <Sparkles className="size-3" /> IA
+                        </Badge>
+                      )}
+                      {t.source === "upload" && (
+                        <Badge tone="neutral" className="inline-flex items-center gap-1">
+                          <FileText className="size-3" /> Arquivo
                         </Badge>
                       )}
                       {t.nodeId && (

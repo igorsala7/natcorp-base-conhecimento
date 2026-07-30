@@ -4,18 +4,20 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
-import { enqueueOntologyScan } from "@/lib/jobs/boss";
+import { enqueueOntologyScan, enqueueOntologyImport } from "@/lib/jobs/boss";
 import { normalizarTermo } from "@/lib/ai/ontology";
+import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 
 export type OntologyKind = "conceito" | "entidade" | "acao" | "sigla" | "outro";
 
-export type OntologyAliasRow = { id: string; alias: string; source: "ia" | "manual" };
+export type OntologySource = "ia" | "manual" | "upload";
+export type OntologyAliasRow = { id: string; alias: string; source: OntologySource };
 export type OntologyTermRow = {
   id: string;
   term: string;
   kind: OntologyKind;
   description: string | null;
-  source: "ia" | "manual";
+  source: OntologySource;
   aliases: OntologyAliasRow[];
   /** Nó RESPONSÁVEL (artigo/diretório) forçado no RAG quando o termo é perguntado. */
   nodeId: string | null;
@@ -73,7 +75,7 @@ export async function listOntology(
       .order("alias", { ascending: true });
     for (const a of aliases ?? []) {
       const lista = aliasPorTermo.get(a.term_id) ?? [];
-      lista.push({ id: a.id, alias: a.alias, source: a.source as "ia" | "manual" });
+      lista.push({ id: a.id, alias: a.alias, source: a.source as OntologySource });
       aliasPorTermo.set(a.term_id, lista);
     }
   }
@@ -91,7 +93,7 @@ export async function listOntology(
     term: t.term,
     kind: t.kind as OntologyKind,
     description: t.description,
-    source: t.source as "ia" | "manual",
+    source: t.source as OntologySource,
     aliases: aliasPorTermo.get(t.id) ?? [],
     nodeId: t.node_id ?? null,
     nodeTitle: t.node_id ? nodeTitle.get(t.node_id) ?? null : null,
@@ -242,6 +244,51 @@ export async function enqueueOntologyScanJob(input: {
   }
 
   await audit({ action: "ontology.scan", entityType: scope === "space" ? "space" : "node", entityId: nodeId ?? spaceId, spaceId, after: { scope } });
+  revalidatePath("/admin/ontologia");
+  return { ok: true, jobId: job.id };
+}
+
+/**
+ * Importa TERMOS de um arquivo já subido ao bucket `imports` (lista de palavras):
+ * o worker extrai as palavras, gera os sinônimos por IA e cria termos+aliases em
+ * massa. Progresso pela mesma lista de jobs (scope 'import').
+ */
+export async function enqueueOntologyImportJob(input: {
+  spaceId: string;
+  sourceFile: string;
+  originalName: string;
+  sizeBytes: number;
+}): Promise<{ ok: true; jobId: string } | { ok: false; error: string }> {
+  const { spaceId, sourceFile, originalName, sizeBytes } = input;
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  if (!extensaoAceita(originalName)) return { ok: false, error: "Tipo de arquivo não permitido." };
+  if (sizeBytes > MAX_UPLOAD_BYTES) {
+    return { ok: false, error: `Arquivo muito grande (máx. ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).` };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: job, error } = await supabase
+    .from("ontology_jobs")
+    .insert({ space_id: spaceId, scope: "import", source_file: sourceFile, original_name: originalName, created_by: user?.id ?? null })
+    .select("id")
+    .single();
+  if (error || !job) return { ok: false, error: `Falha ao criar o job: ${error?.message}` };
+
+  try {
+    await enqueueOntologyImport(job.id);
+  } catch {
+    await supabase.from("ontology_jobs").update({ status: "error", error: "Fila indisponível" }).eq("id", job.id);
+    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+  }
+
+  await audit({ action: "ontology.import", entityType: "space", entityId: spaceId, spaceId, after: { original_name: originalName } });
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
 }

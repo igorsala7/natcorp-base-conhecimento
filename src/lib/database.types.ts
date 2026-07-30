@@ -2102,8 +2102,10 @@ export type Database = {
           error: string | null
           found: number
           id: string
+          original_name: string | null
           progress: number
           scope: string
+          source_file: string | null
           space_id: string
           status: string
           target_id: string | null
@@ -2116,8 +2118,10 @@ export type Database = {
           error?: string | null
           found?: number
           id?: string
+          original_name?: string | null
           progress?: number
           scope?: string
+          source_file?: string | null
           space_id: string
           status?: string
           target_id?: string | null
@@ -2130,8 +2134,10 @@ export type Database = {
           error?: string | null
           found?: number
           id?: string
+          original_name?: string | null
           progress?: number
           scope?: string
+          source_file?: string | null
           space_id?: string
           status?: string
           target_id?: string | null

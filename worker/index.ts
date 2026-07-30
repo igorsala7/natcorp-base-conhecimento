@@ -29,8 +29,9 @@ import { rasterizePdf } from "../src/lib/importer/rasterize";
 import { readOutline } from "../src/lib/importer/read-outline";
 import { generateArticle } from "../src/lib/importer/generate-article";
 import { hasAiKey, resolveAi } from "../src/lib/ai/config";
-import { extrairTermos } from "../src/lib/ai/ontology-scan";
+import { extrairTermos, sinonimosDeTermos } from "../src/lib/ai/ontology-scan";
 import { normalizarTermo } from "../src/lib/ai/ontology";
+import { mesclarTermos, type TermoAcumulado } from "../src/lib/ai/ontology-merge";
 import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
 import { normalizeDoc } from "../src/lib/blocks/convert";
 import { blocksToPlainWithImageMarkers, blocksToText } from "../src/lib/blocks/serialize";
@@ -509,62 +510,8 @@ async function varrerOntologia(
     await onProgress?.(done, lotes.length);
   }
 
-  // MERGE (norm → termId cobre termos E aliases existentes).
-  const { data: exTerms } = await supabase
-    .from("ontology_terms")
-    .select("id, term_norm, description")
-    .eq("space_id", spaceId);
-  const normToTermId = new Map<string, string>();
-  const descById = new Map<string, string | null>();
-  for (const t of exTerms ?? []) {
-    normToTermId.set(t.term_norm, t.id);
-    descById.set(t.id, t.description);
-  }
-  const exTermIds = (exTerms ?? []).map((t) => t.id);
-  for (let i = 0; i < exTermIds.length; i += 200) {
-    const { data: exAliases } = await supabase
-      .from("ontology_aliases")
-      .select("term_id, alias_norm")
-      .in("term_id", exTermIds.slice(i, i + 200));
-    for (const a of exAliases ?? []) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
-  }
-
-  let found = 0;
-  for (const [norm, t] of acumulado) {
-    const existenteId = normToTermId.get(norm);
-    let termId: string;
-    if (existenteId) {
-      termId = existenteId;
-      if (t.description && !descById.get(termId)) {
-        await supabase
-          .from("ontology_terms")
-          .update({ description: t.description, updated_at: new Date().toISOString() })
-          .eq("id", termId);
-        descById.set(termId, t.description);
-      }
-    } else {
-      const { data: novo } = await supabase
-        .from("ontology_terms")
-        .insert({ space_id: spaceId, term: t.term, term_norm: norm, kind: t.kind, description: t.description, source: "ia", created_by: createdBy })
-        .select("id")
-        .single();
-      if (!novo) continue;
-      termId = novo.id;
-      normToTermId.set(norm, termId);
-      descById.set(termId, t.description);
-      found += 1;
-    }
-    for (const alias of t.aliases) {
-      const an = normalizarTermo(alias);
-      if (!an || an === norm) continue;
-      if (normToTermId.has(an)) continue;
-      await supabase
-        .from("ontology_aliases")
-        .upsert({ term_id: termId, alias, alias_norm: an, source: "ia" }, { onConflict: "term_id,alias_norm", ignoreDuplicates: true });
-      normToTermId.set(an, termId);
-      found += 1;
-    }
-  }
+  // MERGE compartilhado com a importação por arquivo (não duplica termo/alias).
+  const found = await mesclarTermos(supabase, spaceId, acumulado, { source: "ia", createdBy });
 
   // Carimba os artigos varridos (bolinha de ontologia na árvore).
   const agora = new Date().toISOString();
@@ -607,6 +554,80 @@ async function processOntologyScan(jobId: string): Promise<void> {
       .eq("id", jobId);
   });
   await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+}
+
+const MAX_TERMOS_IMPORT = 5000;
+
+/** Quebra o texto extraído em entradas {termo, sinônimos dados}. 1 linha = 1
+ * termo; separadores (`,;|` ou tab) dividem termo × sinônimos. Pula linha-prosa
+ * (curta demais/longa demais) e deduplica pelo termo normalizado. */
+function parseEntradasOntologia(texto: string): { term: string; aliases: string[] }[] {
+  const entradas: { term: string; aliases: string[] }[] = [];
+  const vistos = new Set<string>();
+  for (const linha of texto.split(/\r?\n/)) {
+    const partes = linha.split(/[;,\t|]/).map((p) => p.trim()).filter(Boolean);
+    const term = partes[0];
+    if (!term || term.length < 2 || term.length > 120) continue; // ignora prosa/ruído
+    const key = normalizarTermo(term);
+    if (!key || vistos.has(key)) continue;
+    vistos.add(key);
+    entradas.push({ term, aliases: partes.slice(1) });
+    if (entradas.length >= MAX_TERMOS_IMPORT) break;
+  }
+  return entradas;
+}
+
+function emLotes<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+/** Job de IMPORTAÇÃO por arquivo: extrai palavras, gera sinônimos por IA e cria
+ * termos+aliases em massa (mesmo merge da varredura). */
+async function processOntologyImport(jobId: string): Promise<void> {
+  const { data: job } = await supabase.from("ontology_jobs").select("*").eq("id", jobId).single();
+  if (!job) throw new Error(`Job de importação ${jobId} não encontrado`);
+  if (job.status !== "queued") {
+    console.log(`Importação de ontologia ${jobId} em '${job.status}' — nada a fazer.`);
+    return;
+  }
+  if (!job.source_file) throw new Error("Job de importação sem arquivo de origem.");
+
+  await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
+
+  const { data: file, error: dlErr } = await supabase.storage.from("imports").download(job.source_file);
+  if (dlErr || !file) throw new Error(`Falha ao baixar o arquivo: ${dlErr?.message ?? "vazio"}`);
+  const buf = Buffer.from(await file.arrayBuffer());
+  const extraction = await extractDocument(buf, job.original_name ?? job.source_file);
+  const texto = extraction.blocks.map((b) => b.text).join("\n");
+
+  const entradas = parseEntradasOntologia(texto);
+  const lotes = emLotes(entradas, 60);
+  await supabase.from("ontology_jobs").update({ total: lotes.length }).eq("id", jobId);
+
+  const acumulado = new Map<string, TermoAcumulado>();
+  let done = 0;
+  for (const lote of lotes) {
+    try {
+      for (const t of await sinonimosDeTermos(lote)) {
+        const norm = normalizarTermo(t.term);
+        if (!norm) continue;
+        const ex = acumulado.get(norm) ?? { term: t.term, kind: t.kind, description: t.description, aliases: new Set<string>() };
+        if (!ex.description && t.description) ex.description = t.description;
+        for (const a of t.aliases) if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+        acumulado.set(norm, ex);
+      }
+    } catch (e) {
+      console.error(`Importação de ontologia — lote falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await supabase.from("ontology_jobs").update({ done, progress: Math.round((done / lotes.length) * 100) }).eq("id", jobId);
+  }
+
+  const found = await mesclarTermos(supabase, job.space_id, acumulado, { source: "upload", createdBy: job.created_by });
+  await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+  await supabase.storage.from("imports").remove([job.source_file]).catch(() => {});
 }
 
 /**
@@ -1053,6 +1074,7 @@ async function main() {
   await boss.createQueue("embeddings-generate");
   await boss.createQueue("node-embedding");
   await boss.createQueue("ontology-scan");
+  await boss.createQueue("ontology-import");
   await boss.createQueue("bulk-process");
   await boss.createQueue("backup");
   await boss.createQueue("backup-restore");
@@ -1189,6 +1211,21 @@ async function main() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Ontologia job ${jobId} falhou:`, msg);
+        await supabase.from("ontology_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("ontology-import", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Importação de ontologia (job ${jobId})`);
+      try {
+        await processOntologyImport(jobId);
+        console.log(`Importação de ontologia ${jobId} concluída`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Importação de ontologia ${jobId} falhou:`, msg);
         await supabase.from("ontology_jobs").update({ status: "error", error: msg }).eq("id", jobId);
       }
     }

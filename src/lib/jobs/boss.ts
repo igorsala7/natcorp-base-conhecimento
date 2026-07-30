@@ -20,6 +20,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("embeddings-generate");
       await boss.createQueue("node-embedding");
       await boss.createQueue("ontology-scan");
+      await boss.createQueue("ontology-import");
       await boss.createQueue("bulk-process");
       await boss.createQueue("backup");
       await boss.createQueue("backup-restore");
@@ -89,6 +90,12 @@ export async function enqueueNodeEmbedding(
 export async function enqueueOntologyScan(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("ontology-scan", { jobId });
+}
+
+/** Importação de termos por ARQUIVO: worker extrai palavras e gera sinônimos. */
+export async function enqueueOntologyImport(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("ontology-import", { jobId });
 }
 
 /** Processamento em lote (publicar → embedding → ontologia) da seleção. */
