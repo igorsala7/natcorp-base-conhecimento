@@ -75,7 +75,7 @@
     var lm = {};
     try {
       doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); });
-    } catch {}
+    } catch { }
     try {
       doc.querySelectorAll("input,select,textarea").forEach(function (el) {
         if ((el.type || "") === "hidden") return;
@@ -86,11 +86,11 @@
         var val = scanValor(el);
         campos.push((marca ? marca + " " : "") + "- " + scanTexto(rot) + (val ? ": " + val : " (vazio)"));
       });
-    } catch {}
+    } catch { }
     try {
       var txt = scanTexto(doc.body ? doc.body.innerText : "");
       if (txt) textos.push((marca ? marca + " " : "") + txt);
-    } catch {}
+    } catch { }
     // iframes de MESMA ORIGEM (cross-origin lança e retorna null → ignorado)
     try {
       doc.querySelectorAll("iframe").forEach(function (f) {
@@ -98,7 +98,7 @@
         try { d = f.contentDocument; } catch { d = null; }
         if (d) scanDoc(d, "[IFRAME]", campos, textos);
       });
-    } catch {}
+    } catch { }
   }
   function scanPage() {
     try {
@@ -152,7 +152,7 @@
       if (el.closest && el.closest(".apex-item-group--popup-lov,.a-PopupLOV,.apex-item-popup-lov")) return true;
       var p = el.parentElement;
       if (p && p.querySelector && p.querySelector(".a-Button--popupLov,.a-Button--popupLOV,button[id$='_lov'],.apex-item-popup-lov-button")) return true;
-    } catch {}
+    } catch { }
     return false;
   }
   // Tipo/formato do campo — o modelo precisa saber se é número, texto, data,
@@ -167,16 +167,16 @@
     if (ehPopupLov(el)) return "lista de valores";
     var base = (t === "number" || el.inputMode === "numeric" || el.inputMode === "decimal") ? "número"
       : t === "date" ? "data"
-      : t === "email" ? "email"
-      : t === "tel" ? "telefone"
-      : t === "url" ? "url"
-      : t === "time" ? "hora"
-      : "texto";
+        : t === "email" ? "email"
+          : t === "tel" ? "telefone"
+            : t === "url" ? "url"
+              : t === "time" ? "hora"
+                : "texto";
     var extra = [];
     try {
       if (el.maxLength && el.maxLength > 0 && el.maxLength < 4000) extra.push("máx " + el.maxLength);
       if (el.getAttribute && el.getAttribute("pattern")) extra.push("formato específico");
-    } catch {}
+    } catch { }
     return base + (extra.length ? " (" + extra.join(", ") + ")" : "");
   }
   function fieldValor(el) {
@@ -198,13 +198,13 @@
     var out = [], lm = {};
     function push(el, label, type, value) {
       var ref = String(_fieldRefs.length);
-      try { el.setAttribute("data-kb-field", ref); } catch {}
+      try { el.setAttribute("data-kb-field", ref); } catch { }
       _fieldRefs.push(el);
       out.push({ ref: ref, label: limparRotulo(scanTexto(label)).slice(0, 120), type: type, value: value });
     }
     function collect(doc) {
       if (!doc) return;
-      try { doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); }); } catch {}
+      try { doc.querySelectorAll("label[for]").forEach(function (l) { lm[l.getAttribute("for")] = scanTexto(l.textContent); }); } catch { }
       // Campos editáveis + radios/checkboxes (o modelo preenche/marca).
       try {
         doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
@@ -224,7 +224,7 @@
           }
           push(el, rot, fieldTipo(el), fieldValor(el));
         });
-      } catch {}
+      } catch { }
       // Botões/links de ação (o modelo clica).
       try {
         doc.querySelectorAll(
@@ -243,13 +243,13 @@
           if (!lbl) return; // sem rótulo o modelo não consegue referenciar
           push(el, lbl, "botao", "");
         });
-      } catch {}
+      } catch { }
       try {
         doc.querySelectorAll("iframe").forEach(function (f) {
           var d = null; try { d = f.contentDocument; } catch { d = null; }
           if (d) collect(d);
         });
-      } catch {}
+      } catch { }
     }
     collect(document);
     return out;
@@ -269,10 +269,10 @@
         "@keyframes kbFieldPulse{0%,100%{box-shadow:0 0 0 3px " + c + "55}50%{box-shadow:0 0 0 7px " + c + "22}}" +
         ".kb-field-hl{outline:2px solid " + c + "!important;outline-offset:2px;border-radius:5px;animation:kbFieldPulse 1s ease-in-out infinite!important}";
       (document.head || document.documentElement).appendChild(st);
-    } catch {}
+    } catch { }
   }
-  function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {} }
-  function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch {} }
+  function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { } }
+  function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch { } }
   // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
   // NOME (texto), com limite de palavra para "200" não casar "2000" nem "1200".
   function opcaoCasa(o, v) {
@@ -319,7 +319,7 @@
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      try { el.focus(); } catch {}
+      try { el.focus(); } catch { }
       return true;
     } catch { return false; }
   }
@@ -339,7 +339,7 @@
       // Garantia: se o click foi barrado, reflete o estado direto (exceto radio, que
       // não se "desmarca" por click).
       if (el.checked !== marcar && t !== "radio") { el.checked = marcar; el.dispatchEvent(new Event("change", { bubbles: true })); }
-      try { el.focus(); } catch {}
+      try { el.focus(); } catch { }
       return true;
     } catch { return false; }
   }
@@ -348,7 +348,7 @@
   // menu escuta o hover no <li> do item, não só no <button>.
   function clickElement(el) {
     if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return false;
-    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch {}
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { }
     try {
       var alvos = [el];
       var li = el.closest ? el.closest("li.a-Menu-item, li[role='menuitem'], li") : null;
@@ -358,8 +358,8 @@
           t.dispatchEvent(new MouseEvent(tp, { bubbles: true, cancelable: true, view: window }));
         });
       });
-    } catch {}
-    try { el.focus(); } catch {}
+    } catch { }
+    try { el.focus(); } catch { }
     try { el.click(); return true; } catch { return false; }
   }
   // Linha compacta de status (sem botões) — informa uma ação já executada.
@@ -511,8 +511,8 @@
 
   // ==== Gráficos (montar_grafico): card interativo — trocar tipo + exportar ====
   var _charts = []; // specs recebidas NESTE turno (guard de stream vazio)
-  var CHART_PAL = ["#511C76","#C95788","#2C1A63","#2563EB","#10B981","#F59E0B","#EF4444","#8B5CF6","#0EA5E9","#EC4899"];
-  var CHART_TIPOS = [["colunas","Colunas"],["barras","Barras"],["linha","Linha"],["area","Área"],["pizza","Pizza"],["rosca","Rosca"]];
+  var CHART_PAL = ["#511C76", "#C95788", "#2C1A63", "#2563EB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9", "#EC4899"];
+  var CHART_TIPOS = [["colunas", "Colunas"], ["barras", "Barras"], ["linha", "Linha"], ["area", "Área"], ["pizza", "Pizza"], ["rosca", "Rosca"]];
 
   function kbChartBtn(txt, pc, fn) {
     var b = document.createElement("button");
@@ -744,7 +744,7 @@
     var amp = kbChartBtn("⤢ Ampliar", pc, function () { abrirModalGrafico(spec, canvas); });
     amp.title = "Ampliar no centro da tela";
     var png = kbChartBtn("⬇ PNG", pc, function () {
-      try { kbBaixar((spec.titulo || "grafico") + ".png", canvas.toDataURL("image/png")); } catch {}
+      try { kbBaixar((spec.titulo || "grafico") + ".png", canvas.toDataURL("image/png")); } catch { }
     });
     bar.appendChild(sel);
     bar.appendChild(espaco);
@@ -814,7 +814,7 @@
       kbBaixar((spec.titulo || "grafico") + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + kbChartCsv(spec)));
     }));
     ft.appendChild(kbChartBtn("⬇ PNG", pc, function () {
-      try { kbBaixar((spec.titulo || "grafico") + ".png", big.toDataURL("image/png")); } catch {}
+      try { kbBaixar((spec.titulo || "grafico") + ".png", big.toDataURL("image/png")); } catch { }
     }));
     card.appendChild(hd); card.appendChild(bwrap); card.appendChild(ft);
     ov.appendChild(card);
@@ -1029,8 +1029,10 @@
       var frac = vals[i] / total, a2 = ang + frac * Math.PI * 2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, ang, a2); ctx.closePath();
       ctx.fillStyle = CHART_PAL[i % CHART_PAL.length]; ctx.fill();
-      if (hits) hits.push({ pie: { cx: cx, cy: cy, ri: ri, ro: R, a0: ang, a1: a2 },
-        html: "<b>" + esc(cats[i]) + "</b><br>" + kbNum(vals[i]) + " (" + (Math.round(frac * 1000) / 10) + "%)" });
+      if (hits) hits.push({
+        pie: { cx: cx, cy: cy, ri: ri, ro: R, a0: ang, a1: a2 },
+        html: "<b>" + esc(cats[i]) + "</b><br>" + kbNum(vals[i]) + " (" + (Math.round(frac * 1000) / 10) + "%)"
+      });
       ang = a2;
     }
     if (donut) { ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(cx, cy, R * 0.55, 0, 6.2832); ctx.fill(); }
@@ -1040,8 +1042,10 @@
       ctx.fillStyle = fg;
       var p = Math.round((vals[j] / total) * 1000) / 10;
       ctx.fillText(kbTrunc(ctx, cats[j], w - lx - 60) + " " + p + "%", lx + 15, ly);
-      if (hits) hits.push({ x: lx - 2, y: ly - 9, w: w - lx, h: 16,
-        html: "<b>" + esc(cats[j]) + "</b><br>" + kbNum(vals[j]) + " (" + p + "%)" });
+      if (hits) hits.push({
+        x: lx - 2, y: ly - 9, w: w - lx, h: 16,
+        html: "<b>" + esc(cats[j]) + "</b><br>" + kbNum(vals[j]) + " (" + p + "%)"
+      });
       ly += 16;
     }
   }
@@ -1063,6 +1067,10 @@
   };
   var conversationId = null;
   var open = false;
+  var expanded = false;
+  try { expanded = localStorage.getItem("kb.widget.exp") === "1"; } catch { }
+  var _animT = null;
+  var _closeT = null;
   var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput, micBtn;
   // Anexos pendentes deste turno: {id?,name,mime?,size?,uploading?}.
   var pendingAtts = [];
@@ -1098,8 +1106,19 @@
       ".panel{position:fixed;z-index:2147483647;width:440px;max-width:calc(100vw - 20px);height:680px;" +
       "max-height:calc(100vh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
       "box-shadow:0 26px 72px rgba(30,15,60,.34);border:1px solid rgba(120,90,180,.14)}" +
-      ".panel.open{display:flex;animation:kbin .22s cubic-bezier(.2,.8,.2,1)}" +
-      "@keyframes kbin{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}" +
+      // Abrir/minimizar: cresce/encolhe a partir do canto da bolha (scale+fade).
+      ".panel.open{display:flex;animation:kbin .34s cubic-bezier(.2,.8,.2,1)}" +
+      ".panel.closing{animation:kbout .26s cubic-bezier(.4,0,1,1) forwards}" +
+      // Expandido: a GEOMETRIA (left/width/top/height/raio) é px inline (setGeom);
+      // a classe só solta os limites de tamanho para a área central caber.
+      ".panel.exp{max-width:none;max-height:none;right:auto;bottom:auto}" +
+      // Transição SÓ durante o expandir/recolher (0,5s smooth). Ligada por JS e
+      // removida ao fim — para o arrastar da bolha não ficar com lag.
+      ".panel.anim{transition:left .5s cubic-bezier(.4,0,.2,1),top .5s cubic-bezier(.4,0,.2,1),width .5s cubic-bezier(.4,0,.2,1),height .5s cubic-bezier(.4,0,.2,1),border-radius .5s cubic-bezier(.4,0,.2,1)}" +
+      "@media(prefers-reduced-motion:reduce){.panel.anim{transition:none}.panel.open,.panel.closing{animation-duration:.01s}}" +
+      "@media(max-width:640px){.hd [data-expand]{display:none}}" +
+      "@keyframes kbin{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:scale(1)}}" +
+      "@keyframes kbout{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.82)}}" +
       // Cabeçalho (gradiente)
       ".hd{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;padding:16px 15px 18px;display:flex;align-items:center;gap:12px}" +
       ".hd .hav{width:44px;height:44px;border-radius:var(--ash,50%);background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.15)}" +
@@ -1253,6 +1272,10 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
   var ICON_TRASH =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+  var ICON_EXPAND =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  var ICON_COLLAPSE =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
   // Anexos de documento (Fase 3C).
   var ICON_CLIP =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
@@ -1317,13 +1340,13 @@
           proto._allowInteraction = function (e) {
             try {
               if (e && e.target && e.target.closest && e.target.closest("[data-kb-widget]")) return true;
-            } catch {}
+            } catch { }
             return orig ? orig.apply(this, arguments) : false;
           };
         }
         return;
       }
-    } catch {}
+    } catch { }
     // jQuery UI ainda não disponível → tenta mais algumas vezes.
     if ((tentativas || 0) < 20) setTimeout(function () { permitirNoModal((tentativas || 0) + 1); }, 300);
   }
@@ -1388,6 +1411,7 @@
       '<div class="ti"><div class="t">' + esc(cfg.title) + "</div>" +
       '<div class="s">' + esc(cfg.subtitle || "Pergunte o que quiser") + "</div></div>" +
       '<button aria-label="Limpar conversa" title="Limpar conversa" data-clear>' + ICON_TRASH + "</button>" +
+      '<button aria-label="Expandir" title="Expandir para o centro" data-expand>' + ICON_EXPAND + "</button>" +
       '<button aria-label="Minimizar" data-close>&minus;</button></div>' +
       '<div class="msgs"></div>' +
       '<div class="pbar"></div>' +
@@ -1398,7 +1422,7 @@
       '<input type="file" data-file hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp">' +
       '<textarea rows="1" placeholder="Escreva ou fale sua pergunta…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
-      '<div class="pw">Powered by Base de Conhecimento</div>';
+      '<div class="pw">Powered by Natcorp</div>';
 
     wrap.appendChild(bubble);
     wrap.appendChild(panel);
@@ -1412,6 +1436,7 @@
     micBtn = panel.querySelector("[data-mic]");
 
     panel.querySelector("[data-close]").addEventListener("click", toggle);
+    panel.querySelector("[data-expand]").addEventListener("click", toggleExpand);
     panel.querySelector("[data-clear]").addEventListener("click", clearChat);
     panel.querySelector("[data-attach]").addEventListener("click", function () {
       fileInput.click();
@@ -1599,22 +1624,69 @@
     bubble.style.bottom = "auto";
     placePanel();
   }
-  function placePanel() {
+  // Geometria em PX (nos DOIS estados) — transição sempre px→px, sem depender de
+  // classe vs inline. `origem` é o ponto do scale de abrir/minimizar.
+  function geomExp() {
+    var W = window.innerWidth, H = window.innerHeight;
+    return { left: Math.round(W * 0.2), width: Math.round(W * 0.6), top: Math.round(H * 0.05), height: Math.round(H * 0.9), radius: 16, origem: "center" };
+  }
+  function geomCanto() {
     var b = bubble.getBoundingClientRect();
-    // Precisa BATER com o CSS do .panel (width:440; height:680; max-w:100vw-20;
-    // max-h:100vh-96), senão a base/lado do painel passa do limite da janela.
     var margem = window.innerWidth <= 480 ? 10 : 12; // celular: cola mais nas bordas
     var pw = Math.min(440, window.innerWidth - margem * 2);
-    var left = b.left + b.width / 2 < window.innerWidth / 2 ? b.left : b.right - pw;
+    var esq = b.left + b.width / 2 < window.innerWidth / 2;
+    var left = esq ? b.left : b.right - pw;
     left = Math.max(margem, Math.min(left, window.innerWidth - pw - margem));
-    panel.style.left = left + "px";
-    panel.style.width = pw + "px";
-    // Altura REAL renderizada = min(680, 100vh - 96). Abre acima da bolha por
-    // padrão; se não couber, abaixo — sempre grudado ao topo/base visível.
     var ph = Math.min(680, window.innerHeight - 96);
     var top = b.top - ph - 12;
-    if (top < 12) top = Math.min(b.bottom + 12, window.innerHeight - ph - 12);
-    panel.style.top = Math.max(12, Math.min(top, window.innerHeight - ph - 12)) + "px";
+    var acima = true;
+    if (top < 12) { top = Math.min(b.bottom + 12, window.innerHeight - ph - 12); acima = false; }
+    top = Math.max(12, Math.min(top, window.innerHeight - ph - 12));
+    // O scale de abrir cresce do canto perto da bolha.
+    return { left: left, width: pw, top: top, height: ph, radius: 22, origem: (acima ? "bottom " : "top ") + (esq ? "left" : "right") };
+  }
+  function setGeom(g) {
+    panel.style.left = g.left + "px";
+    panel.style.width = g.width + "px";
+    panel.style.top = g.top + "px";
+    panel.style.height = g.height + "px";
+    panel.style.borderRadius = g.radius + "px";
+    panel.style.transformOrigin = g.origem;
+  }
+
+  // Aplica o estado (canto × expandido) INSTANTANEAMENTE — usado ao abrir e no
+  // resize. `adiarRemocao` mantém a classe .exp durante a retração animada, para
+  // os limites de tamanho não "clamparem" a altura no meio da transição.
+  function aplicarExpansao(adiarRemocao) {
+    var btn = panel.querySelector("[data-expand]");
+    if (expanded && window.innerWidth > 640) {
+      panel.classList.add("exp");
+      setGeom(geomExp());
+      if (btn) { btn.innerHTML = ICON_COLLAPSE; btn.setAttribute("aria-label", "Recolher"); btn.setAttribute("title", "Recolher"); }
+    } else {
+      if (!adiarRemocao) panel.classList.remove("exp");
+      setGeom(geomCanto());
+      if (btn) { btn.innerHTML = ICON_EXPAND; btn.setAttribute("aria-label", "Expandir"); btn.setAttribute("title", "Expandir para o centro"); }
+    }
+  }
+  function toggleExpand() {
+    expanded = !expanded;
+    try { localStorage.setItem("kb.widget.exp", expanded ? "1" : "0"); } catch { }
+    // Anima a ida/volta (0,5s): liga a transição, commita antes de mudar a
+    // geometria (garante o start), e desliga ao fim (senão o arrastar fica com lag).
+    panel.classList.add("anim");
+    void panel.offsetWidth;
+    aplicarExpansao(true);
+    clearTimeout(_animT);
+    _animT = setTimeout(function () {
+      panel.classList.remove("anim");
+      if (!expanded) panel.classList.remove("exp"); // solta os limites só no FIM da retração
+    }, 520);
+  }
+
+  function placePanel() {
+    if (panel.classList.contains("exp")) return; // expandido: geometria já aplicada
+    setGeom(geomCanto());
   }
   function setupDrag() {
     var dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
@@ -1655,6 +1727,7 @@
     });
     window.addEventListener("resize", function () {
       positionBubble();
+      if (expanded) aplicarExpansao(); // recalcula (ou volta ao canto no mobile)
     });
   }
 
@@ -1667,7 +1740,7 @@
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden && _revealFlush) _revealFlush();
     });
-  } catch {}
+  } catch { }
 
   // ==== Notificação (badge na bolha + contagem na aba + som) quando chega
   //      resposta com o widget minimizado ====
@@ -1685,21 +1758,21 @@
       } else {
         badge.style.display = "none";
       }
-    } catch {}
+    } catch { }
   }
   // Contagem na ABA do navegador: prefixa "(N) " no título; some ao ler.
   function atualizarTitulo() {
     try {
       var base = String(document.title || "").replace(/^\(\d+\)\s*/, "");
       document.title = _naoLidas > 0 ? "(" + _naoLidas + ") " + base : base;
-    } catch {}
+    } catch { }
   }
   // Destrava o áudio num gesto do usuário (política de autoplay dos navegadores).
   function desbloquearAudio() {
     try {
       if (!_audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) _audioCtx = new AC(); }
       if (_audioCtx && _audioCtx.state === "suspended") _audioCtx.resume();
-    } catch {}
+    } catch { }
   }
   // Bip curto e DISCRETO (dois tons suaves) — sem arquivo externo. Retoma o
   // contexto (se suspenso) e só então toca.
@@ -1719,9 +1792,9 @@
         o.connect(g); g.connect(ctx.destination);
         o.start(t); o.stop(t + 0.28);
       };
-      if (ctx.state === "suspended") ctx.resume().then(play).catch(function () {});
+      if (ctx.state === "suspended") ctx.resume().then(play).catch(function () { });
       else play();
-    } catch {}
+    } catch { }
   }
   // Chegou resposta com o widget MINIMIZADO → conta, badge, título e som (1×/resposta).
   function avisarMensagem() {
@@ -1742,8 +1815,10 @@
   function toggle() {
     open = !open;
     if (open) {
-      placePanel();
-      panel.classList.add("open");
+      clearTimeout(_closeT);
+      panel.classList.remove("closing");
+      aplicarExpansao(); // geometria + origem do scale ANTES da entrada (kbin)
+      panel.classList.add("open"); // dispara o crescimento a partir do canto da bolha
       bubble.innerHTML = "";
       bubble.textContent = "×";
       bubble.style.fontSize = "28px";
@@ -1759,10 +1834,15 @@
         inputEl.focus();
       }, 50);
     } else {
-      panel.classList.remove("open");
+      // Minimizar animado: encolhe/desaparece (kbout) e só então esconde.
       bubble.style.fontSize = "";
       bubble.innerHTML = bubbleInner();
       ligarEscapeFoco(false);
+      panel.classList.add("closing");
+      clearTimeout(_closeT);
+      _closeT = setTimeout(function () {
+        if (!open) { panel.classList.remove("open"); panel.classList.remove("closing"); }
+      }, 260);
     }
   }
 
@@ -2046,8 +2126,8 @@
       state === "recording"
         ? "Parar e transcrever"
         : state === "transcribing"
-        ? "Transcrevendo…"
-        : "Falar (gravar áudio)";
+          ? "Transcrevendo…"
+          : "Falar (gravar áudio)";
   }
 
   function toggleMic() {
@@ -2179,7 +2259,7 @@
     // já acabou. Usado quando o rAF está pausado (aba oculta) ou ao reabrir o chat.
     function flushReveal() {
       if (feito) return;
-      if (rafId != null) { try { cancelAnimationFrame(rafId); } catch {} rafId = null; }
+      if (rafId != null) { try { cancelAnimationFrame(rafId); } catch { } rafId = null; }
       if (answerEl) {
         shown = full.length;
         answerEl.innerHTML = mdToHtml(full);
@@ -2374,7 +2454,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
           body: JSON.stringify({ conversationId: conversationId, value: dir === "up" ? 1 : -1 }),
-        }).catch(function () {});
+        }).catch(function () { });
         label.textContent = "Obrigado!";
       });
       row.appendChild(b);
