@@ -35,7 +35,7 @@ import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/too
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
-import { pedeCompletude, notaCompletude } from "@/lib/ai/answer-style";
+import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao } from "@/lib/ai/answer-style";
 import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
@@ -120,8 +120,10 @@ export async function POST(req: NextRequest) {
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
   // Pedido de passo a passo/guia → busca MAIS trechos (conteúdo completo) e reforça
-  // a completude no prompt; perguntas comuns seguem enxutas.
-  const completo = pedeCompletude(question);
+  // a completude no prompt; perguntas comuns seguem enxutas. Enumeração ("todos os
+  // X") também amplia (limite/tokens) e traz a lista inteira dos arquivos.
+  const enumera = pedeEnumeracao(question);
+  const completo = pedeCompletude(question) || enumera;
   // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
   // por botão só NARROW dentro delas — nunca escapa da chave).
   const ragSources = social
@@ -311,7 +313,7 @@ export async function POST(req: NextRequest) {
       },
       [
         notaDataAtual(),
-        completo ? notaCompletude() : "",
+        enumera ? notaEnumeracao() : completo ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,
         pageChangeNote(prevPage, page),

@@ -3536,6 +3536,20 @@ export type Database = {
           title: string
         }[]
       }
+      knowledge_list_chunks: {
+        Args: {
+          p_query: string
+          p_document_ids: string[]
+          p_limit?: number
+        }
+        Returns: {
+          content: string
+          document_id: string
+          heading_path: string
+          score: number
+          title: string
+        }[]
+      }
       ai_provider_has_key: {
         Args: { p_provider_id: string }
         Returns: boolean

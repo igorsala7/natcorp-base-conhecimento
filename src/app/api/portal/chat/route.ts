@@ -28,7 +28,7 @@ import { glossarioCasado } from "@/lib/ai/ontology";
 import type { OutFile } from "@/lib/integrations/documents";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
-import { pedeCompletude, notaCompletude } from "@/lib/ai/answer-style";
+import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao } from "@/lib/ai/answer-style";
 
 export const runtime = "nodejs";
 
@@ -91,8 +91,10 @@ export async function POST(req: NextRequest) {
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
   const social = ehConversaSocial(question);
-  // Passo a passo/guia → mais trechos + reforço de completude no prompt.
-  const completo = pedeCompletude(question);
+  // Passo a passo/guia → mais trechos + reforço de completude. Enumeração
+  // ("todos os X") também amplia e traz a lista inteira dos arquivos.
+  const enumera = pedeEnumeracao(question);
+  const completo = pedeCompletude(question) || enumera;
   const ragSources = social
     ? []
     : await retrievePublicContext(
@@ -259,7 +261,7 @@ export async function POST(req: NextRequest) {
       },
       [
         notaDataAtual(),
-        completo ? notaCompletude() : "",
+        enumera ? notaEnumeracao() : completo ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,
         pageChangeNote(prevPage, page),

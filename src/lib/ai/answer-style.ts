@@ -23,3 +23,44 @@ export function notaCompletude(): string {
     "próximo caminho."
   );
 }
+
+/**
+ * Pergunta de ENUMERAÇÃO — "quais são TODOS os X", "liste os programas de Y",
+ * "quantos itens tem…". Difere da completude (passo a passo): aqui o usuário
+ * quer a LISTA INTEIRA de itens (ex.: os programas de um módulo). O RAG traz
+ * MAIS chunks dos arquivos de conhecimento para não devolver só um pedaço.
+ */
+const RX_ENUMERA =
+  /\b(todos|todas|quais|liste|listar|relacione|relacionar|enumere|quantos|quantas)\b|lista de|lista dos|lista das/i;
+
+export function pedeEnumeracao(pergunta: string): boolean {
+  return RX_ENUMERA.test(String(pergunta ?? ""));
+}
+
+/**
+ * Limpa a pergunta de enumeração para a busca LÉXICA nos arquivos: tira as
+ * palavras interrogativas/de comando e o "cola" ("quais são todos os … de …"),
+ * deixando só o CONTEÚDO ("programas módulo medicina ocupacional"). Sem isso, o
+ * `websearch_to_tsquery` faria AND de "quais/são/todos" — que não existem nos
+ * dados — e não casaria nada. Se sobrar pouco, devolve a original.
+ */
+const RX_LISTA_LIXO =
+  /\b(quais|qual|quantos|quantas|todos|todas|toda|todo|liste|listar|relacione|relacionar|enumere|enumerar|mostre|mostrar|traga|trazer|me|diga|dizer|gostaria|preciso|quero|queria|ver|saber|sao|são|é|eh|existe|existem|ha|há|tem|possui|do|da|de|dos|das|no|na|nos|nas|o|a|os|as|um|uma|uns|umas|e|ou|por|favor|lista)\b/gi;
+
+export function limparConsultaLista(pergunta: string): string {
+  const limpo = String(pergunta ?? "")
+    .replace(RX_LISTA_LIXO, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return limpo.length >= 3 ? limpo : String(pergunta ?? "");
+}
+
+/** Nota injetada quando o usuário quer a LISTA INTEIRA de itens. */
+export function notaEnumeracao(): string {
+  return (
+    "LISTA COMPLETA (o usuário quer TODOS os itens): percorra TODO o contexto e liste TODOS os itens que se encaixam " +
+    "(ex.: todos os programas de um módulo), SEM resumir e SEM parar em alguns exemplos. Use uma lista com marcadores. " +
+    "Se houver muitos, liste todos mesmo assim. Não misture itens de outra fonte/assunto que não seja o pedido; se o " +
+    "contexto não trouxer a lista, diga que não encontrou a lista completa em vez de responder com poucos exemplos."
+  );
+}

@@ -19,6 +19,7 @@ import { slugify } from "@/lib/content/slug";
 import { firstImageOf } from "@/lib/blocks/serialize";
 import type { ClarifyScope } from "@/lib/ai/disambiguation";
 import { expandirConsulta } from "@/lib/ai/ontology";
+import { pedeEnumeracao, limparConsultaLista } from "@/lib/ai/answer-style";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -184,10 +185,21 @@ async function retrieveWith(
   } else if (scope?.nodeId) {
     documentIds = [];
   } else {
+    // HERANÇA: os arquivos de conhecimento do espaço-PAI (parent_space_id)
+    // também valem para o cliente — igual à árvore e à ontologia. Assim um CSV
+    // subido em "Documentação Natcorp" aparece nos widgets de Gestor/Colaborador
+    // sem precisar reenviar (nem re-embeddar) em cada espaço.
+    const escoposSpaceIds = escoposUsar.map((e) => e.spaceId);
+    const { data: espacos } = await supabase
+      .from("spaces")
+      .select("id, parent_space_id")
+      .in("id", escoposSpaceIds);
+    const spaceIdsComPai = new Set(escoposSpaceIds);
+    for (const s of espacos ?? []) if (s.parent_space_id) spaceIdsComPai.add(s.parent_space_id);
     const { data: docs } = await supabase
       .from("knowledge_documents")
       .select("id")
-      .in("space_id", escoposUsar.map((e) => e.spaceId))
+      .in("space_id", [...spaceIdsComPai])
       .eq("status", "ready");
     documentIds = (docs ?? []).map((d) => d.id);
   }
@@ -268,6 +280,42 @@ async function retrieveWith(
         forcadoNodeId = forcado[0]!.node_id ?? null;
         resultados = [forcado[0]!, ...resultados].slice(0, limit);
       }
+    }
+  }
+
+  // ENUMERAÇÃO ("todos os X de Y"): o hybrid_search_scoped devolve no MÁXIMO 1
+  // chunk por arquivo de conhecimento (distinct on document_id) — insuficiente
+  // para listar TODOS os itens de uma lista (ex.: todos os programas de um
+  // módulo, espalhados em vários chunks). Quando o usuário pede a lista inteira,
+  // trazemos TODOS os chunks dos arquivos que casam a consulta e mesclamos (sem
+  // duplicar), para o modelo montar a lista completa em vez de 2-3 exemplos.
+  if (documentIds.length && pedeEnumeracao(query)) {
+    // Consulta LIMPA (sem "quais/todos/liste…") para o AND do tsquery casar o
+    // CONTEÚDO, não as palavras da pergunta.
+    const { data: lista } = await supabase.rpc("knowledge_list_chunks", {
+      p_query: limparConsultaLista(query),
+      p_document_ids: documentIds,
+      p_limit: 40,
+    });
+    if (lista?.length) {
+      // Dedup por CONTEÚDO — inclusive entre as próprias linhas (há cópias do
+      // mesmo CSV em espaços diferentes com chunks idênticos).
+      const jaTem = new Set(resultados.map((r) => r.content));
+      const extras: typeof resultados = [];
+      for (const r of lista) {
+        if (jaTem.has(r.content)) continue;
+        jaTem.add(r.content);
+        extras.push({
+          node_id: null,
+          document_id: r.document_id,
+          title: r.title,
+          heading_path: r.heading_path,
+          snippet: "",
+          content: r.content,
+          score: r.score ?? 0,
+        });
+      }
+      resultados = [...resultados, ...extras];
     }
   }
 
