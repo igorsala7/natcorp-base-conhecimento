@@ -374,6 +374,7 @@ export type Database = {
           name: string
           perfis_campo: string | null
           perfis_endpoint: string | null
+          tool_routing: boolean
           updated_at: string
         }
         Insert: {
@@ -388,6 +389,7 @@ export type Database = {
           name: string
           perfis_campo?: string | null
           perfis_endpoint?: string | null
+          tool_routing?: boolean
           updated_at?: string
         }
         Update: {
@@ -402,7 +404,62 @@ export type Database = {
           name?: string
           perfis_campo?: string | null
           perfis_endpoint?: string | null
+          tool_routing?: boolean
           updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_modules: {
+        Row: {
+          base_code: string
+          created_at: string
+          id: string
+          modulo: string
+          portal: string | null
+          submodulo: string | null
+          synced_at: string
+        }
+        Insert: {
+          base_code: string
+          created_at?: string
+          id?: string
+          modulo: string
+          portal?: string | null
+          submodulo?: string | null
+          synced_at?: string
+        }
+        Update: {
+          base_code?: string
+          created_at?: string
+          id?: string
+          modulo?: string
+          portal?: string | null
+          submodulo?: string | null
+          synced_at?: string
+        }
+        Relationships: []
+      }
+      ai_tool_modules: {
+        Row: {
+          created_at: string
+          id: string
+          modulo: string
+          submodulo: string | null
+          tool_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modulo: string
+          submodulo?: string | null
+          tool_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modulo?: string
+          submodulo?: string | null
+          tool_id?: string
         }
         Relationships: []
       }
@@ -487,6 +544,7 @@ export type Database = {
           id: string
           key: string
           loop: Json | null
+          always_include: boolean
           method: string
           name: string
           params: Json
@@ -510,6 +568,7 @@ export type Database = {
           id?: string
           key: string
           loop?: Json | null
+          always_include?: boolean
           method?: string
           name: string
           params?: Json
@@ -533,6 +592,7 @@ export type Database = {
           id?: string
           key?: string
           loop?: Json | null
+          always_include?: boolean
           method?: string
           name?: string
           params?: Json
@@ -2315,6 +2375,7 @@ export type Database = {
           id: string
           input_tokens: number | null
           latency_ms: number | null
+          media: Json | null
           output_tokens: number | null
           role: string
           tokens: number | null
@@ -2329,6 +2390,7 @@ export type Database = {
           id?: string
           input_tokens?: number | null
           latency_ms?: number | null
+          media?: Json | null
           output_tokens?: number | null
           role: string
           tokens?: number | null
@@ -2343,6 +2405,7 @@ export type Database = {
           id?: string
           input_tokens?: number | null
           latency_ms?: number | null
+          media?: Json | null
           output_tokens?: number | null
           role?: string
           tokens?: number | null
