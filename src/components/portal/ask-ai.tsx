@@ -17,6 +17,7 @@ import {
 } from "@/app/(portal)/actions";
 import { readPortalIdentity } from "@/lib/portal/track-client";
 import { PromptLibrary, SavePromptButton, type PromptBackend } from "@/components/chat/prompt-library";
+import { ToastProvider } from "@/components/ui/toast";
 import { AskAiChart } from "./ask-ai-chart";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
@@ -51,17 +52,32 @@ type Msg = {
 };
 
 /** Painel "Perguntar à IA" do leitor — responde com base na doc do espaço. */
-export function AskAiPanel({
-  spaceSlug,
-  open,
-  onClose,
-  initialQuestion,
-}: {
+type AskAiPanelProps = {
   spaceSlug: string;
   open: boolean;
   onClose: () => void;
   initialQuestion?: string;
-}) {
+};
+
+/**
+ * O portal não tem `ToastProvider` no layout (só o admin tem), mas componentes
+ * compartilhados usados aqui (PromptLibrary/SavePromptButton) chamam `useToast`.
+ * Fornecemos o provider localmente ao redor do painel para o Ask-AI ter toasts.
+ */
+export function AskAiPanel(props: AskAiPanelProps) {
+  return (
+    <ToastProvider>
+      <AskAiPanelInner {...props} />
+    </ToastProvider>
+  );
+}
+
+function AskAiPanelInner({
+  spaceSlug,
+  open,
+  onClose,
+  initialQuestion,
+}: AskAiPanelProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
