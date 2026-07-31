@@ -463,6 +463,16 @@
     return b;
   }
   function encerrarTutorial() { unhighlightField(); hideCallout(); _tutorial = null; }
+  // Rola o CHAT para o fim AGORA e nos próximos frames. O append de um passo do
+  // tutorial vem seguido do destaque do campo (scrollIntoView no host) e do balão,
+  // cujos reflows podem reposicionar a lista de mensagens — sem esta reafirmação,
+  // o chat às vezes ficava preso no topo em vez de acompanhar o passo atual.
+  function scrollChatFim() { try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { } }
+  function scrollChatFimSoon() {
+    scrollChatFim();
+    try { requestAnimationFrame(function () { scrollChatFim(); requestAnimationFrame(scrollChatFim); }); } catch (e) { }
+    setTimeout(scrollChatFim, 200);
+  }
   // Porta de confirmação: depois de apresentar o programa, PERGUNTA se quer o
   // tutorial guiado — só destaca campos após o usuário clicar em "Iniciar".
   function confirmarTutorial() {
@@ -480,7 +490,7 @@
     });
     box.appendChild(sim); box.appendChild(nao);
     messagesEl.appendChild(box);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    scrollChatFimSoon();
   }
   function iniciarTutorial() {
     var t = _tutorial;
@@ -616,8 +626,6 @@
       encerrarTutorial();
     }
 
-    highlightField(el); // ativa a aba se preciso, rola e destaca
-
     // (1) Registro no CHAT: bolha "Passo N de M · Campo" + explicação + botões.
     var bolha = document.createElement("div");
     bolha.className = "m a";
@@ -637,9 +645,10 @@
     if (podeVoltar) { var voC = tutBtn("← Voltar", false); voC.addEventListener("click", voltar); box.appendChild(voC); }
     var saC = tutBtn("Sair", false); saC.addEventListener("click", sair); box.appendChild(saC);
     messagesEl.appendChild(box);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    scrollChatFimSoon(); // o chat acompanha o passo (fica no fim), antes de mexer no host
 
-    // (2) BALÃO flutuante ancorado ao campo (avatar + etapa + explicação + botões).
+    // (2) Destaca o campo no HOST e ancora o BALÃO flutuante (avatar + etapa + botões).
+    highlightField(el); // ativa a aba se preciso, rola o host e destaca
     mostrarCallout({ titulo: titulo, explicacao: explic }, t.n, total, ultimo, avancar, sair, podeVoltar, voltar);
   }
   // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
