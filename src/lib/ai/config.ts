@@ -68,7 +68,8 @@ export type ResolvedAi = {
  * a mudança valer.
  */
 const TTL_MS = 30_000;
-const cache = new Map<Purpose, { at: number; valor: ResolvedAi | null }>();
+// Chave = `${base}:${purpose}` (base '' = padrão global).
+const cache = new Map<string, { at: number; valor: ResolvedAi | null }>();
 
 /** Limpa o cache — chamar depois de salvar a configuração. */
 export function invalidateAiCache(): void {
@@ -128,13 +129,14 @@ function doEnv(purpose: Purpose): ResolvedAi | null {
   return { kind: ENV_CHAT_PROVIDER, model: ENV_CHAT_MODEL, apiKey, origem: "env" };
 }
 
-async function doBanco(purpose: Purpose): Promise<ResolvedAi | null> {
+async function doBanco(purpose: Purpose, base: string): Promise<ResolvedAi | null> {
   try {
     const supabase = createAdminClient();
     const { data: atrib } = await supabase
       .from("ai_assignments")
       .select("model, provider_id")
       .eq("purpose", purpose)
+      .eq("base_code", base)
       .maybeSingle();
     if (!atrib) return null;
 
@@ -177,16 +179,23 @@ async function doBanco(purpose: Purpose): Promise<ResolvedAi | null> {
  * chat no banco funcionando e o editor falhando numa chave sem créditos).
  * Embeddings ficam de fora: modelo de chat não gera vetor.
  */
-export async function resolveAi(purpose: Purpose): Promise<ResolvedAi | null> {
+export async function resolveAi(purpose: Purpose, base = ""): Promise<ResolvedAi | null> {
+  if (purpose === "embedding") base = ""; // vetores consistentes → embedding é sempre global
   const agora = Date.now();
-  const hit = cache.get(purpose);
+  const key = base + ":" + purpose;
+  const hit = cache.get(key);
   if (hit && agora - hit.at < TTL_MS) return hit.valor;
 
+  // Override da base → padrão global (base '') → chat (base/padrão) para finalidades
+  // novas sem atribuição própria → env.
   const valor =
-    (await doBanco(purpose)) ??
-    (purpose !== "embedding" && purpose !== "chat" ? await doBanco("chat") : null) ??
+    (base ? await doBanco(purpose, base) : null) ??
+    (await doBanco(purpose, "")) ??
+    (purpose !== "embedding" && purpose !== "chat"
+      ? ((base ? await doBanco("chat", base) : null) ?? (await doBanco("chat", "")))
+      : null) ??
     doEnv(purpose);
-  cache.set(purpose, { at: agora, valor });
+  cache.set(key, { at: agora, valor });
   return valor;
 }
 
@@ -334,8 +343,8 @@ function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
 
 /** Modelo de linguagem de uma finalidade (chat, importação…). `meta` atribui o
  *  consumo a um usuário (chat) em vez do sistema. */
-export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta) {
-  const cfg = await resolveAi(purpose);
+export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta, base = "") {
+  const cfg = await resolveAi(purpose, base);
   if (!cfg) {
     throw new Error(
       "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
@@ -344,9 +353,10 @@ export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta)
   return comRegistro(instanciar(cfg), cfg, purpose, meta);
 }
 
-/** Modelo de chat (streamText/generateObject/generateText). */
-export async function chatModel(meta?: UsageMeta) {
-  return languageModel("chat", meta);
+/** Modelo de chat (streamText/generateObject/generateText). `base` = p_base do
+ *  cliente para usar a config PRÓPRIA da base (senão, o padrão global). */
+export async function chatModel(meta?: UsageMeta, base = "") {
+  return languageModel("chat", meta, base);
 }
 
 /** Resolve a config de um provider pelo KIND, usando a CHAVE já cadastrada em
@@ -383,6 +393,7 @@ async function resolveAiPorProvider(kind: ProviderKind, model: string): Promise<
 export async function languageModelEscolhido(
   llm: { provider?: string | null; model?: string | null } | null | undefined,
   meta?: UsageMeta,
+  base = "",
 ) {
   const kind = String(llm?.provider ?? "").toLowerCase();
   const model = String(llm?.model ?? "").trim();
@@ -391,7 +402,7 @@ export async function languageModelEscolhido(
     const cfg = await resolveAiPorProvider(kind as ProviderKind, model);
     if (cfg) return comRegistro(instanciar(cfg), cfg, "chat", meta);
   }
-  return languageModel("chat", meta);
+  return languageModel("chat", meta, base); // sem override → config da base (ou padrão)
 }
 
 /**

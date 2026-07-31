@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: await chatModel({ kind: "user", ...track }),
+    model: await chatModel({ kind: "user", ...track }, track.p_base ?? ""),
     // Teto de saída generoso p/ passo a passo/guia (não cortar a resposta longa).
     maxOutputTokens: completo ? 8192 : 4096,
     system: composeSystemPrompt(

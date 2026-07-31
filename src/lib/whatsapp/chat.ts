@@ -52,7 +52,7 @@ async function answerWhatsapp(input: {
   const base: Msg[] = [...input.history, { role: "user", content: input.question }];
   const messages = withImageParts(base, input.imageParts ?? []);
   const { text } = await generateText({
-    model: await chatModel({ kind: "user", ...input.track }),
+    model: await chatModel({ kind: "user", ...input.track }, input.track?.p_base ?? ""),
     system: composeSystemPrompt(
       {
         persona,

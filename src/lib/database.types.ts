@@ -755,6 +755,7 @@ export type Database = {
       }
       ai_assignments: {
         Row: {
+          base_code: string
           model: string
           params: Json
           provider_id: string
@@ -762,6 +763,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          base_code?: string
           model: string
           params?: Json
           provider_id: string
@@ -769,6 +771,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          base_code?: string
           model?: string
           params?: Json
           provider_id?: string
@@ -853,6 +856,7 @@ export type Database = {
       ai_providers: {
         Row: {
           active: boolean
+          base_code: string
           base_url: string | null
           created_at: string
           created_by: string | null
@@ -862,6 +866,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          base_code?: string
           base_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -871,6 +876,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          base_code?: string
           base_url?: string | null
           created_at?: string
           created_by?: string | null
