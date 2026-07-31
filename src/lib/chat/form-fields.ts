@@ -13,11 +13,15 @@ import { z } from "zod";
 
 export type ScreenField = { ref: string; label: string; type: string; value: string };
 
+/** Um passo do tutorial guiado: destaca um campo e explica o que ele é. */
+export type TutorialStep = { ref: string; titulo: string; explicacao: string };
+
 /** Ação de UI proposta pela IA (o widget executa, em ordem, com confirmação por política). */
 export type UiAction =
   | { tipo: "fill"; ref: string; label: string; valor: string; valores?: string[] }
   | { tipo: "check"; ref: string; label: string; marcar: boolean }
-  | { tipo: "click"; ref: string; label: string };
+  | { tipo: "click"; ref: string; label: string }
+  | { tipo: "tutorial"; passos: TutorialStep[] };
 /** @deprecated use UiAction — mantido só para compat de importação. */
 export type FillAction = UiAction;
 
@@ -79,6 +83,30 @@ export function formAssistDirective(): string {
     "PERGUNTAS DE DOCUMENTAÇÃO: dúvidas sobre COMO o sistema funciona, conceitos ou procedimentos → responda pela " +
     "DOCUMENTAÇÃO fornecida no contexto (os artigos citados), NÃO pelos campos da tela nem por conhecimento geral, e sem " +
     "trocar de assunto. A tela mostra ONDE o usuário está — é apoio, não a fonte da resposta.\n" +
+    "ENSINAR A TELA (tutorial guiado): quando o usuário PERGUNTAR como usar/preencher esta tela ou aplicação (ex.: \"como " +
+    "uso essa tela?\", \"como preencho isso?\", \"me ensina a usar\", \"não sei mexer aqui\", \"o que faço nessa tela?\") — " +
+    "é PERGUNTA, não comando de ação — use a ferramenta tutorial_tela em vez de operar a tela. Inclua TODOS os campos " +
+    "PREENCHÍVEIS da lista ELEMENTOS DA TELA (input/select/textarea/radio/checkbox), na ORDEM de preenchimento (de cima para " +
+    "baixo, respeitando a cascata: o campo-pai antes do filho). NÃO PULE campos: o objetivo é percorrer a tela INTEIRA, um " +
+    "campo por vez. Botões (ex.: Salvar) entram só se forem parte do fluxo de preenchimento. Cada passo tem uma explicação " +
+    "CURTA e clara (2-4 frases) do que o campo é e como preenchê-lo, baseada na DOCUMENTAÇÃO do contexto — e se a doc NÃO " +
+    "cobrir aquele campo, ainda assim INCLUA-O e explique brevemente pelo rótulo e pelo tipo (ex.: \"campo de data no " +
+    "formato dd/mm/aaaa\"), sem inventar regras específicas. NÃO preencha nada. O TEXTO da resposta deve, ANTES do passo " +
+    "a passo, APRESENTAR o programa/tela com base na DOCUMENTAÇÃO do contexto: o que É, para que SERVE (a FINALIDADE) e " +
+    "como FUNCIONA no geral (o fluxo do processo) — em um parágrafo curto, sem conhecimento geral e sem inventar; se a " +
+    "doc não descrever esta tela, diga isso em uma linha e siga assim mesmo. Termine o texto PERGUNTANDO se o usuário " +
+    "quer iniciar o tutorial guiado (ex.: \"Quer que eu inicie o tutorial guiado, destacando cada campo?\") — o sistema " +
+    "mostra os botões Iniciar / Agora não, e só destaca os campos depois que ele confirmar. As explicações CAMPO A CAMPO " +
+    "NÃO entram no texto — vão em `passos`, e o sistema mostra uma por vez, destacando o campo e rolando até ele.\n" +
+    "PREENCHER A PARTIR DE DOCUMENTO (OCR): quando o usuário ANEXAR uma imagem ou PDF de um documento (ex.: comprovante " +
+    "de endereço, certidão de nascimento/casamento, atestado médico, RG/CPF, contracheque) e pedir para preencher a tela " +
+    "(ex.: \"preencha meu endereço com esse comprovante\", \"use essa certidão\"), LEIA o documento (você o recebe como " +
+    "imagem/arquivo), EXTRAIA os dados e PREENCHA os campos da tela cujo RÓTULO corresponde a cada dado — casando por " +
+    "SIGNIFICADO, não por texto literal (ex.: logradouro→Endereço, CEP→CEP, município→Cidade, UF→Estado, data de " +
+    "nascimento→Data de Nascimento, nome do titular→Nome). Respeite o tipo/formato do campo (data no formato do campo, CEP/" +
+    "telefone/CPF só com os dígitos que aparecem). Preencha UM campo por vez com preencher_campo, na ordem da tela. NÃO " +
+    "invente o que não está no documento: se um campo pedido não aparece, deixe-o e avise; se o documento estiver ilegível, " +
+    "diga o que não conseguiu ler. Dados sensíveis (CPF/RG/de terceiros) o sistema já confirma — chame a ferramenta direto.\n" +
     "Ao AGIR: interprete o pedido pelos RÓTULOS dos elementos (títulos de região, nomes de campo/botão/coluna), mesmo que a " +
     "redação seja diferente; escolha o elemento cujo rótulo corresponde à intenção. Só a ferramenta muda a tela.\n" +
     "- ESCREVER/PREENCHER/GERAR um texto ou valor num campo (ex.: \"escreva a descrição da vaga\", \"preencha o campo X\", " +
@@ -215,6 +243,61 @@ export function buildFormTools(fields: ScreenField[], sink: UiAction[]): ToolSet
         if (!f) return semRef(ref);
         sink.push({ tipo: "click", ref, label: f.label });
         return { ok: true, mensagem: `Vou clicar em "${f.label}".` };
+      },
+    }),
+    tutorial_tela: tool({
+      description:
+        "ENSINA a tela passo a passo (tutorial guiado): quando o usuário PERGUNTAR como usar/preencher esta tela ou " +
+        "aplicação (uma pergunta, não um comando de ação), monte a SEQUÊNCIA ordenada de campos a explicar. O sistema " +
+        "destaca cada campo, um por vez, rola até ele e mostra a explicação no chat, com botões Prosseguir/Sair. NÃO " +
+        "preenche nada — só ensina. Use a DOCUMENTAÇÃO do contexto para as explicações; não invente. Uma única chamada " +
+        "com TODOS os passos, na ordem de preenchimento (de cima para baixo / cascata: pai antes do filho).",
+      inputSchema: z.object({
+        passos: z
+          .array(
+            z.object({
+              ref: z.string().describe("O ref do campo a destacar (o texto entre colchetes em ELEMENTOS DA TELA)."),
+              titulo: z.string().describe("Nome curto do campo/etapa (ex.: o rótulo do campo)."),
+              explicacao: z.string().describe("O que o campo é e como preenchê-lo (2-4 frases), com base na documentação."),
+            }),
+          )
+          .min(1)
+          .describe("A sequência ORDENADA de campos a explicar."),
+      }),
+      execute: async ({ passos }) => {
+        // O LLM não enumera de forma confiável TODOS os campos na ordem certa —
+        // então a SEQUÊNCIA é DETERMINÍSTICA: todos os campos preenchíveis, na
+        // ordem da tela; a IA só fornece a EXPLICAÇÃO (por ref). Onde a IA não
+        // explicou, cai numa explicação genérica pelo rótulo/tipo. Isso elimina
+        // "pulou campos" e "fora de ordem" (a ordem final o widget ainda refina
+        // pela posição VISUAL).
+        const expl = new Map<string, { titulo: string; explicacao: string }>();
+        for (const p of passos) {
+          if (acha(p.ref)) expl.set(p.ref, { titulo: p.titulo.trim(), explicacao: p.explicacao.trim() });
+        }
+        const generico = (f: ScreenField) =>
+          `Campo "${f.label}"${f.type && f.type !== "texto" ? ` (${f.type})` : ""}. Informe aqui o valor de ${f.label}.`;
+        const passoDe = (f: ScreenField): TutorialStep => {
+          const e = expl.get(f.ref);
+          return { ref: f.ref, titulo: (e?.titulo || f.label) || f.label, explicacao: e?.explicacao || generico(f) };
+        };
+        // Todos os campos PREENCHÍVEIS (não-botão), na ordem em que a tela os expôs.
+        const seq: TutorialStep[] = fields.filter((f) => f.type !== "botao").map(passoDe);
+        // + botões que a IA marcou como parte do fluxo (ex.: Salvar), no fim, sem duplicar.
+        const jaTem = new Set(seq.map((s) => s.ref));
+        for (const p of passos) {
+          const f = acha(p.ref);
+          if (f && f.type === "botao" && !jaTem.has(f.ref)) { seq.push(passoDe(f)); jaTem.add(f.ref); }
+        }
+        if (!seq.length) return { erro: "Não há campos preenchíveis na tela para explicar." };
+        sink.push({ tipo: "tutorial", passos: seq });
+        return {
+          ok: true,
+          mensagem: `Preparei o guia de ${seq.length} campo(s). Agora escreva o TEXTO da resposta: PRIMEIRO apresente ` +
+            `o programa/tela pela DOCUMENTAÇÃO do contexto — o que é, sua FINALIDADE e como funciona (o fluxo) — em um ` +
+            `parágrafo curto; termine PERGUNTANDO se o usuário quer iniciar o tutorial guiado (o sistema mostra os botões ` +
+            `Iniciar / Agora não e só começa após ele confirmar). NÃO repita as explicações campo a campo no texto (já vão nos passos).`,
+        };
       },
     }),
   };

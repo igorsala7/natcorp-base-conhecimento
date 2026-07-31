@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
     ),
     // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
     // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
-    messages: withPrefixCache(withImageParts(messages, attach.imageParts), comTools),
+    messages: withPrefixCache(withImageParts(messages, attach.imageParts, attach.fileParts), comTools),
     ...(comTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
   });
 

@@ -120,7 +120,9 @@
   var _fieldRefs = [];       // ref (índice) -> elemento, do último scan
   var _acoes = [];           // ações propostas pela IA (fill/check/click), em ordem
   var _picking = null;       // ativo enquanto aguardamos o usuário clicar num campo
-  var _hlAdded = false;
+  var _hlOv = null, _hlEl = null, _hlReposition = null, _hlTimer = null; // destaque (overlay flutuante)
+  var _callout = null, _calloutAtivo = false; // balão do tutorial, ancorado ao campo
+  var _tutorial = null;      // walkthrough guiado em andamento (passos + índice)
   // Loop autônomo (Fase B): após executar uma ação, re-varremos a tela e reenviamos
   // à IA p/ ela DAR O PRÓXIMO PASSO (menus/janelas do APEX abrem em etapas), até
   // concluir. Confirma só o que grava/navega — o resto roda direto.
@@ -210,12 +212,23 @@
         doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
           if (out.length >= 80) return; // campos: até 80 (botões têm folga própria até 120)
           if (host && host.contains && host.contains(el)) return;
+          // Busca do MENU superior (P9999_SEARCH do APEX) e campos da barra de
+          // navegação/cabeçalho: não fazem parte da tela — fora do escopo.
+          if (/^p9999_search$/i.test(el.id || "")) return;
+          if (el.closest && el.closest('.t-Header,#t_Header,[role="banner"],.t-Header-navBar,.a-MenuBar,.t-NavigationBar')) return;
           var t = (el.type || "").toLowerCase();
           if (t === "hidden" || t === "password" || t === "submit" || t === "button" || t === "reset" || t === "file") return;
-          // NUNCA expõe/mexe em campos restritos: desabilitados, somente-leitura
-          // ou marcados como não-editáveis (aria-readonly). O modelo nem os vê.
-          if (el.disabled || el.readOnly || el.getAttribute("aria-readonly") === "true") return;
-          if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
+          // NUNCA expõe/mexe em campos restritos: desabilitados sempre fora.
+          if (el.disabled) return;
+          // Somente-leitura fica fora — EXCETO popup-LOV do APEX (Filial, Centro
+          // de Custo, Matrícula…): são readonly mas o usuário PREENCHE via o popup,
+          // logo fazem parte da tela e do tutorial.
+          var ehLov = (typeof el.className === "string" && /(^|\s)(popup_lov|apex-item-popup-lov)(\s|$)/.test(el.className)) ||
+            (el.closest && el.closest(".apex-item-group--popup-lov, .apex-item-popup-lov"));
+          if (!ehLov && (el.readOnly || el.getAttribute("aria-readonly") === "true")) return;
+          // Invisível → fora, EXCETO se estiver numa ABA oculta (o tutorial ativa
+          // a aba clicando nela antes de destacar o campo).
+          if (el.getClientRects && el.getClientRects().length === 0 && !(el.closest && el.closest('[role="tabpanel"]'))) return;
           var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
           // radio/checkbox costumam ter o texto no <label> que os envolve.
           if (t === "radio" || t === "checkbox") {
@@ -259,20 +272,361 @@
     if (el && el.isConnected) return el;
     try { return document.querySelector('[data-kb-field="' + ref + '"]'); } catch { return null; }
   }
-  function ensureHl() {
-    if (_hlAdded) return;
-    _hlAdded = true;
+  // Destaque por OVERLAY flutuante (não outline no elemento): position:fixed no
+  // topo do documento, nunca é cortado por ancestral com overflow:hidden — era o
+  // que deixava a borda parcial/"topo estranho". Segue o campo no scroll/resize.
+  function ensureHlOverlay() {
+    if (_hlOv) return _hlOv;
+    var c = (cfg && cfg.primaryColor) || "#511C76";
     try {
-      var c = (cfg && cfg.primaryColor) || "#511C76";
       var st = document.createElement("style");
-      st.textContent =
-        "@keyframes kbFieldPulse{0%,100%{box-shadow:0 0 0 3px " + c + "55}50%{box-shadow:0 0 0 7px " + c + "22}}" +
-        ".kb-field-hl{outline:2px solid " + c + "!important;outline-offset:2px;border-radius:5px;animation:kbFieldPulse 1s ease-in-out infinite!important}";
+      st.textContent = "@keyframes kbHlPulse{0%,100%{box-shadow:0 0 0 3px " + c + "66,0 0 16px 3px " + c + "3a}50%{box-shadow:0 0 0 8px " + c + "22,0 0 26px 8px " + c + "22}}";
       (document.head || document.documentElement).appendChild(st);
     } catch { }
+    var ov = document.createElement("div");
+    ov.setAttribute("aria-hidden", "true");
+    ov.style.cssText =
+      "position:fixed;z-index:2147483646;pointer-events:none;display:none;box-sizing:border-box;" +
+      "border:3px solid " + c + ";border-radius:7px;background:" + c + "12;" +
+      "animation:kbHlPulse 1.1s ease-in-out infinite"; // sem transition: seguir o scroll tem de ser 1:1
+    (document.body || document.documentElement).appendChild(ov);
+    _hlOv = ov;
+    return ov;
   }
-  function highlightField(el) { ensureHl(); try { el.classList.add("kb-field-hl"); el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { } }
-  function unhighlightField(el) { try { el.classList.remove("kb-field-hl"); } catch { } }
+  // Retângulo do elemento em coordenadas da PÁGINA TOP: para campos dentro de
+  // iframe(s) de mesma origem, o getBoundingClientRect é relativo ao iframe —
+  // então somamos o offset de cada iframe da cadeia até o topo. Sem isto o
+  // overlay (fixed no topo) fica deslocado nas telas em iframe.
+  function rectInTop(el) {
+    var r = el.getBoundingClientRect();
+    var top = r.top, left = r.left, width = r.width, height = r.height;
+    var win = el.ownerDocument && el.ownerDocument.defaultView, guard = 0;
+    while (win && win !== window && guard++ < 6) {
+      var fe = null; try { fe = win.frameElement; } catch { fe = null; }
+      if (!fe) break;
+      var fr = fe.getBoundingClientRect();
+      top += fr.top; left += fr.left; // iframe sem borda: a origem do conteúdo = canto do iframe
+      win = win.parent;
+    }
+    return { top: top, left: left, width: width, height: height };
+  }
+  // Rola o campo para o centro E garante que o(s) iframe(s) ancestrais também
+  // fiquem visíveis na página top (senão o campo pode estar fora da tela).
+  function scrollFieldIntoView(el) {
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { }
+    var win = el.ownerDocument && el.ownerDocument.defaultView, guard = 0;
+    while (win && win !== window && guard++ < 6) {
+      var fe = null; try { fe = win.frameElement; } catch { fe = null; }
+      if (!fe) break;
+      try { fe.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { }
+      win = win.parent;
+    }
+  }
+  function posHlOverlay() {
+    if (!_hlOv) return;
+    if (!_hlEl || !_hlEl.isConnected) { _hlOv.style.display = "none"; return; }
+    var r = rectInTop(_hlEl);
+    if (!r.width && !r.height) { _hlOv.style.display = "none"; return; } // oculto agora → some (reaparece qdo voltar)
+    if (_hlOv.style.display === "none") _hlOv.style.display = "block";
+    var pad = 3;
+    _hlOv.style.top = (r.top - pad) + "px";
+    _hlOv.style.left = (r.left - pad) + "px";
+    _hlOv.style.width = (r.width + pad * 2) + "px";
+    _hlOv.style.height = (r.height + pad * 2) + "px";
+  }
+  // Se o campo está numa ABA (tabpanel) INATIVA, clica na aba correspondente
+  // para revelá-lo antes de destacar. Retorna true se trocou de aba.
+  function revelarAbaSePreciso(el) {
+    try {
+      if (el.getClientRects().length) return false; // já visível
+      var doc = el.ownerDocument;
+      var tp = el.closest('[role="tabpanel"]');
+      if (!tp) return false;
+      var tab = null;
+      if (tp.id) { try { tab = doc.querySelector('[role="tab"][aria-controls="' + tp.id + '"]'); } catch { tab = null; } }
+      if (!tab && tp.getAttribute("aria-labelledby")) { try { tab = doc.getElementById(tp.getAttribute("aria-labelledby")); } catch { tab = null; } }
+      if (tab) { try { tab.click(); } catch { } return true; }
+    } catch { }
+    return false;
+  }
+  function highlightField(el) {
+    if (!el) return;
+    var trocouAba = revelarAbaSePreciso(el); // ativa a aba do campo, se preciso
+    var ov = ensureHlOverlay();
+    _hlEl = el;
+    ov.style.display = "block";
+    if (!_hlReposition) {
+      _hlReposition = reposDestaque;
+      window.addEventListener("scroll", _hlReposition, true); // scroll do documento top
+      window.addEventListener("resize", _hlReposition);
+    }
+    // Reposiciona CONTÍNUO (leve, 1 elemento): cobre o scrollIntoView suave E o
+    // scroll DENTRO de iframes, que não dispara o listener da página top.
+    clearInterval(_hlTimer);
+    _hlTimer = setInterval(reposDestaque, 80);
+    // Rola e reposiciona; se trocou de aba, espera o painel renderizar.
+    var focar = function () { scrollFieldIntoView(el); reposDestaque(); };
+    if (trocouAba) setTimeout(focar, 300); else focar();
+  }
+  function unhighlightField() {
+    if (_hlOv) _hlOv.style.display = "none";
+    _hlEl = null;
+    clearInterval(_hlTimer);
+    if (_hlReposition) {
+      window.removeEventListener("scroll", _hlReposition, true);
+      window.removeEventListener("resize", _hlReposition);
+      _hlReposition = null;
+    }
+  }
+  function reposDestaque() { posHlOverlay(); posCallout(); }
+
+  // ==== Balão de diálogo (callout) do tutorial, ancorado ao campo ====
+  // Fica no document top (fixed), reposicionado junto do destaque; ACIMA do
+  // campo, ou ABAIXO se não couber; clampado nas bordas (nunca sai da tela).
+  function ensureCallout() {
+    if (_callout) return _callout;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var c = document.createElement("div");
+    c.setAttribute("aria-live", "polite");
+    c.style.cssText =
+      "position:fixed;z-index:2147483647;display:none;box-sizing:border-box;max-width:330px;min-width:230px;width:max-content;" +
+      "background:#fff;color:#1a1a1a;border:1px solid " + pc + "33;border-radius:14px;padding:11px 13px 11px 48px;" +
+      "box-shadow:0 16px 44px rgba(30,15,60,.30);font:400 13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;";
+    var av = document.createElement("div"); // avatar no canto superior esquerdo
+    av.style.cssText = "position:absolute;top:10px;left:11px;width:28px;height:28px;border-radius:50%;overflow:hidden;" +
+      "background:linear-gradient(135deg," + pc + "," + (cfg.primaryColor2 || pc) + ");display:flex;align-items:center;justify-content:center;box-shadow:0 3px 9px rgba(40,20,80,.3);color:#fff;";
+    av.innerHTML = cfg.avatarUrl ? '<img src="' + esc(cfg.avatarUrl) + '" alt="" style="width:100%;height:100%;object-fit:cover">' : ICON_BOT;
+    try { var _svg = av.querySelector("svg"); if (_svg) { _svg.style.width = "16px"; _svg.style.height = "16px"; } } catch { }
+    var body = document.createElement("div"); body.setAttribute("data-cbody", "");
+    var arrow = document.createElement("div"); arrow.setAttribute("data-carrow", "");
+    c.appendChild(av); c.appendChild(body); c.appendChild(arrow);
+    (document.body || document.documentElement).appendChild(c);
+    _callout = c;
+    return c;
+  }
+  function posCallout() {
+    if (!_callout || !_calloutAtivo || !_hlEl || !_hlEl.isConnected) return;
+    var r0 = rectInTop(_hlEl);
+    if (!r0.width && !r0.height) { _callout.style.display = "none"; return; } // campo oculto → some (reaparece qdo voltar)
+    if (_callout.style.display === "none") _callout.style.display = "block";
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var r = rectInTop(_hlEl);
+    var cw = _callout.offsetWidth, ch = _callout.offsetHeight;
+    var vw = window.innerWidth, vh = window.innerHeight, m = 8, gap = 12;
+    var cx = r.left + r.width / 2;
+    var left = Math.max(m, Math.min(cx - cw / 2, vw - cw - m));
+    var acima = (r.top - gap - ch) >= m;                      // cabe acima?
+    var top = acima ? (r.top - gap - ch) : (r.top + r.height + gap);
+    top = Math.max(m, Math.min(top, vh - ch - m));
+    _callout.style.left = left + "px";
+    _callout.style.top = top + "px";
+    var arrow = _callout.querySelector("[data-carrow]");
+    if (arrow) {
+      var ax = Math.max(10, Math.min(cx - left, cw - 10)) - 6; // seta aponta pro campo
+      arrow.style.cssText = "position:absolute;width:12px;height:12px;background:#fff;transform:rotate(45deg);left:" + ax + "px;" +
+        (acima ? "bottom:-7px;border-right:1px solid " + pc + "33;border-bottom:1px solid " + pc + "33;"
+          : "top:-7px;border-left:1px solid " + pc + "33;border-top:1px solid " + pc + "33;");
+    }
+  }
+  function hideCallout() { _calloutAtivo = false; if (_callout) _callout.style.display = "none"; }
+  function mostrarCallout(passo, n, total, ultimo, onAvancar, onSair) {
+    var c = ensureCallout();
+    _calloutAtivo = true;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var body = c.querySelector("[data-cbody]");
+    body.innerHTML = "";
+    var tit = document.createElement("div");
+    tit.style.cssText = "font-weight:700;color:" + pc + ";margin-bottom:3px;font-size:12.5px;";
+    tit.textContent = "Passo " + n + " de " + total + (passo.titulo ? " · " + passo.titulo : "");
+    var exp = document.createElement("div");
+    exp.style.cssText = "margin-bottom:10px;color:#2a2a2a;";
+    exp.textContent = passo.explicacao;
+    var btns = document.createElement("div");
+    btns.style.cssText = "display:flex;gap:7px;flex-wrap:wrap;";
+    var av = tutBtn(ultimo ? "Concluir ✓" : "Prosseguir →", true);
+    av.addEventListener("click", onAvancar);
+    btns.appendChild(av);
+    var sa = tutBtn("Sair", false); sa.addEventListener("click", onSair); btns.appendChild(sa);
+    body.appendChild(tit); body.appendChild(exp); body.appendChild(btns);
+    c.style.display = "block";
+    posCallout();
+  }
+
+  // ==== Tutorial guiado (walkthrough passo a passo) ====
+  function tutBtn(txt, primario) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = txt;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    b.style.cssText = "font-size:12.5px;font-weight:600;padding:6px 13px;border-radius:9px;cursor:pointer;" +
+      (primario ? "border:1px solid " + pc + ";background:" + pc + ";color:#fff;" : "border:1px solid " + pc + "44;background:transparent;color:" + pc + ";");
+    return b;
+  }
+  function encerrarTutorial() { unhighlightField(); hideCallout(); _tutorial = null; }
+  // Porta de confirmação: depois de apresentar o programa, PERGUNTA se quer o
+  // tutorial guiado — só destaca campos após o usuário clicar em "Iniciar".
+  function confirmarTutorial() {
+    var t = _tutorial;
+    if (!t || !t.passos || !t.passos.length) { _tutorial = null; return; }
+    var box = document.createElement("div");
+    box.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 6px 40px;";
+    var sim = tutBtn("Iniciar tutorial →", true);
+    sim.addEventListener("click", function () { if (box.parentNode) box.remove(); iniciarTutorial(); });
+    var nao = tutBtn("Agora não", false);
+    nao.addEventListener("click", function () {
+      if (box.parentNode) box.remove();
+      _tutorial = null;
+      statusMsg("Beleza — é só pedir quando quiser o passo a passo.", null);
+    });
+    box.appendChild(sim); box.appendChild(nao);
+    messagesEl.appendChild(box);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  function iniciarTutorial() {
+    var t = _tutorial;
+    if (!t) return;
+    // A tela é DINÂMICA (regiões/campos aparecem e somem conforme o preenchimento).
+    // Por isso NÃO fixamos a lista de passos: guardamos só as EXPLICAÇÕES da IA,
+    // por CHAVE ESTÁVEL do campo (id/name/rótulo), e a sequência é VARRIDA AO VIVO
+    // a cada passo — respeitando o show/hide de regiões e campos.
+    t.expl = {};
+    (t.passos || []).forEach(function (p) {
+      if (!p || !p.explicacao) return;
+      var el = fieldEl(p.ref);
+      var ch = el ? chaveCampo(el) : null;
+      if (ch) t.expl[ch] = { titulo: (p.titulo || "").trim(), explicacao: (p.explicacao || "").trim() };
+    });
+    t.visitados = {};
+    t.n = 0;
+    if (!coletarCamposTutorial().length) { _tutorial = null; return; }
+    mostrarPassoTutorial();
+  }
+  // Chave ESTÁVEL de um campo — sobrevive a mudanças de layout/refs entre passos.
+  function chaveCampo(el) {
+    try { return (el.id || el.name || el.getAttribute("aria-label") || rotuloCampo(el) || "").toString() || null; } catch { return null; }
+  }
+  // Rótulo legível: aria-label → <label for> → placeholder → name → id.
+  function rotuloCampo(el) {
+    try {
+      var rot = el.getAttribute("aria-label") || "";
+      if (!rot && el.id) { var lab = (el.ownerDocument || document).querySelector('label[for="' + el.id + '"]'); if (lab) rot = scanTexto(lab.textContent); }
+      if (!rot) rot = el.placeholder || el.name || el.id || (el.type || "campo");
+      var tt = (el.type || "").toLowerCase();
+      if (tt === "radio" || tt === "checkbox") { var wrap = el.closest && el.closest("label"); if (wrap) { var wt = scanTexto(wrap.textContent); if (wt) rot = wt; } }
+      return limparRotulo(scanTexto(rot)).slice(0, 120);
+    } catch { return "campo"; }
+  }
+  // Explicação genérica (quando a IA não cobriu o campo — ex.: surgido dinamicamente).
+  function explicacaoGenerica(el) {
+    var rot = rotuloCampo(el), tipo = fieldTipo(el);
+    return 'Campo "' + rot + '"' + (tipo && tipo.indexOf("texto") !== 0 ? " (" + tipo + ")" : "") + ". Informe aqui o valor de " + rot + ".";
+  }
+  // Campo elegível ao tutorial? (mesma regra do scan, sem o teste de visibilidade.)
+  function campoElegivelTutorial(el) {
+    try {
+      if (host && host.contains && host.contains(el)) return false;
+      if (/^p9999_search$/i.test(el.id || "")) return false;
+      if (el.closest && el.closest('.t-Header,#t_Header,[role="banner"],.t-Header-navBar,.a-MenuBar,.t-NavigationBar')) return false;
+      var t = (el.type || "").toLowerCase();
+      if (t === "hidden" || t === "password" || t === "submit" || t === "button" || t === "reset" || t === "file") return false;
+      if (el.disabled) return false;
+      var ehLov = (typeof el.className === "string" && /(^|\s)(popup_lov|apex-item-popup-lov)(\s|$)/.test(el.className)) ||
+        (el.closest && el.closest(".apex-item-group--popup-lov, .apex-item-popup-lov"));
+      if (!ehLov && (el.readOnly || el.getAttribute("aria-readonly") === "true")) return false;
+      return true;
+    } catch { return false; }
+  }
+  // Varre a tela AO VIVO e devolve os campos a percorrer, na ORDEM DE LEITURA:
+  //  - VISÍVEIS primeiro (linha por linha, esquerda→direita, por sobreposição);
+  //  - campos em ABA inativa ao fim (reveláveis por clique na aba);
+  //  - campos ocultos por regra DINÂMICA (região escondida) ficam de FORA — voltam
+  //    sozinhos quando a região aparece, porque re-varremos a cada passo.
+  function coletarCamposTutorial() {
+    var vis = [], tab = [], seen = [];
+    function jaTem(el) { for (var i = 0; i < seen.length; i++) if (seen[i] === el) return true; seen.push(el); return false; }
+    function coletar(doc) {
+      if (!doc) return;
+      try {
+        doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
+          if (!campoElegivelTutorial(el) || jaTem(el)) return;
+          var visivel = el.getClientRects && el.getClientRects().length > 0;
+          var emAba = el.closest && el.closest('[role="tabpanel"]');
+          if (!visivel && !emAba) return;            // oculto por regra dinâmica → pula
+          if (visivel) { var r = rectInTop(el); vis.push({ el: el, top: r.top, bottom: r.top + (r.height || 0), left: r.left }); }
+          else tab.push(el);                          // aba inativa → revelável
+        });
+      } catch { }
+      try { doc.querySelectorAll("iframe").forEach(function (f) { var d = null; try { d = f.contentDocument; } catch { d = null; } if (d) coletar(d); }); } catch { }
+    }
+    coletar(document);
+    vis.sort(function (a, b) { return a.top - b.top || a.left - b.left; });
+    var ord = [], k = 0;
+    while (k < vis.length) {
+      var band = vis[k].bottom, j = k + 1;
+      while (j < vis.length && vis[j].top < band - 2) { band = Math.max(band, vis[j].bottom); j++; }
+      vis.slice(k, j).sort(function (a, b) { return a.left - b.left; }).forEach(function (v) { ord.push(v.el); });
+      k = j;
+    }
+    tab.forEach(function (el) { ord.push(el); });
+    return ord.map(function (el) { return { el: el, chave: chaveCampo(el) }; });
+  }
+  function mostrarPassoTutorial() {
+    var t = _tutorial;
+    if (!t) return;
+    // Re-varre a tela AGORA (respeita regiões/campos que apareceram ou sumiram) e
+    // pega o PRÓXIMO campo visível ainda não visitado, na ordem de leitura atual.
+    var lista = coletarCamposTutorial();
+    var alvo = null, restantes = 0;
+    for (var i = 0; i < lista.length; i++) { if (lista[i].chave && !t.visitados[lista[i].chave]) { restantes++; if (!alvo) alvo = lista[i]; } }
+    if (!alvo) { statusMsg("Tutorial concluído — é só me chamar quando precisar.", null); encerrarTutorial(); return; }
+    var el = alvo.el, chave = alvo.chave;
+    t.n += 1;
+    var total = t.n + restantes - 1;      // estimativa (cresce se novas regiões surgirem)
+    var ultimo = restantes <= 1;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var ex = t.expl[chave];
+    var titulo = (ex && ex.titulo) || rotuloCampo(el);
+    var explic = (ex && ex.explicacao) || explicacaoGenerica(el);
+
+    // Ações compartilhadas pelos botões do CHAT e do BALÃO flutuante.
+    var box; // botões do chat (removidos ao avançar)
+    function avancar() {
+      if (box && box.parentNode) box.remove();
+      hideCallout();
+      t.visitados[chave] = true;          // marca e RE-VARRE (a tela pode ter mudado)
+      unhighlightField();
+      mostrarPassoTutorial();
+    }
+    function sair() {
+      if (box && box.parentNode) box.remove();
+      hideCallout();
+      statusMsg("Saí do tutorial.", null);
+      encerrarTutorial();
+    }
+
+    highlightField(el); // ativa a aba se preciso, rola e destaca
+
+    // (1) Registro no CHAT: bolha "Passo N de M · Campo" + explicação + botões.
+    var bolha = document.createElement("div");
+    bolha.className = "m a";
+    var tit = document.createElement("div");
+    tit.style.cssText = "font-weight:700;margin-bottom:4px;color:" + pc + ";";
+    tit.textContent = "Passo " + t.n + " de " + total + (titulo ? " · " + titulo : "");
+    var exp = document.createElement("div");
+    exp.textContent = explic;
+    bolha.appendChild(tit); bolha.appendChild(exp);
+    messagesEl.appendChild(botRow(bolha));
+    box = document.createElement("div");
+    box.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 6px 40px;";
+    var avC = tutBtn(ultimo ? "Concluir ✓" : "Prosseguir →", true);
+    avC.addEventListener("click", avancar);
+    box.appendChild(avC);
+    var saC = tutBtn("Sair", false); saC.addEventListener("click", sair); box.appendChild(saC);
+    messagesEl.appendChild(box);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // (2) BALÃO flutuante ancorado ao campo (avatar + etapa + explicação + botões).
+    mostrarCallout({ titulo: titulo, explicacao: explic }, t.n, total, ultimo, avancar, sair);
+  }
   // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
   // NOME (texto), com limite de palavra para "200" não casar "2000" nem "1200".
   function opcaoCasa(o, v) {
@@ -2222,8 +2576,9 @@
 
   function ask(scope, attachmentIds, opts) {
     var continuacao = !!(opts && opts.continuation);
-    // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo.
-    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; }
+    // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo e
+    // encerra um tutorial em andamento (o usuário mudou de assunto).
+    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; if (_tutorial) encerrarTutorial(); }
     _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
     _avisouTurno = continuacao; // continuação do loop não toca o som; resposta nova pode
     desbloquearAudio(); // envio é gesto do usuário → libera o som p/ tocar depois
@@ -2398,6 +2753,14 @@
         if (typing.parentNode) typing.remove();
         avisarMensagem();
         if (evt.chart) renderChart(evt.chart);
+      } else if (evt.type === "tutorial") {
+        // A IA montou um tutorial guiado → walkthrough passo a passo no fim do turno.
+        if (typing.parentNode) typing.remove();
+        avisarMensagem();
+        var _ps = Array.isArray(evt.passos)
+          ? evt.passos.filter(function (p) { return p && p.ref != null && p.explicacao; })
+          : [];
+        if (_ps.length) _tutorial = { passos: _ps, idx: 0 };
       }
     }
     function finish() {
@@ -2425,7 +2788,8 @@
         if (citations.length) renderCitations(citations);
       }
       done();
-      if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
+      if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
+      else if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
     }
     function done() {
       busy = false;

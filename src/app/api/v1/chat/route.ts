@@ -35,7 +35,7 @@ import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/too
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
-import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao } from "@/lib/ai/answer-style";
+import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
 import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
@@ -123,7 +123,11 @@ export async function POST(req: NextRequest) {
   // a completude no prompt; perguntas comuns seguem enxutas. Enumeração ("todos os
   // X") também amplia (limite/tokens) e traz a lista inteira dos arquivos.
   const enumera = pedeEnumeracao(question);
-  const completo = pedeCompletude(question) || enumera;
+  const compl = pedeCompletude(question);
+  // Tutorial ("como uso essa tela") também amplia o teto de saída, para o guiado
+  // listar TODOS os campos sem truncar — mas SEM a nota de passo a passo (as
+  // explicações vão nos passos da ferramenta, não num texto longo).
+  const completo = compl || enumera || pedeTutorial(question);
   // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
   // por botão só NARROW dentro delas — nunca escapa da chave).
   const ragSources = social
@@ -313,7 +317,7 @@ export async function POST(req: NextRequest) {
       },
       [
         notaDataAtual(),
-        enumera ? notaEnumeracao() : completo ? notaCompletude() : "",
+        enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,
         pageChangeNote(prevPage, page),
@@ -330,7 +334,7 @@ export async function POST(req: NextRequest) {
     ),
     // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
     // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
-    messages: withPrefixCache(withImageParts(messages, attach.imageParts), temTools),
+    messages: withPrefixCache(withImageParts(messages, attach.imageParts, attach.fileParts), temTools),
     // Loop agêntico: o modelo pode chamar uma API (ou preencher_campo), ler o
     // resultado e responder. `stopWhen` trava o loop.
     ...(temTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
@@ -382,7 +386,8 @@ export async function POST(req: NextRequest) {
       for (const a of uiActions) {
         if (a.tipo === "fill") controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor, ...(a.valores ? { valores: a.valores } : {}) }));
         else if (a.tipo === "check") controller.enqueue(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
-        else controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
+        else if (a.tipo === "click") controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
+        else if (a.tipo === "tutorial") controller.enqueue(sse({ type: "tutorial", passos: a.passos }));
       }
       // Persiste a MÍDIA na mensagem para reexibir no histórico: gráfico = spec
       // inline (leve); arquivo = upload no bucket privado `chat-media` (o caminho

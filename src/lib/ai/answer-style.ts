@@ -38,6 +38,19 @@ export function pedeEnumeracao(pergunta: string): boolean {
 }
 
 /**
+ * O usuário quer aprender a USAR a tela ("como uso/mexo/preencho essa tela",
+ * "me ensina", "tutorial"). Trata como resposta AMPLA: mais contexto do RAG e
+ * teto de saída maior, para o tutorial guiado listar TODOS os campos sem
+ * truncar (as explicações vão nos passos da ferramenta, não no texto).
+ */
+const RX_TUTORIAL =
+  /como (usar|utilizar|mexer|operar|preench|funcion)|me ensin|ensina(r| como)|tutorial|guia de uso|passo a passo (dess|ness|dest|nest)|n[ãa]o sei (usar|mexer|preench|operar)|o que fa[çz]o (nessa|nesta|aqui)|como (é|eh) essa tela/i;
+
+export function pedeTutorial(pergunta: string): boolean {
+  return RX_TUTORIAL.test(String(pergunta ?? ""));
+}
+
+/**
  * Limpa a pergunta de enumeração para a busca LÉXICA nos arquivos: tira as
  * palavras interrogativas/de comando e o "cola" ("quais são todos os … de …"),
  * deixando só o CONTEÚDO ("programas módulo medicina ocupacional"). Sem isso, o

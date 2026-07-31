@@ -25,6 +25,8 @@ export type AttachmentMeta = { id: string; name: string; mime: string; size: num
 export type ReceiveResult = { ok: true; attachment: AttachmentMeta } | { ok: false; error: string };
 /** Parte de imagem para uma mensagem multimodal (AI SDK v6). */
 export type ImagePart = { type: "image"; image: Uint8Array; mediaType: string };
+/** Arquivo enviado ao modelo (ex.: PDF sem texto → visão/OCR nativo). */
+export type FilePart = { type: "file"; data: Uint8Array; mediaType: string };
 
 function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "arquivo";
@@ -102,11 +104,11 @@ export async function receiveAttachment(
 export async function loadAttachmentsForTurn(
   spaceId: string,
   ids: unknown,
-): Promise<{ contextBlock: string; metas: AttachmentMeta[]; ids: string[]; imageParts: ImagePart[] }> {
+): Promise<{ contextBlock: string; metas: AttachmentMeta[]; ids: string[]; imageParts: ImagePart[]; fileParts: FilePart[] }> {
   const lista = Array.isArray(ids)
     ? ids.filter((x): x is string => typeof x === "string").slice(0, MAX_PER_TURN)
     : [];
-  if (lista.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [] };
+  if (lista.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [] };
 
   const supabase = createAdminClient();
   const { data } = await supabase
@@ -115,7 +117,7 @@ export async function loadAttachmentsForTurn(
     .eq("space_id", spaceId)
     .in("id", lista);
   const rows = data ?? [];
-  if (rows.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [] };
+  if (rows.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [] };
 
   const docs = rows.filter((r) => !(r.mime ?? "").startsWith("image/"));
   const imgs = rows.filter((r) => (r.mime ?? "").startsWith("image/"));
@@ -145,6 +147,20 @@ export async function loadAttachmentsForTurn(
     contextBlock = contextBlock ? `${contextBlock}\n\n${nota}` : nota;
   }
 
+  // PDF SEM texto extraível (escaneado) → manda o próprio arquivo ao modelo (OCR
+  // por visão). PDF com texto já vai como texto acima (mais barato).
+  const fileParts: FilePart[] = [];
+  for (const r of docs) {
+    if ((r.mime ?? "") === "application/pdf" && (r.char_count ?? 0) < 50) {
+      const dl = await supabase.storage.from(BUCKET).download(r.storage_path);
+      if (dl.data) fileParts.push({ type: "file", data: new Uint8Array(await dl.data.arrayBuffer()), mediaType: "application/pdf" });
+    }
+  }
+  if (fileParts.length) {
+    const nota = `O usuário anexou ${fileParts.length} PDF(s) sem texto extraível — enviado(s) como ARQUIVO para você LER (OCR). Use o conteúdo visível; não invente o que não estiver no documento.`;
+    contextBlock = contextBlock ? `${contextBlock}\n\n${nota}` : nota;
+  }
+
   const metas: AttachmentMeta[] = rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -152,7 +168,7 @@ export async function loadAttachmentsForTurn(
     size: r.size_bytes,
     chars: r.char_count ?? 0,
   }));
-  return { contextBlock, metas, ids: rows.map((r) => r.id), imageParts };
+  return { contextBlock, metas, ids: rows.map((r) => r.id), imageParts, fileParts };
 }
 
 /**
@@ -163,12 +179,14 @@ export async function loadAttachmentsForTurn(
 export function withImageParts(
   messages: { role: "user" | "assistant" | "system"; content: string }[],
   imageParts: ImagePart[],
+  fileParts: FilePart[] = [],
 ): ModelMessage[] {
   const out = messages.map((m) => ({ role: m.role, content: m.content })) as ModelMessage[];
-  if (!imageParts.length) return out;
+  const extra = [...imageParts, ...fileParts];
+  if (!extra.length) return out;
   for (let i = out.length - 1; i >= 0; i--) {
     if (out[i]!.role === "user") {
-      out[i] = { role: "user", content: [{ type: "text", text: messages[i]!.content }, ...imageParts] };
+      out[i] = { role: "user", content: [{ type: "text", text: messages[i]!.content }, ...extra] as never };
       break;
     }
   }
