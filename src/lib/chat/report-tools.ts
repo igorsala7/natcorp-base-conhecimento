@@ -17,7 +17,7 @@ import { expandirTabela, type DatasetRegistry } from "./datasets";
 /** O pedido do usuário é por uma VISUALIZAÇÃO/exportação (relatório/PDF/gráfico…)?
  *  Usado para liberar as ferramentas visuais MESMO sem integração — um relatório
  *  pode sair do conteúdo da DOCUMENTAÇÃO, não só de dados de API. */
-export const RX_VISUAL = /relat[óo]ri|\bpdf\b|gr[áa]fico|dashboard|exportar|\bexport\b|planilha|\bcsv\b|\bxlsx?\b|\bexcel\b|documento com os dados/i;
+export const RX_VISUAL = /relat[óo]ri|\bpdf\b|gr[áa]fico|dashboard|exportar|\bexport\b|planilha|\bcsv\b|\bxlsx?\b|\bexcel\b|\bword\b|\bdocx?\b|\bppt\b|\bpptx\b|power\s*point|apresenta[çc][ãa]o|slides?|documento com os dados|gerar (um )?(arquivo|documento)/i;
 export function pedeVisualizacao(pergunta: string): boolean {
   return RX_VISUAL.test(String(pergunta ?? ""));
 }
@@ -77,9 +77,49 @@ export function buildChartTool(sink: ChartSpec[]): ToolSet {
   };
 }
 
+/** Escolha de tipo de gráfico oferecida como BOTÕES (o widget renderiza na hora). */
+export type ChartChoice = { spec: ChartSpec; recomendado: string; pergunta: string };
+
+const chartAskInput = chartObject.omit({ tipo: true }).extend({
+  recomendado: z
+    .enum(CHART_TIPO_KEYS)
+    .optional()
+    .describe("O tipo que VOCÊ recomenda (será destacado no botão). Baseie-se nos dados."),
+  pergunta: z.string().optional().describe("A pergunta curta a exibir (ex.: 'Qual tipo de gráfico você prefere?')."),
+});
+
+/** Tool `perguntar_tipo_grafico` — oferece os tipos como BOTÕES em vez de perguntar em texto. */
+export function buildChartAskTool(sink: ChartChoice[]): ToolSet {
+  return {
+    perguntar_tipo_grafico: tool({
+      description:
+        "Use quando o usuário pedir um GRÁFICO mas NÃO tiver dito o TIPO. Em vez de perguntar em texto, passe os DADOS " +
+        "reais (categorias + séries) e o tipo `recomendado`: o sistema mostra os tipos (colunas, barras, linha, área, " +
+        "pizza, rosca) como BOTÕES no chat e o usuário escolhe — o gráfico aparece na hora. NÃO pergunte o tipo em texto " +
+        "nem chame montar_grafico junto. Se o usuário JÁ disse o tipo, use montar_grafico direto.",
+      inputSchema: chartAskInput,
+      execute: async (input) => {
+        const { recomendado, pergunta, ...resto } = input;
+        const spec = normalizeSpec({ ...resto, tipo: recomendado || "colunas" });
+        if (!spec) return { erro: "Não consegui preparar: preciso de categorias e ao menos uma série com valores numéricos." };
+        sink.push({ spec, recomendado: recomendado || spec.tipo, pergunta: pergunta || "Que tipo de gráfico você prefere?" });
+        return { ok: true, mensagem: `Ofereci os tipos de gráfico ("${spec.titulo || "sem título"}") como botões; o usuário vai escolher.` };
+      },
+    }),
+  };
+}
+
 const reportInput = z.object({
-  titulo: z.string().describe("Título do relatório."),
+  titulo: z.string().describe("Título do relatório/arquivo."),
   subtitulo: z.string().optional().describe("Linha de contexto opcional (ex.: período, nome do usuário)."),
+  formato: z
+    .enum(["pdf", "xlsx", "csv", "docx", "pptx"])
+    .optional()
+    .describe(
+      "Formato do arquivo a gerar, conforme o usuário pediu: 'pdf' (relatório de marca; é o padrão se omitido), 'xlsx' " +
+        "(Excel) ou 'csv' (planilha — priorize TABELAS), 'docx' (Word — texto + tabelas) ou 'pptx' (PowerPoint — um " +
+        "slide por bloco). Na dúvida sobre o formato, PERGUNTE. Para dados tabulares (listas), xlsx/csv são os melhores.",
+    ),
   blocos: z
     .array(
       z.object({
@@ -118,13 +158,15 @@ export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry):
   return {
     gerar_relatorio: tool({
       description:
-        "Gera um RELATÓRIO em PDF (layout de marca) a partir dos dados que você obteve pelas ferramentas OU do conteúdo " +
-        "da DOCUMENTAÇÃO (ex.: um passo a passo/guia que você montou a partir dos artigos). Use SEMPRE que o usuário " +
-        "pedir o resultado 'em PDF', um relatório ou um documento. Estruture em blocos, na ordem: 'texto' para " +
-        "introdução/observações, 'tabela' para os DADOS (prefira tabelas) e 'grafico' para uma visão visual " +
-        "opcional. Para incluir TODOS os dados de uma consulta, NÃO redigite as linhas: passe `tabela.dados_de` com " +
-        "o id `_dataset` que a ferramenta retornou (+ `colunas` e `campos`) — o servidor inclui todas as linhas reais. " +
-        "Não invente dados. O PDF é entregue como download no chat — não repita a tabela inteira no texto.",
+        "Gera um ARQUIVO para download no formato pedido — `formato`: PDF (relatório de marca), Excel (xlsx), CSV, " +
+        "Word (docx) ou PowerPoint (pptx) — a partir dos dados que você obteve pelas ferramentas OU do conteúdo da " +
+        "DOCUMENTAÇÃO (ex.: um passo a passo/guia que você montou a partir dos artigos). Use SEMPRE que o usuário pedir o " +
+        "resultado 'em PDF/Excel/CSV/Word/PowerPoint', uma planilha, um relatório, um documento ou uma apresentação. " +
+        "Estruture em blocos, na ordem: 'texto' para introdução/observações, 'tabela' para os DADOS (prefira tabelas; em " +
+        "xlsx/csv cada tabela vira uma planilha/bloco) e 'grafico' para uma visão visual opcional. Para incluir TODOS os " +
+        "dados de uma consulta, NÃO redigite as linhas: passe `tabela.dados_de` com o id `_dataset` que a ferramenta " +
+        "retornou (+ `colunas` e `campos`) — o servidor inclui todas as linhas reais. Não invente dados. O arquivo é " +
+        "entregue como download no chat — não repita a tabela inteira no texto.",
       inputSchema: reportInput,
       execute: async (input) => {
         let truncadoAviso = "";
@@ -145,9 +187,10 @@ export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry):
         const spec = normalizeReport({ ...input, blocos });
         if (!spec) return { erro: "Não consegui montar o relatório: preciso de ao menos um bloco válido (tabela, texto ou gráfico)." };
         sink.push(spec);
+        const rotulo = { pdf: "PDF", xlsx: "Excel (xlsx)", csv: "CSV", docx: "Word (docx)", pptx: "PowerPoint (pptx)" }[spec.formato];
         return {
           ok: true,
-          mensagem: `Relatório "${spec.titulo}" gerado (${spec.blocos.length} bloco(s))${truncadoAviso}. Entreguei o PDF ao usuário como download.`,
+          mensagem: `Arquivo "${spec.titulo}" gerado em ${rotulo} (${spec.blocos.length} bloco(s))${truncadoAviso}. Entreguei ao usuário como download.`,
         };
       },
     }),
@@ -159,19 +202,31 @@ export function visualsDirective(): string {
   return (
     "GRÁFICOS E RELATÓRIOS: quando o usuário pedir para VISUALIZAR os dados (um gráfico) ou um RELATÓRIO, primeiro " +
     "obtenha os números pelas ferramentas de dados e então:\n" +
-    "- GRÁFICO: analise os dados e RECOMENDE o tipo mais adequado, explicando em uma frase — série ao longo do " +
-    "tempo/progressão → linha (ou área); comparação entre poucas categorias → colunas; muitas categorias ou " +
-    "rótulos longos → barras (horizontais); partes de um todo em % → pizza (ou rosca). Se o usuário não escolheu, " +
-    "PERGUNTE confirmando sua recomendação. Depois chame `montar_grafico` com os valores reais. NÃO descreva o " +
-    "gráfico em texto — a ferramenta o desenha.\n" +
+    "- GRÁFICO: use SEMPRE o motor do assistente (`montar_grafico` / `perguntar_tipo_grafico`) — NUNCA o menu \"Ações\" → " +
+    "\"Formato\" → \"Gráfico\" do Interactive Report/Grid da tela. Analise os dados e RECOMENDE o tipo mais adequado — série " +
+    "ao longo do tempo/progressão → linha (ou área); comparação entre poucas categorias → colunas; muitas categorias ou " +
+    "rótulos longos → barras (horizontais); partes de um todo em % → pizza (ou rosca). Se o usuário JÁ disse o tipo, chame " +
+    "`montar_grafico` com os valores reais. Se o usuário NÃO disse o tipo, chame `perguntar_tipo_grafico` com os dados + o " +
+    "tipo `recomendado`: o sistema mostra os tipos como BOTÕES e o usuário escolhe (o gráfico aparece na hora) — NÃO " +
+    "pergunte o tipo em texto. NÃO descreva o gráfico em texto — a ferramenta o desenha.\n" +
     "- MEDIANA e TENDÊNCIA: pela sua leitura do CONTEXTO, ative `mediana` quando ajudar a comparar os valores e " +
     "`tendencia` quando houver progressão/série temporal (ambas só em colunas/linha/área/barras — nunca em " +
     "pizza/rosca). Não ative nas duas por padrão: só quando agregam.\n" +
-    "- RELATÓRIO/PDF: quando o usuário pedir o resultado 'em PDF', um relatório ou um documento, CHAME `gerar_relatorio` " +
-    "(título + blocos: 'texto' para as explicações/passos, 'tabela' para dados, 'gráfico' opcional). O conteúdo pode vir " +
-    "das ferramentas OU da DOCUMENTAÇÃO (ex.: monte o passo a passo com o que os artigos trazem). NÃO se recuse a gerar o " +
-    "PDF só porque a documentação é parcial: compile o que existe (e diga no texto o que ficou de fora). O PDF vai como " +
-    "download — não repita a tabela inteira no chat.\n" +
+    "- ARQUIVO (PDF/Excel/CSV/Word/PowerPoint): quando o usuário pedir o resultado 'em PDF', um relatório, uma planilha " +
+    "(Excel/CSV), um documento (Word) ou uma apresentação (PowerPoint), CHAME `gerar_relatorio` com o `formato` " +
+    "correspondente (pdf/xlsx/csv/docx/pptx) + título + blocos ('texto' para as explicações/passos, 'tabela' para dados, " +
+    "'gráfico' opcional). Escolha o formato pelo pedido; se ele não disse e o conteúdo é uma LISTA de dados, sugira/use " +
+    "xlsx (ou csv); se for texto/passo a passo, pdf ou docx; se for apresentação, pptx — na dúvida, PERGUNTE. O conteúdo " +
+    "pode vir das ferramentas OU da DOCUMENTAÇÃO (ex.: monte o passo a passo com o que os artigos trazem). NÃO se recuse a " +
+    "gerar só porque a documentação é parcial: compile o que existe (e diga no texto o que ficou de fora). O arquivo vai " +
+    "como download — não repita a tabela inteira no chat.\n" +
+    "- GRÁFICO DENTRO DO ARQUIVO: se o usuário pedir o Excel/Word/PDF/PowerPoint COM um GRÁFICO dos dados (ex.: \"faz um " +
+    "ppt com gráfico\", \"um excel com um gráfico das faltas\"), INCLUA um bloco `grafico` na chamada (tipo + categorias " +
+    "+ series com os valores reais) — o arquivo é renderizado com o GRÁFICO desenhado (no Excel/Word como imagem, no PPT " +
+    "nativo, no PDF vetorial). Não deixe de fora: se pediram gráfico, o bloco `grafico` é OBRIGATÓRIO no relatório.\n" +
+    "- FORMATAÇÃO DO TEXTO: nos blocos `texto` você PODE usar markdown — títulos com `##`, **negrito**, *itálico*, listas " +
+    "com `-` ou `1.` — o gerador converte em títulos destacados, negrito e listas de verdade (nada de marcação crua no " +
+    "arquivo). Estruture bem: um título de seção antes de cada parte, destaques em negrito no que importa.\n" +
     "- TODOS OS DADOS no relatório: quando a ferramenta retornar uma LISTA, ela vem com um id em `_dataset` (e `_total`, " +
     "`_colunas`). Para a tabela do relatório, NÃO redigite as linhas — passe `tabela.dados_de` com esse id, `colunas` " +
     "(cabeçalhos) e `campos` (as chaves de `_colunas`, na mesma ordem). O servidor inclui TODAS as linhas reais. Redigite " +

@@ -25,12 +25,15 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, buildTutorialTool, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
-import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
+import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
+import { buildChartTool, buildChartAskTool, buildReportTool, visualsDirective, pedeVisualizacao, type ChartChoice } from "@/lib/chat/report-tools";
+import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
+import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
 import { newRegistry } from "@/lib/chat/datasets";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
-import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
+import { type BrandInfo } from "@/lib/reports/pdf";
+import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -77,6 +80,8 @@ export async function POST(req: NextRequest) {
     fields?: unknown;
     continuation?: unknown;
     executedActions?: unknown;
+    reportData?: unknown;
+    screenTables?: unknown;
   };
   try {
     payload = await req.json();
@@ -211,11 +216,26 @@ export async function POST(req: NextRequest) {
   const temIntegTools = Object.keys(integ.tools).length > 0;
   const temVisual = !modoTutorial && (temIntegTools || pedeVisualizacao(question));
   const chartSpecs: ChartSpec[] = [];
+  const chartChoices: ChartChoice[] = [];
   const reportSpecs: ReportSpec[] = [];
   const visualTools = temVisual
-    ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs, datasets) }
+    ? { ...buildChartTool(chartSpecs), ...buildChartAskTool(chartChoices), ...buildReportTool(reportSpecs, datasets) }
     : {};
-  const allTools = { ...integ.tools, ...formTools, ...visualTools };
+  // Convite de agenda (.ics): liberado quando o pedido é de evento/reunião/lembrete.
+  const querConvite = !modoTutorial && pedeConvite(question);
+  const inviteSpecs: InviteSpec[] = [];
+  const inviteTools = querConvite ? buildInviteTool(inviteSpecs) : {};
+  // Tabelas da tela (estruturadas) → registradas como datasets (o modelo exporta/
+  // grafica por `dados_de`, sem redigitar as linhas).
+  const { block: tablesBloco, paginado: telaPaginada } = formAssist
+    ? screenTablesBlock(payload.screenTables, datasets)
+    : { block: "", paginado: false };
+  // Coleta multi-página: só quando há um relatório PAGINADO na tela e os dados
+  // completos ainda NÃO vieram (evita loop de re-coleta).
+  const reportBloco = formAssist ? reportDataBlock(payload.reportData, datasets) : "";
+  const temPaginado = !modoTutorial && !reportBloco && telaPaginada;
+  const harvestTools = temPaginado ? buildHarvestTool(uiActions) : {};
+  const allTools = { ...integ.tools, ...formTools, ...visualTools, ...inviteTools, ...harvestTools };
   const temTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
   // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
@@ -342,6 +362,7 @@ export async function POST(req: NextRequest) {
           integ.capabilities,
           screenFields.length > 0 ? formAssistDirective() : "",
           temVisual ? visualsDirective() : "",
+          querConvite ? inviteDirective() : "",
         ]
           .filter(Boolean)
           .join("\n\n"),
@@ -356,6 +377,8 @@ export async function POST(req: NextRequest) {
         pageChangeNote(prevPage, page),
         pageContextNote(page),
         scanBlock,
+        tablesBloco,
+        reportBloco,
         continuation ? continuationNote(executedActions) : "",
         fieldsContextBlock(screenFields),
         glossario
@@ -387,8 +410,8 @@ export async function POST(req: NextRequest) {
       } catch {
         controller.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
       }
-      // Relatórios: gera o PDF (layout de marca) a partir da spec da IA e o
-      // adiciona aos arquivos entregues abaixo.
+      // Relatórios/arquivos: gera no FORMATO pedido (pdf/xlsx/csv/docx/pptx) a
+      // partir da spec da IA e adiciona aos arquivos entregues abaixo.
       if (reportSpecs.length) {
         const brand: BrandInfo = {
           marca: key.config?.title || "Relatório",
@@ -397,10 +420,18 @@ export async function POST(req: NextRequest) {
         };
         for (const spec of reportSpecs) {
           try {
-            outFiles.push(await renderReportPdf(spec, brand));
+            outFiles.push(await renderReport(spec, brand));
           } catch (e) {
-            console.error("[chat] falha ao gerar PDF do relatório:", e);
+            console.error("[chat] falha ao gerar o arquivo do relatório:", e);
           }
+        }
+      }
+      // Convites de agenda (.ics) montados pela IA → download no chat.
+      for (const spec of inviteSpecs) {
+        try {
+          outFiles.push(buildIcs(spec));
+        } catch (e) {
+          console.error("[chat] falha ao gerar o convite .ics:", e);
         }
       }
       // Arquivos retornados pelas APIs (base64) → link de download no chat.
@@ -414,6 +445,10 @@ export async function POST(req: NextRequest) {
       for (const c of chartSpecs) {
         controller.enqueue(sse({ type: "chart", chart: c }));
       }
+      // Escolha de tipo de gráfico → o widget mostra os tipos como BOTÕES.
+      for (const ch of chartChoices) {
+        controller.enqueue(sse({ type: "chart_choice", spec: ch.spec, recomendado: ch.recomendado, pergunta: ch.pergunta }));
+      }
       // Assistente de tela: a IA propôs operar a tela (preencher, marcar, clicar) →
       // o widget executa em ordem, confirmando só o que grava/navega.
       for (const a of uiActions) {
@@ -421,6 +456,7 @@ export async function POST(req: NextRequest) {
         else if (a.tipo === "check") controller.enqueue(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
         else if (a.tipo === "click") controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
         else if (a.tipo === "tutorial") controller.enqueue(sse({ type: "tutorial", passos: a.passos }));
+        else if (a.tipo === "harvest") controller.enqueue(sse({ type: "harvest" }));
       }
       // Persiste a MÍDIA na mensagem para reexibir no histórico: gráfico = spec
       // inline (leve); arquivo = upload no bucket privado `chat-media` (o caminho

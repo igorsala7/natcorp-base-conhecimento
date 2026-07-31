@@ -12,11 +12,30 @@
  */
 
 export type DatasetRow = Record<string, unknown>;
-export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[] };
+export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[]; headers?: string[] };
 export type DatasetRegistry = { list: Dataset[] };
 
 export function newRegistry(): DatasetRegistry {
   return { list: [] };
+}
+
+/**
+ * Registra uma TABELA DA TELA (colunas + linhas em texto) como dataset, para o
+ * modelo referenciar por id (`dados_de`) sem redigitar as linhas — é o que evita
+ * chamadas de tool gigantes (60×N células) que vazam como texto ou estouram.
+ * As linhas são indexadas por `c0..cN` e os cabeçalhos de exibição ficam em
+ * `headers` (usados por `expandirTabela` quando o modelo não passa `colunas`).
+ */
+export function registrarTabelaTela(reg: DatasetRegistry, colunas: string[], linhas: string[][]): { id: string; total: number } {
+  const keys = colunas.map((_c, i) => "c" + i);
+  const rows: DatasetRow[] = linhas.map((row) => {
+    const o: DatasetRow = {};
+    keys.forEach((k, i) => { o[k] = row[i] ?? ""; });
+    return o;
+  });
+  const id = "tela" + (reg.list.length + 1);
+  reg.list.push({ id, rows, colunas: keys, headers: colunas });
+  return { id, total: rows.length };
 }
 
 const ehLinha = (x: unknown): x is DatasetRow => !!x && typeof x === "object" && !Array.isArray(x);
@@ -99,7 +118,12 @@ export function expandirTabela(
   if (!ds) return null;
   const keys = campos && campos.length ? campos : ds.colunas;
   if (keys.length === 0) return null;
-  const headers = colunas && colunas.length === keys.length ? colunas : keys;
+  const headers =
+    colunas && colunas.length === keys.length
+      ? colunas
+      : ds.headers && ds.headers.length === keys.length
+        ? ds.headers
+        : keys;
   const linhas = ds.rows.slice(0, max).map((r) => keys.map((k) => celula(r[k])));
   return { colunas: headers, linhas, total: ds.rows.length, truncado: ds.rows.length > max };
 }

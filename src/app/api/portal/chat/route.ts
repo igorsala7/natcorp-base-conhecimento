@@ -24,7 +24,8 @@ import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } f
 import { newRegistry } from "@/lib/chat/datasets";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
-import { renderReportPdf, type BrandInfo } from "@/lib/reports/pdf";
+import { type BrandInfo } from "@/lib/reports/pdf";
+import { renderReport } from "@/lib/reports/exporters";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import type { OutFile } from "@/lib/integrations/documents";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -321,9 +322,9 @@ export async function POST(req: NextRequest) {
         };
         for (const spec of reportSpecs) {
           try {
-            outFiles.push(await renderReportPdf(spec, brand));
+            outFiles.push(await renderReport(spec, brand));
           } catch (e) {
-            console.error("[chat] falha ao gerar PDF do relatório:", e);
+            console.error("[chat] falha ao gerar o arquivo do relatório:", e);
           }
         }
       }
