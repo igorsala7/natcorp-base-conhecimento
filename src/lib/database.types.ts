@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      tenant_limits: {
+        Row: {
+          tenant: string
+          max_concurrency: number | null
+          daily_token_cap: number | null
+          updated_at: string
+        }
+        Insert: {
+          tenant: string
+          max_concurrency?: number | null
+          daily_token_cap?: number | null
+          updated_at?: string
+        }
+        Update: {
+          tenant?: string
+          max_concurrency?: number | null
+          daily_token_cap?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       analysis_jobs: {
         Row: {
           batch_id: string
@@ -3502,6 +3523,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ai_slot_acquire: { Args: { p_tenant: string; p_max: number; p_ttl_seconds: number }; Returns: string | null }
+      ai_slot_release: { Args: { p_id: string }; Returns: undefined }
+      ai_daily_tokens: { Args: { p_tenant: string }; Returns: number }
       approve_review: { Args: { p_node_id: string }; Returns: undefined }
       create_article_version: {
         Args: { p_label?: string; p_node_id: string; p_protected?: boolean }

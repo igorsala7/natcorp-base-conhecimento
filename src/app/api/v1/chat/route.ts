@@ -36,6 +36,7 @@ import { glossarioCasado } from "@/lib/ai/ontology";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
+import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
 import type { OutFile } from "@/lib/integrations/documents";
 
 export const runtime = "nodejs";
@@ -290,6 +291,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Multi-tenant (B): teto de uso diário + semáforo de concorrência POR BASE
+  // (fair-share entre os clientes; protege o provedor e a fatura). Distribuído.
+  const tenant = tenantKey(track.p_base, key.space_id);
+  const avisoStream = (msg: string) =>
+    new ReadableStream({
+      start(c) {
+        c.enqueue(sse({ type: "citations", citations: [] }));
+        c.enqueue(sse({ type: "token", value: msg }));
+        c.enqueue(sse({ type: "done", conversationId: convId }));
+        c.close();
+      },
+    });
+  const quota = await checkQuota(tenant);
+  if (!quota.ok)
+    return sseResponse(avisoStream("O limite de uso da IA desta base para hoje foi atingido. Tente novamente mais tarde ou fale com o suporte."), cors);
+  const lease = await acquireSlot(tenant);
+  if (lease === null)
+    return sseResponse(avisoStream("Estamos com muitas solicitações simultâneas agora. Tente novamente em instantes."), cors);
+
   const result = streamText({
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
@@ -420,6 +440,10 @@ export async function POST(req: NextRequest) {
       });
       controller.enqueue(sse({ type: "done", conversationId: convId }));
       controller.close();
+      await releaseSlot(lease); // libera o slot da base ao encerrar o stream
+    },
+    cancel() {
+      void releaseSlot(lease); // cliente desconectou → libera o slot
     },
   });
 

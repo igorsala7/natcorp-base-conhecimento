@@ -404,6 +404,7 @@ curl -H "Authorization: Bearer sk_live_..." "$HOST/api/v1/analyze?jobId=5b1e..."
           <li>Análise: até <b>50.000 linhas</b> por lote; orçamento de entrada configurável por <code>ANALYZE_MAX_INPUT_TOKENS</code> (padrão 500k).</li>
           <li>Arquivos: até <b>20 MB</b> cada; imagens vão à <b>visão</b>, PDF sem texto (escaneado) também (OCR nativo, melhor com Anthropic).</li>
           <li>Os agregados do <code>resumo</code> são <b>exatos</b> (calculados em código) — o modelo não “chuta” totais.</li>
+          <li><b>Limites por base:</b> há um <b>semáforo de concorrência</b> (chamadas de IA simultâneas) e um <b>teto diário de tokens</b> por base — quando cheio, o chat responde “muitas solicitações”/“limite atingido” e as APIs retornam <code>429</code>. Ajuste por base em <code>tenant_limits</code> (ou os defaults por env).</li>
           <li>Envie os chunks <b>em sequência</b>; mande <code>instrucao</code>/<code>arquivos</code>/<code>identidade</code> no <b>POST final</b>.</li>
         </ul>
       </div>

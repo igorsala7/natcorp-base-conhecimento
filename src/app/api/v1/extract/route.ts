@@ -5,6 +5,7 @@ import { extrairDocumento } from "@/lib/analyze/extract-doc";
 import { interpretarArquivos, type ArquivoIn } from "@/lib/analyze/files";
 import { analisarDados } from "@/lib/analyze/analyze";
 import { resolverModo } from "@/lib/analyze/doc-catalog";
+import { withTenantSlot, TenantBusyError } from "@/lib/ai/tenant-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -56,38 +57,42 @@ export async function POST(req: NextRequest) {
 
   const prompt = body.prompt ?? body.instrucao;
   const modo = resolverModo(body.modo, !!body.campos?.length, prompt);
+  const tenant = "key:" + auth.ctx.id; // semáforo por chave (integração de backend)
 
   try {
-    if (modo === "analisar") {
-      // Análise LIVRE do documento conforme o prompt (resumo, parecer, etc.).
-      const arq = await interpretarArquivos(body.arquivos as ArquivoIn[]);
-      if (!arq.imageParts.length && !arq.fileParts.length && !arq.texto) {
-        return apiJson({ error: "Nenhum documento legível recebido." }, 400);
+    return await withTenantSlot(tenant, async () => {
+      if (modo === "analisar") {
+        // Análise LIVRE do documento conforme o prompt (resumo, parecer, etc.).
+        const arq = await interpretarArquivos(body.arquivos as ArquivoIn[]);
+        if (!arq.imageParts.length && !arq.fileParts.length && !arq.texto) {
+          return apiJson({ error: "Nenhum documento legível recebido." }, 400);
+        }
+        const r = await analisarDados({
+          colunas: [],
+          linhas: [],
+          instrucao: prompt,
+          persona: "O conteúdo é um DOCUMENTO/TEXTO (não uma tabela). Responda à instrução sobre o documento; se for resumo, cubra os pontos principais fielmente.",
+          contextoArquivos: arq.texto,
+          imageParts: arq.imageParts,
+          fileParts: arq.fileParts,
+          llm: body.llm,
+          meta: { kind: "system" },
+        });
+        return apiJson({ ok: true, modo, analise: r.analise, arquivos: arq.metas }, 200);
       }
-      const r = await analisarDados({
-        colunas: [],
-        linhas: [],
+
+      // Extração ESTRUTURADA (catálogo/currículo/campos da tela).
+      const r = await extrairDocumento({
+        arquivos: body.arquivos as ArquivoIn[],
+        campos: body.campos,
         instrucao: prompt,
-        persona: "O conteúdo é um DOCUMENTO/TEXTO (não uma tabela). Responda à instrução sobre o documento; se for resumo, cubra os pontos principais fielmente.",
-        contextoArquivos: arq.texto,
-        imageParts: arq.imageParts,
-        fileParts: arq.fileParts,
         llm: body.llm,
         meta: { kind: "system" },
       });
-      return apiJson({ ok: true, modo, analise: r.analise, arquivos: arq.metas }, 200);
-    }
-
-    // Extração ESTRUTURADA (catálogo/currículo/campos da tela).
-    const r = await extrairDocumento({
-      arquivos: body.arquivos as ArquivoIn[],
-      campos: body.campos,
-      instrucao: prompt,
-      llm: body.llm,
-      meta: { kind: "system" },
+      return apiJson({ ok: true, modo, ...r }, 200);
     });
-    return apiJson({ ok: true, modo, ...r }, 200);
   } catch (e) {
+    if (e instanceof TenantBusyError) return apiJson({ error: e.message }, 429);
     return apiJson({ error: "Falha ao processar o documento.", detalhe: (e as Error).message }, 500);
   }
 }

@@ -14,6 +14,7 @@ import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
+import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
@@ -241,6 +242,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Multi-tenant (B): teto de uso diário + semáforo de concorrência por base.
+  const tenant = tenantKey(track.p_base, spaceId);
+  const avisoStream = (msg: string) =>
+    new ReadableStream({
+      start(c) {
+        c.enqueue(sse({ type: "citations", citations: [] }));
+        c.enqueue(sse({ type: "token", value: msg }));
+        c.enqueue(sse({ type: "done", conversationId: convId }));
+        c.close();
+      },
+    });
+  const quota = await checkQuota(tenant);
+  if (!quota.ok)
+    return new Response(avisoStream("O limite de uso da IA para hoje foi atingido. Tente novamente mais tarde."), { headers });
+  const lease = await acquireSlot(tenant);
+  if (lease === null)
+    return new Response(avisoStream("Estamos com muitas solicitações simultâneas agora. Tente novamente em instantes."), { headers });
+
   const result = streamText({
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
@@ -331,6 +350,10 @@ export async function POST(req: NextRequest) {
       });
       c.enqueue(sse({ type: "done", conversationId: convId }));
       c.close();
+      await releaseSlot(lease);
+    },
+    cancel() {
+      void releaseSlot(lease);
     },
   });
 
