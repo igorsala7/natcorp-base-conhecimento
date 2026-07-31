@@ -1,5 +1,6 @@
 import "server-only";
 import { embed } from "ai";
+import { kvGetJson, kvSetJson, hashKey } from "@/lib/cache/kv";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -218,25 +219,32 @@ async function retrieveWith(
 
   let embedding: number[] | null = null;
   if (await hasEmbeddingKey()) {
-    try {
-      const { embedding: e } = await embed({
-        model: await embeddingModel(),
-        value: queryVetor,
-        // Dimensão vai na CHAMADA neste SDK, não no modelo. Sem isto, um
-        // modelo de 3072 devolveria vetor que a coluna vector(1536) recusa.
-        providerOptions: await embeddingCallOptions(),
-        // Curto de propósito: está no caminho de TODA busca do RAG. Provedor
-        // lento aqui degrada para busca léxica em vez de travar a resposta.
-        abortSignal: aiTimeout("embedding_query"),
-      });
-      embedding = e;
-    } catch (e) {
-      // Antes era um catch mudo: a busca virava só-léxica sem nenhum sinal.
-      console.error(
-        "[rag] embedding da pergunta falhou, caindo para busca léxica:",
-        e instanceof Error ? e.message : e,
-      );
-      embedding = null;
+    // Cache do vetor da query (KV): a MESMA pergunta (mesmo espaço/sinônimos)
+    // reaproveita o embedding — corta chamadas ao provedor no pico. TTL 1h.
+    const cacheKey = hashKey("emb:", queryVetor);
+    embedding = await kvGetJson<number[]>(cacheKey);
+    if (!embedding) {
+      try {
+        const { embedding: e } = await embed({
+          model: await embeddingModel(),
+          value: queryVetor,
+          // Dimensão vai na CHAMADA neste SDK, não no modelo. Sem isto, um
+          // modelo de 3072 devolveria vetor que a coluna vector(1536) recusa.
+          providerOptions: await embeddingCallOptions(),
+          // Curto de propósito: está no caminho de TODA busca do RAG. Provedor
+          // lento aqui degrada para busca léxica em vez de travar a resposta.
+          abortSignal: aiTimeout("embedding_query"),
+        });
+        embedding = e;
+        await kvSetJson(cacheKey, e, 3600);
+      } catch (e) {
+        // Antes era um catch mudo: a busca virava só-léxica sem nenhum sinal.
+        console.error(
+          "[rag] embedding da pergunta falhou, caindo para busca léxica:",
+          e instanceof Error ? e.message : e,
+        );
+        embedding = null;
+      }
     }
   }
 
