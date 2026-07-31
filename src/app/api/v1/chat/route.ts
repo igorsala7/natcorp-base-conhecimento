@@ -30,6 +30,7 @@ import { buildChartTool, buildChartAskTool, buildReportTool, visualsDirective, p
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
 import { newRegistry } from "@/lib/chat/datasets";
+import { buildQueryTool } from "@/lib/chat/query-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
@@ -236,7 +237,12 @@ export async function POST(req: NextRequest) {
     : { block: "", paginado: false };
   const temPaginado = !modoTutorial && !reportBloco && telaPaginada;
   const harvestTools = temPaginado ? buildHarvestTool(uiActions) : {};
-  const allTools = { ...integ.tools, ...formTools, ...visualTools, ...inviteTools, ...harvestTools };
+  // Consulta/filtro server-side: disponível sempre que houver dados tabulares
+  // coletados (relatório de todas as páginas, tabela da tela ou lista de tool).
+  // Corrige o filtro pela AMOSTRA (contagem/arquivo com N errado) — ver datasets.ts.
+  const temDadosTabulares = !modoTutorial && (!!reportBloco || !!tablesBloco || temIntegTools);
+  const queryTools = temDadosTabulares ? buildQueryTool(datasets) : {};
+  const allTools = { ...integ.tools, ...formTools, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
   const temTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
   // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
@@ -282,6 +288,24 @@ export async function POST(req: NextRequest) {
   }));
   const encoder = new TextEncoder();
   const sse = (obj: unknown) => encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
+
+  // PADRÃO = 100% DOS DADOS: se o relatório da tela é PAGINADO e o pedido é sobre
+  // os DADOS (análise/resumo/export/agregado/contagem), FORÇA a coleta de TODAS as
+  // páginas antes de responder — a menos que o usuário limite explicitamente à
+  // página visível. Não depende do modelo lembrar de chamar coletar_relatorio.
+  const RX_DADOS_REL = /an[áa]lis|resum|relat[óo]ri|planilha|excel|\bcsv\b|\bpdf\b|\bword\b|power\s?point|\bppt\b|gr[áa]fic|export|\btotal|\bsoma|m[ée]dia|quant|maior|menor|compar|estat[íi]st|percentu|ranking|\btop\b|\bdados\b|registros|\bfolha\b|consolidad|listar|liste|filtr|agrup|\bque (t[êe]m|possu|cont[êe]m|estejam?|est[ãa]o)\b/i;
+  const RX_PAGINA_ATUAL = /p[áa]gina atual|nesta p[áa]gina|\bna tela\b|vis[íi]ve|aparente|ess[ae]s? \d+ (linhas|registros)|estes registros|essa p[áa]gina|o que (est[áa]|aparece|tem) (na tela|aqui)|apenas (o que|os que)/i;
+  if (temPaginado && !continuation && RX_DADOS_REL.test(question) && !RX_PAGINA_ATUAL.test(question)) {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sse({ type: "citations", citations: [] }));
+        controller.enqueue(sse({ type: "harvest" }));
+        controller.enqueue(sse({ type: "done", conversationId: convId }));
+        controller.close();
+      },
+    });
+    return sseResponse(stream, cors);
+  }
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
   // Com anexo, NÃO recusa: o usuário trouxe o próprio conteúdo para a resposta.
@@ -396,7 +420,7 @@ export async function POST(req: NextRequest) {
     // resultado e responder. `stopWhen` trava o loop.
     // Teto de passos maior quando há geração de arquivos: o usuário pode pedir
     // vários formatos (Word + PPT + PDF) numa tacada = uma chamada por formato.
-    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(Object.keys(visualTools).length > 0 ? 9 : 5) } : {}),
+    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(Object.keys(visualTools).length > 0 || Object.keys(queryTools).length > 0 ? 9 : 5) } : {}),
   });
 
   const stream = new ReadableStream({
@@ -460,6 +484,15 @@ export async function POST(req: NextRequest) {
         else if (a.tipo === "click") controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
         else if (a.tipo === "tutorial") controller.enqueue(sse({ type: "tutorial", passos: a.passos }));
         else if (a.tipo === "harvest") controller.enqueue(sse({ type: "harvest" }));
+      }
+      // REDE DE SEGURANÇA da coleta: o relatório é paginado, a ferramenta foi
+      // oferecida, mas o modelo DISSE que ia coletar e NÃO chamou coletar_relatorio
+      // (narrou em vez de agir) — força a varredura para não deixar o usuário sem
+      // resposta. (O widget ignora o texto prematuro e responde após coletar.)
+      const chamouHarvest = uiActions.some((a) => a.tipo === "harvest");
+      const intencaoColeta = /\bcolet(ar|ando|arei|o)\b|reunir (os|as|todos|todas)|todas as p[áa]ginas|planilha completa|relat[óo]rio completo|consolidar (os|as|todos)|buscar (todos|todas) os/i.test(full);
+      if (temPaginado && !chamouHarvest && intencaoColeta && chartSpecs.length === 0 && reportSpecs.length === 0 && outFiles.length === 0) {
+        controller.enqueue(sse({ type: "harvest" }));
       }
       // Persiste a MÍDIA na mensagem para reexibir no histórico: gráfico = spec
       // inline (leve); arquivo = upload no bucket privado `chat-media` (o caminho

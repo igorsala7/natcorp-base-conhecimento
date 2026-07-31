@@ -11,6 +11,8 @@
  * Puro (sem server-only/IO) para ser testável e reutilizável.
  */
 
+import { parseNumBR } from "./num-br";
+
 export type DatasetRow = Record<string, unknown>;
 export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[]; headers?: string[] };
 export type DatasetRegistry = { list: Dataset[] };
@@ -120,7 +122,7 @@ export function expandirTabela(
   datasetId: string,
   campos?: string[],
   colunas?: string[],
-  max = 5000,
+  max = 50000,
 ): TabelaExpandida | null {
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
@@ -134,4 +136,107 @@ export function expandirTabela(
         : keys;
   const linhas = ds.rows.slice(0, max).map((r) => keys.map((k) => celula(r[k])));
   return { colunas: headers, linhas, total: ds.rows.length, truncado: ds.rows.length > max };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * CONSULTA / FILTRO server-side sobre um dataset já coletado.
+ *
+ * Motivo (bug grave): quando o relatório é grande, o modelo NÃO recebe as linhas
+ * uma a uma — só um resumo estatístico (agregados + amostra). Se o usuário pede
+ * "só os registros que têm X", o modelo tende a filtrar pela AMOSTRA (parcial) e
+ * gera um arquivo com N errado (ex.: 10 de 70). A correção é NÃO deixar o modelo
+ * filtrar: ele descreve as condições, o servidor aplica sobre 100% das linhas
+ * COLETADAS e registra o subconjunto como um novo dataset para exportar exato.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type Operador =
+  | "contem" | "nao_contem" | "igual" | "diferente"
+  | "comeca" | "termina" | "vazio" | "nao_vazio"
+  | "maior" | "menor" | "maior_igual" | "menor_igual";
+
+export const OPERADORES: Operador[] = [
+  "contem", "nao_contem", "igual", "diferente", "comeca", "termina",
+  "vazio", "nao_vazio", "maior", "menor", "maior_igual", "menor_igual",
+];
+
+export type Filtro = { coluna: string; operador: Operador; valor?: string };
+export type ConsultaResultado = {
+  id: string;            // id do subconjunto registrado (para gerar_relatorio dados_de)
+  total: number;         // total EXATO de correspondências (sobre todas as linhas)
+  colunas: string[];
+  amostra: string[][];   // primeiras N correspondências (para o modelo mostrar/conferir)
+  colunaNaoEncontrada?: string;
+};
+
+/** Normaliza texto para comparação: sem acento, minúsculo, sem espaços nas pontas. */
+function norm(s: unknown): string {
+  return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+/** Resolve o nome de coluna informado (ou `cN`) para o índice na tabela. */
+function resolverColuna(ds: Dataset, coluna: string): number | null {
+  const alvo = norm(coluna);
+  if (!alvo) return null;
+  let idx = ds.colunas.findIndex((c) => norm(c) === alvo);
+  if (idx >= 0) return idx;
+  const m = /^c(\d+)$/i.exec(coluna.trim());
+  if (m) { const i = Number(m[1]); if (i >= 0 && i < ds.colunas.length) return i; }
+  idx = ds.colunas.findIndex((c) => { const n = norm(c); return n.includes(alvo) || alvo.includes(n); });
+  return idx >= 0 ? idx : null;
+}
+
+/** Avalia UMA condição sobre uma célula (texto e número em pt-BR). */
+function bate(cell: string, op: Operador, valor: string): boolean {
+  const c = norm(cell), v = norm(valor);
+  switch (op) {
+    case "contem": return c.includes(v);
+    case "nao_contem": return !c.includes(v);
+    case "igual": return c === v;
+    case "diferente": return c !== v;
+    case "comeca": return c.startsWith(v);
+    case "termina": return c.endsWith(v);
+    case "vazio": return c === "";
+    case "nao_vazio": return c !== "";
+    default: {
+      const a = parseNumBR(cell), b = parseNumBR(valor);
+      if (a == null || b == null) return false;
+      if (op === "maior") return a > b;
+      if (op === "menor") return a < b;
+      if (op === "maior_igual") return a >= b;
+      return a <= b; // menor_igual
+    }
+  }
+}
+
+/**
+ * Aplica os filtros sobre TODAS as linhas do dataset (não sobre uma amostra) e
+ * registra o subconjunto como um novo dataset (id retornado em `id`) para o
+ * modelo exportar via `gerar_relatorio({ dados_de })`. `modo`: "E" (todas as
+ * condições) ou "OU" (qualquer uma). Sem filtros → devolve todas as linhas.
+ */
+export function consultarDataset(
+  reg: DatasetRegistry,
+  datasetId: string,
+  filtros: Filtro[],
+  modo: "E" | "OU" = "E",
+  amostraMax = 50,
+): ConsultaResultado | null {
+  const ds = reg.list.find((d) => d.id === datasetId);
+  if (!ds) return null;
+  const nomes = ds.colunas;
+  const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
+  const conds = filtros.map((f) => ({ f, idx: resolverColuna(ds, f.coluna) }));
+  const ausente = conds.find((c) => c.idx == null);
+  if (ausente) return { id: "", total: 0, colunas: nomes, amostra: [], colunaNaoEncontrada: ausente.f.coluna };
+
+  const linhas: string[][] = [];
+  for (const r of ds.rows) {
+    const row = asRow(r);
+    const res = conds.map(({ f, idx }) => bate(row[idx!] ?? "", f.operador, f.valor ?? ""));
+    const ok = res.length === 0 ? true : modo === "OU" ? res.some(Boolean) : res.every(Boolean);
+    if (ok) linhas.push(row);
+  }
+  // Registra o subconjunto como novo dataset (mesmas colunas) para exportar exato.
+  const { id } = registrarTabelaTela(reg, nomes, linhas);
+  return { id, total: linhas.length, colunas: nomes, amostra: linhas.slice(0, amostraMax) };
 }

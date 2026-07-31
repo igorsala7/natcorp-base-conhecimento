@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newRegistry, registrarDataset, injetarDataset, expandirTabela } from "./datasets";
+import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, expandirTabela, consultarDataset } from "./datasets";
 
 const linhas = (n: number) => Array.from({ length: n }, (_, i) => ({ matricula: 100 + i, nome: "Fulano " + i, salario: 1000 + i }));
 
@@ -91,5 +91,78 @@ describe("expandirTabela", () => {
 
   it("dataset inexistente → null", () => {
     expect(expandirTabela(newRegistry(), "dsX")).toBeNull();
+  });
+});
+
+describe("consultarDataset (filtro server-side sobre TODAS as linhas)", () => {
+  // Simula uma tabela da tela coletada: 2000 registros, 70 com Situação "ABERTO".
+  const colunas = ["Matrícula", "Nome", "Situação", "Valor"];
+  const buildReg = () => {
+    const reg = newRegistry();
+    const linhasTela: string[][] = Array.from({ length: 2000 }, (_, i) => [
+      String(1000 + i),
+      "Cliente " + i,
+      i < 70 ? "ABERTO" : "PAGO",
+      "R$ " + (100 + i).toLocaleString("pt-BR"),
+    ]);
+    const { id } = registrarTabelaTela(reg, colunas, linhasTela);
+    return { reg, id };
+  };
+
+  it("conta o total EXATO do recorte (70 de 2000), não a amostra", () => {
+    const { reg, id } = buildReg();
+    const r = consultarDataset(reg, id, [{ coluna: "Situação", operador: "igual", valor: "aberto" }]);
+    expect(r?.total).toBe(70);
+    expect(r?.amostra.length).toBeLessThanOrEqual(50);
+    // registra o subconjunto como NOVO dataset para exportar exato
+    const exp = expandirTabela(reg, r!.id);
+    expect(exp?.total).toBe(70);
+    expect(exp?.linhas).toHaveLength(70);
+  });
+
+  it("`contem` ignora acento/caixa; resolve coluna por nome parcial ou cN", () => {
+    const { reg, id } = buildReg();
+    const porNome = consultarDataset(reg, id, [{ coluna: "situacao", operador: "contem", valor: "abert" }]);
+    expect(porNome?.total).toBe(70);
+    const porIndice = consultarDataset(reg, id, [{ coluna: "c2", operador: "igual", valor: "ABERTO" }]);
+    expect(porIndice?.total).toBe(70);
+  });
+
+  it("operadores numéricos em pt-BR (R$/milhar)", () => {
+    const { reg, id } = buildReg();
+    // Valor vai de R$ 100 a R$ 2099; > 2000 → poucos registros
+    const r = consultarDataset(reg, id, [{ coluna: "Valor", operador: "maior_igual", valor: "2000" }]);
+    expect(r?.total).toBe(100); // valores 2000..2099
+  });
+
+  it("combinação E (todas) vs OU (qualquer)", () => {
+    const { reg, id } = buildReg();
+    const e = consultarDataset(reg, id, [
+      { coluna: "Situação", operador: "igual", valor: "ABERTO" },
+      { coluna: "Valor", operador: "menor", valor: "150" },
+    ], "E");
+    expect(e?.total).toBe(50); // ABERTO (i<70) E valor<150 (i<50) → 50
+    const ou = consultarDataset(reg, id, [
+      { coluna: "Situação", operador: "igual", valor: "ABERTO" },
+      { coluna: "Situação", operador: "igual", valor: "PAGO" },
+    ], "OU");
+    expect(ou?.total).toBe(2000);
+  });
+
+  it("sem filtros → todos os registros (para contar/exportar tudo)", () => {
+    const { reg, id } = buildReg();
+    const r = consultarDataset(reg, id, []);
+    expect(r?.total).toBe(2000);
+  });
+
+  it("coluna inexistente → erro estruturado (não filtra errado)", () => {
+    const { reg, id } = buildReg();
+    const r = consultarDataset(reg, id, [{ coluna: "Inexistente", operador: "igual", valor: "x" }]);
+    expect(r?.colunaNaoEncontrada).toBe("Inexistente");
+    expect(r?.total).toBe(0);
+  });
+
+  it("dataset inexistente → null", () => {
+    expect(consultarDataset(newRegistry(), "telaX", [])).toBeNull();
   });
 });

@@ -120,6 +120,7 @@
   }
   // Coleta multi-página em andamento (dados de TODAS as páginas de um IR).
   var _harvested = null; // { key, colunas, linhas } — sobrepõe a página visível no scan
+  var _harvestCache = null; // { key, fp, nome, colunas, linhas } — coleta reutilizável entre perguntas
 
   // Chave estável de uma região de relatório (para casar a coleta multi-página).
   function regionKey(rv) {
@@ -128,8 +129,42 @@
       return el.id || rv.id || nomeRegiao(rv) || "";
     } catch { return ""; }
   }
-  // O IR tem paginação por lotes ("Próximo/Anterior")?
-  function temPaginacao(rv) { try { return !!rv.querySelector(".a-IRR-pagination"); } catch { return false; } }
+  // O IR tem paginação por lotes ("Próximo/Anterior")? Busca na REGIÃO do IR
+  // (.a-IRR), não só no reportView — no APEX a paginação (.a-IRR-paginationWrap) é
+  // IRMÃ do reportView, não filha; procurar só no reportView dava sempre falso.
+  function temPaginacao(rv) { try { var reg = (rv.closest && rv.closest(".a-IRR")) || rv; return !!reg.querySelector(".a-IRR-pagination"); } catch { return false; } }
+  // Lê o RÓTULO de paginação ("1 - 50 de 2.000" / "1-50 of 2000" / "linhas 1 a 50 de
+  // 2000") e devolve { de, ate, total } em números (ou null). É a FONTE DA VERDADE
+  // sobre "há mais páginas" — NÃO depende da classe/tema do botão. Sem isto, um tema
+  // que não use a classe esperada faz o relatório passar por "não paginado" e a IA
+  // analisa só a página visível (bug grave: 50 de 2000).
+  function infoPag(rv) {
+    try {
+      var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+      var lab = reg.querySelector(".a-IRR-pagination-label, .a-IRR-pagination");
+      var txt = lab ? scanTexto(lab.textContent) : "";
+      if (!txt) return { de: null, ate: null, total: null };
+      var num = function (s) { return s ? parseInt(String(s).replace(/[^\d]/g, ""), 10) || null : null; };
+      var m = txt.match(/(\d[\d.]*)\s*[-–]\s*(\d[\d.]*)(?:\s*(?:de|of)\s*(\d[\d.]*))?/i)
+           || txt.match(/(\d[\d.]*)\s+a\s+(\d[\d.]*)\s+de\s+(\d[\d.]*)/i);
+      if (m) return { de: num(m[1]), ate: num(m[2]), total: num(m[3]) };
+      var m2 = txt.match(/(?:de|of)\s*(\d[\d.]*)/i);
+      if (m2) return { de: null, ate: null, total: num(m2[1]) };
+      return { de: null, ate: null, total: null };
+    } catch (e) { return { de: null, ate: null, total: null }; }
+  }
+  // Quantas linhas de dados estão VISÍVEIS na página atual do IR.
+  function linhasVisiveis(rv) { try { return rv.querySelectorAll("tbody tr td[headers]").length ? rv.querySelectorAll("tbody tr").length : 0; } catch { return 0; } }
+  // Há mais páginas do que a visível? (rótulo diz total > visível OU fim < total OU
+  // existe "Próximo" habilitado.) Independe do tema/classe do botão.
+  function haMaisPaginas(rv, visiveis) {
+    var ip = infoPag(rv);
+    var vis = visiveis != null ? visiveis : linhasVisiveis(rv);
+    if (ip.total != null && ip.total > vis) return true;
+    if (ip.total != null && ip.ate != null && ip.ate < ip.total) return true;
+    var nx = botaoProximo(rv);
+    return !!(nx && !ehDesabilitado(nx));
+  }
   // Botão de paginação do IR por rótulo/título (PT ou EN). `rx` = o que casar,
   // `rxNeg` = o que NÃO casar (evita pegar o oposto).
   // Resolve para o elemento CLICÁVEL (o botão/link), não o <li> que o envolve —
@@ -141,16 +176,28 @@
     var inner = el.querySelector && el.querySelector("button, a, [role='button']");
     return inner || el;
   }
+  function varrerBotoes(cands, rx, rxNeg, iconClass) {
+    for (var i = 0; i < cands.length; i++) {
+      var el = cands[i];
+      var t = (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + scanTexto(el.textContent);
+      if (rx.test(t) && !rxNeg.test(t)) return clicavel(el);
+      // Fallback por ÍCONE (temas sem title/aria): chevron esquerda=anterior, direita=próximo.
+      if (iconClass && el.querySelector && el.querySelector("." + iconClass)) return clicavel(el);
+    }
+    return null;
+  }
   function botaoPag(rv, rx, rxNeg, iconClass) {
     try {
-      var cands = rv.querySelectorAll(".a-IRR-button--pagination, .a-IRR-pagination a, .a-IRR-pagination button, .a-IRR-pagination-item");
-      for (var i = 0; i < cands.length; i++) {
-        var el = cands[i];
-        var t = (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + scanTexto(el.textContent);
-        if (rx.test(t) && !rxNeg.test(t)) return clicavel(el);
-        // Fallback por ÍCONE (temas sem title/aria): chevron esquerda=anterior, direita=próximo.
-        if (iconClass && el.querySelector && el.querySelector("." + iconClass)) return clicavel(el);
-      }
+      var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+      // 1) Candidatos específicos de paginação do IR.
+      var esp = reg.querySelectorAll(".a-IRR-button--pagination, .a-IRR-pagination a, .a-IRR-pagination button, .a-IRR-pagination-item, .a-IRR-pagination [role='button']");
+      var hit = varrerBotoes(esp, rx, rxNeg, iconClass);
+      if (hit) return hit;
+      // 2) Fallback AMPLO na região do IR (temas onde o botão não usa a classe de
+      //    paginação): qualquer botão/link cujo título/rótulo/ícone bata. Mantido
+      //    dentro da região do relatório para não pegar controles de outra área.
+      var amplos = reg.querySelectorAll("button, a, [role='button']");
+      return varrerBotoes(amplos, rx, rxNeg, iconClass);
     } catch { }
     return null;
   }
@@ -194,9 +241,12 @@
     });
     return linhas.length ? { colunas: colunas, linhas: linhas } : null;
   }
-  // Assinatura da página atual (para detectar a troca após clicar "Próximo").
+  // Assinatura da página atual (para detectar a troca após clicar "Próximo"). Lê o
+  // rótulo na REGIÃO do IR (o label é irmão do reportView) — é o sinal mais
+  // confiável de troca de página, sobretudo quando o rótulo não traz total ("51 - 100").
   function assinaturaPagina(rv) {
-    var lab = rv.querySelector(".a-IRR-pagination-label, .a-IRR-pagination");
+    var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+    var lab = reg.querySelector(".a-IRR-pagination-label, .a-IRR-pagination");
     var first = rv.querySelector("tbody tr td[headers]");
     return (lab ? scanTexto(lab.textContent) : "") + "|" + (first ? scanTexto(first.textContent) : "") + "|" + rv.querySelectorAll("tbody tr").length;
   }
@@ -210,9 +260,30 @@
       })();
     });
   }
+  // "Impressão digital" do estado do relatório: total de registros + colunas +
+  // termo de busca. INVARIANTE à página exibida, mas SENSÍVEL a filtro/busca/colunas
+  // — é o que permite reusar a coleta em cache e detectar mudança de resultado.
+  // (Ordenação NÃO entra: temos todas as linhas e reordenamos no servidor.)
+  function fingerprintRelatorio(rv) {
+    try {
+      var irr = (rv.closest && rv.closest(".a-IRR")) || rv;
+      var lab = irr.querySelector(".a-IRR-pagination-label");
+      var total = "";
+      if (lab) { var m = scanTexto(lab.textContent).match(/de[\s ]+([\d.,]+)/i); if (m) total = m[1].replace(/\D/g, ""); }
+      var cols = [];
+      rv.querySelectorAll("th.a-IRR-header .a-IRR-headerLink").forEach(function (a) { cols.push(scanTexto(a.textContent)); });
+      var busca = "";
+      var s = irr.querySelector(".a-IRR-search-field, input.a-IRR-search-field, input[id$='_search_field']");
+      if (s) busca = String(s.value || "");
+      return "t" + total + "|c" + cols.join(",") + "|s" + busca;
+    } catch (e) { return "err" + Date.now(); } // erro → nunca casa → força coleta
+  }
   // Percorre TODAS as páginas do IR (clicando "Próximo"), acumulando as linhas.
-  async function coletarRelatorio(rv) {
-    var CAP_PAG = 100, CAP_LIN = 4000, ESPERA = 5000;
+  async function coletarRelatorio(rv, onProgress) {
+    // SEM teto artificial de linhas/páginas — o limite prático é o TEMPO (para não
+    // travar a tela). Volumes grandes são enviados como RESUMO ESTATÍSTICO à IA.
+    var CAP_PAG = 100000, CAP_LIN = 500000, ESPERA = 6000, TEMPO_MAX = 240000; // ~4 min
+    var t0ini = Date.now();
     // REBOBINA: se o usuário parou numa página adiante (ex.: 31-60), volta ao
     // INÍCIO clicando "Anterior" até ele desabilitar (1ª página), para coletar TUDO.
     for (var rw = 0; rw < CAP_PAG; rw++) {
@@ -222,31 +293,36 @@
       try { prev.click(); } catch { break; }
       if (!(await esperarMudanca(rv, aRew, ESPERA))) break;
     }
-    var t0 = extrairIRRegiao(rv, 500);
+    var t0 = extrairIRRegiao(rv, 1000);
     if (!t0) return null;
     var colunas = t0.colunas, todas = [], seen = {}, truncou = false;
     function add(linhas) { for (var i = 0; i < linhas.length; i++) { var k = linhas[i].join(""); if (!seen[k]) { seen[k] = 1; todas.push(linhas[i]); } } }
     add(t0.linhas);
+    if (onProgress) onProgress(todas.length);
     for (var pag = 1; pag < CAP_PAG; pag++) {
       if (todas.length >= CAP_LIN) { truncou = true; break; }
+      if (Date.now() - t0ini > TEMPO_MAX) { truncou = true; break; } // orçamento de tempo
       var btn = botaoProximo(rv);
       if (!btn || ehDesabilitado(btn)) break;
       var antes = assinaturaPagina(rv);
       try { btn.click(); } catch { break; }
       if (!(await esperarMudanca(rv, antes, ESPERA))) break; // não avançou → fim/travou
-      var t = extrairIRRegiao(rv, 500);
+      var t = extrairIRRegiao(rv, 1000);
       if (!t) break;
       var antesN = todas.length;
       add(t.linhas);
       if (todas.length === antesN) break; // nada novo → evita loop infinito
+      if (onProgress) onProgress(todas.length);
     }
     return { colunas: colunas, linhas: todas, truncou: truncou };
   }
-  // Acha o 1º IR paginado (doc principal + iframes de mesma origem).
+  // Acha o 1º IR paginado (doc principal + iframes de mesma origem). Aceita pelo
+  // RÓTULO (haMaisPaginas) mesmo quando o botão não é encontrado pela classe — a
+  // coleta tenta avançar; se não conseguir, é marcada como incompleta (fail-loud).
   function acharIRPaginado(doc) {
     try {
       var cands = doc.querySelectorAll(".a-IRR-reportView, .a-IRR");
-      for (var i = 0; i < cands.length; i++) if (temPaginacao(cands[i]) && botaoProximo(cands[i])) return cands[i];
+      for (var i = 0; i < cands.length; i++) if (haMaisPaginas(cands[i]) || (temPaginacao(cands[i]) && botaoProximo(cands[i]))) return cands[i];
       var frames = doc.querySelectorAll("iframe");
       for (var j = 0; j < frames.length; j++) { var d = null; try { d = frames[j].contentDocument; } catch { d = null; } if (d) { var r = acharIRPaginado(d); if (r) return r; } }
     } catch { }
@@ -256,12 +332,28 @@
   function iniciarColeta() {
     var rv = acharIRPaginado(document);
     if (!rv) { statusMsg("Não encontrei um relatório paginado na tela — sigo com os dados visíveis.", null); ask(undefined, undefined, { continuation: true }); return; }
+    var key = regionKey(rv), fp = fingerprintRelatorio(rv);
+    // CACHE: mesmo relatório + mesmo fingerprint (total/colunas/busca) = sem mudança
+    // de filtro/resultado → reusa a coleta anterior, SEM paginar de novo.
+    if (_harvestCache && _harvestCache.key === key && _harvestCache.fp === fp && _harvestCache.linhas.length) {
+      _harvested = { key: key, nome: _harvestCache.nome, colunas: _harvestCache.colunas, linhas: _harvestCache.linhas, total: _harvestCache.total, incompleto: _harvestCache.incompleto };
+      statusMsg("♻️ Reaproveitei " + _harvested.linhas.length + " registro(s) já coletados (relatório sem alteração). Analisando…", "#15803d");
+      ask(undefined, undefined, { continuation: true });
+      return;
+    }
+    var esperado = infoPag(rv).total; // total do rótulo ("de N") — pode ser null
     busy = true; if (sendBtn) sendBtn.disabled = true;
-    statusMsg("Coletando todas as páginas do relatório…", null);
-    coletarRelatorio(rv).then(function (res) {
+    var stEl = statusMsg("Coletando todas as páginas do relatório…", null);
+    coletarRelatorio(rv, function (n) { try { stEl.textContent = "Coletando todas as páginas do relatório… " + n + " registro(s)"; } catch (e) { } }).then(function (res) {
       if (res && res.linhas.length) {
-        _harvested = { key: regionKey(rv), nome: nomeRegiao(rv) || "Relatório", colunas: res.colunas, linhas: res.linhas };
-        statusMsg("✅ Coletei " + res.linhas.length + " registro(s)" + (res.truncou ? " (limite atingido)" : " de todas as páginas") + ". Analisando…", "#15803d");
+        // Fail-loud: se o rótulo indicava N e coletamos menos (margem de 2), NÃO
+        // apresente como completo — a IA precisa avisar o usuário.
+        var incompleto = (esperado != null && res.linhas.length < esperado - 2) || !!res.truncou;
+        _harvested = { key: key, nome: nomeRegiao(rv) || "Relatório", colunas: res.colunas, linhas: res.linhas, total: esperado || res.linhas.length, incompleto: incompleto };
+        _harvestCache = { key: key, fp: fp, nome: _harvested.nome, colunas: res.colunas, linhas: res.linhas, total: _harvested.total, incompleto: incompleto }; // guarda p/ reuso
+        statusMsg(incompleto
+          ? "⚠️ Coletei " + res.linhas.length + (esperado ? " de ~" + esperado : "") + " registro(s) — não consegui avançar todas as páginas. A análise vai sinalizar isso."
+          : "✅ Coletei " + res.linhas.length + " registro(s) de todas as páginas. Analisando…", incompleto ? "#b45309" : "#15803d");
       } else {
         statusMsg("Não consegui coletar as páginas; sigo com o que está visível.", "#b45309");
       }
@@ -288,7 +380,16 @@
         rv.querySelectorAll("table").forEach(function (x) { consumidas.push(x); });
         // Se ESTE relatório já foi coletado por completo, marca (o conjunto vai no reportData).
         var completo = _harvested && _harvested.key === regionKey(rv);
-        tabelas.push({ nome: pre + (nomeRegiao(rv) || "Interactive Report"), tipo: "Interactive Report", colunas: t.colunas, linhas: t.linhas, paginado: temPaginacao(rv) && !!botaoProximo(rv) && !completo, coletaCompleta: completo, total: completo ? _harvested.linhas.length : 0 });
+        // PAGINADO pela FONTE DA VERDADE (rótulo "X de N"), não só pela classe do
+        // botão — assim um tema diferente não escapa como "não paginado". Envia o
+        // total real (N) para o servidor/IA saberem que a página visível é parcial.
+        var ip = infoPag(rv);
+        // Truncamos no próprio scan (relatório com muitas linhas numa página só)?
+        // Então há mais do que enviamos → também conta como "paginado" (a coleta
+        // pega o resto). Evita analisar 400 de N em silêncio.
+        var truncadoNoScan = t.linhas.length >= LIN;
+        var maisPag = !completo && (truncadoNoScan || haMaisPaginas(rv, t.linhas.length) || (temPaginacao(rv) && !!botaoProximo(rv)));
+        tabelas.push({ nome: pre + (nomeRegiao(rv) || "Interactive Report"), tipo: "Interactive Report", colunas: t.colunas, linhas: t.linhas, paginado: maisPag, coletaCompleta: completo, total: completo ? _harvested.linhas.length : (ip.total || 0) });
       };
       // Uma passada por reportView; depois .a-IRR SEM reportView (evita duplicar).
       doc.querySelectorAll(".a-IRR-reportView").forEach(extrairIR);
@@ -1000,6 +1101,7 @@
       "color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
     d.textContent = txt;
     messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    return d;
   }
   // Trilha curta da ação (para a nota de continuação enviada à IA).
   function labelExec(a) {
@@ -2680,6 +2782,7 @@
     history = [];
     conversationId = null;
     contextScope = null;
+    _harvested = null; _harvestCache = null; // esquece a coleta em cache
     try {
       localStorage.setItem(LS_CLEARED, new Date().toISOString());
     } catch {
@@ -3063,7 +3166,7 @@
     // Coleta multi-página do relatório (todas as páginas) — enviada à parte para
     // não ser truncada com o resto da tela.
     if (cfg.formAssist && _harvested) {
-      body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas };
+      body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas, total: _harvested.total || _harvested.linhas.length, incompleto: !!_harvested.incompleto };
     }
     fetch(API + "/api/v1/chat", {
       method: "POST",
@@ -3178,6 +3281,13 @@
         done();
         return;
       }
+      // Coleta pendente: IGNORA qualquer texto prematuro (a IA não deve responder a
+      // análise antes de ter os dados) — apenas varre e responde no passo seguinte.
+      if (_coletando) {
+        done();
+        iniciarColeta();
+        return;
+      }
       // Se a IA emitiu ações neste turno, é um passo do loop (segue outra rodada) —
       // não é o resumo final, então não mostra citações/feedback ainda.
       ehFinalTurno = _acoes.length === 0;
@@ -3198,8 +3308,7 @@
         if (citations.length) renderCitations(citations);
       }
       done();
-      if (_coletando) iniciarColeta();       // percorre todas as páginas e reenvia
-      else if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
+      if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
       else if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
     }
     function done() {

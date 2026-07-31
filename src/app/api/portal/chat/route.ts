@@ -22,6 +22,7 @@ import { pageContextFields, pageContextHint, pageContextNote, pageChangeNote, me
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
 import { newRegistry } from "@/lib/chat/datasets";
+import { buildQueryTool } from "@/lib/chat/query-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
@@ -157,7 +158,10 @@ export async function POST(req: NextRequest) {
   const chartSpecs: ChartSpec[] = [];
   const reportSpecs: ReportSpec[] = [];
   const visualTools = temVisual ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs, datasets) } : {};
-  const allTools = { ...integ.tools, ...visualTools };
+  // Consulta/filtro server-side sobre listas de ferramentas (evita filtrar pela
+  // amostra e reportar/exportar um total errado). Ver datasets.ts.
+  const queryTools = temTools ? buildQueryTool(datasets) : {};
+  const allTools = { ...integ.tools, ...visualTools, ...queryTools };
   const comTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio para acertar tools/parâmetros.
   const glossario = social ? "" : await glossarioCasado(supabase, [spaceId], question).catch(() => "");
