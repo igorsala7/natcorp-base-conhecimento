@@ -48,8 +48,8 @@ export default async function SistemaPage() {
   const supabase = await createClient();
   const [{ data: providers }, { data: assignments }, { data: email }, segredos, nivel, { data: backups }, { data: backupSettings }] =
     await Promise.all([
-      supabase.from("ai_providers").select("id, name, kind, base_url, active").order("name"),
-      supabase.from("ai_assignments").select("purpose, provider_id, model"),
+      supabase.from("ai_providers").select("id, name, kind, base_url, active, base_code").order("name"),
+      supabase.from("ai_assignments").select("purpose, provider_id, model, base_code"),
       supabase.from("email_settings").select("*").maybeSingle(),
       secretsPresentes(),
       currentMaxLevel(null),
@@ -146,6 +146,10 @@ export default async function SistemaPage() {
         smtp_secure: true,
       };
 
+  // Bases ativas (seletor "Configuração por base" da IA).
+  const { data: basesRows } = await createAdminClient().from("ai_bases").select("base_code").eq("active", true).order("base_code");
+  const bases = (basesRows ?? []).map((b) => b.base_code).filter((c): c is string => !!c);
+
   return (
     <div className="mx-auto max-w-5xl">
       <h1 className="text-2xl font-semibold tracking-tight">Sistema</h1>
@@ -173,6 +177,7 @@ export default async function SistemaPage() {
         canPrompts={canPrompts}
         prompts={prompts}
         webAccess={webAccess}
+        bases={bases}
       />
 
       {infraData && <InfraPanel infra={infraData} temChaveMestra={hasEncryptionKey()} />}

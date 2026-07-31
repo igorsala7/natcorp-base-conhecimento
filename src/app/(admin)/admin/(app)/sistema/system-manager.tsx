@@ -45,8 +45,9 @@ export type ProviderRow = {
   kind: string;
   base_url: string | null;
   active: boolean;
+  base_code: string;
 };
-export type AssignmentRow = { purpose: string; provider_id: string; model: string };
+export type AssignmentRow = { purpose: string; provider_id: string; model: string; base_code: string };
 export type EmailRow = {
   transport: string;
   from_name: string;
@@ -73,6 +74,7 @@ export function SystemManager({
   canPrompts,
   prompts,
   webAccess,
+  bases,
 }: {
   providers: ProviderRow[];
   assignments: AssignmentRow[];
@@ -88,6 +90,7 @@ export function SystemManager({
   canPrompts: boolean;
   prompts: PromptCatUI[];
   webAccess: WebAccessData;
+  bases: string[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -172,6 +175,7 @@ export function SystemManager({
           <AbaIA
             providers={providers}
             assignments={assignments}
+            bases={bases}
             temChave={temChave}
             isOwner={isOwner}
             temChaveMestra={temChaveMestra}
@@ -200,6 +204,7 @@ type Run = (fn: () => Promise<{ ok: boolean; msg?: string; error?: string }>) =>
 function AbaIA({
   providers,
   assignments,
+  bases,
   temChave,
   isOwner,
   temChaveMestra,
@@ -208,6 +213,7 @@ function AbaIA({
 }: {
   providers: ProviderRow[];
   assignments: AssignmentRow[];
+  bases: string[];
   temChave: Record<string, boolean>;
   isOwner: boolean;
   temChaveMestra: boolean;
@@ -216,6 +222,7 @@ function AbaIA({
 }) {
   const [novo, setNovo] = useState(false);
   const { confirmar } = useConfirm();
+  const [baseSel, setBaseSel] = useState("");
   const [form, setForm] = useState({
     id: "",
     name: "",
@@ -225,8 +232,35 @@ function AbaIA({
     apiKey: "",
   });
 
+  // Recorte por base: '' = padrão (todas). Provedores desta base; nas atribuições
+  // a base pode usar o provedor PRÓPRIO ou um do padrão.
+  const providersDoBase = providers.filter((p) => p.base_code === baseSel);
+  const providersAtrib = baseSel ? providers.filter((p) => p.base_code === baseSel || p.base_code === "") : providersDoBase;
+
   return (
     <div className="mt-5 space-y-6">
+      <Surface elevation={1} padding="lg">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className={eyebrowLabel}>Configuração por base</h2>
+          <select
+            aria-label="Base"
+            className={`${controlClass} h-9 w-auto`}
+            value={baseSel}
+            onChange={(e) => { setBaseSel(e.target.value); setNovo(false); }}
+          >
+            <option value="">Padrão (todas as bases)</option>
+            {bases.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+          <span className="text-xs text-text-muted">
+            {baseSel
+              ? "Provedores e atribuições PRÓPRIOS desta base. Sem override, ela herda o padrão."
+              : "Padrão global — vale para todas as bases que não têm configuração própria."}
+          </span>
+        </div>
+      </Surface>
+
       <Surface elevation={1} padding="lg">
         <div className="flex items-center gap-3">
           <h2 className={eyebrowLabel}>Provedores</h2>
@@ -235,12 +269,12 @@ function AbaIA({
           </Button>
         </div>
 
-        {providers.length === 0 && !novo ? (
+        {providersDoBase.length === 0 && !novo ? (
           <EmptyState
             className="mt-4"
             icon={Cpu}
-            title="Nenhum provedor cadastrado"
-            description="Enquanto não houver nenhum, o sistema continua usando as variáveis de ambiente — como sempre funcionou."
+            title={baseSel ? "Sem provedor próprio nesta base" : "Nenhum provedor cadastrado"}
+            description={baseSel ? "Esta base herda o padrão global. Crie um provedor para dar uma conta/credencial própria a ela." : "Enquanto não houver nenhum, o sistema continua usando as variáveis de ambiente — como sempre funcionou."}
           />
         ) : (
           <div className="mt-4">
@@ -253,7 +287,7 @@ function AbaIA({
                 <Th>Ações</Th>
               </DataHead>
               <tbody>
-                {providers.map((p) => (
+                {providersDoBase.map((p) => (
                   <Tr key={p.id}>
                     <Td className="font-medium">{p.name}</Td>
                     <Td>{PROVIDER_LABEL[p.kind as ProviderKind] ?? p.kind}</Td>
@@ -371,6 +405,7 @@ function AbaIA({
                       kind: form.kind,
                       baseUrl: form.baseUrl,
                       active: form.active,
+                      base: baseSel,
                       apiKey: form.apiKey || null,
                     });
                     if (r.ok) setNovo(false);
@@ -397,8 +432,9 @@ function AbaIA({
             purpose={p.key}
             label={p.label}
             desc={p.desc}
-            providers={providers}
-            atual={assignments.find((a) => a.purpose === p.key)}
+            providers={providersAtrib}
+            atual={assignments.find((a) => a.purpose === p.key && a.base_code === baseSel)}
+            base={baseSel}
             pending={pending}
             run={run}
           />
@@ -737,6 +773,7 @@ function LinhaFinalidade({
   desc,
   providers,
   atual,
+  base,
   pending,
   run,
 }: {
@@ -745,6 +782,7 @@ function LinhaFinalidade({
   desc: string;
   providers: ProviderRow[];
   atual?: AssignmentRow;
+  base: string;
   pending: boolean;
   run: Run;
 }) {
@@ -770,7 +808,7 @@ function LinhaFinalidade({
           value={providerId}
           onChange={(e) => { setProviderId(e.target.value); setModel(""); }}
         >
-          <option value="">— usar variáveis de ambiente —</option>
+          <option value="">{base ? "— herdar o padrão —" : "— usar variáveis de ambiente —"}</option>
           {elegiveis.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -790,7 +828,7 @@ function LinhaFinalidade({
           {sugestoes.map((m) => <option key={m} value={m} />)}
         </datalist>
 
-        <Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => assignPurpose(purpose, providerId || null, model))}>
+        <Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => assignPurpose(purpose, providerId || null, model, base))}>
           Salvar
         </Button>
         <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => testPurpose(purpose))} title="Faz uma chamada real ao provedor">

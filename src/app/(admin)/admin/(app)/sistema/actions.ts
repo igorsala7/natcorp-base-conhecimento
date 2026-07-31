@@ -41,6 +41,8 @@ export async function saveProvider(input: {
   kind: ProviderKind;
   baseUrl?: string | null;
   active: boolean;
+  /** Base dona do provedor ('' = padrão global). Só usado ao CRIAR. */
+  base?: string;
   /** Texto puro; só é gravado quando vem preenchido (vazio = manter a atual). */
   apiKey?: string | null;
 }): Promise<SysResult> {
@@ -71,6 +73,7 @@ export async function saveProvider(input: {
         kind,
         base_url: baseUrl?.trim() || null,
         active,
+        base_code: (input.base ?? "").trim(),
         created_by: user?.id ?? null,
       })
       .select("id")
@@ -116,6 +119,7 @@ export async function assignPurpose(
   purpose: Purpose,
   providerId: string | null,
   model: string,
+  base = "",
 ): Promise<SysResult> {
   try {
     await requirePermission("ai.configure", null);
@@ -124,21 +128,21 @@ export async function assignPurpose(
   }
   const supabase = await createClient();
 
-  // Sem provedor = volta ao fallback por env var.
+  // Sem provedor = remove o override desta base (herda o padrão/env).
   if (!providerId) {
-    const { error } = await supabase.from("ai_assignments").delete().eq("purpose", purpose);
+    const { error } = await supabase.from("ai_assignments").delete().eq("purpose", purpose).eq("base_code", base);
     if (error) return { ok: false, error: error.message };
     invalidateAiCache();
     revalidatePath("/admin/sistema");
-    return { ok: true, msg: "Voltou a usar a configuração das variáveis de ambiente." };
+    return { ok: true, msg: base ? "Removido — esta base volta a herdar o padrão." : "Voltou a usar a configuração das variáveis de ambiente." };
   }
 
   if (!model.trim()) return { ok: false, error: "Informe o modelo." };
   const { error } = await supabase
     .from("ai_assignments")
     .upsert(
-      { purpose, provider_id: providerId, model: model.trim(), updated_at: new Date().toISOString() },
-      { onConflict: "purpose" },
+      { base_code: base, purpose, provider_id: providerId, model: model.trim(), updated_at: new Date().toISOString() },
+      { onConflict: "base_code,purpose" },
     );
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
 
