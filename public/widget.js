@@ -130,18 +130,32 @@
   }
   // O IR tem paginação por lotes ("Próximo/Anterior")?
   function temPaginacao(rv) { try { return !!rv.querySelector(".a-IRR-pagination"); } catch { return false; } }
-  // Botão "Próximo" da paginação do IR (por título/rótulo, PT ou EN).
-  function botaoProximo(rv) {
+  // Botão de paginação do IR por rótulo/título (PT ou EN). `rx` = o que casar,
+  // `rxNeg` = o que NÃO casar (evita pegar o oposto).
+  // Resolve para o elemento CLICÁVEL (o botão/link), não o <li> que o envolve —
+  // clicar no <li> não dispara a paginação do APEX.
+  function clicavel(el) {
+    if (!el) return null;
+    var tag = (el.tagName || "").toUpperCase();
+    if (tag === "BUTTON" || tag === "A") return el;
+    var inner = el.querySelector && el.querySelector("button, a, [role='button']");
+    return inner || el;
+  }
+  function botaoPag(rv, rx, rxNeg, iconClass) {
     try {
       var cands = rv.querySelectorAll(".a-IRR-button--pagination, .a-IRR-pagination a, .a-IRR-pagination button, .a-IRR-pagination-item");
       for (var i = 0; i < cands.length; i++) {
         var el = cands[i];
         var t = (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + scanTexto(el.textContent);
-        if (/pr[óo]ximo|next/i.test(t) && !/anterior|previous/i.test(t)) return el;
+        if (rx.test(t) && !rxNeg.test(t)) return clicavel(el);
+        // Fallback por ÍCONE (temas sem title/aria): chevron esquerda=anterior, direita=próximo.
+        if (iconClass && el.querySelector && el.querySelector("." + iconClass)) return clicavel(el);
       }
     } catch { }
     return null;
   }
+  function botaoProximo(rv) { return botaoPag(rv, /pr[óo]ximo|next/i, /anterior|previous/i, "icon-right-chevron"); }
+  function botaoAnterior(rv) { return botaoPag(rv, /anterior|previous|\bprev\b/i, /pr[óo]ximo|next/i, "icon-left-chevron"); }
   function ehDesabilitado(el) {
     if (!el) return true;
     try {
@@ -199,6 +213,15 @@
   // Percorre TODAS as páginas do IR (clicando "Próximo"), acumulando as linhas.
   async function coletarRelatorio(rv) {
     var CAP_PAG = 100, CAP_LIN = 4000, ESPERA = 5000;
+    // REBOBINA: se o usuário parou numa página adiante (ex.: 31-60), volta ao
+    // INÍCIO clicando "Anterior" até ele desabilitar (1ª página), para coletar TUDO.
+    for (var rw = 0; rw < CAP_PAG; rw++) {
+      var prev = botaoAnterior(rv);
+      if (!prev || ehDesabilitado(prev)) break;
+      var aRew = assinaturaPagina(rv);
+      try { prev.click(); } catch { break; }
+      if (!(await esperarMudanca(rv, aRew, ESPERA))) break;
+    }
     var t0 = extrairIRRegiao(rv, 500);
     if (!t0) return null;
     var colunas = t0.colunas, todas = [], seen = {}, truncou = false;
@@ -248,7 +271,7 @@
 
   // Extrai relatórios APEX como { nome, tipo, colunas[], linhas[][] }.
   function scanReports(doc, marca, tabelas) {
-    var LIN = 60, TAB = 8;
+    var LIN = 400, TAB = 8; // linhas por tabela enviadas (viram dataset p/ exportar TODAS)
     var pre = marca ? marca + " " : "";
     var consumidas = [];
     function jaConsumida(t) { for (var i = 0; i < consumidas.length; i++) if (consumidas[i] === t) return true; return false; }
@@ -1210,12 +1233,13 @@
     canvas.addEventListener("mouseleave", function () { tip.style.display = "none"; canvas.style.cursor = ""; });
   }
   function kbChartCsv(spec) {
-    function cell(v) { v = String(v); return /[",\r\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    // Separador SEMPRE ";" (padrão pt-BR / Excel local).
+    function cell(v) { v = String(v); return /[";\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
     var head = ["Categoria"].concat(spec.series.map(function (s) { return s.nome; }));
     var linhas = spec.categorias.map(function (c, r) {
       return [c].concat(spec.series.map(function (s) { return s.valores[r] == null ? "" : s.valores[r]; }));
     });
-    return [head].concat(linhas).map(function (cols) { return cols.map(cell).join(","); }).join("\r\n");
+    return "sep=;\r\n" + [head].concat(linhas).map(function (cols) { return cols.map(cell).join(";"); }).join("\r\n");
   }
 
   // Tabela dos dados do gráfico (aba "Tabela"): categorias × séries + linha de total.
@@ -1761,6 +1785,10 @@
       ".m.u{align-self:flex-end;background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border-bottom-right-radius:6px;max-width:82%;box-shadow:0 8px 20px rgba(60,30,110,.26)}" +
       ".m.a{background:#fff;color:#1c1726;border:1px solid #efe7f7;border-bottom-left-radius:6px;box-shadow:0 5px 16px rgba(60,40,100,.07)}" +
       ".arow .m.a{flex:1;min-width:0}" +
+      // Carimbo de data/hora, bem sutil, logo abaixo de cada mensagem.
+      ".mt{font-size:10px;line-height:1;color:#a99fbd;opacity:.7;margin-top:-9px;user-select:none;pointer-events:none}" +
+      ".mt.u{align-self:flex-end;margin-right:6px}" +
+      ".mt.a{align-self:flex-start;margin-left:40px}" +
       ".m.a a{color:var(--pc);font-weight:600}" +
       ".m.a p{margin:6px 0}.m.a p:first-child{margin-top:0}.m.a p:last-child{margin-bottom:0}" +
       ".m.a strong{font-weight:700}.m.a em{font-style:italic}.m.a .mh{font-weight:700;margin:8px 0 4px}" +
@@ -2535,7 +2563,20 @@
     row.appendChild(bubbleEl);
     return row;
   }
-  function addMsg(role, text) {
+  // Data/hora local da mensagem: "DD/MM/AAAA HH:MM" (usa o ISO se vier do histórico).
+  function fmtHora(iso) {
+    var d = iso ? new Date(iso) : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear() + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function addTimestamp(role, iso) {
+    var t = document.createElement("div");
+    t.className = "mt " + (role === "user" ? "u" : "a");
+    t.textContent = fmtHora(iso);
+    messagesEl.appendChild(t);
+  }
+  function addMsg(role, text, iso) {
     var el = document.createElement("div");
     el.className = "m " + (role === "user" ? "u" : "a");
     el.textContent = text;
@@ -2562,6 +2603,7 @@
     } else {
       messagesEl.appendChild(botRow(el)); // assistente ganha avatar ao lado
     }
+    addTimestamp(role, iso);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return el;
   }
@@ -2619,7 +2661,7 @@
 
   function renderHistory(msgs) {
     msgs.forEach(function (m) {
-      var el = addMsg(m.role, m.content);
+      var el = addMsg(m.role, m.content, m.createdAt);
       if (m.role === "assistant") {
         el.innerHTML = mdToHtml(m.content);
         if (m.citations && m.citations.length) renderCitations(m.citations);
