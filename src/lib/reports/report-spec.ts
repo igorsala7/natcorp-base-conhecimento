@@ -14,7 +14,11 @@ export type ReportBlock =
   | { tipo: "tabela"; titulo?: string; colunas: string[]; linhas: string[][] }
   | { tipo: "grafico"; grafico: ChartSpec };
 
-export type ReportSpec = { titulo: string; subtitulo?: string; blocos: ReportBlock[] };
+/** Formato de saída do arquivo gerado. */
+export type ReportFormat = "pdf" | "xlsx" | "csv" | "docx" | "pptx";
+export const REPORT_FORMATS: ReportFormat[] = ["pdf", "xlsx", "csv", "docx", "pptx"];
+
+export type ReportSpec = { titulo: string; subtitulo?: string; formato: ReportFormat; blocos: ReportBlock[] };
 
 const MAX_BLOCOS = 40;
 const MAX_COLS = 8;
@@ -61,5 +65,6 @@ export function normalizeReport(raw: unknown): ReportSpec | null {
     }
   }
   if (blocos.length === 0) return null;
-  return { titulo: str(o.titulo, 160) || "Relatório", subtitulo: o.subtitulo ? str(o.subtitulo, 200) : undefined, blocos };
+  const formato = (REPORT_FORMATS as string[]).includes(String(o.formato)) ? (o.formato as ReportFormat) : "pdf";
+  return { titulo: str(o.titulo, 160) || "Relatório", subtitulo: o.subtitulo ? str(o.subtitulo, 200) : undefined, formato, blocos };
 }

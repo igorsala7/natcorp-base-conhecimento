@@ -11,7 +11,10 @@ const nextConfig: NextConfig = {
   // O Playwright (usado no fallback de scraping para sites com proteção anti-bot,
   // ver `capture/browser.ts`) é nativo e pesado — nunca deve ser empacotado pelo
   // bundler das Server Actions; carrega do node_modules em runtime.
-  serverExternalPackages: ["playwright", "playwright-core"],
+  // Geradores de arquivo (relatórios do chat: Excel/Word/PowerPoint) são CJS
+  // pesados que referenciam módulos nativos — carregam do node_modules em
+  // runtime, sem passar pelo empacotador (senão o import dinâmico quebra).
+  serverExternalPackages: ["playwright", "playwright-core", "exceljs", "docx", "pptxgenjs", "@resvg/resvg-js"],
   // Expor o localhost por um túnel (Cloudflare) para outra pessoa testar: o
   // navegador manda Origin = xxx.trycloudflare.com, que NÃO bate com o Host, e
   // o Next recusa as Server Actions por CSRF — resultado: vários botões do

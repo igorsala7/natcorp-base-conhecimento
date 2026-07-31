@@ -4,6 +4,7 @@ import type { OutFile } from "@/lib/integrations/documents";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import { CHART_PALETTE, medianOf, linReg } from "@/lib/chat/chart-spec";
+import { parseMarkdown, type MdRun } from "./markdown";
 
 /**
  * Gera o PDF do relatório com pdf-lib (fontes-padrão embutidas → texto sempre
@@ -12,7 +13,7 @@ import { CHART_PALETTE, medianOf, linReg } from "@/lib/chat/chart-spec";
  * rodapé com paginação. Gráficos desenhados como VETOR (retângulos/linhas).
  */
 
-export type BrandInfo = { marca: string; primariaHex: string; dataHoje: string };
+export type BrandInfo = { marca: string; primariaHex: string; dataHoje: string; secundariaHex?: string };
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = 48; // margem lateral
@@ -345,9 +346,59 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
   }
 }
 
+/** Desenha runs (negrito/itálico) com quebra de linha, fontes mescladas. */
+function drawRuns(ctx: Ctx, runs: MdRun[], size: number, color: RGB, indent = 0, gap = 6) {
+  const maxW = CONTENT_W - indent;
+  const lh = size * 1.45;
+  const spaceW = ctx.font.widthOfTextAtSize(" ", size);
+  const toks: { t: string; f: PDFFont }[] = [];
+  for (const r of runs) {
+    const f = r.bold ? ctx.bold : ctx.font;
+    for (const w of String(r.text).split(/\s+/)) if (w) toks.push({ t: w, f });
+  }
+  if (!toks.length) { ctx.y -= gap; return; }
+  ensure(ctx, lh);
+  let x = M + indent;
+  for (const tok of toks) {
+    const w = tok.f.widthOfTextAtSize(tok.t, size);
+    if (x > M + indent && x + w > M + indent + maxW) {
+      ctx.y -= lh;
+      ensure(ctx, lh);
+      x = M + indent;
+    }
+    ctx.page.drawText(tok.t, { x, y: ctx.y - size, size, font: tok.f, color });
+    x += w + spaceW;
+  }
+  ctx.y -= lh + gap;
+}
+
+/** Renderiza um texto em MARKDOWN (títulos/negrito/itálico/listas/tabelas). */
+function desenharMarkdown(ctx: Ctx, texto: string) {
+  for (const b of parseMarkdown(texto)) {
+    if (b.kind === "heading") {
+      ctx.y -= 4;
+      const size = b.level === 1 ? 15 : b.level === 2 ? 13 : 11.5;
+      drawRuns(ctx, b.runs.map((r) => ({ ...r, bold: true })), size, ctx.primary, 0, 6);
+    } else if (b.kind === "bullet") {
+      ensure(ctx, 11 * 1.45);
+      ctx.page.drawText("•", { x: M + 4, y: ctx.y - 11, size: 11, font: ctx.bold, color: ctx.primary });
+      drawRuns(ctx, b.runs, 11, COR.texto, 16, 4);
+    } else if (b.kind === "ordered") {
+      ensure(ctx, 11 * 1.45);
+      ctx.page.drawText(b.index + ".", { x: M + 2, y: ctx.y - 11, size: 11, font: ctx.bold, color: ctx.primary });
+      drawRuns(ctx, b.runs, 11, COR.texto, 18, 4);
+    } else if (b.kind === "table") {
+      desenharTabela(ctx, b.header, b.rows);
+      ctx.y -= 6;
+    } else {
+      drawRuns(ctx, b.runs, 11, COR.texto, 0, 8);
+    }
+  }
+}
+
 function desenharBloco(ctx: Ctx, b: ReportBlock) {
   if (b.tipo === "texto") {
-    paragrafo(ctx, b.texto, 11, ctx.font, COR.texto, 8);
+    desenharMarkdown(ctx, b.texto);
   } else if (b.tipo === "tabela") {
     desenharTabela(ctx, b.colunas, b.linhas, b.titulo);
   } else if (b.tipo === "grafico") {
