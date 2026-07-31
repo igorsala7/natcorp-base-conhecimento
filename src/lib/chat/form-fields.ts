@@ -78,8 +78,15 @@ export function formAssistDirective(): string {
     "explícito de ação (verbo no imperativo: \"preencha\", \"escreva\", \"marque\", \"selecione\", \"clique\", \"filtre\", " +
     "\"ordene\", \"abra\"…). Se a mensagem for uma PERGUNTA ou uma AFIRMAÇÃO (ex.: \"o que é esse campo?\", \"qual o valor " +
     "de X?\", \"esse campo é obrigatório?\", \"como faço Y?\", \"o sistema faz Z?\"), NÃO toque na tela — RESPONDA. NUNCA " +
-    "preencha/clique com base em algo que o usuário só MENCIONOU ou PERGUNTOU. Na dúvida entre agir e responder, RESPONDA e " +
-    "ofereça fazer na tela.\n" +
+    "preencha/clique com base em algo que o usuário só MENCIONOU ou PERGUNTOU.\n" +
+    "AJA NA PRIMEIRA VEZ (não peça licença): quando o pedido É um comando de ação com ALVO e/ou VALOR claros — ex.: " +
+    "\"preencha o Salário com 3000\", \"coloque a data de hoje\", \"seleciona a Filial 2\", \"marque Ativo\", \"clique em " +
+    "Salvar\", \"busca a matrícula 123 na lupa\", \"informe meu endereço\" — CHAME a ferramenta correspondente JÁ NESTA " +
+    "MESMA RESPOSTA. É ERRADO responder em texto perguntando \"quer que eu preencha?\" ou apenas DESCREVER o passo: o " +
+    "sistema já mostra a confirmação visual e o usuário pode desfazer, então NÃO exija que ele repita o pedido — se está " +
+    "claro, execute de primeira. Reserve a pergunta em texto APENAS para o caso genuinamente AMBÍGUO (você não sabe QUAL " +
+    "campo ou QUAL valor usar); aí faça UMA pergunta curta e objetiva. \"Na dúvida\" NÃO é desculpa para não agir num " +
+    "pedido claro.\n" +
     "PERGUNTAS DE DOCUMENTAÇÃO: dúvidas sobre COMO o sistema funciona, conceitos ou procedimentos → responda pela " +
     "DOCUMENTAÇÃO fornecida no contexto (os artigos citados), NÃO pelos campos da tela nem por conhecimento geral, e sem " +
     "trocar de assunto. A tela mostra ONDE o usuário está — é apoio, não a fonte da resposta.\n" +
@@ -124,7 +131,10 @@ export function formAssistDirective(): string {
     "Já um POPUP LOV (campo do tipo \"lista de valores\", que abre uma JANELA de busca) NÃO se preenche digitando: primeiro " +
     "CLIQUE para abrir a janela (o campo ou o botão de lupa ao lado), espere ela aparecer, PESQUISE pelo termo do pedido no " +
     "campo de busca da janela e então SELECIONE (clique) o resultado que faz sentido para o pedido. Faça um passo por vez — " +
-    "o sistema re-varre a tela entre eles e te devolve os resultados carregados.\n" +
+    "o sistema re-varre a tela entre eles e te devolve os resultados carregados. Ao pedirem para preencher um POPUP LOV com " +
+    "um valor, NÃO descreva o procedimento nem espere um segundo pedido: INICIE a sequência JÁ AGORA (clicar_elemento para " +
+    "abrir) e conduza-a até o fim SOZINHO — o loop autônomo te devolve a janela aberta, aí você digita a busca (preencher_campo " +
+    "no campo de pesquisa da janela) e no passo seguinte clica no resultado que atende ao pedido.\n" +
     "IDENTIFICAR O CAMPO: primeiro procure o campo cujo rótulo corresponde ao que o usuário pediu. Se NÃO existir um campo " +
     "para aquilo, use a coluna do relatório (Interactive Report/Grid) — clique no cabeçalho da coluna ou em Ações → Filtro.\n" +
     "Se precisar saber COMO preencher um campo ou COMO prosseguir numa tela (o passo a passo, o formato de um valor, o " +
@@ -181,6 +191,35 @@ export function continuationNote(executed: string[]): string {
     "você. Quando (e só quando) a tarefa estiver 100% concluída, responda um resumo curto do que fez SEM chamar mais " +
     "nenhuma ferramenta."
   );
+}
+
+/**
+ * Heurística: a mensagem é um pedido de TUTORIAL / "como uso esta tela" (uma
+ * PERGUNTA de como usar), e não um comando de ação? Nesse caso o chat ENSINA
+ * pela DOCUMENTAÇÃO (RAG) + `tutorial_tela` — e NÃO precisa das ferramentas de
+ * dados (mais tokens, mais latência e risco de o modelo sair chamando API à toa).
+ * Conservadora de propósito: só dispara em frases claramente de "como usar a tela".
+ */
+export function pareceTutorial(msg: string): boolean {
+  const q = (msg || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (!q) return false;
+  const gatilhos = [
+    "como uso", "como utilizo", "como usar essa tela", "como usar esta tela",
+    "como funciona essa tela", "como funciona esta tela", "como funciona essa aplicacao", "como funciona este programa",
+    "me ensina", "ensina me", "me explica essa tela", "me explique essa tela", "explica essa tela", "explique esta tela",
+    "tutorial", "passo a passo dessa tela", "passo a passo desta tela",
+    "nao sei mexer", "nao sei usar", "nao sei preencher",
+    "o que faco nessa tela", "o que faco nesta tela", "o que e essa tela", "o que e esta tela",
+    "para que serve essa tela", "para que serve esta tela",
+    "como preencho isso", "como preencho essa tela", "como preencho esta tela", "como preencher essa tela", "como preencher esta tela",
+  ];
+  return gatilhos.some((g) => q.includes(g));
+}
+
+/** Só o mecanismo de tutorial (sem operar a tela) — usado no modo tutorial. */
+export function buildTutorialTool(fields: ScreenField[], sink: UiAction[]): ToolSet {
+  const all = buildFormTools(fields, sink);
+  return { tutorial_tela: all.tutorial_tela! };
 }
 
 /** Ferramentas de operação da tela (coletor ORDENADO — o widget executa em ordem). */

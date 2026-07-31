@@ -429,7 +429,7 @@
     }
   }
   function hideCallout() { _calloutAtivo = false; if (_callout) _callout.style.display = "none"; }
-  function mostrarCallout(passo, n, total, ultimo, onAvancar, onSair) {
+  function mostrarCallout(passo, n, total, ultimo, onAvancar, onSair, podeVoltar, onVoltar) {
     var c = ensureCallout();
     _calloutAtivo = true;
     var pc = (cfg && cfg.primaryColor) || "#511C76";
@@ -446,6 +446,7 @@
     var av = tutBtn(ultimo ? "Concluir ✓" : "Prosseguir →", true);
     av.addEventListener("click", onAvancar);
     btns.appendChild(av);
+    if (podeVoltar && onVoltar) { var vo = tutBtn("← Voltar", false); vo.addEventListener("click", onVoltar); btns.appendChild(vo); }
     var sa = tutBtn("Sair", false); sa.addEventListener("click", onSair); btns.appendChild(sa);
     body.appendChild(tit); body.appendChild(exp); body.appendChild(btns);
     c.style.display = "block";
@@ -496,6 +497,7 @@
       if (ch) t.expl[ch] = { titulo: (p.titulo || "").trim(), explicacao: (p.explicacao || "").trim() };
     });
     t.visitados = {};
+    t.pilha = [];   // trilha (ordem) dos campos já avançados — habilita o "Voltar"
     t.n = 0;
     if (!coletarCamposTutorial().length) { _tutorial = null; return; }
     mostrarPassoTutorial();
@@ -592,8 +594,19 @@
     function avancar() {
       if (box && box.parentNode) box.remove();
       hideCallout();
+      if (chave) t.pilha.push(chave);     // registra na trilha (para o "Voltar")
       t.visitados[chave] = true;          // marca e RE-VARRE (a tela pode ter mudado)
       unhighlightField();
+      mostrarPassoTutorial();
+    }
+    function voltar() {
+      if (!t.pilha || !t.pilha.length) return;
+      if (box && box.parentNode) box.remove();
+      hideCallout();
+      unhighlightField();
+      var prev = t.pilha.pop();           // último campo avançado volta a ser o alvo
+      delete t.visitados[prev];
+      t.n = Math.max(0, t.n - 2);         // desfaz o +1 desta etapa e recua uma
       mostrarPassoTutorial();
     }
     function sair() {
@@ -620,12 +633,14 @@
     var avC = tutBtn(ultimo ? "Concluir ✓" : "Prosseguir →", true);
     avC.addEventListener("click", avancar);
     box.appendChild(avC);
+    var podeVoltar = !!(t.pilha && t.pilha.length);
+    if (podeVoltar) { var voC = tutBtn("← Voltar", false); voC.addEventListener("click", voltar); box.appendChild(voC); }
     var saC = tutBtn("Sair", false); saC.addEventListener("click", sair); box.appendChild(saC);
     messagesEl.appendChild(box);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
     // (2) BALÃO flutuante ancorado ao campo (avatar + etapa + explicação + botões).
-    mostrarCallout({ titulo: titulo, explicacao: explic }, t.n, total, ultimo, avancar, sair);
+    mostrarCallout({ titulo: titulo, explicacao: explic }, t.n, total, ultimo, avancar, sair, podeVoltar, voltar);
   }
   // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
   // NOME (texto), com limite de palavra para "200" não casar "2000" nem "1200".

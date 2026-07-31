@@ -25,7 +25,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, type UiAction } from "@/lib/chat/form-fields";
+import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, buildTutorialTool, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
 import { newRegistry } from "@/lib/chat/datasets";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
@@ -172,10 +172,15 @@ export async function POST(req: NextRequest) {
   // preencher/operar. Declarado ANTES das tools porque habilita o gate "precisa de
   // dados?" (interação de tela não carrega as ferramentas de dados).
   const formAssist = key.config?.formAssist === true;
+  const continuation = formAssist && payload.continuation === true;
+  // Modo TUTORIAL: "como uso esta tela?" é PERGUNTA — o chat ensina pela
+  // DOCUMENTAÇÃO (RAG) + tutorial_tela, e NÃO carrega as ferramentas de dados
+  // (economiza tokens/latência e evita chamadas de API à toa). #4
+  const querTutorial = formAssist && !continuation && pareceTutorial(question);
   // Datasets do turno: as ferramentas registram as listas completas aqui e o
   // relatório referencia por id — o PDF sai com TODAS as linhas (#4).
   const datasets = newRegistry();
-  const integ = track.p_base
+  const integ = track.p_base && !querTutorial
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ler DADOS/VALORES da tela (varredura de campos, textos, tabelas, modais) só
@@ -185,18 +190,26 @@ export async function POST(req: NextRequest) {
   const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : "";
   const screenFields = formAssist ? parseFields(payload.fields) : [];
   // Loop autônomo do assistente de tela: o widget executou uma ação, re-varreu a
-  // tela e pede que a IA CONTINUE (não é nova pergunta do usuário).
-  const continuation = formAssist && payload.continuation === true;
+  // tela e pede que a IA CONTINUE (não é nova pergunta do usuário). (`continuation`
+  // já foi resolvido acima, junto do gate de tutorial.)
   const executedActions = continuation && Array.isArray(payload.executedActions)
     ? payload.executedActions.slice(0, 40).map((x) => String(x).slice(0, 100))
     : [];
   const uiActions: UiAction[] = [];
-  const formTools = formAssist && screenFields.length > 0 ? buildFormTools(screenFields, uiActions) : {};
+  // Modo tutorial → só o mecanismo de tutorial (não opera a tela). Caso normal →
+  // todas as ferramentas de operação.
+  const modoTutorial = querTutorial && screenFields.length > 0;
+  const formTools = modoTutorial
+    ? buildTutorialTool(screenFields, uiActions)
+    : formAssist && screenFields.length > 0
+      ? buildFormTools(screenFields, uiActions)
+      : {};
   // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados
   // (para plotar valores reais) OU quando o usuário PEDE um PDF/relatório/gráfico
-  // — aí o conteúdo pode vir da DOCUMENTAÇÃO (ex.: um passo a passo em PDF).
+  // — aí o conteúdo pode vir da DOCUMENTAÇÃO (ex.: um passo a passo em PDF). No
+  // modo tutorial fica fora (o tutorial só ensina).
   const temIntegTools = Object.keys(integ.tools).length > 0;
-  const temVisual = temIntegTools || pedeVisualizacao(question);
+  const temVisual = !modoTutorial && (temIntegTools || pedeVisualizacao(question));
   const chartSpecs: ChartSpec[] = [];
   const reportSpecs: ReportSpec[] = [];
   const visualTools = temVisual
