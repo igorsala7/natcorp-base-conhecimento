@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { createApiKey, revokeApiKey, API_SCOPES } from "./actions";
+import { createApiKey, revokeApiKey } from "./actions";
+import { API_SCOPES } from "./scopes";
 
 type KeyRow = {
   id: string;
