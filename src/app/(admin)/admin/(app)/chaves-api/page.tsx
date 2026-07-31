@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { hasPermission } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ApiKeysManager } from "./api-keys-manager";
+import { TenantLimitsManager } from "./tenant-limits-manager";
 import { ApiDocs } from "./api-docs";
 
 export const metadata: Metadata = { title: "Chaves de API" };
@@ -27,6 +29,14 @@ export default async function ChavesApiPage() {
     .select("id, name, key_prefix, scopes, active, last_used_at, created_at")
     .order("created_at", { ascending: false });
 
+  // Limites por base + bases existentes (tabelas internas → service-role, já
+  // protegidas pela checagem user.manage acima).
+  const admin = createAdminClient();
+  const [{ data: limits }, { data: bases }] = await Promise.all([
+    admin.from("tenant_limits").select("tenant, max_concurrency, daily_token_cap, updated_at").order("tenant"),
+    admin.from("ai_bases").select("base_code").eq("active", true),
+  ]);
+
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="text-2xl font-semibold tracking-tight">Chaves de API</h1>
@@ -37,6 +47,7 @@ export default async function ChavesApiPage() {
         <code>data.analyze</code>). Os escopos são as permissões que a chave concede. O segredo é mostrado só na criação.
       </p>
       <ApiKeysManager keys={data ?? []} />
+      <TenantLimitsManager limits={limits ?? []} bases={(bases ?? []).map((b) => b.base_code).filter((c): c is string => !!c)} />
       <ApiDocs />
     </div>
   );
