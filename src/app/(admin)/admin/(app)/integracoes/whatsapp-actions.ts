@@ -21,6 +21,9 @@ async function garantirPermissao(): Promise<string | null> {
 const schema = z.object({
   base: z.string().trim().default(""), // '' = canal PADRÃO; senão a base do cliente
   active: z.boolean().default(false),
+  provider: z.enum(["meta", "evolution"]).default("meta"),
+  evolution_url: z.string().trim().nullish(),
+  evolution_instance: z.string().trim().nullish(),
   phone_number_id: z.string().trim().nullish(),
   waba_id: z.string().trim().nullish(),
   business_account_id: z.string().trim().nullish(),
@@ -56,6 +59,9 @@ export async function saveWhatsappConfig(input: unknown): Promise<IntegResult> {
     {
       base_code: d.base,
       active: d.active,
+      provider: d.provider,
+      evolution_url: d.evolution_url?.trim() || null,
+      evolution_instance: d.evolution_instance?.trim() || null,
       phone_number_id: d.phone_number_id?.trim() || null,
       waba_id: d.waba_id?.trim() || null,
       business_account_id: d.business_account_id?.trim() || null,

@@ -7,8 +7,14 @@ import type { AuthType } from "@/lib/integrations/credentials";
 export type WhatsappRuntime = {
   baseCode: string;
   active: boolean;
+  /** 'meta' = WhatsApp Cloud API oficial; 'evolution' = Evolution API self-hosted. */
+  provider: "meta" | "evolution";
   phoneNumberId: string | null;
+  /** Evolution: URL do servidor (ex.: https://evo.suaempresa.com) e nome da instância. */
+  evolutionUrl: string | null;
+  evolutionInstance: string | null;
   appSecret: string | null;
+  /** Meta: access token da Graph API. Evolution: a `apikey` da instância. */
   accessToken: string | null;
   verifyToken: string | null;
   unidentifiedMessage: string;
@@ -41,7 +47,10 @@ export async function loadWhatsappRuntime(base = ""): Promise<WhatsappRuntime | 
   return {
     baseCode: base,
     active: s.active,
+    provider: (s.provider === "evolution" ? "evolution" : "meta") as WhatsappRuntime["provider"],
     phoneNumberId: s.phone_number_id,
+    evolutionUrl: s.evolution_url,
+    evolutionInstance: s.evolution_instance,
     appSecret: tryDecryptSecret(sec?.app_secret_enc),
     accessToken: tryDecryptSecret(sec?.access_token_enc),
     verifyToken: tryDecryptSecret(sec?.verify_token_enc),
@@ -67,6 +76,20 @@ export async function loadWhatsappForPhone(phoneNumberId: string | null | undefi
     if (data?.base_code) return loadWhatsappRuntime(data.base_code);
   }
   return loadWhatsappRuntime(""); // padrão
+}
+
+/** Resolve o canal Evolution pelo nome da INSTÂNCIA que recebeu a mensagem. */
+export async function loadWhatsappForEvolutionInstance(instance: string | null | undefined): Promise<WhatsappRuntime | null> {
+  if (!instance) return null;
+  const db = createAdminClient();
+  const { data } = await db
+    .from("whatsapp_settings")
+    .select("base_code")
+    .eq("provider", "evolution")
+    .eq("evolution_instance", instance)
+    .maybeSingle();
+  if (!data?.base_code && data?.base_code !== "") return null;
+  return loadWhatsappRuntime(data.base_code);
 }
 
 /** Handshake GET: aceita o verify token se casar com QUALQUER canal. */

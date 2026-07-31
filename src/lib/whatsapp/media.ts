@@ -6,16 +6,21 @@ import type { WhatsappRuntime } from "./config";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-/** Mensagem recebida do WhatsApp (campos que tratamos). */
+/** Mídia já resolvida em base64 (usado pelo Evolution, que entrega o binário no
+ *  próprio evento em vez de um id da Graph API). */
+type PreMedia = { base64?: string };
+
+/** Mensagem recebida do WhatsApp (campos que tratamos). Meta traz `id` de mídia
+ *  (baixado pela Graph); Evolution já traz `base64`. */
 export type WaMessage = {
   id?: string;
   from?: string;
   type?: string;
   text?: { body?: string };
-  audio?: { id?: string };
-  image?: { id?: string; caption?: string; mime_type?: string };
-  video?: { id?: string; caption?: string };
-  document?: { id?: string; filename?: string; caption?: string; mime_type?: string };
+  audio?: { id?: string; mime_type?: string } & PreMedia;
+  image?: { id?: string; caption?: string; mime_type?: string } & PreMedia;
+  video?: { id?: string; caption?: string; mime_type?: string } & PreMedia;
+  document?: { id?: string; filename?: string; caption?: string; mime_type?: string } & PreMedia;
   location?: { latitude?: number; longitude?: number; name?: string; address?: string };
 };
 
@@ -27,8 +32,16 @@ export type IncomingContent = {
   dataContext?: string;
 };
 
-/** Baixa a mídia: pega a URL na Graph API e depois o binário (com o token). */
-async function fetchMediaBytes(rt: WhatsappRuntime, mediaId?: string): Promise<{ buffer: Buffer; mime: string } | null> {
+/** Resolve a mídia em bytes. Evolution já traz `base64` no evento; Meta traz um
+ *  id que baixamos pela Graph API. */
+async function fetchMediaBytes(
+  rt: WhatsappRuntime,
+  media?: { id?: string; base64?: string; mime_type?: string },
+): Promise<{ buffer: Buffer; mime: string } | null> {
+  if (media?.base64) {
+    return { buffer: Buffer.from(media.base64, "base64"), mime: media.mime_type || "application/octet-stream" };
+  }
+  const mediaId = media?.id;
   if (!mediaId || !rt.accessToken) return null;
   try {
     const meta = await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${rt.accessToken}` } });
@@ -60,7 +73,7 @@ export async function extractContent(
 
     case "audio": {
       // Voz do microfone → transcreve (Whisper) e trata como texto.
-      const m = await fetchMediaBytes(rt, msg.audio?.id);
+      const m = await fetchMediaBytes(rt, msg.audio);
       if (!m) return { note: "Não consegui baixar o áudio. Pode tentar de novo?" };
       const tr = await transcreverAudio(new Uint8Array(m.buffer));
       if (!tr?.text) return { note: "Não consegui transcrever o áudio. Se puder, escreva a mensagem. 🙂" };
@@ -68,7 +81,7 @@ export async function extractContent(
     }
 
     case "image": {
-      const m = await fetchMediaBytes(rt, msg.image?.id);
+      const m = await fetchMediaBytes(rt, msg.image);
       if (!m) return { note: "Não consegui baixar a imagem." };
       return {
         question: msg.image?.caption?.trim() || "Analise a imagem que enviei e me ajude.",
@@ -77,7 +90,7 @@ export async function extractContent(
     }
 
     case "document": {
-      const m = await fetchMediaBytes(rt, msg.document?.id);
+      const m = await fetchMediaBytes(rt, msg.document);
       if (!m) return { note: "Não consegui baixar o arquivo." };
       try {
         const ex = await extractDocument(m.buffer, msg.document?.filename || "arquivo", m.mime);

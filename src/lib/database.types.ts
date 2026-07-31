@@ -179,6 +179,9 @@ export type Database = {
       whatsapp_settings: {
         Row: {
           active: boolean
+          provider: string
+          evolution_url: string | null
+          evolution_instance: string | null
           business_account_id: string | null
           base_code: string
           identity_auth_type: string
@@ -195,6 +198,9 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          provider?: string
+          evolution_url?: string | null
+          evolution_instance?: string | null
           business_account_id?: string | null
           base_code?: string
           identity_auth_type?: string
@@ -211,6 +217,9 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          provider?: string
+          evolution_url?: string | null
+          evolution_instance?: string | null
           business_account_id?: string | null
           base_code?: string
           identity_auth_type?: string

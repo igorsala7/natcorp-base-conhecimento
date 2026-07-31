@@ -1,11 +1,13 @@
 import "server-only";
 import type { OutFile } from "@/lib/integrations/documents";
 import type { WhatsappRuntime } from "./config";
+import { sendEvolutionText, sendEvolutionDocument } from "./evolution";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-/** Envia uma mensagem de texto pela WhatsApp Cloud API. */
+/** Envia uma mensagem de texto (Meta Cloud API ou Evolution, conforme o canal). */
 export async function sendWhatsappText(rt: WhatsappRuntime, to: string, text: string): Promise<boolean> {
+  if (rt.provider === "evolution") return sendEvolutionText(rt, to, text);
   if (!rt.phoneNumberId || !rt.accessToken) return false;
   try {
     const res = await fetch(`${GRAPH}/${rt.phoneNumberId}/messages`, {
@@ -32,6 +34,7 @@ export async function sendWhatsappText(rt: WhatsappRuntime, to: string, text: st
 
 /** Entrega um arquivo (base64 → binário) como DOCUMENTO: sobe a mídia e envia. */
 export async function sendWhatsappDocument(rt: WhatsappRuntime, to: string, file: OutFile): Promise<boolean> {
+  if (rt.provider === "evolution") return sendEvolutionDocument(rt, to, file);
   if (!rt.phoneNumberId || !rt.accessToken) return false;
   try {
     const bytes = Buffer.from(file.base64, "base64");

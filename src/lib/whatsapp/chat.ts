@@ -17,6 +17,7 @@ import { sendWhatsappText, sendWhatsappDocument } from "./send";
 import { alreadyProcessed } from "./dedupe";
 import { rateLimitOk, maskPhone } from "./util";
 import { extractContent, type WaMessage } from "./media";
+import { normalizeEvolution } from "./evolution";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -177,23 +178,37 @@ async function handleMessage(rt: WhatsappRuntime, msg: WaMessage): Promise<void>
 
 type WaPayload = { entry?: Array<{ changes?: Array<{ value?: { messages?: WaMessage[] } }> }> };
 
-/** Percorre o payload do webhook e responde cada mensagem. */
+/** Trata uma lista de mensagens já normalizadas: dedupe, rate-limit e resposta.
+ *  Compartilhado entre Meta e Evolution. */
+async function processMessages(rt: WhatsappRuntime, msgs: WaMessage[]): Promise<void> {
+  for (const msg of msgs) {
+    const from = msg.from;
+    if (!from) continue;
+    // Dedupe: os provedores reenviam eventos — não responde duas vezes.
+    if (msg.id && (await alreadyProcessed(msg.id))) continue;
+    // Rate-limit por remetente (barra loops/abuso).
+    if (!rateLimitOk(from)) {
+      console.warn("[whatsapp] rate-limit:", maskPhone(from));
+      continue;
+    }
+    await handleMessage(rt, msg).catch((e) => console.error("[whatsapp] mensagem:", maskPhone(from), e));
+  }
+}
+
+/** Percorre o payload do webhook da Meta e responde cada mensagem. */
 export async function processWebhook(rt: WhatsappRuntime, payload: unknown): Promise<void> {
   const p = payload as WaPayload;
+  const msgs: WaMessage[] = [];
   for (const entry of p.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      for (const msg of change.value?.messages ?? []) {
-        const from = msg.from;
-        if (!from) continue;
-        // Dedupe: a Meta reenvia eventos — não responde duas vezes.
-        if (msg.id && (await alreadyProcessed(msg.id))) continue;
-        // Rate-limit por remetente (barra loops/abuso).
-        if (!rateLimitOk(from)) {
-          console.warn("[whatsapp] rate-limit:", maskPhone(from));
-          continue;
-        }
-        await handleMessage(rt, msg).catch((e) => console.error("[whatsapp] mensagem:", maskPhone(from), e));
-      }
+      for (const msg of change.value?.messages ?? []) msgs.push(msg);
     }
   }
+  await processMessages(rt, msgs);
+}
+
+/** Recebe o payload do Evolution: normaliza para o formato interno e processa. */
+export async function processEvolution(rt: WhatsappRuntime, payload: unknown): Promise<void> {
+  const msgs = await normalizeEvolution(rt, payload);
+  await processMessages(rt, msgs);
 }

@@ -14,6 +14,9 @@ import { saveWhatsappConfig } from "./whatsapp-actions";
 
 export type WhatsappSettings = {
   active: boolean;
+  provider: "meta" | "evolution";
+  evolution_url: string | null;
+  evolution_instance: string | null;
   phone_number_id: string | null;
   waba_id: string | null;
   business_account_id: string | null;
@@ -50,6 +53,9 @@ type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token
 function settingsVazio(): WhatsappSettings {
   return {
     active: false,
+    provider: "meta",
+    evolution_url: null,
+    evolution_instance: null,
     phone_number_id: null,
     waba_id: null,
     business_account_id: null,
@@ -93,7 +99,7 @@ export function WhatsappPanel({
         </select>
         <span className="text-xs text-text-muted">
           {baseSel
-            ? "Conta Meta própria deste cliente — o webhook roteia pelo phone_number_id."
+            ? "Conta própria deste cliente (Meta ou Evolution) — roteada pelo número/instância que recebe."
             : "Canal padrão: usado quando o número não casa nenhum cliente."}
         </span>
       </div>
@@ -120,6 +126,9 @@ function WhatsappForm({
   const [pending, startTransition] = useTransition();
 
   const [active, setActive] = useState(settings.active);
+  const [provider, setProvider] = useState<WhatsappSettings["provider"]>(settings.provider);
+  const [evolutionUrl, setEvolutionUrl] = useState(settings.evolution_url ?? "");
+  const [evolutionInstance, setEvolutionInstance] = useState(settings.evolution_instance ?? "");
   const [phoneNumberId, setPhoneNumberId] = useState(settings.phone_number_id ?? "");
   const [wabaId, setWabaId] = useState(settings.waba_id ?? "");
   const [businessId, setBusinessId] = useState(settings.business_account_id ?? "");
@@ -139,11 +148,18 @@ function WhatsappForm({
   const idCampos = CREDENTIAL_FIELDS[authType];
   const idJaConfig = secretsPresent.identity && settings.identity_auth_type === authType;
 
+  const isEvo = provider === "evolution";
+  const evolutionWebhookUrl = webhookUrl.replace(/\/api\/whatsapp\/webhook$/, "/api/whatsapp/evolution/webhook");
+  const shownWebhook = isEvo ? evolutionWebhookUrl : webhookUrl;
+
   function salvar() {
     startTransition(async () => {
       const r = await saveWhatsappConfig({
         base,
         active,
+        provider,
+        evolution_url: evolutionUrl,
+        evolution_instance: evolutionInstance,
         phone_number_id: phoneNumberId,
         waba_id: wabaId,
         business_account_id: businessId,
@@ -170,7 +186,7 @@ function WhatsappForm({
   }
 
   function copiar() {
-    navigator.clipboard?.writeText(webhookUrl).then(() => {
+    navigator.clipboard?.writeText(shownWebhook).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -205,49 +221,105 @@ function WhatsappForm({
         </div>
       )}
 
-      {/* Webhook para colar no painel da Meta */}
+      {/* Provedor: Meta oficial ou Evolution (self-hosted) */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
+        <span className="text-sm font-semibold text-text">Provedor</span>
+        <select
+          className={`${controlClass} h-9 w-auto`}
+          value={provider}
+          onChange={(e) => setProvider(e.target.value as WhatsappSettings["provider"])}
+        >
+          <option value="meta">Meta — WhatsApp Cloud API (oficial)</option>
+          <option value="evolution">Evolution API (self-hosted, não-oficial)</option>
+        </select>
+        <span className="text-xs text-text-muted">
+          {isEvo
+            ? "Conecta seu número por QR code no servidor Evolution — sem aprovação da Meta."
+            : "Número aprovado na Meta (WhatsApp Business Platform)."}
+        </span>
+      </div>
+
+      {/* Webhook para colar no provedor */}
       <div className="rounded-lg border border-border bg-surface-2/40 p-3">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Webhook (cole no app da Meta)</p>
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          {isEvo ? "Webhook (configure na instância do Evolution)" : "Webhook (cole no app da Meta)"}
+        </p>
         <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-1.5 text-xs">{webhookUrl}</code>
+          <code className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-1.5 text-xs">{shownWebhook}</code>
           <Button size="sm" variant="secondary" onClick={copiar}>
             {copied ? <Check /> : <Copy />} {copied ? "Copiado" : "Copiar"}
           </Button>
         </div>
         <p className="mt-2 text-xs text-text-muted">
-          Use o mesmo <strong>Token de verificação</strong> abaixo no campo &quot;Verify token&quot; da Meta.
+          {isEvo ? (
+            <>
+              Aponte o webhook da instância para esta URL com o evento <code>messages.upsert</code>. Para
+              autenticar, configure o header <code>apikey</code> igual à API Key da instância.
+            </>
+          ) : (
+            <>
+              Use o mesmo <strong>Token de verificação</strong> abaixo no campo &quot;Verify token&quot; da Meta.
+            </>
+          )}
         </p>
       </div>
 
-      {/* Conta Meta */}
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-text">Conta Meta (Cloud API)</h3>
-          <label className="flex items-center gap-2 text-sm text-text">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
-            Canal ativo
-          </label>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Phone number ID" htmlFor="wa_pnid">
-            <input id="wa_pnid" className={controlClass} value={phoneNumberId} onChange={(e) => setPhoneNumberId(e.target.value)} />
+      {isEvo ? (
+        /* Conta Evolution */
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-text">Servidor Evolution</h3>
+            <label className="flex items-center gap-2 text-sm text-text">
+              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
+              Canal ativo
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="URL do servidor" htmlFor="wa_evo_url" hint="Ex.: https://evolution.suaempresa.com">
+              <input id="wa_evo_url" className={controlClass} value={evolutionUrl} onChange={(e) => setEvolutionUrl(e.target.value)} placeholder="https://evolution.suaempresa.com" />
+            </Field>
+            <Field label="Instância" htmlFor="wa_evo_inst" hint="Nome da instância pareada (QR code).">
+              <input id="wa_evo_inst" className={controlClass} value={evolutionInstance} onChange={(e) => setEvolutionInstance(e.target.value)} placeholder="minha-instancia" />
+            </Field>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            {secretInput("API Key (apikey da instância)", secretsPresent.access_token, accessToken, setAccessToken, "wa_evo_key")}
+          </div>
+          <Field className="mt-3" label="Mensagem para telefone não identificado" htmlFor="wa_unid">
+            <textarea id="wa_unid" rows={2} className={controlClass} value={unidentified} onChange={(e) => setUnidentified(e.target.value)} />
           </Field>
-          <Field label="WABA ID" htmlFor="wa_waba">
-            <input id="wa_waba" className={controlClass} value={wabaId} onChange={(e) => setWabaId(e.target.value)} />
+        </section>
+      ) : (
+        /* Conta Meta */
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-text">Conta Meta (Cloud API)</h3>
+            <label className="flex items-center gap-2 text-sm text-text">
+              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
+              Canal ativo
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Phone number ID" htmlFor="wa_pnid">
+              <input id="wa_pnid" className={controlClass} value={phoneNumberId} onChange={(e) => setPhoneNumberId(e.target.value)} />
+            </Field>
+            <Field label="WABA ID" htmlFor="wa_waba">
+              <input id="wa_waba" className={controlClass} value={wabaId} onChange={(e) => setWabaId(e.target.value)} />
+            </Field>
+            <Field label="Business account ID" htmlFor="wa_biz">
+              <input id="wa_biz" className={controlClass} value={businessId} onChange={(e) => setBusinessId(e.target.value)} />
+            </Field>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            {secretInput("App secret", secretsPresent.app_secret, appSecret, setAppSecret, "wa_app")}
+            {secretInput("Access token", secretsPresent.access_token, accessToken, setAccessToken, "wa_tok")}
+            {secretInput("Verify token", secretsPresent.verify_token, verifyToken, setVerifyToken, "wa_vf")}
+          </div>
+          <Field className="mt-3" label="Mensagem para telefone não identificado" htmlFor="wa_unid">
+            <textarea id="wa_unid" rows={2} className={controlClass} value={unidentified} onChange={(e) => setUnidentified(e.target.value)} />
           </Field>
-          <Field label="Business account ID" htmlFor="wa_biz">
-            <input id="wa_biz" className={controlClass} value={businessId} onChange={(e) => setBusinessId(e.target.value)} />
-          </Field>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {secretInput("App secret", secretsPresent.app_secret, appSecret, setAppSecret, "wa_app")}
-          {secretInput("Access token", secretsPresent.access_token, accessToken, setAccessToken, "wa_tok")}
-          {secretInput("Verify token", secretsPresent.verify_token, verifyToken, setVerifyToken, "wa_vf")}
-        </div>
-        <Field className="mt-3" label="Mensagem para telefone não identificado" htmlFor="wa_unid">
-          <textarea id="wa_unid" rows={2} className={controlClass} value={unidentified} onChange={(e) => setUnidentified(e.target.value)} />
-        </Field>
-      </section>
+        </section>
+      )}
 
       {/* API de identificação */}
       <section>
