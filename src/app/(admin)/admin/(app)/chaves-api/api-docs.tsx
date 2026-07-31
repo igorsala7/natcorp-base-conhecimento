@@ -121,7 +121,7 @@ curl -X POST "$HOST/api/v1/analyze" -H "Authorization: Bearer sk_live_..." -H "C
        "instrucao":"Resuma minhas horas do mês",
        "identidade":{"empresa":"700","matricula":"365785","usuario":"365785","perfil":"MASTER","portal":"PO"},
        "csvBase64":"..."}'
-# → { ok, conversationId }`;
+# → 202 { ok, jobId, status:"na_fila" } — a análise cai no chat quando o worker terminar`;
 
 const PLSQL_ANALYZE = `DECLARE
   l_resp CLOB;
@@ -141,22 +141,24 @@ BEGIN
     p_body        =>
       '{"space":"documentacao-natcorp",'
       || '"batchId":"IR59_' || TO_CHAR(SYSTIMESTAMP,'YYYYMMDDHH24MISSFF3') || '",'
-      || '"final":true,"destino":"api",'
+      || '"final":true,"aguardar":true,"destino":"api",'   -- aguardar: espera o resultado (jobs pequenos)
       || '"instrucao":"Resuma os desligamentos por empresa e aponte anomalias",'
       || '"csvBase64":"' || l_b64 || '"}');
 
-  -- l_resp => { "ok":true, "analise":"...", "resumo":{...}, "meta":{...} }
-  DBMS_OUTPUT.PUT_LINE( apex_json.get_varchar2(p_path => 'analise', p_values =>
-      apex_json.parse(l_resp)) );
+  -- Assíncrono: com "aguardar":true, l_resp já traz analise/resumo/meta se ficou pronto;
+  -- senão traz { "jobId":"...", "status":"na_fila" } — aí faça o POLL:
+  --   apex_web_service.make_rest_request(
+  --     p_url => 'https://SEU_HOST/api/v1/analyze?jobId=' || l_job_id, p_http_method => 'GET');
+  --   repita a cada ~2s até status = 'concluido' (ou 'erro').
+  DBMS_OUTPUT.PUT_LINE( l_resp );
 END;
 /`;
 
-const JS_ANALYZE = `const r = await fetch(HOST + "/api/v1/analyze", {
+const JS_ANALYZE = `const AUTH = { "Authorization": "Bearer sk_live_..." };
+// 1) Envia (assíncrono) → recebe um jobId
+const r = await fetch(HOST + "/api/v1/analyze", {
   method: "POST",
-  headers: {
-    "Authorization": "Bearer sk_live_...",
-    "Content-Type": "application/json",
-  },
+  headers: { ...AUTH, "Content-Type": "application/json" },
   body: JSON.stringify({
     space: "documentacao-natcorp",
     batchId: "IR59_" + Date.now(),
@@ -169,7 +171,15 @@ const JS_ANALYZE = `const r = await fetch(HOST + "/api/v1/analyze", {
     llm: { provider: "anthropic", model: "claude-opus-4-8" },
   }),
 });
-const { analise, resumo, meta } = await r.json();`;
+const { jobId } = await r.json();
+
+// 2) Poll até concluir
+let job;
+do {
+  await new Promise((s) => setTimeout(s, 2000));
+  job = await (await fetch(HOST + "/api/v1/analyze?jobId=" + jobId, { headers: AUTH })).json();
+} while (job.status === "na_fila" || job.status === "analisando");
+// job.analise, job.resumo, job.meta   (ou job.erro se status === "erro")`;
 
 const CURL_EXTRACT_TIPO = `# Extração ESTRUTURADA (identifica o tipo e devolve o padrão canônico)
 curl -X POST "$HOST/api/v1/extract" \\
@@ -268,6 +278,12 @@ Content-Type: application/json`}</Codigo>
           servidor e analisa com a IA. Cabe em modelo de <b>1M de contexto</b> via CSV compacto; se estourar, cai em
           <b> map-reduce</b> automático — sempre ancorado em <b>agregados exatos</b> calculados em código.
         </p>
+        <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+          <b>Assíncrono:</b> o processamento pesado roda no <b>worker</b>. O POST final <b>enfileira</b> e responde{" "}
+          <code>202</code> com um <code>jobId</code> + <code>status:&quot;na_fila&quot;</code>. Consulte o resultado por{" "}
+          <code>GET /api/v1/analyze?jobId=…</code> (poll) ou receba no chat. Para jobs pequenos, <code>aguardar:true</code>{" "}
+          faz um long-poll curto e já devolve o resultado.
+        </p>
 
         <H>Parâmetros (JSON)</H>
         <Tabela
@@ -279,6 +295,7 @@ Content-Type: application/json`}</Codigo>
             { nome: "columns", tipo: "string[]", desc: "cabeçalho. Se omitido e hasHeader≠false, usa a 1ª linha do CSV." },
             { nome: "delimiter / hasHeader", tipo: "string / bool", desc: "força o delimitador; hasHeader=false trata todas as linhas como dados." },
             { nome: "seq / total / final", tipo: "int / int / bool", desc: "chunking: fecha ao receber `total` chunks OU com final:true." },
+            { nome: "aguardar", tipo: "bool", desc: "no POST final, faz long-poll curto (~15s) e devolve o resultado se ficar pronto; senão retorna o jobId." },
             { nome: "instrucao", tipo: "string", desc: "o que analisar (o prompt de orientação)." },
             { nome: "persona", tipo: "string", desc: "orientação adicional de sistema (tom, foco)." },
             { nome: "arquivos", tipo: "array", desc: "[{nome,mime,base64}] — Word/Excel/PDF/txt → texto; imagens e PDF escaneado → visão/OCR." },
@@ -293,15 +310,25 @@ Content-Type: application/json`}</Codigo>
           <b> não vai ao chat</b> — volta só via API com um <code>aviso</code>.
         </p>
 
-        <H>Resposta</H>
+        <H>Resposta (fluxo assíncrono)</H>
         <Codigo lang="json">{`// chunk não-final
-{ "ok": true, "batchId": "L1", "recebidos_chunks": 2, "recebidos_linhas": 2000, "final": false }
+{ "ok": true, "batchId": "L1", "jobId": "5b1e...", "recebidos_chunks": 2, "recebidos_linhas": 2000, "final": false }
 
-// chunk final (destino=api)
-{ "ok": true, "batchId": "L1", "final": true, "destino": "api",
+// chunk final → 202 (enfileirado; o worker analisa)
+{ "ok": true, "batchId": "L1", "jobId": "5b1e...", "status": "na_fila", "final": true }
+
+// GET /api/v1/analyze?jobId=5b1e...   (poll) — quando terminar:
+{ "ok": true, "jobId": "5b1e...", "status": "concluido", "final": true,
   "analise": "A análise dos 5000 registros indica ...",
   "resumo": { "linhas": 5000, "colunas": 4, "por_coluna": [ /* somas/médias/min-máx/top exatos */ ] },
-  "meta": { "linhas": 5000, "colunas": 4, "tokens_estimados": 240000, "reduzido": false } }`}</Codigo>
+  "meta": { "linhas": 5000, "colunas": 4, "tokens_estimados": 240000, "reduzido": false },
+  "conversationId": "..." }        // se destino incluiu chat
+
+// status possíveis: "na_fila" · "analisando" · "concluido" · "erro"`}</Codigo>
+        <Codigo lang="cURL — poll do resultado (GET)">{`curl -H "Authorization: Bearer sk_live_..." \\
+  "$HOST/api/v1/analyze?space=documentacao-natcorp&batchId=IR59_x"
+# ou por jobId:
+curl -H "Authorization: Bearer sk_live_..." "$HOST/api/v1/analyze?jobId=5b1e..."`}</Codigo>
 
         <H>Exemplos</H>
         <Codigo lang="cURL — JSON (rows)">{CURL_ANALYZE_JSON}</Codigo>
@@ -373,6 +400,7 @@ Content-Type: application/json`}</Codigo>
       <div className="rounded-xl border border-border bg-surface p-4 text-sm leading-relaxed text-text-muted">
         <H>Limites e notas</H>
         <ul className="mt-1 list-disc pl-5">
+          <li>A análise em lote é <b>assíncrona</b> (processada no worker): o POST final devolve <code>202</code> + <code>jobId</code>; consulte por <code>GET …?jobId=…</code> ou <code>?space=…&amp;batchId=…</code>. Lotes concluídos são apagados após ~2 dias.</li>
           <li>Análise: até <b>50.000 linhas</b> por lote; orçamento de entrada configurável por <code>ANALYZE_MAX_INPUT_TOKENS</code> (padrão 500k).</li>
           <li>Arquivos: até <b>20 MB</b> cada; imagens vão à <b>visão</b>, PDF sem texto (escaneado) também (OCR nativo, melhor com Anthropic).</li>
           <li>Os agregados do <code>resumo</code> são <b>exatos</b> (calculados em código) — o modelo não “chuta” totais.</li>

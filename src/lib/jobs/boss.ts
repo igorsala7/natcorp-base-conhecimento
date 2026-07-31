@@ -22,6 +22,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("ontology-scan");
       await boss.createQueue("ontology-import");
       await boss.createQueue("bulk-process");
+      await boss.createQueue("analyze");
       await boss.createQueue("backup");
       await boss.createQueue("backup-restore");
       await boss.createQueue("backup-reschedule");
@@ -102,6 +103,13 @@ export async function enqueueOntologyImport(jobId: string): Promise<void> {
 export async function enqueueBulkProcess(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("bulk-process", { jobId });
+}
+
+/** Análise de dados em lote (map-reduce/OCR) — o worker processa e grava o
+ *  resultado em analysis_jobs; o chamador faz poll ou recebe no chat. */
+export async function enqueueAnalyze(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("analyze", { jobId }, { retryLimit: 2, retryDelay: 20, retryBackoff: true });
 }
 
 /** Backup do sistema (banco + arquivos) em segundo plano, com progresso. */

@@ -2,15 +2,16 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { authorize, apiJson } from "@/lib/api/manage";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { decodeTrackForSpace, type TrackFields } from "@/lib/tracking/resolve";
-import { analisarDados, type Linha, type ResultadoAnalise } from "@/lib/analyze/analyze";
+import { enqueueAnalyze } from "@/lib/jobs/boss";
 import { parseCsv, decodeBytesToText } from "@/lib/analyze/core";
-import { interpretarArquivos, type ArquivoIn } from "@/lib/analyze/files";
+import type { Linha } from "@/lib/analyze/analyze";
+import type { AnalyzeParams } from "@/lib/analyze/run-job";
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // a análise (map-reduce / visão) pode demorar
+export const maxDuration = 60; // o trabalho pesado vai para o worker; aqui só enfileira
 
 const MAX_LINHAS = 50_000;
+const MAX_ARQUIVOS_B64 = 25_000_000; // ~18 MB de arquivos por lote (cabem no params)
 
 const identidadeSchema = z
   .object({
@@ -29,6 +30,7 @@ const bodySchema = z.object({
   seq: z.number().int().min(0).optional(),
   total: z.number().int().min(1).max(100_000).optional(),
   final: z.boolean().optional(),
+  aguardar: z.boolean().optional(),
   columns: z.array(z.string()).max(500).optional(),
   rows: z.array(z.unknown()).max(MAX_LINHAS).optional(),
   csv: z.string().max(16_000_000).optional(),
@@ -47,6 +49,29 @@ const bodySchema = z.object({
 });
 type Body = z.infer<typeof bodySchema>;
 type Db = ReturnType<typeof createAdminClient>;
+
+// GET /api/v1/analyze?space=slug&batchId=... (ou ?jobId=...) — poll do resultado.
+export async function GET(req: NextRequest) {
+  const auth = await authorize(req, "data.analyze");
+  if ("error" in auth) return auth.error;
+  const u = new URL(req.url);
+  const jobId = u.searchParams.get("jobId");
+  const space = u.searchParams.get("space");
+  const batchId = u.searchParams.get("batchId");
+  const db = createAdminClient();
+  let job;
+  if (jobId) {
+    ({ data: job } = await db.from("analysis_jobs").select("*").eq("id", jobId).maybeSingle());
+  } else if (space && batchId) {
+    const { data: sp } = await db.from("spaces").select("id").eq("slug", space).maybeSingle();
+    if (!sp) return apiJson({ error: "Espaço não encontrado." }, 404);
+    ({ data: job } = await db.from("analysis_jobs").select("*").eq("space_id", sp.id).eq("batch_id", batchId).maybeSingle());
+  } else {
+    return apiJson({ error: "Informe jobId, ou space + batchId." }, 400);
+  }
+  if (!job) return apiJson({ error: "Lote não encontrado." }, 404);
+  return apiJson(statusPayload(job), 200);
+}
 
 export async function POST(req: NextRequest) {
   const auth = await authorize(req, "data.analyze");
@@ -71,12 +96,11 @@ export async function POST(req: NextRequest) {
     .eq("batch_id", body.batchId)
     .maybeSingle();
 
-  if (existente?.status === "concluido" && existente.result) {
-    return responder(db, spaceId, body, existente.result as unknown as ResultadoAnalise, existente.destino);
+  // Já concluído/na fila → idempotente: devolve o status atual (sem reenfileirar).
+  if (existente && existente.status !== "coletando") {
+    return apiJson(statusPayload(existente), 200);
   }
 
-  // Linhas do chunk — de `rows` OU do CSV (texto/base64). Com cabeçalho, as
-  // colunas saem da 1ª linha do 1º chunk.
   const jaTemColunas = !!(existente?.columns ?? body.columns);
   let extraido: { rows: Linha[]; columns?: string[] };
   try {
@@ -113,7 +137,6 @@ export async function POST(req: NextRequest) {
     job = { ...job, ...patch } as typeof job;
   }
 
-  // Grava o chunk (idempotente por seq).
   const seq = body.seq ?? job.received_chunks;
   if (extraido.rows.length) {
     const { error } = await db
@@ -122,9 +145,10 @@ export async function POST(req: NextRequest) {
     if (error) return apiJson({ error: "Falha ao gravar o chunk." }, 500);
   }
 
-  const { data: chunks } = await db.from("analysis_chunks").select("seq, rows").eq("job_id", job.id).order("seq");
+  const { data: chunks } = await db.from("analysis_chunks").select("seq").eq("job_id", job.id);
   const receivedChunks = chunks?.length ?? 0;
-  const receivedRows = (chunks ?? []).reduce((a, c) => a + ((c.rows as unknown[])?.length ?? 0), 0);
+  // Recontagem de linhas: uma agregação leve (evita puxar as linhas de novo).
+  const { count: receivedRows } = await contarLinhas(db, job.id);
   if (receivedRows > MAX_LINHAS) {
     await db.from("analysis_jobs").update({ status: "erro", error: "Excedeu o teto de linhas." }).eq("id", job.id);
     return apiJson({ error: `Lote excede o teto de ${MAX_LINHAS} linhas.` }, 413);
@@ -134,107 +158,89 @@ export async function POST(req: NextRequest) {
     .update({ received_chunks: receivedChunks, received_rows: receivedRows, updated_at: new Date().toISOString() })
     .eq("id", job.id);
 
-  // Só é final se pediram (final/total) E há algo para analisar (linhas OU arquivos).
-  const temArquivos = !!body.arquivos?.length;
   const querFechar = body.final === true || (job.total_chunks != null && receivedChunks >= job.total_chunks);
   if (!querFechar) {
-    return apiJson({ ok: true, batchId: body.batchId, recebidos_chunks: receivedChunks, recebidos_linhas: receivedRows, final: false });
+    return apiJson({ ok: true, batchId: body.batchId, jobId: job.id, recebidos_chunks: receivedChunks, recebidos_linhas: receivedRows, final: false }, 200);
   }
 
-  // FINAL → monta 100% e analisa.
-  await db.from("analysis_jobs").update({ status: "analisando" }).eq("id", job.id);
-  const linhas: Linha[] = (chunks ?? []).flatMap((c) => (c.rows as Linha[]) ?? []);
-  const colunas: string[] = (job.columns as string[] | null) ?? body.columns ?? gerarColunas(linhas);
-  if (!linhas.length && !temArquivos) {
-    await db.from("analysis_jobs").update({ status: "erro", error: "Sem dados nem arquivos para analisar." }).eq("id", job.id);
+  // FINAL → valida, guarda a config e ENFILEIRA (o worker analisa).
+  const temArquivos = !!body.arquivos?.length;
+  if (!receivedRows && !temArquivos) {
+    await db.from("analysis_jobs").update({ status: "erro", error: "Sem dados nem arquivos." }).eq("id", job.id);
     return apiJson({ error: "Nada para analisar: envie linhas (rows/csv) e/ou arquivos." }, 400);
   }
+  if (temArquivos && (body.arquivos ?? []).reduce((a, f) => a + f.base64.length, 0) > MAX_ARQUIVOS_B64) {
+    return apiJson({ error: "Arquivos grandes demais para a análise em lote (some > ~18 MB)." }, 413);
+  }
 
-  const arq = temArquivos ? await interpretarArquivos(body.arquivos as ArquivoIn[]) : null;
-  let resultado: ResultadoAnalise;
+  // Gate de sessão: chat exige identidade; sem ela, cai para api-only.
+  let destinoFinal = (body.destino ?? job.destino ?? "api") as "api" | "chat" | "ambos";
+  let aviso: string | undefined;
+  if ((destinoFinal === "chat" || destinoFinal === "ambos") && !(body.track || body.identidade)) {
+    aviso = "Sem dados de sessão (track/identidade): a análise NÃO irá ao chat; consulte pelo poll/GET.";
+    destinoFinal = "api";
+  }
+
+  const params: AnalyzeParams = {
+    persona: body.persona ?? null,
+    llm: body.llm ?? null,
+    track: body.track ?? null,
+    identidade: body.identidade ?? null,
+    sessionId: body.sessionId ?? null,
+    conversationId: body.conversationId ?? null,
+    arquivos: body.arquivos ?? null,
+  };
+  await db
+    .from("analysis_jobs")
+    .update({ status: "na_fila", destino: destinoFinal, instrucao: body.instrucao ?? job.instrucao, params: params as never, updated_at: new Date().toISOString() })
+    .eq("id", job.id);
+
   try {
-    resultado = await analisarDados({
-      colunas,
-      linhas,
-      instrucao: body.instrucao ?? (job.instrucao as string | null) ?? undefined,
-      persona: body.persona,
-      contextoArquivos: arq?.texto,
-      imageParts: arq?.imageParts,
-      fileParts: arq?.fileParts,
-      llm: body.llm,
-      meta: { kind: "system" },
-    });
+    await enqueueAnalyze(job.id);
   } catch (e) {
-    await db.from("analysis_jobs").update({ status: "erro", error: (e as Error).message }).eq("id", job.id);
-    return apiJson({ error: "Falha na análise.", detalhe: (e as Error).message }, 500);
+    await db.from("analysis_jobs").update({ status: "erro", error: "Falha ao enfileirar: " + (e as Error).message }).eq("id", job.id);
+    return apiJson({ error: "Não foi possível enfileirar a análise (worker/fila indisponível)." }, 503);
   }
-  if (arq?.metas.length) resultado = { ...resultado, meta: { ...resultado.meta, ...({ arquivos: arq.metas } as object) } };
 
-  await db.from("analysis_jobs").update({ status: "concluido", result: resultado as never }).eq("id", job.id);
-  await db.from("analysis_chunks").delete().eq("job_id", job.id);
-  return responder(db, spaceId, body, resultado, body.destino ?? job.destino);
+  // Conveniência: aguarda um pouco pelo resultado (jobs pequenos). Cap curto para
+  // não segurar a camada web; jobs grandes retornam o jobId para poll.
+  if (body.aguardar) {
+    const pronto = await esperarJob(db, job.id, 15_000);
+    if (pronto) return apiJson(statusPayload(pronto), 200);
+  }
+  return apiJson({ ok: true, batchId: body.batchId, jobId: job.id, status: "na_fila", final: true, ...(aviso ? { aviso } : {}) }, 202);
 }
 
-/** Monta a resposta conforme o destino. Chat EXIGE dados de sessão — sem eles,
- *  cai para "api" (só Response). */
-async function responder(db: Db, spaceId: string, body: Body, result: ResultadoAnalise, destinoJob: string) {
-  let destino = (body.destino ?? destinoJob ?? "api") as "api" | "chat" | "ambos";
-  const corpo: Record<string, unknown> = { ok: true, batchId: body.batchId, final: true };
-  if (destino === "chat" || destino === "ambos") {
-    const { track, temSessao } = await resolverIdentidade(spaceId, body);
-    if (!temSessao) {
-      corpo.aviso = "Sem dados de sessão (track/identidade): a análise NÃO foi enviada ao chat; retornada só via API.";
-      destino = "api";
-    } else {
-      const convId = await postarNoChat(db, spaceId, body, track, result);
-      if (convId) corpo.conversationId = convId;
-    }
-  }
-  corpo.destino = destino;
-  if (destino === "api" || destino === "ambos") {
-    corpo.analise = result.analise;
-    corpo.resumo = result.resumo;
-    corpo.meta = result.meta;
-  }
-  return apiJson(corpo, 200);
+// ————————————————————————————————————————————————————————————————
+
+type Job = { id: string; batch_id: string; status: string; result: unknown; error: string | null };
+
+/** Payload de status/resultado devolvido no POST idempotente e no GET/poll. */
+function statusPayload(job: Job): Record<string, unknown> {
+  const base: Record<string, unknown> = { ok: true, batchId: job.batch_id, jobId: job.id, status: job.status };
+  if (job.status === "concluido" && job.result) Object.assign(base, job.result as object, { final: true });
+  if (job.status === "erro") base.erro = job.error ?? "Falha na análise.";
+  return base;
 }
 
-/** Identidade da sessão: token `track` cifrado E/OU campos crus (empresa, etc.). */
-async function resolverIdentidade(spaceId: string, body: Body): Promise<{ track: TrackFields; temSessao: boolean }> {
-  const doToken = (await decodeTrackForSpace(spaceId, body.track).catch(() => ({}))) as TrackFields;
-  const crus: TrackFields = {};
-  const id = body.identidade;
-  if (id) {
-    if (id.empresa != null) crus.p_empresa = String(id.empresa);
-    if (id.matricula != null) crus.p_matricula = String(id.matricula);
-    if (id.usuario != null) crus.p_usuario = String(id.usuario);
-    if (id.perfil != null) crus.p_perfil = String(id.perfil);
-    if (id.portal != null) crus.p_portal = String(id.portal);
+/** Long-poll interno (aguardar): checa o status do job até `ms` ou concluir. */
+async function esperarJob(db: Db, jobId: string, ms: number): Promise<Job | null> {
+  const ate = Date.now() + ms;
+  while (Date.now() < ate) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const { data } = await db.from("analysis_jobs").select("id, batch_id, status, result, error").eq("id", jobId).maybeSingle();
+    if (data && (data.status === "concluido" || data.status === "erro")) return data as Job;
   }
-  const track = { ...doToken, ...crus };
-  return { track, temSessao: Object.keys(track).length > 0 };
+  return null;
 }
 
-/** Posta a análise na conversa (aparece no chat do widget via histórico). */
-async function postarNoChat(db: Db, spaceId: string, body: Body, track: TrackFields, result: ResultadoAnalise): Promise<string | null> {
-  let convId = body.conversationId ?? null;
-  if (!convId) {
-    const { data: conv } = await db
-      .from("conversations")
-      .insert({ space_id: spaceId, session_id: body.sessionId ?? null, ...track })
-      .select("id")
-      .single();
-    convId = conv?.id ?? null;
-  }
-  if (!convId) return null;
-  const pergunta = (body.instrucao?.trim() || "Análise dos dados enviados") + ` (${result.meta.linhas} registros)`;
-  await db.from("messages").insert({ conversation_id: convId, role: "user", content: pergunta });
-  await db.from("messages").insert({ conversation_id: convId, role: "assistant", content: result.analise });
-  return convId;
+/** Conta as linhas recebidas somando o tamanho dos arrays `rows` dos chunks. */
+async function contarLinhas(db: Db, jobId: string): Promise<{ count: number }> {
+  const { data } = await db.from("analysis_chunks").select("rows").eq("job_id", jobId);
+  const count = (data ?? []).reduce((a, c) => a + ((c.rows as unknown[])?.length ?? 0), 0);
+  return { count };
 }
 
-/** Linhas do chunk: `rows` OU `csv`/`csvBase64`. Com cabeçalho, a 1ª linha vira
- *  as colunas — só no 1º chunk. */
 function extrairDados(body: Body, jaTemColunas: boolean): { rows: Linha[]; columns?: string[] } {
   const csvText =
     body.csvBase64 != null
@@ -251,24 +257,13 @@ function extrairDados(body: Body, jaTemColunas: boolean): { rows: Linha[]; colum
   return { rows: (body.rows ?? []) as Linha[] };
 }
 
-function gerarColunas(linhas: Linha[]): string[] {
-  const primeira = linhas[0];
-  if (primeira && !Array.isArray(primeira) && typeof primeira === "object") return Object.keys(primeira);
-  const n = Array.isArray(primeira) ? primeira.length : 0;
-  return Array.from({ length: n }, (_, i) => `col${i + 1}`);
-}
-
-/** Lê a requisição em 3 formatos: JSON (completo), text/csv (corpo = CSV) e
- *  multipart/form-data (arquivos + params na query). */
 async function lerRequisicao(req: NextRequest): Promise<Body> {
   const ct = req.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    return bodySchema.parse(await req.json());
-  }
+  if (ct.includes("application/json")) return bodySchema.parse(await req.json());
   const base = paramsDaQuery(new URL(req.url).searchParams);
   if (ct.includes("multipart/form-data")) {
     const form = await req.formData();
-    const arquivos: ArquivoIn[] = [];
+    const arquivos: Body["arquivos"] = [];
     let csv: string | undefined;
     for (const [k, v] of form.entries()) {
       if (typeof v === "string") {
@@ -280,15 +275,13 @@ async function lerRequisicao(req: NextRequest): Promise<Body> {
       const nome = v.name || k;
       const ehTabela = k === "data" || k === "csv" || (k === "file" && /\.(csv|tsv|txt)$/i.test(nome) && csv == null);
       if (ehTabela) csv = decodeBytesToText(bytes);
-      else arquivos.push({ nome, mime: v.type, base64: Buffer.from(bytes).toString("base64") });
+      else arquivos!.push({ nome, mime: v.type, base64: Buffer.from(bytes).toString("base64") });
     }
-    return bodySchema.parse({ ...base, ...(csv != null ? { csv } : {}), ...(arquivos.length ? { arquivos } : {}) });
+    return bodySchema.parse({ ...base, ...(csv != null ? { csv } : {}), ...(arquivos!.length ? { arquivos } : {}) });
   }
-  // text/csv, text/plain, etc. → o corpo é a tabela CSV.
   return bodySchema.parse({ ...base, csv: await req.text() });
 }
 
-/** Params dos modos crus (text/csv e multipart) via query string. */
 function paramsDaQuery(q: URLSearchParams): Record<string, unknown> {
   const p: Record<string, unknown> = {};
   const g = (k: string) => q.get(k) ?? undefined;
@@ -299,6 +292,7 @@ function paramsDaQuery(q: URLSearchParams): Record<string, unknown> {
   if (g("seq") != null) p.seq = Number(g("seq"));
   if (g("total") != null) p.total = Number(g("total"));
   if (g("final") != null) p.final = g("final") === "true" || g("final") === "1";
+  if (g("aguardar") != null) p.aguardar = g("aguardar") === "true" || g("aguardar") === "1";
   if (g("hasHeader") != null) p.hasHeader = !(g("hasHeader") === "false" || g("hasHeader") === "0");
   if (g("provider") != null || g("model") != null) p.llm = { provider: g("provider"), model: g("model") };
   const id: Record<string, string> = {};

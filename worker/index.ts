@@ -20,6 +20,7 @@ import { performBackup, performRestore, deleteBackupObjects, packBackup, unpackB
 import { pushToGithub, listGithubBackups, downloadGithubFile } from "../src/lib/backup/github";
 import { tryDecryptSecret } from "../src/lib/crypto/secrets";
 import { extractDocument } from "../src/lib/importer/extract";
+import { processAnalyzeJob } from "../src/lib/analyze/run-job";
 import {
   heuristicTree,
   refineStructureWithLLM,
@@ -1154,6 +1155,19 @@ async function main() {
     } catch (e) {
       console.error("Limpeza de ai_tool_runs falhou:", e instanceof Error ? e.message : e);
     }
+    // Lotes de análise antigos (concluídos/erro há > 2 dias) — dados efêmeros.
+    try {
+      const limite = new Date(Date.now() - 2 * 86400_000).toISOString();
+      const { data } = await supabase
+        .from("analysis_jobs")
+        .delete()
+        .lt("updated_at", limite)
+        .in("status", ["concluido", "erro"])
+        .select("id");
+      if (data?.length) console.log(`Análises: ${data.length} lote(s) antigos removidos.`);
+    } catch (e) {
+      console.error("Limpeza de analysis_jobs falhou:", e instanceof Error ? e.message : e);
+    }
   });
 
   await boss.work("embeddings-generate", async (jobs) => {
@@ -1242,6 +1256,22 @@ async function main() {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Lote ${jobId} falhou:`, msg);
         await supabase.from("bulk_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  // Análise de dados em lote (map-reduce/OCR) — tira o pesado da camada web.
+  // batchSize 2: processa até 2 lotes por vez neste worker (escale com réplicas).
+  await boss.work("analyze", { batchSize: 2 }, async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Análise em lote (job ${jobId})`);
+      try {
+        await processAnalyzeJob(jobId);
+        console.log(`Análise ${jobId} concluída`);
+      } catch (e) {
+        console.error(`Análise ${jobId} falhou:`, e instanceof Error ? e.message : String(e));
+        throw e; // deixa o pg-boss reprocessar (retryLimit no enqueue)
       }
     }
   });

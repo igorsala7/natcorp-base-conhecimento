@@ -23,6 +23,7 @@ export type Database = {
           error: string | null
           id: string
           instrucao: string | null
+          params: Json | null
           received_chunks: number
           received_rows: number
           result: Json | null
@@ -39,6 +40,7 @@ export type Database = {
           error?: string | null
           id?: string
           instrucao?: string | null
+          params?: Json | null
           received_chunks?: number
           received_rows?: number
           result?: Json | null
@@ -55,6 +57,7 @@ export type Database = {
           error?: string | null
           id?: string
           instrucao?: string | null
+          params?: Json | null
           received_chunks?: number
           received_rows?: number
           result?: Json | null
