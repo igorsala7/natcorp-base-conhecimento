@@ -393,6 +393,7 @@ curl -H "Authorization: Bearer sk_live_..." "$HOST/api/v1/analyze?jobId=5b1e..."
           <li><code>POST /api/v1/search</code> (alias <code>/api/docs</code>) — busca híbrida na documentação. Chave <code>pk_</code>.</li>
           <li><code>POST /api/v1/attach</code> — anexa um documento ao chat (multipart <code>file</code>); devolve o <code>attachment.id</code> para o chat.</li>
           <li><code>/api/manage/v1/…</code> — CRUD/publicação de conteúdo. Chave <code>sk_</code> com escopos <code>content.*</code>.</li>
+          <li><code>GET /api/metrics</code> — observabilidade (chave <code>sk_</code> + <code>data.analyze</code>): profundidade das filas, concorrência (leases ativos), taxa de uso de IA (1min/5min), disjuntores e backend de cache.</li>
         </ul>
       </Secao>
 

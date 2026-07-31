@@ -40,6 +40,31 @@ export async function enqueueImport(jobId: string): Promise<void> {
   await boss.send("import", { jobId });
 }
 
+/** Tamanho (pendentes) das filas operacionais — para /api/metrics. */
+const FILAS_METRICAS = [
+  "analyze",
+  "node-embedding",
+  "embeddings-generate",
+  "bulk-process",
+  "ontology-scan",
+  "import",
+  "capture",
+] as const;
+export async function filaMetrics(): Promise<Record<string, number>> {
+  const boss = await getBoss();
+  const out: Record<string, number> = {};
+  await Promise.all(
+    FILAS_METRICAS.map(async (q) => {
+      try {
+        out[q] = await boss.getQueueSize(q);
+      } catch {
+        out[q] = -1; // fila indisponível/não criada
+      }
+    }),
+  );
+  return out;
+}
+
 /**
  * Melhoria de layout pós-importação: a IA reformata cada artigo criado.
  * Os ids vão no payload — o job de importação já está 'done' para a árvore,

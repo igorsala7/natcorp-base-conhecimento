@@ -14,6 +14,12 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_leases: {
+        Row: { id: string; tenant: string; expires_at: string }
+        Insert: { id?: string; tenant: string; expires_at: string }
+        Update: { id?: string; tenant?: string; expires_at?: string }
+        Relationships: []
+      }
       tenant_limits: {
         Row: {
           tenant: string
@@ -3523,6 +3529,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ai_usage_window: { Args: { p_seconds: number }; Returns: Json }
       ai_slot_acquire: { Args: { p_tenant: string; p_max: number; p_ttl_seconds: number }; Returns: string | null }
       ai_slot_release: { Args: { p_id: string }; Returns: undefined }
       ai_daily_tokens: { Args: { p_tenant: string }; Returns: number }
