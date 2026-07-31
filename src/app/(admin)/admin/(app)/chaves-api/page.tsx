@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { hasPermission } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { ApiKeysManager } from "./api-keys-manager";
+import { ApiDocs } from "./api-docs";
 
 export const metadata: Metadata = { title: "Chaves de API" };
 
@@ -31,10 +32,12 @@ export default async function ChavesApiPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Chaves de API</h1>
       <p className="mt-1 max-w-2xl text-sm leading-relaxed text-text-muted">
         Chaves secretas (<code>sk_live_…</code>) para integrar sistemas externos via{" "}
-        <code>/api/manage/v1/…</code> (Bearer). Os escopos são as permissões que a chave concede
-        (ler, criar, editar, publicar conteúdo). O segredo é mostrado só na criação.
+        <code>/api/manage/v1/…</code> (conteúdo) e das APIs de <b>análise de dados</b> e{" "}
+        <b>leitura de documentos (OCR)</b> — <code>/api/v1/analyze</code> e <code>/api/v1/extract</code> (escopo{" "}
+        <code>data.analyze</code>). Os escopos são as permissões que a chave concede. O segredo é mostrado só na criação.
       </p>
       <ApiKeysManager keys={data ?? []} />
+      <ApiDocs />
     </div>
   );
 }
