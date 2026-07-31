@@ -182,8 +182,14 @@ export function formAssistDirective(): string {
     "ferramenta coletar_relatorio (UMA vez) ANTES de gerar qualquer arquivo/gráfico. O sistema percorre TODAS as páginas e " +
     "devolve o conjunto completo em \"DADOS COMPLETOS DO RELATÓRIO\"; só então faça a análise/CSV/Excel/Word/PPT/gráfico com " +
     "esses dados. É ERRADO analisar/exportar só a 1ª página de um relatório paginado. NUNCA pagine clicando \"Próximo\" você " +
-    "mesmo. Exceção: o usuário disse explicitamente \"só a página atual\"/\"só o que está na tela\". Se \"DADOS COMPLETOS DO " +
-    "RELATÓRIO\" já estiver no contexto (ou o relatório vier como COLETA COMPLETA), NÃO chame coletar_relatorio de novo.\n" +
+    "mesmo. Exceção: o usuário disse explicitamente \"só a página atual\"/\"só o que está na tela\".\n" +
+    "DADOS SEMPRE ATUAIS (evita usar resultado antigo): os dados da tela refletem a pesquisa/filtro ATUAL, que PODE ter " +
+    "mudado desde a última mensagem. A cada NOVO pedido do usuário, trabalhe SOMENTE com os dados ATUAIS da tela; NUNCA " +
+    "reutilize dados, tabelas ou análises de mensagens ANTERIORES da conversa. Para um novo pedido de análise/exportação " +
+    "de um relatório paginado, RE-COLETE com coletar_relatorio MESMO que você já tenha coletado numa mensagem anterior — a " +
+    "coleta anterior pode estar desatualizada. A ressalva \"não coletar de novo\" vale APENAS dentro do MESMO pedido, ou " +
+    "seja, quando \"DADOS COMPLETOS DO RELATÓRIO\" já aparece no contexto AGORA (ou o relatório vem como COLETA COMPLETA " +
+    "nesta mesma mensagem).\n" +
     "MENU \"AÇÕES\" DO APEX (Interactive Report/Grid): clique no botão \"Ações\" para abrir o menu; os itens são \"Selecionar " +
     "Colunas\", \"Filtro\", \"Linhas Por Página\", \"Formato\", \"Flashback\", \"Salvar Relatório\", \"Redefinir\", \"Fazer " +
     "Download\". Vários vivem DENTRO de submenus: \"Destacar\", \"Classificar\", \"Quebra de Controle\", \"Calcular\", " +
@@ -217,11 +223,13 @@ export function continuationNote(executed: string[]): string {
 export function harvestDoneNote(): string {
   return (
     "COLETA CONCLUÍDA (isto NÃO é uma nova pergunta, e NÃO é operação de tela): os dados COMPLETOS do relatório — TODAS " +
-    "as páginas — já foram coletados e estão em \"DADOS COMPLETOS DO RELATÓRIO\" no contexto. AGORA execute NESTE passo o " +
-    "que o usuário pediu (análise, PDF, Excel, Word, PPT, gráfico) usando ESSES dados. Para o ARQUIVO, chame " +
-    "gerar_relatorio com o bloco de tabela { tipo: \"tabela\", tabela: { dados_de: \"<o id em DADOS COMPLETOS DO " +
-    "RELATÓRIO>\" } } — NÃO redigite as linhas e NÃO despeje os dados no texto. Para a ANÁLISE, escreva um texto curto e " +
-    "objetivo (destaques, maiores diferenças etc.). NÃO chame coletar_relatorio de novo. Faça tudo agora, num único passo."
+    "as páginas — já foram coletados e estão em \"DADOS COMPLETOS DO RELATÓRIO\" no contexto, com um id [dados_de=\"telaN\"]. " +
+    "O usuário pediu um ARQUIVO (PDF/Excel/Word/PPT) e/ou análise. VOCÊ DEVE, NESTE MESMO passo, CHAMAR a ferramenta " +
+    "gerar_relatorio — com `formato` = o pedido (pdf/xlsx/docx/pptx/csv) e os blocos: um `texto` CURTO com a análise " +
+    "(destaques, maiores diferenças) e um `tabela` = { tipo: \"tabela\", tabela: { dados_de: \"<o id acima>\" } }. É " +
+    "OBRIGATÓRIO chamar gerar_relatorio: responder só com a análise em texto NÃO gera o arquivo (o usuário fica sem o " +
+    "download). CHAME a ferramenta ANTES de escrever qualquer texto longo. NÃO redigite as linhas, NÃO despeje os dados no " +
+    "texto, e NÃO chame coletar_relatorio de novo. Gere o arquivo AGORA."
   );
 }
 
