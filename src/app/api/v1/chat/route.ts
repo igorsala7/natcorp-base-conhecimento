@@ -25,7 +25,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
+import { parseFields, fieldsContextBlock, formAssistDirective, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildChartAskTool, buildReportTool, visualsDirective, pedeVisualizacao, type ChartChoice } from "@/lib/chat/report-tools";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
@@ -225,14 +225,15 @@ export async function POST(req: NextRequest) {
   const querConvite = !modoTutorial && pedeConvite(question);
   const inviteSpecs: InviteSpec[] = [];
   const inviteTools = querConvite ? buildInviteTool(inviteSpecs) : {};
+  // Coleta multi-página concluída? (o widget percorreu as páginas e mandou o
+  // conjunto completo em `reportData`.) Registra como dataset + bloco de contexto.
+  const reportBloco = formAssist ? reportDataBlock(payload.reportData, datasets) : "";
   // Tabelas da tela (estruturadas) → registradas como datasets (o modelo exporta/
-  // grafica por `dados_de`, sem redigitar as linhas).
-  const { block: tablesBloco, paginado: telaPaginada } = formAssist
+  // grafica por `dados_de`, sem redigitar). Pós-coleta usamos SÓ o conjunto completo
+  // (evita o modelo pegar o dataset da página atual em vez de todas as páginas).
+  const { block: tablesBloco, paginado: telaPaginada } = formAssist && !reportBloco
     ? screenTablesBlock(payload.screenTables, datasets)
     : { block: "", paginado: false };
-  // Coleta multi-página: só quando há um relatório PAGINADO na tela e os dados
-  // completos ainda NÃO vieram (evita loop de re-coleta).
-  const reportBloco = formAssist ? reportDataBlock(payload.reportData, datasets) : "";
   const temPaginado = !modoTutorial && !reportBloco && telaPaginada;
   const harvestTools = temPaginado ? buildHarvestTool(uiActions) : {};
   const allTools = { ...integ.tools, ...formTools, ...visualTools, ...inviteTools, ...harvestTools };
@@ -353,7 +354,7 @@ export async function POST(req: NextRequest) {
     model: await chatModel({ kind: "user", ...track }, track.p_base ?? ""),
     // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o
     // padrão conservador do provedor cortar a resposta pela metade.
-    maxOutputTokens: completo ? 8192 : 4096,
+    maxOutputTokens: completo || temTools ? 8192 : 4096,
     system: composeSystemPrompt(
       {
         persona,
@@ -379,7 +380,7 @@ export async function POST(req: NextRequest) {
         scanBlock,
         tablesBloco,
         reportBloco,
-        continuation ? continuationNote(executedActions) : "",
+        continuation ? (reportBloco ? harvestDoneNote() : continuationNote(executedActions)) : "",
         fieldsContextBlock(screenFields),
         glossario
           ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
@@ -393,7 +394,9 @@ export async function POST(req: NextRequest) {
     messages: withPrefixCache(withImageParts(messages, attach.imageParts, attach.fileParts), temTools),
     // Loop agêntico: o modelo pode chamar uma API (ou preencher_campo), ler o
     // resultado e responder. `stopWhen` trava o loop.
-    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
+    // Teto de passos maior quando há geração de arquivos: o usuário pode pedir
+    // vários formatos (Word + PPT + PDF) numa tacada = uma chamada por formato.
+    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(Object.keys(visualTools).length > 0 ? 9 : 5) } : {}),
   });
 
   const stream = new ReadableStream({

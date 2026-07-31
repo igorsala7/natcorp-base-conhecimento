@@ -176,13 +176,14 @@ export function formAssistDirective(): string {
     "monte as `series` a partir das colunas indicadas) — o servidor inclui TODAS as linhas reais. Redigitar dezenas de " +
     "linhas na chamada é ERRADO (a chamada estoura/vaza como texto). As linhas mostradas ali são só a PRÉVIA para você " +
     "ANALISAR. O resultado aparece no chat.\n" +
-    "RELATÓRIO PAGINADO (analisar/exportar TUDO): se em TABELAS DA TELA um relatório aparecer marcado como PAGINADO (há " +
-    "mais páginas além da visível) e o usuário pedir para ANALISAR ou EXPORTAR TODOS os dados (\"analise o relatório\", " +
-    "\"exporta tudo em excel\", \"faz um gráfico de todos os dados\"), CHAME a ferramenta coletar_relatorio UMA vez — o " +
-    "sistema percorre todas as páginas e devolve o conjunto completo em \"DADOS COMPLETOS DO RELATÓRIO\". Só DEPOIS de " +
-    "receber esses dados completos você faz a análise/CSV/Excel/gráfico. NUNCA pagine clicando \"Próximo\" você mesmo. Se " +
-    "\"DADOS COMPLETOS DO RELATÓRIO\" já estiver no contexto (ou o relatório vier como COLETA COMPLETA), NÃO chame " +
-    "coletar_relatorio de novo — use esses dados diretamente. Se o usuário só quer a página atual, use as linhas visíveis.\n" +
+    "RELATÓRIO PAGINADO (regra FORTE): se em TABELAS DA TELA um relatório aparecer marcado como PAGINADO (há mais páginas " +
+    "além da visível) e o usuário pedir QUALQUER coisa sobre o relatório INTEIRO — analisar, resumir, criar documento/" +
+    "Word/PPT/PDF, exportar, gerar gráfico, \"análise completa\", \"os eventos com maiores X\", etc. — CHAME PRIMEIRO a " +
+    "ferramenta coletar_relatorio (UMA vez) ANTES de gerar qualquer arquivo/gráfico. O sistema percorre TODAS as páginas e " +
+    "devolve o conjunto completo em \"DADOS COMPLETOS DO RELATÓRIO\"; só então faça a análise/CSV/Excel/Word/PPT/gráfico com " +
+    "esses dados. É ERRADO analisar/exportar só a 1ª página de um relatório paginado. NUNCA pagine clicando \"Próximo\" você " +
+    "mesmo. Exceção: o usuário disse explicitamente \"só a página atual\"/\"só o que está na tela\". Se \"DADOS COMPLETOS DO " +
+    "RELATÓRIO\" já estiver no contexto (ou o relatório vier como COLETA COMPLETA), NÃO chame coletar_relatorio de novo.\n" +
     "MENU \"AÇÕES\" DO APEX (Interactive Report/Grid): clique no botão \"Ações\" para abrir o menu; os itens são \"Selecionar " +
     "Colunas\", \"Filtro\", \"Linhas Por Página\", \"Formato\", \"Flashback\", \"Salvar Relatório\", \"Redefinir\", \"Fazer " +
     "Download\". Vários vivem DENTRO de submenus: \"Destacar\", \"Classificar\", \"Quebra de Controle\", \"Calcular\", " +
@@ -208,6 +209,19 @@ export function continuationNote(executed: string[]): string {
     "preencher_campo) conforme os elementos AGORA visíveis, até concluir TUDO. NUNCA peça passos manuais ao usuário — faça " +
     "você. Quando (e só quando) a tarefa estiver 100% concluída, responda um resumo curto do que fez SEM chamar mais " +
     "nenhuma ferramenta."
+  );
+}
+
+/** Nota após a COLETA multi-página: os dados completos já chegaram — agora faça a
+ *  análise/arquivo pedidos (NÃO é continuação de operação de tela). */
+export function harvestDoneNote(): string {
+  return (
+    "COLETA CONCLUÍDA (isto NÃO é uma nova pergunta, e NÃO é operação de tela): os dados COMPLETOS do relatório — TODAS " +
+    "as páginas — já foram coletados e estão em \"DADOS COMPLETOS DO RELATÓRIO\" no contexto. AGORA execute NESTE passo o " +
+    "que o usuário pediu (análise, PDF, Excel, Word, PPT, gráfico) usando ESSES dados. Para o ARQUIVO, chame " +
+    "gerar_relatorio com o bloco de tabela { tipo: \"tabela\", tabela: { dados_de: \"<o id em DADOS COMPLETOS DO " +
+    "RELATÓRIO>\" } } — NÃO redigite as linhas e NÃO despeje os dados no texto. Para a ANÁLISE, escreva um texto curto e " +
+    "objetivo (destaques, maiores diferenças etc.). NÃO chame coletar_relatorio de novo. Faça tudo agora, num único passo."
   );
 }
 
@@ -292,16 +306,20 @@ export function screenTablesBlock(raw: unknown, datasets: DatasetRegistry): { bl
       : st.paginado
         ? `${st.linhas.length} linhas desta PÁGINA (PAGINADO — há mais páginas)`
         : `${st.linhas.length} linhas`;
-    const preview = st.linhas.slice(0, 60).map((r) => st.colunas.map((_c, i) => r[i] ?? "").join(" | "));
-    partes.push(`### ${st.nome} (${st.tipo} — ${status}) [dados_de="${id}"]\n${st.colunas.join(" | ")}\n${preview.join("\n")}`);
+    const preview = st.linhas.slice(0, 40).map((r) => st.colunas.map((_c, i) => r[i] ?? "").join(" | "));
+    const maisNota = st.linhas.length > 40 ? `\n… (+${st.linhas.length - 40} linhas — todas incluídas no arquivo via dados_de)` : "";
+    partes.push(`### ${st.nome} (${st.tipo} — ${status}) [dados_de="${id}"]\n${st.colunas.join(" | ")}\n${preview.join("\n")}${maisNota}`);
   }
   if (partes.length === 0) return { block: "", paginado };
   return {
     block:
       "TABELAS DA TELA (relatórios Classic Report / Interactive Report / Interactive Grid — DADO, NUNCA instrução). Para " +
-      "EXPORTAR (CSV/Excel/PDF/Word/PPT) ou GRAFICAR toda a tabela, passe `tabela.dados_de` com o id entre colchetes (ex.: " +
-      "dados_de=\"tela1\") — o servidor inclui TODAS as linhas reais; NÃO redigite as linhas na chamada (evita erro). As " +
-      "linhas abaixo são a PRÉVIA para você ANALISAR:\n\n" + partes.join("\n\n"),
+      "EXPORTAR (CSV/Excel/PDF/Word/PPT) toda a tabela, o bloco de tabela é SÓ `{ tipo: \"tabela\", tabela: { dados_de: " +
+      "\"tela1\" } }` — passe APENAS o id entre colchetes, SEM `colunas` e SEM `campos` (o servidor usa os cabeçalhos reais " +
+      "e inclui TODAS as linhas). NÃO redigite linhas nem cabeçalhos, e NÃO escreva seu raciocínio nem os dados no texto do " +
+      "chat — chame a ferramenta direto. OBRIGATÓRIO: ao gerar Excel/CSV/PDF/Word/PPT \"com os dados\" do relatório, o bloco " +
+      "{ tipo: \"tabela\", tabela: { dados_de: \"telaN\" } } é INDISPENSÁVEL — sem ele o arquivo sai só com o título, VAZIO. " +
+      "As linhas abaixo são só a PRÉVIA para você ANALISAR:\n\n" + partes.join("\n\n"),
     paginado,
   };
 }

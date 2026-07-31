@@ -28,6 +28,7 @@ export type HistoryMedia =
 export type HistoryMessage = {
   role: "user" | "assistant";
   content: string;
+  createdAt?: string;
   citations?: HistoryCitation[];
   feedback?: 1 | -1;
   attachments?: HistoryAttachment[];
@@ -81,6 +82,7 @@ export async function fetchLatestHistory(
     messages.push({
       role: m.role as "user" | "assistant",
       content: m.content,
+      ...(m.created_at ? { createdAt: m.created_at } : {}),
       ...(cites && cites.length ? { citations: cites } : {}),
       ...(atts && atts.length ? { attachments: atts } : {}),
       ...(media.length ? { media } : {}),

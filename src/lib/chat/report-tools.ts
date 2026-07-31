@@ -128,21 +128,24 @@ const reportInput = z.object({
         tabela: z
           .object({
             titulo: z.string().optional().describe("Título da tabela (opcional)."),
-            colunas: z.array(z.string()).describe("Cabeçalhos das colunas."),
+            colunas: z
+              .array(z.string())
+              .optional()
+              .describe("Cabeçalhos das colunas — SÓ para tabelas PEQUENAS que você digitou. Com `dados_de` (tabela da tela ou de ferramenta), NÃO preencha: o servidor usa os cabeçalhos reais."),
             linhas: z
               .array(z.array(z.string()))
               .optional()
-              .describe("Linhas digitadas (só para tabelas PEQUENAS montadas por você). Para dados de uma ferramenta, use `dados_de`."),
+              .describe("Linhas digitadas (só para tabelas PEQUENAS montadas por você). Para dados da tela/ferramenta, use `dados_de` e NÃO redigite."),
             dados_de: z
               .string()
               .optional()
               .describe(
-                "Id do DATASET (o campo `_dataset` que a ferramenta retornou). Quando presente, o servidor inclui TODAS as linhas reais — não redigite os dados. Use SEMPRE que o usuário pedir 'todos os dados'.",
+                "Id do DATASET a incluir por INTEIRO. Use o id de uma TABELA DA TELA (ex.: \"tela1\") ou o `_dataset` de uma ferramenta. Basta ESTE campo — NÃO precisa de `colunas` nem `campos`: o servidor inclui TODAS as linhas reais com os cabeçalhos certos. É a forma correta de exportar uma tabela da tela.",
               ),
             campos: z
               .array(z.string())
               .optional()
-              .describe("Chave de cada coluna na linha do dataset (nomes de `_colunas`), na MESMA ordem de `colunas`. Só com `dados_de`."),
+              .describe("Opcional e RARO: só para escolher/reordenar colunas de um dataset. Para exportar a tabela inteira, deixe vazio (passe apenas `dados_de`)."),
           })
           .optional()
           .describe("Tabela — use quando tipo='tabela'. PREFIRA tabelas para dados estruturados."),
@@ -163,10 +166,10 @@ export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry):
         "DOCUMENTAÇÃO (ex.: um passo a passo/guia que você montou a partir dos artigos). Use SEMPRE que o usuário pedir o " +
         "resultado 'em PDF/Excel/CSV/Word/PowerPoint', uma planilha, um relatório, um documento ou uma apresentação. " +
         "Estruture em blocos, na ordem: 'texto' para introdução/observações, 'tabela' para os DADOS (prefira tabelas; em " +
-        "xlsx/csv cada tabela vira uma planilha/bloco) e 'grafico' para uma visão visual opcional. Para incluir TODOS os " +
-        "dados de uma consulta, NÃO redigite as linhas: passe `tabela.dados_de` com o id `_dataset` que a ferramenta " +
-        "retornou (+ `colunas` e `campos`) — o servidor inclui todas as linhas reais. Não invente dados. O arquivo é " +
-        "entregue como download no chat — não repita a tabela inteira no texto.",
+        "xlsx/csv cada tabela vira uma planilha/bloco) e 'grafico' para uma visão visual opcional. Para incluir uma tabela " +
+        "da TELA ou de ferramenta, NÃO redigite as linhas nem os cabeçalhos: passe SÓ `tabela.dados_de` com o id (ex.: " +
+        "\"tela1\") — o servidor inclui todas as linhas reais. Não invente dados. NÃO escreva seu raciocínio nem os dados " +
+        "no texto do chat — chame a ferramenta direto. O arquivo é entregue como download; não repita a tabela no texto.",
       inputSchema: reportInput,
       execute: async (input) => {
         let truncadoAviso = "";

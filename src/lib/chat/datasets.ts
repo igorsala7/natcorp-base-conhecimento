@@ -27,14 +27,22 @@ export function newRegistry(): DatasetRegistry {
  * `headers` (usados por `expandirTabela` quando o modelo não passa `colunas`).
  */
 export function registrarTabelaTela(reg: DatasetRegistry, colunas: string[], linhas: string[][]): { id: string; total: number } {
-  const keys = colunas.map((_c, i) => "c" + i);
+  const nomes = colunas.map((c) => String(c).trim());
+  // Indexa cada célula por DUAS chaves — o índice `cN` E o NOME da coluna — para
+  // funcionar independentemente de o modelo passar `campos` por índice ou por nome
+  // (ou não passar nada). Sem isto, `campos` por nome não casava → células vazias.
   const rows: DatasetRow[] = linhas.map((row) => {
     const o: DatasetRow = {};
-    keys.forEach((k, i) => { o[k] = row[i] ?? ""; });
+    nomes.forEach((nome, i) => {
+      const v = row[i] ?? "";
+      o["c" + i] = v;
+      if (nome && o[nome] === undefined) o[nome] = v;
+    });
     return o;
   });
   const id = "tela" + (reg.list.length + 1);
-  reg.list.push({ id, rows, colunas: keys, headers: colunas });
+  // colunas = NOMES (fallback quando o modelo não passa `campos`); headers = idem.
+  reg.list.push({ id, rows, colunas: nomes, headers: nomes });
   return { id, total: rows.length };
 }
 
@@ -116,7 +124,7 @@ export function expandirTabela(
 ): TabelaExpandida | null {
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
-  const keys = campos && campos.length ? campos : ds.colunas;
+  const keys = campos && campos.length ? campos.map((k) => String(k).trim()) : ds.colunas;
   if (keys.length === 0) return null;
   const headers =
     colunas && colunas.length === keys.length
