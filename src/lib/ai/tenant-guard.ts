@@ -1,16 +1,13 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getInfra } from "@/lib/settings/infra";
 
 /**
  * Multi-tenant (B): SEMÁFORO de concorrência + COTA de tokens por base.
  * Fair-share entre os clientes e teto de custo, DISTRIBUÍDO (estado no Postgres —
  * funciona com N réplicas web/worker). O tenant é `p_base` (a base do cliente) ou
- * `sp:<space_id>` quando não há base.
+ * `sp:<space_id>` quando não há base. Defaults vêm do BANCO (infra_settings).
  */
-
-const DEFAULT_MAX_CONC = Number(process.env.AI_MAX_CONCURRENCY_PER_BASE ?? 20);
-const DEFAULT_DAILY_CAP = process.env.AI_DAILY_TOKEN_CAP_PER_BASE ? Number(process.env.AI_DAILY_TOKEN_CAP_PER_BASE) : null;
-const LEASE_TTL = Number(process.env.AI_LEASE_TTL_SECONDS ?? 120);
 
 /** Chave do tenant: a base do cliente (p_base) ou o espaço. */
 export function tenantKey(pBase?: string | null, spaceId?: string | null): string {
@@ -25,7 +22,8 @@ const TTL_MS = 60_000;
 async function limitesDe(tenant: string): Promise<Limits> {
   const hit = cache.get(tenant);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.v;
-  let v: Limits = { maxConcurrency: DEFAULT_MAX_CONC, dailyTokenCap: DEFAULT_DAILY_CAP };
+  const inf = await getInfra(); // defaults do banco (com fallback env)
+  let v: Limits = { maxConcurrency: inf.maxConcurrency, dailyTokenCap: inf.dailyTokenCap };
   try {
     const { data } = await createAdminClient()
       .from("tenant_limits")
@@ -33,8 +31,8 @@ async function limitesDe(tenant: string): Promise<Limits> {
       .eq("tenant", tenant)
       .maybeSingle();
     v = {
-      maxConcurrency: data?.max_concurrency ?? DEFAULT_MAX_CONC,
-      dailyTokenCap: data?.daily_token_cap ?? DEFAULT_DAILY_CAP,
+      maxConcurrency: data?.max_concurrency ?? inf.maxConcurrency,
+      dailyTokenCap: data?.daily_token_cap ?? inf.dailyTokenCap,
     };
   } catch {
     /* usa os defaults */
@@ -60,11 +58,12 @@ export async function checkQuota(tenant: string): Promise<{ ok: true } | { ok: f
 /** Adquire um slot de concorrência; `null` se a base atingiu o teto. */
 export async function acquireSlot(tenant: string): Promise<string | null> {
   const { maxConcurrency } = await limitesDe(tenant);
+  const { leaseTtl } = await getInfra();
   try {
     const { data } = await createAdminClient().rpc("ai_slot_acquire", {
       p_tenant: tenant,
       p_max: maxConcurrency,
-      p_ttl_seconds: LEASE_TTL,
+      p_ttl_seconds: leaseTtl,
     });
     return (data as string | null) ?? null;
   } catch {

@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      infra_settings: {
+        Row: {
+          id: boolean
+          redis_rest_url: string | null
+          redis_rest_token_enc: string | null
+          max_concurrency_per_base: number | null
+          daily_token_cap_per_base: number | null
+          lease_ttl_seconds: number | null
+          cb_failures: number | null
+          cb_window_ms: number | null
+          cb_cooldown_ms: number | null
+          updated_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          redis_rest_url?: string | null
+          redis_rest_token_enc?: string | null
+          max_concurrency_per_base?: number | null
+          daily_token_cap_per_base?: number | null
+          lease_ttl_seconds?: number | null
+          cb_failures?: number | null
+          cb_window_ms?: number | null
+          cb_cooldown_ms?: number | null
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          redis_rest_url?: string | null
+          redis_rest_token_enc?: string | null
+          max_concurrency_per_base?: number | null
+          daily_token_cap_per_base?: number | null
+          lease_ttl_seconds?: number | null
+          cb_failures?: number | null
+          cb_window_ms?: number | null
+          cb_cooldown_ms?: number | null
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_leases: {
         Row: { id: string; tenant: string; expires_at: string }
         Insert: { id?: string; tenant: string; expires_at: string }

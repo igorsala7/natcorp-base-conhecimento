@@ -1,19 +1,16 @@
 import "server-only";
+import { getInfraSync } from "@/lib/settings/infra";
 
 /**
  * Disjuntor (circuit breaker) por provedor+modelo. Quando o provedor de LLM
  * começa a falhar em série (429/5xx/timeout/rede), ABRE o circuito por um
  * cooldown e as chamadas falham RÁPIDO — em vez de martelar o provedor e
  * segurar réplicas web esperando. Estado em memória por instância (cada réplica
- * se protege). Complementa o retry nativo do SDK.
+ * se protege). Limites do BANCO (infra_settings) via snapshot sync.
  */
 
 type Estado = { falhas: number[]; abertoAte: number };
 const estados = new Map<string, Estado>();
-
-const LIMITE = Number(process.env.AI_CB_FAILURES ?? 5); // falhas na janela p/ abrir
-const JANELA_MS = Number(process.env.AI_CB_WINDOW_MS ?? 30_000);
-const COOLDOWN_MS = Number(process.env.AI_CB_COOLDOWN_MS ?? 20_000);
 
 export class CircuitOpenError extends Error {
   constructor(provider: string) {
@@ -55,23 +52,25 @@ export function ehFalhaDeProvedor(err: unknown): boolean {
 
 export function registrarFalha(key: string, err: unknown): void {
   if (!ehFalhaDeProvedor(err)) return;
+  const { cbFailures, cbWindowMs, cbCooldownMs } = getInfraSync();
   const e = est(key);
   const agora = Date.now();
-  e.falhas = e.falhas.filter((t) => agora - t < JANELA_MS);
+  e.falhas = e.falhas.filter((t) => agora - t < cbWindowMs);
   e.falhas.push(agora);
-  if (e.falhas.length >= LIMITE) {
-    e.abertoAte = agora + COOLDOWN_MS;
+  if (e.falhas.length >= cbFailures) {
+    e.abertoAte = agora + cbCooldownMs;
     e.falhas = [];
-    console.error(`[circuit] ABERTO para ${key} por ${COOLDOWN_MS}ms (${LIMITE} falhas de provedor)`);
+    console.error(`[circuit] ABERTO para ${key} por ${cbCooldownMs}ms (${cbFailures} falhas de provedor)`);
   }
 }
 
 /** Snapshot para o endpoint de métricas. */
 export function circuitSnapshot(): { key: string; aberto: boolean; falhas: number }[] {
   const agora = Date.now();
+  const { cbWindowMs } = getInfraSync();
   return [...estados.entries()].map(([key, e]) => ({
     key,
     aberto: e.abertoAte > agora,
-    falhas: e.falhas.filter((t) => agora - t < JANELA_MS).length,
+    falhas: e.falhas.filter((t) => agora - t < cbWindowMs).length,
   }));
 }

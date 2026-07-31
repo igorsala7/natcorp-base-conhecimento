@@ -1,17 +1,14 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { getInfra, getInfraSync } from "@/lib/settings/infra";
 
 /**
  * Cache KV leve para aliviar o Postgres/provedores no pico (5.000 simultâneos).
- * Backend: Upstash Redis via REST (sem SDK/dependência nova) quando
- * `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` estão setados; senão,
- * cache EM MEMÓRIA por instância (com TTL e teto de tamanho). Nunca lança —
- * cache é secundário; falha/miss cai no caminho normal.
+ * Backend: Upstash Redis via REST (sem SDK/dependência nova) quando a URL+token
+ * estão configurados (no BANCO via admin, ou no .env como fallback); senão,
+ * cache EM MEMÓRIA por instância (com TTL e teto). Nunca lança — cache é
+ * secundário; falha/miss cai no caminho normal.
  */
-
-const URL_ENV = process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN_ENV = process.env.UPSTASH_REDIS_REST_TOKEN;
-const usaRedis = !!(URL_ENV && TOKEN_ENV);
 
 // —— Fallback em memória (bounded LRU-ish) ——
 const MAX_MEM = 5000;
@@ -36,10 +33,10 @@ function memSet(key: string, v: string, ttlSeconds: number): void {
   mem.set(key, { v, exp: Date.now() + ttlSeconds * 1000 });
 }
 
-async function upstash(cmd: (string | number)[]): Promise<unknown> {
-  const r = await fetch(URL_ENV!, {
+async function upstash(url: string, token: string, cmd: (string | number)[]): Promise<unknown> {
+  const r = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${TOKEN_ENV}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(cmd),
   });
   if (!r.ok) throw new Error("upstash " + r.status);
@@ -52,9 +49,10 @@ export function hashKey(prefix: string, texto: string): string {
 }
 
 export async function kvGet(key: string): Promise<string | null> {
-  if (!usaRedis) return memGet(key);
+  const inf = await getInfra();
+  if (!inf.redisUrl || !inf.redisToken) return memGet(key);
   try {
-    const v = await upstash(["GET", key]);
+    const v = await upstash(inf.redisUrl, inf.redisToken, ["GET", key]);
     return typeof v === "string" ? v : null;
   } catch {
     return null;
@@ -62,12 +60,13 @@ export async function kvGet(key: string): Promise<string | null> {
 }
 
 export async function kvSet(key: string, value: string, ttlSeconds: number): Promise<void> {
-  if (!usaRedis) {
+  const inf = await getInfra();
+  if (!inf.redisUrl || !inf.redisToken) {
     memSet(key, value, ttlSeconds);
     return;
   }
   try {
-    await upstash(["SET", key, value, "EX", ttlSeconds]);
+    await upstash(inf.redisUrl, inf.redisToken, ["SET", key, value, "EX", ttlSeconds]);
   } catch {
     /* best-effort */
   }
@@ -93,5 +92,6 @@ export async function kvSetJson(key: string, value: unknown, ttlSeconds: number)
 
 /** Info do backend em uso (para o endpoint de métricas). */
 export function kvBackend(): "redis" | "memoria" {
-  return usaRedis ? "redis" : "memoria";
+  const inf = getInfraSync();
+  return inf.redisUrl && inf.redisToken ? "redis" : "memoria";
 }

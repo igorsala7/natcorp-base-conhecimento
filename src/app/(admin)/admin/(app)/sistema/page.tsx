@@ -13,6 +13,7 @@ import {
 import type { BackupRow, BackupSettingsRow } from "./backup-panel";
 import type { PromptCatUI } from "./prompts-panel";
 import type { WebAccessData } from "./web-access-panel";
+import { InfraPanel, type InfraData } from "./infra-panel";
 import { PROMPT_CATEGORIES } from "@/lib/ai/prompt-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { secretsPresentes } from "./actions";
@@ -67,6 +68,22 @@ export default async function SistemaPage() {
   if (canBackup) {
     const { data: sec } = await createAdminClient().from("backup_secrets").select("github_token_enc").eq("id", true).maybeSingle();
     githubTokenPresent = Boolean(sec?.github_token_enc);
+  }
+
+  // Infra/Escala (tabela deny-all → service-role). Não expõe o token, só presença.
+  let infraData: InfraData | null = null;
+  if (podeIa) {
+    const { data: row } = await createAdminClient().from("infra_settings").select("*").eq("id", true).maybeSingle();
+    infraData = {
+      redis_rest_url: row?.redis_rest_url ?? null,
+      redis_token_present: Boolean(row?.redis_rest_token_enc),
+      max_concurrency_per_base: row?.max_concurrency_per_base ?? null,
+      daily_token_cap_per_base: row?.daily_token_cap_per_base ?? null,
+      lease_ttl_seconds: row?.lease_ttl_seconds ?? null,
+      cb_failures: row?.cb_failures ?? null,
+      cb_window_ms: row?.cb_window_ms ?? null,
+      cb_cooldown_ms: row?.cb_cooldown_ms ?? null,
+    };
   }
 
   // Prompts (Sistema → Prompts): mesma permissão da IA. Monta o payload da UI a
@@ -157,6 +174,8 @@ export default async function SistemaPage() {
         prompts={prompts}
         webAccess={webAccess}
       />
+
+      {infraData && <InfraPanel infra={infraData} temChaveMestra={hasEncryptionKey()} />}
     </div>
   );
 }
