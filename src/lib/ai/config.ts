@@ -9,6 +9,7 @@ import type { LanguageModelV3StreamPart, LanguageModelV3Usage } from "@ai-sdk/pr
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { circuitoAberto, registrarSucesso, registrarFalha, CircuitOpenError } from "./circuit-breaker";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tryDecryptSecret } from "@/lib/crypto/secrets";
 import {
@@ -269,26 +270,45 @@ function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purp
     const { input, output } = tokensDe(usage);
     return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output, meta });
   };
+  const cbKey = cfg.kind + ":" + cfg.model; // disjuntor por provedor+modelo
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v3",
     wrapGenerate: async ({ doGenerate }) => {
-      const result = await doGenerate();
-      await registrar(result.usage); // aguardado: senão o insert some ao retornar
-      return result;
+      if (circuitoAberto(cbKey)) throw new CircuitOpenError(cfg.kind);
+      try {
+        const result = await doGenerate();
+        registrarSucesso(cbKey);
+        await registrar(result.usage); // aguardado: senão o insert some ao retornar
+        return result;
+      } catch (e) {
+        registrarFalha(cbKey, e);
+        throw e;
+      }
     },
     wrapStream: async ({ doStream }) => {
-      const { stream, ...rest } = await doStream();
-      const transformed = stream.pipeThrough(
-        new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
-          // `transform` async: o stream aguarda a gravação antes de fechar, então
-          // a função não é encerrada com o insert pendente (a causa da subcontagem).
-          async transform(chunk, controller) {
-            if (chunk.type === "finish") await registrar(chunk.usage);
-            controller.enqueue(chunk);
-          },
-        }),
-      );
-      return { stream: transformed, ...rest };
+      if (circuitoAberto(cbKey)) throw new CircuitOpenError(cfg.kind);
+      try {
+        const { stream, ...rest } = await doStream();
+        const transformed = stream.pipeThrough(
+          new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
+            // `transform` async: o stream aguarda a gravação antes de fechar, então
+            // a função não é encerrada com o insert pendente (a causa da subcontagem).
+            async transform(chunk, controller) {
+              if (chunk.type === "finish") {
+                registrarSucesso(cbKey);
+                await registrar(chunk.usage);
+              } else if (chunk.type === "error") {
+                registrarFalha(cbKey, (chunk as { error?: unknown }).error);
+              }
+              controller.enqueue(chunk);
+            },
+          }),
+        );
+        return { stream: transformed, ...rest };
+      } catch (e) {
+        registrarFalha(cbKey, e); // falha ao ABRIR o stream (conexão/429)
+        throw e;
+      }
     },
   };
   return wrapLanguageModel({ model, middleware });
