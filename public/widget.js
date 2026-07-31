@@ -14,6 +14,7 @@
   }
   var API = new URL(script.src).origin;
   var LS_POS = "kb.widget.pos." + KEY;
+  var LS_PANEL = "kb.widget.panelpos." + KEY; // posição própria da JANELA (arrastada pelo cabeçalho)
   var LS_SID = "kb.widget.sid." + KEY;
   // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
   var LS_CLEARED = "kb.widget.cleared." + KEY;
@@ -58,7 +59,7 @@
   // e o texto visível (títulos, tabelas/relatórios, MODAIS) — inclusive iframes
   // de MESMA ORIGEM (cross-origin é bloqueado pelo navegador). Vira DADO para a
   // IA interpretar a tela em que o usuário está. Nunca captura senha/segredo.
-  var SCAN_MAX = 7000;
+  var SCAN_MAX = 12000; // maior: as TABELAS estruturadas (prioritárias) vêm antes do texto
   function scanTexto(s) {
     return String(s == null ? "" : s).replace(/\s+/g, " ").trim();
   }
@@ -70,7 +71,7 @@
     if (t === "checkbox" || t === "radio") return el.checked ? "marcado" : "desmarcado";
     return scanTexto(el.value).slice(0, 120);
   }
-  function scanDoc(doc, marca, campos, textos) {
+  function scanDoc(doc, marca, campos, textos, tabelas) {
     if (!doc) return;
     var lm = {};
     try {
@@ -87,6 +88,8 @@
         campos.push((marca ? marca + " " : "") + "- " + scanTexto(rot) + (val ? ": " + val : " (vazio)"));
       });
     } catch { }
+    // Relatórios APEX estruturados (Classic Report / Interactive Report / Interactive Grid).
+    if (tabelas) { try { scanReports(doc, marca, tabelas); } catch { } }
     try {
       var txt = scanTexto(doc.body ? doc.body.innerText : "");
       if (txt) textos.push((marca ? marca + " " : "") + txt);
@@ -96,21 +99,246 @@
       doc.querySelectorAll("iframe").forEach(function (f) {
         var d = null;
         try { d = f.contentDocument; } catch { d = null; }
-        if (d) scanDoc(d, "[IFRAME]", campos, textos);
+        if (d) scanDoc(d, "[IFRAME]", campos, textos, tabelas);
       });
     } catch { }
   }
+
+  // Texto limpo de uma célula (limita tamanho).
+  function celTxt(el) { return scanTexto(el ? (el.innerText || el.textContent) : "").slice(0, 200); }
+  // Nome legível do relatório: título da região que o contém.
+  function nomeRegiao(el) {
+    try {
+      var reg = el.closest && el.closest(".t-Region, .a-Region, .a-IRR-region, [role='region'], [id$='_region']");
+      if (reg) {
+        var h = reg.querySelector(".t-Region-title, .a-IRR-title, .a-CardView-title, h1, h2, h3, [id$='_heading']");
+        if (h) { var t = scanTexto(h.textContent); if (t) return t.slice(0, 80); }
+        var al = reg.getAttribute("aria-label"); if (al) return scanTexto(al).slice(0, 80);
+      }
+    } catch { }
+    return "";
+  }
+  // Coleta multi-página em andamento (dados de TODAS as páginas de um IR).
+  var _harvested = null; // { key, colunas, linhas } — sobrepõe a página visível no scan
+
+  // Chave estável de uma região de relatório (para casar a coleta multi-página).
+  function regionKey(rv) {
+    try {
+      var el = rv.closest ? (rv.closest(".a-IRR") || rv) : rv;
+      return el.id || rv.id || nomeRegiao(rv) || "";
+    } catch { return ""; }
+  }
+  // O IR tem paginação por lotes ("Próximo/Anterior")?
+  function temPaginacao(rv) { try { return !!rv.querySelector(".a-IRR-pagination"); } catch { return false; } }
+  // Botão "Próximo" da paginação do IR (por título/rótulo, PT ou EN).
+  function botaoProximo(rv) {
+    try {
+      var cands = rv.querySelectorAll(".a-IRR-button--pagination, .a-IRR-pagination a, .a-IRR-pagination button, .a-IRR-pagination-item");
+      for (var i = 0; i < cands.length; i++) {
+        var el = cands[i];
+        var t = (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + scanTexto(el.textContent);
+        if (/pr[óo]ximo|next/i.test(t) && !/anterior|previous/i.test(t)) return el;
+      }
+    } catch { }
+    return null;
+  }
+  function ehDesabilitado(el) {
+    if (!el) return true;
+    try {
+      if (el.disabled) return true;
+      if (/is-disabled|u-disabled|apex_disabled/.test(el.className || "")) return true;
+      if (el.getAttribute("aria-disabled") === "true") return true;
+      var li = el.closest && el.closest("li, .a-IRR-pagination-item");
+      if (li && /is-disabled/.test(li.className || "")) return true;
+    } catch { }
+    return false;
+  }
+  // Extrai UMA região de IR (colunas por th[id], dados por td[headers]); genérico
+  // — não assume colunas fixas, serve a qualquer tela.
+  function extrairIRRegiao(rv, maxLin) {
+    var LIN = maxLin || 60, idx = {}, colunas = [];
+    rv.querySelectorAll("th.a-IRR-header").forEach(function (th) {
+      var link = th.querySelector(".a-IRR-headerLink");
+      var id = th.id || (link && link.getAttribute("data-column") ? "C" + link.getAttribute("data-column") : "");
+      if (!id || idx[id] != null) return;
+      var nome = celTxt(link || th);
+      if (!nome) return;
+      idx[id] = colunas.length; colunas.push(nome);
+    });
+    if (colunas.length < 1) return null;
+    var linhas = [];
+    rv.querySelectorAll("tbody tr").forEach(function (tr) {
+      if (linhas.length >= LIN) return;
+      var tds = tr.querySelectorAll("td[headers]");
+      if (!tds.length) return;
+      var row = []; for (var i = 0; i < colunas.length; i++) row.push("");
+      Array.prototype.forEach.call(tds, function (td) {
+        var h = (td.getAttribute("headers") || "").split(/\s+/)[0];
+        if (idx[h] != null) row[idx[h]] = celTxt(td);
+      });
+      if (row.join("").trim()) linhas.push(row);
+    });
+    return linhas.length ? { colunas: colunas, linhas: linhas } : null;
+  }
+  // Assinatura da página atual (para detectar a troca após clicar "Próximo").
+  function assinaturaPagina(rv) {
+    var lab = rv.querySelector(".a-IRR-pagination-label, .a-IRR-pagination");
+    var first = rv.querySelector("tbody tr td[headers]");
+    return (lab ? scanTexto(lab.textContent) : "") + "|" + (first ? scanTexto(first.textContent) : "") + "|" + rv.querySelectorAll("tbody tr").length;
+  }
+  function esperarMudanca(rv, antes, timeout) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() {
+        if (assinaturaPagina(rv) !== antes) return resolve(true);
+        if (Date.now() - t0 > timeout) return resolve(false);
+        setTimeout(tick, 150);
+      })();
+    });
+  }
+  // Percorre TODAS as páginas do IR (clicando "Próximo"), acumulando as linhas.
+  async function coletarRelatorio(rv) {
+    var CAP_PAG = 100, CAP_LIN = 4000, ESPERA = 5000;
+    var t0 = extrairIRRegiao(rv, 500);
+    if (!t0) return null;
+    var colunas = t0.colunas, todas = [], seen = {}, truncou = false;
+    function add(linhas) { for (var i = 0; i < linhas.length; i++) { var k = linhas[i].join(""); if (!seen[k]) { seen[k] = 1; todas.push(linhas[i]); } } }
+    add(t0.linhas);
+    for (var pag = 1; pag < CAP_PAG; pag++) {
+      if (todas.length >= CAP_LIN) { truncou = true; break; }
+      var btn = botaoProximo(rv);
+      if (!btn || ehDesabilitado(btn)) break;
+      var antes = assinaturaPagina(rv);
+      try { btn.click(); } catch { break; }
+      if (!(await esperarMudanca(rv, antes, ESPERA))) break; // não avançou → fim/travou
+      var t = extrairIRRegiao(rv, 500);
+      if (!t) break;
+      var antesN = todas.length;
+      add(t.linhas);
+      if (todas.length === antesN) break; // nada novo → evita loop infinito
+    }
+    return { colunas: colunas, linhas: todas, truncou: truncou };
+  }
+  // Acha o 1º IR paginado (doc principal + iframes de mesma origem).
+  function acharIRPaginado(doc) {
+    try {
+      var cands = doc.querySelectorAll(".a-IRR-reportView, .a-IRR");
+      for (var i = 0; i < cands.length; i++) if (temPaginacao(cands[i]) && botaoProximo(cands[i])) return cands[i];
+      var frames = doc.querySelectorAll("iframe");
+      for (var j = 0; j < frames.length; j++) { var d = null; try { d = frames[j].contentDocument; } catch { d = null; } if (d) { var r = acharIRPaginado(d); if (r) return r; } }
+    } catch { }
+    return null;
+  }
+  // Orquestra a coleta e reenvia à IA para a análise/exportação pedida.
+  function iniciarColeta() {
+    var rv = acharIRPaginado(document);
+    if (!rv) { statusMsg("Não encontrei um relatório paginado na tela — sigo com os dados visíveis.", null); ask(undefined, undefined, { continuation: true }); return; }
+    busy = true; if (sendBtn) sendBtn.disabled = true;
+    statusMsg("Coletando todas as páginas do relatório…", null);
+    coletarRelatorio(rv).then(function (res) {
+      if (res && res.linhas.length) {
+        _harvested = { key: regionKey(rv), nome: nomeRegiao(rv) || "Relatório", colunas: res.colunas, linhas: res.linhas };
+        statusMsg("✅ Coletei " + res.linhas.length + " registro(s)" + (res.truncou ? " (limite atingido)" : " de todas as páginas") + ". Analisando…", "#15803d");
+      } else {
+        statusMsg("Não consegui coletar as páginas; sigo com o que está visível.", "#b45309");
+      }
+      ask(undefined, undefined, { continuation: true });
+    }).catch(function () { ask(undefined, undefined, { continuation: true }); });
+  }
+
+  // Extrai relatórios APEX como { nome, tipo, colunas[], linhas[][] }.
+  function scanReports(doc, marca, tabelas) {
+    var LIN = 60, TAB = 8;
+    var pre = marca ? marca + " " : "";
+    var consumidas = [];
+    function jaConsumida(t) { for (var i = 0; i < consumidas.length; i++) if (consumidas[i] === t) return true; return false; }
+
+    // (1) INTERACTIVE REPORT (APEX): o cabeçalho e os dados ficam em <table>
+    // SEPARADAS (Frozen Header Table) e SEM <thead>. As colunas estão em
+    // th.a-IRR-header[id] (nome no .a-IRR-headerLink) e cada dado em
+    // td[headers="Cxxx"] — casamos por ID (à prova de ordem/split).
+    try {
+      var extrairIR = function (rv) {
+        if (tabelas.length >= TAB) return;
+        var t = extrairIRRegiao(rv, LIN);
+        if (!t) return;
+        rv.querySelectorAll("table").forEach(function (x) { consumidas.push(x); });
+        // Se ESTE relatório já foi coletado por completo, marca (o conjunto vai no reportData).
+        var completo = _harvested && _harvested.key === regionKey(rv);
+        tabelas.push({ nome: pre + (nomeRegiao(rv) || "Interactive Report"), tipo: "Interactive Report", colunas: t.colunas, linhas: t.linhas, paginado: temPaginacao(rv) && !!botaoProximo(rv) && !completo, coletaCompleta: completo, total: completo ? _harvested.linhas.length : 0 });
+      };
+      // Uma passada por reportView; depois .a-IRR SEM reportView (evita duplicar).
+      doc.querySelectorAll(".a-IRR-reportView").forEach(extrairIR);
+      doc.querySelectorAll(".a-IRR").forEach(function (a) { if (!a.querySelector(".a-IRR-reportView")) extrairIR(a); });
+    } catch { }
+
+    // (2) INTERACTIVE GRID (.a-GV) — grid virtualizado (NÃO é <table>).
+    try {
+      doc.querySelectorAll(".a-GV").forEach(function (gv) {
+        if (tabelas.length >= TAB) return;
+        if (!(gv.getClientRects && gv.getClientRects().length)) return;
+        var colunas = [];
+        gv.querySelectorAll(".a-GV-header .a-GV-headerLabel, .a-GV-columnHeaders .a-GV-headerLabel").forEach(function (h) { var t = celTxt(h); if (t) colunas.push(t); });
+        var linhas = [];
+        gv.querySelectorAll(".a-GV-bdy .a-GV-row, .a-GV-w-scroll .a-GV-row").forEach(function (r) {
+          if (linhas.length >= LIN) return;
+          var cels = r.querySelectorAll(".a-GV-cell");
+          if (!cels.length) return;
+          var row = []; Array.prototype.forEach.call(cels, function (c) { row.push(celTxt(c)); });
+          if (row.join("").trim()) linhas.push(row);
+        });
+        if (linhas.length < 1) return;
+        if (!colunas.length) { for (var i = 0; i < linhas[0].length; i++) colunas.push("Coluna " + (i + 1)); }
+        gv.querySelectorAll("table").forEach(function (t) { consumidas.push(t); });
+        tabelas.push({ nome: pre + (nomeRegiao(gv) || "Interactive Grid"), tipo: "Interactive Grid", colunas: colunas, linhas: linhas });
+      });
+    } catch { }
+
+    // (3) TABELAS HTML genéricas (Classic Report e afins) — pula as já consumidas.
+    try {
+      doc.querySelectorAll("table").forEach(function (tb) {
+        if (tabelas.length >= TAB || jaConsumida(tb)) return;
+        if (tb.closest && tb.closest(".a-IRR, .a-GV")) return; // IR/IG já tratados
+        if (!(tb.getClientRects && tb.getClientRects().length)) return;
+        var colunas = [];
+        tb.querySelectorAll("thead th").forEach(function (th) { colunas.push(celTxt(th)); });
+        var corpo = Array.prototype.slice.call(tb.querySelectorAll("tbody tr"));
+        if (!corpo.length) {
+          var trs = tb.querySelectorAll("tr");
+          if (trs.length < 2) return;
+          if (!colunas.length) trs[0].querySelectorAll("th,td").forEach(function (c) { colunas.push(celTxt(c)); });
+          corpo = Array.prototype.slice.call(trs, 1);
+        }
+        var linhas = [];
+        corpo.forEach(function (tr) {
+          if (linhas.length >= LIN) return;
+          var cels = tr.querySelectorAll("td,th");
+          if (!cels.length) return;
+          var row = []; Array.prototype.forEach.call(cels, function (c) { row.push(celTxt(c)); });
+          if (row.join("").trim()) linhas.push(row);
+        });
+        if (linhas.length < 1) return;
+        if (!colunas.length) { for (var i = 0; i < linhas[0].length; i++) colunas.push("Coluna " + (i + 1)); }
+        if (colunas.length < 2 && linhas.length < 2) return;
+        tabelas.push({ nome: pre + (nomeRegiao(tb) || "Relatório"), tipo: "Classic Report", colunas: colunas, linhas: linhas });
+      });
+    } catch { }
+  }
+  // Devolve { text, tables }: `text` = campos + texto corrido (contexto); `tables`
+  // = relatórios ESTRUTURADOS (enviados à parte e registrados como datasets no
+  // servidor — o modelo exporta/grafica por id, sem redigitar as linhas).
   function scanPage() {
     try {
-      var campos = [], textos = [];
-      scanDoc(document, "", campos, textos);
+      var campos = [], textos = [], tabelas = [];
+      scanDoc(document, "", campos, textos, tabelas);
       var partes = [];
       if (campos.length) partes.push("CAMPOS DA TELA:\n" + campos.slice(0, 80).join("\n"));
       if (textos.length) partes.push("TEXTO DA TELA:\n" + textos.join("\n"));
       var s = partes.join("\n\n");
-      return s.length > SCAN_MAX ? s.slice(0, SCAN_MAX) + "\n…(truncado)" : s;
+      if (s.length > SCAN_MAX) s = s.slice(0, SCAN_MAX) + "\n…(truncado)";
+      return { text: s, tables: tabelas };
     } catch {
-      return "";
+      return { text: "", tables: [] };
     }
   }
 
@@ -1147,6 +1375,16 @@
     kbTabState(tabG, true, pc); kbTabState(tabT, false, pc);
     messagesEl.appendChild(card);
     requestAnimationFrame(function () { drawChart(canvas, spec); });
+    // Redesenha ao mudar a LARGURA (expandir o painel, resize): o canvas tem
+    // largura em % e, sem redesenhar, o buffer antigo estica e deforma as labels.
+    try {
+      var _lw = 0;
+      var ro = new ResizeObserver(function () {
+        var w = canvas.clientWidth || cwrap.clientWidth;
+        if (w && Math.abs(w - _lw) > 2 && canvas.style.display !== "none") { _lw = w; drawChart(canvas, spec); }
+      });
+      ro.observe(cwrap);
+    } catch (e) { }
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
@@ -1498,7 +1736,9 @@
       "@keyframes kbin{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:scale(1)}}" +
       "@keyframes kbout{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.82)}}" +
       // Cabeçalho (gradiente)
-      ".hd{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;padding:16px 15px 18px;display:flex;align-items:center;gap:12px}" +
+      ".hd{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;padding:16px 15px 18px;display:flex;align-items:center;gap:12px;cursor:move;touch-action:none;user-select:none}" +
+      ".hd button{cursor:pointer;touch-action:auto}" +
+      ".panel.exp .hd{cursor:default}" +
       ".hd .hav{width:44px;height:44px;border-radius:var(--ash,50%);background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.15)}" +
       ".hd .hav img{width:100%;height:100%;object-fit:cover}" +
       ".hd .hav svg{width:24px;height:24px;color:#fff}" +
@@ -1837,6 +2077,7 @@
 
     positionBubble();
     setupDrag();
+    setupPanelDrag();
     loadInitialMessages();
     setupPrompts();
     manterNoTopo();
@@ -2008,14 +2249,25 @@
     var W = window.innerWidth, H = window.innerHeight;
     return { left: Math.round(W * 0.2), width: Math.round(W * 0.6), top: Math.round(H * 0.05), height: Math.round(H * 0.9), radius: 16, origem: "center" };
   }
+  function savedPanelPos() {
+    try { return JSON.parse(localStorage.getItem(LS_PANEL) || "null"); } catch { return null; }
+  }
   function geomCanto() {
-    var b = bubble.getBoundingClientRect();
     var margem = window.innerWidth <= 480 ? 10 : 12; // celular: cola mais nas bordas
     var pw = Math.min(440, window.innerWidth - margem * 2);
+    var ph = Math.min(680, window.innerHeight - 96);
+    // Se o usuário arrastou a JANELA, ela fica onde ele deixou (clampada).
+    var pos = savedPanelPos();
+    if (pos) {
+      var pl = Math.max(margem, Math.min(pos.left, window.innerWidth - pw - margem));
+      var pt = Math.max(12, Math.min(pos.top, window.innerHeight - ph - 12));
+      return { left: pl, width: pw, top: pt, height: ph, radius: 22, origem: "center" };
+    }
+    // Padrão: ancorada à bolha.
+    var b = bubble.getBoundingClientRect();
     var esq = b.left + b.width / 2 < window.innerWidth / 2;
     var left = esq ? b.left : b.right - pw;
     left = Math.max(margem, Math.min(left, window.innerWidth - pw - margem));
-    var ph = Math.min(680, window.innerHeight - 96);
     var top = b.top - ph - 12;
     var acima = true;
     if (top < 12) { top = Math.min(b.bottom + 12, window.innerHeight - ph - 12); acima = false; }
@@ -2106,6 +2358,53 @@
     window.addEventListener("resize", function () {
       positionBubble();
       if (expanded) aplicarExpansao(); // recalcula (ou volta ao canto no mobile)
+      else placePanel();               // mantém a janela arrastada dentro da tela
+    });
+  }
+  // Arrastar a JANELA do chat pelo cabeçalho (independe da bolha). Não arrasta ao
+  // clicar nos botões do cabeçalho nem no modo expandido (centralizado).
+  function setupPanelDrag() {
+    var hd = panel.querySelector(".hd");
+    if (!hd) return;
+    var dragging = false, moved = false, sx = 0, sy = 0, ol = 0, ot = 0;
+    hd.addEventListener("pointerdown", function (e) {
+      if (e.button != null && e.button !== 0) return;
+      if (e.target.closest && e.target.closest("button")) return; // botões do cabeçalho
+      if (panel.classList.contains("exp")) return;                // expandido: não arrasta
+      dragging = true; moved = false;
+      sx = e.clientX; sy = e.clientY;
+      var r = panel.getBoundingClientRect();
+      ol = r.left; ot = r.top;
+      panel.classList.remove("anim");          // sem transição durante o arraste
+      try { hd.setPointerCapture(e.pointerId); } catch { }
+    });
+    hd.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+      var pw = panel.offsetWidth, ph = panel.offsetHeight, m = 8;
+      // Clampa mantendo o cabeçalho sempre alcançável na tela.
+      var left = Math.max(m - pw + 80, Math.min(ol + dx, window.innerWidth - 80));
+      var top = Math.max(m, Math.min(ot + dy, window.innerHeight - 44));
+      panel.style.left = left + "px";
+      panel.style.top = top + "px";
+    });
+    function fim(e) {
+      if (!dragging) return;
+      dragging = false;
+      try { hd.releasePointerCapture(e.pointerId); } catch { }
+      if (moved) {
+        var r = panel.getBoundingClientRect();
+        try { localStorage.setItem(LS_PANEL, JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) })); } catch { }
+      }
+    }
+    hd.addEventListener("pointerup", fim);
+    hd.addEventListener("pointercancel", fim);
+    // Duplo-clique no cabeçalho: solta a janela e reancora à bolha.
+    hd.addEventListener("dblclick", function (e) {
+      if (e.target.closest && e.target.closest("button")) return;
+      try { localStorage.removeItem(LS_PANEL); } catch { }
+      placePanel();
     });
   }
 
@@ -2356,6 +2655,29 @@
 
   // Pergunta de desambiguação: renderiza os botões de tema; ao clicar, re-consulta
   // já filtrada (reaproveita o estilo `.sugg` das perguntas sugeridas).
+  // Botões para escolher o TIPO do gráfico. Ao clicar, completa a spec e desenha
+  // NA HORA (reusa renderChart) — sem ida ao servidor.
+  function renderChartChoice(pergunta, spec, recomendado) {
+    if (pergunta) addMsg("assistant", pergunta);
+    var box = document.createElement("div");
+    box.className = "opts";
+    CHART_TIPOS.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = t[1] + (t[0] === recomendado ? "  ★" : "");
+      if (t[0] === recomendado) b.title = "Recomendado";
+      b.addEventListener("click", function () {
+        box.remove();
+        var s = {}; for (var k in spec) s[k] = spec[k];
+        s.tipo = t[0];
+        renderChart(s);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
+      box.appendChild(b);
+    });
+    messagesEl.appendChild(box);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
   function renderClarify(question, options) {
     if (question) addMsg("assistant", question);
     var box = document.createElement("div");
@@ -2602,7 +2924,7 @@
     var continuacao = !!(opts && opts.continuation);
     // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo e
     // encerra um tutorial em andamento (o usuário mudou de assunto).
-    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; if (_tutorial) encerrarTutorial(); }
+    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; _harvested = null; if (_tutorial) encerrarTutorial(); }
     _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
     _avisouTurno = continuacao; // continuação do loop não toca o som; resposta nova pode
     desbloquearAudio(); // envio é gesto do usuário → libera o som p/ tocar depois
@@ -2622,6 +2944,9 @@
     var ehFinalTurno = true; // false em passos intermediários do loop (sem feedback/citações)
     _acoes = []; // ações de tela recebidas NESTE turno (guard de stream vazio)
     _charts = []; // gráficos recebidos NESTE turno (guard de stream vazio)
+    var _teveArquivo = false; // arquivo (PDF/Excel/Word…) entregue neste turno
+    var _teveEscolha = false; // botões de escolha (ex.: tipo de gráfico) exibidos
+    var _coletando = false;   // a IA pediu a coleta multi-página do relatório
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
     // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
     var shown = 0, stopped = false, rafId = null, feito = false;
@@ -2684,13 +3009,19 @@
     // com o assistente ligado.) O servidor também ignora sem formAssist.
     if (cfg.formAssist && cfg.scan !== false) {
       var scan = scanPage();
-      if (scan) body.pageContent = scan;
+      if (scan.text) body.pageContent = scan.text;
+      if (scan.tables && scan.tables.length) body.screenTables = scan.tables;
     }
     // Assistente de formulário: envia o mapa estruturado dos campos da tela para
     // a IA opinar/preencher (só se habilitado na config deste widget).
     if (cfg.formAssist) {
       var flds = scanFields();
       if (flds.length) body.fields = flds;
+    }
+    // Coleta multi-página do relatório (todas as páginas) — enviada à parte para
+    // não ser truncada com o resto da tela.
+    if (cfg.formAssist && _harvested) {
+      body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas };
     }
     fetch(API + "/api/v1/chat", {
       method: "POST",
@@ -2756,9 +3087,11 @@
         if (typing.parentNode) typing.remove();
         addMsg("assistant", evt.message || "Erro ao gerar a resposta.");
       } else if (evt.type === "file") {
-        // Arquivo retornado por uma API (holerite, recibo…) → link de download.
+        // Arquivo retornado por uma API (holerite, recibo…) ou gerado pela IA
+        // (relatório/planilha/documento) → link de download.
         if (typing.parentNode) typing.remove();
         avisarMensagem();
+        _teveArquivo = true;
         appendFileLink(evt.dataUrl, evt.filename);
       } else if (evt.type === "fill") {
         // A IA propôs preencher um campo → enfileira; processa no fim (com confirmação).
@@ -2777,6 +3110,16 @@
         if (typing.parentNode) typing.remove();
         avisarMensagem();
         if (evt.chart) renderChart(evt.chart);
+      } else if (evt.type === "chart_choice") {
+        // A IA quer o TIPO do gráfico → mostra os tipos como botões; escolher desenha na hora.
+        if (typing.parentNode) typing.remove();
+        avisarMensagem();
+        _teveEscolha = true;
+        if (evt.spec) renderChartChoice(evt.pergunta, evt.spec, evt.recomendado);
+      } else if (evt.type === "harvest") {
+        // A IA pediu a coleta de TODAS as páginas do relatório paginado.
+        if (typing.parentNode) typing.remove();
+        _coletando = true;
       } else if (evt.type === "tutorial") {
         // A IA montou um tutorial guiado → walkthrough passo a passo no fim do turno.
         if (typing.parentNode) typing.remove();
@@ -2802,9 +3145,10 @@
         // e o feedback (feito dentro de passoReveal).
         stopped = true;
         agendarReveal();
-      } else if (!_acoes.length && !_charts.length) {
-        // Stream vazio SEM ação de tela nem gráfico = a chamada ao provedor
-        // falhou. (Se a IA só chamou uma tool visual, não há texto — mas o card aparece.)
+      } else if (!_acoes.length && !_charts.length && !_teveArquivo && !_teveEscolha && !_coletando) {
+        // Stream vazio SEM ação de tela, gráfico, arquivo, botões NEM coleta =
+        // a chamada ao provedor falhou. (Se a IA só chamou uma tool visual/de
+        // arquivo/escolha/coleta, não há texto — mas o resultado aparece.)
         addMsg(
           "assistant",
           "Não foi possível gerar a resposta agora. Tente de novo em instantes."
@@ -2812,7 +3156,8 @@
         if (citations.length) renderCitations(citations);
       }
       done();
-      if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
+      if (_coletando) iniciarColeta();       // percorre todas as páginas e reenvia
+      else if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
       else if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
     }
     function done() {
