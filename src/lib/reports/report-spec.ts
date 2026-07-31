@@ -21,7 +21,7 @@ export const REPORT_FORMATS: ReportFormat[] = ["pdf", "xlsx", "csv", "docx", "pp
 export type ReportSpec = { titulo: string; subtitulo?: string; formato: ReportFormat; blocos: ReportBlock[] };
 
 const MAX_BLOCOS = 40;
-const MAX_COLS = 8;
+const MAX_COLS = 40; // relatórios reais (IR) têm muitas colunas — não truncar
 // Teto alto: tabelas de relatório podem vir de um DATASET completo (o servidor
 // expande TODAS as linhas reais — não são redigitadas pelo modelo). Ver datasets.ts.
 const MAX_LINHAS = 5000;

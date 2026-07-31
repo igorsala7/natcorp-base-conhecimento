@@ -1,8 +1,8 @@
 import "server-only";
 import type { Paragraph as DocxParagraph, Table as DocxTable } from "docx";
-import type { Worksheet as XlsxWorksheet, Fill as XlsxFill, Border as XlsxBorder } from "exceljs";
+import type { Worksheet as XlsxWorksheet, Fill as XlsxFill, Border as XlsxBorder, Font as XlsxFont } from "exceljs";
 import type { OutFile } from "@/lib/integrations/documents";
-import type { ReportSpec } from "./report-spec";
+import type { ReportSpec, ReportBlock } from "./report-spec";
 import { renderReportPdf, type BrandInfo } from "./pdf";
 import { parseMarkdown, runsText, type MdRun } from "./markdown";
 import { chartSvg } from "./chart-svg";
@@ -53,8 +53,11 @@ export async function renderReport(spec: ReportSpec, brand: BrandInfo): Promise<
 }
 
 // ── CSV ──────────────────────────────────────────────────────────────────────
+// Separador SEMPRE ";" (padrão pt-BR / Excel local) — assim a vírgula decimal
+// ("846,50") não quebra as colunas. Só entra aspas em ; " ou quebra de linha.
+const SEP = ";";
 function csvCell(v: string): string {
-  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  return /[";\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 function renderCsv(spec: ReportSpec): OutFile {
   const linhas: string[] = [csvCell(spec.titulo)];
@@ -65,21 +68,21 @@ function renderCsv(spec: ReportSpec): OutFile {
       linhas.push(csvCell(b.texto), "");
     } else if (b.tipo === "tabela") {
       if (b.titulo) linhas.push(csvCell(b.titulo));
-      linhas.push(b.colunas.map(csvCell).join(","));
-      for (const row of b.linhas) linhas.push(b.colunas.map((_, i) => csvCell(row[i] ?? "")).join(","));
+      linhas.push(b.colunas.map(csvCell).join(SEP));
+      for (const row of b.linhas) linhas.push(b.colunas.map((_, i) => csvCell(row[i] ?? "")).join(SEP));
       linhas.push("");
     } else if (b.tipo === "grafico") {
       const g = b.grafico;
       linhas.push(csvCell(g.titulo || "Gráfico"));
-      linhas.push(["Categoria", ...g.series.map((s) => s.nome)].map(csvCell).join(","));
+      linhas.push(["Categoria", ...g.series.map((s) => s.nome)].map(csvCell).join(SEP));
       g.categorias.forEach((cat, i) =>
-        linhas.push([cat, ...g.series.map((s) => String(s.valores[i] ?? ""))].map(csvCell).join(",")),
+        linhas.push([cat, ...g.series.map((s) => String(s.valores[i] ?? ""))].map(csvCell).join(SEP)),
       );
       linhas.push("");
     }
   }
-  // BOM p/ o Excel abrir UTF-8 corretamente.
-  const csv = "﻿" + linhas.join("\r\n");
+  // "sep=;" faz o Excel reconhecer o delimitador; + BOM para abrir UTF-8.
+  const csv = "﻿sep=;\r\n" + linhas.join("\r\n");
   return { filename: slug(spec.titulo, "csv"), mimeType: "text/csv", base64: Buffer.from(csv, "utf8").toString("base64") };
 }
 
@@ -137,66 +140,71 @@ async function renderXlsx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
   };
 
   const usados = new Set<string>();
-  // Aba principal: título + subtítulo + textos + gráficos (imagem).
-  const capa = wb.addWorksheet(nomeAba("Relatório", usados));
-  capa.mergeCells(1, 1, 1, 6);
-  const tCell = capa.getCell(1, 1);
-  tCell.value = spec.titulo;
-  tCell.font = { bold: true, size: 18, color: { argb: argb(c.primary) } };
-  capa.getRow(1).height = 26;
-  let row = 2;
-  if (spec.subtitulo) {
-    capa.mergeCells(row, 1, row, 6);
-    const sc = capa.getCell(row, 1);
-    sc.value = spec.subtitulo;
-    sc.font = { color: { argb: "FF666666" }, size: 11 };
+  const tabelas = spec.blocos.filter((b) => b.tipo === "tabela") as Extract<ReportBlock, { tipo: "tabela" }>[];
+  const textos = spec.blocos.filter((b) => b.tipo === "texto") as Extract<ReportBlock, { tipo: "texto" }>[];
+  const graficos = spec.blocos.filter((b) => b.tipo === "grafico") as Extract<ReportBlock, { tipo: "grafico" }>[];
+  const principal = tabelas[0]; // relatório tabular na 1ª ABA
+  // Largura de mesclagem = nº de colunas da tabela principal (o cabeçalho ocupa
+  // A..N mesclado, então não estica nenhuma coluna da tabela).
+  const N = Math.max(1, Math.min(40, principal ? principal.colunas.length : 6));
+
+  const ws = wb.addWorksheet(nomeAba(spec.titulo || "Relatório", usados));
+  let row = 1;
+  // Linha de CABEÇALHO mesclada (A..N): o texto ocupa toda a largura da tabela sem
+  // alargar a coluna A (é o que o usuário pediu).
+  const linhaMesclada = (texto: string, font: Partial<XlsxFont>, altura?: number) => {
+    ws.mergeCells(row, 1, row, N);
+    const cell = ws.getCell(row, 1);
+    cell.value = texto;
+    cell.font = font;
+    cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+    if (altura) ws.getRow(row).height = altura;
+    row++;
+  };
+  linhaMesclada(spec.titulo, { bold: true, size: 18, color: { argb: argb(c.primary) } }, 26);
+  if (spec.subtitulo) linhaMesclada(spec.subtitulo, { color: { argb: "FF666666" }, size: 11 });
+  linhaMesclada(brand.dataHoje, { color: { argb: "FF999999" }, size: 9, italic: true });
+  row++; // linha em branco
+
+  // Textos (markdown) → cada linha mesclada, acima da tabela.
+  for (const b of textos) {
+    for (const mb of parseMarkdown(b.texto)) {
+      if (mb.kind === "table") { row = escreverTabela(ws, mb.header, mb.rows, row) + 1; continue; }
+      const txt = mb.kind === "ordered" ? `${mb.index}. ${runsText(mb.runs)}` : mb.kind === "bullet" ? `•  ${runsText(mb.runs)}` : runsText(mb.runs);
+      linhaMesclada(txt, mb.kind === "heading" ? { bold: true, size: mb.level === 1 ? 14 : 12, color: { argb: argb(c.contrast) } } : { size: 11, color: { argb: "FF333333" } });
+    }
     row++;
   }
-  capa.getCell(row, 1).value = brand.dataHoje;
-  capa.getCell(row, 1).font = { color: { argb: "FF999999" }, size: 9, italic: true };
-  row += 2;
 
-  for (const b of spec.blocos) {
-    if (b.tipo === "texto") {
-      for (const mb of parseMarkdown(b.texto)) {
-        if (mb.kind === "table") {
-          row = escreverTabela(capa, mb.header, mb.rows, row) + 1;
-          continue;
-        }
-        const txt = mb.kind === "ordered" ? `${mb.index}. ${runsText(mb.runs)}` : mb.kind === "bullet" ? `•  ${runsText(mb.runs)}` : runsText(mb.runs);
-        const cell = capa.getCell(row, 1);
-        cell.value = txt;
-        if (mb.kind === "heading") cell.font = { bold: true, size: mb.level === 1 ? 14 : 12, color: { argb: argb(c.contrast) } };
-        row++;
-      }
-      row++;
-    } else if (b.tipo === "grafico") {
-      const g = b.grafico;
-      const hc = capa.getCell(row, 1);
-      hc.value = g.titulo || "Gráfico";
-      hc.font = { bold: true, size: 12, color: { argb: argb(c.contrast) } };
-      row++;
-      try {
-        const png = await svgToPng(chartSvg(g, chartCols(c)));
-        const imgId = wb.addImage({ buffer: png as unknown as Parameters<typeof wb.addImage>[0]["buffer"], extension: "png" });
-        capa.addImage(imgId, { tl: { col: 0, row: row - 1 }, ext: { width: 520, height: 300 } });
-        row += 17;
-      } catch {
-        row = escreverTabela(capa, ["Categoria", ...g.series.map((s) => s.nome)], g.categorias.map((cat, i) => [cat, ...g.series.map((s) => String(s.valores[i] ?? ""))]), row) + 1;
-      }
+  // TABELA principal, logo ABAIXO do cabeçalho, na 1ª aba.
+  if (principal) {
+    const headerRow = row;
+    row = escreverTabela(ws, principal.colunas, principal.linhas, row);
+    ws.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: headerRow, column: Math.min(principal.colunas.length, 40) } };
+    ws.views = [{ state: "frozen", ySplit: headerRow }]; // congela cabeçalho + títulos
+    row += 2;
+  }
+
+  // Gráficos (imagem) abaixo da tabela, na mesma aba.
+  for (const g of graficos) {
+    linhaMesclada(g.grafico.titulo || "Gráfico", { bold: true, size: 12, color: { argb: argb(c.contrast) } });
+    try {
+      const png = await svgToPng(chartSvg(g.grafico, chartCols(c)));
+      const imgId = wb.addImage({ buffer: png as unknown as Parameters<typeof wb.addImage>[0]["buffer"], extension: "png" });
+      ws.addImage(imgId, { tl: { col: 0, row: row - 1 }, ext: { width: 520, height: 300 } });
+      row += 17;
+    } catch {
+      row = escreverTabela(ws, ["Categoria", ...g.grafico.series.map((s) => s.nome)], g.grafico.categorias.map((cat, i) => [cat, ...g.grafico.series.map((s) => String(s.valores[i] ?? ""))]), row) + 1;
     }
   }
-  capa.getColumn(1).width = Math.max(capa.getColumn(1).width || 0, 26);
 
-  // Cada tabela → aba própria estilizada (cabeçalho fixo + filtro).
-  let n = 0;
-  for (const b of spec.blocos) {
-    if (b.tipo !== "tabela") continue;
-    n++;
-    const ws = wb.addWorksheet(nomeAba(b.titulo || `Tabela ${n}`, usados));
-    escreverTabela(ws, b.colunas, b.linhas, 1);
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: b.colunas.length } };
-    ws.views = [{ state: "frozen", ySplit: 1 }];
+  // Tabelas ADICIONAIS → uma aba própria cada.
+  for (let i = 1; i < tabelas.length; i++) {
+    const b = tabelas[i]!;
+    const ws2 = wb.addWorksheet(nomeAba(b.titulo || `Tabela ${i + 1}`, usados));
+    escreverTabela(ws2, b.colunas, b.linhas, 1);
+    ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.min(b.colunas.length, 40) } };
+    ws2.views = [{ state: "frozen", ySplit: 1 }];
   }
 
   const buf = await wb.xlsx.writeBuffer();
