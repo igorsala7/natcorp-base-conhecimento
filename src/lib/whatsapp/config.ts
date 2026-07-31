@@ -5,6 +5,7 @@ import type { AuthType } from "@/lib/integrations/credentials";
 
 /** Configuração do canal WhatsApp já com os segredos DECIFRADOS (server-only). */
 export type WhatsappRuntime = {
+  baseCode: string;
   active: boolean;
   phoneNumberId: string | null;
   appSecret: string | null;
@@ -22,11 +23,11 @@ export type WhatsappRuntime = {
   };
 };
 
-export async function loadWhatsappRuntime(): Promise<WhatsappRuntime | null> {
+export async function loadWhatsappRuntime(base = ""): Promise<WhatsappRuntime | null> {
   const db = createAdminClient();
-  const { data: s } = await db.from("whatsapp_settings").select("*").eq("id", true).maybeSingle();
+  const { data: s } = await db.from("whatsapp_settings").select("*").eq("base_code", base).maybeSingle();
   if (!s) return null;
-  const { data: sec } = await db.from("whatsapp_secrets").select("*").eq("id", true).maybeSingle();
+  const { data: sec } = await db.from("whatsapp_secrets").select("*").eq("base_code", base).maybeSingle();
 
   let idSecret: Record<string, string> = {};
   if (sec?.identity_secret_enc) {
@@ -38,6 +39,7 @@ export async function loadWhatsappRuntime(): Promise<WhatsappRuntime | null> {
   }
 
   return {
+    baseCode: base,
     active: s.active,
     phoneNumberId: s.phone_number_id,
     appSecret: tryDecryptSecret(sec?.app_secret_enc),
@@ -54,4 +56,27 @@ export async function loadWhatsappRuntime(): Promise<WhatsappRuntime | null> {
       secret: idSecret,
     },
   };
+}
+
+/** Resolve o canal pelo `phone_number_id` que RECEBEU a mensagem (conta Meta do
+ *  cliente); sem correspondência, cai no canal PADRÃO (base ''). */
+export async function loadWhatsappForPhone(phoneNumberId: string | null | undefined): Promise<WhatsappRuntime | null> {
+  if (phoneNumberId) {
+    const db = createAdminClient();
+    const { data } = await db.from("whatsapp_settings").select("base_code").eq("phone_number_id", phoneNumberId).maybeSingle();
+    if (data?.base_code) return loadWhatsappRuntime(data.base_code);
+  }
+  return loadWhatsappRuntime(""); // padrão
+}
+
+/** Handshake GET: aceita o verify token se casar com QUALQUER canal. */
+export async function whatsappVerifyToken(token: string): Promise<boolean> {
+  if (!token) return false;
+  const db = createAdminClient();
+  const { data } = await db.from("whatsapp_secrets").select("verify_token_enc");
+  for (const r of data ?? []) {
+    const v = tryDecryptSecret(r.verify_token_enc);
+    if (v && v === token) return true;
+  }
+  return false;
 }

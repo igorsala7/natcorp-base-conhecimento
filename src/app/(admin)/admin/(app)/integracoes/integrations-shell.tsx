@@ -10,9 +10,11 @@ import { FlowManager } from "./flow-manager";
 import { BuilderChat } from "./builder-chat";
 import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
 
+type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
 export type WhatsappBundle = {
-  settings: WhatsappSettings;
-  secretsPresent: { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
+  channels: Record<string, WhatsappSettings>;
+  secrets: Record<string, SecretsPresent>;
+  bases: string[];
   webhookUrl: string;
 };
 
@@ -94,8 +96,9 @@ export function IntegrationsShell({
         <RunsManager runs={runs} />
       ) : (
         <WhatsappPanel
-          settings={whatsapp.settings}
-          secretsPresent={whatsapp.secretsPresent}
+          channels={whatsapp.channels}
+          secrets={whatsapp.secrets}
+          bases={whatsapp.bases}
           webhookUrl={whatsapp.webhookUrl}
           temChaveMestra={temChaveMestra}
         />

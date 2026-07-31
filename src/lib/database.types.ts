@@ -180,7 +180,7 @@ export type Database = {
         Row: {
           active: boolean
           business_account_id: string | null
-          id: boolean
+          base_code: string
           identity_auth_type: string
           identity_endpoint: string | null
           identity_map: Json
@@ -196,7 +196,7 @@ export type Database = {
         Insert: {
           active?: boolean
           business_account_id?: string | null
-          id?: boolean
+          base_code?: string
           identity_auth_type?: string
           identity_endpoint?: string | null
           identity_map?: Json
@@ -212,7 +212,7 @@ export type Database = {
         Update: {
           active?: boolean
           business_account_id?: string | null
-          id?: boolean
+          base_code?: string
           identity_auth_type?: string
           identity_endpoint?: string | null
           identity_map?: Json
@@ -231,7 +231,7 @@ export type Database = {
         Row: {
           access_token_enc: string | null
           app_secret_enc: string | null
-          id: boolean
+          base_code: string
           identity_secret_enc: string | null
           updated_at: string
           verify_token_enc: string | null
@@ -239,7 +239,7 @@ export type Database = {
         Insert: {
           access_token_enc?: string | null
           app_secret_enc?: string | null
-          id?: boolean
+          base_code?: string
           identity_secret_enc?: string | null
           updated_at?: string
           verify_token_enc?: string | null
@@ -247,7 +247,7 @@ export type Database = {
         Update: {
           access_token_enc?: string | null
           app_secret_enc?: string | null
-          id?: boolean
+          base_code?: string
           identity_secret_enc?: string | null
           updated_at?: string
           verify_token_enc?: string | null
@@ -3720,7 +3720,7 @@ export type Database = {
         Returns: undefined
       }
       set_whatsapp_secret: {
-        Args: { p_campo: string; p_valor_enc: string }
+        Args: { p_base: string; p_campo: string; p_valor_enc: string }
         Returns: undefined
       }
       whatsapp_has_secret: {

@@ -19,6 +19,7 @@ async function garantirPermissao(): Promise<string | null> {
 }
 
 const schema = z.object({
+  base: z.string().trim().default(""), // '' = canal PADRÃO; senão a base do cliente
   active: z.boolean().default(false),
   phone_number_id: z.string().trim().nullish(),
   waba_id: z.string().trim().nullish(),
@@ -51,9 +52,9 @@ export async function saveWhatsappConfig(input: unknown): Promise<IntegResult> {
   const identityMap: Record<string, string> = {};
   for (const [k, v] of Object.entries(d.identity_map)) if (v && v.trim()) identityMap[k] = v.trim();
 
-  const { error } = await supabase
-    .from("whatsapp_settings")
-    .update({
+  const { error } = await supabase.from("whatsapp_settings").upsert(
+    {
+      base_code: d.base,
       active: d.active,
       phone_number_id: d.phone_number_id?.trim() || null,
       waba_id: d.waba_id?.trim() || null,
@@ -67,8 +68,9 @@ export async function saveWhatsappConfig(input: unknown): Promise<IntegResult> {
       identity_map: identityMap as never,
       updated_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", true);
+    },
+    { onConflict: "base_code" },
+  );
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
 
   // Segredos simples (só grava quando vem preenchido).
@@ -80,6 +82,7 @@ export async function saveWhatsappConfig(input: unknown): Promise<IntegResult> {
   for (const [campo, valor] of simples) {
     if (valor && valor.trim()) {
       const { error: e } = await supabase.rpc("set_whatsapp_secret", {
+        p_base: d.base,
         p_campo: campo,
         p_valor_enc: encryptSecret(valor.trim()),
       });
@@ -96,6 +99,7 @@ export async function saveWhatsappConfig(input: unknown): Promise<IntegResult> {
       if (faltando.length) return { ok: false, error: `Credencial da API de identificação incompleta: ${faltando.join(", ")}.` };
     }
     const { error: e } = await supabase.rpc("set_whatsapp_secret", {
+      p_base: d.base,
       p_campo: "identity",
       p_valor_enc: encryptSecret(JSON.stringify(idSecret)),
     });

@@ -45,14 +45,73 @@ const LOCAIS = [
   ["header", "Header"],
 ] as const;
 
+type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
+
+function settingsVazio(): WhatsappSettings {
+  return {
+    active: false,
+    phone_number_id: null,
+    waba_id: null,
+    business_account_id: null,
+    unidentified_message: "Não consegui identificar seu cadastro por este número. Fale com o suporte.",
+    identity_endpoint: null,
+    identity_method: "GET",
+    identity_auth_type: "none",
+    identity_phone_param: "telefone",
+    identity_phone_local: "query",
+    identity_map: {},
+  };
+}
+
+/** Wrapper multi-canal: seletor "Padrão × cliente". Cada base = um canal (conta
+ *  Meta própria). O form remonta (key) ao trocar de base. */
 export function WhatsappPanel({
+  channels,
+  secrets,
+  bases,
+  webhookUrl,
+  temChaveMestra,
+}: {
+  channels: Record<string, WhatsappSettings>;
+  secrets: Record<string, SecretsPresent>;
+  bases: string[];
+  webhookUrl: string;
+  temChaveMestra: boolean;
+}) {
+  const [baseSel, setBaseSel] = useState("");
+  const settings = channels[baseSel] ?? settingsVazio();
+  const secretsPresent = secrets[baseSel] ?? { app_secret: false, access_token: false, verify_token: false, identity: false };
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-3">
+        <span className="text-sm font-semibold text-text">Canal</span>
+        <select className={`${controlClass} h-9 w-auto`} value={baseSel} onChange={(e) => setBaseSel(e.target.value)}>
+          <option value="">Padrão (fallback)</option>
+          {bases.map((b) => (
+            <option key={b} value={b}>{channels[b] ? b : `${b} — novo`}</option>
+          ))}
+        </select>
+        <span className="text-xs text-text-muted">
+          {baseSel
+            ? "Conta Meta própria deste cliente — o webhook roteia pelo phone_number_id."
+            : "Canal padrão: usado quando o número não casa nenhum cliente."}
+        </span>
+      </div>
+      <WhatsappForm key={baseSel} base={baseSel} settings={settings} secretsPresent={secretsPresent} webhookUrl={webhookUrl} temChaveMestra={temChaveMestra} />
+    </div>
+  );
+}
+
+function WhatsappForm({
+  base,
   settings,
   secretsPresent,
   webhookUrl,
   temChaveMestra,
 }: {
+  base: string;
   settings: WhatsappSettings;
-  secretsPresent: { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
+  secretsPresent: SecretsPresent;
   webhookUrl: string;
   temChaveMestra: boolean;
 }) {
@@ -83,6 +142,7 @@ export function WhatsappPanel({
   function salvar() {
     startTransition(async () => {
       const r = await saveWhatsappConfig({
+        base,
         active,
         phone_number_id: phoneNumberId,
         waba_id: wabaId,
