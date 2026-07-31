@@ -10,7 +10,7 @@ import { generateApiKey } from "@/lib/api/keys";
 export type ApiKeyResult = { ok: true; secret?: string; id?: string } | { ok: false; error: string };
 
 /** Escopos oferecidos (permissões RBAC relevantes à API de gestão). */
-export const API_SCOPES = ["content.view", "content.create", "content.edit", "content.publish"] as const;
+export const API_SCOPES = ["content.view", "content.create", "content.edit", "content.publish", "data.analyze"] as const;
 
 async function guard(): Promise<string | null> {
   try {

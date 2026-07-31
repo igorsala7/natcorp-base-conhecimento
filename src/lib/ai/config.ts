@@ -329,6 +329,51 @@ export async function chatModel(meta?: UsageMeta) {
   return languageModel("chat", meta);
 }
 
+/** Resolve a config de um provider pelo KIND, usando a CHAVE já cadastrada em
+ *  Sistema → IA (nenhuma chave trafega na requisição). `null` se não houver. */
+async function resolveAiPorProvider(kind: ProviderKind, model: string): Promise<ResolvedAi | null> {
+  try {
+    const supabase = createAdminClient();
+    const { data: provs } = await supabase
+      .from("ai_providers")
+      .select("id, base_url")
+      .eq("kind", kind)
+      .eq("active", true)
+      .limit(1);
+    const prov = provs?.[0];
+    if (!prov) {
+      const envCfg = doEnv("chat"); // fallback: env, se o kind bater
+      return envCfg && envCfg.kind === kind ? { ...envCfg, model } : null;
+    }
+    const { data: chave } = await supabase
+      .from("ai_provider_keys")
+      .select("api_key_enc")
+      .eq("provider_id", prov.id)
+      .maybeSingle();
+    const apiKey = tryDecryptSecret(chave?.api_key_enc);
+    if (!apiKey) return null;
+    return { kind, model, apiKey, baseUrl: prov.base_url ?? undefined, origem: "banco" };
+  } catch {
+    return null;
+  }
+}
+
+/** Modelo de um provider+model ESCOLHIDO na requisição (override). Cai no padrão
+ *  de `chat` quando o provider não é válido/configurado. */
+export async function languageModelEscolhido(
+  llm: { provider?: string | null; model?: string | null } | null | undefined,
+  meta?: UsageMeta,
+) {
+  const kind = String(llm?.provider ?? "").toLowerCase();
+  const model = String(llm?.model ?? "").trim();
+  const kinds: readonly string[] = ["anthropic", "openai", "google"];
+  if (model && kinds.includes(kind)) {
+    const cfg = await resolveAiPorProvider(kind as ProviderKind, model);
+    if (cfg) return comRegistro(instanciar(cfg), cfg, "chat", meta);
+  }
+  return languageModel("chat", meta);
+}
+
 /**
  * Modelo de embeddings.
  *

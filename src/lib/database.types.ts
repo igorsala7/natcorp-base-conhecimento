@@ -14,6 +14,81 @@ export type Database = {
   }
   public: {
     Tables: {
+      analysis_jobs: {
+        Row: {
+          batch_id: string
+          columns: Json | null
+          created_at: string
+          destino: string
+          error: string | null
+          id: string
+          instrucao: string | null
+          received_chunks: number
+          received_rows: number
+          result: Json | null
+          space_id: string | null
+          status: string
+          total_chunks: number | null
+          updated_at: string
+        }
+        Insert: {
+          batch_id: string
+          columns?: Json | null
+          created_at?: string
+          destino?: string
+          error?: string | null
+          id?: string
+          instrucao?: string | null
+          received_chunks?: number
+          received_rows?: number
+          result?: Json | null
+          space_id?: string | null
+          status?: string
+          total_chunks?: number | null
+          updated_at?: string
+        }
+        Update: {
+          batch_id?: string
+          columns?: Json | null
+          created_at?: string
+          destino?: string
+          error?: string | null
+          id?: string
+          instrucao?: string | null
+          received_chunks?: number
+          received_rows?: number
+          result?: Json | null
+          space_id?: string | null
+          status?: string
+          total_chunks?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      analysis_chunks: {
+        Row: {
+          created_at: string
+          id: string
+          job_id: string
+          rows: Json
+          seq: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          job_id: string
+          rows: Json
+          seq: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          job_id?: string
+          rows?: Json
+          seq?: number
+        }
+        Relationships: []
+      }
       whatsapp_events: {
         Row: {
           created_at: string
