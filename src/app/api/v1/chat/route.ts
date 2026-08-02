@@ -325,9 +325,13 @@ export async function POST(req: NextRequest) {
   // morto: reduzimos os trechos. NÃO zeramos (mantém contexto de fallback), e a pergunta
   // COMPOSTA (doc/regra + tool) mantém o RAG cheio. modoRelatorioCedo já era reduzido.
   const ragParaTool = (roteouDireto || !!scopeIn?.tool) && !perguntaComposta;
-  const ragLimit = ragParaTool ? 2 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
+  // Pergunta puramente COMPUTACIONAL (agregação/estatística) sobre o relatório → o RAG de
+  // documentação é peso morto: a resposta sai dos dados + query-tools. Zera nesse caso
+  // (só em modoRelatório, não composta) — economiza os ~5k tokens do 1º passo e distração.
+  const perguntaComputacional = /\b(m[ée]dia|soma|somat|\btotal|quant|contagem|contar|percentu|agrup|m[áa]xim|m[íi]nim|\bmaior|\bmenor|ranking|desvio|mediana|distribui|cruz)/i.test(question);
+  const ragLimit = ragParaTool ? 2 : (modoRelatorioCedo && perguntaComputacional) ? 0 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
   const _tRagStart = Date.now();
-  const ragSources = social || baseExclusiva ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope);
+  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope);
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
   passo("rag", { fontes: ragSources.length, limite: ragLimit, motivo: ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });

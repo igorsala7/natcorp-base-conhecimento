@@ -412,11 +412,15 @@ export function agruparDataset(
   filtros: Filtro[] = [],
   modo: "E" | "OU" = "E",
   limite = 100,
+  colunaGrupo2?: string,
 ): { grupos: GrupoResultado[]; totalGrupos: number } | { colunaNaoEncontrada: string } | null {
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
   const idxG = resolverColuna(ds, colunaGrupo);
   if (idxG == null) return { colunaNaoEncontrada: colunaGrupo };
+  // 2ª coluna de grupo (opcional) → CRUZAMENTO exato numa passada (ex.: por empresa E filial).
+  const idxG2 = colunaGrupo2 && colunaGrupo2.trim() ? resolverColuna(ds, colunaGrupo2) : null;
+  if (colunaGrupo2 && colunaGrupo2.trim() && idxG2 == null) return { colunaNaoEncontrada: colunaGrupo2 };
   const precisaValor = operacao !== "contar";
   const idxV = precisaValor ? resolverColuna(ds, colunaValor) : idxG;
   if (precisaValor && idxV == null) return { colunaNaoEncontrada: colunaValor };
@@ -424,7 +428,8 @@ export function agruparDataset(
   if ("colunaNaoEncontrada" in filt) return { colunaNaoEncontrada: filt.colunaNaoEncontrada };
   const mapa = new Map<string, { rotulo: string; nums: number[]; linhas: number }>();
   for (const row of filt.linhas) {
-    const rot = String(row[idxG] ?? "").trim() || "(vazio)";
+    const rot1 = String(row[idxG] ?? "").trim() || "(vazio)";
+    const rot = idxG2 != null ? `${rot1} | ${String(row[idxG2] ?? "").trim() || "(vazio)"}` : rot1;
     const k = norm(rot);
     let e = mapa.get(k); if (!e) { e = { rotulo: rot, nums: [], linhas: 0 }; mapa.set(k, e); }
     e.linhas++;

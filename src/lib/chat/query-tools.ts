@@ -156,21 +156,23 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
     }),
     agrupar: tool({
       description:
-        "AGRUPA POR uma coluna e agrega OUTRA — ex.: soma de Valor por Status, média de Salário por Departamento, contagem " +
-        "por Cidade. `operacao`: soma/media/mediana/min/max/desvio_padrao/amplitude ou 'contar' (aí `coluna_valor` é ignorada). " +
-        "Sobre 100% dos registros, com filtro opcional. Use quando o usuário pedir '… POR …', 'por categoria', 'quebrado por'. " +
-        "Devolve os grupos ordenados pelo valor (maior→menor).",
+        "AGRUPA POR uma coluna (ou DUAS, em cruzamento) e agrega OUTRA — ex.: soma de Valor por Status, média de Salário por " +
+        "Departamento, contagem por Cidade, contagem por Empresa E Filial. `operacao`: soma/media/mediana/min/max/desvio_padrao/" +
+        "amplitude ou 'contar' (aí `coluna_valor` é ignorada). Para '… por X E Y' (dois níveis/cruzamento), passe `coluna_grupo2` " +
+        "— vira UMA chamada exata; NÃO chame agrupar duas vezes. Sobre 100% dos registros, com filtro opcional. Devolve os grupos " +
+        "ordenados pelo valor (maior→menor).",
       inputSchema: z.object({
         dados_de: z.string().describe("Id da tabela coletada (ex.: 'tela1')."),
         coluna_grupo: z.string().describe("Coluna pela qual AGRUPAR (a categoria)."),
+        coluna_grupo2: z.string().optional().describe("2ª coluna de agrupamento p/ CRUZAMENTO (ex.: 'por empresa E filial'). Combina as duas numa passada."),
         coluna_valor: z.string().optional().describe("Coluna a agregar (obrigatória, exceto quando operacao='contar')."),
         operacao: z.enum(["soma", "media", "mediana", "min", "max", "amplitude", "desvio_padrao", "contar"]),
         filtros: filtrosSchema,
         combinacao: z.enum(["E", "OU"]).optional(),
         limite: z.number().int().min(1).max(500).optional().describe("Máx. de grupos a devolver (padrão 100)."),
       }),
-      execute: async ({ dados_de, coluna_grupo, coluna_valor, operacao, filtros, combinacao, limite }) => {
-        const r = agruparDataset(datasets, dados_de, coluna_grupo, coluna_valor ?? coluna_grupo, operacao as Agregacao, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E", limite ?? 100);
+      execute: async ({ dados_de, coluna_grupo, coluna_grupo2, coluna_valor, operacao, filtros, combinacao, limite }) => {
+        const r = agruparDataset(datasets, dados_de, coluna_grupo, coluna_valor ?? coluna_grupo, operacao as Agregacao, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E", limite ?? 100, coluna_grupo2);
         if (!r) return { erro: `Não encontrei a tabela "${dados_de}".` };
         if ("colunaNaoEncontrada" in r) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe.` };
         return {
