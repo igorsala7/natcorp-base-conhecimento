@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, type ToolSet } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -283,6 +283,12 @@ export async function POST(req: NextRequest) {
   // ainda não escolheu, perguntamos por botões (mais abaixo). "relatorio" → responde
   // SÓ com o relatório (sem tools de API, salvo pergunta composta); "ia" → fluxo normal.
   const temRelatorioNaTela = formAssist && !modoTutorial && Array.isArray(payload.screenTables) && payload.screenTables.length > 0;
+  // ANÁLISE DE RELATÓRIO: há relatório na tela e a mensagem é PERGUNTA DE DADOS (não é
+  // COMANDO de operar a tela nem tutorial). Nesse turno a camada de OPERAÇÃO de tela
+  // (mecânica da diretriz + tools de preencher/marcar/clicar) é dormente → cortada; mantém
+  // `destacar` + query-tools + análise. Comando de operação (preench/marqu/cliqu…) mantém tudo.
+  const precisaOperarTela = /\b(preench|escrev|marqu|desmarqu|selecion|cliqu|acion|inform|coloqu|digit|ativ|desativ|\bsalv|abr[ae])/i.test(question);
+  const modoAnaliseRelatorio = temRelatorioNaTela && !modoTutorial && !precisaOperarTela;
   const fonteEscolhida = payload.scope?.fonte === "relatorio" || payload.scope?.fonte === "ia" ? payload.scope.fonte : undefined;
   // ROTEAMENTO DE FONTE (decidido ANTES de montar as tools): o usuário está em modo
   // relatório, mas se a mensagem casa com tool(s) E NÃO tem relação com o relatório
@@ -362,11 +368,16 @@ export async function POST(req: NextRequest) {
     return sse({ type: "trace", passos: trace.passos, ms: trace.duracaoMs, desfecho });
   };
   // (perguntaComposta já definida no início — mistura relatório com doc/API/regra.)
-  const formTools = modoTutorial
+  const formToolsBase: ToolSet = modoTutorial
     ? buildTutorialTool(screenFields, uiActions)
     : formAssist && screenFields.length > 0
       ? buildFormTools(screenFields, uiActions)
       : {};
+  // Análise de relatório: mantém SÓ destacar_tela (as de preencher/marcar/clicar/tutorial
+  // não têm função aqui e só distraem o modelo → mais passos). destacar continua útil.
+  const formTools: ToolSet = modoAnaliseRelatorio && formToolsBase.destacar_tela
+    ? { destacar_tela: formToolsBase.destacar_tela }
+    : formToolsBase;
   // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados
   // (para plotar valores reais) OU quando o usuário PEDE um PDF/relatório/gráfico
   // — aí o conteúdo pode vir da DOCUMENTAÇÃO (ex.: um passo a passo em PDF). No
@@ -798,6 +809,7 @@ export async function POST(req: NextRequest) {
         temAnexos,
         temLov,
         temSalvos,
+        modoAnalise: modoAnaliseRelatorio,
       })
     : "";
   const blocoEntregar = temDadosTabulares && screenFields.length === 0 ? entregarResultadoDirective() : "";
