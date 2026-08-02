@@ -534,7 +534,9 @@ export async function POST(req: NextRequest) {
             type: "clarify",
             question: "Quer que eu responda com base no RELATÓRIO desta tela ou com o CONHECIMENTO da IA?",
             options: [
-              { id: "relatorio", label: "📄 Relatório desta tela", scope: { fonte: "relatorio" } },
+              // `direto: true` = escolha AUTORITATIVA: não re-perguntar a fonte no GATE 1
+              // (o usuário já decidiu o relatório; evita a 2ª pergunta redundante).
+              { id: "relatorio", label: "📄 Relatório desta tela", scope: { fonte: "relatorio", direto: true } },
               { id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia" } },
             ],
           }),
