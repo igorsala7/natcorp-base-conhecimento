@@ -3670,6 +3670,178 @@ export type Database = {
           },
         ]
       }
+      widget_analysis_chunks: {
+        Row: {
+          created_at: string
+          id: string
+          job_id: string
+          result: Json | null
+          seq: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          job_id: string
+          result?: Json | null
+          seq: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          job_id?: string
+          result?: Json | null
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_analysis_chunks_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "widget_analysis_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_analysis_jobs: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          dataset_id: string
+          error: string | null
+          estimate: Json | null
+          id: string
+          instrucao: string | null
+          kind: string
+          pre_filtro: Json
+          processed: number
+          progress: number
+          result: Json | null
+          rotulos: Json
+          session_id: string | null
+          space_id: string
+          status: string
+          target_column: string
+          total: number
+          track: string | null
+          updated_at: string
+          user_ref: string
+          widget_key_id: string | null
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          dataset_id: string
+          error?: string | null
+          estimate?: Json | null
+          id?: string
+          instrucao?: string | null
+          kind?: string
+          pre_filtro?: Json
+          processed?: number
+          progress?: number
+          result?: Json | null
+          rotulos?: Json
+          session_id?: string | null
+          space_id: string
+          status?: string
+          target_column: string
+          total?: number
+          track?: string | null
+          updated_at?: string
+          user_ref: string
+          widget_key_id?: string | null
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          dataset_id?: string
+          error?: string | null
+          estimate?: Json | null
+          id?: string
+          instrucao?: string | null
+          kind?: string
+          pre_filtro?: Json
+          processed?: number
+          progress?: number
+          result?: Json | null
+          rotulos?: Json
+          session_id?: string | null
+          space_id?: string
+          status?: string
+          target_column?: string
+          total?: number
+          track?: string | null
+          updated_at?: string
+          user_ref?: string
+          widget_key_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_analysis_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_analysis_jobs_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "widget_datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_datasets: {
+        Row: {
+          client_key: string
+          columns: Json
+          created_at: string
+          id: string
+          rows: Json | null
+          source_name: string | null
+          space_id: string
+          storage_path: string | null
+          total: number
+          user_ref: string
+          widget_key_id: string | null
+        }
+        Insert: {
+          client_key: string
+          columns?: Json
+          created_at?: string
+          id?: string
+          rows?: Json | null
+          source_name?: string | null
+          space_id: string
+          storage_path?: string | null
+          total?: number
+          user_ref: string
+          widget_key_id?: string | null
+        }
+        Update: {
+          client_key?: string
+          columns?: Json
+          created_at?: string
+          id?: string
+          rows?: Json | null
+          source_name?: string | null
+          space_id?: string
+          storage_path?: string | null
+          total?: number
+          user_ref?: string
+          widget_key_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_datasets_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       widget_saved_reports: {
         Row: {
           chart: Json | null

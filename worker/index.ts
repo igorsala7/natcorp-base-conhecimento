@@ -21,6 +21,7 @@ import { pushToGithub, listGithubBackups, downloadGithubFile } from "../src/lib/
 import { tryDecryptSecret } from "../src/lib/crypto/secrets";
 import { extractDocument } from "../src/lib/importer/extract";
 import { processAnalyzeJob } from "../src/lib/analyze/run-job";
+import { processSemanticJob } from "../src/lib/analyze/run-semantic-job";
 import {
   heuristicTree,
   refineStructureWithLLM,
@@ -1077,6 +1078,7 @@ async function main() {
   await boss.createQueue("ontology-scan");
   await boss.createQueue("ontology-import");
   await boss.createQueue("bulk-process");
+  await boss.createQueue("analyze-semantic");
   await boss.createQueue("backup");
   await boss.createQueue("backup-restore");
   await boss.createQueue("backup-reschedule");
@@ -1167,6 +1169,22 @@ async function main() {
       if (data?.length) console.log(`Análises: ${data.length} lote(s) antigos removidos.`);
     } catch (e) {
       console.error("Limpeza de analysis_jobs falhou:", e instanceof Error ? e.message : e);
+    }
+    // Jobs de análise semântica do widget (done/error/canceled há > 2 dias) — chunks caem em cascata.
+    try {
+      const limite = new Date(Date.now() - 2 * 86400_000).toISOString();
+      const { data } = await supabase.from("widget_analysis_jobs").delete().lt("updated_at", limite).in("status", ["done", "error", "canceled"]).select("id");
+      if (data?.length) console.log(`Análise semântica: ${data.length} job(s) antigos removidos.`);
+    } catch (e) {
+      console.error("Limpeza de widget_analysis_jobs falhou:", e instanceof Error ? e.message : e);
+    }
+    // Datasets coletados do widget há > 7 dias (cache de coleta; recoletável). Cascata p/ jobs que os referenciam.
+    try {
+      const limite = new Date(Date.now() - 7 * 86400_000).toISOString();
+      const { data } = await supabase.from("widget_datasets").delete().lt("created_at", limite).select("id");
+      if (data?.length) console.log(`Datasets do widget: ${data.length} conjunto(s) antigos removidos.`);
+    } catch (e) {
+      console.error("Limpeza de widget_datasets falhou:", e instanceof Error ? e.message : e);
     }
   });
 
@@ -1272,6 +1290,20 @@ async function main() {
       } catch (e) {
         console.error(`Análise ${jobId} falhou:`, e instanceof Error ? e.message : String(e));
         throw e; // deixa o pg-boss reprocessar (retryLimit no enqueue)
+      }
+    }
+  });
+
+  await boss.work("analyze-semantic", { batchSize: 2 }, async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Análise semântica (job ${jobId})`);
+      try {
+        await processSemanticJob(jobId);
+        console.log(`Análise semântica ${jobId} concluída`);
+      } catch (e) {
+        console.error(`Análise semântica ${jobId} falhou:`, e instanceof Error ? e.message : String(e));
+        throw e; // pg-boss retenta
       }
     }
   });

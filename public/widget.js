@@ -491,24 +491,29 @@
   // sem tocar nos apps e sem teto de Max Row Count. O widget NÃO fala com o ORDS
   // (origem diferente + secret no browser seria falha). Ligada por config:
   // cfg.reportServer = true. O ORDS/base/credencial ficam no backend (modelo Integrações).
-  function valHidden(sel) { try { var el = document.querySelector(sel); return el ? String(el.value || "") : ""; } catch { return ""; } }
-  function apexInfo() {
-    var g = window.apex, env = g && g.env;
-    var app = (env && env.APP_ID) || valHidden("#pFlowId");
-    var page = (env && env.APP_PAGE_ID) || valHidden("#pFlowStepId");
-    var sess = (env && env.APP_SESSION) || valHidden("#pInstance");
+  function valHidden(sel, doc) { try { var el = (doc || document).querySelector(sel); return el ? String(el.value || "") : ""; } catch { return ""; } }
+  // Contexto APEX da JANELA `win` (padrão: a página top). Quando o IR está dentro de um
+  // iframe, passe a janela DONA da região — o app/page/session são os DELA, não os do host.
+  function apexInfo(win) {
+    win = win || window;
+    var g = win.apex, env = g && g.env, doc = win.document || document;
+    var app = (env && env.APP_ID) || valHidden("#pFlowId", doc);
+    var page = (env && env.APP_PAGE_ID) || valHidden("#pFlowStepId", doc);
+    var sess = (env && env.APP_SESSION) || valHidden("#pInstance", doc);
     if (!app || !page || !sess) { // fallback: URL f?p=APP:PAGE:SESSION:...
-      var m = String(location.href).match(/[?&]p=(\d+):(\d+):(\d+)/);
+      var href = ""; try { href = String(win.location.href); } catch { href = ""; }
+      var m = href.match(/[?&]p=(\d+):(\d+):(\d+)/);
       if (m) { app = app || m[1]; page = page || m[2]; sess = sess || m[3]; }
     }
     return { app: app, page: page, sess: sess };
   }
   // APP_USER do APEX (usuário do create_session no ORDS). apex.env.APP_USER é o
   // acessor do próprio APEX; fallback = o hidden input do IR (..._app_user).
-  function appUserTela() {
+  function appUserTela(win) {
+    win = win || window;
     try {
-      if (window.apex && apex.env && apex.env.APP_USER) return String(apex.env.APP_USER);
-      var el = document.querySelector("input[id$='_app_user']");
+      if (win.apex && win.apex.env && win.apex.env.APP_USER) return String(win.apex.env.APP_USER);
+      var el = (win.document || document).querySelector("input[id$='_app_user']");
       return el ? String(el.value || "") : "";
     } catch { return ""; }
   }
@@ -533,10 +538,10 @@
     } catch { }
     return cands;
   }
-  function chamarProcessoIR(info, region) {
+  function chamarProcessoIR(win, info, region) {
     return new Promise(function (resolve) {
       try {
-        window.apex.server.process("PRC_DADOS_IR",
+        (win || window).apex.server.process("PRC_DADOS_IR",
           { x01: String(info.app), x02: String(info.page), x03: String(region) },
           {
             dataType: "json",
@@ -548,17 +553,22 @@
   }
   async function coletarViaProcesso(rv) {
     try {
-      var A = window.apex;
-      if (!A || !A.server || typeof A.server.process !== "function") { diag("P: sem apex.server.process (host não-APEX)"); return null; }
-      var info = apexInfo();
+      // A região do IR pode viver DENTRO de um iframe (aplicação/página APEX aninhada).
+      // O contexto (app/page/session + apex.server.process) TEM de ser o da JANELA DONA
+      // da região — não o da página hospedeira — senão o processo procura a região no app
+      // errado ("a região não existe no aplicativo X"). rv.ownerDocument.defaultView = essa janela.
+      var win = (rv && rv.ownerDocument && rv.ownerDocument.defaultView) || window;
+      var A = win.apex;
+      if (!A || !A.server || typeof A.server.process !== "function") { diag("P: sem apex.server.process (host/iframe não-APEX)"); return null; }
+      var info = apexInfo(win);
       if (!info.app || !info.page) { diag("P: sem contexto APEX (app/page)"); return null; }
       var cands = regiaoCandidatos(rv);
       if (!cands.length) { diag("P: sem identificador de região"); return null; }
-      diag("P: PRC_DADOS_IR app=" + info.app + " page=" + info.page + " candidatos=[" + cands.join(", ") + "]");
+      diag("P: PRC_DADOS_IR app=" + info.app + " page=" + info.page + (win !== window ? " (via iframe)" : "") + " candidatos=[" + cands.join(", ") + "]");
       // Tenta cada candidato até o processo achar a região (ok:true).
       var meta = null;
       for (var ci = 0; ci < cands.length; ci++) {
-        meta = await chamarProcessoIR(info, cands[ci]);
+        meta = await chamarProcessoIR(win, info, cands[ci]);
         if (meta && meta.ok === true) { diag("P: região resolvida por '" + cands[ci] + "'"); break; }
         if (meta && meta.erro) diag("P: '" + cands[ci] + "' → " + meta.erro);
       }
@@ -597,11 +607,14 @@
   async function coletarViaServidor(rv) {
     try {
       if (cfg.reportServer !== true) return null;
-      var info = apexInfo();
+      // Mesmo cuidado do processo in-session: se a região está num iframe, o app/page/
+      // session/appUser vêm da janela DONA da região, não da página hospedeira.
+      var win = (rv && rv.ownerDocument && rv.ownerDocument.defaultView) || window;
+      var info = apexInfo(win);
       if (!info.app || !info.page || !info.sess) { diag("A: sem contexto APEX (app/page/session)"); return null; }
       var b = botaoProximo(rv) || botaoAnterior(rv);
       var region = (b && b.getAttribute("aria-controls")) || regionKey(rv) || "";
-      var appUser = appUserTela();
+      var appUser = appUserTela(win);
       diag("A: POST " + API + "/api/v1/report-data app=" + info.app + " page=" + info.page + " region=" + region + " appUser=" + (appUser || "-"));
       // session como STRING: ids do APEX podem exceder a precisão de Number em JS.
       // `track` leva a BASE + identidade (p_*); appUser é o APP_USER lido no navegador.
@@ -2996,6 +3009,76 @@
       return await resp.json().catch(function () { return null; });
     } catch (e) { return null; }
   }
+  // Persiste o CONJUNTO coletado do relatório por id (Fase F1). Mesma auth do saved-reports
+  // (o servidor valida a chave + o rastreio e grava no ESCOPO do usuário).
+  async function apiDataset(payload) {
+    try {
+      var resp = await fetch(API + "/api/v1/datasets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload)),
+      });
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+  // Salva o conjunto coletado UMA vez (em 2º plano) e guarda o id no cache, para os
+  // PRÓXIMOS turnos mandarem só o id em vez de reenviar todas as linhas. Idempotente
+  // (a rota faz upsert por client_key). O escopo do usuário é garantido no servidor.
+  async function persistirDataset(c) {
+    if (!c || !c.linhas || !c.linhas.length || c.dsId || c._saving) return;
+    c._saving = true;
+    try {
+      var r = await apiDataset({ action: "save", clientKey: (c.key || "") + ":" + (c.fp || ""), sourceName: c.nome, columns: c.colunas, rows: c.linhas, total: c.total || c.linhas.length });
+      if (r && r.ok && r.id) { c.dsId = r.id; diag("dataset persistido id=" + r.id + " — próximos turnos mandam só o id"); }
+      else if (r && r.erro) diag("dataset não persistido: " + r.erro);
+    } catch (e) { diag("dataset persist falhou: " + (e && e.message)); }
+    finally { c._saving = false; }
+  }
+  // Estado do job de ANÁLISE SEMÂNTICA (modo B) — mesma auth do saved-reports.
+  async function apiAnalysisJob(payload) {
+    try {
+      var resp = await fetch(API + "/api/v1/analysis-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload)),
+      });
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+  // Acompanha a análise profunda (modo B) por POLLING (o widget é anônimo, sem Realtime)
+  // e renderiza o resultado no chat quando conclui. O worker também posta na conversa,
+  // então a resposta sobrevive a um reload.
+  function iniciarAcompanhamentoAnalise(jobId, estimate, criterio, coluna) {
+    if (!jobId) { addMsg("assistant", "Não consegui iniciar a análise profunda agora. Tente novamente."); return; }
+    var mins = estimate && estimate.segundos ? Math.max(1, Math.round(estimate.segundos / 60)) : 1;
+    var nreg = estimate && estimate.linhas ? estimate.linhas : 0;
+    var statusEl = addMsg("assistant", "");
+    statusEl.innerHTML = mdToHtml("🔎 **Análise profunda iniciada** — lendo e classificando " + (nreg ? nreg.toLocaleString("pt-BR") + " registro(s)" : "os registros") + (coluna ? " da coluna *" + coluna + "*" : "") + ". Pode levar ~" + mins + " min; aviso aqui quando terminar.");
+    var tentativas = 0;
+    var poll = function () {
+      tentativas++;
+      apiAnalysisJob({ action: "get", id: jobId }).then(function (r) {
+        if (!r || !r.ok) { if (tentativas < 200) setTimeout(poll, 3000); else statusEl.innerHTML = mdToHtml("Não consegui acompanhar a análise; ela pode ainda estar rodando."); return; }
+        if (r.status === "done") {
+          var res = r.result || {};
+          var texto = res.narrativa || "Análise concluída.";
+          if (res.distribuicao && typeof res.distribuicao === "object") {
+            var dist = Object.keys(res.distribuicao).map(function (k) { return "- **" + k + "**: " + res.distribuicao[k]; }).join("\n");
+            if (dist) texto += "\n\n**Distribuição (100% dos registros analisados):**\n" + dist;
+          }
+          statusEl.innerHTML = mdToHtml(texto);
+          avisarMensagem();
+          try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { }
+          return;
+        }
+        if (r.status === "error") { statusEl.innerHTML = mdToHtml("A análise falhou: " + (r.error || "erro desconhecido") + "."); return; }
+        var pct = typeof r.progress === "number" ? r.progress : 0;
+        statusEl.innerHTML = mdToHtml("🔎 **Analisando…** " + pct + "% (" + (r.processed || 0) + "/" + (r.total || nreg) + "). Aviso aqui quando terminar.");
+        if (tentativas < 300) setTimeout(poll, 3000);
+      }).catch(function () { if (tentativas < 200) setTimeout(poll, 3000); });
+    };
+    setTimeout(poll, 3000);
+  }
   // Toast curto dentro do painel (sucesso/erro), sem poluir a conversa.
   function toastWidget(msg, erro) {
     var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
@@ -4663,7 +4746,16 @@
     // Coleta multi-página do relatório (todas as páginas) — enviada à parte para
     // não ser truncada com o resto da tela.
     if (cfg.formAssist && _harvested) {
-      body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas, total: _harvested.total || _harvested.linhas.length, incompleto: !!_harvested.incompleto };
+      // F1: se já persistimos ESTE conjunto (mesmo relatório+filtro), manda só o id —
+      // evita reenviar todas as linhas a cada turno. 1ª vez: manda inline (compat) e
+      // persiste em 2º plano para os próximos turnos usarem o id.
+      var _cch = (_harvestCache && _harvestCache.key === _harvested.key) ? _harvestCache : null;
+      if (_cch && _cch.dsId) {
+        body.reportDataId = _cch.dsId;
+      } else {
+        body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas, total: _harvested.total || _harvested.linhas.length, incompleto: !!_harvested.incompleto };
+        if (_cch) persistirDataset(_cch);
+      }
     }
     // Fase B: cruzamento com um relatório salvo (enviado quando o usuário compara).
     if (cfg.formAssist && _comparacao) body.comparacao = _comparacao;
@@ -4675,6 +4767,7 @@
     try {
       diag("envio: fonte=" + ((body.scope && body.scope.fonte) || "-") +
         " reportData=" + (body.reportData ? body.reportData.linhas.length : "-") +
+        " reportDataId=" + (body.reportDataId || "-") +
         " screenTables=" + (body.screenTables ? body.screenTables.length : 0) +
         " paginado=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].paginado : "-") +
         " total=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].total : "-"));
@@ -4790,6 +4883,11 @@
         avisarMensagem();
         _teveEscolha = true;
         if (evt.spec) renderChartChoice(evt.pergunta, evt.spec, evt.recomendado);
+      } else if (evt.type === "analysis_started") {
+        // Modo B: a análise semântica em lote foi enfileirada → acompanha por polling.
+        if (typing.parentNode) typing.remove();
+        avisarMensagem();
+        iniciarAcompanhamentoAnalise(evt.jobId, evt.estimate, evt.criterio, evt.coluna);
       } else if (evt.type === "harvest") {
         // A IA pediu a coleta de TODAS as páginas do relatório paginado.
         if (typing.parentNode) typing.remove();

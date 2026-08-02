@@ -31,7 +31,9 @@ import { matchBaseTools, type ToolMatch } from "@/lib/integrations/tool-catalog"
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
-import { newRegistry } from "@/lib/chat/datasets";
+import { newRegistry, type Filtro } from "@/lib/chat/datasets";
+import { classificarAnalise, estimarCustoB, filtrarSubconjunto, avgCharsColuna } from "@/lib/chat/analysis-router";
+import { enqueueSemanticAnalyze } from "@/lib/jobs/boss";
 import { buildQueryTool } from "@/lib/chat/query-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest) {
     continuation?: unknown;
     executedActions?: unknown;
     reportData?: unknown;
+    reportDataId?: unknown;
     screenTables?: unknown;
     focusedField?: unknown;
     comparacao?: unknown;
@@ -167,8 +170,12 @@ export async function POST(req: NextRequest) {
   // reescrita de consulta (interpretarConsulta) — um passo de LLM que serve ao RAG de
   // documentação e agrega pouco aqui. O RAG ainda roda com a pergunta ORIGINAL, então
   // não se perde contexto documental para análises qualitativas/estratégicas.
+  // Relatório na entrada: inline (payload.reportData) OU persistido por id (F1: reportDataId).
+  const temReportEntrada =
+    (!!payload.reportData && typeof payload.reportData === "object") ||
+    (typeof payload.reportDataId === "string" && payload.reportDataId.trim().length > 0);
   const modoRelatorioCedo =
-    (payload.scope?.fonte === "relatorio" || (!!payload.reportData && typeof payload.reportData === "object")) && !perguntaComposta;
+    (payload.scope?.fonte === "relatorio" || temReportEntrada) && !perguntaComposta;
   const _tPrep0 = Date.now();
   // Pula a reescrita de consulta (interpretarConsulta — uma ida ao modelo) quando ela
   // não agrega: social; modo relatório (usa a pergunta original); e base EXCLUSIVA
@@ -203,6 +210,35 @@ export async function POST(req: NextRequest) {
   // Identidade de rastreio (decodificada do token) — usada na conversa E para
   // atribuir o CONSUMO de IA a este usuário (não ao sistema).
   const track = await decodeTrackForSpace(key.space_id, payload.track);
+  // Escopo do usuário (isolamento) — reusado p/ datasets persistidos e fontes salvas.
+  const userRef = `${String(track.p_base ?? "").trim()}:${String(track.p_usuario ?? track.p_matricula ?? "").trim()}`;
+  // Dataset persistido (F1): o widget mandou só o id → rehidrata as linhas, SEMPRE
+  // filtrando por space_id + user_ref (um id sozinho NUNCA basta — nada vaza entre
+  // usuários). Fallback: o conjunto inline em payload.reportData (1ª coleta / host não-APEX).
+  const reportDataId = typeof payload.reportDataId === "string" ? payload.reportDataId.trim() : "";
+  let reportDataResolved: unknown = payload.reportData;
+  if (reportDataId && !(reportDataResolved && typeof reportDataResolved === "object")) {
+    const { data: dsRow } = await supabase
+      .from("widget_datasets")
+      .select("source_name, columns, rows, total")
+      .eq("id", reportDataId)
+      .eq("space_id", key.space_id)
+      .eq("user_ref", userRef)
+      .maybeSingle();
+    const linhas = dsRow && Array.isArray(dsRow.rows) ? (dsRow.rows as unknown[]) : null;
+    if (dsRow && Array.isArray(dsRow.columns) && linhas) {
+      reportDataResolved = {
+        nome: dsRow.source_name ?? "Relatório",
+        colunas: dsRow.columns,
+        linhas,
+        total: typeof dsRow.total === "number" ? dsRow.total : linhas.length,
+        incompleto: typeof dsRow.total === "number" && dsRow.total > linhas.length,
+      };
+      passo("dataset", { fonte: "persistido", id: reportDataId, linhas: linhas.length, total: dsRow.total });
+    } else {
+      passo("dataset", { fonte: "persistido", id: reportDataId, erro: "não encontrado no escopo do usuário" });
+    }
+  }
   // Integrações (Fase F): se o token traz `p_base`, o modelo ganha ferramentas
   // para consultar as APIs daquela base. A identidade é injetada no servidor
   // (identityFromTrack) — o modelo só preenche os parâmetros de consulta.
@@ -352,7 +388,7 @@ export async function POST(req: NextRequest) {
   const inviteTools = querConvite ? buildInviteTool(inviteSpecs) : {};
   // Coleta multi-página concluída? (o widget percorreu as páginas e mandou o
   // conjunto completo em `reportData`.) Registra como dataset + bloco de contexto.
-  const reportBloco = formAssist ? reportDataBlock(payload.reportData, datasets) : "";
+  const reportBloco = formAssist ? reportDataBlock(reportDataResolved, datasets) : "";
   // Modo RELATÓRIO: já veio coleta (reportBloco) OU o usuário escolheu "relatório".
   // Nesse modo respondemos com o relatório e NÃO usamos as tools de API — a menos
   // que a pergunta seja COMPOSTA (relatório + documentação/sistema).
@@ -399,7 +435,7 @@ export async function POST(req: NextRequest) {
   const spaceIdBase = key.space_id;
   async function montarFontesBlock(relIds: string[]): Promise<string> {
     if (!relIds.length) return "";
-    const userRef = `${String(track.p_base ?? "").trim()}:${String(track.p_usuario ?? track.p_matricula ?? "").trim()}`;
+    // userRef: escopo do usuário, definido no início do handler (isolamento).
     const { data } = await supabase
       .from("widget_saved_reports")
       .select("id, name, kind, mime, columns, rows, content, total")
@@ -554,6 +590,83 @@ export async function POST(req: NextRequest) {
         cand.map((m) => ({ id: m.key, label: m.name, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
         "clarify_tool",
       );
+    }
+  }
+
+  // ── ANÁLISE SEMÂNTICA POR LINHA (modo B) — sob demanda, opt-in, per-usuário ──────
+  // Só com relatório tabular coletado. CONFIRMADO (scope.analiseB) → enfileira o job em
+  // lote (worker) e devolve "analysis_started" (widget faz poll). Sem confirmação → um
+  // classificador barato decide OFERECER o B (verbo de julgamento + coluna de TEXTO
+  // LIVRE); senão segue no fluxo A (as query-tools já resolvem 100%). Isolado por usuário.
+  const rdB = reportDataResolved && typeof reportDataResolved === "object" ? (reportDataResolved as { nome?: unknown; colunas?: unknown; linhas?: unknown }) : null;
+  if (!!reportBloco && rdB && temDadosTabulares && !continuation && !social) {
+    const colunasB = Array.isArray(rdB.colunas) ? rdB.colunas.map((c) => String(c)) : [];
+    const linhasB = Array.isArray(rdB.linhas) ? (rdB.linhas as unknown[]).map((r) => (Array.isArray(r) ? (r as unknown[]).map((c) => String(c ?? "")) : [])) : [];
+    const scopeB = (payload.scope as unknown as { analiseB?: { alvoColuna?: unknown; criterio?: unknown; rotulos?: unknown; preFiltro?: unknown } } | undefined)?.analiseB;
+
+    if (scopeB && typeof scopeB === "object" && colunasB.length && linhasB.length) {
+      // CONFIRMADO → (A→B) pré-filtra, persiste o recorte no escopo do usuário e enfileira.
+      const alvoColuna = String(scopeB.alvoColuna ?? "").trim();
+      const criterio = String(scopeB.criterio ?? "").trim();
+      const rotulos = Array.isArray(scopeB.rotulos) ? scopeB.rotulos.map((r) => String(r)).slice(0, 8) : [];
+      const preFiltro = (Array.isArray(scopeB.preFiltro) ? scopeB.preFiltro : []) as Filtro[];
+      const sub = filtrarSubconjunto(colunasB, linhasB, preFiltro);
+      const est = estimarCustoB({ linhas: sub.linhas.length, avgCharsAlvo: avgCharsColuna(sub.colunas, sub.linhas, alvoColuna) });
+      let jobId: string | null = null;
+      if (alvoColuna && rotulos.length && sub.linhas.length) {
+        const { data: dsRow } = await supabase
+          .from("widget_datasets")
+          .insert({ space_id: key.space_id, widget_key_id: key.id, user_ref: userRef, client_key: `analiseB:${crypto.randomUUID()}`, source_name: String(rdB.nome ?? "Relatório"), columns: sub.colunas, rows: sub.linhas, total: sub.linhas.length })
+          .select("id").single();
+        if (dsRow) {
+          const { data: jobRow } = await supabase
+            .from("widget_analysis_jobs")
+            .insert({
+              space_id: key.space_id, widget_key_id: key.id, user_ref: userRef, session_id: payload.sessionId ?? null,
+              conversation_id: convId ?? null, dataset_id: dsRow.id, target_column: alvoColuna, rotulos: rotulos as never,
+              pre_filtro: preFiltro as never, instrucao: criterio, estimate: est as never, total: sub.linhas.length, status: "queued",
+              track: typeof payload.track === "string" ? payload.track : null,
+            })
+            .select("id").single();
+          if (jobRow) {
+            jobId = jobRow.id;
+            try { await enqueueSemanticAnalyze(jobRow.id); }
+            catch { await supabase.from("widget_analysis_jobs").update({ status: "error", error: "Falha ao enfileirar o job." }).eq("id", jobRow.id); }
+          }
+        }
+      }
+      passo("analise_b", { enfileirado: !!jobId, linhas: sub.linhas.length, alvo: alvoColuna });
+      const traceEvt = finalizarTrace(jobId ? "analise_b_enfileirada" : "analise_b_falhou");
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(sse({ type: "citations", citations: [] }));
+          if (jobId) controller.enqueue(sse({ type: "analysis_started", jobId, estimate: est, criterio, coluna: alvoColuna }));
+          else controller.enqueue(sse({ type: "token", value: "Não consegui iniciar a análise profunda agora. Tente novamente em instantes." }));
+          controller.enqueue(traceEvt);
+          controller.enqueue(sse({ type: "done", conversationId: convId }));
+          controller.close();
+        },
+      });
+      return sseResponse(stream, cors);
+    }
+
+    // SEM escolha ainda → talvez OFERECER o B (classificador barato; default = segue A).
+    if (!payload.scope) {
+      const dec = await classificarAnalise({ question, columns: colunasB, sampleRows: linhasB.slice(0, 60) });
+      passo("analise_router", { modo: dec.modo, alvo: dec.alvoColuna, confianca: dec.confianca });
+      if ((dec.modo === "B" || dec.modo === "A_para_B") && dec.alvoColuna) {
+        const sub = filtrarSubconjunto(colunasB, linhasB, dec.preFiltro);
+        const est = estimarCustoB({ linhas: sub.linhas.length, avgCharsAlvo: avgCharsColuna(sub.colunas, sub.linhas, dec.alvoColuna) });
+        const mins = Math.max(1, Math.round(est.segundos / 60));
+        return clarifyResponse(
+          `Para responder isso preciso LER e classificar o texto de ${sub.linhas.length.toLocaleString("pt-BR")} registro(s) da coluna "${dec.alvoColuna}" (análise profunda, ~${mins} min). Como prefere?`,
+          [
+            { id: "analiseB", label: `🔎 Análise profunda (~${mins} min)`, scope: { analiseB: { alvoColuna: dec.alvoColuna, criterio: dec.criterio, rotulos: dec.rotulos, preFiltro: dec.preFiltro } } },
+            { id: "resumo", label: "⚡ Só um resumo por indicadores", scope: { fonte: "relatorio" } },
+          ],
+          "clarify_analise_b",
+        );
+      }
     }
   }
 

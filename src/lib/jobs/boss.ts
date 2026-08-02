@@ -23,6 +23,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("ontology-import");
       await boss.createQueue("bulk-process");
       await boss.createQueue("analyze");
+      await boss.createQueue("analyze-semantic");
       await boss.createQueue("backup");
       await boss.createQueue("backup-restore");
       await boss.createQueue("backup-reschedule");
@@ -135,6 +136,13 @@ export async function enqueueBulkProcess(jobId: string): Promise<void> {
 export async function enqueueAnalyze(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("analyze", { jobId }, { retryLimit: 2, retryDelay: 20, retryBackoff: true });
+}
+
+/** Análise SEMÂNTICA por linha (modo B do widget) — worker classifica em lotes e grava
+ *  em widget_analysis_jobs; o widget faz poll e o resultado também é postado no chat. */
+export async function enqueueSemanticAnalyze(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("analyze-semantic", { jobId }, { retryLimit: 2, retryDelay: 20, retryBackoff: true });
 }
 
 /** Backup do sistema (banco + arquivos) em segundo plano, com progresso. */
