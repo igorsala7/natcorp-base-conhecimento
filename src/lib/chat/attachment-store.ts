@@ -13,7 +13,7 @@ import { assertArquivoSeguro, ehImagem } from "@/lib/importer/file-guard";
  */
 const BUCKET = "imports";
 /** Teto por documento — menor que o da Importação (documentos grandes vão por lá). */
-const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
+const MAX_ATTACH_BYTES = 50 * 1024 * 1024;
 /** Teto por IMAGEM (vai a um modelo com visão — custo de tokens por imagem). */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 /** Teto do texto extraído injetado no prompt, por anexo (protege o orçamento). */
@@ -44,7 +44,7 @@ export async function receiveAttachment(
   if (file.bytes.length === 0) return { ok: false, error: "Arquivo vazio." };
   const cap = ehImg ? MAX_IMAGE_BYTES : MAX_ATTACH_BYTES;
   if (file.bytes.length > cap) {
-    return { ok: false, error: ehImg ? "Imagem muito grande (máx. 8 MB)." : "Arquivo muito grande (máx. 20 MB)." };
+    return { ok: false, error: ehImg ? "Imagem muito grande (máx. 8 MB)." : "Arquivo muito grande (máx. 50 MB)." };
   }
   // Portão: allowlist + assinatura + binário disfarçado. Imagens só passam com
   // o opt-in (vão a um modelo com VISÃO, não ao extrator de texto).

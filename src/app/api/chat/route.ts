@@ -245,7 +245,9 @@ export async function POST(req: NextRequest) {
           dataUrl: `data:${f.mimeType};base64,${f.base64}`,
         }));
       }
-      const u = await Promise.resolve(result.usage).catch(() => null);
+      // totalUsage = soma de TODOS os passos do turno (não só o último) — o consumo
+      // exibido tem que refletir o turno inteiro, incluindo tools/coleta.
+      const u = await Promise.resolve(result.totalUsage).catch(() => null);
       if (u) meta.usage = { total: u.totalTokens ?? null, input: u.inputTokens ?? null, output: u.outputTokens ?? null };
       if (Object.keys(meta).length) controller.enqueue(enc.encode(META_MARK + JSON.stringify(meta)));
       controller.close();

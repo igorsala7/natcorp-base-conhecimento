@@ -476,7 +476,10 @@ type FiltrosUso = Record<(typeof CAMPOS_USO)[number][0], string>;
 function ConsumoIA() {
   const [from, setFrom] = useState(() => diasAtras(30));
   const [to, setTo] = useState(() => hojeIso());
-  const [tipo, setTipo] = useState<UsoTipo>("system");
+  // Padrão TODOS: o Chat/widget grava com kind="user" e as ações internas com
+  // kind="system"; "sistema" escondia o Chat do relatório de faturamento. Nunca
+  // omitir nenhum consumo por padrão — ver acaoLabel (fallback mostra a ação crua).
+  const [tipo, setTipo] = useState<UsoTipo>("all");
   const [filtros, setFiltros] = useState<FiltrosUso>({
     base: "",
     portal: "",
@@ -575,9 +578,9 @@ function ConsumoIA() {
             onChange={(e) => setTipo(e.target.value as UsoTipo)}
             className={`${controlClass} h-8 w-auto px-2 py-1 text-xs`}
           >
-            <option value="system">Tipo: Sistema</option>
-            <option value="user">Tipo: Usuário</option>
             <option value="all">Tipo: Todos</option>
+            <option value="user">Tipo: Usuário (Chat)</option>
+            <option value="system">Tipo: Sistema</option>
           </select>
           <div className="flex overflow-hidden rounded-md border border-border">
             {[7, 30, 90].map((n) => (

@@ -18,6 +18,8 @@
   var LS_SID = "kb.widget.sid." + KEY;
   // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
   var LS_CLEARED = "kb.widget.cleared." + KEY;
+  // Rascunho do campo de texto (preserva o que foi digitado ao minimizar/recarregar).
+  var LS_DRAFT = "kb.widget.draft." + KEY;
 
   // Parâmetros de rastreio: de onde/quem veio a conversa. Lidos do atributo
   // data-* do <script> (tem prioridade) ou da querystring da página (p_*).
@@ -83,7 +85,7 @@
         // Pula só o realmente invisível. `getClientRects` (≠ offsetParent) NÃO
         // descarta campos `position:fixed` — os de modais entram.
         if (el.getClientRects && el.getClientRects().length === 0) return;
-        var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
+        var rot = rotuloEspecial(el) || el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
         var val = scanValor(el);
         campos.push((marca ? marca + " " : "") + "- " + scanTexto(rot) + (val ? ": " + val : " (vazio)"));
       });
@@ -121,12 +123,23 @@
   // Coleta multi-página em andamento (dados de TODAS as páginas de um IR).
   var _harvested = null; // { key, colunas, linhas } — sobrepõe a página visível no scan
   var _harvestCache = null; // { key, fp, nome, colunas, linhas } — coleta reutilizável entre perguntas
+  // Fonte de dados escolhida ("relatorio" | "ia") e o relatório a que se aplica —
+  // para perguntar UMA vez por relatório e reaproveitar nas próximas mensagens.
+  var _fonte = null, _fonteKey = null;
 
   // Chave estável de uma região de relatório (para casar a coleta multi-página).
   function regionKey(rv) {
     try {
       var el = rv.closest ? (rv.closest(".a-IRR") || rv) : rv;
       return el.id || rv.id || nomeRegiao(rv) || "";
+    } catch { return ""; }
+  }
+  // Chave do relatório PRINCIPAL da tela (IR/IG) — para lembrar a fonte escolhida
+  // por relatório. "" quando não há relatório na tela.
+  function keyRelatorioTela() {
+    try {
+      var rv = document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+      return rv ? regionKey(rv) : "";
     } catch { return ""; }
   }
   // O IR tem paginação por lotes ("Próximo/Anterior")? Busca na REGIÃO do IR
@@ -141,12 +154,24 @@
   function infoPag(rv) {
     try {
       var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+      var num = function (s) { return s ? parseInt(String(s).replace(/[^\d]/g, ""), 10) || null : null; };
+      // FONTE MAIS CONFIÁVEL: o aria-label da <table> do IR traz "Total de Linhas = N",
+      // "Início das Linhas Exibidas = X", "Fim das Linhas Exibidas = Y" (mesmo quando o
+      // rótulo de paginação é só "46 - 50" sem total, ou estamos na última página).
+      var tbl = reg.querySelector("table.a-IRR-table[aria-label]");
+      if (tbl) {
+        var al = tbl.getAttribute("aria-label") || "";
+        var mt = al.match(/Total (?:de Linhas|Rows)\s*=\s*([\d.,]+)/i);
+        var md = al.match(/(?:In[íi]cio das Linhas Exibidas|Displayed Row Start)\s*=\s*([\d.,]+)/i);
+        var ma = al.match(/(?:Fim das Linhas Exibidas|Displayed Row End)\s*=\s*([\d.,]+)/i);
+        if (mt || md || ma) return { de: md ? num(md[1]) : null, ate: ma ? num(ma[1]) : null, total: mt ? num(mt[1]) : null };
+      }
+      // Fallback: rótulo de paginação ("1 - 50 de 2.000" / "1-50 of 2000" / "1 a 50 de 2000").
       var lab = reg.querySelector(".a-IRR-pagination-label, .a-IRR-pagination");
       var txt = lab ? scanTexto(lab.textContent) : "";
       if (!txt) return { de: null, ate: null, total: null };
-      var num = function (s) { return s ? parseInt(String(s).replace(/[^\d]/g, ""), 10) || null : null; };
       var m = txt.match(/(\d[\d.]*)\s*[-–]\s*(\d[\d.]*)(?:\s*(?:de|of)\s*(\d[\d.]*))?/i)
-           || txt.match(/(\d[\d.]*)\s+a\s+(\d[\d.]*)\s+de\s+(\d[\d.]*)/i);
+        || txt.match(/(\d[\d.]*)\s+a\s+(\d[\d.]*)\s+de\s+(\d[\d.]*)/i);
       if (m) return { de: num(m[1]), ate: num(m[2]), total: num(m[3]) };
       var m2 = txt.match(/(?:de|of)\s*(\d[\d.]*)/i);
       if (m2) return { de: null, ate: null, total: num(m2[1]) };
@@ -155,15 +180,19 @@
   }
   // Quantas linhas de dados estão VISÍVEIS na página atual do IR.
   function linhasVisiveis(rv) { try { return rv.querySelectorAll("tbody tr td[headers]").length ? rv.querySelectorAll("tbody tr").length : 0; } catch { return 0; } }
-  // Há mais páginas do que a visível? (rótulo diz total > visível OU fim < total OU
-  // existe "Próximo" habilitado.) Independe do tema/classe do botão.
+  // Há mais páginas do que a visível? total>visível, OU fim<total, OU começo>1
+  // (estamos além da 1ª página), OU há "Próximo"/"Anterior" HABILITADO. Cobre a
+  // ÚLTIMA página (sem "Próximo") e temas sem "de N" no rótulo. Independe da classe.
   function haMaisPaginas(rv, visiveis) {
     var ip = infoPag(rv);
     var vis = visiveis != null ? visiveis : linhasVisiveis(rv);
     if (ip.total != null && ip.total > vis) return true;
     if (ip.total != null && ip.ate != null && ip.ate < ip.total) return true;
+    if (ip.de != null && ip.de > 1) return true; // começo > 1 → há páginas anteriores
     var nx = botaoProximo(rv);
-    return !!(nx && !ehDesabilitado(nx));
+    if (nx && !ehDesabilitado(nx)) return true;
+    var pv = botaoAnterior(rv);
+    return !!(pv && !ehDesabilitado(pv)); // "Anterior" habilitado → é paginado
   }
   // Botão de paginação do IR por rótulo/título (PT ou EN). `rx` = o que casar,
   // `rxNeg` = o que NÃO casar (evita pegar o oposto).
@@ -241,6 +270,75 @@
     });
     return linhas.length ? { colunas: colunas, linhas: linhas } : null;
   }
+  // ── DESTAQUE (realce EFÊMERO do que a IA aponta): campos/botões, colunas e linhas
+  // do IR. Não altera a tela do APEX — só um contorno/fundo temporário via classe CSS.
+  var _destacados = [], _destaqueTimer = null;
+  function ensureDestaqueCSS() {
+    if (document.getElementById("kb-destaque-css")) return;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    try {
+      var st = document.createElement("style");
+      st.id = "kb-destaque-css";
+      st.textContent =
+        ".kb-destaque-el{outline:2.5px solid " + pc + " !important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 4px " + pc + "26 !important;}" +
+        ".kb-destaque-cell{background:" + pc + "2b !important;box-shadow:inset 0 0 0 1px " + pc + "55 !important;}";
+      (document.head || document.documentElement).appendChild(st);
+    } catch (e) { }
+  }
+  function limparDestaques() {
+    clearTimeout(_destaqueTimer);
+    _destacados.forEach(function (el) { try { el.classList.remove("kb-destaque-el", "kb-destaque-cell"); } catch (e) { } });
+    _destacados = [];
+  }
+  function marcarDestaque(el, cls) { if (el) { try { el.classList.add(cls); _destacados.push(el); } catch (e) { } } }
+  // Mapa nome-da-coluna (minúsculo) → id do header (Cxxx) na região do IR.
+  function mapaColunas(reg) {
+    var m = {};
+    try {
+      reg.querySelectorAll("th.a-IRR-header").forEach(function (th) {
+        var link = th.querySelector(".a-IRR-headerLink");
+        var nome = celTxt(link || th).toLowerCase();
+        var id = th.id || (link && link.getAttribute("data-column") ? "C" + link.getAttribute("data-column") : "");
+        if (nome && id) m[nome] = id;
+      });
+    } catch (e) { }
+    return m;
+  }
+  function aplicarDestaque(evt) {
+    try {
+      limparDestaques();
+      ensureDestaqueCSS();
+      var primeiro = null;
+      (evt.campos || []).forEach(function (ref) {
+        var el = fieldEl(ref);
+        if (el) { marcarDestaque(el, "kb-destaque-el"); if (!primeiro) primeiro = el; }
+      });
+      var rv = document.querySelector(".a-IRR-reportView, .a-IRR");
+      if (rv) {
+        var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+        var cmap = mapaColunas(reg); // usado só para casar as LINHAS por coluna-chave
+        // LINHAS por conteúdo — UNIÃO dos predicados {coluna, valor}
+        var preds = (evt.linhas || [])
+          .map(function (p) { return { id: cmap[String(p && p.coluna || "").trim().toLowerCase()], valor: String(p && p.valor == null ? "" : p.valor).trim().toLowerCase() }; })
+          .filter(function (p) { return p.id && p.valor; });
+        if (preds.length) {
+          rv.querySelectorAll("tbody tr").forEach(function (tr) {
+            var casa = preds.some(function (p) {
+              var td = null;
+              tr.querySelectorAll("td[headers]").forEach(function (c) { if (!td && (c.getAttribute("headers") || "").split(/\s+/)[0] === p.id) td = c; });
+              return td && celTxt(td).toLowerCase().indexOf(p.valor) >= 0;
+            });
+            if (casa) { tr.querySelectorAll("td[headers]").forEach(function (td) { marcarDestaque(td, "kb-destaque-cell"); }); if (!primeiro) primeiro = tr; }
+          });
+        }
+      }
+      if (_destacados.length) {
+        try { if (primeiro && primeiro.scrollIntoView) primeiro.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { }
+        clearTimeout(_destaqueTimer);
+        _destaqueTimer = setTimeout(limparDestaques, 20000); // realce some após ~20s
+      } else { diag("destaque: nada casou (campos/colunas/linhas)"); }
+    } catch (e) { diag("destaque: exceção " + (e && e.message)); }
+  }
   // Assinatura da página atual (para detectar a troca após clicar "Próximo"). Lê o
   // rótulo na REGIÃO do IR (o label é irmão do reportView) — é o sinal mais
   // confiável de troca de página, sobretudo quando o rótulo não traz total ("51 - 100").
@@ -261,21 +359,28 @@
     });
   }
   // "Impressão digital" do estado do relatório: total de registros + colunas +
-  // termo de busca. INVARIANTE à página exibida, mas SENSÍVEL a filtro/busca/colunas
-  // — é o que permite reusar a coleta em cache e detectar mudança de resultado.
+  // termo de busca + FILTROS ATIVOS (chips do Ações). INVARIANTE à página exibida, mas
+  // SENSÍVEL a filtro/busca/colunas — permite reusar a coleta em cache e detectar
+  // mudança de resultado (novo filtro / submit na página). Se a fingerprint é IGUAL à
+  // da última coleta, os dados não mudaram → NÃO reconsulta a procedure (usa o cache).
   // (Ordenação NÃO entra: temos todas as linhas e reordenamos no servidor.)
   function fingerprintRelatorio(rv) {
     try {
       var irr = (rv.closest && rv.closest(".a-IRR")) || rv;
-      var lab = irr.querySelector(".a-IRR-pagination-label");
-      var total = "";
-      if (lab) { var m = scanTexto(lab.textContent).match(/de[\s ]+([\d.,]+)/i); if (m) total = m[1].replace(/\D/g, ""); }
+      // Total pela FONTE MAIS CONFIÁVEL (aria-label "Total de Linhas = N"); muda quando
+      // o filtro muda o resultado. Fallback pro rótulo "de N".
+      var total = infoPag(rv).total;
+      if (total == null) { var lab = irr.querySelector(".a-IRR-pagination-label"); if (lab) { var m = scanTexto(lab.textContent).match(/de[\s ]+([\d.,]+)/i); if (m) total = m[1].replace(/\D/g, ""); } }
       var cols = [];
       rv.querySelectorAll("th.a-IRR-header .a-IRR-headerLink").forEach(function (a) { cols.push(scanTexto(a.textContent)); });
       var busca = "";
       var s = irr.querySelector(".a-IRR-search-field, input.a-IRR-search-field, input[id$='_search_field']");
       if (s) busca = String(s.value || "");
-      return "t" + total + "|c" + cols.join(",") + "|s" + busca;
+      // Chips de filtro do Ações (ex.: "Texto da linha contém 'Analista'") — captura o
+      // filtro mesmo quando o total coincide. Ordenados p/ ser estável.
+      var filtros = [];
+      irr.querySelectorAll(".a-IRR-controlsLabel").forEach(function (l) { var t = scanTexto(l.textContent); if (t) filtros.push(t); });
+      return "t" + (total == null ? "" : total) + "|c" + cols.join(",") + "|s" + busca + "|f" + filtros.sort().join("¦");
     } catch (e) { return "err" + Date.now(); } // erro → nunca casa → força coleta
   }
   // Percorre TODAS as páginas do IR (clicando "Próximo"), acumulando as linhas.
@@ -328,37 +433,259 @@
     } catch { }
     return null;
   }
+  // Acha na tela a região que CASA a coleta em cache (mesma chave + mesmo
+  // fingerprint = relatório inalterado). Independe de estar paginada ou de qual
+  // página está visível — serve para REAPROVEITAR a coleta em perguntas seguintes.
+  function acharRegiaoCache(doc) {
+    if (!_harvestCache || !_harvestCache.key) return null;
+    try {
+      var cands = doc.querySelectorAll(".a-IRR-reportView, .a-IRR");
+      for (var i = 0; i < cands.length; i++) {
+        if (regionKey(cands[i]) === _harvestCache.key && fingerprintRelatorio(cands[i]) === _harvestCache.fp) return cands[i];
+      }
+      var frames = doc.querySelectorAll("iframe");
+      for (var j = 0; j < frames.length; j++) { var d = null; try { d = frames[j].contentDocument; } catch { d = null; } if (d) { var r = acharRegiaoCache(d); if (r) return r; } }
+    } catch { }
+    return null;
+  }
+  // Diagnóstico da coleta no console (para o teste da OPÇÃO B).
+  function diag(msg) { try { if (window.console && console.log) console.log("[kb-widget][coleta] " + msg); } catch { } }
+
+  // ── OPÇÃO B (teste): busca 100% das linhas em UMA tacada, pedindo uma "página
+  // gigante" pela PRÓPRIA máquina de paginação do APEX. Os botões trazem
+  // data-pagination="pgR_min_row=..max_rows=50rows_fetched=50" — é o CLIENTE que
+  // manda max_rows ao servidor. Sobrescrevemos max_rows, clicamos UMA vez e o APEX
+  // refaz o relatório com tudo (respeitando filtros/segurança e o "Maximum Row
+  // Count" do IR). Reversível (restaura o atributo). Retorna null se não funcionar
+  // → o chamador cai na varredura por página (Opção C).
+  var _bulkMax = 100000; // teto pedido numa tacada (o IR ainda limita pelo Max Row Count)
+  async function coletarViaPaginaGrande(rv, onProgress) {
+    try {
+      var btn = botaoProximo(rv);
+      if (!btn || ehDesabilitado(btn)) btn = botaoAnterior(rv);
+      if (!btn || ehDesabilitado(btn)) { diag("B: sem botão de paginação habilitado"); return null; }
+      var orig = btn.getAttribute("data-pagination");
+      if (!orig || !/max_rows=\d+/.test(orig)) { diag("B: botão sem data-pagination/max_rows → " + orig); return null; }
+      var antes = assinaturaPagina(rv);
+      var grande = orig
+        .replace(/pgR_min_row=\d+/, "pgR_min_row=1")
+        .replace(/max_rows=\d+/, "max_rows=" + _bulkMax)
+        .replace(/rows_fetched=\d+/, "rows_fetched=" + _bulkMax);
+      btn.setAttribute("data-pagination", grande);
+      diag("B: pedindo página gigante (max_rows=" + _bulkMax + ")");
+      try { btn.click(); } catch { btn.setAttribute("data-pagination", orig); diag("B: click falhou"); return null; }
+      // Timeout curto: se o APEX não recarregar por aqui (não dispara pelo atributo),
+      // falha rápido e cai na varredura por página — nada de esperar 30s.
+      var mudou = await esperarMudanca(rv, antes, 7000);
+      btn.setAttribute("data-pagination", orig); // restaura o atributo original
+      if (!mudou) { diag("B: relatório não recarregou (timeout)"); return null; }
+      var t = extrairIRRegiao(rv, _bulkMax);
+      if (!t || !t.linhas.length) { diag("B: nada extraído após recarregar"); return null; }
+      if (onProgress) onProgress(t.linhas.length);
+      diag("B: extraiu " + t.linhas.length + " linha(s) numa tacada");
+      return { colunas: t.colunas, linhas: t.linhas, via: "pagina-grande" };
+    } catch (e) { diag("B: exceção " + (e && e.message)); return null; }
+  }
+  // ── OPÇÃO A: NOSSO servidor (guarda o secret OAuth2) chama o endpoint ORDS
+  // (apex_ir.get_report) e devolve 100% das linhas do IR — com filtros/segurança,
+  // sem tocar nos apps e sem teto de Max Row Count. O widget NÃO fala com o ORDS
+  // (origem diferente + secret no browser seria falha). Ligada por config:
+  // cfg.reportServer = true. O ORDS/base/credencial ficam no backend (modelo Integrações).
+  function valHidden(sel) { try { var el = document.querySelector(sel); return el ? String(el.value || "") : ""; } catch { return ""; } }
+  function apexInfo() {
+    var g = window.apex, env = g && g.env;
+    var app = (env && env.APP_ID) || valHidden("#pFlowId");
+    var page = (env && env.APP_PAGE_ID) || valHidden("#pFlowStepId");
+    var sess = (env && env.APP_SESSION) || valHidden("#pInstance");
+    if (!app || !page || !sess) { // fallback: URL f?p=APP:PAGE:SESSION:...
+      var m = String(location.href).match(/[?&]p=(\d+):(\d+):(\d+)/);
+      if (m) { app = app || m[1]; page = page || m[2]; sess = sess || m[3]; }
+    }
+    return { app: app, page: page, sess: sess };
+  }
+  // APP_USER do APEX (usuário do create_session no ORDS). apex.env.APP_USER é o
+  // acessor do próprio APEX; fallback = o hidden input do IR (..._app_user).
+  function appUserTela() {
+    try {
+      if (window.apex && apex.env && apex.env.APP_USER) return String(apex.env.APP_USER);
+      var el = document.querySelector("input[id$='_app_user']");
+      return el ? String(el.value || "") : "";
+    } catch { return ""; }
+  }
+  // ── PROCESSO On-Demand (in-session): chama o PRC_DADOS_IR pela PRÓPRIA sessão do
+  // usuário (apex.server.process → mesmo cookie/sessão do APEX). Traz 100% das linhas
+  // da visão ATUAL do relatório, RESPEITANDO o filtro do Ações — o que o ORDS (sessão
+  // nova) não conseguia. Método PRIMÁRIO quando a página é APEX. Retorna null se não
+  // houver apex.server.process (host não-APEX) → cai na varredura por página.
+  // Candidatos de identificador de região, em ordem de confiança. O PL/SQL resolve
+  // por static id, "R<region_id>", número ou nome — o container costuma trazer um
+  // desses; o id do .a-IRR às vezes vem com sufixo "_ir" (removido aqui).
+  function regiaoCandidatos(rv) {
+    var cands = [];
+    function push(v) { v = v && String(v).trim(); if (v && cands.indexOf(v) < 0) cands.push(v); }
+    try {
+      var tReg = rv.closest && rv.closest(".t-Region"); if (tReg) push(tReg.id);      // static id ou R<region_id>
+      var irr = rv.closest && rv.closest(".a-IRR");
+      if (irr && irr.id) { push(irr.id.replace(/_(worksheet_region|ir|report)$/i, "")); push(irr.id); } // sufixo do tema → static id
+      push(nomeRegiao(rv));                                                            // título = region_name
+      var b = botaoProximo(rv) || botaoAnterior(rv); if (b) push(b.getAttribute("aria-controls"));
+      push(regionKey(rv));
+    } catch { }
+    return cands;
+  }
+  function chamarProcessoIR(info, region) {
+    return new Promise(function (resolve) {
+      try {
+        window.apex.server.process("PRC_DADOS_IR",
+          { x01: String(info.app), x02: String(info.page), x03: String(region) },
+          {
+            dataType: "json",
+            success: function (d) { resolve(d); },
+            error: function (xhr, st) { diag("P: erro AJAX " + st + " " + (xhr && xhr.responseText ? String(xhr.responseText).slice(0, 120) : "")); resolve(null); },
+          });
+      } catch (e) { diag("P: exceção na chamada " + (e && e.message)); resolve(null); }
+    });
+  }
+  async function coletarViaProcesso(rv) {
+    try {
+      var A = window.apex;
+      if (!A || !A.server || typeof A.server.process !== "function") { diag("P: sem apex.server.process (host não-APEX)"); return null; }
+      var info = apexInfo();
+      if (!info.app || !info.page) { diag("P: sem contexto APEX (app/page)"); return null; }
+      var cands = regiaoCandidatos(rv);
+      if (!cands.length) { diag("P: sem identificador de região"); return null; }
+      diag("P: PRC_DADOS_IR app=" + info.app + " page=" + info.page + " candidatos=[" + cands.join(", ") + "]");
+      // Tenta cada candidato até o processo achar a região (ok:true).
+      var meta = null;
+      for (var ci = 0; ci < cands.length; ci++) {
+        meta = await chamarProcessoIR(info, cands[ci]);
+        if (meta && meta.ok === true) { diag("P: região resolvida por '" + cands[ci] + "'"); break; }
+        if (meta && meta.erro) diag("P: '" + cands[ci] + "' → " + meta.erro);
+      }
+      if (!meta || meta.ok !== true || !Array.isArray(meta.colunas)) { diag("P: nenhum candidato resolveu a região"); return null; }
+      var colunas = meta.colunas.map(String);
+      var amostra = Array.isArray(meta.amostra)
+        ? meta.amostra.map(function (r) { return (Array.isArray(r) ? r : [r]).map(function (c) { return c == null ? "" : String(c); }); })
+        : [];
+      var total = typeof meta.total_linhas === "number" ? meta.total_linhas : amostra.length;
+      var incompleto = total > amostra.length; // grande: amostra < total → parcial + download por id
+      diag("P: total=" + total + " amostra=" + amostra.length + " incompleto=" + incompleto + " id=" + meta.id);
+      // Diagnóstico de desempenho: onde o banco gastou o tempo da leitura (ms).
+      //   consulta (execução + ORDER BY) = abrir_ctx + ate_primeira_linha
+      //   serializar (montar CSV/JSON célula a célula) = serializar
+      if (meta.tempos_ms) {
+        var t = meta.tempos_ms;
+        var consulta = (Number(t.abrir_ctx) || 0) + (Number(t.ate_primeira_linha) || 0);
+        try { if (window.console && console.log) console.log("[kb-widget][coleta] tempos(ms) — total=" + t.total + " | consulta(exec+ordenação)=" + consulta + " (abrir=" + t.abrir_ctx + ", 1ª linha=" + t.ate_primeira_linha + ") | serializar=" + t.serializar + " | gravar=" + t.gravar + " | linhas=" + total, t); } catch { }
+      }
+      return { colunas: colunas, linhas: amostra, total: total, truncou: incompleto, via: "processo", downloadId: meta.id };
+    } catch (e) { diag("P: exceção " + (e && e.message)); return null; }
+  }
+  // Coleta via processo com SINGLE-FLIGHT: se já há uma coleta em andamento para o
+  // MESMO relatório+filtro (ex.: o pré-aquecer disparou e o usuário perguntou antes
+  // de terminar), reaproveita a MESMA promessa em vez de abrir uma segunda leitura.
+  var _coletaInflight = null; // { key, fp, p }
+  function coletarProcessoDedup(rv, key, fp) {
+    if (_coletaInflight && _coletaInflight.key === key && _coletaInflight.fp === fp) { diag("dedup: reaproveita coleta em andamento"); return _coletaInflight.p; }
+    var p = coletarViaProcesso(rv);
+    var reg = { key: key, fp: fp, p: p };
+    _coletaInflight = reg;
+    var limpar = function () { if (_coletaInflight === reg) _coletaInflight = null; };
+    p.then(limpar, limpar);
+    return p;
+  }
+  async function coletarViaServidor(rv) {
+    try {
+      if (cfg.reportServer !== true) return null;
+      var info = apexInfo();
+      if (!info.app || !info.page || !info.sess) { diag("A: sem contexto APEX (app/page/session)"); return null; }
+      var b = botaoProximo(rv) || botaoAnterior(rv);
+      var region = (b && b.getAttribute("aria-controls")) || regionKey(rv) || "";
+      var appUser = appUserTela();
+      diag("A: POST " + API + "/api/v1/report-data app=" + info.app + " page=" + info.page + " region=" + region + " appUser=" + (appUser || "-"));
+      // session como STRING: ids do APEX podem exceder a precisão de Number em JS.
+      // `track` leva a BASE + identidade (p_*); appUser é o APP_USER lido no navegador.
+      // O servidor decide base/caminho e monta os application items a partir do track.
+      var resp = await fetch(API + "/api/v1/report-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify({ app_id: Number(info.app), page_id: Number(info.page), session: String(info.sess), region: region, appUser: appUser, track: track }),
+      });
+      if (!resp.ok) {
+        var errJson = await resp.json().catch(function () { return null; });
+        diag("A: HTTP " + resp.status + (errJson && errJson.erro ? " — " + errJson.erro : ""));
+        return null;
+      }
+      var j = await resp.json().catch(function () { return null; });
+      if (!j || j.ok !== true || !Array.isArray(j.colunas) || !Array.isArray(j.linhas)) { diag("A: resposta inválida " + (j && j.erro ? j.erro : "")); return null; }
+      diag("A: recebi " + j.linhas.length + " linha(s) via servidor/ORDS");
+      var linhas = j.linhas.map(function (r) { return (Array.isArray(r) ? r : [r]).map(function (c) { return c == null ? "" : String(c); }); });
+      return { colunas: j.colunas.map(String), linhas: linhas, via: "ORDS", total: (typeof j.total === "number" ? j.total : linhas.length) };
+    } catch (e) { diag("A: exceção " + (e && e.message)); return null; }
+  }
+  // A coleta em tacada trouxe tudo? (rótulo diz N → linhas ≈ N; sem total → não há
+  // mais "Próximo".)
+  function bulkPareceCompleto(rv, rb, esperado) {
+    if (esperado != null) return rb.linhas.length >= esperado - 2;
+    return !haMaisPaginas(rv, rb.linhas.length);
+  }
+  // Grava o resultado da coleta (venha do B ou da varredura) e reenvia à IA.
+  function finalizarColeta(rv, key, fp, res, esperado, via) {
+    if (res && res.linhas.length) {
+      // Fail-loud: se o rótulo indicava N e coletamos menos (margem de 2), NÃO
+      // apresente como completo — a IA precisa avisar o usuário.
+      var incompleto = (esperado != null && res.linhas.length < esperado - 2) || !!res.truncou;
+      _harvested = { key: key, nome: nomeRegiao(rv) || "Relatório", colunas: res.colunas, linhas: res.linhas, total: res.total || esperado || res.linhas.length, incompleto: incompleto };
+      _harvestCache = { key: key, fp: fp, nome: _harvested.nome, colunas: res.colunas, linhas: res.linhas, total: _harvested.total, incompleto: incompleto }; // guarda p/ reuso
+      procStatus(incompleto
+        ? "Analisando os " + res.linhas.length + (esperado ? " de ~" + esperado : "") + " registro(s) (parcial). Aguarde"
+        : "Analisando os " + res.linhas.length + " registro(s). Aguarde", incompleto ? "#b45309" : null);
+    } else {
+      limparProcStatus();
+      statusMsg("Não consegui coletar os dados; sigo com o que está visível.", "#b45309");
+    }
+    ask(undefined, undefined, { continuation: true });
+  }
   // Orquestra a coleta e reenvia à IA para a análise/exportação pedida.
   function iniciarColeta() {
-    var rv = acharIRPaginado(document);
-    if (!rv) { statusMsg("Não encontrei um relatório paginado na tela — sigo com os dados visíveis.", null); ask(undefined, undefined, { continuation: true }); return; }
+    // Acha o relatório PAGINADO; se a detecção falhar, cai em QUALQUER região de
+    // relatório (IR/IG) — o coletor tenta ORDS (traz 100% sem depender de paginação)
+    // e, se não, a varredura por página. Assim "Relatório da tela" sempre tenta.
+    var rv = acharIRPaginado(document) || document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+    if (!rv) { statusMsg("Não encontrei um relatório na tela — sigo com os dados visíveis.", null); ask(undefined, undefined, { continuation: true }); return; }
     var key = regionKey(rv), fp = fingerprintRelatorio(rv);
     // CACHE: mesmo relatório + mesmo fingerprint (total/colunas/busca) = sem mudança
     // de filtro/resultado → reusa a coleta anterior, SEM paginar de novo.
     if (_harvestCache && _harvestCache.key === key && _harvestCache.fp === fp && _harvestCache.linhas.length) {
+      diag("cache reaproveitado (" + _harvestCache.linhas.length + " linha(s)) — NÃO consultou o banco");
       _harvested = { key: key, nome: _harvestCache.nome, colunas: _harvestCache.colunas, linhas: _harvestCache.linhas, total: _harvestCache.total, incompleto: _harvestCache.incompleto };
-      statusMsg("♻️ Reaproveitei " + _harvested.linhas.length + " registro(s) já coletados (relatório sem alteração). Analisando…", "#15803d");
+      procStatus("Analisando os " + _harvested.linhas.length + " registro(s). Aguarde", null);
       ask(undefined, undefined, { continuation: true });
       return;
     }
+    // Log do MOTIVO do miss — mostra QUAL componente mudou (região × filtro/resultado).
+    if (!_harvestCache || !_harvestCache.linhas || !_harvestCache.linhas.length) diag("cache vazio → 1ª coleta deste relatório");
+    else if (_harvestCache.key !== key) diag("cache não serve: região mudou (\"" + _harvestCache.key + "\" → \"" + key + "\")");
+    else diag("cache não serve: filtro/resultado mudou → fp anterior [" + _harvestCache.fp + "] ≠ atual [" + fp + "]");
     var esperado = infoPag(rv).total; // total do rótulo ("de N") — pode ser null
     busy = true; if (sendBtn) sendBtn.disabled = true;
-    var stEl = statusMsg("Coletando todas as páginas do relatório…", null);
-    coletarRelatorio(rv, function (n) { try { stEl.textContent = "Coletando todas as páginas do relatório… " + n + " registro(s)"; } catch (e) { } }).then(function (res) {
-      if (res && res.linhas.length) {
-        // Fail-loud: se o rótulo indicava N e coletamos menos (margem de 2), NÃO
-        // apresente como completo — a IA precisa avisar o usuário.
-        var incompleto = (esperado != null && res.linhas.length < esperado - 2) || !!res.truncou;
-        _harvested = { key: key, nome: nomeRegiao(rv) || "Relatório", colunas: res.colunas, linhas: res.linhas, total: esperado || res.linhas.length, incompleto: incompleto };
-        _harvestCache = { key: key, fp: fp, nome: _harvested.nome, colunas: res.colunas, linhas: res.linhas, total: _harvested.total, incompleto: incompleto }; // guarda p/ reuso
-        statusMsg(incompleto
-          ? "⚠️ Coletei " + res.linhas.length + (esperado ? " de ~" + esperado : "") + " registro(s) — não consegui avançar todas as páginas. A análise vai sinalizar isso."
-          : "✅ Coletei " + res.linhas.length + " registro(s) de todas as páginas. Analisando…", incompleto ? "#b45309" : "#15803d");
-      } else {
-        statusMsg("Não consegui coletar as páginas; sigo com o que está visível.", "#b45309");
+    var stEl = procStatus("Realizando a leitura dos dados", null);
+    var prog = function (n) { try { if (stEl && stEl._txt) stEl._txt.textContent = "Realizando a leitura dos dados — " + n + " registro(s)"; } catch { } };
+    // Ordem: P (processo On-Demand in-session — 100% da visão ATUAL, respeitando o
+    // filtro do Ações) → C (varredura por página, reserva confiável em host não-APEX).
+    // O ORDS (coletarViaServidor) NÃO entra no caminho da tela: sessão nova não
+    // enxerga o filtro ad-hoc — fica reservado ao catálogo cross-report (Fase 2).
+    (async function () {
+      // P) Processo On-Demand in-session (PRC_DADOS_IR)
+      if (cfg.reportProcess !== false) {
+        var rp = await coletarProcessoDedup(rv, key, fp);
+        if (rp && rp.linhas.length) { diag("P OK — " + rp.total + " via processo (in-session)"); finalizarColeta(rv, key, fp, rp, rp.total, "relatório da tela"); return; }
+        diag("P indisponível → varredura por página");
       }
-      ask(undefined, undefined, { continuation: true });
-    }).catch(function () { ask(undefined, undefined, { continuation: true }); });
+      // C) varredura por página (reserva)
+      try { var res = await coletarRelatorio(rv, prog); finalizarColeta(rv, key, fp, res, esperado, "paginação"); }
+      catch { ask(undefined, undefined, { continuation: true }); }
+    })();
   }
 
   // Extrai relatórios APEX como { nome, tipo, colunas[], linhas[][] }.
@@ -483,6 +810,9 @@
   var _turnActed = false;    // a IA executou alguma ação NESTE turno?
   var _loopCancel = false;   // usuário cancelou → interrompe o loop
   var _execLabels = [];      // trilha de ações executadas (nota de continuação)
+  var _filtroConfirmado = false; // já perguntei sobre limpar filtro neste turno?
+  var _focusedEl = null;         // último campo focado NA PÁGINA (contexto "aqui/isto")
+  var _ultimoSalvo = null;       // { id, name, created_at } do último relatório salvo (compare)
   // Botões/links cujo clique GRAVA/ENVIA/EXCLUI/NAVEGA → pedem confirmação. Ações de
   // VISUALIZAÇÃO (abrir menu, filtrar, ordenar, gráfico…) rodam direto.
   var RX_VIEW = /a[çc][õo]es|filtr|ordenar|classificar|pesquisar|buscar|expandir|recolher|abrir|menu|mostrar|exibir|detalhes|op[çc][õo]es|ajuda|colunas|agrupar|gr[áa]fico|destac|destaqu|real[çc]|formatar|format|highlight|totaliz|cubo|refresh|atualizar lista|recarregar|aplicar|apply|fechar/i;
@@ -547,6 +877,17 @@
       .replace(/\s{2,}/g, " ")
       .trim();
   }
+  // Rótulo amigável para controles conhecidos do APEX cujo id/name é técnico — ex.:
+  // a barra de pesquisa do IR ("<REGIAO>_search_field") vira "Barra de pesquisa", em
+  // vez de expor o id cru pro usuário/IA. Retorna null quando não é um caso especial.
+  function rotuloEspecial(el) {
+    try {
+      var id = el.id || "", cls = (typeof el.className === "string" ? el.className : "");
+      if (/_search_field$/i.test(id) || /a-IRR-search-field/.test(cls)) return "Barra de pesquisa";
+      if (/_search_button$/i.test(id) || /a-IRR-search-button/.test(cls)) return "Pesquisar";
+    } catch (e) { }
+    return null;
+  }
   function scanFields() {
     _fieldRefs = [];
     var out = [], lm = {};
@@ -581,7 +922,7 @@
           // Invisível → fora, EXCETO se estiver numa ABA oculta (o tutorial ativa
           // a aba clicando nela antes de destacar o campo).
           if (el.getClientRects && el.getClientRects().length === 0 && !(el.closest && el.closest('[role="tabpanel"]'))) return;
-          var rot = el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
+          var rot = rotuloEspecial(el) || el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
           // radio/checkbox costumam ter o texto no <label> que os envolve.
           if (t === "radio" || t === "checkbox") {
             var wrap = el.closest && el.closest("label");
@@ -618,6 +959,21 @@
     }
     collect(document);
     return out;
+  }
+  // Descreve o campo em FOCO na página (o último focado fora do widget), p/ dar
+  // contexto a pedidos como "aqui/isto/esse campo". scanFields() já marcou
+  // data-kb-field; se o focado for um deles, vai o ref (permite preencher_campo).
+  function campoEmFoco() {
+    try {
+      var el = _focusedEl;
+      if (!el || !el.isConnected) return null;
+      if (host && host.contains && host.contains(el)) return null;
+      if (el.getClientRects && el.getClientRects().length === 0) return null; // sumiu da tela
+      var ref = el.getAttribute && el.getAttribute("data-kb-field");
+      var label = rotuloEspecial(el) || rotuloCampo(el) || el.id || (el.type || "campo");
+      var val = ""; try { val = fieldValor(el); } catch (e) { }
+      return { ref: ref || null, label: String(label).slice(0, 120), type: fieldTipo(el), value: String(val || "").slice(0, 200) };
+    } catch (e) { return null; }
   }
   function fieldEl(ref) {
     var el = _fieldRefs[Number(ref)];
@@ -1103,6 +1459,72 @@
     messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
     return d;
   }
+  // Status COM animação de "digitando" (dots), para fases EM ANDAMENTO (busca/análise).
+  // Retorna o elemento; use `._txt.textContent` para atualizar só o texto (progresso).
+  function statusMsgTyping(txt, cor) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var d = document.createElement("div");
+    d.style.cssText =
+      "margin:6px 0 6px 40px;padding:8px 12px;border-radius:14px;max-width:88%;font-size:12.5px;font-weight:700;" +
+      "display:inline-flex;align-items:center;gap:9px;color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
+    var t = document.createElement("span"); t.textContent = txt;
+    var dots = document.createElement("span"); dots.className = "dots";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    d.appendChild(t); d.appendChild(dots); d._txt = t;
+    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    return d;
+  }
+  // Slot ÚNICO de status de processo (busca → análise): substitui/limpa o anterior.
+  var _procStatus = null;
+  function procStatus(txt, cor) { limparProcStatus(); _procStatus = statusMsgTyping(txt, cor); return _procStatus; }
+  function limparProcStatus() { if (_procStatus) { try { if (_procStatus.parentNode) _procStatus.remove(); } catch (e) { } _procStatus = null; } }
+  // Spinner CSS-only (círculo girando) — para "processando" em botões e status.
+  function spinnerEl(cor, sz) {
+    var s = document.createElement("span"); sz = sz || 14;
+    var c = cor || ((cfg && cfg.primaryColor) || "#511C76");
+    s.className = "kbspin";
+    s.style.cssText = "display:inline-block;flex:none;width:" + sz + "px;height:" + sz + "px;border:2px solid " + c + "44;border-top-color:" + c + ";border-radius:50%;box-sizing:border-box;vertical-align:-2px;";
+    return s;
+  }
+  // Linha de status COM spinner (fase em andamento, sem barra de progresso). Devolve
+  // o elemento — chame `.remove()` ao terminar.
+  function statusSpin(txt, cor) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var d = document.createElement("div");
+    d.style.cssText = "margin:6px 0 6px 40px;padding:8px 12px;border-radius:14px;max-width:88%;font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:9px;color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
+    d.appendChild(spinnerEl(cor || pc, 14));
+    var t = document.createElement("span"); t.textContent = txt; d.appendChild(t);
+    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    return d;
+  }
+  // Disclaimer CONTEXTUAL: reflete a fonte REAL da resposta (relatório da tela × base
+  // de dados × cruzamento × campos da tela), em linguagem simples. Retorna null quando
+  // não há fonte de tela/base clara (aí não mostra nada).
+  function disclaimerTexto(body) {
+    var bd = body.baseDados;
+    var temFontes = bd && ((bd.relatorioIds && bd.relatorioIds.length) || (bd.attachmentIds && bd.attachmentIds.length));
+    var temTela = !!(body.reportData || (body.screenTables && body.screenTables.length));
+    var temCampos = !!(body.fields && body.fields.length);
+    if (temFontes) {
+      var base = "Resposta baseada nos arquivos e relatórios que você escolheu";
+      if (bd.modo === "so_fontes") return base + " (apenas essas fontes).";
+      var trecho = temTela ? " e no relatório desta tela" : (temCampos ? " e nas informações desta tela" : "");
+      if (bd.modo === "exclusiva") return base + trecho + ".";
+      return base + trecho + " e no conhecimento da IA.";
+    }
+    if (body.comparacao) return "Resposta baseada no cruzamento entre esta tela e o relatório salvo, considerando os filtros aplicados.";
+    if (body.reportData) return "Resposta baseada nos dados do relatório desta tela, considerando os filtros aplicados.";
+    if (temTela) return "Resposta baseada no relatório visível nesta tela.";
+    return null;
+  }
+  function mostrarDisclaimer(body) {
+    var txt = disclaimerTexto(body);
+    if (!txt) return;
+    var d = document.createElement("div");
+    d.style.cssText = "margin:2px 0 8px 40px;max-width:88%;font-size:11.5px;font-style:italic;color:#6b7280;";
+    d.textContent = "ℹ️ " + txt;
+    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
   // Trilha curta da ação (para a nota de continuação enviada à IA).
   function labelExec(a) {
     return (a.tipo === "fill" ? "preencheu " : a.tipo === "check" ? (a.marcar ? "marcou " : "desmarcou ") : "clicou em ") + a.label;
@@ -1128,6 +1550,94 @@
     if (mudouValor && _acoes.length > 0) setTimeout(proximaAcao, 550);
     else proximaAcao();
   }
+  // ── Filtro do IR: se JÁ existe filtro ativo e a IA vai aplicar uma NOVA busca pela
+  // barra de pesquisa, pergunta se limpa o filtro atual antes (evita empilhar filtros).
+  function filtrosAtivos(rv) {
+    try {
+      var reg = (rv && rv.closest && rv.closest(".a-IRR")) || rv || document;
+      return Array.prototype.slice.call(reg.querySelectorAll(".a-IRR-controls .a-IRR-button--remove, .a-IRR-controls-item .a-IRR-button--remove"));
+    } catch { return []; }
+  }
+  function rotulosFiltro(rv) {
+    try {
+      var reg = (rv && rv.closest && rv.closest(".a-IRR")) || rv || document;
+      return Array.prototype.slice.call(reg.querySelectorAll(".a-IRR-controlsLabel"))
+        .map(function (l) { return scanTexto(l.textContent); }).filter(Boolean);
+    } catch { return []; }
+  }
+  function ehBuscaIR(el) {
+    try {
+      return /_search_field$/i.test(el.id || "") || /a-IRR-search-field/.test(typeof el.className === "string" ? el.className : "");
+    } catch { return false; }
+  }
+  // Realça a barra de controles de filtro (deixa claro o que vai ser removido).
+  function highlightFiltros(rv) {
+    try {
+      var reg = (rv && rv.closest && rv.closest(".a-IRR")) || rv;
+      var ctrl = reg && reg.querySelector(".a-IRR-controls");
+      if (ctrl) { highlightField(ctrl); setTimeout(function () { unhighlightField(ctrl); }, 1500); }
+    } catch { }
+  }
+  // Clica cada botão "Remover Filtro" e espera o IR recarregar (a lista muda a cada um).
+  async function limparFiltros(rv) {
+    var cap = 25;
+    while (cap-- > 0) {
+      var botoes = filtrosAtivos(rv);
+      if (!botoes.length) break;
+      var antes = assinaturaPagina(rv);
+      try { botoes[0].click(); } catch { break; }
+      await esperarMudanca(rv, antes, 4000);
+    }
+  }
+  // Aplica a busca pela barra do IR de forma determinística (após limpar o filtro, os
+  // refs antigos ficam obsoletos com o recarregamento — por isso re-localizamos aqui).
+  async function aplicarBuscaIR(rv, valor) {
+    var reg = (rv && rv.closest && rv.closest(".a-IRR")) || rv;
+    var campo = reg.querySelector(".a-IRR-search-field, input[id$='_search_field']");
+    if (campo) { highlightField(campo); fillField(campo, valor); }
+    var antes = assinaturaPagina(rv);
+    var botao = reg.querySelector(".a-IRR-search-button, button[id$='_search_button']");
+    if (botao) { try { botao.click(); } catch { } }
+    else if (campo) { try { campo.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true })); } catch { } }
+    await esperarMudanca(rv, antes, 5000);
+    if (campo) setTimeout(function () { unhighlightField(campo); }, 700);
+  }
+  // Card de confirmação: limpar o filtro atual antes da nova busca, ou manter (empilhar).
+  function confirmarLimparFiltro(a, el, rv) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var rots = rotulosFiltro(rv);
+    var card = document.createElement("div");
+    card.style.cssText = "margin:6px 0 6px 40px;padding:10px 12px;border-radius:14px;max-width:88%;border:1px solid " + pc + "40;background:" + pc + "0d;";
+    var head = document.createElement("div");
+    head.style.cssText = "font-size:12.5px;font-weight:700;color:" + pc + ";margin-bottom:7px;";
+    head.textContent = "Já há filtro no relatório" + (rots.length ? " (" + rots.join("; ") + ")" : "") + ". Limpar antes de pesquisar “" + (a.valor || "") + "”?";
+    card.appendChild(head);
+    var box = document.createElement("div");
+    box.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
+    var limpar = tutBtn("Limpar e pesquisar", true);
+    var manter = tutBtn("Manter e pesquisar", false);
+    highlightFiltros(rv);
+    limpar.addEventListener("click", async function () {
+      if (card.parentNode) card.remove();
+      _filtroConfirmado = true;
+      _acoes = []; // descarta a fila (fill + Ir): refazemos determinístico pós-recarga
+      statusMsg("🧹 Limpando o filtro atual…", null);
+      await limparFiltros(rv);
+      statusMsg("✅ Filtro removido. Pesquisando: " + (a.valor || ""), "#15803d");
+      await aplicarBuscaIR(rv, a.valor);
+      registrarExec({ tipo: "fill", label: "Barra de pesquisa", valor: a.valor });
+      aoTerminarAcoes();
+    });
+    manter.addEventListener("click", function () {
+      if (card.parentNode) card.remove();
+      _filtroConfirmado = true;
+      execDireto(a, el); // segue normal (a fila prossegue com o clique "Ir")
+    });
+    box.appendChild(limpar); box.appendChild(manter);
+    card.appendChild(box);
+    messagesEl.appendChild(card);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
   // Processa as ações da IA EM ORDEM. Preencher/marcar e cliques de VISUALIZAÇÃO
   // rodam direto; só cliques que GRAVAM/NAVEGAM pedem confirmação.
   function proximaAcao() {
@@ -1137,6 +1647,11 @@
     var el = fieldEl(a.ref);
     if (a.tipo === "fill") {
       if (!el) { pickField(a); return; } // campo sumiu -> pede o clique
+      // Nova busca pela barra do IR com filtro já ativo → confirma limpar antes.
+      if (ehBuscaIR(el) && !_filtroConfirmado) {
+        var rvIR = (el.closest && el.closest(".a-IRR")) || el;
+        if (filtrosAtivos(rvIR).length) { confirmarLimparFiltro(a, el, rvIR); return; }
+      }
       execDireto(a, el); return;
     }
     if (!el) { statusMsg("⚠️ Não encontrei “" + a.label + "” na tela.", "#b45309"); proximaAcao(); return; }
@@ -1155,7 +1670,7 @@
     busy = true; sendBtn.disabled = true;        // segura a UI enquanto o loop roda
     // Espera o DOM assentar (hover-intent do submenu + animação de menu/janela do
     // APEX) antes de re-varrer, senão o item recém-revelado ainda não apareceu.
-    setTimeout(function () { if (!_loopCancel) ask(undefined, undefined, { continuation: true }); }, 550);
+    setTimeout(function () { if (!_loopCancel) ask(undefined, undefined, { continuation: true, loopStep: true }); }, 550);
   }
   // Card compacto que se ATUALIZA no lugar (título + valor + ações). Confirma
   // preenchimentos, marcações e cliques que gravam/navegam. Evita poluir o chat.
@@ -1403,6 +1918,9 @@
   // do histórico (URL assinada). `target=_blank` cobre URL assinada cross-origin.
   function appendFileLink(href, filename) {
     if (!href) return null;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var rowf = document.createElement("div");
+    rowf.style.cssText = "display:flex;align-items:center;gap:6px;margin:4px 0 4px 40px;max-width:88%;flex-wrap:wrap;";
     var fa = document.createElement("a");
     fa.href = href;
     fa.download = filename || "arquivo";
@@ -1410,10 +1928,19 @@
     fa.target = "_blank";
     fa.textContent = "📎 " + (filename || "arquivo");
     fa.style.cssText =
-      "display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 40px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;max-width:80%;";
-    messagesEl.appendChild(fa);
+      "display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:13px;font-weight:600;";
+    rowf.appendChild(fa);
+    // Botão salvar em "Meus relatórios".
+    var save = document.createElement("button");
+    save.type = "button"; save.title = "Salvar em Meus relatórios"; save.setAttribute("aria-label", "Salvar");
+    save.innerHTML = ICON_SAVEREP;
+    save.style.cssText = "display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:9px;border:1px solid rgba(0,0,0,.12);background:#fff;color:" + pc + ";cursor:pointer;flex:none;";
+    var sv = save.querySelector("svg"); if (sv) { sv.setAttribute("width", "15"); sv.setAttribute("height", "15"); }
+    save.addEventListener("click", function () { salvarArquivo(href, filename); });
+    rowf.appendChild(save);
+    messagesEl.appendChild(rowf);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    return fa;
+    return rowf;
   }
   // Reexibe a mídia persistida do assistente ao recarregar o histórico.
   function renderMedia(media) {
@@ -1426,15 +1953,22 @@
 
   function renderChart(spec) {
     _charts.push(spec);
+    var built = construirCardGrafico(spec, { salvar: true });
+    messagesEl.appendChild(built.card);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  // Constrói o card interativo do gráfico (idêntico ao do chat). opts: { salvar, emModal }.
+  function construirCardGrafico(spec, opts) {
+    opts = opts || {};
     var pc = (cfg && cfg.primaryColor) || "#511C76";
     var card = document.createElement("div");
-    card.style.cssText =
-      "margin:6px 0 6px 40px;padding:12px;border-radius:14px;max-width:88%;" +
-      "border:1px solid rgba(0,0,0,.10);background:#ffffff;";
+    card.style.cssText = opts.emModal
+      ? "padding:0;background:transparent;"
+      : "margin:6px 0 6px 40px;padding:12px;border-radius:14px;max-width:88%;border:1px solid rgba(0,0,0,.10);background:#ffffff;";
     // Cabeçalho: título + abas Gráfico / Tabela.
     var head = document.createElement("div");
     head.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:8px;";
-    if (spec.titulo) {
+    if (spec.titulo && !opts.emModal) {
       var h = document.createElement("div");
       h.textContent = spec.titulo;
       h.style.cssText = "font-size:13px;font-weight:700;color:#17171a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
@@ -1450,7 +1984,7 @@
     var cwrap = document.createElement("div");
     cwrap.style.cssText = "position:relative;";
     var canvas = document.createElement("canvas");
-    canvas.style.cssText = "width:100%;height:240px;display:block;";
+    canvas.style.cssText = "width:100%;height:" + (opts.emModal ? "300px" : "240px") + ";display:block;";
     cwrap.appendChild(canvas);
     card.appendChild(cwrap);
     attachChartHover(canvas, cwrap);
@@ -1473,7 +2007,8 @@
     });
     sel.addEventListener("change", function () { spec.tipo = sel.value; drawChart(canvas, spec); });
     var espaco = document.createElement("span"); espaco.style.cssText = "flex:1;";
-    var amp = kbChartBtn("⤢ Ampliar", pc, function () { abrirModalGrafico(spec, canvas); });
+    var abaTabela = false; // aba atual do card (false=Gráfico, true=Tabela) — p/ o Ampliar
+    var amp = kbChartBtn("⤢ Ampliar", pc, function () { abrirModalGrafico(spec, canvas, abaTabela); });
     amp.title = "Ampliar no centro da tela";
     var png = kbChartBtn("⬇ PNG", pc, function () {
       try { kbBaixar((spec.titulo || "grafico") + ".png", canvas.toDataURL("image/png")); } catch { }
@@ -1485,21 +2020,22 @@
       kbBaixar((spec.titulo || "grafico") + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + kbChartCsv(spec)));
     }));
     bar.appendChild(png);
+    if (opts.salvar) bar.appendChild(kbChartBtn("💾 Salvar", pc, function () { salvarGrafico(spec); }));
     card.appendChild(bar);
     // Alternância de abas (esconde os controles só-do-gráfico na aba Tabela).
     function setTab(g) {
+      abaTabela = !g;
       cwrap.style.display = g ? "" : "none";
       twrap.style.display = g ? "none" : "";
       sel.style.display = g ? "" : "none";
-      amp.style.display = g ? "" : "none";
       png.style.display = g ? "" : "none";
+      // "Ampliar" fica visível nas DUAS abas (expandir também no modo Tabela).
       kbTabState(tabG, g, pc); kbTabState(tabT, !g, pc);
       if (g) drawChart(canvas, spec);
     }
     tabG.addEventListener("click", function () { setTab(true); });
     tabT.addEventListener("click", function () { setTab(false); });
     kbTabState(tabG, true, pc); kbTabState(tabT, false, pc);
-    messagesEl.appendChild(card);
     requestAnimationFrame(function () { drawChart(canvas, spec); });
     // Redesenha ao mudar a LARGURA (expandir o painel, resize): o canvas tem
     // largura em % e, sem redesenhar, o buffer antigo estica e deforma as labels.
@@ -1511,12 +2047,12 @@
       });
       ro.observe(cwrap);
     } catch (e) { }
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return { card: card, canvas: canvas, cwrap: cwrap };
   }
 
   // Abre o gráfico ampliado, centralizado na tela (overlay dentro do shadow do
   // widget — fica acima da página e herda o z-index máximo do host).
-  function abrirModalGrafico(spec, inlineCanvas) {
+  function abrirModalGrafico(spec, inlineCanvas, iniciarNaTabela) {
     var pc = (cfg && cfg.primaryColor) || "#511C76";
     var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
     var ov = document.createElement("div");
@@ -1535,12 +2071,18 @@
     var fechar = document.createElement("button");
     fechar.type = "button"; fechar.setAttribute("aria-label", "Fechar"); fechar.innerHTML = "&times;";
     fechar.style.cssText = "border:none;background:transparent;font-size:26px;line-height:1;cursor:pointer;color:#555;padding:0 6px;";
-    hd.appendChild(ttl); hd.appendChild(fechar);
+    var tabs = document.createElement("div"); tabs.style.cssText = "display:flex;gap:4px;";
+    var tabG = kbTab("Gráfico"), tabT = kbTab("Tabela");
+    tabs.appendChild(tabG); tabs.appendChild(tabT);
+    hd.appendChild(ttl); hd.appendChild(tabs); hd.appendChild(fechar);
     var bwrap = document.createElement("div");
     bwrap.style.cssText = "position:relative;";
     var big = document.createElement("canvas");
     big.style.cssText = "width:100%;height:min(64vh,560px);display:block;";
     bwrap.appendChild(big);
+    var twrap = kbChartTable(spec, pc); // aba Tabela
+    twrap.style.maxHeight = "min(64vh,560px)";
+    twrap.style.display = "none";
     var ft = document.createElement("div");
     ft.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;";
     var sel = document.createElement("select");
@@ -1555,15 +2097,29 @@
     ft.appendChild(kbChartBtn("⬇ CSV", pc, function () {
       kbBaixar((spec.titulo || "grafico") + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + kbChartCsv(spec)));
     }));
-    ft.appendChild(kbChartBtn("⬇ PNG", pc, function () {
+    var png = kbChartBtn("⬇ PNG", pc, function () {
       try { kbBaixar((spec.titulo || "grafico") + ".png", big.toDataURL("image/png")); } catch { }
-    }));
-    card.appendChild(hd); card.appendChild(bwrap); card.appendChild(ft);
+    });
+    ft.appendChild(png);
+    ft.appendChild(kbChartBtn("💾 Salvar", pc, function () { salvarGrafico(spec); }));
+    card.appendChild(hd); card.appendChild(bwrap); card.appendChild(twrap); card.appendChild(ft);
     ov.appendChild(card);
     raiz.appendChild(ov);
     attachChartHover(big, bwrap);
     function redraw() { drawChart(big, spec, big.clientHeight || 520); }
-    requestAnimationFrame(redraw);
+    // Alterna Gráfico/Tabela no modal (PNG e seletor de tipo só valem no gráfico).
+    function setTabM(g) {
+      bwrap.style.display = g ? "" : "none";
+      twrap.style.display = g ? "none" : "";
+      sel.style.display = g ? "" : "none";
+      png.style.display = g ? "" : "none";
+      kbTabState(tabG, g, pc); kbTabState(tabT, !g, pc);
+      if (g) redraw();
+    }
+    tabG.addEventListener("click", function () { setTabM(true); });
+    tabT.addEventListener("click", function () { setTabM(false); });
+    kbTabState(tabG, true, pc); kbTabState(tabT, false, pc);
+    if (iniciarNaTabela) setTabM(false); else requestAnimationFrame(redraw);
     function fecharModal() {
       if (ov.parentNode) ov.parentNode.removeChild(ov);
       window.removeEventListener("resize", onResize);
@@ -1806,6 +2362,10 @@
     welcome: "Olá! Como posso ajudar com a documentação?",
     suggestions: [],
     position: "right",
+    // Coleta do IR via NOSSO servidor → ORDS (Opção A: 100% das linhas). Ligado
+    // por padrão; cai no fallback (varredura por página) se o endpoint não
+    // responder. Para desligar numa chave específica: widget_keys.config.reportServer = false.
+    reportServer: true,
   };
   var conversationId = null;
   var open = false;
@@ -1820,6 +2380,9 @@
   var micState = "idle";
   var mediaRec = null;
   var micChunks = [];
+  // UI de áudio estilo WhatsApp (barra na entrada: onda, tempo, ouvir, enviar/apagar).
+  var voiceBar = null, _voStream = null, _voCtx = null, _voAnalyser = null, _voRAF = 0, _voT0 = 0, _voTimerInt = 0;
+  var _voBlob = null, _voUrl = null, _voAudio = null, _voCancelado = false;
 
   // ==== Estilos (isolados no Shadow DOM) ====
   function styles() {
@@ -1888,7 +2451,7 @@
       ".m.a{background:#fff;color:#1c1726;border:1px solid #efe7f7;border-bottom-left-radius:6px;box-shadow:0 5px 16px rgba(60,40,100,.07)}" +
       ".arow .m.a{flex:1;min-width:0}" +
       // Carimbo de data/hora, bem sutil, logo abaixo de cada mensagem.
-      ".mt{font-size:10px;line-height:1;color:#a99fbd;opacity:.7;margin-top:-9px;user-select:none;pointer-events:none}" +
+      ".mt{font-size:10px;line-height:1;color:#7a7091;opacity:.9;margin-top:-9px;user-select:none;pointer-events:none}" +
       ".mt.u{align-self:flex-end;margin-right:6px}" +
       ".mt.a{align-self:flex-start;margin-left:40px}" +
       ".m.a a{color:var(--pc);font-weight:600}" +
@@ -1937,6 +2500,24 @@
       ".ft button:hover:not(:disabled){transform:scale(1.06)}" +
       ".ft button:disabled{opacity:.4;cursor:default;box-shadow:none}" +
       ".ft button svg{width:19px;height:19px}" +
+      // Barra de áudio (estilo WhatsApp): esconde os controles normais e ocupa a linha.
+      ".ft.voz > :not(.vbar){display:none!important}" +
+      ".vbar{display:none;flex:1;align-items:center;gap:9px;background:#f4eefb;border-radius:22px;padding:6px 7px 6px 13px}" +
+      ".ft.voz .vbar{display:flex}" +
+      ".vdot{width:11px;height:11px;border-radius:50%;background:#e53935;flex:none;animation:kbblink 1.1s ease-in-out infinite}" +
+      "@keyframes kbblink{50%{opacity:.18}}" +
+      "@keyframes kbspin{to{transform:rotate(360deg)}}" +
+      ".kbspin{animation:kbspin .7s linear infinite}" +
+      // Transparência ao rolar a página ATRÁS do chat (permite ler o conteúdo).
+      ".kb-dimmable{transition:opacity .2s ease}" +
+      ".panel.kb-dim{opacity:.30!important}" +
+      "@media(prefers-reduced-motion:reduce){.kb-dimmable{transition:none}}" +
+      "@media(prefers-reduced-motion:reduce){.vdot,.kbspin{animation-duration:1.6s}}" +
+      ".vtime{font-size:12.5px;font-weight:700;color:#4a4458;flex:none;font-variant-numeric:tabular-nums;min-width:34px}" +
+      ".vwave{flex:1;height:26px;display:block;min-width:20px}" +
+      ".vbtn{width:36px;height:36px;border-radius:50%;border:none;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:none}" +
+      ".vbtn svg{width:16px;height:16px}" +
+      ".vbtn.del{background:#9ca3af}.vbtn.ok{background:var(--pc)}.vbtn.play{background:var(--pc)}" +
       // "Digitando…": três pontos que sobem em onda, na cor da marca do widget.
       ".dots{display:inline-flex;gap:4px;align-items:flex-end;height:8px}" +
       ".dots span{width:7px;height:7px;border-radius:50%;background:var(--pc);animation:bl 1.4s ease-in-out infinite}" +
@@ -2000,7 +2581,9 @@
       ".attc .atts{color:#8a7ea3;flex:none}" +
       ".matts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;max-width:100%}" +
       ".attc.ro{background:#efe8f8;max-width:82%}" +
-      ".pw{padding:8px 12px 10px;font-size:10.5px;color:#a99fbe;text-align:center;background:#fff;letter-spacing:.02em}"
+      //  ".disc{padding:6px 14px 0;font-size:10px;line-height:1.35;color:#9a90b0;text-align:center;background:#fff}" +
+      ".disc{padding:6px 14px 0;font-size:12px;line-height:1.35;color:#9a90b0;text-align:center;background:#fff}" +
+      ".pw{padding:5px 12px 9px;font-size:10.5px;color:#a99fbe;text-align:center;background:#fff;letter-spacing:.02em}"
     );
   }
 
@@ -2016,6 +2599,15 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
   var ICON_PLUS =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  // Salvar resultado (disquete) e "meus relatórios" (grade/planilha).
+  var ICON_SAVEREP =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+  var ICON_REPORTS =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>';
+  var ICON_CHART =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>';
+  var ICON_DB =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>';
   var ICON_PENCIL =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
   var ICON_TRASH =
@@ -2031,6 +2623,10 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
   var ICON_STOP =
     '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  var ICON_PLAY =
+    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="7 4 20 12 7 20 7 4"/></svg>';
+  var ICON_PAUSE =
+    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
   var ICON_FILE =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   var ICON_IMG =
@@ -2099,6 +2695,738 @@
     if ((tentativas || 0) < 20) setTimeout(function () { permitirNoModal((tentativas || 0) + 1); }, 300);
   }
 
+  // ==== Fase B: comparar a tela atual com um relatório SALVO (cruzar por chave) ====
+  var _comparacao = null; // resultado do cruzamento p/ enviar no próximo ask
+  // Intenção EXPLÍCITA de cruzar com um relatório SALVO (Meus relatórios salvos) —
+  // NÃO é o Interactive Report da tela. Ex.: "compara com outro relatório salvo".
+  function intencaoCompararSalvo(text) {
+    var t = String(text || "").toLowerCase();
+    return /(compar|cruz|confront)/.test(t) &&
+      /(salv|guard|meus relat|outro relat|relat[óo]rio anterior|que (eu )?salvei|de (ontem|antes)|anterior)/.test(t);
+  }
+  // Intenção de ACESSAR/VER os relatórios salvos (sem comparar). Ex.: "me mostra meus
+  // relatórios salvos", "quais relatórios eu salvei", "abre meus relatórios".
+  function intencaoVerSalvos(text) {
+    var t = String(text || "").toLowerCase().trim();
+    var refSalvo = /meus\s+relat[óo]rios|relat[óo]rios?\s+salvos?|arquivos?\s+salvos?|relat[óo]rios?\s+(que\s+)?(eu\s+)?salvei/.test(t);
+    if (!refSalvo) return false;
+    var acesso = /(ver|abrir|abra|mostr|exib|acess|list|consult|quais|onde|me d[êe]|quero|ir para|vai para)/.test(t);
+    var curto = t.split(/\s+/).length <= 4; // "meus relatórios salvos" isolado
+    return acesso || curto;
+  }
+  // O usuário pediu explicitamente → abre o seletor de salvos direto (não manda à IA,
+  // que interpretaria "relatório salvo" como o relatório da tela).
+  function iniciarComparacaoExplicita(text, ids) {
+    var rv = acharIRPaginado(document) || document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+    if (!rv) { statusMsg("Para cruzar com um relatório salvo, abra uma tela com um relatório/dados e peça de novo.", "#b45309"); return; }
+    escolherOutroSalvo(function (sel) { compararCom(sel, rv, ids); });
+  }
+  function escolherOutroSalvo(cb) {
+    var m = widgetModal("Escolher relatório salvo", { wide: true });
+    m.body.textContent = "Carregando…";
+    apiSaved({ action: "list" }).then(function (r) {
+      m.body.innerHTML = "";
+      var itens = (r && r.ok && Array.isArray(r.itens)) ? r.itens : [];
+      if (!itens.length) { m.body.textContent = "Nenhum relatório salvo ainda. Salve um resultado (ícone de tabela → Salvar) e depois compare."; return; }
+      itens.forEach(function (it) {
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #eef0f2;border-radius:10px;margin-bottom:7px;cursor:pointer;";
+        var mt = metaTipo(it);
+        var ico = document.createElement("span"); ico.innerHTML = mt.icone; ico.style.cssText = "display:inline-flex;width:18px;height:18px;flex:none;color:" + mt.cor + ";";
+        var sg = ico.querySelector("svg"); if (sg) { sg.setAttribute("width", "16"); sg.setAttribute("height", "16"); }
+        var info = document.createElement("div"); info.style.cssText = "flex:1;min-width:0;";
+        var nm = document.createElement("div"); nm.style.cssText = "font-weight:700;font-size:13px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; nm.textContent = it.name;
+        var sub = document.createElement("div"); sub.style.cssText = "font-size:11px;color:#6b7280;"; sub.textContent = mt.ext + " · " + formatarData(it.created_at);
+        info.appendChild(nm); info.appendChild(sub);
+        row.appendChild(ico); row.appendChild(info);
+        row.addEventListener("click", function () { m.fechar(); cb(it); });
+        m.body.appendChild(row);
+      });
+    }).catch(function () { m.body.textContent = "Falha ao carregar."; });
+  }
+  // --- Apoio ao cruzamento: parse de arquivos salvos (CSV) e sugestão de chave ---
+  function decodeBase64Utf8(b64) {
+    try {
+      var bin = atob(String(b64 || "")); var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder("utf-8").decode(bytes);
+    } catch { return ""; }
+  }
+  function parseCSVrows(txt, delim) {
+    var rows = [], row = [], cur = "", inQ = false;
+    for (var i = 0; i < txt.length; i++) {
+      var ch = txt[i];
+      if (inQ) { if (ch === '"') { if (txt[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += ch; }
+      else if (ch === '"') inQ = true;
+      else if (ch === delim) { row.push(cur); cur = ""; }
+      else if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+      else if (ch !== "\r") cur += ch;
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function parseCSVtabela(txt) {
+    txt = String(txt || "").replace(/^﻿/, "").replace(/^sep=(.)\r?\n/i, "");
+    if (!txt.trim()) return null;
+    var first = txt.split(/\r?\n/)[0] || "";
+    var delim = (first.split(";").length > first.split(",").length) ? ";" : (first.split("\t").length > 1 ? "\t" : ",");
+    var rows = parseCSVrows(txt, delim);
+    if (!rows.length) return null;
+    var colunas = (rows[0] || []).map(String);
+    var linhas = rows.slice(1).filter(function (r) { return r.some(function (c) { return String(c).trim(); }); });
+    return colunas.length ? { colunas: colunas, linhas: linhas } : null;
+  }
+  // Item salvo → {colunas,linhas}: report/chart usam columns/rows; CSV/texto é parseado;
+  // binário (xlsx/pdf) → null (não dá pra cruzar por coluna aqui).
+  function parseSalvoParaTabela(det) {
+    if (Array.isArray(det.columns) && det.columns.length && Array.isArray(det.rows)) return { colunas: det.columns, linhas: det.rows };
+    if (det.kind === "file" && det.content) {
+      var mime = String(det.mime || ""), fn = String(det.file_name || det.name || "").toLowerCase();
+      if (/csv|text|plain|tab-separated/i.test(mime) || /\.(csv|txt|tsv)$/.test(fn)) { var t = parseCSVtabela(decodeBase64Utf8(det.content)); if (t) return t; }
+    }
+    return null;
+  }
+  // Sugere o par de colunas-chave (de/para): 1º por NOME normalizado igual; senão pela
+  // MAIOR sobreposição de VALORES (a chave costuma repetir nos dois). null = sem palpite.
+  function sugerirChave(atual, salvo) {
+    function norm(s) { return String(s == null ? "" : s).trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    var cA = atual.colunas || [], cB = salvo.colunas || [];
+    for (var i = 0; i < cA.length; i++) for (var j = 0; j < cB.length; j++) if (norm(cA[i]) && norm(cA[i]) === norm(cB[j])) return { iA: i, iB: j };
+    function setVals(linhas, idx) { var s = {}; for (var r = 0; r < Math.min(200, linhas.length); r++) { var v = norm(linhas[r][idx]); if (v) s[v] = 1; } return s; }
+    var best = null, bestN = 0;
+    for (var a = 0; a < cA.length; a++) {
+      var sA = setVals(atual.linhas || [], a);
+      for (var b = 0; b < cB.length; b++) {
+        var sB = setVals(salvo.linhas || [], b), n = 0;
+        for (var k in sA) if (sB[k]) n++;
+        if (n > bestN) { bestN = n; best = { iA: a, iB: b }; }
+      }
+    }
+    return bestN >= 2 ? best : null;
+  }
+  // "Desconsiderar o de/para": manda os dois conjuntos p/ a IA comparar livremente.
+  function cruzarSemChave(atual, salvo, salvoItem, ids) {
+    var CAP = 40;
+    _comparacao = {
+      semChave: true, nomeSalvo: salvoItem.name,
+      colunas: atual.colunas, colunasSalvo: salvo.colunas,
+      total_atual: (atual.linhas || []).length, total_salvo: (salvo.linhas || []).length,
+      amostra_atual: (atual.linhas || []).slice(0, CAP),
+      amostra_salvo: (salvo.linhas || []).slice(0, CAP),
+    };
+    statusMsg("✅ Vou comparar os dois conjuntos (sem vincular por coluna).", "#15803d");
+    ask(undefined, ids);
+  }
+  // Cruza por COLUNA-CHAVE. `chaveMap`={iA,iB} força o par (de/para); senão auto-detecta
+  // (MATRICULA/CPF/ID/CÓDIGO ou a 1ª comum). Sem coluna comum E sem chaveMap →
+  // { erro:"sem-colunas-comuns" } (o chamador abre o de/para).
+  function cruzarDados(atual, salvo, chaveMap) {
+    function norm(s) { return String(s == null ? "" : s).trim().toLowerCase(); }
+    var colsA = atual.colunas || [], colsB = salvo.colunas || [];
+    var mapA = {}, mapB = {};
+    colsA.forEach(function (c, i) { mapA[norm(c)] = i; });
+    colsB.forEach(function (c, i) { mapB[norm(c)] = i; });
+    var comuns = colsA.map(norm).filter(function (c) { return mapB[c] != null; });
+    var iAk, iBk, chaveNome;
+    if (chaveMap && chaveMap.iA != null && chaveMap.iB != null) {
+      iAk = chaveMap.iA; iBk = chaveMap.iB;
+      chaveNome = colsA[iAk] + (norm(colsA[iAk]) === norm(colsB[iBk]) ? "" : " ↔ " + colsB[iBk]);
+    } else {
+      if (!comuns.length) return { erro: "sem-colunas-comuns" };
+      var pref = ["matricula", "matrícula", "cpf", "id", "codigo", "código", "matricula_esocial"];
+      var chave = null;
+      for (var i = 0; i < pref.length && !chave; i++) if (comuns.indexOf(pref[i]) >= 0) chave = pref[i];
+      if (!chave) chave = comuns[0];
+      iAk = mapA[chave]; iBk = mapB[chave]; chaveNome = colsA[iAk];
+    }
+    var nomeChaveA = norm(colsA[iAk]), nomeChaveB = norm(colsB[iBk]);
+    var comunsSemChave = comuns.filter(function (c) { return c !== nomeChaveA && c !== nomeChaveB; });
+    var idxB = {}; (salvo.linhas || []).forEach(function (r) { var k = norm(r[iBk]); if (k) idxB[k] = r; });
+    var idxA = {}; (atual.linhas || []).forEach(function (r) { var k = norm(r[iAk]); if (k) idxA[k] = r; });
+    var soAtual = [], soSalvo = [], ambos = 0, mudancas = [];
+    (atual.linhas || []).forEach(function (rA) {
+      var k = norm(rA[iAk]); if (!k) return;
+      var rB = idxB[k];
+      if (rB != null) {
+        ambos++;
+        var difs = [];
+        comunsSemChave.forEach(function (c) {
+          var va = String(rA[mapA[c]] == null ? "" : rA[mapA[c]]), vb = String(rB[mapB[c]] == null ? "" : rB[mapB[c]]);
+          if (norm(va) !== norm(vb)) difs.push({ coluna: c, antes: vb, agora: va });
+        });
+        if (difs.length) mudancas.push({ chave: rA[iAk], difs: difs });
+      } else soAtual.push(rA);
+    });
+    (salvo.linhas || []).forEach(function (rB) { var k = norm(rB[iBk]); if (k && idxA[k] == null) soSalvo.push(rB); });
+    return {
+      chave: chaveNome, colunasAtual: colsA,
+      total_atual: (atual.linhas || []).length, total_salvo: (salvo.linhas || []).length, em_ambos: ambos,
+      so_no_atual: soAtual, so_no_salvo: soSalvo, mudancas: mudancas,
+    };
+  }
+  // Resultado do cruzamento → contexto p/ a IA (amostras cap 40) + status + reenvia.
+  function aplicarCruzamento(cruz, salvoItem, ids) {
+    var CAP = 40;
+    _comparacao = {
+      nomeSalvo: salvoItem.name, chave: cruz.chave, colunas: cruz.colunasAtual,
+      total_atual: cruz.total_atual, total_salvo: cruz.total_salvo, em_ambos: cruz.em_ambos,
+      so_no_atual: cruz.so_no_atual.length, so_no_salvo: cruz.so_no_salvo.length, mudancas: cruz.mudancas.length,
+      amostra_so_no_atual: cruz.so_no_atual.slice(0, CAP),
+      amostra_so_no_salvo: cruz.so_no_salvo.slice(0, CAP),
+      amostra_mudancas: cruz.mudancas.slice(0, CAP),
+    };
+    statusMsg("✅ Cruzei por “" + cruz.chave + "”: " + cruz.so_no_atual.length + " só nesta tela, " + cruz.so_no_salvo.length + " só no salvo, " + cruz.em_ambos + " em ambos (" + cruz.mudancas.length + " com mudança).", "#15803d");
+    ask(undefined, ids);
+  }
+  // Modal DE/PARA: sem coluna comum automática, o usuário escolhe qual coluna da tela ↔
+  // qual do salvo identifica o MESMO registro (com amostra de valores para ajudar).
+  function abrirDeParaModal(atual, salvo, salvoItem, ids, rv) {
+    var m = widgetModal("Como cruzar os dados?", { wide: true });
+    var sug = sugerirChave(atual, salvo); // palpite automático (nome/valores)
+    var intro = document.createElement("div");
+    intro.style.cssText = "font-size:12.5px;color:#374151;margin-bottom:14px;line-height:1.5;";
+    intro.textContent = sug
+      ? "Sugeri automaticamente as colunas que parecem identificar o MESMO registro. Confira e confirme (ou ajuste):"
+      : "Escolha a coluna que identifica o MESMO registro nos dois (ex.: Matrícula ↔ Código do funcionário):";
+    m.body.appendChild(intro);
+    var grid = document.createElement("div"); grid.style.cssText = "display:grid;grid-template-columns:1fr 28px 1fr;gap:8px;align-items:start;";
+    function lado(titulo, cols, linhas, sel0) {
+      var wrap = document.createElement("div");
+      var lb = document.createElement("div"); lb.style.cssText = "font-size:11px;font-weight:700;color:#6b7280;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; lb.textContent = titulo;
+      var sel = document.createElement("select"); sel.style.cssText = "width:100%;padding:8px;border:1px solid #d1d5db;border-radius:9px;font-size:13px;box-sizing:border-box;";
+      (cols || []).forEach(function (c, i) { var o = document.createElement("option"); o.value = String(i); o.textContent = c; if (i === sel0) o.selected = true; sel.appendChild(o); });
+      var am = document.createElement("div"); am.style.cssText = "font-size:11px;color:#6b7280;margin-top:5px;line-height:1.5;word-break:break-word;";
+      function upd() { var i = Number(sel.value), vals = []; for (var r = 0; r < Math.min(3, (linhas || []).length); r++) { var v = linhas[r][i]; if (v != null && String(v).trim()) vals.push(String(v)); } am.textContent = vals.length ? "Ex.: " + vals.join(", ") : ""; }
+      sel.addEventListener("change", upd); setTimeout(upd, 0);
+      wrap.appendChild(lb); wrap.appendChild(sel); wrap.appendChild(am);
+      return { wrap: wrap, sel: sel };
+    }
+    var la = lado("Tela atual", atual.colunas, atual.linhas, sug ? sug.iA : 0);
+    var seta = document.createElement("div"); seta.style.cssText = "text-align:center;font-size:16px;color:#9ca3af;padding-top:24px;"; seta.textContent = "↔";
+    var lc = lado("Salvo: " + salvoItem.name, salvo.colunas, salvo.linhas, sug ? sug.iB : 0);
+    grid.appendChild(la.wrap); grid.appendChild(seta); grid.appendChild(lc.wrap);
+    m.body.appendChild(grid);
+    var row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;";
+    var voltar = tutBtn("Trocar arquivo", false);
+    var semv = tutBtn("Sem vincular", false);
+    var ok = tutBtn("Cruzar", true);
+    voltar.addEventListener("click", function () { m.fechar(); escolherOutroSalvo(function (sel) { compararCom(sel, rv, ids); }); });
+    semv.title = "Comparar os dois conjuntos sem casar por coluna";
+    semv.addEventListener("click", function () { m.fechar(); cruzarSemChave(atual, salvo, salvoItem, ids); });
+    ok.addEventListener("click", function () {
+      var chaveMap = { iA: Number(la.sel.value), iB: Number(lc.sel.value) };
+      m.fechar();
+      var cruz = cruzarDados(atual, salvo, chaveMap);
+      if (cruz.erro) { toastWidget("Não consegui cruzar com essas colunas.", true); ask(undefined, ids); return; }
+      aplicarCruzamento(cruz, salvoItem, ids);
+    });
+    row.appendChild(voltar); row.appendChild(semv); row.appendChild(ok);
+    m.body.appendChild(row);
+  }
+  async function compararCom(salvoItem, rv, ids) {
+    procStatus("Cruzando os dados com “" + salvoItem.name + "”", null);
+    var atual = await coletarAtual();
+    if (!atual) { limparProcStatus(); toastWidget("Não consegui ler os dados desta tela para comparar.", true); ask(undefined, ids); return; }
+    var det = await apiSaved({ action: "get", id: salvoItem.id });
+    limparProcStatus();
+    if (!det || !det.ok) { toastWidget("Não consegui abrir o relatório salvo.", true); ask(undefined, ids); return; }
+    var salvo = parseSalvoParaTabela(det);
+    if (!salvo) {
+      // arquivo não tabular (Excel/PDF binário) → não dá pra ler colunas aqui p/ cruzar.
+      toastWidget("Não consigo ler as colunas desse arquivo aqui (Excel/PDF). Escolha um relatório salvo tabular ou um CSV.", true);
+      escolherOutroSalvo(function (sel) { compararCom(sel, rv, ids); });
+      return;
+    }
+    var cruz = cruzarDados(atual, salvo);
+    if (cruz.erro === "sem-colunas-comuns") { abrirDeParaModal(atual, salvo, salvoItem, ids, rv); return; } // de/para
+    if (cruz.erro) { toastWidget(cruz.erro, true); ask(undefined, ids); return; }
+    aplicarCruzamento(cruz, salvoItem, ids);
+  }
+
+  // ==== Menu suspenso de Relatórios (um botão → Salvar / Relatórios salvos) ====
+  var _reportsMenu = null, _reportsBtn = null;
+  function fecharMenuRelatorios() {
+    if (_reportsMenu) { try { _reportsMenu.remove(); } catch (e) { } _reportsMenu = null; }
+    _reportsBtn = null;
+    document.removeEventListener("click", _reportsFora, true);
+  }
+  function _reportsFora(e) {
+    if (_reportsMenu && !_reportsMenu.contains(e.target) && (!_reportsBtn || !_reportsBtn.contains(e.target))) fecharMenuRelatorios();
+  }
+  function abrirMenuRelatorios(btn) {
+    if (_reportsMenu) { fecharMenuRelatorios(); return; } // toggle
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var menu = document.createElement("div");
+    menu.style.cssText = "position:absolute;z-index:78;background:#fff;border:1px solid #e5e7eb;border-radius:11px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:6px;min-width:200px;";
+    function item(icone, texto, fn) {
+      var b = document.createElement("button"); b.type = "button";
+      b.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#374151;text-align:left;";
+      var ic = document.createElement("span"); ic.innerHTML = icone; ic.style.cssText = "display:inline-flex;width:16px;height:16px;flex:none;color:" + pc + ";";
+      var svg = ic.querySelector("svg"); if (svg) { svg.setAttribute("width", "16"); svg.setAttribute("height", "16"); }
+      var tx = document.createElement("span"); tx.textContent = texto;
+      b.appendChild(ic); b.appendChild(tx);
+      b.addEventListener("mouseenter", function () { b.style.background = pc + "12"; });
+      b.addEventListener("mouseleave", function () { b.style.background = "transparent"; });
+      b.addEventListener("click", function (e) { e.stopPropagation(); fecharMenuRelatorios(); fn(); });
+      return b;
+    }
+    menu.appendChild(item(ICON_SAVEREP, "Salvar resultado", salvarResultado));
+    menu.appendChild(item(ICON_REPORTS, "Relatórios salvos", abrirRelatoriosSalvos));
+    (panel || root).appendChild(menu);
+    _reportsMenu = menu; _reportsBtn = btn;
+    try {
+      var rb = btn.getBoundingClientRect(), rp = (panel || root).getBoundingClientRect();
+      var top = rb.bottom - rp.top + 6;
+      var left = Math.min(rb.left - rp.left, rp.width - menu.offsetWidth - 10);
+      menu.style.top = top + "px"; menu.style.left = Math.max(8, left) + "px";
+    } catch (e) { }
+    setTimeout(function () { document.addEventListener("click", _reportsFora, true); }, 0);
+  }
+
+  // ==== Relatórios salvos (Fase A: salvar/listar/ver/exportar/apagar) ====
+  // Fala com /api/v1/saved-reports (o servidor valida a chave + o rastreio e grava
+  // no banco em nome do usuário). O widget NUNCA toca o banco direto.
+  async function apiSaved(payload) {
+    try {
+      var resp = await fetch(API + "/api/v1/saved-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload)),
+      });
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+  // Toast curto dentro do painel (sucesso/erro), sem poluir a conversa.
+  function toastWidget(msg, erro) {
+    var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
+    var t = document.createElement("div");
+    t.textContent = msg;
+    t.style.cssText =
+      "position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:2147483647;padding:9px 16px;border-radius:20px;" +
+      "font-size:12.5px;font-weight:700;color:#fff;background:" + (erro ? "#b45309" : "#15803d") + ";box-shadow:0 8px 22px rgba(0,0,0,.3);max-width:88vw;text-align:center;";
+    raiz.appendChild(t);
+    setTimeout(function () { try { t.remove(); } catch (e) { } }, 3200);
+  }
+  // Modal genérica do widget. Renderiza no NÍVEL do shadow root (fixed, z-index máximo)
+  // para ficar SEMPRE por cima — inclusive do gráfico expandido (que também usa z máximo).
+  function widgetModal(titulo, opts) {
+    opts = opts || {};
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:rgba(15,15,25,.42);padding:16px;";
+    var box = document.createElement("div");
+    box.style.cssText = "background:#fff;border-radius:16px;width:100%;max-width:" + (opts.wide ? "600px" : "430px") + ";max-height:90%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 55px rgba(0,0,0,.32);";
+    var hd = document.createElement("div");
+    hd.style.cssText = "display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #eef0f2;";
+    var t = document.createElement("div");
+    t.style.cssText = "font-weight:800;font-size:14px;color:" + pc + ";flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    t.textContent = titulo || "";
+    var x = document.createElement("button");
+    x.type = "button"; x.innerHTML = "&times;"; x.setAttribute("aria-label", "Fechar");
+    x.style.cssText = "border:0;background:transparent;font-size:22px;line-height:1;cursor:pointer;color:#6b7280;flex:none;";
+    var body = document.createElement("div");
+    body.style.cssText = "padding:13px 14px;overflow:auto;";
+    hd.appendChild(t); hd.appendChild(x); box.appendChild(hd); box.appendChild(body); ov.appendChild(box);
+    function fechar() { try { ov.remove(); } catch (e) { } }
+    x.addEventListener("click", fechar);
+    ov.addEventListener("click", function (e) { if (e.target === ov) fechar(); });
+    raiz.appendChild(ov);
+    return { ov: ov, box: box, body: body, tituloEl: t, fechar: fechar };
+  }
+  function pad2(n) { return ("0" + n).slice(-2); }
+  function formatarData(iso) {
+    try { var d = new Date(iso); if (isNaN(d.getTime())) return ""; return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear() + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()); } catch (e) { return ""; }
+  }
+  // Termo/filtro corrente do IR (p/ sugerir o nome ao salvar).
+  function termoFiltroAtual() {
+    try {
+      var rv = document.querySelector(".a-IRR-reportView, .a-IRR");
+      if (!rv) return "";
+      var rots = rotulosFiltro(rv);
+      if (rots.length) return rots.join("; ").slice(0, 60);
+      var s = rv.querySelector(".a-IRR-search-field, input[id$='_search_field']");
+      return s && s.value ? String(s.value).slice(0, 40) : "";
+    } catch (e) { return ""; }
+  }
+  function sugerirNome(dados) {
+    var d = new Date();
+    var data = pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    var filtro = termoFiltroAtual();
+    return ((dados.nome || "Relatório") + (filtro ? " — " + filtro : "") + " — " + data).slice(0, 120);
+  }
+  // Coleta o resultado ATUAL da tela (reusa cache; senão processo in-session; senão DOM).
+  async function coletarAtual() {
+    var rv = acharIRPaginado(document) || document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+    if (!rv) return null;
+    var key = regionKey(rv), fp = fingerprintRelatorio(rv);
+    if (_harvestCache && _harvestCache.key === key && _harvestCache.fp === fp && _harvestCache.linhas && _harvestCache.linhas.length) {
+      return { nome: _harvestCache.nome, colunas: _harvestCache.colunas, linhas: _harvestCache.linhas, total: _harvestCache.total };
+    }
+    var rp = await coletarProcessoDedup(rv, key, fp);
+    if (!rp || !rp.linhas.length) { try { rp = await coletarRelatorio(rv); } catch (e) { rp = null; } }
+    if (!rp || !rp.linhas.length) return null;
+    _harvestCache = { key: key, fp: fp, nome: nomeRegiao(rv) || "Relatório", colunas: rp.colunas, linhas: rp.linhas, total: rp.total || rp.linhas.length, incompleto: !!rp.truncou };
+    return { nome: _harvestCache.nome, colunas: rp.colunas, linhas: rp.linhas, total: _harvestCache.total };
+  }
+
+  // PRÉ-AQUECIMENTO: assim que o IR é filtrado/submetido, coleta os dados em
+  // BACKGROUND e guarda no cache — a próxima pergunta fica instantânea, sem clicar
+  // em nada. Roda mesmo com o widget fechado (decisão do usuário). O cache é em
+  // memória: ao sair/recarregar a página, some sozinho.
+  var _preAqBusy = false, _preAqTimer = 0;
+  function preAquecer() {
+    if (_preAqBusy) return;
+    var A = window.apex;
+    if (!A || !A.server || typeof A.server.process !== "function") return; // só in-session (host APEX)
+    var rv = acharIRPaginado(document) || document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+    if (!rv) return;
+    var key = regionKey(rv), fp = fingerprintRelatorio(rv);
+    // Nada mudou desde a última coleta (mesma impressão digital) → já está em cache.
+    if (_harvestCache && _harvestCache.key === key && _harvestCache.fp === fp && _harvestCache.linhas && _harvestCache.linhas.length) return;
+    _preAqBusy = true;
+    coletarProcessoDedup(rv, key, fp).then(function (rp) {
+      if (rp && rp.linhas && rp.linhas.length) {
+        _harvestCache = { key: key, fp: fp, nome: nomeRegiao(rv) || "Relatório", colunas: rp.colunas, linhas: rp.linhas, total: rp.total || rp.linhas.length, incompleto: !!rp.truncou };
+        diag("pré-aquecido: " + _harvestCache.total + " linha(s) em cache");
+      }
+    }).catch(function () { }).then(function () { _preAqBusy = false; });
+  }
+  function agendarPreAquecer() {
+    try { if (_preAqTimer) clearTimeout(_preAqTimer); } catch { }
+    _preAqTimer = setTimeout(preAquecer, 700); // debounce: um filtro pode disparar vários refresh
+  }
+  // Liga no evento nativo do APEX (dispara após filtro, busca, ordenação, paginação
+  // e submit que atualizam o IR/IG). Delegado no document → pega regiões criadas
+  // depois. A própria preAquecer decide, pela impressão digital, se há algo novo.
+  function setupPreAquecimento() {
+    try {
+      var A = window.apex;
+      if (!A || !A.jQuery) return; // host não-APEX: sem pré-aquecimento
+      A.jQuery(document).on("apexafterrefresh", agendarPreAquecer);
+      setTimeout(preAquecer, 1800); // aquece uma vez ao carregar (1ª pergunta também instantânea)
+    } catch { }
+  }
+
+  // Modal genérica de "dar um nome e salvar". onConfirm(nome) → Promise do apiSaved.
+  function promptNome(titulo, sugestao, info, onConfirm) {
+    var m = widgetModal(titulo || "Salvar");
+    var lbl = document.createElement("div"); lbl.textContent = "Nome"; lbl.style.cssText = "font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;";
+    var inp = document.createElement("input"); inp.type = "text"; inp.maxLength = 120; inp.value = sugestao || "";
+    inp.style.cssText = "width:100%;padding:9px 11px;border:1px solid #d1d5db;border-radius:9px;font-size:13px;box-sizing:border-box;";
+    var inf = document.createElement("div"); inf.style.cssText = "font-size:11.5px;color:#6b7280;margin-top:8px;"; inf.textContent = info || "";
+    var row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:14px;";
+    var cancelar = tutBtn("Cancelar", false); var salvar = tutBtn("Salvar", true);
+    row.appendChild(cancelar); row.appendChild(salvar);
+    m.body.appendChild(lbl); m.body.appendChild(inp); m.body.appendChild(inf); m.body.appendChild(row);
+    cancelar.addEventListener("click", m.fechar);
+    salvar.addEventListener("click", async function () {
+      var nome = (inp.value || "").trim();
+      if (!nome) { inp.focus(); return; }
+      salvar.disabled = true; cancelar.disabled = true;
+      salvar.textContent = ""; salvar.appendChild(spinnerEl("#fff", 13));
+      var slbl = document.createElement("span"); slbl.textContent = "Salvando…"; slbl.style.marginLeft = "7px"; salvar.appendChild(slbl);
+      salvar.style.display = "inline-flex"; salvar.style.alignItems = "center";
+      var r = await onConfirm(nome);
+      if (r && r.ok) { if (r.id) _ultimoSalvo = { id: r.id, name: r.name, created_at: r.created_at }; m.fechar(); toastWidget("Salvo em Meus relatórios."); }
+      else { salvar.disabled = false; cancelar.disabled = false; salvar.style.display = ""; salvar.textContent = "Salvar"; toastWidget((r && r.erro) || "Falha ao salvar.", true); }
+    });
+    setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { } }, 60);
+  }
+  function nomeComData(base) {
+    var d = new Date();
+    return (String(base || "Item") + " — " + pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes())).slice(0, 120);
+  }
+  // Salvar RESULTADO (dados tabulares do relatório).
+  async function salvarResultado() {
+    var dados = (_harvestCache && _harvestCache.linhas && _harvestCache.linhas.length)
+      ? { nome: _harvestCache.nome, colunas: _harvestCache.colunas, linhas: _harvestCache.linhas, total: _harvestCache.total }
+      : null;
+    if (!dados) {
+      var sp = statusSpin("Preparando os dados para salvar…");
+      try { dados = await coletarAtual(); } finally { try { sp.remove(); } catch { } }
+    }
+    if (!dados) { toastWidget("Faça uma pesquisa no relatório antes de salvar.", true); return; }
+    promptNome("Salvar resultado", sugerirNome(dados),
+      (dados.total || dados.linhas.length) + " registro(s) · " + dados.colunas.length + " coluna(s)",
+      function (nome) { return apiSaved({ action: "save", kind: "report", name: nome, sourceName: dados.nome, columns: dados.colunas, rows: dados.linhas, total: dados.total || dados.linhas.length }); });
+  }
+  // Salvar ARQUIVO gerado (xlsx/pptx/docx/pdf/csv…). Extrai o conteúdo do data URL
+  // (arquivo recém-gerado) ou busca a URL (histórico).
+  async function salvarArquivo(href, filename, origem) {
+    var mime = "", b64 = "", sp = null;
+    try {
+      if (/^data:/i.test(href)) {
+        mime = (href.match(/^data:([^;,]+)/) || ["", ""])[1] || "";
+        b64 = href.split(",")[1] || "";
+      } else {
+        sp = statusSpin("Preparando o arquivo…");
+        var resp = await fetch(href); var blob = await resp.blob(); mime = blob.type || "";
+        b64 = await new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(",")[1] || ""); }; fr.onerror = rej; fr.readAsDataURL(blob); });
+      }
+    } catch { } finally { if (sp) { try { sp.remove(); } catch { } } }
+    if (!b64) { toastWidget("Não consegui ler o arquivo para salvar.", true); return; }
+    var base = String(filename || "arquivo").replace(/\.[a-z0-9]+$/i, "");
+    var ext = (String(filename || "").match(/\.([a-z0-9]+)$/i) || ["", ""])[1];
+    promptNome("Salvar arquivo", nomeComData(base),
+      (ext ? ext.toUpperCase() + " · " : "") + Math.round(b64.length * 0.75 / 1024) + " KB",
+      function (nome) { return apiSaved({ action: "save", kind: "file", name: nome, fileName: filename, mime: mime, content: b64, origem: origem === "upload" ? "upload" : "gerado" }); });
+  }
+  // Tabela do gráfico (colunas/linhas) — mesmo formato do CSV/aba Tabela.
+  function chartToTabela(spec) {
+    var colunas = ["Categoria"].concat((spec.series || []).map(function (s) { return String(s.nome); }));
+    var linhas = (spec.categorias || []).map(function (c, r) {
+      return [String(c)].concat((spec.series || []).map(function (s) { return s.valores[r] == null ? "" : String(s.valores[r]); }));
+    });
+    return { colunas: colunas, linhas: linhas };
+  }
+  // Salvar GRÁFICO: guarda a spec (re-renderiza) + a TABELA (colunas/linhas) p/ CSV.
+  function salvarGrafico(spec) {
+    var tab = chartToTabela(spec);
+    promptNome("Salvar gráfico", nomeComData(spec.titulo || "Gráfico"),
+      "Gráfico" + (spec.tipo ? " (" + spec.tipo + ")" : "") + " + tabela (" + tab.linhas.length + " linha(s))",
+      function (nome) { return apiSaved({ action: "save", kind: "chart", name: nome, sourceName: spec.titulo || "Gráfico", chart: spec, columns: tab.colunas, rows: tab.linhas, total: tab.linhas.length }); });
+  }
+  // Ícone + cor + rótulo por tipo do item salvo (para a listagem).
+  function metaTipo(it) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    if (it.kind === "chart") return { icone: ICON_CHART, cor: "#c95788", ext: "Gráfico" };
+    if (it.kind === "file") {
+      var fn = String(it.file_name || it.name || "").toLowerCase(), mm = String(it.mime || "").toLowerCase();
+      if (/sheet|excel|xls/.test(mm) || /xlsx?$/.test(fn)) return { icone: ICON_FILE, cor: "#207245", ext: "XLSX" };
+      if (/pdf/.test(mm) || /pdf$/.test(fn)) return { icone: ICON_FILE, cor: "#c0392b", ext: "PDF" };
+      if (/word|document/.test(mm) || /docx?$/.test(fn)) return { icone: ICON_FILE, cor: "#2b5797", ext: "DOCX" };
+      if (/presentation|powerpoint|ppt/.test(mm) || /pptx?$/.test(fn)) return { icone: ICON_FILE, cor: "#d24726", ext: "PPTX" };
+      if (/csv/.test(mm) || /csv$/.test(fn)) return { icone: ICON_FILE, cor: "#0a8f6b", ext: "CSV" };
+      var e = (fn.match(/\.([a-z0-9]+)$/) || ["", ""])[1];
+      return { icone: ICON_FILE, cor: "#6b7280", ext: (e || "ARQ").toUpperCase() };
+    }
+    return { icone: ICON_REPORTS, cor: pc, ext: "Tabela" };
+  }
+  // Categoria do item salvo — para o filtro "Tipo" da listagem.
+  function categoriaSalvo(it) {
+    if (it.kind === "chart") return "grafico";
+    if (!it.kind || it.kind === "report") return "tabela";
+    var fn = String(it.file_name || it.name || "").toLowerCase(), mm = String(it.mime || "").toLowerCase();
+    if (/sheet|excel|xls|csv/.test(mm) || /\.(xlsx?|csv)$/.test(fn)) return "planilha";
+    if (/pdf/.test(mm) || /\.pdf$/.test(fn)) return "pdf";
+    if (/word|document/.test(mm) || /\.docx?$/.test(fn)) return "word";
+    if (/presentation|powerpoint|ppt/.test(mm) || /\.pptx?$/.test(fn)) return "ppt";
+    return "outro";
+  }
+  // Botão "Apagar" (2 cliques) que fecha a modal ao concluir.
+  function botaoApagarSalvo(id, m) {
+    var del = tutBtn("Apagar", false); del.style.borderColor = "#b4530955"; del.style.color = "#b45309";
+    var armado = false;
+    del.addEventListener("click", async function () {
+      if (!armado) { armado = true; del.textContent = "Confirmar apagar"; setTimeout(function () { armado = false; del.textContent = "Apagar"; }, 2500); return; }
+      del.disabled = true;
+      var dr = await apiSaved({ action: "delete", id: id });
+      if (dr && dr.ok) { m.fechar(); toastWidget("Apagado."); } else { del.disabled = false; toastWidget("Falha ao apagar.", true); }
+    });
+    return del;
+  }
+  async function abrirRelatoriosSalvos() {
+    var m = widgetModal("Meus relatórios salvos", { wide: true });
+    m.body.textContent = "Carregando…";
+    var r = await apiSaved({ action: "list" });
+    m.body.innerHTML = "";
+    if (!r || !r.ok) { m.body.textContent = ((r && r.erro) || "Falha ao carregar.") + (r && r.detalhe ? " (" + r.detalhe + ")" : ""); return; }
+    var itens = r.itens || [];
+    if (!itens.length) {
+      var e = document.createElement("div");
+      e.style.cssText = "color:#6b7280;font-size:13px;text-align:center;padding:22px 8px;";
+      e.textContent = "Nenhum relatório salvo ainda. Faça uma pesquisa e clique em “Salvar resultado”.";
+      m.body.appendChild(e); return;
+    }
+    // FILTROS enxutos (fixos no topo): busca por nome em destaque; tipo + intervalo
+    // de datas numa 2ª linha compacta que quebra bem — sem virar um aglomerado.
+    var bar = document.createElement("div");
+    bar.style.cssText = "position:sticky;top:0;background:#fff;z-index:3;padding:0 0 8px;margin:-2px 0 6px;border-bottom:1px solid #f1f2f4;";
+    var busca = document.createElement("input"); busca.type = "search"; busca.placeholder = "🔍  Buscar pelo nome do arquivo…";
+    busca.style.cssText = "width:100%;padding:8px 11px;border:1px solid #e5e7eb;border-radius:9px;font-size:13px;box-sizing:border-box;";
+    var linha2 = document.createElement("div"); linha2.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;";
+    var tipo = document.createElement("select");
+    tipo.style.cssText = "flex:1 1 120px;min-width:110px;padding:6px 8px;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#374151;background:#fff;cursor:pointer;";
+    [["", "Todos os tipos"], ["tabela", "Tabela"], ["grafico", "Gráfico"], ["planilha", "Planilha"], ["pdf", "PDF"], ["word", "Word"], ["ppt", "PowerPoint"], ["outro", "Outro arquivo"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; tipo.appendChild(op); });
+    var estiloData = "padding:6px 8px;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#374151;min-width:0;flex:0 1 auto;";
+    var de = document.createElement("input"); de.type = "date"; de.title = "Data inicial"; de.setAttribute("aria-label", "Data inicial"); de.style.cssText = estiloData;
+    var seta = document.createElement("span"); seta.textContent = "→"; seta.style.cssText = "color:#9ca3af;font-size:12px;flex:none;";
+    var ate = document.createElement("input"); ate.type = "date"; ate.title = "Data final"; ate.setAttribute("aria-label", "Data final"); ate.style.cssText = estiloData;
+    linha2.appendChild(tipo); linha2.appendChild(de); linha2.appendChild(seta); linha2.appendChild(ate);
+    bar.appendChild(busca); bar.appendChild(linha2);
+    m.body.appendChild(bar);
+    var contador = document.createElement("div"); contador.style.cssText = "font-size:11px;color:#9ca3af;margin:0 2px 8px;";
+    m.body.appendChild(contador);
+    var lista = document.createElement("div"); m.body.appendChild(lista);
+
+    function normaliza(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+    function passa(it) {
+      var q = normaliza(busca.value.trim());
+      if (q && normaliza(it.name).indexOf(q) < 0 && normaliza(it.file_name).indexOf(q) < 0) return false;
+      if (tipo.value && categoriaSalvo(it) !== tipo.value) return false;
+      var d = String(it.created_at || "").slice(0, 10);
+      if (de.value && d < de.value) return false;
+      if (ate.value && d > ate.value) return false;
+      return true;
+    }
+    function linhaSalvo(it) {
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #eef0f2;border-radius:10px;margin-bottom:8px;cursor:pointer;";
+      var mt = metaTipo(it);
+      var ico = document.createElement("span"); ico.innerHTML = mt.icone;
+      ico.style.cssText = "display:inline-flex;width:20px;height:20px;flex:none;color:" + mt.cor + ";";
+      var sg = ico.querySelector("svg"); if (sg) { sg.setAttribute("width", "18"); sg.setAttribute("height", "18"); }
+      var info = document.createElement("div"); info.style.cssText = "flex:1;min-width:0;";
+      var nm = document.createElement("div"); nm.style.cssText = "font-weight:700;font-size:13px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; nm.textContent = it.name;
+      var sub = document.createElement("div"); sub.style.cssText = "font-size:11px;color:#6b7280;margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
+      if (it.origem === "upload") {
+        var tag = document.createElement("span"); tag.textContent = "upload";
+        tag.title = "Arquivo ENVIADO por você (não gerado pelo widget)";
+        tag.style.cssText = "background:#c957881f;color:#a23a6a;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;flex:none;";
+        sub.appendChild(tag);
+      }
+      var subtxt = document.createElement("span");
+      subtxt.textContent = mt.ext + (it.kind === "report" || !it.kind ? " · " + (it.total || 0) + " registro(s)" : "") + " · " + formatarData(it.created_at);
+      sub.appendChild(subtxt);
+      info.appendChild(nm); info.appendChild(sub);
+      var del = document.createElement("button"); del.type = "button"; del.innerHTML = ICON_TRASH; del.title = "Apagar (clique 2× p/ confirmar)"; del.setAttribute("aria-label", "Apagar");
+      del.style.cssText = "border:0;background:transparent;color:#b45309;cursor:pointer;width:30px;height:30px;flex:none;border-radius:8px;";
+      row.appendChild(ico); row.appendChild(info); row.appendChild(del);
+      row.addEventListener("click", function (ev) { if (ev.target === del || del.contains(ev.target)) return; abrirDetalheSalvo(it.id, it.name); });
+      var armado = false, tmr = null;
+      del.addEventListener("click", async function (ev) {
+        ev.stopPropagation();
+        if (!armado) { armado = true; del.style.background = "#b4530922"; tmr = setTimeout(function () { armado = false; del.style.background = "transparent"; }, 2500); return; }
+        clearTimeout(tmr); del.disabled = true;
+        var dr = await apiSaved({ action: "delete", id: it.id });
+        if (dr && dr.ok) { var ix = itens.indexOf(it); if (ix >= 0) itens.splice(ix, 1); aplicar(); toastWidget("Relatório apagado."); }
+        else { del.disabled = false; armado = false; del.style.background = "transparent"; toastWidget("Falha ao apagar.", true); }
+      });
+      return row;
+    }
+    function aplicar() {
+      lista.innerHTML = "";
+      var vis = itens.filter(passa);
+      contador.textContent = vis.length === itens.length ? (itens.length + " item(ns)") : (vis.length + " de " + itens.length);
+      if (!vis.length) {
+        var z = document.createElement("div"); z.style.cssText = "color:#6b7280;font-size:13px;text-align:center;padding:22px 8px;";
+        z.textContent = itens.length ? "Nenhum item bate com o filtro." : "Nenhum relatório salvo.";
+        lista.appendChild(z); return;
+      }
+      vis.forEach(function (it) { lista.appendChild(linhaSalvo(it)); });
+    }
+    busca.addEventListener("input", aplicar);
+    tipo.addEventListener("change", aplicar);
+    de.addEventListener("change", aplicar);
+    ate.addEventListener("change", aplicar);
+    aplicar();
+  }
+  async function abrirDetalheSalvo(id, nome) {
+    var m = widgetModal(nome || "Item salvo", { wide: true });
+    m.body.textContent = "Carregando…";
+    var r = await apiSaved({ action: "get", id: id });
+    m.body.innerHTML = "";
+    if (!r || !r.ok) { m.body.textContent = ((r && r.erro) || "Falha ao carregar.") + (r && r.detalhe ? " (" + r.detalhe + ")" : ""); return; }
+
+    // GRÁFICO: re-renderiza a partir da spec + exporta CSV/PNG.
+    if (r.kind === "chart" && r.chart) {
+      // Mesma renderização do gráfico do chat (abas, tipos, ampliar, CSV, PNG), sem Salvar.
+      var built = construirCardGrafico(r.chart, { salvar: false, emModal: true });
+      m.body.appendChild(built.card);
+      var barD = document.createElement("div"); barD.style.cssText = "display:flex;justify-content:flex-end;margin-top:12px;";
+      barD.appendChild(botaoApagarSalvo(id, m));
+      m.body.appendChild(barD);
+      return;
+    }
+
+    // ARQUIVO: info + baixar.
+    if (r.kind === "file") {
+      var dataUrl = "data:" + (r.mime || "application/octet-stream") + ";base64," + (r.content || "");
+      var infoF = document.createElement("div"); infoF.style.cssText = "font-size:12px;color:#6b7280;margin-bottom:10px;word-break:break-word;";
+      infoF.textContent = (r.file_name || r.name) + (r.mime ? " · " + r.mime : "");
+      m.body.appendChild(infoF);
+      // PRÉVIA do conteúdo (antes de baixar): planilha (CSV) · PDF · imagem · texto ·
+      // sem-prévia. Office (Word/Excel/PPT) NÃO é texto — o mime traz "openxmlformats"
+      // (tem "xml"), então precisa ser excluído senão vira binário embaralhado.
+      var mimeF = String(r.mime || ""), fnF = String(r.file_name || r.name || "").toLowerCase();
+      var ext = (fnF.match(/\.([a-z0-9]+)$/) || ["", ""])[1];
+      var ehOffice = /officedocument|ms-excel|msword|ms-powerpoint|opendocument|spreadsheet|presentation|wordprocessing/i.test(mimeF) || /^(xls|xlsx|xlsm|doc|docx|ppt|pptx|odt|ods|odp)$/.test(ext);
+      var tab = parseSalvoParaTabela(r);
+      if (tab && tab.linhas.length) {
+        var wrapP = document.createElement("div"); wrapP.style.cssText = "overflow:auto;max-height:50vh;border:1px solid #eef0f2;border-radius:10px;margin-bottom:10px;";
+        var tblP = document.createElement("table"); tblP.style.cssText = "border-collapse:collapse;width:100%;font-size:12px;";
+        var thP = document.createElement("thead"); var htrP = document.createElement("tr");
+        tab.colunas.forEach(function (c) { var th = document.createElement("th"); th.textContent = c; th.style.cssText = "position:sticky;top:0;background:#f9fafb;text-align:left;padding:7px 9px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#374151;white-space:nowrap;"; htrP.appendChild(th); });
+        thP.appendChild(htrP); tblP.appendChild(thP);
+        var tbP = document.createElement("tbody");
+        tab.linhas.slice(0, 500).forEach(function (l) { var tr = document.createElement("tr"); (Array.isArray(l) ? l : []).forEach(function (cel) { var td = document.createElement("td"); td.textContent = cel == null ? "" : String(cel); td.style.cssText = "padding:6px 9px;border-bottom:1px solid #f1f2f4;white-space:nowrap;color:#374151;"; tr.appendChild(td); }); tbP.appendChild(tr); });
+        tblP.appendChild(tbP); wrapP.appendChild(tblP); m.body.appendChild(wrapP);
+      } else if (/pdf/i.test(mimeF) || ext === "pdf") {
+        var frm = document.createElement("iframe"); frm.src = dataUrl; frm.style.cssText = "width:100%;height:54vh;border:1px solid #eef0f2;border-radius:10px;margin-bottom:10px;background:#fff;"; m.body.appendChild(frm);
+      } else if (/^image\//.test(mimeF)) {
+        var img = document.createElement("img"); img.src = dataUrl; img.style.cssText = "max-width:100%;max-height:50vh;border-radius:8px;display:block;margin-bottom:10px;"; m.body.appendChild(img);
+      } else if (!ehOffice && (/^text\//i.test(mimeF) || /(json|csv|plain|tab-separated)/i.test(mimeF) || /^(txt|csv|tsv|json|xml|md|log|htm|html)$/.test(ext) || (/xml/i.test(mimeF) && /^(text|application)\/xml/i.test(mimeF)))) {
+        var pre = document.createElement("pre"); pre.style.cssText = "max-height:50vh;overflow:auto;background:#f9fafb;border:1px solid #eef0f2;border-radius:10px;padding:10px;font-size:12px;white-space:pre-wrap;word-break:break-word;color:#374151;margin-bottom:10px;"; pre.textContent = decodeBase64Utf8(r.content || "").slice(0, 20000); m.body.appendChild(pre);
+      } else {
+        var sem = document.createElement("div"); sem.style.cssText = "font-size:12.5px;color:#9ca3af;margin-bottom:10px;padding:16px;text-align:center;border:1px dashed #e5e7eb;border-radius:10px;"; sem.textContent = ehOffice ? "Word/Excel/PowerPoint não têm prévia no navegador. Baixe para abrir no programa." : "Sem prévia para este tipo de arquivo. Baixe para abrir."; m.body.appendChild(sem);
+      }
+      var barF = document.createElement("div"); barF.style.cssText = "display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;";
+      var dl = tutBtn("Baixar", true);
+      // Download via BLOB (reconstrói o binário certinho — data URL grande pode corromper).
+      dl.addEventListener("click", function () {
+        try {
+          var bin = atob(String(r.content || "")); var bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          var blob = new Blob([bytes], { type: mimeF || "application/octet-stream" });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a"); a.href = url; a.download = r.file_name || r.name || "arquivo";
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function () { try { URL.revokeObjectURL(url); } catch { } }, 2000);
+        } catch { toastWidget("Falha ao baixar.", true); }
+      });
+      barF.appendChild(dl); barF.appendChild(botaoApagarSalvo(id, m));
+      m.body.appendChild(barF);
+      return;
+    }
+
+    // RELATÓRIO/TABELA (padrão): planilha rolável + Exportar CSV.
+    var colunas = Array.isArray(r.columns) ? r.columns : [];
+    var linhas = Array.isArray(r.rows) ? r.rows : [];
+    var bar = document.createElement("div"); bar.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;";
+    var cnt = document.createElement("div"); cnt.style.cssText = "flex:1;font-size:12px;color:#6b7280;min-width:90px;"; cnt.textContent = (r.total || linhas.length) + " registro(s)";
+    var exp = tutBtn("Exportar CSV", true);
+    bar.appendChild(cnt); bar.appendChild(exp); bar.appendChild(botaoApagarSalvo(id, m)); m.body.appendChild(bar);
+    var wrapT = document.createElement("div"); wrapT.style.cssText = "overflow:auto;max-height:52vh;border:1px solid #eef0f2;border-radius:10px;";
+    var tbl = document.createElement("table"); tbl.style.cssText = "border-collapse:collapse;width:100%;font-size:12px;";
+    var thead = document.createElement("thead"); var htr = document.createElement("tr");
+    colunas.forEach(function (c) { var th = document.createElement("th"); th.textContent = c; th.style.cssText = "position:sticky;top:0;background:#f9fafb;text-align:left;padding:7px 9px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#374151;white-space:nowrap;"; htr.appendChild(th); });
+    thead.appendChild(htr); tbl.appendChild(thead);
+    var tbody = document.createElement("tbody");
+    linhas.slice(0, 1000).forEach(function (lin) {
+      var tr = document.createElement("tr");
+      (Array.isArray(lin) ? lin : []).forEach(function (cel) { var td = document.createElement("td"); td.textContent = cel == null ? "" : String(cel); td.style.cssText = "padding:6px 9px;border-bottom:1px solid #f1f2f4;white-space:nowrap;color:#374151;"; tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody); wrapT.appendChild(tbl); m.body.appendChild(wrapT);
+    if (linhas.length > 1000) { var mais = document.createElement("div"); mais.style.cssText = "font-size:11px;color:#6b7280;margin-top:6px;"; mais.textContent = "Mostrando 1000 de " + linhas.length + " — exporte o CSV para todos."; m.body.appendChild(mais); }
+    exp.addEventListener("click", function () { exportarCSV(nome, colunas, linhas); });
+  }
+  function exportarCSV(nome, colunas, linhas) {
+    try {
+      var cel = function (v) { v = v == null ? "" : String(v); return '"' + v.replace(/"/g, '""') + '"'; };
+      var out = [colunas.map(cel).join(";")];
+      linhas.forEach(function (l) { out.push((Array.isArray(l) ? l : []).map(cel).join(";")); });
+      var csv = "﻿" + out.join("\r\n"); // BOM p/ Excel PT-BR abrir com acentos/; certos
+      var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = String(nome || "relatorio").replace(/[^\w\- À-ú]/g, "_").slice(0, 80) + ".csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    } catch (e) { toastWidget("Falha ao exportar CSV.", true); }
+  }
+
   // ==== Montagem ====
   function mount() {
     host = document.createElement("div");
@@ -2113,6 +3441,21 @@
     ["focusin", "focusout"].forEach(function (ev) {
       host.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
     });
+    // Lembra o ÚLTIMO campo que o usuário focou/clicou NA PÁGINA (não no widget) — dá
+    // contexto p/ pedidos como "aqui", "isto", "esse campo". Captura na fase de CAPTURA
+    // (pega foco dentro de contêineres); foco no próprio widget NÃO sobrescreve.
+    document.addEventListener("focusin", function (e) {
+      try {
+        var t = e.target;
+        if (!t || t === host || (host.contains && host.contains(t))) return; // widget → mantém o anterior
+        var tag = (t.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "select" || tag === "textarea" || t.isContentEditable) {
+          var ty = (t.type || "").toLowerCase();
+          if (ty === "hidden" || ty === "submit" || ty === "button" || ty === "reset") return;
+          _focusedEl = t;
+        }
+      } catch (err) { }
+    }, true);
     //  (2) correção canônica: ensina o jQuery UI Dialog a PERMITIR interação com o
     //      widget (patch em _allowInteraction) — é o que realmente destrava o foco.
     permitirNoModal();
@@ -2150,7 +3493,7 @@
     bubble.appendChild(badge);
 
     panel = document.createElement("div");
-    panel.className = "panel";
+    panel.className = "panel kb-dimmable";
     panel.innerHTML =
       '<div class="hd">' +
       '<div class="hav">' +
@@ -2158,6 +3501,7 @@
       "</div>" +
       '<div class="ti"><div class="t">' + esc(cfg.title) + "</div>" +
       '<div class="s">' + esc(cfg.subtitle || "Pergunte o que quiser") + "</div></div>" +
+      '<button aria-label="Relatórios" title="Relatórios" data-reports-menu>' + ICON_REPORTS + "</button>" +
       '<button aria-label="Limpar conversa" title="Limpar conversa" data-clear>' + ICON_TRASH + "</button>" +
       '<button aria-label="Expandir" title="Expandir para o centro" data-expand>' + ICON_EXPAND + "</button>" +
       '<button aria-label="Minimizar" data-close>&minus;</button></div>' +
@@ -2170,6 +3514,7 @@
       '<input type="file" data-file hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp">' +
       '<textarea rows="1" placeholder="Escreva ou fale sua pergunta…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
+      '<div class="disc">Sou uma IA e posso cometer enganos — sempre valide as informações.</div>' +
       '<div class="pw">Powered by Natcorp</div>';
 
     wrap.appendChild(bubble);
@@ -2186,6 +3531,7 @@
     panel.querySelector("[data-close]").addEventListener("click", toggle);
     panel.querySelector("[data-expand]").addEventListener("click", toggleExpand);
     panel.querySelector("[data-clear]").addEventListener("click", clearChat);
+    panel.querySelector("[data-reports-menu]").addEventListener("click", function (e) { e.stopPropagation(); abrirMenuRelatorios(e.currentTarget); });
     panel.querySelector("[data-attach]").addEventListener("click", function () {
       fileInput.click();
     });
@@ -2202,14 +3548,20 @@
         submit();
       }
     });
-    // A caixa cresce com as linhas, até 5 linhas; depois rola por dentro.
-    inputEl.addEventListener("input", autoGrow);
+    // A caixa cresce com as linhas, até 5 linhas; depois rola por dentro. Também
+    // salva o RASCUNHO (preserva o texto ao minimizar/recarregar).
+    inputEl.addEventListener("input", function () { autoGrow(); try { localStorage.setItem(LS_DRAFT, inputEl.value); } catch { } });
+    // Restaura o rascunho salvo (se houver) — não perde o que estava digitado.
+    try { var _rasc = localStorage.getItem(LS_DRAFT); if (_rasc) { inputEl.value = _rasc; autoGrow(); } } catch { }
 
     positionBubble();
     setupDrag();
     setupPanelDrag();
+    setupDimScroll();
     loadInitialMessages();
     setupPrompts();
+    setupBaseDados();
+    setupPreAquecimento();
     manterNoTopo();
     observarTopo();
     blindarHost();
@@ -2467,10 +3819,14 @@
       bubble.style.left = ox + dx + "px";
       bubble.style.top = oy + dy + "px";
     });
+    // Se o ponteiro for CANCELADO (rolagem, o host "rouba" o gesto), zera o estado —
+    // senão `dragging` fica preso e um pointerup seguinte vira um "tap" que minimiza
+    // o chat sozinho (bug: a janela fechava ao enviar a 1ª mensagem).
+    bubble.addEventListener("pointercancel", function () { dragging = false; moved = false; });
     bubble.addEventListener("pointerup", function (e) {
       if (!dragging) return;
       dragging = false;
-      bubble.releasePointerCapture(e.pointerId);
+      try { bubble.releasePointerCapture(e.pointerId); } catch { }
       if (!moved) {
         toggle();
         return;
@@ -2490,6 +3846,48 @@
       if (expanded) aplicarExpansao(); // recalcula (ou volta ao canto no mobile)
       else placePanel();               // mantém a janela arrastada dentro da tela
     });
+  }
+  // TRANSPARÊNCIA AO ROLAR ATRÁS: enquanto o usuário rola a PÁGINA (não o chat), o
+  // painel fica a 30% de opacidade para deixar ler o conteúdo por trás; volta ao
+  // normal ~650ms após parar. Cobre a janela, elementos roláveis (scroll capturado)
+  // e iframes MESMO-ORIGEM (cross-origin não emite eventos ao pai — limitação real).
+  var _dimTimer = 0;
+  function dimPanel() {
+    if (!panel || !panel.classList.contains("open")) return;
+    panel.classList.add("kb-dim");
+    try { if (_dimTimer) clearTimeout(_dimTimer); } catch { }
+    _dimTimer = setTimeout(function () { try { if (panel) panel.classList.remove("kb-dim"); } catch { } }, 650);
+  }
+  function onScrollDim(e) {
+    // Rolar DENTRO do próprio widget (o chat) não deve escurecer. Eventos do shadow
+    // são reapontados para o host → t === host; scroll de descendentes → host.contains.
+    try { var t = e && e.target; if (t && (t === host || (t.nodeType === 1 && host && host.contains && host.contains(t)))) return; } catch { }
+    dimPanel();
+  }
+  function ligarIframesScroll() {
+    try {
+      document.querySelectorAll("iframe").forEach(function (f) {
+        var d; try { d = f.contentDocument; } catch { return; } // cross-origin → SecurityError → ignora
+        if (!d || d.__kbDim) return;
+        try {
+          d.__kbDim = true;
+          d.addEventListener("scroll", dimPanel, true);
+          d.addEventListener("wheel", dimPanel, { passive: true });
+          d.addEventListener("touchmove", dimPanel, { passive: true });
+        } catch { }
+      });
+    } catch { }
+  }
+  function setupDimScroll() {
+    try {
+      document.addEventListener("scroll", onScrollDim, true); // scroll não borbulha → captura pega qualquer elemento
+      window.addEventListener("wheel", onScrollDim, { passive: true });
+      window.addEventListener("touchmove", onScrollDim, { passive: true });
+      ligarIframesScroll();
+      // iframes podem carregar depois — reavalia algumas vezes e ao rolar.
+      setTimeout(ligarIframesScroll, 2500); setTimeout(ligarIframesScroll, 6000);
+      window.addEventListener("wheel", ligarIframesScroll, { passive: true, once: true });
+    } catch { }
   }
   // Arrastar a JANELA do chat pelo cabeçalho (independe da bolha). Não arrasta ao
   // clicar nos botões do cabeçalho nem no modo expandido (centralizado).
@@ -2783,6 +4181,7 @@
     conversationId = null;
     contextScope = null;
     _harvested = null; _harvestCache = null; // esquece a coleta em cache
+    _fonte = null; _fonteKey = null; // esquece a fonte escolhida (relatório/IA)
     try {
       localStorage.setItem(LS_CLEARED, new Date().toISOString());
     } catch {
@@ -2960,89 +4359,155 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  // ==== Voz: grava do microfone e transcreve (Whisper/provedor parametrizado) ====
+  // ==== Voz: gravação estilo WhatsApp (onda ao vivo, tempo, ouvir, enviar/apagar) ====
   function setMic(state) {
     micState = state;
     if (!micBtn) return;
-    micBtn.classList.toggle("rec", state === "recording");
     micBtn.disabled = state === "transcribing";
-    micBtn.innerHTML = state === "recording" ? ICON_STOP : ICON_MIC;
-    micBtn.title =
-      state === "recording"
-        ? "Parar e transcrever"
-        : state === "transcribing"
-          ? "Transcrevendo…"
-          : "Falar (gravar áudio)";
+    micBtn.innerHTML = ICON_MIC;
+    micBtn.title = state === "transcribing" ? "Transcrevendo…" : "Falar (gravar áudio)";
   }
-
+  function vbtn(cls, icone, title, fn) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "vbtn " + cls; b.title = title; b.setAttribute("aria-label", title);
+    b.innerHTML = icone; if (fn) b.addEventListener("click", fn); return b;
+  }
+  function fmtTempo(seg) { seg = seg || 0; var m = Math.floor(seg / 60), s = Math.floor(seg % 60); return m + ":" + (s < 10 ? "0" : "") + s; }
+  function roundRectFill(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill(); }
+  function vozFt() { return panel && panel.querySelector(".ft"); }
+  function criarVoiceBar() {
+    if (voiceBar) return voiceBar;
+    var ft = vozFt(); if (!ft) return null;
+    voiceBar = document.createElement("div"); voiceBar.className = "vbar"; ft.appendChild(voiceBar);
+    return voiceBar;
+  }
+  function limparVoz() {
+    if (_voRAF) { cancelAnimationFrame(_voRAF); _voRAF = 0; }
+    if (_voTimerInt) { clearInterval(_voTimerInt); _voTimerInt = 0; }
+    try { if (_voStream) _voStream.getTracks().forEach(function (t) { t.stop(); }); } catch { }
+    _voStream = null;
+    try { if (_voCtx) _voCtx.close(); } catch { }
+    _voCtx = null; _voAnalyser = null;
+    try { if (_voAudio) _voAudio.pause(); } catch { }
+    if (_voUrl) { try { URL.revokeObjectURL(_voUrl); } catch { } _voUrl = null; }
+    _voAudio = null; _voBlob = null;
+    var ft = vozFt(); if (ft) ft.classList.remove("voz");
+    if (voiceBar) voiceBar.innerHTML = "";
+    setMic("idle");
+  }
   function toggleMic() {
-    if (micState === "recording") {
-      if (mediaRec && mediaRec.state === "recording") mediaRec.stop();
-      return;
-    }
+    if (micState === "recording") { if (mediaRec && mediaRec.state === "recording") mediaRec.stop(); return; }
     if (micState !== "idle") return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      addMsg("bot", "Gravação de voz não é suportada neste navegador.");
-      return;
-    }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(
-      function (stream) {
-        try {
-          mediaRec = new MediaRecorder(stream);
-        } catch (err) {
-          void err;
-          stream.getTracks().forEach(function (t) { t.stop(); });
-          addMsg("bot", "Não foi possível iniciar a gravação neste navegador.");
-          return;
-        }
-        micChunks = [];
-        mediaRec.ondataavailable = function (e) {
-          if (e.data && e.data.size) micChunks.push(e.data);
-        };
-        mediaRec.onstop = function () {
-          stream.getTracks().forEach(function (t) { t.stop(); });
-          var blob = new Blob(micChunks, { type: mediaRec.mimeType || "audio/webm" });
-          if (blob.size < 800) {
-            setMic("idle"); // gravação vazia/curtíssima: ignora
-            return;
-          }
-          setMic("transcribing");
-          var fd = new FormData();
-          fd.append("file", blob, "audio.webm");
-          fd.append("key", KEY);
-          fetch(API + "/api/v1/transcribe", {
-            method: "POST",
-            headers: { "X-Widget-Key": KEY },
-            body: fd,
-          })
-            .then(function (r) { return r.json().catch(function () { return null; }); })
-            .then(function (d) {
-              setMic("idle");
-              var text = d && d.transcribed && d.text ? String(d.text).trim() : "";
-              if (text) {
-                if (busy) {
-                  inputEl.value = (inputEl.value.trim() ? inputEl.value + " " : "") + text;
-                  autoGrow();
-                } else {
-                  inputEl.value = text;
-                  submit();
-                }
-              } else {
-                addMsg("bot", (d && d.error) || "Não consegui transcrever o áudio.");
-              }
-            })
-            .catch(function () {
-              setMic("idle");
-              addMsg("bot", "Falha ao transcrever o áudio.");
-            });
-        };
-        mediaRec.start();
-        setMic("recording");
-      },
-      function () {
-        addMsg("bot", "Não consegui acessar o microfone (permissão negada?).");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { addMsg("bot", "Gravação de voz não é suportada neste navegador."); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      _voStream = stream; _voCancelado = false;
+      try { mediaRec = new MediaRecorder(stream); }
+      catch { limparVoz(); addMsg("bot", "Não foi possível iniciar a gravação neste navegador."); return; }
+      micChunks = [];
+      mediaRec.ondataavailable = function (e) { if (e.data && e.data.size) micChunks.push(e.data); };
+      mediaRec.onstop = function () {
+        if (_voRAF) { cancelAnimationFrame(_voRAF); _voRAF = 0; }
+        if (_voTimerInt) { clearInterval(_voTimerInt); _voTimerInt = 0; }
+        try { if (_voStream) _voStream.getTracks().forEach(function (t) { t.stop(); }); } catch { }
+        try { if (_voCtx) _voCtx.close(); } catch { } _voCtx = null; _voAnalyser = null;
+        if (_voCancelado) { limparVoz(); return; } // usuário apagou durante a gravação
+        var blob = new Blob(micChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/webm" });
+        if (blob.size < 800) { limparVoz(); return; } // vazio/curtíssimo
+        _voBlob = blob; revisarVoz(blob);
+      };
+      try {
+        _voCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var src = _voCtx.createMediaStreamSource(stream);
+        _voAnalyser = _voCtx.createAnalyser(); _voAnalyser.fftSize = 256; src.connect(_voAnalyser);
+      } catch { _voAnalyser = null; }
+      mediaRec.start(); setMic("recording"); montarBarraGravando();
+    }, function () { addMsg("bot", "Não consegui acessar o microfone (permissão negada?)."); });
+  }
+  function montarBarraGravando() {
+    var ft = vozFt(); if (!ft) return;
+    criarVoiceBar(); voiceBar.innerHTML = ""; ft.classList.add("voz");
+    var del = vbtn("del", ICON_TRASH, "Cancelar", function () { _voCancelado = true; if (mediaRec && mediaRec.state === "recording") mediaRec.stop(); else limparVoz(); });
+    var dot = document.createElement("span"); dot.className = "vdot";
+    var time = document.createElement("span"); time.className = "vtime"; time.textContent = "0:00";
+    var canvas = document.createElement("canvas"); canvas.className = "vwave";
+    var stop = vbtn("ok", ICON_STOP, "Parar", function () { if (mediaRec && mediaRec.state === "recording") mediaRec.stop(); });
+    voiceBar.appendChild(del); voiceBar.appendChild(dot); voiceBar.appendChild(time); voiceBar.appendChild(canvas); voiceBar.appendChild(stop);
+    _voT0 = Date.now();
+    _voTimerInt = setInterval(function () { try { time.textContent = fmtTempo((Date.now() - _voT0) / 1000); } catch { } }, 250);
+    ondasAoVivo(canvas);
+  }
+  function ondasAoVivo(canvas) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var buf = _voAnalyser ? new Uint8Array(_voAnalyser.frequencyBinCount) : null;
+    (function frame() {
+      _voRAF = requestAnimationFrame(frame);
+      var dpr = window.devicePixelRatio || 1, w = canvas.clientWidth || 120, h = canvas.clientHeight || 26;
+      if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+      var ctx = canvas.getContext("2d"); if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      if (buf && _voAnalyser) _voAnalyser.getByteFrequencyData(buf);
+      var bars = Math.max(8, Math.floor(w / 5)), bw = 3, gap = bars > 1 ? (w - bars * bw) / (bars - 1) : 0;
+      ctx.fillStyle = pc; ctx.globalAlpha = 0.85;
+      for (var i = 0; i < bars; i++) {
+        var v = 0.14;
+        if (buf) { var idx = Math.floor(i / bars * buf.length); v = Math.max(0.14, (buf[idx] || 0) / 255); }
+        var bh = Math.max(2, v * h);
+        roundRectFill(ctx, i * (bw + gap), (h - bh) / 2, bw, bh, 1.5);
       }
-    );
+      ctx.globalAlpha = 1;
+    })();
+  }
+  function ondasEstatico(canvas) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    requestAnimationFrame(function () {
+      var dpr = window.devicePixelRatio || 1, w = canvas.clientWidth || 120, h = canvas.clientHeight || 26;
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      var ctx = canvas.getContext("2d"); if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      var bars = Math.max(8, Math.floor(w / 5)), bw = 3, gap = bars > 1 ? (w - bars * bw) / (bars - 1) : 0;
+      ctx.fillStyle = pc; ctx.globalAlpha = 0.55;
+      for (var i = 0; i < bars; i++) { var v = 0.25 + 0.6 * Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.31)); var bh = Math.max(2, v * h); roundRectFill(ctx, i * (bw + gap), (h - bh) / 2, bw, bh, 1.5); }
+      ctx.globalAlpha = 1;
+    });
+  }
+  function revisarVoz(blob) {
+    var ft = vozFt(); if (!ft) { limparVoz(); return; }
+    criarVoiceBar(); voiceBar.innerHTML = ""; ft.classList.add("voz");
+    _voUrl = URL.createObjectURL(blob); _voAudio = new Audio(_voUrl);
+    var del = vbtn("del", ICON_TRASH, "Apagar", function () { limparVoz(); });
+    var play = vbtn("play", ICON_PLAY, "Ouvir", null);
+    var time = document.createElement("span"); time.className = "vtime"; time.textContent = "0:00";
+    var canvas = document.createElement("canvas"); canvas.className = "vwave";
+    var send = vbtn("ok", ICON_SEND, "Enviar", function () { enviarVoz(); });
+    play.addEventListener("click", function () {
+      if (_voAudio.paused) { _voAudio.play(); play.innerHTML = ICON_PAUSE; } else { _voAudio.pause(); play.innerHTML = ICON_PLAY; }
+    });
+    _voAudio.addEventListener("timeupdate", function () { try { time.textContent = fmtTempo(_voAudio.currentTime); } catch { } });
+    _voAudio.addEventListener("ended", function () { play.innerHTML = ICON_PLAY; });
+    _voAudio.addEventListener("loadedmetadata", function () { try { if (isFinite(_voAudio.duration)) time.textContent = fmtTempo(_voAudio.duration); } catch { } });
+    voiceBar.appendChild(del); voiceBar.appendChild(play); voiceBar.appendChild(time); voiceBar.appendChild(canvas); voiceBar.appendChild(send);
+    ondasEstatico(canvas);
+  }
+  function enviarVoz() {
+    if (!_voBlob) { limparVoz(); return; }
+    var blob = _voBlob;
+    var ft = vozFt(); if (ft) ft.classList.remove("voz");
+    if (voiceBar) voiceBar.innerHTML = "";
+    try { if (_voAudio) _voAudio.pause(); } catch { }
+    if (_voUrl) { try { URL.revokeObjectURL(_voUrl); } catch { } _voUrl = null; }
+    _voAudio = null;
+    setMic("transcribing");
+    var fd = new FormData(); fd.append("file", blob, "audio.webm"); fd.append("key", KEY);
+    fetch(API + "/api/v1/transcribe", { method: "POST", headers: { "X-Widget-Key": KEY }, body: fd })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (d) {
+        _voBlob = null; setMic("idle");
+        var text = d && d.transcribed && d.text ? String(d.text).trim() : "";
+        if (text) {
+          if (busy) { inputEl.value = (inputEl.value.trim() ? inputEl.value + " " : "") + text; autoGrow(); try { localStorage.setItem(LS_DRAFT, inputEl.value); } catch { } }
+          else { inputEl.value = text; submit(); }
+        } else addMsg("bot", (d && d.error) || "Não consegui transcrever o áudio.");
+      })
+      .catch(function () { _voBlob = null; setMic("idle"); addMsg("bot", "Falha ao transcrever o áudio."); });
   }
 
   function submit() {
@@ -3055,6 +4520,7 @@
     // Anexo sem texto: dá uma instrução padrão para o modelo ter o que fazer.
     if (!text && atts.length) text = "Pode analisar o(s) arquivo(s) que anexei e me ajudar?";
     inputEl.value = "";
+    try { localStorage.removeItem(LS_DRAFT); } catch { } // enviou → limpa o rascunho
     autoGrow();
     addMsg("user", text);
     if (atts.length) renderMsgAtts(atts);
@@ -3062,14 +4528,27 @@
     var ids = atts.map(function (a) { return a.id; });
     pendingAtts = [];
     renderAtts();
+    _comparacao = null; // nova mensagem → zera a comparação anterior
+    // Fase B: pedido EXPLÍCITO de comparar com um salvo → abre o seletor (não vai à IA,
+    // que confundiria com o relatório da tela). Sem oferta automática (removida).
+    if (cfg.formAssist && intencaoCompararSalvo(text)) { iniciarComparacaoExplicita(text, ids); return; }
+    // Pedido de ACESSAR/VER os relatórios salvos → abre a lista (a IA não consegue).
+    if (cfg.formAssist && intencaoVerSalvos(text)) { statusMsg("Abrindo seus relatórios salvos…", null); abrirRelatoriosSalvos(); return; }
     ask(undefined, ids);
   }
 
   function ask(scope, attachmentIds, opts) {
     var continuacao = !!(opts && opts.continuation);
+    var loopStep = !!(opts && opts.loopStep); // continuação do loop autônomo (pós-ação)
     // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo e
     // encerra um tutorial em andamento (o usuário mudou de assunto).
-    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; _harvested = null; if (_tutorial) encerrarTutorial(); }
+    if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; _filtroConfirmado = false; _harvested = null; limparDestaques(); if (_tutorial) encerrarTutorial(); }
+    // FONTE (Fase 1): ao clicar num botão de fonte, memoriza a escolha por relatório.
+    // Em novas mensagens do MESMO relatório, reaproveita (não pergunta de novo).
+    if (scope && scope.fonte) { _fonte = scope.fonte; _fonteKey = keyRelatorioTela(); }
+    if (!scope && !continuacao && _fonte && _fonteKey && _fonteKey === keyRelatorioTela()) {
+      scope = { fonte: _fonte };
+    }
     _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
     _avisouTurno = continuacao; // continuação do loop não toca o som; resposta nova pode
     desbloquearAudio(); // envio é gesto do usuário → libera o som p/ tocar depois
@@ -3091,6 +4570,7 @@
     _charts = []; // gráficos recebidos NESTE turno (guard de stream vazio)
     var _teveArquivo = false; // arquivo (PDF/Excel/Word…) entregue neste turno
     var _teveEscolha = false; // botões de escolha (ex.: tipo de gráfico) exibidos
+    var _teveDestaque = false; // a IA realçou algo na tela neste turno
     var _coletando = false;   // a IA pediu a coleta multi-página do relatório
     // Revelação suave: exibe o texto num ritmo constante (rAF), desacoplado das
     // rajadas do streaming — em vez de aparecer em blocos, "digita" liso.
@@ -3162,12 +4642,43 @@
     if (cfg.formAssist) {
       var flds = scanFields();
       if (flds.length) body.fields = flds;
+      // Campo em foco (após o scan, que marca data-kb-field): contexto p/ "aqui/isto".
+      var foco = campoEmFoco();
+      if (foco) body.focusedField = foco;
+    }
+    // REAPROVEITA a coleta anterior em NOVAS perguntas sobre o MESMO relatório
+    // (sem alteração de filtro/busca) — sem paginar de novo. Sem isto, uma 2ª
+    // pergunta ("qual o mais antigo?") via só a página visível na tela (ex.: a
+    // última, com 1 registro) e respondia errado, ignorando os dados já coletados.
+    if (cfg.formAssist && !_harvested && _harvestCache && _harvestCache.linhas && _harvestCache.linhas.length) {
+      if (acharRegiaoCache(document)) {
+        // Relatório com a MESMA fingerprint (sem novo filtro/submit) → reusa os dados
+        // já carregados; NÃO reconsulta a procedure PRC_DADOS_IR.
+        _harvested = { key: _harvestCache.key, nome: _harvestCache.nome, colunas: _harvestCache.colunas, linhas: _harvestCache.linhas, total: _harvestCache.total, incompleto: _harvestCache.incompleto };
+        diag("reuso: mesma fingerprint → usa cache (" + _harvestCache.linhas.length + " linhas), sem nova consulta");
+      } else {
+        diag("sem reuso: fingerprint mudou (novo filtro/submit) ou relatório diferente → vai reconsultar");
+      }
     }
     // Coleta multi-página do relatório (todas as páginas) — enviada à parte para
     // não ser truncada com o resto da tela.
     if (cfg.formAssist && _harvested) {
       body.reportData = { nome: _harvested.nome, colunas: _harvested.colunas, linhas: _harvested.linhas, total: _harvested.total || _harvested.linhas.length, incompleto: !!_harvested.incompleto };
     }
+    // Fase B: cruzamento com um relatório salvo (enviado quando o usuário compara).
+    if (cfg.formAssist && _comparacao) body.comparacao = _comparacao;
+    // "Base de Dados": fontes fixadas pelo usuário (relatórios salvos + uploads) + modo.
+    if (cfg.formAssist) {
+      var _fUp = baseUploads.filter(function (u) { return u.id; }).map(function (u) { return u.id; });
+      if (baseRelIds.length || _fUp.length) body.baseDados = { relatorioIds: baseRelIds, attachmentIds: _fUp, modo: baseModo };
+    }
+    try {
+      diag("envio: fonte=" + ((body.scope && body.scope.fonte) || "-") +
+        " reportData=" + (body.reportData ? body.reportData.linhas.length : "-") +
+        " screenTables=" + (body.screenTables ? body.screenTables.length : 0) +
+        " paginado=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].paginado : "-") +
+        " total=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].total : "-"));
+    } catch { }
     fetch(API + "/api/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
@@ -3215,6 +4726,18 @@
         citations = evt.citations || [];
       } else if (evt.type === "theme") {
         contextScope = evt.scope || null;
+      } else if (evt.type === "trace") {
+        // RASTREIO do fluxo (envio → resposta): passo a passo no console p/ diagnóstico.
+        try {
+          var ps = Array.isArray(evt.passos) ? evt.passos : [];
+          if (window.console && console.groupCollapsed) {
+            console.groupCollapsed("[kb-chat][fluxo] " + (evt.desfecho || "?") + " — " + (evt.ms || 0) + "ms · " + ps.length + " passo(s)");
+            ps.forEach(function (p) { console.log("+" + p.ms + "ms  " + p.passo, p.info || ""); });
+            console.groupEnd();
+          } else if (window.console && console.log) {
+            console.log("[kb-chat][fluxo] " + (evt.desfecho || "?"), ps);
+          }
+        } catch { }
       } else if (evt.type === "clarify") {
         clarified = true;
         if (typing.parentNode) typing.remove();
@@ -3222,6 +4745,7 @@
         renderClarify(evt.question, evt.options);
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
+        limparProcStatus(); // a resposta começou → tira o status "Analisando…"
         if (!answerEl) answerEl = addMsg("assistant", "");
         avisarMensagem(); // resposta chegando com o widget minimizado → badge + som (1×/resposta)
         full += evt.value;
@@ -3250,6 +4774,11 @@
         // A IA propôs clicar num botão/link → enfileira (confirma só se grava/navega).
         if (typing.parentNode) typing.remove();
         _acoes.push({ tipo: "click", ref: evt.ref, label: evt.label });
+      } else if (evt.type === "destacar") {
+        // A IA apontou algo na tela → realce efêmero (campos/colunas/linhas do IR).
+        // NÃO é ação de fila nem dispara o loop — só um pointer visual junto da resposta.
+        _teveDestaque = true;
+        aplicarDestaque(evt);
       } else if (evt.type === "chart") {
         // A IA montou um gráfico → card interativo (trocar tipo + exportar CSV/PNG).
         if (typing.parentNode) typing.remove();
@@ -3277,6 +4806,7 @@
     }
     function finish() {
       if (typing.parentNode) typing.remove();
+      limparProcStatus(); // resposta vazia sem token → não deixa "Analisando…" preso
       if (clarified) {
         done();
         return;
@@ -3297,10 +4827,15 @@
         // e o feedback (feito dentro de passoReveal).
         stopped = true;
         agendarReveal();
-      } else if (!_acoes.length && !_charts.length && !_teveArquivo && !_teveEscolha && !_coletando) {
+        // Disclaimer CONTEXTUAL: reflete a fonte real (relatório da tela / base de dados
+        // / cruzamento). Só aparece quando há fonte de tela/base — texto coerente c/ ela.
+        mostrarDisclaimer(body);
+      } else if (!_acoes.length && !_charts.length && !_teveArquivo && !_teveEscolha && !_teveDestaque && !_coletando && !loopStep) {
         // Stream vazio SEM ação de tela, gráfico, arquivo, botões NEM coleta =
         // a chamada ao provedor falhou. (Se a IA só chamou uma tool visual/de
         // arquivo/escolha/coleta, não há texto — mas o resultado aparece.)
+        // loopStep: a continuação do loop autônomo (pós-ação) vem vazia quando a
+        // tarefa já acabou — isso é conclusão normal, NÃO erro. Não alarma o usuário.
         addMsg(
           "assistant",
           "Não foi possível gerar a resposta agora. Tente de novo em instantes."
@@ -3401,6 +4936,156 @@
     det.appendChild(box);
     messagesEl.appendChild(det);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // ==== Base de Dados (fontes do chat: uploads + relatórios salvos) ====
+  var baseBtn, basePanel, baseOpen = false, baseFileInput;
+  var baseRelIds = [], baseUploads = [], baseModo = "completa";
+  function setupBaseDados() {
+    if (!hasPromptIdentity()) return; // precisa de identidade (escopo por usuário)
+    promptBar = promptBar || panel.querySelector(".pbar");
+    promptBar.style.display = "block";
+    baseBtn = document.createElement("button");
+    baseBtn.type = "button"; baseBtn.className = "pbtn";
+    baseBtn.innerHTML = ICON_DB + "<span>Base de Dados</span>";
+    baseBtn.addEventListener("click", toggleBaseDados);
+    promptBar.appendChild(baseBtn);
+    basePanel = document.createElement("div");
+    basePanel.className = "ppanel";
+    promptBar.appendChild(basePanel);
+    baseFileInput = document.createElement("input");
+    baseFileInput.type = "file"; baseFileInput.multiple = true; baseFileInput.style.display = "none";
+    baseFileInput.accept = ".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.json,.xml,.png,.jpg,.jpeg";
+    baseFileInput.addEventListener("change", function () {
+      var files = baseFileInput.files ? Array.prototype.slice.call(baseFileInput.files) : [];
+      files.forEach(uploadBaseArquivo);
+      baseFileInput.value = "";
+    });
+    promptBar.appendChild(baseFileInput);
+    apiSaved({ action: "base_get" }).then(function (r) {
+      if (r && r.ok) { baseRelIds = Array.isArray(r.relatorioIds) ? r.relatorioIds : []; baseModo = r.modo === "exclusiva" ? "exclusiva" : "completa"; atualizarBadgeBase(); }
+    });
+  }
+  function toggleBaseDados() {
+    baseOpen = !baseOpen;
+    basePanel.classList.toggle("open", baseOpen);
+    if (baseOpen) renderBaseDados();
+  }
+  function atualizarBadgeBase() {
+    var n = baseRelIds.length + baseUploads.filter(function (u) { return u.id; }).length;
+    if (baseBtn) { var s = baseBtn.querySelector("span"); if (s) s.textContent = "Base de Dados" + (n ? " (" + n + ")" : ""); }
+  }
+  function temFontesBase() { return baseRelIds.length > 0 || baseUploads.some(function (u) { return u.id; }); }
+  function salvarSelecaoBase() {
+    atualizarBadgeBase();
+    apiSaved({ action: "base_set", relatorioIds: baseRelIds, modo: baseModo });
+  }
+  var _baseRadios = [];
+  function sincronizarRadios() { _baseRadios.forEach(function (r) { try { r.el.checked = baseModo === r.modo; } catch { } }); }
+  // Após MUDAR as fontes: se ficou SEM fonte, volta ao padrão ("Base completa").
+  function aposMudarFontes() {
+    if (!temFontesBase() && baseModo !== "completa") { baseModo = "completa"; sincronizarRadios(); }
+    salvarSelecaoBase();
+  }
+  // "Voltar ao padrão": limpa relatórios, remove uploads e volta a Base completa.
+  function resetarBase() {
+    baseRelIds = []; baseUploads = []; baseModo = "completa";
+    salvarSelecaoBase(); renderBaseDados();
+  }
+  function uploadBaseArquivo(file) {
+    var entry = { name: file.name, uploading: true };
+    baseUploads.push(entry); renderBaseDados();
+    var fd = new FormData(); fd.append("file", file);
+    fetch(API + "/api/v1/attach", { method: "POST", headers: { "X-Widget-Key": KEY }, body: fd })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        var i = baseUploads.indexOf(entry); if (i < 0) return;
+        if (j && j.attachment) baseUploads[i] = { id: j.attachment.id, name: j.attachment.name || file.name, raw: file };
+        else { baseUploads.splice(i, 1); toastWidget("Falha ao subir “" + file.name + "”.", true); }
+        atualizarBadgeBase(); renderBaseDados();
+      })
+      .catch(function () { var i = baseUploads.indexOf(entry); if (i >= 0) baseUploads.splice(i, 1); toastWidget("Falha no upload.", true); renderBaseDados(); });
+  }
+  function adicionarUploadAMeusRelatorios(file) {
+    var fr = new FileReader();
+    fr.onload = function () { salvarArquivo(String(fr.result), file.name, "upload"); };
+    fr.onerror = function () { toastWidget("Falha ao ler o arquivo.", true); };
+    fr.readAsDataURL(file);
+  }
+  function renderBaseDados() {
+    if (!basePanel) return;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    basePanel.innerHTML = "";
+    _baseRadios = [];
+    function titulo(t) { var d = document.createElement("div"); d.style.cssText = "font-size:10.5px;font-weight:800;color:" + pc + ";text-transform:uppercase;letter-spacing:.03em;margin:8px 4px 4px;"; d.textContent = t; return d; }
+    // Cabeçalho com título + botão FECHAR.
+    var hd = document.createElement("div"); hd.style.cssText = "display:flex;align-items:center;gap:8px;margin:2px 2px 4px;";
+    var ht = document.createElement("div"); ht.style.cssText = "flex:1;font-size:13px;font-weight:800;color:" + pc + ";"; ht.textContent = "Base de Dados";
+    var fx = document.createElement("button"); fx.type = "button"; fx.innerHTML = "&times;"; fx.title = "Fechar"; fx.setAttribute("aria-label", "Fechar");
+    fx.style.cssText = "border:0;background:transparent;font-size:20px;line-height:1;color:#6b7280;cursor:pointer;flex:none;padding:0 4px;";
+    fx.addEventListener("click", function () { toggleBaseDados(); });
+    hd.appendChild(ht); hd.appendChild(fx); basePanel.appendChild(hd);
+    // Upload
+    basePanel.appendChild(titulo("Upload de arquivo"));
+    var up = document.createElement("button"); up.type = "button"; up.textContent = "+ Enviar arquivo(s)";
+    up.style.cssText = "width:100%;padding:8px;border:1px dashed " + pc + "66;border-radius:9px;background:" + pc + "0a;color:" + pc + ";font-size:12.5px;font-weight:700;cursor:pointer;";
+    up.addEventListener("click", function () { baseFileInput.click(); });
+    basePanel.appendChild(up);
+    baseUploads.forEach(function (u, i) {
+      var row = document.createElement("div"); row.style.cssText = "display:flex;align-items:center;gap:6px;padding:6px 4px;font-size:12px;color:#374151;";
+      var nm = document.createElement("span"); nm.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; nm.textContent = (u.uploading ? "⏳ " : "📎 ") + u.name;
+      row.appendChild(nm);
+      if (!u.uploading) {
+        var add = document.createElement("button"); add.type = "button"; add.textContent = "Salvar"; add.title = "Adicionar a Meus relatórios";
+        add.style.cssText = "border:1px solid " + pc + "44;background:transparent;color:" + pc + ";border-radius:7px;font-size:11px;font-weight:700;padding:3px 7px;cursor:pointer;flex:none;";
+        add.addEventListener("click", function () { if (u.raw) adicionarUploadAMeusRelatorios(u.raw); });
+        row.appendChild(add);
+      }
+      var x = document.createElement("button"); x.type = "button"; x.innerHTML = "&times;"; x.title = "Remover"; x.style.cssText = "border:0;background:transparent;color:#9ca3af;font-size:16px;cursor:pointer;flex:none;line-height:1;";
+      x.addEventListener("click", function () { baseUploads.splice(i, 1); aposMudarFontes(); renderBaseDados(); });
+      row.appendChild(x);
+      basePanel.appendChild(row);
+    });
+    // Meus relatórios salvos (multi-seleção)
+    basePanel.appendChild(titulo("Meus relatórios salvos"));
+    var lista = document.createElement("div"); lista.textContent = "Carregando…"; lista.style.cssText = "font-size:12px;color:#6b7280;padding:4px;"; basePanel.appendChild(lista);
+    apiSaved({ action: "list" }).then(function (r) {
+      lista.innerHTML = "";
+      var itens = (r && r.ok && Array.isArray(r.itens)) ? r.itens : [];
+      if (!itens.length) { lista.textContent = "Nenhum relatório salvo ainda."; lista.style.color = "#9ca3af"; return; }
+      itens.forEach(function (it) {
+        var row = document.createElement("label"); row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12.5px;color:#374151;cursor:pointer;";
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = baseRelIds.indexOf(it.id) >= 0; cb.style.cssText = "flex:none;";
+        var mt = metaTipo(it);
+        var ico = document.createElement("span"); ico.innerHTML = mt.icone; ico.style.cssText = "display:inline-flex;width:15px;height:15px;flex:none;color:" + mt.cor + ";";
+        var sg = ico.querySelector("svg"); if (sg) { sg.setAttribute("width", "14"); sg.setAttribute("height", "14"); }
+        var nm = document.createElement("span"); nm.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; nm.textContent = it.name;
+        cb.addEventListener("change", function () {
+          if (cb.checked) { if (baseRelIds.indexOf(it.id) < 0) baseRelIds.push(it.id); }
+          else baseRelIds = baseRelIds.filter(function (x) { return x !== it.id; });
+          aposMudarFontes();
+        });
+        row.appendChild(cb); row.appendChild(ico); row.appendChild(nm); lista.appendChild(row);
+      });
+    }).catch(function () { lista.textContent = "Falha ao carregar."; });
+    // Escopo (modo)
+    basePanel.appendChild(titulo("Escopo da consulta"));
+    [["completa", "Base completa (padrão)"], ["exclusiva", "Só estas fontes + a tela"], ["so_fontes", "Só estas fontes"]].forEach(function (op) {
+      var row = document.createElement("label"); row.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 4px;font-size:12.5px;color:#374151;cursor:pointer;";
+      var rb = document.createElement("input"); rb.type = "radio"; rb.name = "kbbasemodo"; rb.checked = baseModo === op[0]; rb.style.cssText = "flex:none;";
+      rb.addEventListener("change", function () { if (rb.checked) { baseModo = op[0]; salvarSelecaoBase(); } });
+      _baseRadios.push({ el: rb, modo: op[0] });
+      var tx = document.createElement("span"); tx.textContent = op[1];
+      row.appendChild(rb); row.appendChild(tx); basePanel.appendChild(row);
+    });
+    var hint = document.createElement("div"); hint.style.cssText = "font-size:10.5px;color:#9ca3af;padding:2px 4px 6px;line-height:1.4;";
+    hint.textContent = "“Só estas fontes + a tela” e “Só estas fontes” não usam a base de conhecimento da IA. A segunda também ignora os dados da tela.";
+    basePanel.appendChild(hint);
+    // Voltar ao padrão (limpa tudo e volta a Base completa).
+    var reset = document.createElement("button"); reset.type = "button"; reset.textContent = "↺ Voltar ao padrão";
+    reset.style.cssText = "width:100%;margin-top:6px;padding:8px;border:1px solid #e5e7eb;border-radius:9px;background:#fff;color:#6b7280;font-size:12px;font-weight:700;cursor:pointer;";
+    reset.addEventListener("click", function () { resetarBase(); });
+    basePanel.appendChild(reset);
   }
 
   // ==== Prompts salvos (biblioteca do visitante) ====

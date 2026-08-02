@@ -145,6 +145,47 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   return { baseId: base.id, name: base.name, tools, toolRouting: base.tool_routing === true };
 }
 
+/** Resolve UM tool de uma base pelo `key` (base_url + credencial + path_template,
+ *  respeitando herança base↔tool e endpoint externo). Usado por integrações do
+ *  servidor onde o CAMINHO é registrado como tool (ex.: consulta de IR via ORDS) —
+ *  nada fixo no código; o path fica no cadastro da tool, distinto por base. */
+export async function loadBaseTool(
+  baseCode: string,
+  toolKey: string,
+): Promise<{ baseUrl: string | null; credentialId: string | null; pathTemplate: string; method: string } | null> {
+  const db = createAdminClient();
+  const alvo = baseCode.trim().replace(/([\\%_])/g, "\\$1");
+  const { data: base } = await db
+    .from("ai_bases")
+    .select("id, base_url, credential_id")
+    .ilike("base_code", alvo)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!base) return null;
+
+  const { data } = await db
+    .from("ai_base_tools")
+    .select("base_url, credential_id, tool:ai_tools(key, path_template, method, endpoint_kind, external_url, credential_id, active)")
+    .eq("base_id", base.id)
+    .eq("enabled", true);
+
+  const alvoKey = toolKey.trim().toLowerCase();
+  const rows = (data ?? []) as unknown as {
+    base_url: string | null;
+    credential_id: string | null;
+    tool: { key: string; path_template: string; method: string; endpoint_kind: string | null; external_url: string | null; credential_id: string | null; active: boolean } | null;
+  }[];
+  const row = rows.find((r) => r.tool && r.tool.key.trim().toLowerCase() === alvoKey);
+  if (!row?.tool) return null;
+
+  const t = row.tool;
+  const externa = t.endpoint_kind === "external";
+  const baseUrl = externa ? t.external_url : (base.base_url ?? row.base_url);
+  const credentialId = externa ? t.credential_id : (base.credential_id ?? row.credential_id);
+  return { baseUrl, credentialId, pathTemplate: t.path_template ?? "", method: (t.method || "POST").toUpperCase() };
+}
+
 /** Carrega e DECIFRA a credencial (o blob de segredo em claro para o motor). */
 export async function loadCredentialSecret(credentialId: string): Promise<RuntimeCredential | null> {
   const db = createAdminClient();

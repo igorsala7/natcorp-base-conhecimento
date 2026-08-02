@@ -342,7 +342,8 @@ export async function POST(req: NextRequest) {
       for (const ch of chartSpecs) {
         c.enqueue(sse({ type: "chart", chart: ch }));
       }
-      const usage = await Promise.resolve(result.usage).catch(() => null);
+      // totalUsage = SOMA de todos os passos do turno (não só o último) — ver v1/chat.
+      const usage = await Promise.resolve(result.totalUsage).catch(() => null);
       await supabase.from("messages").insert({
         conversation_id: convId!,
         role: "assistant",

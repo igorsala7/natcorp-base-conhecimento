@@ -16,13 +16,16 @@
     "bootstrap:owner": "tsx --env-file=.env.local scripts/bootstrap-owner.ts",
     "bootstrap:owner:prod": "tsx scripts/bootstrap-owner.ts",
     "seed:natcorp": "tsx --env-file=.env.local scripts/seed-natcorp.ts",
+    "tool:consulta-ir": "tsx --env-file=.env.local scripts/add-consulta-ir-tool.ts",
     "seed:natcorp:prod": "tsx scripts/seed-natcorp.ts",
     "worker": "tsx --tsconfig worker/tsconfig.json --env-file=.env.local worker/index.ts",
     "worker:prod": "tsx --tsconfig worker/tsconfig.json worker/index.ts",
+    "embed:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "sync:agents": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/sync-agents.ts"
   },
   "repository": {
     "type": "git",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, expandirTabela, consultarDataset } from "./datasets";
+import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset } from "./datasets";
 
 const linhas = (n: number) => Array.from({ length: n }, (_, i) => ({ matricula: 100 + i, nome: "Fulano " + i, salario: 1000 + i }));
 
@@ -164,5 +164,100 @@ describe("consultarDataset (filtro server-side sobre TODAS as linhas)", () => {
 
   it("dataset inexistente → null", () => {
     expect(consultarDataset(newRegistry(), "telaX", [])).toBeNull();
+  });
+});
+
+describe("agregarDataset", () => {
+  const reg = () => {
+    const r = newRegistry();
+    registrarTabelaTela(r, ["Nome", "Status", "Valor"], [
+      ["Ana", "pago", "R$ 1.234,56"],
+      ["Bia", "aberto", "2.000,00"],
+      ["Cid", "pago", "R$ 765,44"],
+      ["Dan", "aberto", "—"], // não-numérico → ignorado no cálculo
+    ]);
+    return r;
+  };
+
+  it("soma valores em R$/pt-BR sobre 100% e ignora não-numéricos", () => {
+    const r = agregarDataset(reg(), "tela1", "Valor", "soma");
+    expect(r?.valor).toBeCloseTo(4000, 2);
+    expect(r?.valoresNumericos).toBe(3);
+    expect(r?.ignorados).toBe(1);
+  });
+
+  it("média divide pela contagem de valores numéricos", () => {
+    expect(agregarDataset(reg(), "tela1", "Valor", "media")?.valor).toBeCloseTo(4000 / 3, 2);
+  });
+
+  it("máx e mín", () => {
+    expect(agregarDataset(reg(), "tela1", "Valor", "max")?.valor).toBeCloseTo(2000, 2);
+    expect(agregarDataset(reg(), "tela1", "Valor", "min")?.valor).toBeCloseTo(765.44, 2);
+  });
+
+  it("contar conta LINHAS; distintos conta únicos", () => {
+    expect(agregarDataset(reg(), "tela1", "Valor", "contar")?.valor).toBe(4);
+    expect(agregarDataset(reg(), "tela1", "Status", "distintos")?.valor).toBe(2);
+  });
+
+  it("aplica o filtro ANTES de somar", () => {
+    const r = agregarDataset(reg(), "tela1", "Valor", "soma", [{ coluna: "Status", operador: "igual", valor: "pago" }]);
+    expect(r?.valor).toBeCloseTo(2000, 2); // 1234,56 + 765,44
+    expect(r?.linhasConsideradas).toBe(2);
+  });
+
+  it("sinaliza coluna inexistente e dataset inexistente", () => {
+    expect(agregarDataset(reg(), "tela1", "Inexistente", "soma")?.colunaNaoEncontrada).toBe("Inexistente");
+    expect(agregarDataset(reg(), "telaX", "Valor", "soma")).toBeNull();
+  });
+});
+
+describe("estatísticas e agrupamento", () => {
+  const reg = () => {
+    const r = newRegistry();
+    registrarTabelaTela(r, ["Depto", "Valor"], [
+      ["A", "10"], ["A", "20"], ["A", "30"],
+      ["B", "100"], ["B", "300"],
+      ["C", "R$ 1.000,00"], ["C", "—"],
+    ]);
+    return r;
+  };
+
+  it("mediana, amplitude e desvio-padrão (amostral)", () => {
+    const g = reg();
+    expect(agregarDataset(g, "tela1", "Valor", "mediana")?.valor).toBeCloseTo(65, 6); // mediana de {10,20,30,100,300,1000} = (30+100)/2
+    expect(agregarDataset(g, "tela1", "Valor", "amplitude")?.valor).toBeCloseTo(990, 6); // 1000-10
+    // [2,4,4,4,5,5,7,9]: média 5, soma dos quadrados 32 → desvio AMOSTRAL √(32/7) ≈ 2.138 (= STDDEV do Oracle)
+    const r2 = newRegistry();
+    registrarTabelaTela(r2, ["X"], [["2"], ["4"], ["4"], ["4"], ["5"], ["5"], ["7"], ["9"]]);
+    expect(agregarDataset(r2, "tela1", "X", "desvio_padrao")?.valor).toBeCloseTo(Math.sqrt(32 / 7), 6);
+    expect(agregarDataset(r2, "tela1", "X", "variancia")?.valor).toBeCloseTo(32 / 7, 6);
+    expect(agregarDataset(r2, "tela1", "X", "moda")?.valor).toBe(4);
+  });
+
+  it("perfil estatístico completo cobre 100% e ignora não-numéricos", () => {
+    const e = estatisticasColuna(reg(), "tela1", "Valor");
+    expect(e?.linhas).toBe(7);
+    expect(e?.validos).toBe(6); // "—" fora
+    expect(e?.ignorados).toBe(1);
+    expect(e?.soma).toBeCloseTo(1460, 6);
+    expect(e?.min).toBeCloseTo(10, 6);
+    expect(e?.max).toBeCloseTo(1000, 6);
+    expect(e?.mediana).toBeCloseTo(65, 6);
+  });
+
+  it("agrupar: soma por categoria, ordenado maior→menor", () => {
+    const r = agruparDataset(reg(), "tela1", "Depto", "Valor", "soma");
+    expect(r && "grupos" in r ? r.totalGrupos : -1).toBe(3);
+    const grupos = r && "grupos" in r ? r.grupos : [];
+    expect(grupos[0]).toMatchObject({ grupo: "C", valor: 1000 }); // C=1000, B=400, A=60
+    expect(grupos.map((x) => x.grupo)).toEqual(["C", "B", "A"]);
+  });
+
+  it("agrupar contar: nº de linhas por categoria (sem coluna_valor)", () => {
+    const r = agruparDataset(reg(), "tela1", "Depto", "Depto", "contar");
+    const grupos = r && "grupos" in r ? r.grupos : [];
+    expect(grupos.find((x) => x.grupo === "A")?.valor).toBe(3);
+    expect(grupos.find((x) => x.grupo === "C")?.valor).toBe(2);
   });
 });

@@ -323,17 +323,33 @@ function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purp
   return wrapLanguageModel({ model, middleware });
 }
 
+/** Estimativa de tokens (~4 caracteres por token) pelo texto enviado — usada só
+ *  quando o provedor NÃO reporta o uso, para o faturamento nunca contar zero. */
+function estimarTokensEmbedding(values: unknown): number {
+  if (!Array.isArray(values)) return 0;
+  let chars = 0;
+  for (const v of values) chars += typeof v === "string" ? v.length : String(v ?? "").length;
+  return Math.ceil(chars / 4);
+}
+
 /** Middleware de registro para embeddings — só há tokens de ENTRADA (envio). */
 function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
   return {
     specificationVersion: "v3",
-    wrapEmbed: async ({ doEmbed }) => {
+    wrapEmbed: async ({ doEmbed, params }) => {
       const result = await doEmbed();
+      // Alguns provedores (ex.: Google gemini-embedding) NÃO devolvem a contagem de
+      // tokens do embedding → o registro ficava em 0 (subcontagem no faturamento).
+      // Quando o provedor reporta, usa o valor real; senão, ESTIMA pelo texto enviado.
+      const reportado = result.usage?.tokens;
+      const input = typeof reportado === "number" && reportado > 0
+        ? reportado
+        : estimarTokensEmbedding(params.values);
       await logUsage({
         provider: cfg.kind,
         model: cfg.model,
         purpose: "embedding",
-        input: result.usage?.tokens ?? 0,
+        input,
         output: 0,
       });
       return result;

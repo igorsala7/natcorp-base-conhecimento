@@ -170,6 +170,15 @@ export function ConversasList({
             (a, m) => (m.feedback === 1 ? { ...a, up: a.up + 1 } : m.feedback === -1 ? { ...a, down: a.down + 1 } : a),
             { up: 0, down: 0 },
           );
+          // Total de tokens da conversa: enviados (entrada) e recebidos (saída). Cada
+          // turno soma o prompt inteiro (o input cresce com o histórico) — é o que se
+          // paga. Registros antigos só têm `tokens` (sem separação) → total à parte.
+          const totIn = c.messages.reduce((a, m) => a + (m.input_tokens ?? 0), 0);
+          const totOut = c.messages.reduce((a, m) => a + (m.output_tokens ?? 0), 0);
+          const totLegado = c.messages.reduce(
+            (a, m) => a + (m.input_tokens == null && m.output_tokens == null ? (m.tokens ?? 0) : 0),
+            0,
+          );
           return (
             <div key={c.id} className="overflow-hidden rounded-xl border border-border bg-surface shadow-1">
               <button
@@ -189,6 +198,24 @@ export function ConversasList({
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
                     <span>{dataHora(c.created_at)}</span>
                     <span>{nUser} pergunta(s)</span>
+                    {(totIn > 0 || totOut > 0 || totLegado > 0) && (
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        title="Tokens desta conversa — enviados (↑) e recebidos (↓)"
+                      >
+                        {(totIn > 0 || totOut > 0) && (
+                          <>
+                            <span className="inline-flex items-center gap-0.5 text-brand-purple-700">
+                              <ArrowUp className="size-3" />{numTok(totIn)}
+                            </span>
+                            <span className="inline-flex items-center gap-0.5 text-brand-blue-700">
+                              <ArrowDown className="size-3" />{numTok(totOut)}
+                            </span>
+                          </>
+                        )}
+                        {totLegado > 0 && <span className="opacity-80">{numTok(totLegado)} tok</span>}
+                      </span>
+                    )}
                     {votos.up > 0 && (
                       <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3" />{votos.up}</span>
                     )}
@@ -210,7 +237,7 @@ export function ConversasList({
                     const usuario = m.role === "user";
                     const { entrada, saida } = tokensDaMensagem(c.messages, i);
                     return (
-                      <div key={i} className={`flex gap-2.5 ${usuario ? "" : "flex-row"}`}>
+                      <div key={i} className="flex gap-2.5">
                         <span
                           className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${
                             usuario ? "bg-brand-purple-100 text-brand-purple-700" : "bg-brand-blue-100 text-brand-blue-700"
@@ -219,9 +246,23 @@ export function ConversasList({
                         >
                           {usuario ? <User className="size-4" /> : <Bot className="size-4" />}
                         </span>
-                        <div className="min-w-0 flex-1">
+                        <div
+                          className={`min-w-0 flex-1 rounded-xl border px-3 py-2 ${
+                            usuario
+                              ? "border-brand-purple-200 bg-brand-purple-50/70 dark:border-brand-purple-900/50 dark:bg-brand-purple-950/30"
+                              : "border-border bg-surface"
+                          }`}
+                        >
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
-                            <span className="font-semibold text-text">{usuario ? "Usuário" : "Assistente"}</span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                usuario
+                                  ? "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/40 dark:text-brand-purple-200"
+                                  : "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/40 dark:text-brand-blue-200"
+                              }`}
+                            >
+                              {usuario ? "Usuário" : "Assistente"}
+                            </span>
                             {m.feedback === 1 && <ThumbsUp className="size-3 text-emerald-600" />}
                             {m.feedback === -1 && <ThumbsDown className="size-3 text-rose-600" />}
                             <span className="font-mono tabular-nums opacity-80">{dataHoraSeg(m.created_at)}</span>
@@ -242,7 +283,13 @@ export function ConversasList({
                               </span>
                             )}
                           </div>
-                          <p className="mt-0.5 whitespace-pre-wrap text-sm text-text">{m.content}</p>
+                          {m.content?.trim() ? (
+                            <p className="mt-0.5 whitespace-pre-wrap text-sm text-text">{m.content}</p>
+                          ) : (
+                            <p className="mt-0.5 text-sm italic text-text-muted">
+                              (mensagem sem texto — anexo, áudio ou ação da tela)
+                            </p>
+                          )}
                           {citas.length > 0 && (
                             <p className="mt-1 text-xs text-text-muted">
                               Fontes: {citas.join(" · ")}

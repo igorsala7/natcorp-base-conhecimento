@@ -19,6 +19,14 @@ export type ClarifyScope = {
   documentId?: string;
   /** "Buscar em tudo": escolha explícita de NÃO filtrar. */
   all?: boolean;
+  /** Fonte de dados escolhida: "relatorio" (relatório da tela) vs "ia" (conhecimento). */
+  fonte?: "relatorio" | "ia";
+  /** Roteador de fonte: usuário insistiu no relatório → não re-perguntar nesta msg. */
+  direto?: boolean;
+  /** Roteador de fonte: tool escolhida (2º passo) → consulta só ela. */
+  tool?: string;
+  /** Roteador de fonte: candidatas do 1º passo (evita re-embeddar no 2º). {k:key,n:nome,d:descr}. */
+  tools?: { k: string; n: string; d: string }[];
 };
 
 /** Um botão de opção na pergunta de desambiguação. */

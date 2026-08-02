@@ -47,9 +47,14 @@ export async function buildIntegrationTools(
   screenAssist?: boolean,
   /** Registro de datasets do turno — para o relatório usar os dados COMPLETOS (#4). */
   datasets?: DatasetRegistry,
+  /** Trace do fluxo (rastreio) — registra as decisões desta etapa passo a passo. */
+  onPasso?: (passo: string, info?: Record<string, unknown>) => void,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
-  if (!ctx || ctx.tools.length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
+  if (!ctx || ctx.tools.length === 0) {
+    onPasso?.("integracoes", { resultado: "sem tools", motivo: "base sem contexto ou sem ferramentas" });
+    return { tools: {}, capabilities: "", agentPrompt: "" };
+  }
 
   // ANÁLISE DO PEDIDO (Opção A + gate de dados) — ANTES do login/agentes, para
   // sair cedo quando é só INTERAÇÃO DE TELA / how-to (não precisa de nada disso →
@@ -59,7 +64,14 @@ export async function buildIntegrationTools(
   if (question?.trim() && (ctx.toolRouting || screenAssist)) {
     const tags = ctx.tools.flatMap((t) => t.modules);
     const analise = await analisarPedido(question, tags);
-    if (!analise.precisaDados) return { tools: {}, capabilities: "", agentPrompt: "" };
+    onPasso?.("integracoes:analise", {
+      precisaDados: analise.precisaDados,
+      modulos: analise.modulos.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
+    });
+    if (!analise.precisaDados) {
+      onPasso?.("integracoes", { resultado: "sem tools", motivo: "classificador: pedido não precisa de dados (how-to/documentação)" });
+      return { tools: {}, capabilities: "", agentPrompt: "" };
+    }
     recorte = analise.modulos;
   }
   const routingAtivo = recorte.length > 0;
@@ -282,7 +294,10 @@ export async function buildIntegrationTools(
     });
   }
 
-  if (Object.keys(tools).length === 0) return { tools: {}, capabilities: "", agentPrompt: "" };
+  if (Object.keys(tools).length === 0) {
+    onPasso?.("integracoes", { resultado: "sem tools", motivo: "nenhuma ferramenta sobrou após os filtros de acesso/recorte" });
+    return { tools: {}, capabilities: "", agentPrompt: "" };
+  }
 
   // Cache de prompt (Anthropic): um breakpoint na ÚLTIMA ferramenta cacheia todo
   // o bloco de ferramentas (idêntico entre turnos) — re-chamadas ~10× mais
@@ -300,7 +315,10 @@ export async function buildIntegrationTools(
     "Você tem FERRAMENTAS para consultar dados reais do sistema do usuário. Decida sozinho a melhor fonte: " +
     "use as FERRAMENTAS para dados/registros específicos (nunca invente valores) e a DOCUMENTAÇÃO para " +
     "dúvidas de uso, conceitos e como-fazer. Você pode COMBINAR as duas quando ajudar — ex.: trazer o dado " +
-    "real por uma ferramenta e explicar o procedimento pela documentação na mesma resposta." +
+    "real por uma ferramenta e explicar o procedimento pela documentação na mesma resposta. " +
+    "Quando o usuário pede um DADO/registro e existe ferramenta para isso, CHAME a ferramenta — NÃO responda com o " +
+    "caminho/menu do sistema nem mande extrair manualmente. O sistema já valida o acesso do usuário DENTRO da consulta: " +
+    "NUNCA recuse por 'segurança', 'acesso' ou 'limitação'; se não puder, é o sistema que recusa na chamada, não você." +
     (sink
       ? " Quando uma ferramenta retornar um ARQUIVO, ele é entregue ao usuário automaticamente — apenas confirme na resposta, sem descrever bytes."
       : "") +
@@ -315,5 +333,6 @@ export async function buildIntegrationTools(
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0];
   const agentPrompt = agentePersona?.system_prompt?.trim() || "";
 
+  onPasso?.("integracoes", { resultado: "tools montadas", tools: Object.keys(tools), recorte: recorte.map((m) => m.modulo) });
   return { tools, capabilities, agentPrompt };
 }

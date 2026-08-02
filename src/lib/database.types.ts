@@ -697,6 +697,7 @@ export type Database = {
           auth_type: string
           credential_id: string | null
           description: string
+          embedding: string | null
           endpoint_kind: string
           external_url: string | null
           guard: string | null
@@ -721,6 +722,7 @@ export type Database = {
           auth_type?: string
           credential_id?: string | null
           description: string
+          embedding?: string | null
           endpoint_kind?: string
           external_url?: string | null
           guard?: string | null
@@ -745,6 +747,7 @@ export type Database = {
           auth_type?: string
           credential_id?: string | null
           description?: string
+          embedding?: string | null
           endpoint_kind?: string
           external_url?: string | null
           guard?: string | null
@@ -892,6 +895,60 @@ export type Database = {
           id?: string
           kind?: string
           name?: string
+        }
+        Relationships: []
+      }
+      ai_chat_traces: {
+        Row: {
+          id: string
+          created_at: string
+          conversation_id: string | null
+          space_id: string | null
+          base_code: string | null
+          p_usuario: string | null
+          p_portal: string | null
+          p_empresa: string | null
+          p_matricula: string | null
+          p_perfil: string | null
+          pergunta: string | null
+          fonte: string | null
+          desfecho: string | null
+          duracao_ms: number | null
+          passos: Json
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          conversation_id?: string | null
+          space_id?: string | null
+          base_code?: string | null
+          p_usuario?: string | null
+          p_portal?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          pergunta?: string | null
+          fonte?: string | null
+          desfecho?: string | null
+          duracao_ms?: number | null
+          passos?: Json
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          conversation_id?: string | null
+          space_id?: string | null
+          base_code?: string | null
+          p_usuario?: string | null
+          p_portal?: string | null
+          p_empresa?: string | null
+          p_matricula?: string | null
+          p_perfil?: string | null
+          pergunta?: string | null
+          fonte?: string | null
+          desfecho?: string | null
+          duracao_ms?: number | null
+          passos?: Json
         }
         Relationships: []
       }
@@ -3528,6 +3585,38 @@ export type Database = {
         }
         Relationships: []
       }
+      widget_base_selection: {
+        Row: {
+          modo: string
+          relatorio_ids: Json
+          space_id: string
+          updated_at: string
+          user_ref: string
+        }
+        Insert: {
+          modo?: string
+          relatorio_ids?: Json
+          space_id: string
+          updated_at?: string
+          user_ref: string
+        }
+        Update: {
+          modo?: string
+          relatorio_ids?: Json
+          space_id?: string
+          updated_at?: string
+          user_ref?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_base_selection_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       widget_keys: {
         Row: {
           active: boolean
@@ -3574,6 +3663,71 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "widget_keys_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_saved_reports: {
+        Row: {
+          chart: Json | null
+          columns: Json
+          content: string | null
+          created_at: string
+          file_name: string | null
+          id: string
+          kind: string
+          mime: string | null
+          name: string
+          origem: string | null
+          rows: Json
+          source_name: string | null
+          space_id: string
+          total: number
+          user_ref: string
+          widget_key_id: string | null
+        }
+        Insert: {
+          chart?: Json | null
+          columns?: Json
+          content?: string | null
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          kind?: string
+          mime?: string | null
+          name: string
+          origem?: string | null
+          rows?: Json
+          source_name?: string | null
+          space_id: string
+          total?: number
+          user_ref: string
+          widget_key_id?: string | null
+        }
+        Update: {
+          chart?: Json | null
+          columns?: Json
+          content?: string | null
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          kind?: string
+          mime?: string | null
+          name?: string
+          origem?: string | null
+          rows?: Json
+          source_name?: string | null
+          space_id?: string
+          total?: number
+          user_ref?: string
+          widget_key_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_saved_reports_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"

@@ -742,6 +742,8 @@ export type NatcorpAgent = {
   description: string;
   system_prompt: string;
   requires_perfil: string | null;
+  /** Prioridade da persona: a MAIOR entre os agentes elegíveis vira a "Especialização". */
+  priority?: number;
   toolKeys: string[];
 };
 
@@ -811,5 +813,26 @@ export const NATCORP_AGENTS: NatcorpAgent[] = [
     system_prompt: "", // a persona/roteamento de gestor vive no prompt do nati_rh
     requires_perfil: "gestor",
     toolKeys: NATCORP_TOOLS_GESTOR.map((t) => t.key),
+  },
+  {
+    // Painel do OPERADOR (portal PO): equipe interna com acesso amplo. Persona própria,
+    // eleita pela PRIORIDADE (maior que a do nati_rh) — só o operador a recebe, porque
+    // `requires_perfil="OPERADOR"` filtra os demais, mas o operador é elegível a TODOS.
+    // O ESCOPO de dados continua no código (escopoAcessoDirective, PO = vê tudo).
+    key: "nati_operador",
+    name: "Nati — Operador (acesso total)",
+    description:
+      "Persona do PAINEL DO OPERADOR: equipe interna com acesso amplo ao sistema. Combina os dados " +
+      "das ferramentas (qualquer colaborador/estrutura a que tem acesso) com a documentação.",
+    system_prompt:
+      "Você é a Nati atendendo um usuário do PAINEL DO OPERADOR — equipe interna da NATCORP com ACESSO AMPLO ao " +
+      "sistema. Trate-o como um operador que precisa de respostas diretas e completas: use as FERRAMENTAS para trazer " +
+      "os dados reais de qualquer colaborador/estrutura a que ele tenha acesso, sem restrições artificiais (o próprio " +
+      "sistema valida o acesso na consulta). Seja objetivo e técnico quando útil, cite a fonte dos dados e ofereça " +
+      "exportar/gerar relatório quando fizer sentido. Combine os dados das ferramentas com a documentação para explicar " +
+      "procedimentos quando ajudar. Nunca invente restrição de acesso; se algo não puder, é o sistema que recusa.",
+    requires_perfil: "OPERADOR", // nenhum perfil comum bate → só o operador (elegível a todos) recebe
+    priority: 10, // > 0 (padrão dos demais) → vence como persona para o operador
+    toolKeys: [...NATCORP_TOOLS_COLAB, ...NATCORP_TOOLS_GESTOR].map((t) => t.key),
   },
 ];

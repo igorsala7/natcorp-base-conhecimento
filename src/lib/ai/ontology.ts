@@ -232,6 +232,22 @@ export async function expandirConsultaLexica(
 }
 
 /**
+ * Formas (termo canônico + sinônimos) dos conceitos da ontologia CASADOS na
+ * mensagem. Serve para ASSOCIAR os termos da frase ao vocabulário do espaço —
+ * colunas/labels da tela e nomes/descrições das tools — mesmo quando o usuário
+ * usa outra palavra. Degrada para [] em qualquer falha (nunca quebra o chat).
+ */
+export async function formasExpandidas(supabase: DbClient, spaceIds: string[], query: string): Promise<string[]> {
+  if (!spaceIds.length || !query.trim()) return [];
+  try {
+    const entradas = await carregarOntologia(supabase, spaceIds);
+    return formasCasadas(query, entradas);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Carrega a ontologia UMA vez e devolve as DUAS consultas expandidas: a `lexica`
  * (tsquery com os sinônimos em OR) e a `vetor` (pergunta enriquecida com os
  * sinônimos, para o embedding). Degrada para a pergunta original em qualquer

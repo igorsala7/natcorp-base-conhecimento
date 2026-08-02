@@ -233,7 +233,7 @@ async function main(): Promise<void> {
             system_prompt: a.system_prompt,
             requires_perfil: a.requires_perfil,
             active: true,
-            priority: 0,
+            priority: a.priority ?? 0,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "key" },
