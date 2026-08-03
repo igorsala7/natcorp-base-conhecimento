@@ -2476,6 +2476,124 @@ export type Database = {
           },
         ]
       }
+      data_dictionary: {
+        Row: {
+          app_id: string | null
+          created_at: string
+          db_column: string | null
+          db_table: string | null
+          description: string | null
+          id: string
+          kind: string
+          label: string | null
+          metadata: Json
+          name: string
+          page_id: string | null
+          parent_name: string | null
+          source: string
+          space_id: string
+          updated_at: string
+        }
+        Insert: {
+          app_id?: string | null
+          created_at?: string
+          db_column?: string | null
+          db_table?: string | null
+          description?: string | null
+          id?: string
+          kind: string
+          label?: string | null
+          metadata?: Json
+          name: string
+          page_id?: string | null
+          parent_name?: string | null
+          source?: string
+          space_id: string
+          updated_at?: string
+        }
+        Update: {
+          app_id?: string | null
+          created_at?: string
+          db_column?: string | null
+          db_table?: string | null
+          description?: string | null
+          id?: string
+          kind?: string
+          label?: string | null
+          metadata?: Json
+          name?: string
+          page_id?: string | null
+          parent_name?: string | null
+          source?: string
+          space_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_dictionary_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_dictionary_jobs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          done: number
+          error: string | null
+          found: number
+          id: string
+          input: Json
+          kind: string
+          progress: number
+          result: Json | null
+          space_id: string
+          status: string
+          total: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          found?: number
+          id?: string
+          input?: Json
+          kind?: string
+          progress?: number
+          result?: Json | null
+          space_id: string
+          status?: string
+          total?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
+          found?: number
+          id?: string
+          input?: Json
+          kind?: string
+          progress?: number
+          result?: Json | null
+          space_id?: string
+          status?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_dictionary_jobs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ontology_terms: {
         Row: {
           created_at: string
