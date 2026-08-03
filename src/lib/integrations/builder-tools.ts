@@ -21,7 +21,7 @@ const paramSchema = z.object({
   nome: z.string().min(1),
   descricao: z.string().optional(),
   tipo: z.enum(["string", "number", "date", "enum", "boolean"]),
-  origem: z.enum(["modelo", "identidade", "fixo", "credencial"]),
+  origem: z.enum(["modelo", "identidade", "fixo", "credencial", "pessoa"]),
   local: z.enum(["query", "path", "body", "header", "none"]),
   obrigatorio: z.boolean().optional(),
   mascara: z.string().optional(),
