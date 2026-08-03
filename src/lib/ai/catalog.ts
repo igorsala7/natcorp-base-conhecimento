@@ -22,6 +22,7 @@ export const PROVIDER_HELP: Record<ProviderKind, string> = {
 
 export type Purpose =
   | "chat"
+  | "chat_ferramentas"
   | "report_analysis"
   | "query_rewrite"
   | "embedding"
@@ -33,6 +34,11 @@ export type Purpose =
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
+  {
+    key: "chat_ferramentas",
+    label: "Chat com ferramentas",
+    desc: "Usado quando o turno do chat CHAMA ferramentas de integração/consulta a sistemas (dados reais, vários colaboradores, análises que combinam fontes). Esses turnos AGÊNTICOS convergem muito melhor num modelo FORTE (ex.: Claude ou Gemini Pro) — modelos rápidos entram em loop de chamadas. Deixe o Chat num modelo barato/rápido e este num forte. Sem atribuição própria, usa o modelo do Chat.",
+  },
   {
     key: "report_analysis",
     label: "Análise de relatório",

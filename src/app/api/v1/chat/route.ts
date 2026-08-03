@@ -571,6 +571,10 @@ export async function POST(req: NextRequest) {
     : formTools;
   const allTools: ToolSet = { ...(cortaIntegracao ? {} : integTools), ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
   const temTools = Object.keys(allTools).length > 0;
+  // Turno AGÊNTICO: ferramentas de integração ATIVAS (não cortadas) ou análise composta que
+  // TAMBÉM precisa de tool. Esses turnos (loop de chamadas, várias fontes) convergem melhor
+  // num modelo FORTE → finalidade "chat_ferramentas" (fallback: Chat). Chat simples segue barato.
+  const turnoAgentico = (temIntegTools && !cortaIntegracao) || compostoPorTool;
   passo("ferramentas", {
     tools: Object.keys(allTools),
     modo_relatorio: modoRelatorio,
@@ -1139,11 +1143,14 @@ export async function POST(req: NextRequest) {
       erroGeracao = error;
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    // Modelo: na ANÁLISE PURA usa a finalidade "report_analysis" (provedor/modelo próprio
-    // configurável em Sistema→IA; sem atribuição, cai no Chat). Nos demais turnos, o Chat.
+    // Modelo por FINALIDADE (tudo configurável em Sistema→IA; sem atribuição própria, cai no
+    // Chat): ANÁLISE PURA do relatório → "report_analysis"; turno AGÊNTICO (ferramentas/composto)
+    // → "chat_ferramentas" (modelo forte, converge melhor no loop de tools); demais → "chat".
     model: await (modoAnalisePura
       ? languageModel("report_analysis", { kind: "user", ...track }, track.p_base ?? "")
-      : chatModel({ kind: "user", ...track }, track.p_base ?? "")),
+      : turnoAgentico
+        ? languageModel("chat_ferramentas", { kind: "user", ...track }, track.p_base ?? "")
+        : chatModel({ kind: "user", ...track }, track.p_base ?? "")),
     // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o
     // padrão conservador do provedor cortar a resposta pela metade.
     maxOutputTokens: completo || temTools ? 8192 : 4096,
@@ -1284,7 +1291,7 @@ export async function POST(req: NextRequest) {
       // DIAGNÓSTICO no console: tipo de agente, perfil, provedor/modelo e TOKENS do turno
       // (envio × resposta) — inclusive quanto pesou o ENVIO das tabelas/regiões da tela.
       try {
-        const _purpose = modoAnalisePura ? "report_analysis" : "chat";
+        const _purpose = modoAnalisePura ? "report_analysis" : turnoAgentico ? "chat_ferramentas" : "chat";
         const _aiCfg = await resolveAi(_purpose, track.p_base ?? "").catch(() => null);
         // QUEM está respondendo (persona): perfil de análise > agente de integração > chat.
         const _agente = personaReport
