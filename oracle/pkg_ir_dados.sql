@@ -89,13 +89,20 @@ create or replace package body pkg_ir_dados as
   -- de imagem/link — ex.: FOTO com <img ...> — viram texto puro/vazio) e comprime
   -- espaços. Texto puro passa intacto. Reduz MUITO o token de colunas renderizadas.
   function f_texto(p in varchar2) return varchar2 is
-    v varchar2(32767) := p;
+    -- Capa ANTES de qualquer regex: a célula é truncada em 8000 no JSON (e em 300 pelo
+    -- servidor), então rodar regex sobre um valor gigante é trabalho jogado fora. Isto
+    -- limita o custo do regex por célula no laço quente (colunas HTML/renderizadas).
+    v varchar2(8000) := substr(p, 1, 8000);
   begin
     if v is null then return null; end if;
     -- Só paga o regex de HTML quando há tag (a maioria das células é texto puro).
     -- Saída idêntica: em texto sem '<', o regexp_replace seria no-op de qualquer forma.
     if instr(v, '<') > 0 then v := regexp_replace(v, '<[^>]+>', ' '); end if;
-    return trim(regexp_replace(v, '[[:space:]]{2,}', ' '));
+    -- Só paga o regex POSIX (caro sob AL32UTF8) quando há de fato espaço repetido/tab/quebra.
+    if instr(v, '  ') > 0 or instr(v, chr(9)) > 0 or instr(v, chr(10)) > 0 or instr(v, chr(13)) > 0 then
+      v := regexp_replace(v, '[[:space:]]{2,}', ' ');
+    end if;
+    return trim(v);
   end f_texto;
 
   -- Milissegundos entre dois timestamps — usado para medir o desempenho da coleta

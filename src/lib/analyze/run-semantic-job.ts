@@ -5,6 +5,7 @@ import { decodeTrackForSpace, type TrackFields } from "@/lib/tracking/resolve";
 import { chatModel, aiTimeout, ehTimeout, type UsageMeta } from "@/lib/ai/config";
 import { generateObjectResiliente } from "@/lib/ai/generate";
 import { chunkSchema, CHUNK_SIZE } from "@/lib/chat/analysis-router";
+import { readDatasetRows } from "@/lib/widget/dataset-store";
 
 type Db = ReturnType<typeof createAdminClient>;
 const now = () => new Date().toISOString();
@@ -29,14 +30,16 @@ export async function processSemanticJob(jobId: string): Promise<void> {
     // Dataset SEMPRE no escopo do job (um id sozinho nunca basta — nada vaza entre usuários).
     const { data: ds } = await db
       .from("widget_datasets")
-      .select("columns, rows")
+      .select("columns, rows, storage_path")
       .eq("id", job.dataset_id)
       .eq("space_id", job.space_id)
       .eq("user_ref", job.user_ref)
       .maybeSingle();
-    if (!ds || !Array.isArray(ds.columns) || !Array.isArray(ds.rows)) throw new Error("Dataset não encontrado no escopo do usuário.");
+    if (!ds || !Array.isArray(ds.columns)) throw new Error("Dataset não encontrado no escopo do usuário.");
     const colunas = (ds.columns as unknown[]).map(String);
-    const linhas = (ds.rows as unknown[]).map((r) => (Array.isArray(r) ? (r as unknown[]).map((c) => String(c ?? "")) : []));
+    // Linhas do Storage (gzip) quando grande; senão inline em `rows`.
+    const linhas = await readDatasetRows(db, ds);
+    if (!linhas.length) throw new Error("Dataset vazio no escopo do usuário.");
     const idxAlvo = colunas.findIndex((c) => norm(c) === norm(job.target_column));
     if (idxAlvo < 0) throw new Error(`Coluna "${job.target_column}" não encontrada no dataset.`);
     const rotulos = (Array.isArray(job.rotulos) ? (job.rotulos as unknown[]) : []).map(String).filter(Boolean);

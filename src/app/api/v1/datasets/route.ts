@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { resolveWidgetKey, originAllowed, corsHeaders, clientIp, extractKey, rateLimitOk } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { putDatasetRows, readDatasetRows, removeDatasetObject } from "@/lib/widget/dataset-store";
 import type { Database } from "@/lib/database.types";
 
 type DatasetInsert = Database["public"]["Tables"]["widget_datasets"]["Insert"];
@@ -65,9 +66,18 @@ export async function POST(req: NextRequest) {
       ? (p.rows as unknown[]).slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.map((c) => (c == null ? "" : String(c))) : []))
       : [];
     if (!columns.length || !rows.length) return json({ ok: false, erro: "Dataset vazio (sem colunas/linhas)." }, 400);
-    // Guarda de tamanho: conjuntos gigantes ficam para o tier gzip/Storage (fast-follow).
-    if (JSON.stringify(rows).length > MAX_BYTES) {
+    // Guarda de tamanho (teto absoluto). Acima do limiar inline, as linhas vão gzip p/ o
+    // Storage (a coluna `rows` fica NULL) — evita o statement_timeout do JSONB gigante.
+    const serialized = JSON.stringify(rows);
+    if (serialized.length > MAX_BYTES) {
       return json({ ok: false, erro: "Conjunto grande demais para salvar — refine o filtro do relatório." }, 413);
+    }
+    let armazenado: { rows: string[][] | null; storagePath: string | null };
+    try {
+      armazenado = await putDatasetRows(db, { spaceId: key.space_id, userRef, clientKey, rows, serialized });
+    } catch (e) {
+      console.error("[datasets] storage:", e);
+      return json({ ok: false, erro: "Falha ao salvar o dataset." }, 500);
     }
     const registro: DatasetInsert = {
       space_id: key.space_id,
@@ -76,7 +86,8 @@ export async function POST(req: NextRequest) {
       client_key: clientKey,
       source_name: String(p.sourceName ?? "").slice(0, 200) || null,
       columns,
-      rows,
+      rows: armazenado.rows,
+      storage_path: armazenado.storagePath,
       total: typeof p.total === "number" && Number.isFinite(p.total) ? p.total : rows.length,
     };
     const { data, error } = await db
@@ -100,14 +111,22 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (error) { console.error("[datasets] get:", error); return json({ ok: false, erro: "Falha ao carregar o dataset." }, 500); }
     if (!data) return json({ ok: false, erro: "Dataset não encontrado." }, 404);
-    // Tier grande (storage_path) fica para o fast-follow; no F1 os dados vêm em `rows`.
-    if (data.storage_path) return json({ ok: false, erro: "Dataset em armazenamento externo (indisponível nesta versão)." }, 501);
-    return json({ ok: true, id: data.id, source_name: data.source_name, columns: data.columns, rows: data.rows ?? [], total: data.total, created_at: data.created_at }, 200);
+    // Linhas do Storage (gzip) quando grande; senão inline em `rows`.
+    const rows = await readDatasetRows(db, data);
+    return json({ ok: true, id: data.id, source_name: data.source_name, columns: data.columns, rows, total: data.total, created_at: data.created_at }, 200);
   }
 
   if (action === "delete") {
     const id = String(p.id ?? "");
     if (!id) return json({ ok: false, erro: "Informe o id." }, 400);
+    // Lê o storage_path no escopo do usuário para limpar o blob junto com a linha.
+    const { data: alvo } = await db
+      .from("widget_datasets")
+      .select("storage_path")
+      .eq("id", id)
+      .eq("space_id", key.space_id)
+      .eq("user_ref", userRef)
+      .maybeSingle();
     const { error } = await db
       .from("widget_datasets")
       .delete()
@@ -115,6 +134,7 @@ export async function POST(req: NextRequest) {
       .eq("space_id", key.space_id)
       .eq("user_ref", userRef);
     if (error) { console.error("[datasets] delete:", error); return json({ ok: false, erro: "Falha ao apagar o dataset." }, 500); }
+    await removeDatasetObject(db, alvo?.storage_path);
     return json({ ok: true }, 200);
   }
 

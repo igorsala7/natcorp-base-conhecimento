@@ -146,6 +146,7 @@ async function retrieveWith(
   limit: number,
   scope?: ClarifyScope | null,
   lang?: string | null,
+  lexicalOnly = false,
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -220,7 +221,10 @@ async function retrieveWith(
   );
 
   let embedding: number[] | null = null;
-  if (await hasEmbeddingKey()) {
+  // lexicalOnly: pula o embedding da pergunta (chamada ao provedor, ~15s no pior caso
+  // com cache frio) quando a busca semântica tem baixo valor — ex.: MODO RELATÓRIO, em
+  // que a documentação já entra reduzida. A busca segue léxica (tsv + trigram + boost).
+  if (!lexicalOnly && (await hasEmbeddingKey())) {
     // Cache do vetor da query (KV): a MESMA pergunta (mesmo espaço/sinônimos)
     // reaproveita o embedding — corta chamadas ao provedor no pico. TTL 1h.
     const cacheKey = hashKey("emb:", queryVetor);
@@ -437,6 +441,7 @@ export async function retrievePublicContext(
   limit = 8,
   scope?: ClarifyScope | null,
   lang?: string | null,
+  opts?: { lexicalOnly?: boolean },
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
@@ -449,7 +454,7 @@ export async function retrievePublicContext(
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit, scope, lang);
+  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly);
 }
 
 /**

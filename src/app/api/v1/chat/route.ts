@@ -2,6 +2,7 @@ import { streamText, stepCountIs, type ToolSet } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { readDatasetRows, putDatasetRows } from "@/lib/widget/dataset-store";
 import { chatModel, languageModel, hasAiKey, resolveAi } from "@/lib/ai/config";
 import {
   retrievePublicContext,
@@ -272,12 +273,13 @@ export async function POST(req: NextRequest) {
   if (reportDataId && !(reportDataResolved && typeof reportDataResolved === "object")) {
     const { data: dsRow } = await supabase
       .from("widget_datasets")
-      .select("source_name, columns, rows, total")
+      .select("source_name, columns, rows, storage_path, total")
       .eq("id", reportDataId)
       .eq("space_id", key.space_id)
       .eq("user_ref", userRef)
       .maybeSingle();
-    const linhas = dsRow && Array.isArray(dsRow.rows) ? (dsRow.rows as unknown[]) : null;
+    // Linhas do Storage (gzip) quando o conjunto é grande; senão inline em `rows`.
+    const linhas = dsRow && Array.isArray(dsRow.columns) ? await readDatasetRows(supabase, dsRow) : null;
     if (dsRow && Array.isArray(dsRow.columns) && linhas) {
       reportDataResolved = {
         nome: dsRow.source_name ?? "Relatório",
@@ -467,10 +469,13 @@ export async function POST(req: NextRequest) {
   const ragParaTool = (roteouDireto || !!scopeIn?.tool) && !perguntaComposta;
   const ragLimit = operacaoDeTela ? 0 : ragParaTool ? 2 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
   const _tRagStart = Date.now();
-  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope, idioma);
+  // Modo relatório / roteado a tool: doc é reduzida e de baixo valor semântico → busca
+  // LÉXICA (pula o embedding da pergunta, que custa ~15s no pior caso com cache frio).
+  const ragLexicalOnly = modoRelatorioCedo || ragParaTool;
+  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly });
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
-  passo("rag", { fontes: ragSources.length, limite: ragLimit, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
+  passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
   const webSources = social || operacaoDeTela ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
@@ -846,9 +851,12 @@ export async function POST(req: NextRequest) {
       const est = estimarCustoB({ linhas: sub.linhas.length, avgCharsAlvo: avgCharsColuna(sub.colunas, sub.linhas, alvoColuna) });
       let jobId: string | null = null;
       if (alvoColuna && rotulos.length && sub.linhas.length) {
+        // Grande vai gzip p/ o Storage (evita o statement_timeout do JSONB); pequeno inline.
+        const clientKeyB = `analiseB:${crypto.randomUUID()}`;
+        const armB = await putDatasetRows(supabase, { spaceId: key.space_id, userRef, clientKey: clientKeyB, rows: sub.linhas });
         const { data: dsRow } = await supabase
           .from("widget_datasets")
-          .insert({ space_id: key.space_id, widget_key_id: key.id, user_ref: userRef, client_key: `analiseB:${crypto.randomUUID()}`, source_name: String(rdB.nome ?? "Relatório"), columns: sub.colunas, rows: sub.linhas, total: sub.linhas.length })
+          .insert({ space_id: key.space_id, widget_key_id: key.id, user_ref: userRef, client_key: clientKeyB, source_name: String(rdB.nome ?? "Relatório"), columns: sub.colunas, rows: armB.rows, storage_path: armB.storagePath, total: sub.linhas.length })
           .select("id").single();
         if (dsRow) {
           const { data: jobRow } = await supabase
@@ -1309,6 +1317,13 @@ export async function POST(req: NextRequest) {
         _num((usage as unknown as { cachedInputTokens?: unknown } | null)?.cachedInputTokens) ??
         _num(anthropicMeta?.cacheReadInputTokens);
       const cacheCreation = _num(anthropicMeta?.cacheCreationInputTokens);
+      // Nº de passos do turno agêntico: `inputTokens` é a SOMA do prefixo (system+tools+
+      // histórico) reenviado a CADA passo; com N passos e cache alto, o "envio" infla ~N×
+      // mesmo sem prompt inchado. Expor os passos e o ENVIO NOVO (não-cacheado) desfaz a
+      // leitura enganosa do total.
+      const _steps = (await Promise.resolve(result.steps).catch(() => null)) as unknown[] | null;
+      const nPassos = Array.isArray(_steps) ? _steps.length : null;
+      const envioNovo = usage?.inputTokens != null && cacheRead != null ? usage.inputTokens - cacheRead : null;
       // DIAGNÓSTICO no console: tipo de agente, perfil, provedor/modelo e TOKENS do turno
       // (envio × resposta) — inclusive quanto pesou o ENVIO das tabelas/regiões da tela.
       try {
@@ -1334,7 +1349,7 @@ export async function POST(req: NextRequest) {
             `ve_tools_integracao=${_veTools ? "SIM" : "não"}${_veTools ? " [" + _integAtivas.join(", ") + "]" : (temIntegTools && cortaIntegracao ? " (havia tools, cortadas pelo modo relatório)" : "")} | ` +
             `analise_pura=${modoAnalisePura} modo_relatorio=${modoRelatorio} composto=${compostoPorTool} | p_perfil=${track.p_perfil ?? "-"} | ` +
             `finalidade=${_purpose} provedor=${_aiCfg?.kind ?? "-"} modelo=${_aiCfg?.model ?? "-"} | ` +
-            `tokens_envio=${usage?.inputTokens ?? "?"} tokens_resposta=${usage?.outputTokens ?? "?"} (total=${usage?.totalTokens ?? "?"}, cache_read=${cacheRead ?? 0}) | ` +
+            `tokens_envio=${usage?.inputTokens ?? "?"} (novos≈${envioNovo ?? "?"}, cache_read=${cacheRead ?? 0}, passos=${nPassos ?? "?"}) tokens_resposta=${usage?.outputTokens ?? "?"} (total=${usage?.totalTokens ?? "?"}) | ` +
             `tokens_tabelas_regioes≈${_tokRep + _tokTab + _tokScan} (relatorio=${_tokRep} tabelas=${_tokTab} tela=${_tokScan}) | ` +
             `ferramentas_do_modelo=[${Object.keys(allTools).join(", ")}]`,
         );
