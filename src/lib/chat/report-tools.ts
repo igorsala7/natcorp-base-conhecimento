@@ -182,6 +182,23 @@ export function integUsageDirective(toolForcado?: string): string {
  * SISTEMA já aplica esse recorte dentro das ferramentas — isto é só para a IA
  * ENTENDER o alcance e responder certo (não inventa restrição; não vaza dados).
  */
+/**
+ * Anti-"punt" no MODO RELATÓRIO: o relatório da tela é uma VISÃO FILTRADA (uma empresa/
+ * filial/período). Quando a pergunta é sobre um escopo que NÃO está nos dados carregados,
+ * o modelo tende a mandar o usuário "mudar os filtros da tela e perguntar de novo" — o que
+ * é justamente o empurrão que queremos evitar. Injetado só quando a base TEM ferramentas
+ * (há de onde buscar). Curto de propósito (é multiplicado por passo).
+ */
+export function escopoRelatorioDirective(): string {
+  return (
+    "LIMITE DA TELA: o relatório que você analisa é uma VISÃO FILTRADA (empresa/filial/período específicos). Se a pergunta " +
+    "for sobre um escopo QUE NÃO ESTÁ nos dados carregados (outra empresa, outra filial, outro período), é PROIBIDO mandar " +
+    "o usuário 'mudar os filtros da tela e perguntar de novo'. Em vez disso: (1) diga em UMA linha que a tela cobre só o " +
+    "escopo carregado; (2) OFEREÇA buscar pelo assistente — peça para ele responder \"Conhecimento da IA\" (ou repetir a " +
+    "pergunta por essa fonte) que você consulta o sistema direto. Nunca devolva a tarefa para o usuário operar a tela."
+  );
+}
+
 export function escopoAcessoDirective(portal?: string | null, perfil?: string | null): string {
   const p = String(portal ?? "").trim().toUpperCase();
   const perf = String(perfil ?? "").trim();

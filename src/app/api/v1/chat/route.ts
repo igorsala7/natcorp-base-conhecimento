@@ -28,7 +28,7 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
-import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
+import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
 import { matchBaseTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
@@ -374,35 +374,38 @@ export async function POST(req: NextRequest) {
   // Roteou AUTOMATICAMENTE para o relatório da tela (a tela bate e nenhuma tool é
   // fortemente similar) — assume o relatório SEM perguntar a fonte (regra do usuário).
   let roteouRelatorioDireto = false;
-  // Uma tool é "concorrente forte" da tela acima deste limiar; abaixo, a tela vence (o
-  // usuário está OLHANDO o relatório). Entre relação-com-tela E tool forte → AMBÍGUO
-  // (pergunta). 0.75 (era 0.85): uma tool que cobre o MESMO assunto da tela (ex.: dados de
-  // colaboradores numa tela que tem colaboradores) casa ~0.75-0.84 — antes isso ia SILENCIOSO
-  // pro relatório; agora pergunta, nomeando a tool. (matchBaseTools já filtra em ≥0.70.)
-  const LIMIAR_TOOL_FORTE = 0.75;
+  // DOIS limiares de fonte:
+  //  • OFERTA (0.56): tool relevante o bastante p/ virar OPÇÃO na pergunta de fonte. Baixo
+  //    de propósito — "quantidade de colaboradores…" casa a tool de colaboradores a só ~0.58
+  //    (a descrição fala "equipe do gestor") e o usuário QUER poder escolher a tool nesses
+  //    casos. relação-com-tela + tool ≥ OFERTA → ambíguo → o GATE nomeia a(s) tool(s).
+  //  • DIRETO (0.70): forte p/ ir DIRETO à ferramenta quando a mensagem NÃO relaciona a tela.
+  const LIMIAR_OFERTA = 0.56;
+  const LIMIAR_DIRETO = 0.70;
   // Roda quando o usuário NÃO escolheu explicitamente "IA" (fonte "relatorio" OU
   // nenhuma) e há relatório na tela: mesmo sem escolher a fonte, se a mensagem casa
   // com uma tool e NÃO tem relação com a tela, é uma pergunta de TOOL — não do
   // relatório (era o bug: relatório coletado forçava modo relatório e cortava as tools).
   if (fonteEscolhida !== "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && baseCode && temRelatorioNaTela) {
-    matchesCache = await matchBaseTools(supabase, baseCode, consultaTool);
+    matchesCache = await matchBaseTools(supabase, baseCode, consultaTool, { limiar: LIMIAR_OFERTA });
     relacionaTela = mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto);
     const topSim = matchesCache[0]?.sim ?? 0;
     const paginaExplicita = RX_PAGINA_ATUAL.test(question);
-    if (matchesCache.length > 0 && !relacionaTela) {
-      // Casa com tool e NÃO tem relação com a tela → pergunta de TOOL: vai direto à IA.
+    if (matchesCache.length > 0 && !relacionaTela && topSim >= LIMIAR_DIRETO) {
+      // Tool FORTE e NÃO relaciona a tela → pergunta de TOOL: vai direto à IA.
       fonteEfetiva = "ia";
       roteouDireto = true;
-    } else if (relacionaTela && (paginaExplicita || topSim < LIMIAR_TOOL_FORTE)) {
-      // A tela BATE e (a) a pergunta é EXPLÍCITA da página ("nesta tela", "esses N registros")
-      // OU (b) nenhuma tool é fortemente similar → o usuário quer o RELATÓRIO que está
-      // olhando: assume sem perguntar (regra A).
+    } else if (relacionaTela && !paginaExplicita && matchesCache.length > 0) {
+      // Relaciona a tela E há tool no MESMO assunto (mesmo casamento fraco ≥ OFERTA) →
+      // AMBÍGUO: não decide; o GATE abaixo pergunta a fonte, NOMEANDO a(s) tool(s). Deixa
+      // fonteEfetiva como está (indefinida → gate inicial; "relatorio" lembrado → GATE 1).
+    } else if (relacionaTela) {
+      // Relaciona a tela e (pergunta EXPLÍCITA da página OU nenhuma tool ≥ OFERTA) → o
+      // usuário quer o RELATÓRIO que está olhando: assume sem perguntar (regra A).
       fonteEfetiva = "relatorio";
       roteouRelatorioDireto = true;
     }
-    // relacionaTela && topSim >= LIMIAR_TOOL_FORTE && !paginaExplicita → AMBÍGUO (uma tool
-    // cobre o mesmo assunto da tela): deixa fonteEfetiva indefinida → o GATE abaixo pergunta
-    // a fonte, NOMEANDO a(s) tool(s) casada(s).
+    // !relacionaTela && topSim < DIRETO → fluxo normal (não força relatório nem tool).
   }
   // COMPOSTO por TOOL (detecção robusta de "precisa de tool"): há relatório na tela E uma
   // tool casou com a mensagem trazendo um dado de OUTRO domínio (termo da tool NÃO aparece
@@ -1059,6 +1062,9 @@ export async function POST(req: NextRequest) {
     ? filtrarRelatorioVazioDirective(filtrosLabels, nomeRelVazio, camposDedicados.some((f) => f.oculto))
     : "";
   const blocoIntegUsage = temIntegTools && !modoRelatorio ? integUsageDirective(toolForcado) : "";
+  // Anti-punt: no modo relatório com tools na base, se o escopo pedido não está na tela,
+  // não mande o usuário re-filtrar — ofereça buscar pelo assistente.
+  const blocoEscopoRel = modoRelatorio && temIntegTools && !continuation ? escopoRelatorioDirective() : "";
   const blocoEscopo = temIntegTools ? escopoAcessoDirective(track.p_portal, track.p_perfil) : "";
   const blocoVisuals = temVisual ? visualsDirective() : "";
   const blocoInvite = querConvite ? inviteDirective() : "";
@@ -1074,6 +1080,7 @@ export async function POST(req: NextRequest) {
     blocoRelatorioVazio,
     blocoEntregar,
     blocoIntegUsage,
+    blocoEscopoRel,
     blocoEscopo,
     blocoVisuals,
     blocoInvite,
