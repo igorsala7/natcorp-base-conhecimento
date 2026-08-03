@@ -293,6 +293,10 @@ async function processImprove(jobId: string, nodeIds: string[]) {
     console.log(`Job ${jobId} não está em 'improving' (${job?.status}) — ignorando.`);
     return;
   }
+  // Direção do autor (orientações livres + preferências) gravada na materialização —
+  // vai ao prompt de cada artigo (generateArticle) para guiar a formatação.
+  const direcao = (job.result_tree as { direcaoLayout?: string } | null)?.direcaoLayout || undefined;
+  if (direcao) await logJob(jobId, `Aplicando as orientações do autor à formatação.`);
 
   let ok = 0;
   let mantidos = 0;
@@ -320,7 +324,7 @@ async function processImprove(jobId: string, nodeIds: string[]) {
     // MESMO processo rico da leitura por IA (Fase C): reveste em blocos ricos,
     // com rede de fidelidade — se a IA resumir/parafrasear, degrada para
     // parágrafos fiéis (nunca perde conteúdo), e o `aviso` conta o motivo.
-    const { doc, aviso } = await generateArticle(text, images);
+    const { doc, aviso } = await generateArticle(text, images, direcao);
     const texto = blocksToText(doc.blocks);
     await supabase
       .from("articles")

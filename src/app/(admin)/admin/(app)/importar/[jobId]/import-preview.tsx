@@ -178,6 +178,10 @@ export function ImportPreview({
   const [respostas, setRespostas] = useState<Record<string, number>>({});
   const [analisando, setAnalisando] = useState(false);
   const [mostrarPerguntas, setMostrarPerguntas] = useState(false);
+  // Orientações LIVRES do autor: como a IA deve interpretar o conteúdo ao reformatar
+  // (ex.: "trate 'Obs:' como aviso", "listas numeradas viram passo a passo"). Viajam
+  // no `direcaoLayout` junto com as preferências e chegam ao prompt do worker.
+  const [orientacoes, setOrientacoes] = useState("");
 
   // Carrega as pastas da documentação escolhida (o nível onde vai pendurar).
   useEffect(() => {
@@ -203,8 +207,12 @@ export function ImportPreview({
         },
         {
           melhorarLayout,
+          // Direção do autor = orientações livres (o que ele digitou) + diretivas das
+          // preferências respondidas. Ambas vão ao prompt de melhoria no worker.
           direcaoLayout: melhorarLayout
-            ? diretivasParaDirecao(diretivasEscolhidas(perguntas ?? [], respostas))
+            ? [orientacoes.trim(), diretivasParaDirecao(diretivasEscolhidas(perguntas ?? [], respostas))]
+                .filter(Boolean)
+                .join("\n\n") || undefined
             : undefined,
         },
       );
@@ -347,6 +355,25 @@ export function ImportPreview({
             </label>
             {melhorarLayout && (
               <div className="mt-3 border-t border-border pt-3">
+                <label htmlFor="orientacoes_ia" className="mb-1 block text-xs font-medium text-text">
+                  Orientações para a IA (opcional)
+                </label>
+                <textarea
+                  id="orientacoes_ia"
+                  value={orientacoes}
+                  onChange={(e) => setOrientacoes(e.target.value)}
+                  rows={3}
+                  placeholder={
+                    "Ex.: trechos iniciados por \"Atenção:\" ou \"Obs.:\" viram avisos; listas numeradas viram passo a passo; " +
+                    "blocos de código com a linguagem detectada; não crie tabelas onde o original é texto corrido."
+                  }
+                  className={`${controlClass} resize-y text-sm`}
+                />
+                <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                  Diga como a IA deve interpretar o conteúdo ao reformatar (só ajusta o layout — não reescreve o texto).
+                  Vale para todos os artigos.
+                </p>
+                <div className="mt-3">
                 <button
                   type="button"
                   disabled={analisando}
@@ -380,6 +407,7 @@ export function ImportPreview({
                       ? `Preferências de layout (${Object.keys(respostas).length}/${perguntas.length} respondidas)`
                       : "Preferências de layout (IA) — opcional"}
                 </button>
+                </div>
               </div>
             )}
           </div>
