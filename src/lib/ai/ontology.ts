@@ -81,8 +81,18 @@ export function enriquecerParaVetor(query: string, entradas: EntradaOntologia[])
 const cache = new Map<string, { at: number; data: EntradaOntologia[] }>();
 const TTL_MS = 60_000;
 
-async function carregarOntologia(supabase: DbClient, spaceIds: string[]): Promise<EntradaOntologia[]> {
-  const chave = [...spaceIds].sort().join(",");
+/** Idioma canônico da ontologia (as linhas em `ontology_terms`/`aliases`). */
+export const IDIOMA_CANONICO = "pt";
+
+/** Normaliza o idioma pedido; `null` = usar só o canônico (PT). */
+function idiomaAtivo(lang?: string | null): string | null {
+  const l = (lang ?? "").trim().toLowerCase();
+  return l && l !== IDIOMA_CANONICO ? l : null;
+}
+
+async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: string | null): Promise<EntradaOntologia[]> {
+  const idioma = idiomaAtivo(lang);
+  const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO);
   const hit = cache.get(chave);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
@@ -103,11 +113,11 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[]): Promis
   const ids = (termos ?? []).map((t) => t.id);
 
   // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do PostgREST.
-  const aliasPorTermo = new Map<string, { alias: string; alias_norm: string }[]>();
+  const aliasPorTermo = new Map<string, { id: string; alias: string; alias_norm: string }[]>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data: aliases } = await supabase
       .from("ontology_aliases")
-      .select("term_id, alias, alias_norm")
+      .select("id, term_id, alias, alias_norm")
       .in("term_id", ids.slice(i, i + 200));
     for (const a of aliases ?? []) {
       const lista = aliasPorTermo.get(a.term_id) ?? [];
@@ -116,11 +126,46 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[]): Promis
     }
   }
 
+  // MULTILÍNGUE: no idioma ativo, UNE as formas traduzidas às PT (canônicas) em cada
+  // entrada → ponte cross-lingual: o usuário digita na língua dele e a expansão inclui
+  // TAMBÉM o termo canônico, achando o conteúdo mesmo que o doc esteja em PT.
+  const termTrad = new Map<string, { term: string; term_norm: string }>();
+  const aliasTrad = new Map<string, { alias: string; alias_norm: string }>();
+  if (idioma && ids.length) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await supabase
+        .from("ontology_translations")
+        .select("term_id, term, term_norm")
+        .eq("lang", idioma)
+        .in("term_id", ids.slice(i, i + 200));
+      for (const tr of data ?? []) termTrad.set(tr.term_id, { term: tr.term, term_norm: tr.term_norm });
+    }
+    const aliasIds = [...aliasPorTermo.values()].flat().map((a) => a.id);
+    for (let i = 0; i < aliasIds.length; i += 200) {
+      const { data } = await supabase
+        .from("ontology_alias_translations")
+        .select("alias_id, alias, alias_norm")
+        .eq("lang", idioma)
+        .in("alias_id", aliasIds.slice(i, i + 200));
+      for (const tr of data ?? []) aliasTrad.set(tr.alias_id, { alias: tr.alias, alias_norm: tr.alias_norm });
+    }
+  }
+
   const data: EntradaOntologia[] = (termos ?? []).map((t) => {
     const al = aliasPorTermo.get(t.id) ?? [];
+    const matchNorms = [t.term_norm, ...al.map((a) => a.alias_norm)];
+    const forms = [t.term, ...al.map((a) => a.alias)];
+    if (idioma) {
+      const tt = termTrad.get(t.id);
+      if (tt) { matchNorms.push(tt.term_norm); forms.push(tt.term); }
+      for (const a of al) {
+        const at = aliasTrad.get(a.id);
+        if (at) { matchNorms.push(at.alias_norm); forms.push(at.alias); }
+      }
+    }
     return {
-      matchNorms: [t.term_norm, ...al.map((a) => a.alias_norm)],
-      forms: [t.term, ...al.map((a) => a.alias)],
+      matchNorms: [...new Set(matchNorms.filter(Boolean))],
+      forms: [...new Set(forms.filter(Boolean))],
       nodeId: t.node_id ?? null,
     };
   });
@@ -161,11 +206,12 @@ export async function vocabularioProximo(
   spaceIds: string[],
   query: string,
   max = 15,
+  lang?: string | null,
 ): Promise<string> {
   const palavras = palavrasSignificativas(query);
   if (!spaceIds.length || !palavras.length) return "";
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang);
     const out: string[] = [];
     const vistos = new Set<string>();
     for (const e of entradas) {
@@ -193,10 +239,11 @@ export async function glossarioCasado(
   spaceIds: string[],
   query: string,
   max = 12,
+  lang?: string | null,
 ): Promise<string> {
   if (!spaceIds.length || !query.trim()) return "";
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang);
     const casadas = casarOntologia(query, entradas);
     if (!casadas.length) return "";
     return casadas
@@ -221,10 +268,11 @@ export async function expandirConsultaLexica(
   supabase: DbClient,
   spaceIds: string[],
   query: string,
+  lang?: string | null,
 ): Promise<string> {
   if (!spaceIds.length || !query.trim()) return query;
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang);
     return expandirComOntologia(query, entradas);
   } catch {
     return query;
@@ -237,10 +285,10 @@ export async function expandirConsultaLexica(
  * colunas/labels da tela e nomes/descrições das tools — mesmo quando o usuário
  * usa outra palavra. Degrada para [] em qualquer falha (nunca quebra o chat).
  */
-export async function formasExpandidas(supabase: DbClient, spaceIds: string[], query: string): Promise<string[]> {
+export async function formasExpandidas(supabase: DbClient, spaceIds: string[], query: string, lang?: string | null): Promise<string[]> {
   if (!spaceIds.length || !query.trim()) return [];
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang);
     return formasCasadas(query, entradas);
   } catch {
     return [];
@@ -257,11 +305,12 @@ export async function expandirConsulta(
   supabase: DbClient,
   spaceIds: string[],
   query: string,
+  lang?: string | null,
 ): Promise<{ lexica: string; vetor: string; boost: string | null; responsaveis: string[] }> {
   const vazio = { lexica: query, vetor: query, boost: null, responsaveis: [] as string[] };
   if (!spaceIds.length || !query.trim()) return vazio;
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang);
     const casadas = casarOntologia(query, entradas);
     if (!casadas.length) return vazio;
     const formas = [

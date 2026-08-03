@@ -16,6 +16,17 @@
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_PANEL = "kb.widget.panelpos." + KEY; // posição própria da JANELA (arrastada pelo cabeçalho)
   var LS_SID = "kb.widget.sid." + KEY;
+  // Idioma escolhido no seletor: usa a ontologia daquele idioma + responde nele. Espelha
+  // src/lib/i18n/languages.ts (pt = canônico). Guardado por chave do widget.
+  var LS_LANG = "kb.widget.lang." + KEY;
+  var LANGS = [
+    { code: "pt", nativo: "Português" }, { code: "en", nativo: "English" },
+    { code: "es", nativo: "Español" }, { code: "fr", nativo: "Français" },
+    { code: "de", nativo: "Deutsch" }, { code: "it", nativo: "Italiano" },
+    { code: "ja", nativo: "日本語" }, { code: "zh", nativo: "中文" },
+  ];
+  var widgetLang = "pt";
+  try { widgetLang = localStorage.getItem(LS_LANG) || "pt"; } catch (e) { }
   // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
   var LS_CLEARED = "kb.widget.cleared." + KEY;
   // Rascunho do campo de texto (preserva o que foi digitado ao minimizar/recarregar).
@@ -5516,6 +5527,8 @@
     if (scope) body.scope = scope;
     if (contextScope) body.contextScope = contextScope;
     if (track) body.track = track;
+    if (widgetLang && widgetLang !== "pt") body.lang = widgetLang; // idioma escolhido no seletor
+
     if (attachmentIds && attachmentIds.length) body.attachmentIds = attachmentIds;
     // Loop autônomo: pede à IA que CONTINUE a tarefa com a tela já atualizada.
     if (continuacao) { body.continuation = true; body.executedActions = _execLabels.slice(-40); }
@@ -5896,6 +5909,21 @@
     histBtn.innerHTML = ICON_HISTORY + "<span>Histórico</span>";
     histBtn.addEventListener("click", abrirHistorico);
     promptBar.appendChild(histBtn);
+    // Seletor de idioma: muda a ontologia usada e o idioma das respostas do chatbot.
+    var langSel = document.createElement("select");
+    langSel.className = "pbtn"; langSel.title = "Idioma do assistente";
+    langSel.style.cursor = "pointer";
+    LANGS.forEach(function (l) {
+      var o = document.createElement("option");
+      o.value = l.code; o.textContent = l.nativo;
+      if (l.code === widgetLang) o.selected = true;
+      langSel.appendChild(o);
+    });
+    langSel.addEventListener("change", function () {
+      widgetLang = langSel.value;
+      try { localStorage.setItem(LS_LANG, widgetLang); } catch (e) { }
+    });
+    promptBar.appendChild(langSel);
     basePanel = document.createElement("div");
     basePanel.className = "ppanel";
     promptBar.appendChild(basePanel);

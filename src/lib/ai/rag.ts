@@ -145,6 +145,7 @@ async function retrieveWith(
   query: string,
   limit: number,
   scope?: ClarifyScope | null,
+  lang?: string | null,
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -215,6 +216,7 @@ async function retrieveWith(
     supabase,
     escoposUsar.map((e) => e.spaceId),
     query,
+    lang,
   );
 
   let embedding: number[] | null = null;
@@ -434,6 +436,7 @@ export async function retrievePublicContext(
   query: string,
   limit = 8,
   scope?: ClarifyScope | null,
+  lang?: string | null,
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
@@ -446,7 +449,7 @@ export async function retrievePublicContext(
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit, scope);
+  return retrieveWith(supabase, escopos, query, limit, scope, lang);
 }
 
 /**

@@ -43,6 +43,7 @@ import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
+import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
@@ -124,6 +125,9 @@ export async function POST(req: NextRequest) {
     focusedField?: unknown;
     comparacao?: unknown;
     baseDados?: unknown;
+    // Idioma escolhido no seletor do widget (ISO 639-1: en, es, fr, de, it, ja, zh…).
+    // Vazio/pt = comportamento atual. Usa a ontologia daquele idioma + responde nele.
+    lang?: unknown;
   };
   try {
     payload = await req.json();
@@ -145,6 +149,12 @@ export async function POST(req: NextRequest) {
   }
 
   const messages = limitarHistorico(payload.messages);
+  // Idioma escolhido no seletor do widget (validado contra a lista suportada). `null` = PT
+  // canônico (comportamento atual). Usa a ontologia daquele idioma (ponte cross-lingual) e
+  // instrui o modelo a responder nele.
+  const idioma = idiomaValido(payload.lang as string) && String(payload.lang).toLowerCase() !== "pt"
+    ? String(payload.lang).toLowerCase()
+    : null;
   const question = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (!question.trim()) return json({ error: "Mensagem vazia." }, 400);
 
@@ -348,7 +358,7 @@ export async function POST(req: NextRequest) {
   // melhor tanto com a TELA (título/colunas/labels) quanto com as TOOLS (embedding
   // enriquecido). Só carrega quando pode haver roteamento (há base + relatório/IA).
   const podeRotear = !!baseCode && !continuation && !social && (temRelatorioNaTela || fonteEscolhida === "ia");
-  const formasOnto = podeRotear ? await formasExpandidas(supabase, key.space_ids, question) : [];
+  const formasOnto = podeRotear ? await formasExpandidas(supabase, key.space_ids, question, idioma) : [];
   const consultaTool = formasOnto.length ? `${question}\n${formasOnto.slice(0, 6).join("\n")}` : question;
   let fonteEfetiva: "relatorio" | "ia" | undefined = fonteEscolhida;
   let matchesCache: ToolMatch[] | null = null;
@@ -393,7 +403,7 @@ export async function POST(req: NextRequest) {
   // (relatório) e "Marcações" (tool), sinônimos, contam como o MESMO assunto e não viram
   // falso composto. Só roda quando pode importar (há relatório + tool casada + não-composta).
   const _precisaComposto = temRelatorioNaTela && !perguntaComposta && (matchesCache?.length ?? 0) > 0;
-  const _formasRel = _precisaComposto ? await formasExpandidas(supabase, key.space_ids, `${relNome} ${relCols.join(" ")}`) : [];
+  const _formasRel = _precisaComposto ? await formasExpandidas(supabase, key.space_ids, `${relNome} ${relCols.join(" ")}`, idioma) : [];
   const _alvoRel = `${relNome} ${relCols.join(" ")} ${_formasRel.join(" ")}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const _toolDominioNovo = (m: ToolMatch) => {
     const termos = (m.name + " " + m.key).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
@@ -457,7 +467,7 @@ export async function POST(req: NextRequest) {
   const ragParaTool = (roteouDireto || !!scopeIn?.tool) && !perguntaComposta;
   const ragLimit = operacaoDeTela ? 0 : ragParaTool ? 2 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
   const _tRagStart = Date.now();
-  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope);
+  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope, idioma);
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
   passo("rag", { fontes: ragSources.length, limite: ragLimit, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
@@ -627,7 +637,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const _tGloss0 = Date.now();
-  const glossario = social || baseExclusiva ? "" : await glossarioCasado(supabase, key.space_ids, question).catch(() => "");
+  const glossario = social || baseExclusiva ? "" : await glossarioCasado(supabase, key.space_ids, question, 12, idioma).catch(() => "");
   // FONTES da "Base de Dados" (relatórios salvos escolhidos) → bloco de contexto.
   const fontesBlock = formAssist && baseRelIds.length ? await montarFontesBlock(baseRelIds) : "";
   console.log(`[chat-timing] glossario=${Date.now() - _tGloss0}ms | preparo total=${Date.now() - _tPrep0}ms (rewrite+rag+glossario+etc.) — a partir daqui é a chamada ao modelo (streaming)`);
@@ -1091,12 +1101,18 @@ export async function POST(req: NextRequest) {
       "objetivo — sem enrolação nem repetir a tabela inteira; destaque o que interessa. Adapte a profundidade ao que o " +
       "usuário pediu (um resumo rápido não precisa de todas as seções)."
     : null;
+  // IDIOMA: quando o usuário escolheu um idioma no widget, responde SEMPRE nele (mesmo que a
+  // pergunta ou a documentação estejam em PT). A ontologia daquele idioma já foi usada acima.
+  const instrucaoIdioma = idioma
+    ? `IDIOMA OBRIGATÓRIO: responda SEMPRE em ${idiomaNativo(idioma)}, independentemente do idioma da pergunta ou da documentação. ` +
+      `Traduza rótulos, botões, títulos e mensagens para ${idiomaNativo(idioma)}; mantenha nomes próprios, códigos e valores numéricos como estão.`
+    : "";
   const systemPrompt = composeSystemPrompt(
     {
       persona,
       especializacao: especializacaoFinal,
       usoFerramentas: usoFerramentasStr,
-      linguagem: linguagemAnalise,
+      linguagem: [instrucaoIdioma, linguagemAnalise].filter(Boolean).join("\n"),
       regras: resolveRegras(aP.regras_absolutas),
       comTools: temTools,
     },

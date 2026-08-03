@@ -2344,6 +2344,126 @@ export type Database = {
           },
         ]
       }
+      space_languages: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          label: string | null
+          lang: string
+          space_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label?: string | null
+          lang: string
+          space_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label?: string | null
+          lang?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_languages_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ontology_translations: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          lang: string
+          reviewed: boolean
+          source: string
+          term: string
+          term_id: string
+          term_norm: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          lang: string
+          reviewed?: boolean
+          source?: string
+          term: string
+          term_id: string
+          term_norm: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          lang?: string
+          reviewed?: boolean
+          source?: string
+          term?: string
+          term_id?: string
+          term_norm?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ontology_translations_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "ontology_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ontology_alias_translations: {
+        Row: {
+          alias: string
+          alias_id: string
+          alias_norm: string
+          created_at: string
+          id: string
+          lang: string
+          source: string
+        }
+        Insert: {
+          alias: string
+          alias_id: string
+          alias_norm: string
+          created_at?: string
+          id?: string
+          lang: string
+          source?: string
+        }
+        Update: {
+          alias?: string
+          alias_id?: string
+          alias_norm?: string
+          created_at?: string
+          id?: string
+          lang?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ontology_alias_translations_alias_id_fkey"
+            columns: ["alias_id"]
+            isOneToOne: false
+            referencedRelation: "ontology_aliases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ontology_terms: {
         Row: {
           created_at: string
