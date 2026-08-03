@@ -6,6 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
 import { enqueueApexIngest } from "@/lib/jobs/boss";
 import { normalizarApexJson } from "@/lib/apex/metadata";
+import { normalizarTermo } from "@/lib/ai/ontology";
+import { idiomaNome } from "@/lib/i18n/languages";
 import type { Json } from "@/lib/database.types";
 
 type Ok = { ok: true; jobId?: string } | { ok: false; error: string };
@@ -73,18 +75,51 @@ export async function listDataDictionaryColumns(spaceId: string): Promise<DicCol
   });
 }
 
-/** CSV (;) do dicionário de colunas — para baixar a planilha. */
+/** CSV (;) do dicionário de colunas — MULTILÍNGUE (uma coluna por idioma habilitado,
+ *  com a tradução da label vinda da ontologia). Para baixar a planilha. */
 export async function dataDictionaryCsv(spaceId: string): Promise<{ ok: true; csv: string } | { ok: false; error: string }> {
   try {
     await requirePermission("content.view", spaceId);
   } catch {
     return { ok: false, error: "Sem permissão." };
   }
+  const supabase = await createClient();
   const cols = await listDataDictionaryColumns(spaceId);
+
+  // Idiomas ativos + traduções das labels (via ontologia: label → term_norm → tradução).
+  const { data: langsData } = await supabase.from("space_languages").select("lang").eq("space_id", spaceId).eq("active", true);
+  const langs = (langsData ?? []).map((r) => r.lang);
+  const tradPorNorm = new Map<string, Map<string, string>>(); // term_norm → (lang → termo)
+  if (langs.length) {
+    const { data: terms } = await supabase.from("ontology_terms").select("id, term_norm").eq("space_id", spaceId);
+    const normPorId = new Map((terms ?? []).map((t) => [t.id, t.term_norm]));
+    const ids = [...normPorId.keys()];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await supabase.from("ontology_translations").select("term_id, lang, term").in("lang", langs).in("term_id", ids.slice(i, i + 200));
+      for (const r of data ?? []) {
+        const norm = normPorId.get(r.term_id);
+        if (!norm) continue;
+        let m = tradPorNorm.get(norm);
+        if (!m) { m = new Map(); tradPorNorm.set(norm, m); }
+        m.set(r.lang, r.term);
+      }
+    }
+  }
+
   const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
-  const linhas = [["Tabela", "Coluna", "Label", "Outras labels"].map(esc).join(";")];
+  const cab = ["Tabela", "Coluna", "Label (PT)", "Outras labels", ...langs.map((l) => idiomaNome(l) ?? l)];
+  const linhas = [cab.map(esc).join(";")];
   for (const c of cols) {
-    linhas.push([c.table ?? "", c.column ?? "", c.label ?? "", c.labels.filter((l) => l !== c.label).join(" | ")].map(esc).join(";"));
+    const norm = c.label ? normalizarTermo(c.label) : "";
+    const tr = tradPorNorm.get(norm);
+    const cells = [
+      c.table ?? "",
+      c.column ?? "",
+      c.label ?? "",
+      c.labels.filter((l) => l !== c.label).join(" | "),
+      ...langs.map((l) => tr?.get(l) ?? ""),
+    ];
+    linhas.push(cells.map(esc).join(";"));
   }
   return { ok: true, csv: linhas.join("\n") };
 }
