@@ -73,7 +73,7 @@ function extrairLista(data: unknown): DatasetRow[] | null {
 function inferirColunas(rows: DatasetRow[]): string[] {
   const set = new Set<string>();
   for (const r of rows.slice(0, 100)) for (const k of Object.keys(r)) if (!k.startsWith("_")) set.add(k);
-  return [...set].slice(0, 40);
+  return [...set].slice(0, 150);
 }
 
 /** Coage uma célula a texto (números/booleanos/objetos tratados). */
@@ -99,15 +99,41 @@ export function registrarDataset(reg: DatasetRegistry, data: unknown): { id: str
   return { id, total: rows.length, colunas };
 }
 
-/** Injeta o metadado de dataset no resultado devolvido ao modelo (sem perder o
- *  dado — o modelo continua vendo a lista; só ganha o `_dataset` para o relatório). */
+/** Máx. de linhas que o MODELO vê de um resultado de tool. O dataset (id) guarda TUDO;
+ *  passar centenas/milhares de linhas ao modelo por chamada estoura o contexto (bug real:
+ *  vários tool-calls acumulados passavam de 1M tokens no Gemini). A análise sobre 100% das
+ *  linhas é feita pelas ferramentas de dados (dados_de), não relendo tudo no prompt. */
+const MAX_ITENS_MODELO = 50;
+
+const CHAVES_LISTA = ["items", "itens", "data", "dados", "rows", "registros", "result", "results", "lista"];
+
+/** Injeta o metadado de dataset no resultado devolvido ao modelo. Registra TODAS as linhas
+ *  no dataset (para dados_de) mas entrega ao modelo só uma AMOSTRA quando a lista é grande —
+ *  senão o contexto estoura. O `_total`/`_dataset` + as ferramentas cobrem os 100%. */
 export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown): unknown {
   if (!reg || !saida || typeof saida !== "object") return saida;
   const meta = registrarDataset(reg, saida);
   if (!meta) return saida;
-  const tag = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
-  if (Array.isArray(saida)) return { ...tag, itens: saida };
-  return { ...(saida as Record<string, unknown>), ...tag };
+  const truncado = meta.total > MAX_ITENS_MODELO;
+  const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
+  if (truncado) {
+    tag._amostra = MAX_ITENS_MODELO;
+    tag._nota =
+      `Amostra de ${MAX_ITENS_MODELO} de ${meta.total} registros. Para o TOTAL exato, contar, filtrar, somar/média ` +
+      `ou exportar, use as ferramentas de dados com dados_de="${meta.id}" (elas cobrem 100% das linhas) — NUNCA conte/` +
+      `analise pela amostra.`;
+  }
+  if (Array.isArray(saida)) return { ...tag, itens: truncado ? saida.slice(0, MAX_ITENS_MODELO) : saida };
+  const o = saida as Record<string, unknown>;
+  if (truncado) {
+    // Trunca a MESMA lista que `extrairLista` registrou (1º array com linhas-objeto),
+    // para o metadado (_total) e a amostra falarem da mesma coisa.
+    for (const k of CHAVES_LISTA) {
+      const v = o[k];
+      if (Array.isArray(v) && v.some(ehLinha)) return { ...o, [k]: v.slice(0, MAX_ITENS_MODELO), ...tag };
+    }
+  }
+  return { ...o, ...tag };
 }
 
 export type TabelaExpandida = { colunas: string[]; linhas: string[][]; total: number; truncado: boolean };
@@ -439,4 +465,354 @@ export function agruparDataset(
   for (const e of mapa.values()) grupos.push({ grupo: e.rotulo, valor: calcularOperacao(operacao, e.nums, e.linhas), linhas: e.linhas });
   grupos.sort((a, b) => b.valor - a.valor);
   return { grupos: grupos.slice(0, limite), totalGrupos: mapa.size };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * DERIVAÇÃO POR LINHA (coluna calculada sobre 100% dos registros).
+ *
+ * As agregações reduzem UMA coluna a UM número e os filtros comparam coluna com
+ * CONSTANTE — faltava a conta LINHA A LINHA entre duas colunas (ex.: mês2 − mês1,
+ * variação %). Sem ela o modelo só derivava na amostra (~300) → PARCIAL num
+ * relatório grande. Aqui o SERVIDOR calcula cada linha sobre 100% e registra um
+ * novo dataset com a coluna derivada, para as ferramentas exatas (estatisticas/
+ * consultar_registros/agrupar/gráfico/relatório) operarem sobre ela.
+ *
+ * INTEGRIDADE (dinheiro em jogo — decisões do usuário):
+ *  - determinístico, sem IA no cálculo; pt-BR via parseNumBR;
+ *  - célula vazia/não-numérica no OPERANDO → tratada como 0, e o total dessas
+ *    linhas é REPORTADO (`vazias_como_zero`) — nada silencioso;
+ *  - base ZERO em divisão/percentual/variação → resultado N/A explícito (nunca um
+ *    número falso tipo "100%"), também REPORTADO (`base_zero_na`);
+ *  - valor guardado com PRECISÃO TOTAL em formato pt-BR canônico (vírgula, SEM
+ *    milhar) p/ as agregações seguintes serem exatas; a AMOSTRA arredonda a 2
+ *    casas só p/ exibir. `parseNumBR` leria "1.234" como 1234 — por isso a vírgula.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type OperacaoLinha =
+  | "subtracao" | "soma" | "multiplicacao" | "divisao"
+  | "variacao_percentual" | "percentual" | "percentual_do_total";
+
+export const OPERACOES_LINHA: OperacaoLinha[] = [
+  "subtracao", "soma", "multiplicacao", "divisao",
+  "variacao_percentual", "percentual", "percentual_do_total",
+];
+
+export type DerivacaoResultado = {
+  id: string;               // novo dataset (colunas originais + a derivada)
+  coluna: string;           // nome da coluna criada
+  operacao: OperacaoLinha;
+  total: number;            // linhas processadas (100%)
+  calculadas: number;       // linhas com resultado numérico
+  vazias_como_zero: number; // linhas onde um operando vazio/não-numérico virou 0
+  base_zero_na: number;     // linhas N/A por base zero / resultado indefinido
+  colunas: string[];        // colunas do novo dataset
+  amostra: string[][];      // primeiras N linhas (derivada arredondada p/ exibir)
+  colunaNaoEncontrada?: string;
+};
+
+/** Número → pt-BR canônico com PRECISÃO TOTAL (vírgula decimal, SEM milhar) —
+ *  inequívoco p/ parseNumBR. Evita notação científica. N/A (não-finito) → "". */
+function numeroCanonico(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  let s = n.toString();
+  if (s.includes("e") || s.includes("E")) s = n.toFixed(20).replace(/0+$/, "").replace(/\.$/, "");
+  return s.replace(".", ",");
+}
+
+/** Arredonda p/ EXIBIÇÃO (2 casas) em pt-BR. Não afeta o valor guardado. */
+function exibir2(n: number): string {
+  if (!Number.isFinite(n)) return "N/A";
+  return (Math.round(n * 100) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function nomePadraoDerivada(op: OperacaoLinha, a: string, b: string): string {
+  switch (op) {
+    case "subtracao": return `${a} − ${b}`;
+    case "soma": return `${a} + ${b}`;
+    case "multiplicacao": return `${a} × ${b}`;
+    case "divisao": return `${a} ÷ ${b}`;
+    case "variacao_percentual": return `Variação % (${a} vs ${b})`;
+    case "percentual": return `% (${a} de ${b})`;
+    case "percentual_do_total": return `% do total (${a})`;
+    default: return "Calculado";
+  }
+}
+
+/**
+ * Cria uma coluna CALCULADA por linha sobre 100% do dataset e registra um novo
+ * dataset (colunas originais + a derivada). `colunaB` pode ser outra coluna OU um
+ * número fixo (ignorada em `percentual_do_total`, que usa a soma da coluna A).
+ */
+export function derivarColuna(
+  reg: DatasetRegistry,
+  datasetId: string,
+  colunaA: string,
+  operacao: OperacaoLinha,
+  colunaB?: string,
+  nomeColuna?: string,
+  amostraMax = 30,
+): DerivacaoResultado | null {
+  const ds = reg.list.find((d) => d.id === datasetId);
+  if (!ds) return null;
+  const nomes = ds.colunas;
+  const base: DerivacaoResultado = {
+    id: "", coluna: "", operacao, total: ds.rows.length, calculadas: 0,
+    vazias_como_zero: 0, base_zero_na: 0, colunas: nomes, amostra: [],
+  };
+  const idxA = resolverColuna(ds, colunaA);
+  if (idxA == null) return { ...base, colunaNaoEncontrada: colunaA };
+
+  // colunaB: outra coluna, senão um número fixo. Dispensada em percentual_do_total.
+  const precisaB = operacao !== "percentual_do_total";
+  let idxB: number | null = null;
+  let constB: number | null = null;
+  if (precisaB) {
+    idxB = colunaB != null && colunaB.trim() ? resolverColuna(ds, colunaB) : null;
+    if (idxB == null) {
+      const c = colunaB != null ? parseNumBR(colunaB) : null;
+      if (c == null) return { ...base, colunaNaoEncontrada: colunaB ?? "(coluna_b)" };
+      constB = c;
+    }
+  }
+
+  const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
+  const linhasOrig = ds.rows.map(asRow);
+
+  // percentual_do_total: soma da coluna A sobre 100% (vazio→0), usada como base.
+  let totalA = 0;
+  if (operacao === "percentual_do_total") for (const row of linhasOrig) totalA += parseNumBR(row[idxA] ?? "") ?? 0;
+
+  let vazias = 0, calculadas = 0, baseZeroNa = 0;
+  const novasLinhas: string[][] = [];
+  for (const row of linhasOrig) {
+    const aRaw = parseNumBR(row[idxA] ?? "");
+    let bRaw: number | null;
+    if (operacao === "percentual_do_total") bRaw = totalA;
+    else if (constB != null) bRaw = constB;
+    else bRaw = parseNumBR(row[idxB!] ?? "");
+    // Política do usuário: operando vazio/não-numérico → 0 (contado e reportado).
+    // Só conta operandos LIDOS DE CÉLULA (constante e total não contam).
+    const aSubstituido = aRaw == null;
+    const bSubstituido = precisaB && constB == null && bRaw == null;
+    if (aSubstituido || bSubstituido) vazias++;
+    const a = aRaw ?? 0;
+    const b = bRaw ?? 0;
+    let v: number | null;
+    switch (operacao) {
+      case "subtracao": v = a - b; break;
+      case "soma": v = a + b; break;
+      case "multiplicacao": v = a * b; break;
+      case "divisao": v = b === 0 ? null : a / b; break;
+      case "variacao_percentual": v = b === 0 ? null : ((a - b) / b) * 100; break;
+      case "percentual": v = b === 0 ? null : (a / b) * 100; break;
+      case "percentual_do_total": v = totalA === 0 ? null : (a / totalA) * 100; break;
+      default: v = null;
+    }
+    if (v == null || !Number.isFinite(v)) { baseZeroNa++; novasLinhas.push([...row, ""]); }
+    else { calculadas++; novasLinhas.push([...row, numeroCanonico(v)]); }
+  }
+
+  // Nome único (resolverColuna faz match fuzzy → evita colidir com coluna existente).
+  const rotuloB = precisaB ? (idxB != null ? nomes[idxB] ?? String(colunaB) : String(colunaB)) : "";
+  let nome = ((nomeColuna && nomeColuna.trim()) || nomePadraoDerivada(operacao, nomes[idxA] ?? colunaA, rotuloB)).slice(0, 80);
+  if (nomes.some((c) => norm(c) === norm(nome))) nome = `${nome} (calc)`;
+
+  const { id } = registrarTabelaTela(reg, [...nomes, nome], novasLinhas);
+  // Amostra: derivada arredondada p/ exibição (o dataset guarda precisão total).
+  const amostra = novasLinhas.slice(0, amostraMax).map((r) => {
+    const derivada = r[r.length - 1] ?? "";
+    return [...r.slice(0, -1), derivada === "" ? "N/A" : exibir2(parseNumBR(derivada) ?? NaN)];
+  });
+  return { id, coluna: nome, operacao, total: ds.rows.length, calculadas, vazias_como_zero: vazias, base_zero_na: baseZeroNa, colunas: [...nomes, nome], amostra };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * CLASSIFICAÇÃO POR FAIXA (rótulo de risco/faixa por linha, sobre 100%).
+ * Ex.: variação % < −20 = "queda forte"; −20..0 = "queda leve"; ≥ 0 = "alta".
+ * Determinístico. Faixa = [min, max) (min inclusivo, max exclusivo); null = aberto.
+ * Célula vazia/não-numérica → bucket próprio "(sem valor)" (NUNCA some numa faixa).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type Faixa = { rotulo: string; min?: number | null; max?: number | null };
+export type ClassificacaoResultado = {
+  id: string;
+  coluna: string;            // nome da coluna de rótulo criada
+  total: number;
+  distribuicao: { rotulo: string; linhas: number }[];
+  sem_valor: number;         // células vazias/não-numéricas (bucket à parte)
+  colunas: string[];
+  amostra: string[][];
+  colunaNaoEncontrada?: string;
+};
+
+const ROTULO_SEM_VALOR = "(sem valor)";
+const ROTULO_FORA = "(fora das faixas)";
+
+export function classificarColuna(
+  reg: DatasetRegistry,
+  datasetId: string,
+  coluna: string,
+  faixas: Faixa[],
+  nomeColuna?: string,
+  amostraMax = 30,
+): ClassificacaoResultado | null {
+  const ds = reg.list.find((d) => d.id === datasetId);
+  if (!ds) return null;
+  const nomes = ds.colunas;
+  const idx = resolverColuna(ds, coluna);
+  const base: ClassificacaoResultado = { id: "", coluna: "", total: ds.rows.length, distribuicao: [], sem_valor: 0, colunas: nomes, amostra: [] };
+  if (idx == null) return { ...base, colunaNaoEncontrada: coluna };
+
+  const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
+  const cont = new Map<string, number>();
+  let semValor = 0;
+  const novasLinhas: string[][] = ds.rows.map(asRow).map((row) => {
+    const v = parseNumBR(row[idx] ?? "");
+    let rot: string;
+    if (v == null) { rot = ROTULO_SEM_VALOR; semValor++; }
+    else {
+      const f = faixas.find((fx) => (fx.min == null || v >= fx.min) && (fx.max == null || v < fx.max));
+      rot = f ? f.rotulo : ROTULO_FORA;
+    }
+    cont.set(rot, (cont.get(rot) ?? 0) + 1);
+    return [...row, rot];
+  });
+
+  let nome = (nomeColuna && nomeColuna.trim() ? nomeColuna : `Faixa (${nomes[idx]})`).slice(0, 80);
+  if (nomes.some((c) => norm(c) === norm(nome))) nome = `${nome} (cl)`;
+  const { id } = registrarTabelaTela(reg, [...nomes, nome], novasLinhas);
+
+  // Distribuição na ORDEM das faixas + extras (fora/sem valor) ao fim — transparente.
+  const distribuicao: { rotulo: string; linhas: number }[] = [];
+  const vistos = new Set<string>();
+  for (const fx of faixas) { if (!vistos.has(fx.rotulo)) { vistos.add(fx.rotulo); distribuicao.push({ rotulo: fx.rotulo, linhas: cont.get(fx.rotulo) ?? 0 }); } }
+  for (const extra of [ROTULO_FORA, ROTULO_SEM_VALOR]) if (cont.get(extra)) distribuicao.push({ rotulo: extra, linhas: cont.get(extra)! });
+
+  const amostra = novasLinhas.slice(0, amostraMax);
+  return { id, coluna: nome, total: ds.rows.length, distribuicao, sem_valor: semValor, colunas: [...nomes, nome], amostra };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * PROJEÇÃO por registro a partir de uma SÉRIE de colunas mensais.
+ *  - 2 meses (decisão do usuário): calcula COMPOSTA e LINEAR lado a lado.
+ *  - 3+ meses: REGRESSÃO linear (mínimos quadrados) + R² por registro.
+ * Determinística, com PREMISSAS explícitas. Integridade: série INCOMPLETA (algum
+ * mês faltante) → linha NÃO projetada (N/A) e reportada — não se inventa ponto,
+ * pois um valor fabricado numa tendência é justamente o erro que custa caro.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type MetodoProjecao = "auto" | "ambos" | "composta" | "linear" | "regressao";
+export type ProjecaoResultado = {
+  id: string;
+  metodo: Exclude<MetodoProjecao, "auto">; // método EFETIVO aplicado
+  horizonte: number;
+  total: number;
+  projetadas: number;             // linhas com ao menos uma projeção numérica
+  serie_incompleta: number;       // linhas com mês faltante → não projetadas
+  base_invalida_composta: number; // base ≤ 0 → composta N/A na linha
+  premissas: string[];
+  colunas_projetadas: string[];
+  colunas: string[];
+  amostra: string[][];
+  colunaNaoEncontrada?: string;
+  erro?: string;
+};
+
+/** Regressão linear por mínimos quadrados sobre y[i] em x=i. Retorna coef. + R². */
+function regressaoLinear(ys: number[]): { m: number; b: number; r2: number } {
+  const n = ys.length;
+  const mx = (n - 1) / 2;
+  const my = ys.reduce((s, y) => s + y, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const dx = i - mx, dy = ys[i]! - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+  const m = sxx === 0 ? 0 : sxy / sxx;
+  const b = my - m * mx;
+  let ssres = 0;
+  for (let i = 0; i < n; i++) { const yhat = m * i + b; ssres += (ys[i]! - yhat) ** 2; }
+  const r2 = syy === 0 ? 1 : 1 - ssres / syy; // série constante → ajuste perfeito
+  return { m, b, r2 };
+}
+
+export function projetarSerie(
+  reg: DatasetRegistry,
+  datasetId: string,
+  colunasSerie: string[],
+  horizonte = 6,
+  metodo: MetodoProjecao = "auto",
+  amostraMax = 30,
+): ProjecaoResultado | null {
+  const ds = reg.list.find((d) => d.id === datasetId);
+  if (!ds) return null;
+  const nomes = ds.colunas;
+  const h = Math.min(Math.max(1, Math.floor(horizonte)), 24);
+  const base: ProjecaoResultado = {
+    id: "", metodo: "linear", horizonte: h, total: ds.rows.length, projetadas: 0,
+    serie_incompleta: 0, base_invalida_composta: 0, premissas: [], colunas_projetadas: [], colunas: nomes, amostra: [],
+  };
+  const serie = colunasSerie.map((c) => c);
+  if (serie.length < 2) return { ...base, erro: "A projeção precisa de ao menos 2 colunas de meses (a série histórica)." };
+  const idxs = serie.map((c) => resolverColuna(ds, c));
+  const faltaI = idxs.findIndex((i) => i == null);
+  if (faltaI >= 0) return { ...base, colunaNaoEncontrada: serie[faltaI] };
+  const idxSerie = idxs as number[];
+  const k = idxSerie.length;
+
+  // Método EFETIVO: auto = regressão (3+ meses) senão "ambos" (2 meses).
+  const efetivo: Exclude<MetodoProjecao, "auto"> = metodo === "auto" ? (k >= 3 ? "regressao" : "ambos") : metodo;
+  const fazComp = efetivo === "composta" || efetivo === "ambos";
+  const fazLin = efetivo === "linear" || efetivo === "ambos";
+  const fazReg = efetivo === "regressao";
+
+  // Cabeçalhos das colunas projetadas.
+  const colsComp = fazComp ? Array.from({ length: h }, (_, n) => `Proj +${n + 1} (comp.)`) : [];
+  const colsLin = fazLin ? Array.from({ length: h }, (_, n) => `Proj +${n + 1} (linear)`) : [];
+  const colsReg = fazReg ? Array.from({ length: h }, (_, n) => `Proj +${n + 1} (regr.)`) : [];
+  const colsProj = [...colsComp, ...colsLin, ...colsReg, ...(fazReg ? ["R²"] : [])];
+
+  const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
+  let projetadas = 0, incompleta = 0, baseInvalida = 0;
+  const novasLinhas: string[][] = ds.rows.map(asRow).map((row) => {
+    const ys = idxSerie.map((i) => parseNumBR(row[i] ?? ""));
+    if (ys.some((y) => y == null)) { incompleta++; return [...row, ...colsProj.map(() => "")]; }
+    const s = ys as number[];
+    const ult = s[k - 1]!, prim = s[0]!;
+    const vals: string[] = [];
+    let algum = false;
+
+    if (fazComp) {
+      // CAGR sobre a série; exige base > 0 (ratio). Base ≤ 0 → N/A na linha.
+      if (prim > 0 && ult > 0) {
+        const cagr = Math.pow(ult / prim, 1 / (k - 1)) - 1;
+        for (let n = 1; n <= h; n++) { const v = ult * Math.pow(1 + cagr, n); vals.push(Number.isFinite(v) ? numeroCanonico(v) : ""); if (Number.isFinite(v)) algum = true; }
+      } else { baseInvalida++; for (let n = 0; n < h; n++) vals.push(""); }
+    }
+    if (fazLin) {
+      const passo = (ult - prim) / (k - 1);
+      for (let n = 1; n <= h; n++) { const v = ult + passo * n; vals.push(Number.isFinite(v) ? numeroCanonico(v) : ""); if (Number.isFinite(v)) algum = true; }
+    }
+    if (fazReg) {
+      const { m, b, r2 } = regressaoLinear(s);
+      for (let n = 1; n <= h; n++) { const v = m * (k - 1 + n) + b; vals.push(Number.isFinite(v) ? numeroCanonico(v) : ""); if (Number.isFinite(v)) algum = true; }
+      vals.push(numeroCanonico(r2));
+    }
+    if (algum) projetadas++;
+    return [...row, ...vals];
+  });
+
+  const { id } = registrarTabelaTela(reg, [...nomes, ...colsProj], novasLinhas);
+
+  const premissas: string[] = [];
+  if (fazComp) premissas.push("Composta: aplica a variação média (CAGR) da série a cada mês — premissa de crescimento proporcional constante; não considera sazonalidade; base ≤ 0 vira N/A.");
+  if (fazLin) premissas.push("Linear: soma o passo médio absoluto da série a cada mês — premissa de variação constante em reais; pode ficar negativo.");
+  if (fazReg) premissas.push(`Regressão linear (mínimos quadrados) sobre ${k} meses; R² por registro indica a qualidade do ajuste (1 = perfeito). Premissa de tendência linear.`);
+  if (k === 2) premissas.push("ATENÇÃO: só 2 meses de histórico — projeção é extrapolação de 2 pontos, frágil por natureza. Trate como cenário, não como certeza.");
+
+  // Amostra: projeções arredondadas p/ exibição (dataset guarda precisão total).
+  const amostra = novasLinhas.slice(0, amostraMax).map((r) => {
+    const orig = r.slice(0, nomes.length);
+    const proj = r.slice(nomes.length).map((c) => (c === "" ? "N/A" : exibir2(parseNumBR(c) ?? NaN)));
+    return [...orig, ...proj];
+  });
+
+  return { id, metodo: efetivo, horizonte: h, total: ds.rows.length, projetadas, serie_incompleta: incompleta, base_invalida_composta: baseInvalida, premissas, colunas_projetadas: colsProj, colunas: [...nomes, ...colsProj], amostra };
 }

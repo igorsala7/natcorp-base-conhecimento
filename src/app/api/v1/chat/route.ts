@@ -1,14 +1,15 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, type ToolSet } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { chatModel, languageModel, hasAiKey, resolveAi } from "@/lib/ai/config";
 import {
   retrievePublicContext,
   buildContextBlock,
 } from "@/lib/ai/rag";
 import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
 import { composeSystemPrompt } from "@/lib/ai/system-prompt";
+import { personaDeRelatorio } from "@/lib/ai/report-profile";
 import {
   resolveWidgetKey,
   originAllowed,
@@ -25,7 +26,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
+import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
 import { matchBaseTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
@@ -54,6 +55,30 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 /** Preflight CORS. */
 export async function OPTIONS(req: NextRequest) {
   return new Response(null, { status: 204, headers: corsHeaders(req.headers.get("origin")) });
+}
+
+/** Traduz a falha da geração numa mensagem útil ao usuário. O caso mais comum e
+ *  confuso é o estouro do limite de tokens do modelo (pedido reuniu dados demais):
+ *  em vez de "tente de novo" (que nunca resolve), orienta a refinar o pedido. */
+function mensagemErroChat(err: unknown): string {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  const estourou =
+    msg.includes("token count exceeds") ||
+    msg.includes("maximum number of tokens") ||
+    msg.includes("exceeds the maximum") ||
+    msg.includes("context length") ||
+    msg.includes("input is too long") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("request too large");
+  if (estourou) {
+    return (
+      "O pedido reuniu dados demais de uma vez e passou do limite do modelo. " +
+      "Refine e tente de novo: peça para menos colaboradores/itens por vez, um período mais curto, " +
+      "ou uma informação de cada vez (ex.: primeiro as férias, depois o histórico de cargos)."
+    );
+  }
+  return "Falha ao gerar a resposta.";
 }
 
 /**
@@ -88,6 +113,13 @@ export async function POST(req: NextRequest) {
     reportData?: unknown;
     reportDataId?: unknown;
     screenTables?: unknown;
+    // Relatório (IR/IG) presente na tela mas SEM resultados (0 linhas). O widget sinaliza
+    // isto para o fluxo "relatório vazio → oferecer filtrar" (regra B). `{ nome }`.
+    emptyReport?: unknown;
+    // CONTEXTO do relatório: `{ programa, filtros[] }` — programa (título/nome da página)
+    // + filtros aplicados (campos da tela + chips do IR). Vira o subtítulo do arquivo
+    // gerado e a legenda do gráfico. NUNCA entra no prompt (é rótulo de saída).
+    contexto?: unknown;
     focusedField?: unknown;
     comparacao?: unknown;
     baseDados?: unknown;
@@ -153,6 +185,10 @@ export async function POST(req: NextRequest) {
   // Pergunta composta (mistura relatório com documentação/API/regra) — definida CEDO
   // para decidir otimizações; reusada mais abaixo (modo Relatório / gate de tools).
   const perguntaComposta = /document|\bregra|pol[íi]tica|\bmanual\b|compar(e|ar|a[çc][ãa]o) com|junto com|al[ée]m d(isso|o relat)|no sistema|na api|integra[çc]/i.test(question);
+  // Pedido de AÇÃO na tela (preencher/marcar/clicar) → precisa das tools de ação + do
+  // mapa de campos: NÃO é análise pura. Verbos de análise (analise, resuma, quais, conte,
+  // ranqueie…) e "filtrar/contar os dados" (que usam as tools de cálculo) NÃO casam aqui.
+  const ehPedidoDeAcao = /\b(preench\w*|marqu\w*|desmarqu\w*|clic\w*|cliqu\w*|acion\w*|apert\w*)/i.test(question);
   // "Base de Dados": fontes selecionadas (relatórios salvos + uploads da sessão) e o
   // MODO. exclusiva = só as fontes + a tela, SEM RAG/ontologia (mantém a tela). Só vale
   // como exclusiva quando há de fato fontes selecionadas.
@@ -177,15 +213,20 @@ export async function POST(req: NextRequest) {
   const modoRelatorioCedo =
     (payload.scope?.fonte === "relatorio" || temReportEntrada) && !perguntaComposta;
   const _tPrep0 = Date.now();
-  // Pula a reescrita de consulta (interpretarConsulta — uma ida ao modelo) quando ela
-  // não agrega: social; modo relatório (usa a pergunta original); e base EXCLUSIVA
-  // (RAG desligado logo abaixo → a consulta reescrita não alimentaria nada).
-  const consultaRag = social || modoRelatorioCedo || baseExclusiva
+  // Pula a reescrita de consulta (interpretarConsulta — uma ida ao modelo ~2s) quando ela
+  // não agrega: social; modo relatório; base EXCLUSIVA (RAG off); e TELA/relatório ATIVO
+  // (screenTables ou relatório vazio) numa pergunta não-composta — o turno é sobre a tela,
+  // não sobre a documentação. A ONTOLOGIA (formasExpandidas/glossário) roda à parte e NÃO
+  // é afetada; e o RAG, quando roda, ainda usa a pergunta ORIGINAL + expansão léxica.
+  const temTelaAtiva = key.config?.formAssist === true &&
+    ((Array.isArray(payload.screenTables) && payload.screenTables.length > 0) || !!payload.emptyReport);
+  const pularRewrite = social || modoRelatorioCedo || baseExclusiva || (temTelaAtiva && !perguntaComposta);
+  const consultaRag = pularRewrite
     ? question
     : await interpretarConsulta(key.space_ids, question, messages, pageContextHint(page));
   const _tRewrite = Date.now();
-  console.log(`[chat-timing] rewrite=${_tRewrite - _tPrep0}ms (${social ? "pulado:social" : modoRelatorioCedo ? "pulado:modoRelatorio" : baseExclusiva ? "pulado:baseExclusiva" : "ok"})`);
-  passo("query_rewrite", { pulado: social || modoRelatorioCedo || baseExclusiva, consulta: String(consultaRag).slice(0, 120) });
+  console.log(`[chat-timing] rewrite=${_tRewrite - _tPrep0}ms (${pularRewrite ? "pulado" : "ok"})`);
+  passo("query_rewrite", { pulado: pularRewrite, consulta: String(consultaRag).slice(0, 120) });
   // NB: o RAG (retrievePublicContext + webSources + `sources`) roda MAIS ABAIXO, logo
   // DEPOIS do roteador de fonte — assim, quando a mensagem é roteada DIRETO a uma tool,
   // reduzimos os trechos de documentação (peso morto). Nada entre aqui e lá usa `sources`.
@@ -257,8 +298,14 @@ export async function POST(req: NextRequest) {
   // Datasets do turno: as ferramentas registram as listas completas aqui e o
   // relatório referencia por id — o PDF sai com TODAS as linhas (#4).
   const datasets = newRegistry();
+  // Pula a análise-LLM de módulos de tools (~1s) quando as tools de integração serão
+  // cortadas de qualquer forma — mantendo a persona/capacidades: (a) sugestão de filtro
+  // de relatório vazio (continuation pós-coleta); (b) MODO RELATÓRIO cedo (relatório
+  // coletado OU fonte=relatório e não-composta) — é onde o PERFIL DE ANÁLISE por módulo
+  // assume a especialização, então a classificação de tools é peso morto.
+  const pularAnaliseIntegracoes = (continuation && !!payload.emptyReport) || modoRelatorioCedo;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
@@ -284,6 +331,12 @@ export async function POST(req: NextRequest) {
   // SÓ com o relatório (sem tools de API, salvo pergunta composta); "ia" → fluxo normal.
   const temRelatorioNaTela = formAssist && !modoTutorial && Array.isArray(payload.screenTables) && payload.screenTables.length > 0;
   const fonteEscolhida = payload.scope?.fonte === "relatorio" || payload.scope?.fonte === "ia" ? payload.scope.fonte : undefined;
+  // NOME + COLUNAS do relatório da tela (reusado pelo roteador composto e pelo perfil de
+  // análise). Vem do conjunto coletado (reportData) ou da 1ª tabela da tela.
+  const _rdRel = reportDataResolved && typeof reportDataResolved === "object" ? (reportDataResolved as { nome?: unknown; colunas?: unknown }) : null;
+  const _stRel = Array.isArray(payload.screenTables) && payload.screenTables[0] && typeof payload.screenTables[0] === "object" ? (payload.screenTables[0] as { nome?: unknown; colunas?: unknown }) : null;
+  const relNome = String((_rdRel?.nome ?? _stRel?.nome) ?? "Relatório").slice(0, 160);
+  const relCols = (Array.isArray(_rdRel?.colunas) ? _rdRel!.colunas : Array.isArray(_stRel?.colunas) ? _stRel!.colunas : []).map((c) => String(c)).filter(Boolean).slice(0, 60);
   // ROTEAMENTO DE FONTE (decidido ANTES de montar as tools): o usuário está em modo
   // relatório, mas se a mensagem casa com tool(s) E NÃO tem relação com o relatório
   // (título/colunas/labels), vai DIRETO para a tool — sem perguntar a fonte (a
@@ -299,44 +352,116 @@ export async function POST(req: NextRequest) {
   let fonteEfetiva: "relatorio" | "ia" | undefined = fonteEscolhida;
   let matchesCache: ToolMatch[] | null = null;
   let roteouDireto = false;
+  // A mensagem tem relação com a TELA (título/colunas/labels ↔ termos+ontologia)?
+  let relacionaTela = false;
+  // Roteou AUTOMATICAMENTE para o relatório da tela (a tela bate e nenhuma tool é
+  // fortemente similar) — assume o relatório SEM perguntar a fonte (regra do usuário).
+  let roteouRelatorioDireto = false;
+  // Uma tool só é "concorrente forte" da tela acima deste limiar; abaixo, a tela vence
+  // (o usuário está OLHANDO o relatório). Entre relação-com-tela E tool forte → ambíguo.
+  const LIMIAR_TOOL_FORTE = 0.85;
   // Roda quando o usuário NÃO escolheu explicitamente "IA" (fonte "relatorio" OU
   // nenhuma) e há relatório na tela: mesmo sem escolher a fonte, se a mensagem casa
   // com uma tool e NÃO tem relação com a tela, é uma pergunta de TOOL — não do
   // relatório (era o bug: relatório coletado forçava modo relatório e cortava as tools).
   if (fonteEscolhida !== "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && baseCode && temRelatorioNaTela) {
     matchesCache = await matchBaseTools(supabase, baseCode, consultaTool);
-    if (matchesCache.length > 0 && !mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto)) {
+    relacionaTela = mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto);
+    const topSim = matchesCache[0]?.sim ?? 0;
+    if (matchesCache.length > 0 && !relacionaTela) {
+      // Casa com tool e NÃO tem relação com a tela → pergunta de TOOL: vai direto à IA.
       fonteEfetiva = "ia";
       roteouDireto = true;
+    } else if (relacionaTela && topSim < LIMIAR_TOOL_FORTE) {
+      // A tela BATE com a mensagem e nenhuma tool é fortemente similar → o usuário quer
+      // o RELATÓRIO que está olhando: assume sem perguntar (regra A).
+      fonteEfetiva = "relatorio";
+      roteouRelatorioDireto = true;
     }
+    // relacionaTela && topSim >= LIMIAR_TOOL_FORTE → AMBÍGUO (bate nos dois com força):
+    // deixa fonteEfetiva indefinida → o GATE abaixo pergunta a fonte.
   }
+  // COMPOSTO por TOOL (detecção robusta de "precisa de tool"): há relatório na tela E uma
+  // tool casou com a mensagem trazendo um dado de OUTRO domínio (termo da tool NÃO aparece
+  // no título/colunas do relatório da tela). Ex.: relatório de PONTO + "…e as férias" →
+  // consultar_ferias (sim ≥ 0.70) e "ferias" não está no relatório. Sem isto, a análise
+  // entraria em modo relatório e CORTARIA as tools → a Férias nunca seria buscada. Viés
+  // SEGURO: na dúvida mantém as tools (só custa um prompt mais pesado; o contrário QUEBRA).
+  // Compara o domínio da tool com o do relatório SEMPRE via ONTOLOGIA: expande o vocabulário
+  // do relatório com os sinônimos do espaço (cache quente do roteador) — assim "Espelho"
+  // (relatório) e "Marcações" (tool), sinônimos, contam como o MESMO assunto e não viram
+  // falso composto. Só roda quando pode importar (há relatório + tool casada + não-composta).
+  const _precisaComposto = temRelatorioNaTela && !perguntaComposta && (matchesCache?.length ?? 0) > 0;
+  const _formasRel = _precisaComposto ? await formasExpandidas(supabase, key.space_ids, `${relNome} ${relCols.join(" ")}`) : [];
+  const _alvoRel = `${relNome} ${relCols.join(" ")} ${_formasRel.join(" ")}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const _toolDominioNovo = (m: ToolMatch) => {
+    const termos = (m.name + " " + m.key).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
+    return termos.length > 0 && !termos.some((t) => _alvoRel.includes(t));
+  };
+  const compostoPorTool = _precisaComposto && (matchesCache ?? []).some(_toolDominioNovo);
   if (podeRotear) {
     passo("ontologia", { formas: formasOnto.slice(0, 12) });
     passo("roteador_fonte", {
       fonte_escolhida: fonteEscolhida ?? "(nenhuma)",
       casou_tools: (matchesCache ?? []).map((m) => `${m.key} ${m.sim.toFixed(2)}`),
-      relaciona_tela: matchesCache ? mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto) : null,
+      relaciona_tela: matchesCache ? relacionaTela : null,
       fonte_efetiva: fonteEfetiva ?? "(nenhuma)",
       roteou_direto: roteouDireto,
+      roteou_relatorio: roteouRelatorioDireto,
+      composto_por_tool: compostoPorTool,
+    });
+  }
+  // ── Predicados de TELA (ANTES do RAG, para enxugar o preparo) ────────────────
+  // A ONTOLOGIA NÃO é tocada aqui: formasExpandidas já rodou (roteador) e glossarioCasado
+  // roda depois — ambos independem do RAG. Aqui só decidimos se o RAG de DOCUMENTAÇÃO é
+  // peso morto neste turno (coleta do relatório ou sugestão de filtro de relatório vazio).
+  const RX_DADOS_REL = /an[áa]lis|resum|relat[óo]ri|planilha|excel|\bcsv\b|\bpdf\b|\bword\b|power\s?point|\bppt\b|gr[áa]fic|export|\btotal|\bsoma|m[ée]dia|quant|maior|menor|compar|estat[íi]st|percentu|ranking|\btop\b|\bdados\b|registros|\bfolha\b|consolidad|listar|liste|filtr|agrup|antig|recent|prime[ir]|[úu]ltim|mais (nov|velh|antig|recent)|\bque (t[êe]m|possu|cont[êe]m|estejam?|est[ãa]o)\b/i;
+  const RX_PAGINA_ATUAL = /p[áa]gina atual|nesta p[áa]gina|\bna tela\b|vis[íi]ve|aparente|ess[ae]s? \d+ (linhas|registros)|estes registros|essa p[áa]gina|o que (est[áa]|aparece|tem) (na tela|aqui)|apenas (o que|os que)/i;
+  // ── B: RELATÓRIO VAZIO (IR/IG na tela/coletado com 0 linhas) → oferecer FILTRAR ──
+  // O sinal `emptyReport` vem do widget: (1) a coleta do relatório retornou 0 linhas
+  // (confiável, mesmo com OUTRAS tabelas na tela), ou (2) heurística de DOM.
+  const emptyReportObj = payload.emptyReport && typeof payload.emptyReport === "object" ? (payload.emptyReport as { nome?: unknown }) : null;
+  const temRelatorioVazio = emptyReportObj != null || payload.emptyReport === true;
+  const nomeRelVazio = emptyReportObj ? String(emptyReportObj.nome ?? "").slice(0, 120) : "";
+  // Campos de FILTRO = campos editáveis da tela (não botões). A barra de pesquisa GLOBAL
+  // do IR vem com type "busca"; `filtrosLabels` (só os dedicados) é o que a diretriz sugere.
+  const camposFiltro = screenFields.filter((f) => f.type !== "botao");
+  const camposDedicados = camposFiltro.filter((f) => f.type !== "busca");
+  const filtrosLabels = camposDedicados.map((f) => f.label).filter(Boolean);
+  const temBuscaGlobal = camposFiltro.some((f) => f.type === "busca");
+  const relatorioVazioParaFiltrar =
+    temRelatorioVazio && formAssist && !modoTutorial && camposFiltro.length > 0 &&
+    fonteEscolhida !== "ia" && !social && !baseExclusiva &&
+    (RX_DADOS_REL.test(question) || continuation);
+  // Turno de PURA operação de tela: (a) vai só COLETAR o relatório (harvest — ramo
+  // querRelatorio de deveColetar) ou (b) é sugestão de filtro de relatório vazio.
+  const querRelatorioLocal = fonteEscolhida === "relatorio" || roteouRelatorioDireto;
+  const vaiColetarRel = !continuation && !temReportEntrada && querRelatorioLocal && temRelatorioNaTela && !RX_PAGINA_ATUAL.test(question);
+  const operacaoDeTela = vaiColetarRel || relatorioVazioParaFiltrar;
+  if (formAssist && camposFiltro.length > 0) {
+    passo("relatorio_vazio", {
+      ativo: relatorioVazioParaFiltrar,
+      sinal_vazio: temRelatorioVazio,
+      continuation,
+      nome: nomeRelVazio || null,
+      campos_dedicados: filtrosLabels.slice(0, 15),
+      tem_busca_global: temBuscaGlobal,
+      campos: camposFiltro.slice(0, 25).map((f) => `${f.label}:${f.type}`),
     });
   }
   // ── RAG (DEPOIS do roteador de fonte) ───────────────────────────────────────
-  // Roteado DIRETO a uma tool (a resposta vem da API) → a documentação vira quase peso
-  // morto: reduzimos os trechos. NÃO zeramos (mantém contexto de fallback), e a pergunta
-  // COMPOSTA (doc/regra + tool) mantém o RAG cheio. modoRelatorioCedo já era reduzido.
+  // Roteado a uma tool → doc é quase peso morto (reduz p/ 2). OPERAÇÃO DE TELA (coleta ou
+  // sugestão de filtro) → RAG=0 (não usa documentação; a ontologia roda à parte). Composta
+  // (doc/regra + tool) mantém cheio. modoRelatorioCedo já era reduzido a 3.
   const ragParaTool = (roteouDireto || !!scopeIn?.tool) && !perguntaComposta;
-  // Pergunta puramente COMPUTACIONAL (agregação/estatística) sobre o relatório → o RAG de
-  // documentação é peso morto: a resposta sai dos dados + query-tools. Zera nesse caso
-  // (só em modoRelatório, não composta) — economiza os ~5k tokens do 1º passo e distração.
-  const perguntaComputacional = /\b(m[ée]dia|soma|somat|\btotal|quant|contagem|contar|percentu|agrup|m[áa]xim|m[íi]nim|\bmaior|\bmenor|ranking|desvio|mediana|distribui|cruz)/i.test(question);
-  const ragLimit = ragParaTool ? 2 : (modoRelatorioCedo && perguntaComputacional) ? 0 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
+  const ragLimit = operacaoDeTela ? 0 : ragParaTool ? 2 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
   const _tRagStart = Date.now();
   const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope);
   const _tRag = Date.now();
-  console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
-  passo("rag", { fontes: ragSources.length, limite: ragLimit, motivo: ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
+  console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
+  passo("rag", { fontes: ragSources.length, limite: ragLimit, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
-  const webSources = social ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const webSources = social || operacaoDeTela ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
   // Fecha o rastreio: adiciona o passo final, PERSISTE (página de log, best-effort)
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
@@ -362,11 +487,17 @@ export async function POST(req: NextRequest) {
     return sse({ type: "trace", passos: trace.passos, ms: trace.duracaoMs, desfecho });
   };
   // (perguntaComposta já definida no início — mistura relatório com doc/API/regra.)
-  const formTools = modoTutorial
+  const formToolsBase: ToolSet = modoTutorial
     ? buildTutorialTool(screenFields, uiActions)
     : formAssist && screenFields.length > 0
       ? buildFormTools(screenFields, uiActions)
       : {};
+  // RELATÓRIO VAZIO (regra B): a IA só SUGERE como filtrar. Mantém só `destacar_tela`
+  // (corta preencher/marcar/clicar/tutorial) — mas NÃO zera as tools: um prompt que fala
+  // de ferramentas com ZERO ferramentas fazia o gemini devolver resposta vazia.
+  const formTools: ToolSet = relatorioVazioParaFiltrar && formToolsBase.destacar_tela
+    ? { destacar_tela: formToolsBase.destacar_tela }
+    : formToolsBase;
   // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados
   // (para plotar valores reais) OU quando o usuário PEDE um PDF/relatório/gráfico
   // — aí o conteúdo pode vir da DOCUMENTAÇÃO (ex.: um passo a passo em PDF). No
@@ -384,7 +515,7 @@ export async function POST(req: NextRequest) {
   const chartChoices: ChartChoice[] = [];
   const reportSpecs: ReportSpec[] = [];
   const visualTools = temVisual
-    ? { ...buildChartTool(chartSpecs), ...buildChartAskTool(chartChoices), ...buildReportTool(reportSpecs, datasets) }
+    ? { ...buildChartTool(chartSpecs, datasets), ...buildChartAskTool(chartChoices, datasets), ...buildReportTool(reportSpecs, datasets) }
     : {};
   // Convite de agenda (.ics): liberado quando o pedido é de evento/reunião/lembrete.
   const querConvite = !modoTutorial && pedeConvite(question);
@@ -399,7 +530,15 @@ export async function POST(req: NextRequest) {
   // fonteEfetiva="ia" (o usuário escolheu conhecimento da IA OU roteamos direto para
   // uma tool) → NUNCA modo relatório, senão as tools de integração seriam cortadas
   // mesmo com dados coletados na tela (o bug do "não buscou a tool de férias").
-  const modoRelatorio = fonteEfetiva !== "ia" && (!!reportBloco || fonteEfetiva === "relatorio") && !perguntaComposta;
+  // `compostoPorTool` desliga o modo relatório (mantém as tools + prompt cheio), igual à
+  // perguntaComposta — assim a análise que TAMBÉM precisa de uma tool não perde a tool.
+  const modoRelatorio = fonteEfetiva !== "ia" && (!!reportBloco || fonteEfetiva === "relatorio") && !perguntaComposta && !compostoPorTool;
+  // ANÁLISE PURA: relatório na tela + pergunta de análise (não-composta, não é ação de
+  // tela, não é o fluxo de relatório vazio). Aqui o system prompt NÃO precisa do assistente
+  // de formulário (instruções + mapa de campos ~6k tok) nem das tools de preencher/marcar/
+  // clicar — a resposta sai do relatório + RAG + persona do perfil + tools de cálculo.
+  // Enxuga tokens e latência sem perder a análise. Ver [[report-analysis-agent-profiles]].
+  const modoAnalisePura = modoRelatorio && !relatorioVazioParaFiltrar && !ehPedidoDeAcao;
   // Tabelas da tela (estruturadas) → registradas como datasets (o modelo exporta/
   // grafica por `dados_de`, sem redigitar). Pós-coleta usamos SÓ o conjunto completo.
   // fonte="ia" → o usuário pediu conhecimento da IA: NÃO injeta a tabela da tela.
@@ -423,12 +562,21 @@ export async function POST(req: NextRequest) {
   const integTools = toolForcado ? { [toolForcado]: integ.tools[toolForcado]! } : integ.tools;
   // No modo RELATÓRIO cortamos as tools de API (integ.tools) — a resposta sai do
   // relatório. Mantemos gráfico/arquivo (visualTools) e consulta/filtro (queryTools).
-  const allTools = { ...(modoRelatorio ? {} : integTools), ...formTools, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
+  const cortaIntegracao = modoRelatorio || relatorioVazioParaFiltrar;
+  // Análise pura: corta as tools de AÇÃO (preencher/marcar/clicar/tutorial) — mantém só
+  // `destacar_tela` (realce, read-only). As de cálculo/visual/consulta seguem via queryTools/
+  // visualTools (então NÃO fica "prompt com tools e zero ferramentas", que quebrava o gemini).
+  const formToolsFinal: ToolSet = modoAnalisePura
+    ? (formTools.destacar_tela ? { destacar_tela: formTools.destacar_tela } : {})
+    : formTools;
+  const allTools: ToolSet = { ...(cortaIntegracao ? {} : integTools), ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
   const temTools = Object.keys(allTools).length > 0;
   passo("ferramentas", {
     tools: Object.keys(allTools),
     modo_relatorio: modoRelatorio,
-    integracao_cortada_por_modo_relatorio: modoRelatorio && Object.keys(integTools).length > 0,
+    analise_pura: modoAnalisePura,
+    relatorio_vazio_filtrar: relatorioVazioParaFiltrar,
+    integracao_cortada_por_modo_relatorio: cortaIntegracao && Object.keys(integTools).length > 0,
     tool_forcada: toolForcado ?? null,
     painel: track.p_portal ?? null,
     perfil: track.p_perfil ?? null,
@@ -478,22 +626,52 @@ export async function POST(req: NextRequest) {
   // FONTES da "Base de Dados" (relatórios salvos escolhidos) → bloco de contexto.
   const fontesBlock = formAssist && baseRelIds.length ? await montarFontesBlock(baseRelIds) : "";
   console.log(`[chat-timing] glossario=${Date.now() - _tGloss0}ms | preparo total=${Date.now() - _tPrep0}ms (rewrite+rag+glossario+etc.) — a partir daqui é a chamada ao modelo (streaming)`);
+  // RESSALVA do agente (mesma lógica do widget, `disclaimerTexto`) — guardada na
+  // conversa p/ aparecer como coluna no Histórico. É rótulo de saída (não vai ao prompt).
+  const _temFontesDisc = baseRelIds.length > 0 || baseAttIds.length > 0;
+  const _temTelaDisc = !!(payload.reportData || (Array.isArray(payload.screenTables) && payload.screenTables.length));
+  const _temCamposDisc = Array.isArray(payload.fields) && payload.fields.length > 0;
+  const _bdModoDisc = String((bd as { modo?: unknown }).modo ?? "");
+  let disclaimerServer: string | null = null;
+  if (_temFontesDisc) {
+    const b = "Resposta baseada nos arquivos e relatórios que você escolheu";
+    if (_bdModoDisc === "so_fontes") disclaimerServer = b + " (apenas essas fontes).";
+    else {
+      const trecho = _temTelaDisc ? " e no relatório desta tela" : _temCamposDisc ? " e nas informações desta tela" : "";
+      disclaimerServer = _bdModoDisc === "exclusiva" ? b + trecho + "." : b + trecho + " e no conhecimento da IA.";
+    }
+  } else if (payload.comparacao && typeof payload.comparacao === "object") {
+    disclaimerServer = "Resposta baseada no cruzamento entre esta tela e o relatório salvo, considerando os filtros aplicados.";
+  } else if (payload.reportData) {
+    disclaimerServer = "Resposta baseada nos dados do relatório desta tela, considerando os filtros aplicados.";
+  } else if (_temTelaDisc) {
+    disclaimerServer = "Resposta baseada no relatório visível nesta tela.";
+  }
   if (!convId) {
     const { data: conv } = await supabase
       .from("conversations")
       .insert({
         space_id: key.space_id,
         session_id: payload.sessionId ?? null,
+        // Escopo do widget (texto próprio) + ressalva + título — o `user_ref` uuid da
+        // tabela é p/ usuários autenticados do portal e fica NULL aqui. O título é a
+        // pergunta que iniciou a conversa (robusto p/ o Histórico, sem varrer mensagens).
+        widget_user_ref: userRef,
+        title: question.slice(0, 200) || null,
+        ...(disclaimerServer ? { disclaimer: disclaimerServer } : {}),
         ...track,
         ...(page ? { page } : {}),
       })
       .select("id")
       .single();
     convId = conv?.id;
-  } else if (convId && page && !mesmaPagina(prevPage, page)) {
-    // Conversa existente e a TELA mudou → atualiza a página guardada (o próximo
-    // turno compara contra esta); o modelo recebe a nota de mudança de tela abaixo.
-    await supabase.from("conversations").update({ page }).eq("id", convId);
+  } else if (convId) {
+    // Conversa existente: atualiza a página guardada quando a TELA muda (o próximo turno
+    // compara contra esta) e mantém a ressalva mais recente para o Histórico.
+    const mudouPagina = !!(page && !mesmaPagina(prevPage, page));
+    if (mudouPagina && disclaimerServer) await supabase.from("conversations").update({ page, disclaimer: disclaimerServer }).eq("id", convId);
+    else if (mudouPagina) await supabase.from("conversations").update({ page }).eq("id", convId);
+    else if (disclaimerServer) await supabase.from("conversations").update({ disclaimer: disclaimerServer }).eq("id", convId);
   }
   runMeta.conversationId = convId ?? null; // o log de execução usa este id
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
@@ -530,7 +708,11 @@ export async function POST(req: NextRequest) {
   // fonte → pergunta por botões [Relatório desta tela] / [Conhecimento da IA] antes
   // de responder. Pulada em conversa social, no loop (continuation), após a coleta E
   // quando o pedido é claramente para GERAR UM ARQUIVO (usa os dados da tela direto).
-  if (temRelatorioNaTela && !fonteEscolhida && !roteouDireto && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
+  // Só pergunta a fonte quando é REALMENTE ambíguo: a mensagem tem relação com a tela
+  // E também casa fortemente com uma tool (relacionaTela + tool ≥ LIMIAR_TOOL_FORTE, que
+  // deixou fonteEfetiva indefinida). Se roteou direto p/ relatório (roteouRelatorioDireto)
+  // ou p/ IA (roteouDireto), ou a mensagem NÃO tem relação com a tela, não pergunta.
+  if (temRelatorioNaTela && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(
@@ -546,6 +728,31 @@ export async function POST(req: NextRequest) {
           }),
         );
         controller.enqueue(finalizarTrace("clarify_fonte_inicial"));
+        controller.enqueue(sse({ type: "done", conversationId: convId }));
+        controller.close();
+      },
+    });
+    return sseResponse(stream, cors);
+  }
+
+  // B — RELATÓRIO VAZIO: só pergunta a ORIGEM num 1º turno em que o DOM detectou vazio
+  // E o roteador NÃO assumiu o relatório (caso genuinamente incerto). Quando o roteador
+  // assumiu, quando é continuation (pós-coleta) ou já há fonte, o passo de OFERECER
+  // filtrar + preencher + pesquisar vem por DIRETRIZ (mais abaixo), sem perguntar.
+  if (relatorioVazioParaFiltrar && !fonteEscolhida && !continuation && !roteouRelatorioDireto && !scopeIn?.direto && !scopeIn?.tool) {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          sse({
+            type: "clarify",
+            question: `O relatório${nomeRelVazio ? ` "${nomeRelVazio}"` : ""} está sem resultados na tela. Quer que eu busque os dados DESTE relatório (posso te ajudar a filtrar e pesquisar) ou que eu responda com o CONHECIMENTO da IA?`,
+            options: [
+              { id: "relatorio", label: "📄 Filtrar e buscar neste relatório", scope: { fonte: "relatorio", direto: true } },
+              { id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia" } },
+            ],
+          }),
+        );
+        controller.enqueue(finalizarTrace("clarify_relatorio_vazio"));
         controller.enqueue(sse({ type: "done", conversationId: convId }));
         controller.close();
       },
@@ -680,9 +887,10 @@ export async function POST(req: NextRequest) {
   // escolheu "relatório" OU (b) o pedido é sobre os DADOS (análise/resumo/export/
   // agregado/contagem/busca), FORÇA a coleta de TODAS as páginas antes de responder
   // — salvo se limitar explicitamente à página visível. Não depende do modelo.
-  const RX_DADOS_REL = /an[áa]lis|resum|relat[óo]ri|planilha|excel|\bcsv\b|\bpdf\b|\bword\b|power\s?point|\bppt\b|gr[áa]fic|export|\btotal|\bsoma|m[ée]dia|quant|maior|menor|compar|estat[íi]st|percentu|ranking|\btop\b|\bdados\b|registros|\bfolha\b|consolidad|listar|liste|filtr|agrup|antig|recent|prime[ir]|[úu]ltim|mais (nov|velh|antig|recent)|\bque (t[êe]m|possu|cont[êe]m|estejam?|est[ãa]o)\b/i;
-  const RX_PAGINA_ATUAL = /p[áa]gina atual|nesta p[áa]gina|\bna tela\b|vis[íi]ve|aparente|ess[ae]s? \d+ (linhas|registros)|estes registros|essa p[áa]gina|o que (est[áa]|aparece|tem) (na tela|aqui)|apenas (o que|os que)/i;
-  const querRelatorio = fonteEscolhida === "relatorio";
+  // (RX_DADOS_REL e RX_PAGINA_ATUAL agora são definidas mais acima — reusadas pelo cenário B.)
+  // "Quer o relatório" = escolheu explicitamente OU o roteador assumiu o relatório da
+  // tela (roteouRelatorioDireto) — nos dois casos coletamos o relatório inteiro.
+  const querRelatorio = fonteEscolhida === "relatorio" || roteouRelatorioDireto;
   // fonte="relatório" escolhida → coleta o relatório INTEIRO mesmo que a paginação
   // NÃO tenha sido detectada (o coletor tenta ORDS, que traz 100% independente de
   // paginação; e a varredura por página como fallback). Senão, heurística por texto.
@@ -787,7 +995,7 @@ export async function POST(req: NextRequest) {
     (!!payload.comparacao && typeof payload.comparacao === "object") ||
     baseRelIds.length > 0 ||
     /relat[óo]rios?\s+salvos?|meus\s+relat[óo]rios|(compar|cruz)\w*\s+(com\s+)?(o\s+)?(meu\s+)?salvo/i.test(question);
-  const blocoFormAssist = screenFields.length > 0
+  const blocoFormAssist = screenFields.length > 0 && !modoAnalisePura
     ? formAssistDirective({
         modoTutorial,
         temPaginado,
@@ -801,18 +1009,25 @@ export async function POST(req: NextRequest) {
       })
     : "";
   const blocoEntregar = temDadosTabulares && screenFields.length === 0 ? entregarResultadoDirective() : "";
+  // B — RELATÓRIO VAZIO: guia a IA a AGIR (preencher + pesquisar), não a instruir o
+  // usuário. Vale em continuation (pós-coleta vazia) e mesmo com outras tabelas na tela.
+  const blocoRelatorioVazio = relatorioVazioParaFiltrar
+    ? filtrarRelatorioVazioDirective(filtrosLabels, nomeRelVazio, camposDedicados.some((f) => f.oculto))
+    : "";
   const blocoIntegUsage = temIntegTools && !modoRelatorio ? integUsageDirective(toolForcado) : "";
   const blocoEscopo = temIntegTools ? escopoAcessoDirective(track.p_portal, track.p_perfil) : "";
   const blocoVisuals = temVisual ? visualsDirective() : "";
   const blocoInvite = querConvite ? inviteDirective() : "";
   const blocoRag = buildContextBlock(sources);
-  const blocoFields = baseSoFontes ? "" : fieldsContextBlock(screenFields);
+  // Mapa dos campos da tela: fora na análise pura (a IA analisa o relatório, não opera a tela).
+  const blocoFields = baseSoFontes || modoAnalisePura ? "" : fieldsContextBlock(screenFields);
   const blocoGloss = glossario
     ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
     : "";
   const usoFerramentasStr = [
     integ.capabilities,
     blocoFormAssist,
+    blocoRelatorioVazio,
     blocoEntregar,
     blocoIntegUsage,
     blocoEscopo,
@@ -840,17 +1055,39 @@ export async function POST(req: NextRequest) {
     baseSoFontes ? "" : reportBloco,
     continuation ? (reportBloco ? harvestDoneNote() : continuationNote(executedActions)) : "",
     blocoFields,
-    formAssist && !baseSoFontes ? focusedFieldNote(payload.focusedField) : "",
+    formAssist && !baseSoFontes && !modoAnalisePura ? focusedFieldNote(payload.focusedField) : "",
     formAssist ? comparacaoBlock(payload.comparacao) : "",
     blocoGloss,
   ]
     .filter(Boolean)
     .join("\n\n");
+  // PERFIL DE ANÁLISE por MÓDULO (só em modoRelatorio): a ESPECIALIZAÇÃO vem do perfil
+  // casado com o MÓDULO do relatório da tela (título+colunas → classificador cacheado),
+  // não da análise por pergunta/tools. Se nenhum perfil casar, mantém integ.agentPrompt.
+  let personaReport: Awaited<ReturnType<typeof personaDeRelatorio>> = null;
+  if (modoRelatorio && temRelatorioNaTela && baseCode) {
+    personaReport = await personaDeRelatorio(supabase, baseCode, relNome, relCols, track.p_perfil ? String(track.p_perfil) : undefined).catch(() => null);
+    passo("report_profile", { ativo: !!personaReport, titulo: personaReport?.titulo ?? null, modulos: personaReport?.modulos ?? [], cache: personaReport?.cacheHit ?? null });
+  }
+  const especializacaoFinal = personaReport?.persona || integ.agentPrompt;
+  // ANÁLISE PURA: sem as tools de operação, o valor está na QUALIDADE do texto. Guia de
+  // linguagem/formatação (espelha a "FORMATAÇÃO DO TEXTO" dos relatórios) para a resposta
+  // sair clara, estruturada e profissional — não um parágrafo cru.
+  const linguagemAnalise = modoAnalisePura
+    ? "FORMATO E LINGUAGEM DA ANÁLISE (só nas análises de relatório): entregue uma análise CLARA, ESTRUTURADA e " +
+      "PROFISSIONAL em markdown. Comece por um RESUMO direto (1–2 frases com a conclusão principal). Separe em SEÇÕES " +
+      "com títulos curtos (`##`/`###`) conforme o pedido (ex.: “Destaques”, “Pontos de atenção”, “Sugestões”, " +
+      "“Próximos passos”). Use **negrito** nos NÚMEROS e NOMES que importam, listas com `-` ou `1.` para itens/passos, e " +
+      "TABELAS markdown quando comparar valores (colunas alinhadas). Cite sempre os números REAIS do relatório e seja " +
+      "objetivo — sem enrolação nem repetir a tabela inteira; destaque o que interessa. Adapte a profundidade ao que o " +
+      "usuário pediu (um resumo rápido não precisa de todas as seções)."
+    : null;
   const systemPrompt = composeSystemPrompt(
     {
       persona,
-      especializacao: integ.agentPrompt,
+      especializacao: especializacaoFinal,
       usoFerramentas: usoFerramentasStr,
+      linguagem: linguagemAnalise,
       regras: resolveRegras(aP.regras_absolutas),
       comTools: temTools,
     },
@@ -869,7 +1106,7 @@ export async function POST(req: NextRequest) {
     historyTok: Math.round(_histChars / 4),
     blocos: {
       persona: _tok(persona),
-      especializacao: _tok(integ.agentPrompt ?? ""),
+      especializacao: _tok(especializacaoFinal ?? ""),
       capabilities: _tok(integ.capabilities ?? ""),
       formAssist: _tok(blocoFormAssist),
       entregar: _tok(blocoEntregar),
@@ -888,14 +1125,25 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // Guarda a falha real da geração p/ traduzi-la numa mensagem útil no catch abaixo
+  // (o textStream às vezes só encerra o loop sem re-lançar o erro do provedor).
+  let erroGeracao: unknown = null;
   const result = streamText({
+    // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
+    // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).
+    abortSignal: req.signal,
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
     // pista do motivo. O cliente também trata resposta vazia como erro.
     onError: ({ error }) => {
+      erroGeracao = error;
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: await chatModel({ kind: "user", ...track }, track.p_base ?? ""),
+    // Modelo: na ANÁLISE PURA usa a finalidade "report_analysis" (provedor/modelo próprio
+    // configurável em Sistema→IA; sem atribuição, cai no Chat). Nos demais turnos, o Chat.
+    model: await (modoAnalisePura
+      ? languageModel("report_analysis", { kind: "user", ...track }, track.p_base ?? "")
+      : chatModel({ kind: "user", ...track }, track.p_base ?? "")),
     // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o
     // padrão conservador do provedor cortar a resposta pela metade.
     maxOutputTokens: completo || temTools ? 8192 : 4096,
@@ -921,9 +1169,19 @@ export async function POST(req: NextRequest) {
           full += delta;
           controller.enqueue(sse({ type: "token", value: delta }));
         }
-      } catch {
-        controller.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
+      } catch (err) {
+        // Aborto do usuário (botão Parar) não é erro — o widget já cuida da UI.
+        // Só sinaliza falha quando nada foi gerado (senão clobbaria a resposta parcial).
+        if (!req.signal.aborted && !full.trim()) {
+          controller.enqueue(sse({ type: "error", message: mensagemErroChat(erroGeracao ?? err) }));
+        }
       }
+      // CONTEXTO (programa + filtros) capturado pelo widget → subtítulo dos arquivos e
+      // legenda dos gráficos. É só rótulo de SAÍDA (nunca entrou no prompt).
+      const ctxRel = payload.contexto && typeof payload.contexto === "object" ? (payload.contexto as { programa?: unknown; filtros?: unknown }) : null;
+      const programaRel = ctxRel ? String(ctxRel.programa ?? "").trim().slice(0, 160) : "";
+      const filtrosRel = ctxRel && Array.isArray(ctxRel.filtros) ? ctxRel.filtros.map((x) => String(x).trim()).filter(Boolean).slice(0, 24) : [];
+      const contextoLinha = [programaRel, filtrosRel.length ? "Filtros: " + filtrosRel.join("; ") : ""].filter(Boolean).join(" · ");
       // Relatórios/arquivos: gera no FORMATO pedido (pdf/xlsx/csv/docx/pptx) a
       // partir da spec da IA e adiciona aos arquivos entregues abaixo.
       if (reportSpecs.length) {
@@ -935,7 +1193,9 @@ export async function POST(req: NextRequest) {
         for (const spec of reportSpecs) {
           try {
             const _tFile0 = Date.now();
-            outFiles.push(await renderReport(spec, brand));
+            // Injeta o programa + filtros no subtítulo (sutil mas visível no cabeçalho).
+            const specCtx = contextoLinha ? { ...spec, subtitulo: [spec.subtitulo, contextoLinha].filter(Boolean).join(" — ") } : spec;
+            outFiles.push(await renderReport(specCtx, brand));
             console.log(`[chat-timing] build arquivo=${Date.now() - _tFile0}ms`);
           } catch (e) {
             console.error("[chat] falha ao gerar o arquivo do relatório:", e);
@@ -957,9 +1217,11 @@ export async function POST(req: NextRequest) {
         );
       }
       // Gráficos montados pela IA → o widget renderiza um card interativo
-      // (troca de tipo + exportar CSV/PNG).
+      // (troca de tipo + exportar CSV/PNG). Anexa o contexto (programa + filtros) ao
+      // spec para virar legenda no card/modal/tabela e ficar salvo junto do gráfico.
       for (const c of chartSpecs) {
-        controller.enqueue(sse({ type: "chart", chart: c }));
+        const chartCtx = programaRel || filtrosRel.length ? { ...c, contexto: { programa: programaRel, filtros: filtrosRel } } : c;
+        controller.enqueue(sse({ type: "chart", chart: chartCtx }));
       }
       // Escolha de tipo de gráfico → o widget mostra os tipos como BOTÕES.
       for (const ch of chartChoices) {
@@ -989,6 +1251,9 @@ export async function POST(req: NextRequest) {
       // fica na mensagem; a URL assinada é emitida ao ler o histórico).
       const media: Array<Record<string, unknown>> = [];
       for (const c of chartSpecs) media.push({ kind: "chart", spec: c });
+      // Gráficos oferecidos como BOTÕES (perguntar_tipo_grafico) NÃO entram aqui: o usuário
+      // escolhe o tipo no cliente e o gráfico é persistido no CLIQUE (conversations "append"),
+      // já com a pergunta + a opção escolhida NA ORDEM certa. Ver renderChartChoice no widget.
       for (const f of outFiles) {
         try {
           const nome = (f.filename || "arquivo").replace(/[^\w.\-]+/g, "_").slice(0, 120);
@@ -1016,6 +1281,36 @@ export async function POST(req: NextRequest) {
         _num((usage as unknown as { cachedInputTokens?: unknown } | null)?.cachedInputTokens) ??
         _num(anthropicMeta?.cacheReadInputTokens);
       const cacheCreation = _num(anthropicMeta?.cacheCreationInputTokens);
+      // DIAGNÓSTICO no console: tipo de agente, perfil, provedor/modelo e TOKENS do turno
+      // (envio × resposta) — inclusive quanto pesou o ENVIO das tabelas/regiões da tela.
+      try {
+        const _purpose = modoAnalisePura ? "report_analysis" : "chat";
+        const _aiCfg = await resolveAi(_purpose, track.p_base ?? "").catch(() => null);
+        // QUEM está respondendo (persona): perfil de análise > agente de integração > chat.
+        const _agente = personaReport
+          ? `perfil de análise "${personaReport.titulo}"`
+          : integ.agentName ? `agente "${integ.agentName}"` : "chat padrão";
+        // Ferramentas de INTEGRAÇÃO que o modelo REALMENTE recebeu (cortadas em modo relatório).
+        const _integAtivas = cortaIntegracao ? [] : Object.keys(integTools);
+        const _veTools = _integAtivas.length > 0;
+        const _ctxAnalise = modoAnalisePura || modoRelatorio || compostoPorTool || !!reportBloco;
+        // CAPACIDADE = a pergunta do usuário: vê tools, só análise, ou ambos?
+        const _capacidade = _veTools && _ctxAnalise
+          ? "AMBOS (analisa o relatório E usa ferramentas)"
+          : _veTools ? "FERRAMENTAS (integração/consulta a sistemas)"
+            : _ctxAnalise ? "SÓ ANÁLISE do relatório (ferramentas de integração cortadas)"
+              : "CHAT/documentação";
+        const _tokTab = _tok(tablesBloco), _tokRep = _tok(reportBloco), _tokScan = _tok(baseSoFontes ? "" : scanBlock);
+        console.log(
+          `[chat-agente] agente=${_agente} | CAPACIDADE=${_capacidade} | ` +
+            `ve_tools_integracao=${_veTools ? "SIM" : "não"}${_veTools ? " [" + _integAtivas.join(", ") + "]" : (temIntegTools && cortaIntegracao ? " (havia tools, cortadas pelo modo relatório)" : "")} | ` +
+            `analise_pura=${modoAnalisePura} modo_relatorio=${modoRelatorio} composto=${compostoPorTool} | p_perfil=${track.p_perfil ?? "-"} | ` +
+            `finalidade=${_purpose} provedor=${_aiCfg?.kind ?? "-"} modelo=${_aiCfg?.model ?? "-"} | ` +
+            `tokens_envio=${usage?.inputTokens ?? "?"} tokens_resposta=${usage?.outputTokens ?? "?"} (total=${usage?.totalTokens ?? "?"}, cache_read=${cacheRead ?? 0}) | ` +
+            `tokens_tabelas_regioes≈${_tokRep + _tokTab + _tokScan} (relatorio=${_tokRep} tabelas=${_tokTab} tela=${_tokScan}) | ` +
+            `ferramentas_do_modelo=[${Object.keys(allTools).join(", ")}]`,
+        );
+      } catch (e) { console.error("[chat-agente] log falhou:", e); }
       await supabase.from("messages").insert({
         conversation_id: convId!,
         role: "assistant",

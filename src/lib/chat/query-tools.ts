@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, OPERADORES, type Agregacao, type DatasetRegistry, type Filtro, type Operador } from "./datasets";
+import { consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, OPERADORES, OPERACOES_LINHA, type Agregacao, type DatasetRegistry, type Filtro, type Operador, type OperacaoLinha, type Faixa, type MetodoProjecao } from "./datasets";
 
 /** Operações de agregação por coluna (mesmas do motor). */
 const OPS_AGREGACAO = ["soma", "media", "mediana", "min", "max", "amplitude", "variancia", "desvio_padrao", "moda", "contar", "distintos"] as const;
@@ -77,9 +77,10 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
               ? "Nenhum registro bate — reveja o critério com o usuário; não invente linhas."
               : `Filtro sobre 100% dos registros: RESPONDA no chat a pergunta do usuário com este total (${r.total}) e o ` +
                 `recorte/análise que ele pediu — a tarefa é sua. Para SOMAR/MÉDIA/MAIOR/MENOR de uma coluna deste recorte, ` +
-                `chame agregar_valores com dados_de="${r.id}". Só se ele quiser a LISTA completa das ${r.total} linhas ` +
-                `em arquivo, chame gerar_relatorio com tabela.dados_de="${r.id}" (EXTRA opcional). NUNCA mande o usuário ` +
-                "baixar/abrir o arquivo para obter a resposta que ele te pediu."),
+                `chame agregar_valores com dados_de="${r.id}". Se ele quiser um GRÁFICO ou um ARQUIVO DESTE recorte, use ` +
+                `este id "${r.id}" (montar_grafico/gerar_relatorio com dados_de="${r.id}") — NUNCA o da tabela da tela ` +
+                `inteira, senão viria com todos os registros. NUNCA mande o usuário baixar/abrir o arquivo para obter a ` +
+                "resposta que ele te pediu."),
         };
       },
     }),
@@ -169,7 +170,7 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
         operacao: z.enum(["soma", "media", "mediana", "min", "max", "amplitude", "desvio_padrao", "contar"]),
         filtros: filtrosSchema,
         combinacao: z.enum(["E", "OU"]).optional(),
-        limite: z.number().int().min(1).max(500).optional().describe("Máx. de grupos a devolver (padrão 100)."),
+        limite: z.number().int().min(1).max(2000).optional().describe("Máx. de grupos a devolver (padrão 100; use mais quando precisar de TODOS os grupos, ex.: alimentar um gráfico/arquivo)."),
       }),
       execute: async ({ dados_de, coluna_grupo, coluna_grupo2, coluna_valor, operacao, filtros, combinacao, limite }) => {
         const r = agruparDataset(datasets, dados_de, coluna_grupo, coluna_valor ?? coluna_grupo, operacao as Agregacao, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E", limite ?? 100, coluna_grupo2);
@@ -215,6 +216,119 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           operacao, formula, valor,
           valor_formatado: valor.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + (pct ? "%" : ""),
           nota: "Resultado EXATO. Informe ao usuário.",
+        };
+      },
+    }),
+    derivar_coluna: tool({
+      description:
+        "Cria uma COLUNA CALCULADA por LINHA sobre 100% dos registros de uma tabela já coletada — a conta que as demais " +
+        "ferramentas NÃO fazem (elas reduzem uma coluna a UM número ou filtram por constante). Use SEMPRE que o usuário " +
+        "pedir para comparar/operar DUAS colunas linha a linha: diferença entre 'Valor Mês 2' e 'Valor Mês 1', variação % " +
+        "mês a mês, % de uma coluna sobre outra, peso de cada linha no total. `operacao`: subtracao (a−b), soma, " +
+        "multiplicacao, divisao, variacao_percentual ((a−b)÷b×100), percentual (a÷b×100), percentual_do_total (a÷Σa×100). " +
+        "`coluna_b` = outra coluna OU um número fixo (não usar em percentual_do_total). O servidor calcula cada linha " +
+        "(célula vazia/não-numérica = 0, reportado; base zero = N/A, reportado) e devolve `dados_de` com a coluna nova. " +
+        "DEPOIS chame estatisticas/consultar_registros/agrupar/montar_grafico/gerar_relatorio NESSE id para " +
+        "perfilar/rankear/filtrar (ex.: quedas > 20%)/gráfico/exportar sobre os 100%. É PROIBIDO calcular linha a linha de " +
+        "cabeça pela amostra — o número exato sai daqui.",
+      inputSchema: z.object({
+        dados_de: z.string().describe("Id da tabela coletada (ex.: 'tela1')."),
+        coluna_a: z.string().describe("1ª coluna (ex.: 'Valor Mês 2'), como no cabeçalho ou 'cN'."),
+        operacao: z.enum(OPERACOES_LINHA as [OperacaoLinha, ...OperacaoLinha[]]),
+        coluna_b: z.string().optional().describe("2ª coluna (ex.: 'Valor Mês 1') OU um número fixo. Dispensada em percentual_do_total."),
+        nome_coluna: z.string().optional().describe("Nome da coluna criada (opcional; há um padrão claro)."),
+      }),
+      execute: async ({ dados_de, coluna_a, operacao, coluna_b, nome_coluna }) => {
+        const r = derivarColuna(datasets, dados_de, coluna_a, operacao as OperacaoLinha, coluna_b, nome_coluna);
+        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (r.colunaNaoEncontrada)
+          return { erro: `"${r.colunaNaoEncontrada}" não é uma coluna nem um número. Colunas: ${r.colunas.join(", ")}.` };
+        return {
+          dados_de: r.id,
+          coluna_criada: r.coluna,
+          total: r.total,
+          calculadas: r.calculadas,
+          vazias_tratadas_como_zero: r.vazias_como_zero,
+          na_base_zero: r.base_zero_na,
+          colunas: r.colunas,
+          amostra: r.amostra,
+          nota:
+            `Coluna "${r.coluna}" calculada LINHA A LINHA sobre 100% dos ${r.total} registros, guardada em ` +
+            `dados_de="${r.id}" (precisão total; a amostra exibe 2 casas). ` +
+            (r.vazias_como_zero ? `${r.vazias_como_zero} linha(s) tinham célula vazia/não-numérica tratada como 0. ` : "") +
+            (r.base_zero_na ? `${r.base_zero_na} linha(s) ficaram N/A (base zero) — NÃO entram nas contas seguintes. ` : "") +
+            `Para perfil/quedas/rankings/quantos/gráfico/arquivo desta coluna, chame estatisticas/consultar_registros/` +
+            `agrupar/montar_grafico/gerar_relatorio com dados_de="${r.id}". NUNCA conte ou calcule pela amostra.`,
+        };
+      },
+    }),
+    classificar_faixa: tool({
+      description:
+        "RÓTULA cada registro por FAIXAS numéricas sobre 100% — use quando o usuário pedir 'aponte os de risco', 'quais " +
+        "tiveram queda forte', 'separe por faixa de valor/variação'. Passe `faixas` EM ORDEM, cada uma { rotulo, min?, max? } " +
+        "no intervalo [min, max) (min INCLUSIVO, max EXCLUSIVO; omita p/ limite aberto); a 1ª que casar vence. Ex. p/ variação " +
+        "%: [{rotulo:'queda forte', max:-20}, {rotulo:'queda leve', min:-20, max:0}, {rotulo:'alta', min:0}]. Célula vazia/não-" +
+        "numérica vira '(sem valor)' (bucket à parte, nunca cai numa faixa). Devolve a DISTRIBUIÇÃO exata + um novo dados_de " +
+        "com a coluna de rótulo; depois use consultar_registros/gerar_relatorio nesse id p/ listar/exportar uma faixa.",
+      inputSchema: z.object({
+        dados_de: z.string().describe("Id da tabela (ex.: 'tela1' ou o resultado de derivar_coluna)."),
+        coluna: z.string().describe("Coluna numérica a classificar (ex.: 'Variação %')."),
+        faixas: z
+          .array(
+            z.object({
+              rotulo: z.string().describe("Nome da faixa (ex.: 'queda forte')."),
+              min: z.number().nullable().optional().describe("Mínimo INCLUSIVO (omita/null = sem limite inferior)."),
+              max: z.number().nullable().optional().describe("Máximo EXCLUSIVO (omita/null = sem limite superior)."),
+            }),
+          )
+          .min(1)
+          .describe("Faixas em ordem; a 1ª que casar vence."),
+        nome_coluna: z.string().optional(),
+      }),
+      execute: async ({ dados_de, coluna, faixas, nome_coluna }) => {
+        const r = classificarColuna(datasets, dados_de, coluna, (faixas ?? []).map((f) => ({ rotulo: f.rotulo, min: f.min ?? null, max: f.max ?? null })) as Faixa[], nome_coluna);
+        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe. Colunas: ${r.colunas.join(", ")}.` };
+        return {
+          dados_de: r.id, coluna_criada: r.coluna, total: r.total,
+          distribuicao: r.distribuicao, sem_valor: r.sem_valor, colunas: r.colunas, amostra: r.amostra,
+          nota:
+            `Cada um dos ${r.total} registros recebeu um rótulo (100%). Distribuição EXATA acima. ` +
+            (r.sem_valor ? `${r.sem_valor} sem valor numérico (bucket à parte, não entram numa faixa). ` : "") +
+            `Para LISTAR/EXPORTAR os registros de uma faixa, chame consultar_registros/gerar_relatorio com dados_de="${r.id}" ` +
+            `filtrando a coluna "${r.coluna}". Não conte pela amostra.`,
+        };
+      },
+    }),
+    projetar: tool({
+      description:
+        "PROJETA valores futuros POR REGISTRO a partir de uma SÉRIE de colunas mensais (ex.: ['Valor Mês 1','Valor Mês 2']). " +
+        "Com 2 meses: calcula COMPOSTA (variação % a cada mês) e LINEAR (diferença fixa) LADO A LADO; com 3+ meses: REGRESSÃO " +
+        "linear com R² por registro. `horizonte` = meses à frente (padrão 6). Determinístico e com PREMISSAS explícitas — " +
+        "APRESENTE-AS ao usuário e trate como cenário, não certeza. Série incompleta (mês faltando) NÃO é projetada (reportado): " +
+        "não se inventa ponto. Devolve um novo dados_de com as colunas projetadas; depois use classificar_faixa/" +
+        "consultar_registros/gerar_relatorio nesse id. NUNCA projete de cabeça.",
+      inputSchema: z.object({
+        dados_de: z.string().describe("Id da tabela (ex.: 'tela1')."),
+        colunas_serie: z.array(z.string()).min(2).describe("Colunas dos meses EM ORDEM cronológica (ex.: ['Mês 1','Mês 2'])."),
+        horizonte: z.number().int().min(1).max(24).optional().describe("Meses à frente (padrão 6)."),
+        metodo: z.enum(["auto", "ambos", "composta", "linear", "regressao"]).optional().describe("Padrão auto: regressão se 3+ meses, senão composta+linear."),
+      }),
+      execute: async ({ dados_de, colunas_serie, horizonte, metodo }) => {
+        const r = projetarSerie(datasets, dados_de, colunas_serie, horizonte ?? 6, (metodo ?? "auto") as MetodoProjecao);
+        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (r.erro) return { erro: r.erro };
+        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe. Colunas: ${r.colunas.join(", ")}.` };
+        return {
+          dados_de: r.id, metodo: r.metodo, horizonte: r.horizonte, total: r.total,
+          projetadas: r.projetadas, serie_incompleta: r.serie_incompleta, base_invalida_composta: r.base_invalida_composta,
+          premissas: r.premissas, colunas_projetadas: r.colunas_projetadas, colunas: r.colunas, amostra: r.amostra,
+          nota:
+            `Projeção "${r.metodo}" de ${r.horizonte} meses sobre ${r.projetadas} de ${r.total} registros, em dados_de="${r.id}". ` +
+            (r.serie_incompleta ? `${r.serie_incompleta} registro(s) NÃO projetados (série incompleta) — reporte isso. ` : "") +
+            (r.base_invalida_composta ? `${r.base_invalida_composta} com base ≤ 0 na composta (N/A). ` : "") +
+            `SEMPRE mostre as PREMISSAS ao usuário e trate como CENÁRIO. Para rankear/faixar/exportar, use classificar_faixa/` +
+            `consultar_registros/gerar_relatorio com dados_de="${r.id}".`,
         };
       },
     }),
