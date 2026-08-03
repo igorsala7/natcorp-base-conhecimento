@@ -11,6 +11,8 @@ import { listOntology, listSpaceLanguages } from "./actions";
 import { OntologyManager } from "./ontology-manager";
 import { OntologyLanguages } from "./ontology-languages";
 import { ApexXliffTranslator } from "./apex-xliff-translator";
+import { ApexIngest } from "./apex-ingest";
+import { listDataDictionaryColumns } from "./apex-actions";
 
 export const metadata: Metadata = { title: "Ontologia" };
 
@@ -39,12 +41,13 @@ export default async function OntologiaPage({
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
-  const [{ terms, jobs }, nodes, canManage, aiReady, langs] = await Promise.all([
+  const [{ terms, jobs }, nodes, canManage, aiReady, langs, dicCols] = await Promise.all([
     listOntology(atual.id),
     listSpaceNodes(atual.id),
     hasPermission("ai.configure", atual.id),
     hasAiKey("chat"),
     listSpaceLanguages(atual.id),
+    listDataDictionaryColumns(atual.id),
   ]);
 
   return (
@@ -83,6 +86,12 @@ export default async function OntologiaPage({
       <div className="mt-6">
         <OntologyLanguages key={`lang-${atual.id}`} spaceId={atual.id} initialLangs={langs} canManage={canManage} />
       </div>
+
+      {canManage && (
+        <div className="mt-6">
+          <ApexIngest key={`ingest-${atual.id}`} spaceId={atual.id} initialCols={dicCols} />
+        </div>
+      )}
 
       {canManage && (
         <div className="mt-6">

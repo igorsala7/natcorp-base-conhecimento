@@ -22,6 +22,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("ontology-scan");
       await boss.createQueue("ontology-import");
       await boss.createQueue("ontology-translate");
+      await boss.createQueue("apex-ingest");
       await boss.createQueue("bulk-process");
       await boss.createQueue("analyze");
       await boss.createQueue("analyze-semantic");
@@ -130,6 +131,12 @@ export async function enqueueOntologyImport(jobId: string): Promise<void> {
 export async function enqueueOntologyTranslate(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("ontology-translate", { jobId });
+}
+
+/** Ingestão de uma aplicação APEX → dicionário de dados + ontologia. */
+export async function enqueueApexIngest(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("apex-ingest", { jobId });
 }
 
 /** Processamento em lote (publicar → embedding → ontologia) da seleção. */
