@@ -86,6 +86,14 @@ export function OntologyLanguages({
     });
   }
 
+  function traduzirTudo() {
+    startPend(async () => {
+      const r = await traduzirOntologia(spaceId); // sem idioma → todos os habilitados
+      if (r.ok) { toast.success("Tradução de TODOS os idiomas habilitados enfileirada — progresso abaixo."); iniciarPoll(); }
+      else toast.error(r.error);
+    });
+  }
+
   const jobsAtivos = jobs.filter((j) => j.status === "queued" || j.status === "running");
 
   const idiomasSalvos = JSON.stringify([...ativos].sort()) !== JSON.stringify([...initialLangs].sort());
@@ -127,6 +135,10 @@ export function OntologyLanguages({
           <Button onClick={salvarIdiomas} disabled={pend || !idiomasSalvos}>
             {pend ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
             Salvar idiomas
+          </Button>
+          <Button variant="ghost" onClick={traduzirTudo} disabled={pend || ativos.length === 0} title="Enfileira a tradução de todos os idiomas habilitados">
+            {pend ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            Traduzir tudo
           </Button>
           <span className="text-xs text-text-muted">
             Ao salvar, os termos são traduzidos por IA em segundo plano (precisa do worker rodando).
