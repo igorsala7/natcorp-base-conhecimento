@@ -66,4 +66,13 @@ describe("resolveParams — origem 'pessoa' (matrícula-alvo por painel)", () =>
     expect(schema.safeParse({}).success).toBe(true); // opcional
     expect(schema.safeParse({ matricula: "999" }).success).toBe(true);
   });
+  it("BATCHING: matrícula-alvo que é param de loop-values vira LISTA no schema", () => {
+    const schema = buildModelSchema(params, { unit: "values", param: "matricula", max: 20 });
+    // aceita uma LISTA de matrículas (o servidor consulta cada uma e junta)…
+    expect(schema.safeParse({ matricula: ["345", "5577", "32409"] }).success).toBe(true);
+    // …e continua opcional (vazio = o próprio usuário, resolvido no servidor).
+    expect(schema.safeParse({}).success).toBe(true);
+    // string solta não bate o schema de lista (a IA é levada a mandar array).
+    expect(schema.safeParse({ matricula: "345" }).success).toBe(false);
+  });
 });

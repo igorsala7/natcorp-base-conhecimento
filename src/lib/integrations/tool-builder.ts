@@ -306,9 +306,13 @@ export async function buildIntegrationTools(
           // no `param` e o servidor consulta cada um (ex.: várias matrículas).
           if (loop?.unit === "values") {
             const raw = modelArgs[loop.param];
-            const valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
+            let valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
               .map((v) => String(v).trim())
               .filter(Boolean);
+            // pessoa: lista vazia = o PRÓPRIO usuário (mantém a semântica de origem=pessoa —
+            // Colaborador que não informa matrícula consulta a si). O guard valida cada valor.
+            const pLoop = bt.tool.params.find((pp) => pp.nome === loop.param);
+            if (valores.length === 0 && pLoop?.origem === "pessoa" && ident.matricula) valores = [String(ident.matricula)];
             if (valores.length === 0) return { erro: `Informe ao menos um valor em ${loop.param}.` };
             const max = loop.max ?? 20;
             const usados = valores.slice(0, max);

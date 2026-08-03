@@ -36,15 +36,23 @@ export function buildModelSchema(
     // `pessoa`: a IA informa a MATRÍCULA-ALVO (quem consultar); vazio = o próprio usuário.
     // Sempre opcional; o guard escopo_pessoa libera conforme o painel (PO/PG/PC).
     if (p.origem === "pessoa") {
-      shape[p.nome] = z
-        .string()
-        .describe(
-          (p.descricao ? p.descricao + " " : "") +
-            "Matrícula do COLABORADOR-ALVO da consulta — informe a matrícula de QUEM o usuário quer ver (ex.: cada um de " +
-            "uma lista de colaboradores; consulte um por vez). Deixe VAZIO para consultar o PRÓPRIO usuário logado. O " +
-            "sistema libera conforme o painel: Operador vê qualquer um; Gestor, só a equipe; Colaborador, só a si.",
-        )
-        .optional();
+      const descBase =
+        (p.descricao ? p.descricao + " " : "") +
+        "Matrícula do COLABORADOR-ALVO da consulta — de QUEM o usuário quer ver. Deixe VAZIO para o PRÓPRIO usuário " +
+        "logado. O sistema libera conforme o painel: Operador vê qualquer um; Gestor, só a equipe; Colaborador, só a si.";
+      // Batching: se a matrícula-alvo TAMBÉM é o parâmetro de loop, a IA passa VÁRIAS numa
+      // lista (uma consulta por colaborador, resultados juntados) — em vez de N chamadas.
+      shape[p.nome] =
+        loop?.unit === "values" && p.nome === loop.param
+          ? z
+              .array(z.string())
+              .describe(
+                descBase +
+                  " Passe VÁRIAS matrículas numa lista quando o usuário pedir mais de um colaborador (ex.: uma lista inteira) " +
+                  "— NÃO chame a ferramenta várias vezes; o sistema consulta cada matrícula e junta os resultados.",
+              )
+              .optional()
+          : z.string().describe(descBase + " Informe uma matrícula por vez.").optional();
       continue;
     }
     let campo: z.ZodTypeAny;

@@ -751,6 +751,10 @@ for (const t of NATCORP_TOOLS) {
     const mat = t.params.find((p) => p.nome === "matricula");
     if (mat) { mat.origem = "pessoa"; if (!mat.campoIdentidade) mat.campoIdentidade = "matricula"; }
     t.guard = "escopo_pessoa";
+    // BATCHING: consulta de VÁRIAS matrículas numa só chamada (o servidor itera e junta) —
+    // evita o modelo chamar a tool N vezes (e o loop de chamadas repetidas). Só quando NÃO
+    // há outro loop (as de loop MENSAL iteram meses de 1 matrícula; não dá para aninhar).
+    if (mat && !t.loop) t.loop = loopValores("matricula");
   } else if (t.key === "dados_colaborador_equipe" && t.guard === "team_membership") {
     t.guard = "escopo_pessoa"; // já usa matricula=modelo; ganha PO=todos
   }
