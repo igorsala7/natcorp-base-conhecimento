@@ -2,11 +2,11 @@ import "server-only";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { languageModel, hasAiKey, aiTimeout } from "@/lib/ai/config";
-import { vocabularioDeModulos, filtrarContraVocab, type ModuleTag } from "./module-match";
+import { vocabularioDeModulos, filtrarContraVocab, pareceComposta, type ModuleTag } from "./module-match";
 import { RX_VISUAL } from "@/lib/chat/report-tools";
 
 // Re-exporta a lógica pura para os consumidores (tool-builder) sem duplicar import.
-export { toolNoRecorte, vocabularioDeModulos, filtrarContraVocab, type ModuleTag } from "./module-match";
+export { toolNoRecorte, vocabularioDeModulos, filtrarContraVocab, pareceComposta, type ModuleTag } from "./module-match";
 
 export type AnalisePedido = {
   /** A resposta EXIGE consultar as APIs de dados do sistema? (false = operar a
@@ -37,7 +37,7 @@ export async function analisarPedido(
   if (p.length < 3) return { precisaDados: true, modulos: [] };
   if (!(await hasAiKey("query_rewrite"))) return { precisaDados: true, modulos: [] };
   const vocab = vocabularioDeModulos(tags);
-  const max = opts?.max ?? 3;
+  const max = opts?.max ?? 4;
   try {
     const lista = vocab.length
       ? vocab.map((v, i) => `${i + 1}. ${v.modulo}` + (v.submodulos.length ? ` — submódulos: ${v.submodulos.join(" | ")}` : "")).join("\n")
@@ -61,7 +61,7 @@ export async function analisarPedido(
    - Selecionar/preencher um campo de ESTRUTURA organizacional (empresa, filial, centro de custo, departamento, cargo) pelo NOME costuma exigir buscar o código na estrutura → precisaDados=true.
    - Na DÚVIDA, responda true (é mais seguro carregar as ferramentas).
 
-2) modulos: se precisaDados, os módulos da lista abaixo claramente relacionados (no máximo ${max}; use EXATAMENTE os nomes; em dúvida, deixe vazio). Se não precisaDados, vazio.
+2) modulos: se precisaDados, TODOS os módulos da lista abaixo necessários para responder — use EXATAMENTE os nomes (no máximo ${max}). IMPORTANTE: se a mensagem tem MAIS DE UM assunto (ex.: "férias E cargos", "saldo, faltas E horas", duas ou mais perguntas), retorne UM módulo para CADA assunto — NÃO escolha só o primeiro. Se não precisaDados, vazio. Se precisaDados mas nenhum módulo casar com clareza, deixe vazio (o sistema carrega todas as ferramentas).
 
 MÓDULOS DE DADOS DISPONÍVEIS (com submódulos):
 ${lista}
@@ -71,7 +71,11 @@ ${p}`,
     });
     const precisaDados = forcaDados || object?.precisaDados !== false; // default: true (conservador)
     const sel = (object?.modulos ?? []).map((m) => ({ modulo: m.modulo, submodulo: m.submodulo ?? null }));
-    const modulos = precisaDados ? filtrarContraVocab(sel, tags).slice(0, max) : [];
+    let modulos = precisaDados ? filtrarContraVocab(sel, tags).slice(0, max) : [];
+    // Rede p/ pergunta COMPOSTA (vários assuntos): se o classificador trouxe ≤ 1 módulo,
+    // provavelmente perdeu um tópico → carrega TODAS as ferramentas (recorte vazio) para
+    // não faltar a tool de um dos assuntos (ex.: "férias E cargos" cortava linha_tempo).
+    if (precisaDados && modulos.length <= 1 && pareceComposta(p)) modulos = [];
     return { precisaDados, modulos };
   } catch {
     return { precisaDados: true, modulos: [] };

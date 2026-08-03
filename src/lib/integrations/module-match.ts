@@ -62,3 +62,13 @@ export function filtrarContraVocab(sel: ModuleTag[], tags: ModuleTag[]): ModuleT
   }
   return out;
 }
+
+/** Heurística: a mensagem tem MAIS DE UM assunto/pergunta? (2+ "?" ou conectivo de
+ *  adição). Rede do recorte: numa pergunta COMPOSTA o classificador tende a pegar só o
+ *  1º tópico — se vier ≤ 1 módulo, é mais seguro carregar todas as ferramentas. */
+export function pareceComposta(p: string): boolean {
+  const t = (p ?? "").trim();
+  if (!t) return false;
+  if ((t.match(/\?/g) ?? []).length >= 2) return true;
+  return /\b(além disso|e também|e quais|e quantos|e qual são|e os últimos|e o histórico)\b/i.test(t);
+}

@@ -1,7 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { toolNoRecorte, vocabularioDeModulos, filtrarContraVocab, type ModuleTag } from "./module-match";
+import { toolNoRecorte, vocabularioDeModulos, filtrarContraVocab, pareceComposta, type ModuleTag } from "./module-match";
 
 const tag = (modulo: string, submodulo: string | null = null): ModuleTag => ({ modulo, submodulo });
+
+describe("pareceComposta (rede do recorte p/ pergunta com vários assuntos)", () => {
+  it("detecta 2+ perguntas (2 '?')", () => {
+    expect(pareceComposta("Esses colaboradores estão com férias desde 2023? E quais os últimos 5 cargos de cada um?")).toBe(true);
+  });
+  it("detecta conectivo de adição", () => {
+    expect(pareceComposta("Traga o saldo de horas e também o histórico de cargos")).toBe(true);
+    expect(pareceComposta("Quero as férias, além disso os últimos afastamentos")).toBe(true);
+  });
+  it("pergunta simples (1 assunto) → false", () => {
+    expect(pareceComposta("Qual o saldo de horas do colaborador 345?")).toBe(false);
+    expect(pareceComposta("Liste as férias de 2023")).toBe(false);
+    expect(pareceComposta("")).toBe(false);
+  });
+});
 
 describe("vocabularioDeModulos", () => {
   it("agrupa submódulos por módulo e deduplica (case/acento-insensível na chave)", () => {
