@@ -28,13 +28,11 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
   return {
     consultar_registros: tool({
       description:
-        "FILTRA/consulta os registros de uma tabela JÁ COLETADA (todas as páginas). Use SEMPRE que o usuário pedir um " +
-        "SUBCONJUNTO ou uma CONTAGEM: 'só os registros que...', 'quantos têm...', 'filtre por...', 'liste os que...', " +
-        "'os que estão em aberto/pagos/de tal cliente', etc. O servidor aplica o filtro sobre 100% dos registros (NÃO " +
-        "sobre a amostra do resumo) e retorna: `total` (contagem EXATA), `amostra` (algumas linhas para conferir) e " +
-        "`resultado_em` (id do subconjunto). NUNCA conte nem filtre você mesmo pela amostra/TOP do resumo — é PARCIAL e dá " +
-        "número errado. Para gerar o arquivo SÓ dos filtrados, chame `gerar_relatorio` com `tabela.dados_de` = o " +
-        "`resultado_em` retornado. Informe o `total` real ao usuário.",
+        "FILTRA/conta registros de uma tabela JÁ COLETADA sobre 100% das linhas (não a amostra). Use para SUBCONJUNTO ou " +
+        "CONTAGEM: 'só os que...', 'quantos têm...', 'filtre por...', 'liste os...'. Retorna `total` (contagem EXATA), " +
+        "`amostra` (conferência) e `resultado_em` (id do subconjunto). NUNCA conte/filtre pela amostra/TOP — é PARCIAL e " +
+        "dá número errado. Para exportar só os filtrados, passe esse `resultado_em` em `gerar_relatorio` (tabela.dados_de). " +
+        "Informe o `total` real.",
       inputSchema: z.object({
         dados_de: z.string().describe("Id da tabela coletada a consultar (ex.: 'tela1')."),
         filtros: z
@@ -86,12 +84,10 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
     }),
     agregar_valores: tool({
       description:
-        "Calcula UM agregado EXATO de uma COLUNA sobre 100% dos registros de uma tabela JÁ COLETADA (não pela amostra), com " +
-        "filtro OPCIONAL. `operacao`: soma (total/somatória), media, mediana, min (menor), max (maior), amplitude (máx−mín), " +
-        "variancia, desvio_padrao, moda (mais frequente), contar (nº de linhas), distintos (valores únicos). USE SEMPRE que o " +
-        "usuário pedir somar/total, média/mediana, maior/menor, desvio, quantos — INCLUSIVE com MILHÕES de linhas. É PROIBIDO " +
-        "calcular de cabeça pela amostra, dizer que 'é muito grande' ou pedir para o usuário baixar e fazer. Para o PERFIL " +
-        "completo (tudo de uma vez) use `estatisticas`; para X POR categoria use `agrupar`. Números em R$/pt-BR (1.234,56).",
+        "UM agregado EXATO de uma COLUNA sobre 100% dos registros (filtro OPCIONAL, não pela amostra). `operacao`: soma " +
+        "(total), media, mediana, min, max, amplitude (máx−mín), variancia, desvio_padrao, moda, contar (nº de linhas), " +
+        "distintos (únicos). Use para somar/total, média/mediana, maior/menor, desvio, quantos. Para o PERFIL completo use " +
+        "`estatisticas`; para X POR categoria, `agrupar`. Números em pt-BR (1.234,56).",
       inputSchema: z.object({
         dados_de: z.string().describe("Id da tabela coletada (ex.: 'tela1') ou o `resultado_em` de um filtro."),
         coluna: z.string().describe("Coluna a agregar, como no cabeçalho (ou 'cN')."),
@@ -128,7 +124,7 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
         "PERFIL ESTATÍSTICO COMPLETO de uma coluna numérica, de uma vez, sobre 100% dos registros (com filtro opcional): " +
         "contagem, válidos, distintos, soma, média, mediana, moda, mínimo, máximo, amplitude, variância, desvio-padrão e " +
         "percentis (p25/p75/p90/p95/p99). Use quando o usuário pedir 'estatísticas', 'análise estatística', 'distribuição', " +
-        "'resumo dos números' de uma coluna — INCLUSIVE com milhões de linhas. Tudo EXATO; números em R$/pt-BR.",
+        "'resumo dos números' de uma coluna. Tudo EXATO; números em pt-BR.",
       inputSchema: z.object({
         dados_de: z.string().describe("Id da tabela coletada (ex.: 'tela1')."),
         coluna: z.string().describe("Coluna numérica a perfilar."),
@@ -221,16 +217,13 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
     }),
     derivar_coluna: tool({
       description:
-        "Cria uma COLUNA CALCULADA por LINHA sobre 100% dos registros de uma tabela já coletada — a conta que as demais " +
-        "ferramentas NÃO fazem (elas reduzem uma coluna a UM número ou filtram por constante). Use SEMPRE que o usuário " +
-        "pedir para comparar/operar DUAS colunas linha a linha: diferença entre 'Valor Mês 2' e 'Valor Mês 1', variação % " +
-        "mês a mês, % de uma coluna sobre outra, peso de cada linha no total. `operacao`: subtracao (a−b), soma, " +
-        "multiplicacao, divisao, variacao_percentual ((a−b)÷b×100), percentual (a÷b×100), percentual_do_total (a÷Σa×100). " +
-        "`coluna_b` = outra coluna OU um número fixo (não usar em percentual_do_total). O servidor calcula cada linha " +
-        "(célula vazia/não-numérica = 0, reportado; base zero = N/A, reportado) e devolve `dados_de` com a coluna nova. " +
-        "DEPOIS chame estatisticas/consultar_registros/agrupar/montar_grafico/gerar_relatorio NESSE id para " +
-        "perfilar/rankear/filtrar (ex.: quedas > 20%)/gráfico/exportar sobre os 100%. É PROIBIDO calcular linha a linha de " +
-        "cabeça pela amostra — o número exato sai daqui.",
+        "Cria uma COLUNA CALCULADA por LINHA sobre 100% dos registros — a conta que as outras tools não fazem (elas reduzem " +
+        "a coluna a UM número). Use para operar DUAS colunas linha a linha: diferença 'mês 2 − mês 1', variação % mês a mês, " +
+        "% de uma sobre outra, peso no total. `operacao`: subtracao (a−b), soma, multiplicacao, divisao, variacao_percentual " +
+        "((a−b)÷b×100), percentual (a÷b×100), percentual_do_total (a÷Σa×100). `coluna_b` = outra coluna OU número fixo " +
+        "(dispensado em percentual_do_total). Célula vazia/não-numérica = 0; base zero = N/A (ambos reportados). Devolve um " +
+        "novo `dados_de`; DEPOIS use estatisticas/consultar_registros/agrupar/montar_grafico/gerar_relatorio nesse id. Não " +
+        "calcule linha a linha pela amostra.",
       inputSchema: z.object({
         dados_de: z.string().describe("Id da tabela coletada (ex.: 'tela1')."),
         coluna_a: z.string().describe("1ª coluna (ex.: 'Valor Mês 2'), como no cabeçalho ou 'cN'."),

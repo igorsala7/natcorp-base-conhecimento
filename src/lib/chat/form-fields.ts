@@ -644,28 +644,18 @@ function statsBlock(nome: string, colunas: string[], linhas: string[][], id: str
   const partes: string[] = [
     `RESUMO ESTATÍSTICO DO RELATÓRIO "${nome}" [dados_de="${id}"] — calculado sobre TODOS os ${linhas.length} registros ` +
       `(cobre 100% dos dados; use-o para a análise GERAL). Colunas: ${colunas.join(" | ")}.\n` +
-      `⚠️ TODAS essas ${colunas.length} colunas ESTÃO no dataset dados_de="${id}" — passe o NOME da coluna às ferramentas ` +
-      `(a correspondência é APROXIMADA: acento/maiúsculas e nome parcial funcionam). É TERMINANTEMENTE PROIBIDO afirmar que ` +
-      `uma coluna "não está mapeada/disponível na API/no barramento" ou mandar o usuário "abrir chamado": isso é FALSO — o ` +
-      `dado está aqui. Se não achar o nome exato, procure na lista Colunas/CATEGORIAS acima e use o mais próximo.\n` +
-      `CÁLCULOS de uma coluna (EXATOS sobre os ${linhas.length} registros, para QUALQUER coluna — mesmo fora dos AGREGADOS ` +
-      `abaixo): agregar_valores({ dados_de: "${id}", coluna, operacao }) p/ soma/media/mediana/min/max/amplitude/variancia/` +
-      `desvio_padrao/moda/contar/distintos (aceita filtros); estatisticas p/ o perfil completo; agrupar p/ "X por categoria"; ` +
-      `calcular p/ dividir/multiplicar/percentual/potência entre valores. NUNCA calcule de cabeça pela amostra, NUNCA diga ` +
-      `que é "grande demais" e NUNCA peça para o usuário baixar/fazer: entregar o número é obrigação sua.\n` +
-      `CONTA LINHA A LINHA entre DUAS colunas (ex.: diferença "mês 2 − mês 1", variação % mês a mês, % de uma sobre outra, ` +
-      `peso no total): use derivar_coluna({ dados_de: "${id}", coluna_a, coluna_b, operacao }) — ela cria a coluna calculada ` +
-      `sobre os ${linhas.length} registros e devolve um NOVO dados_de; DEPOIS analise/filtre/rankeie/grafique essa coluna com ` +
-      `estatisticas/consultar_registros/agrupar nesse novo id. Diferença/variação por registro NÃO se faz pela amostra.\n` +
-      `APONTAR RISCO / FAIXAS por registro (ex.: "quais tiveram queda forte"): classificar_faixa({ dados_de, coluna, faixas }) ` +
-      `rotula cada um dos ${linhas.length} registros por faixas [min,max) e devolve a distribuição exata. PROJETAR meses à ` +
-      `frente por registro: projetar({ dados_de, colunas_serie:[...meses...], horizonte }) — 2 meses vêm composta+linear lado ` +
-      `a lado, 3+ meses vêm por regressão com R²; SEMPRE apresente as PREMISSAS e trate como cenário. Risco/projeção por ` +
-      `registro cobrem 100% — nunca julgue/projete pela amostra nem de cabeça.\n` +
-      `⚠️ FILTRAR / CONTAR / LISTAR UM SUBCONJUNTO: os blocos TOP/menores/AMOSTRA abaixo são PARCIAIS — NUNCA os use para ` +
-      `filtrar, contar "quantos têm X" ou montar "só os registros que...". Isso daria um número ERRADO. Para QUALQUER ` +
-      `recorte, chame consultar_registros({ dados_de: "${id}", filtros: [...] }): o servidor filtra sobre os ${linhas.length} ` +
-      `registros e devolve o total EXATO + o id do subconjunto para exportar. O total e o arquivo do recorte vêm SEMPRE de lá.`,
+      `⚠️ TODAS essas ${colunas.length} colunas ESTÃO no dataset dados_de="${id}" (a correspondência de nome é APROXIMADA: ` +
+      `acento/maiúsculas e nome parcial funcionam). É TERMINANTEMENTE PROIBIDO afirmar que uma coluna "não está mapeada/` +
+      `disponível na API/no barramento" ou mandar "abrir chamado": isso é FALSO — o dado está aqui. Não achou o nome exato? ` +
+      `Use o mais próximo da lista Colunas/CATEGORIAS.\n` +
+      `FERRAMENTAS de cálculo sobre estes ${linhas.length} registros, para QUALQUER coluna (mesmo fora dos AGREGADOS abaixo) ` +
+      `— chame com dados_de="${id}", resultado EXATO, nunca pela amostra nem recusando por "muitos dados": agregar_valores ` +
+      `(um número), estatisticas (perfil completo), agrupar (X por categoria), calcular (combinar dois valores); ` +
+      `derivar_coluna (conta LINHA A LINHA entre duas colunas → novo dados_de), classificar_faixa (faixas de risco) e ` +
+      `projetar (meses à frente). Cada uma está descrita nas ferramentas.\n` +
+      `⚠️ FILTRAR / CONTAR / LISTAR UM SUBCONJUNTO: os blocos TOP/menores/AMOSTRA abaixo são PARCIAIS — nunca os use para ` +
+      `filtrar ou contar "quantos têm X". Para QUALQUER recorte, chame consultar_registros({ dados_de: "${id}", ` +
+      `filtros: [...] }): filtra sobre os ${linhas.length} registros e devolve o total EXATO + o id do subconjunto para exportar.`,
   ];
   // Relatórios LARGOS (muitas colunas, ex.: 200+) reduzem as PRÉVIAS de linha (top/menores/
   // amostra) e NÃO repetem o cabeçalho de colunas — os AGREGADOS e as CATEGORIAS (resumo POR
@@ -703,13 +693,10 @@ function statsBlock(nome: string, colunas: string[], linhas: string[][], id: str
   for (let i = 0; i < linhas.length && amostra.length < nAmostra; i += passo) amostra.push(fmtRow(linhas[i]!));
   partes.push(`AMOSTRA (${amostra.length} registros distribuídos ao longo do conjunto):\n${cabPrev}${amostra.join("\n")}`);
   partes.push(
-    `USO: análise GERAL (visão do todo, somas, médias, maiores/menores) → use os AGREGADOS acima (cobrem os ${linhas.length} ` +
-      `registros; NÃO diga que analisou só uma parte). RECORTE (filtrar, contar "quantos têm X", "só os que...") → ` +
-      `consultar_registros (NUNCA a amostra). NUNCA se recuse por serem "muitos dados" nem sugira o menu "Ações". ` +
-      `A tarefa é SUA mesmo com volume grande: responda com base nestes AGREGADOS (cobrem 100%) — é PROIBIDO mandar o ` +
-      `usuário baixar/abrir arquivo para OBTER a resposta ou fazer a análise por conta própria. Um Excel/CSV é EXTRA ` +
-      `opcional, só se ele quiser a LISTA completa em anexo (ex.: "Quer TAMBÉM os N registros detalhados num Excel?"). ` +
-      `Para exportar, chame gerar_relatorio com { tipo: "tabela", tabela: { dados_de: "<id do conjunto ou do recorte>" } }.`,
+    `USO: análise GERAL → use os AGREGADOS acima (cobrem os ${linhas.length} registros; não diga que viu só uma parte). ` +
+      `RECORTE (filtrar/contar) → consultar_registros (NUNCA a amostra). A tarefa é SUA mesmo com volume grande — não mande ` +
+      `o usuário baixar/abrir arquivo para OBTER a resposta. Para exportar, gerar_relatorio com { tipo: "tabela", tabela: ` +
+      `{ dados_de: "<id do conjunto ou do recorte>" } }; Excel/CSV é EXTRA opcional.`,
   );
   partes.push(REGRA_ROTULOS_COLUNA);
   return partes.join("\n\n");
@@ -758,10 +745,7 @@ function categoriasBlock(colunas: string[], linhas: string[][], numericas: numbe
   return (
     "VALORES DAS COLUNAS DE CATEGORIA (texto de baixa cardinalidade — filtre/agrupe usando " +
     "EXATAMENTE estes rótulos; [N]=quantidade de valores distintos, (n)=quantas linhas têm aquele valor). " +
-    "Colunas de texto que NÃO aparecem aqui têm muitos valores (nomes/ids) — não enumeradas. " +
-    "Para condição que MISTURA \"ou\" com \"e\" (ex.: benefício \"alimentação\" OU \"refeição\", E situação " +
-    "\"ativo\"): chame consultar_registros(modo:\"OU\") com os valores → recebe um id de subconjunto; " +
-    "depois agregue/agrupe/filtre esse id.\n" +
+    "Colunas de texto que NÃO aparecem aqui têm muitos valores (nomes/ids) — não enumeradas.\n" +
     linhasCat.join("\n")
   );
 }

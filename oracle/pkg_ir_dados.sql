@@ -7,13 +7,26 @@
 --  Diferença para a tentativa anterior (ORDS): o ORDS abre uma SESSÃO NOVA
 --  (create_session) e por isso enxerga só o relatório padrão/salvo — nunca o
 --  filtro ad-hoc da tela. Aqui a execução NASCE na sessão do usuário logado,
---  então apex_ir.get_last_viewed_report_id + apex_region.open_query_context
---  trazem exatamente a visão que ele está vendo (baseado no exemplo que já
---  funcionava — FNCT_GERAR_CSV_IR).
+--  então apex_ir.get_last_viewed_report_id + apex_ir.get_report / apex_region.
+--  open_query_context trazem exatamente a visão que ele está vendo.
+--
+--  DESEMPENHO (v2): o gargalo era serializar linha a linha via apex_exec
+--  (next_row + get_* POR CÉLULA — ~13 ms/linha; 15 mil linhas ≈ 200 s). Agora o
+--  CAMINHO RÁPIDO pega a SQL de runtime do IR (apex_ir.get_report — já com os
+--  filtros/binds da tela) e serializa TUDO DENTRO DO MOTOR SQL com
+--  JSON_ARRAYAGG(JSON_ARRAY(...)) — zero laço PL/SQL por célula. O caminho antigo
+--  (apex_exec, comprovado) fica como FALLBACK automático: usado p/ o CSV e sempre
+--  que o rápido falhar (get_report indisponível, nome de coluna que não casa, etc.).
+--
+--  ⚠️ VALIDAR ao implantar (o rápido muda a FONTE das linhas): abra um IR, aplique
+--  um filtro pelo botão "Ações", colete e confirme que (a) o total bate com a tela
+--  e (b) as colunas são as esperadas. Se algo divergir, o fallback apex_exec
+--  continua correto — é só forçar p_com_csv=>true nesse app enquanto investiga, ou
+--  me avisar para ajustar o projeção de colunas.
 --
 --  MULTI-SCHEMA: este pacote e a tabela precisam existir no PARSING SCHEMA do
---  app (ex.: RHNATCORP), pois apex_exec/apex_region rodam no contexto do app.
---  Crie em cada schema de cliente. O Processo On-Demand (PRC_DADOS_IR) é por
+--  app (ex.: RHNATCORP), pois apex_exec/apex_region/apex_ir rodam no contexto do
+--  app. Crie em cada schema de cliente. O Processo On-Demand (PRC_DADOS_IR) é por
 --  app — injetado em lote depois (ele só chama pkg_ir_dados.prc_responder_ir).
 --
 --  Contrato do JSON de coleta (o widget depende):
@@ -55,7 +68,7 @@ create or replace package pkg_ir_dados as
     p_page_id         in number,
     p_region          in varchar2,
     p_amostra_linhas  in number default 100000, -- amostra = TODAS as linhas até este teto
-    p_com_csv         in boolean default false,  -- montar o CSV completo (download por id)? padrão NÃO — não é consumido e dobra o custo
+    p_com_csv         in boolean default false,  -- montar o CSV completo (download por id)? padrão NÃO — usa o caminho apex_exec
     p_items           in clob    default null
   ) return clob;
 
@@ -87,16 +100,16 @@ create or replace package body pkg_ir_dados as
 
   -- Limpa o VALOR de uma célula para consumo por IA/CSV: remove tags HTML (colunas
   -- de imagem/link — ex.: FOTO com <img ...> — viram texto puro/vazio) e comprime
-  -- espaços. Texto puro passa intacto. Reduz MUITO o token de colunas renderizadas.
+  -- espaços. Texto puro passa intacto. Usada SÓ no caminho apex_exec (o rápido faz
+  -- a mesma limpeza dentro do SQL). Reduz MUITO o token de colunas renderizadas.
   function f_texto(p in varchar2) return varchar2 is
     -- Capa ANTES de qualquer regex: a célula é truncada em 8000 no JSON (e em 300 pelo
-    -- servidor), então rodar regex sobre um valor gigante é trabalho jogado fora. Isto
-    -- limita o custo do regex por célula no laço quente (colunas HTML/renderizadas).
+    -- servidor na AMOSTRA do modelo), então rodar regex sobre um valor gigante é trabalho
+    -- jogado fora. Isto limita o custo do regex por célula no laço quente (colunas HTML).
     v varchar2(8000) := substr(p, 1, 8000);
   begin
     if v is null then return null; end if;
     -- Só paga o regex de HTML quando há tag (a maioria das células é texto puro).
-    -- Saída idêntica: em texto sem '<', o regexp_replace seria no-op de qualquer forma.
     if instr(v, '<') > 0 then v := regexp_replace(v, '<[^>]+>', ' '); end if;
     -- Só paga o regex POSIX (caro sob AL32UTF8) quando há de fato espaço repetido/tab/quebra.
     if instr(v, '  ') > 0 or instr(v, chr(9)) > 0 or instr(v, chr(10)) > 0 or instr(v, chr(13)) > 0 then
@@ -105,8 +118,7 @@ create or replace package body pkg_ir_dados as
     return trim(v);
   end f_texto;
 
-  -- Milissegundos entre dois timestamps — usado para medir o desempenho da coleta
-  -- (separar o custo da CONSULTA do custo da SERIALIZAÇÃO das linhas).
+  -- Milissegundos entre dois timestamps — usado para medir o desempenho da coleta.
   function ms_entre(a in timestamp, b in timestamp) return number is
     d interval day to second := b - a;
   begin
@@ -132,43 +144,70 @@ create or replace package body pkg_ir_dados as
     return l_id;
   end f_region_id;
 
+  -- SQL-expr que replica f_texto DENTRO do SELECT (limpeza de HTML + espaços), para
+  -- o caminho rápido serializar no motor. `c` já vem entre aspas (nome de coluna).
+  function expr_texto(c in varchar2) return varchar2 is
+  begin
+    return 'trim(regexp_replace(case when instr('||c||','''<'')>0 '||
+           'then regexp_replace(substr('||c||',1,8000),''<[^>]+>'','' '') '||
+           'else substr('||c||',1,8000) end,''[[:space:]]{2,}'','' ''))';
+  end expr_texto;
+
   function fnct_ir_dados_json(
     p_app_id          in number,
     p_page_id         in number,
     p_region          in varchar2,
-    p_amostra_linhas  in number default 100000, -- amostra = TODAS as linhas até este teto
-    p_com_csv         in boolean default false,  -- montar o CSV completo (download por id)? padrão NÃO — não é consumido e dobra o custo
+    p_amostra_linhas  in number default 100000,
+    p_com_csv         in boolean default false,
     p_items           in clob    default null
   ) return clob is
     l_region_id  number;
     l_report_id  number;
+    l_report     apex_ir.t_report;
+    l_out        clob;
+    l_total      number := 0;
+    l_id         number;
+    l_json       varchar2(32767);
+    l_cap        number  := nvl(p_amostra_linhas, 100000);
+    l_usou_bulk  boolean := false;
+    l_caminho    varchar2(10) := 'apexexec';
+
+    -- Caminho RÁPIDO (dbms_sql + JSON no motor)
+    l_c1         integer;
+    l_c2         integer;
+    l_desc       dbms_sql.desc_tab2;
+    l_col_cnt    integer;
+    l_ign        integer;
+    l_nome       varchar2(256);
+    l_qcol       varchar2(260);   -- nome entre aspas
+    l_proj       clob;            -- lista de exprs do json_array
+    l_cols_json  clob;            -- array JSON de nomes de coluna
+    l_agg        clob;
+    l_amostra    clob;
+
+    -- Caminho apex_exec (CSV / fallback)
     l_ctx        apex_exec.t_context;
     l_col_count  pls_integer;
     l_col        apex_exec.t_column;
-    -- Metadado das colunas (tipo) lido UMA vez — invariante por linha. Antes,
-    -- apex_exec.get_column era chamado por célula de cada linha (milhares de vezes).
     type t_tipos is table of pls_integer index by pls_integer;
     l_col_tipo   t_tipos;
     l_line       varchar2(32767);
     l_cell       varchar2(32767);
-    l_json       varchar2(32767);  -- buffer da serialização JSON manual (descarregado no CLOB em blocos)
-    l_val        varchar2(32767);  -- valor JSON de UMA célula (já escapado por apex_json.stringify)
+    l_val        varchar2(32767);
     l_num        number;
     l_date       date;
     l_ts         timestamp;
     l_csv        clob;
-    l_total      number := 0;
-    l_id         number;
-    l_out        clob;
-    -- Medição de desempenho (ms) — separa CONSULTA (execução+ordenação no banco)
-    -- de SERIALIZAÇÃO (montar CSV/JSON célula a célula) e da GRAVAÇÃO do CSV.
+
+    -- Medição (ms)
     l_t0         timestamp;
+    l_t_q        timestamp;
     l_t_loop0    timestamp;
     l_t_ins0     timestamp;
-    l_ms_abrir   number := 0;   -- open_query_context + contagem de colunas
-    l_ms_1a      number := 0;   -- até a 1ª linha (execução + ORDER BY da consulta)
-    l_ms_loop    number := 0;   -- laço inteiro (buscar linhas + montar CSV/JSON)
-    l_ms_gravar  number := 0;   -- insert + commit do CSV completo
+    l_ms_abrir   number := 0;
+    l_ms_1a      number := 0;
+    l_ms_loop    number := 0;
+    l_ms_gravar  number := 0;
     l_ms_total   number := 0;
     l_primeira   boolean := true;
   begin
@@ -178,109 +217,185 @@ create or replace package body pkg_ir_dados as
     l_region_id := f_region_id(p_app_id, p_page_id, p_region);
     -- Report da ÚLTIMA visão do usuário (traz os filtros/apresentação correntes).
     l_report_id := apex_ir.get_last_viewed_report_id(p_page_id => p_page_id, p_region_id => l_region_id);
-    -- Contexto de dados JÁ com os filtros do IR (é aqui que o filtro do Ações entra).
-    l_ctx := apex_region.open_query_context(
-               p_page_id      => p_page_id,
-               p_region_id    => l_region_id,
-               p_component_id => l_report_id,
-               p_view_mode    => apex_ir.c_view_report);
 
-    l_col_count := apex_exec.get_column_count(l_ctx);
-    l_ms_abrir  := ms_entre(l_t0, systimestamp);
-
-    if p_com_csv then dbms_lob.createtemporary(l_csv, true); end if;
     dbms_lob.createtemporary(l_out, true);
 
-    -- SERIALIZAÇÃO MANUAL (buffer VARCHAR2 → CLOB), com escape via apex_json.stringify
-    -- (função PURA). Antes era apex_json.write POR CÉLULA (~colunas×linhas ≈ dezenas de
-    -- milhares de chamadas ao CLOB) — o gargalo dos ~65s. Agora concatenamos em VARCHAR2
-    -- e descarregamos no CLOB em blocos de ~30k. apex_json.stringify garante JSON válido.
-    l_json := '{"ok":true,"colunas":[';
+    -- ── CAMINHO RÁPIDO: serializa TUDO no motor SQL (só quando não precisa do CSV) ──
+    if not p_com_csv then
+      begin
+        -- SQL de runtime do IR (COM os filtros/binds da tela viva).
+        l_report := apex_ir.get_report(p_page_id => p_page_id, p_region_id => l_region_id, p_report_id => l_report_id);
+        if l_report.sql_query is null then raise_application_error(-20001, 'get_report sem sql_query'); end if;
 
-    -- Cabeçalho: colunas (JSON) + tipos (lidos UMA vez) + linha de colunas do CSV.
-    l_line := null;
-    for i in 1 .. l_col_count loop
-      l_col := apex_exec.get_column(l_ctx, i);
-      l_col_tipo(i) := l_col.data_type;               -- cacheia o tipo p/ o laço de linhas
-      if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
-      if i > 1 then l_json := l_json || ','; end if;
-      l_json := l_json || apex_json.stringify(l_col.name);
-      if p_com_csv then
-        if i > 1 then l_line := l_line || ';'; end if;
-        l_line := l_line || '"' || replace(l_col.name, '"', '""') || '"';
-      end if;
-    end loop;
-    l_json := l_json || '],"amostra":[';
-    if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, l_line || chr(10)); l_line := null; end if;
+        -- Descreve as colunas do SQL de runtime, pulando as internas do IR (APXWS_/apex$).
+        l_c1 := dbms_sql.open_cursor;
+        dbms_sql.parse(l_c1, l_report.sql_query, dbms_sql.native);
+        dbms_sql.describe_columns2(l_c1, l_col_cnt, l_desc);
 
-    -- Linhas: array-de-arrays "amostra" até p_amostra_linhas (cobre 100% dos casos comuns).
-    l_t_loop0 := systimestamp;
-    while apex_exec.next_row(l_ctx) loop
-      -- 1ª linha só volta depois da consulta executar e ORDENAR: isola o custo do banco.
-      if l_primeira then l_ms_1a := ms_entre(l_t_loop0, systimestamp); l_primeira := false; end if;
-      l_total := l_total + 1;
-      -- Passou do teto da amostra e sem CSV: só CONTA (total exato), sem tocar nas células.
-      if l_total > p_amostra_linhas and not p_com_csv then continue; end if;
-      l_line := null;
+        l_proj := null; l_cols_json := '[';
+        for i in 1 .. l_col_cnt loop
+          if not regexp_like(l_desc(i).col_name, '^(APXWS_|apex\$)', 'i') then
+            l_nome := l_desc(i).col_name;
+            l_qcol := '"' || replace(l_nome, '"', '') || '"';
+            if l_proj is not null then l_proj := l_proj || ','; l_cols_json := l_cols_json || ','; end if;
+            l_cols_json := l_cols_json || apex_json.stringify(l_nome);
+            -- Formato IDÊNTICO ao caminho apex_exec: número via to_char; datas DD/MM/RRRR;
+            -- timestamp com hora; demais tipos limpos (HTML/espaços) como f_texto.
+            if l_desc(i).col_type = 2 then                                  -- NUMBER
+              l_proj := l_proj || 'to_char(' || l_qcol || ')';
+            elsif l_desc(i).col_type = 12 then                              -- DATE
+              l_proj := l_proj || 'to_char(' || l_qcol || ',''DD/MM/RRRR'')';
+            elsif l_desc(i).col_type in (180, 181, 231) then               -- TIMESTAMP [WITH TZ/LOCAL]
+              l_proj := l_proj || 'to_char(' || l_qcol || ',''DD/MM/RRRR HH24:MI:SS'')';
+            else                                                            -- VARCHAR2/CHAR/CLOB/…
+              l_proj := l_proj || expr_texto(l_qcol);
+            end if;
+          end if;
+        end loop;
+        l_cols_json := l_cols_json || ']';
+        dbms_sql.close_cursor(l_c1);
+        if l_proj is null then raise_application_error(-20002, 'nenhuma coluna serializável'); end if;
 
-      if l_total <= p_amostra_linhas then
-        -- descarrega o buffer se estiver cheio ANTES de abrir a linha
-        if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
-        l_json := l_json || case when l_total > 1 then ',[' else '[' end;
-      end if;
-
-      for i in 1 .. l_col_count loop
-        begin
-          case l_col_tipo(i)
-            when apex_exec.c_data_type_number then
-              l_num  := apex_exec.get_number(l_ctx, i);
-              l_cell := case when l_num is null then null else to_char(l_num) end;
-            when apex_exec.c_data_type_date then
-              l_date := apex_exec.get_date(l_ctx, i);
-              l_cell := case when l_date is null then null else to_char(l_date, 'DD/MM/RRRR') end;
-            when apex_exec.c_data_type_timestamp then
-              l_ts   := apex_exec.get_timestamp(l_ctx, i);
-              l_cell := case when l_ts is null then null else to_char(l_ts, 'DD/MM/RRRR HH24:MI:SS') end;
-            else
-              l_cell := f_texto(apex_exec.get_varchar2(l_ctx, i));
-          end case;
-        exception when others then l_cell := null; -- célula problemática vira vazio
-        end;
-
-        if l_total <= p_amostra_linhas then
-          -- Valor JSON: null OU string escapada (capada em 8000 p/ caber no buffer; o
-          -- servidor já trunca a célula em 300 chars, então nada útil se perde).
-          l_val := case when l_cell is null then 'null' else apex_json.stringify(substr(l_cell, 1, 8000)) end;
-          if length(l_json) + length(l_val) + 2 > 32000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
-          if i > 1 then l_json := l_json || ','; end if;
-          l_json := l_json || l_val;
+        -- Agregação: TODAS as linhas (na ordem do relatório) viram um único JSON.
+        -- null on null → célula nula = null no array (mantém o alinhamento das colunas).
+        l_agg := 'select json_arrayagg(json_array(' || l_proj ||
+                 ' null on null returning clob) order by kb_rn_ returning clob), count(*) ' ||
+                 'from (select q_.*, rownum kb_rn_ from (' || l_report.sql_query ||
+                 ') q_ where rownum <= ' || l_cap || ')';
+        l_c2 := dbms_sql.open_cursor;
+        dbms_sql.parse(l_c2, l_agg, dbms_sql.native);
+        for b in 1 .. l_report.binds.count loop
+          dbms_sql.bind_variable(l_c2, l_report.binds(b).name, l_report.binds(b).value);
+        end loop;
+        dbms_sql.define_column(l_c2, 1, l_amostra);
+        dbms_sql.define_column(l_c2, 2, l_total);
+        l_t_q := systimestamp;
+        l_ign := dbms_sql.execute(l_c2);
+        if dbms_sql.fetch_rows(l_c2) > 0 then
+          dbms_sql.column_value(l_c2, 1, l_amostra);
+          dbms_sql.column_value(l_c2, 2, l_total);
         end if;
+        l_ms_loop := ms_entre(l_t_q, systimestamp);
+        dbms_sql.close_cursor(l_c2);
+
+        -- Monta a saída: {"ok":true,"colunas":[...],"amostra":[[...],...]  (sem fechar o objeto)
+        l_json := '{"ok":true,"colunas":';
+        dbms_lob.writeappend(l_out, length(l_json), l_json);
+        dbms_lob.append(l_out, l_cols_json);
+        l_json := ',"amostra":';
+        dbms_lob.writeappend(l_out, length(l_json), l_json);
+        if l_amostra is null or dbms_lob.getlength(l_amostra) = 0 then
+          dbms_lob.writeappend(l_out, 2, '[]');
+          l_total := nvl(l_total, 0);
+        else
+          dbms_lob.append(l_out, l_amostra);
+        end if;
+        l_ms_abrir  := ms_entre(l_t0, l_t_q);   -- get_report + describe + montagem
+        l_usou_bulk := true;
+        l_caminho   := 'bulk';
+      exception
+        when others then
+          -- Qualquer falha no rápido → limpa e cai pro apex_exec (comprovado). Reseta a saída.
+          begin dbms_sql.close_cursor(l_c1); exception when others then null; end;
+          begin dbms_sql.close_cursor(l_c2); exception when others then null; end;
+          begin dbms_lob.freetemporary(l_out); exception when others then null; end;
+          dbms_lob.createtemporary(l_out, true);
+          l_total := 0; l_usou_bulk := false; l_caminho := 'apexexec';
+      end;
+    end if;
+
+    -- ── CAMINHO apex_exec (CSV, ou fallback do rápido): serializa linha a linha ──
+    if not l_usou_bulk then
+      -- Contexto de dados JÁ com os filtros do IR (é aqui que o filtro do Ações entra).
+      l_ctx := apex_region.open_query_context(
+                 p_page_id      => p_page_id,
+                 p_region_id    => l_region_id,
+                 p_component_id => l_report_id,
+                 p_view_mode    => apex_ir.c_view_report);
+      l_col_count := apex_exec.get_column_count(l_ctx);
+      l_ms_abrir  := ms_entre(l_t0, systimestamp);
+
+      if p_com_csv then dbms_lob.createtemporary(l_csv, true); end if;
+
+      l_json := '{"ok":true,"colunas":[';
+      l_line := null;
+      for i in 1 .. l_col_count loop
+        l_col := apex_exec.get_column(l_ctx, i);
+        l_col_tipo(i) := l_col.data_type;
+        if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+        if i > 1 then l_json := l_json || ','; end if;
+        l_json := l_json || apex_json.stringify(l_col.name);
         if p_com_csv then
           if i > 1 then l_line := l_line || ';'; end if;
-          l_line := l_line || '"' || replace(nvl(l_cell, ''), '"', '""') || '"';
+          l_line := l_line || '"' || replace(l_col.name, '"', '""') || '"';
         end if;
       end loop;
+      l_json := l_json || '],"amostra":[';
+      if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, l_line || chr(10)); l_line := null; end if;
 
-      if l_total <= p_amostra_linhas then l_json := l_json || ']'; end if;
-      if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, replace(l_line, '\', '\\') || chr(10)); end if;
-    end loop;
-    l_ms_loop := ms_entre(l_t_loop0, systimestamp);
-    apex_exec.close(l_ctx);
+      l_t_loop0 := systimestamp;
+      while apex_exec.next_row(l_ctx) loop
+        if l_primeira then l_ms_1a := ms_entre(l_t_loop0, systimestamp); l_primeira := false; end if;
+        l_total := l_total + 1;
+        if l_total > p_amostra_linhas and not p_com_csv then continue; end if;
+        l_line := null;
 
-    l_json := l_json || ']'; -- fecha "amostra"
-    dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null;
+        if l_total <= p_amostra_linhas then
+          if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+          l_json := l_json || case when l_total > 1 then ',[' else '[' end;
+        end if;
 
-    -- Registro/id (auditoria + fonte do download quando p_com_csv). csv NULL quando off.
+        for i in 1 .. l_col_count loop
+          begin
+            case l_col_tipo(i)
+              when apex_exec.c_data_type_number then
+                l_num  := apex_exec.get_number(l_ctx, i);
+                l_cell := case when l_num is null then null else to_char(l_num) end;
+              when apex_exec.c_data_type_date then
+                l_date := apex_exec.get_date(l_ctx, i);
+                l_cell := case when l_date is null then null else to_char(l_date, 'DD/MM/RRRR') end;
+              when apex_exec.c_data_type_timestamp then
+                l_ts   := apex_exec.get_timestamp(l_ctx, i);
+                l_cell := case when l_ts is null then null else to_char(l_ts, 'DD/MM/RRRR HH24:MI:SS') end;
+              else
+                l_cell := f_texto(apex_exec.get_varchar2(l_ctx, i));
+            end case;
+          exception when others then l_cell := null;
+          end;
+
+          if l_total <= p_amostra_linhas then
+            l_val := case when l_cell is null then 'null' else apex_json.stringify(substr(l_cell, 1, 8000)) end;
+            if length(l_json) + length(l_val) + 2 > 32000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+            if i > 1 then l_json := l_json || ','; end if;
+            l_json := l_json || l_val;
+          end if;
+          if p_com_csv then
+            if i > 1 then l_line := l_line || ';'; end if;
+            l_line := l_line || '"' || replace(nvl(l_cell, ''), '"', '""') || '"';
+          end if;
+        end loop;
+
+        if l_total <= p_amostra_linhas then l_json := l_json || ']'; end if;
+        if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, replace(l_line, '\', '\\') || chr(10)); end if;
+      end loop;
+      l_ms_loop := ms_entre(l_t_loop0, systimestamp);
+      apex_exec.close(l_ctx);
+
+      l_json := l_json || ']'; -- fecha "amostra"
+      dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null;
+    end if;
+
+    -- ── Registro/id + tempos + fecha o objeto (comum aos dois caminhos) ──────────
     l_t_ins0 := systimestamp;
     insert into ai_ir_dados_log (app_id, page_id, region_id, ir_report_id, app_user, session_id, total_linhas, csv, status)
     values (p_app_id, p_page_id, l_region_id, l_report_id, v('APP_USER'), v('APP_SESSION'), l_total, l_csv, 'OK')
     returning id into l_id;
     commit;
     l_ms_gravar := ms_entre(l_t_ins0, systimestamp);
+    l_ms_total  := ms_entre(l_t0, systimestamp);
 
-    -- id + total + tempos_ms (números → concatenação direta, sem escape). Fecha o objeto raiz.
-    --   serializar = loop_total - ate_primeira_linha (montar o JSON; + CSV se p_com_csv)
-    l_ms_total := ms_entre(l_t0, systimestamp);
+    -- No caminho rápido a serialização acontece DENTRO da consulta (serializar≈0):
+    --   loop_total = tempo da agregação SQL; ate_primeira_linha = 0.
     l_json := ',"id":' || l_id
       || ',"total_linhas":' || l_total
       || ',"tempos_ms":{"abrir_ctx":' || round(l_ms_abrir)
@@ -289,6 +404,7 @@ create or replace package body pkg_ir_dados as
       || ',"loop_total":' || round(l_ms_loop)
       || ',"gravar":' || round(l_ms_gravar)
       || ',"total":' || round(l_ms_total)
+      || ',"caminho":"' || l_caminho || '"'
       || '}}';
     dbms_lob.writeappend(l_out, length(l_json), l_json);
     if p_com_csv then begin dbms_lob.freetemporary(l_csv); exception when others then null; end; end if;
@@ -296,9 +412,9 @@ create or replace package body pkg_ir_dados as
 
   exception
     when others then
-      -- NÃO usar apex_exec.is_open (não existe no 19.2 — você já tinha comentado no
-      -- seu exemplo): só tenta fechar, engolindo erro se já estiver fechado.
       begin apex_exec.close(l_ctx); exception when others then null; end;
+      begin dbms_sql.close_cursor(l_c1); exception when others then null; end;
+      begin dbms_sql.close_cursor(l_c2); exception when others then null; end;
       begin apex_json.free_output; exception when others then null; end;
       return '{"ok":false,"erro":"' || replace(replace(substr(sqlerrm, 1, 300), '\', '/'), '"', '''') || '"}';
   end fnct_ir_dados_json;
@@ -311,7 +427,7 @@ create or replace package body pkg_ir_dados as
     l_off  integer := 1;
     l_amt  integer := 8000; -- pedaço < 32767 p/ htp.prn (VARCHAR2), seguro c/ acentos
   begin
-    -- Download do CSV completo por id (x04='CSV', x05=id).
+    -- Download do CSV completo por id (x04='CSV', x05=id) — usa o caminho apex_exec.
     if l_mode = 'CSV' then
       select csv into l_csv from ai_ir_dados_log where id = to_number(apex_application.g_x05);
       l_len := dbms_lob.getlength(l_csv);
