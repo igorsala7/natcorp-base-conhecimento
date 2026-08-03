@@ -4,6 +4,8 @@ import { decryptSecret } from "@/lib/crypto/secrets";
 import type { AuthType } from "./credentials";
 import type { LoopConfig, ToolParam } from "./tools";
 import type { RuntimeTool, RuntimeCredential } from "./executor";
+import { normalizarPanelScope } from "./panel-scope";
+import { invalidateCatalogo } from "./tool-catalog";
 
 /**
  * Carrega, por SERVICE-ROLE, o contexto de integração de uma base a partir do
@@ -59,12 +61,40 @@ type EmbeddedRow = {
     credential_id: string | null;
     system_prompt: string | null;
     always_include: boolean | null;
+    panel_scope: unknown;
+    exclude_self: boolean | null;
     active: boolean;
   } | null;
 };
 
-/** Base ATIVA + suas tools HABILITADAS (com base_url e credencial). */
+// Cache EM MEMÓRIA do contexto da base (tools+params+módulos+agentes) — a config
+// muda raramente mas era relida do Supabase A CADA MENSAGEM (custo que cresce com o
+// nº de tools). TTL curto: mudança do admin reflete em ≤ TTL (e na hora, via
+// invalidateBaseContext nas ações de edição). Por processo (o app roda em Docker,
+// não serverless — o cache persiste entre requisições, como os de login/equipe).
+type CtxCache = { exp: number; ctx: BaseContext | null };
+const baseCtxCache = new Map<string, CtxCache>();
+const BASE_CTX_TTL = 60_000;
+
+/** Zera o cache do contexto da base (e do catálogo de embeddings). Chamado após
+ *  editar tools/agentes para a mudança valer na hora, sem esperar o TTL. */
+export function invalidateBaseContext(baseCode?: string): void {
+  if (baseCode) baseCtxCache.delete(baseCode.trim().toLowerCase());
+  else baseCtxCache.clear();
+  invalidateCatalogo(baseCode);
+}
+
+/** Base ATIVA + suas tools HABILITADAS (com base_url e credencial). Cacheado (TTL). */
 export async function loadBaseContext(baseCode: string): Promise<BaseContext | null> {
+  const chave = baseCode.trim().toLowerCase();
+  const hit = baseCtxCache.get(chave);
+  if (hit && hit.exp > Date.now()) return hit.ctx;
+  const ctx = await carregarBaseContext(baseCode);
+  baseCtxCache.set(chave, { exp: Date.now() + BASE_CTX_TTL, ctx });
+  return ctx;
+}
+
+async function carregarBaseContext(baseCode: string): Promise<BaseContext | null> {
   const db = createAdminClient();
   // `base_code` é um slug, mas o `p_base` chega do APEX do cliente em qualquer
   // caixa (ex.: manda "NATCORP" e no banco está "natcorp"): casamos SEM
@@ -83,7 +113,7 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, panel_scope, exclude_self, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -132,6 +162,8 @@ export async function loadBaseContext(baseCode: string): Promise<BaseContext | n
         cache_ttl: t.cache_ttl,
         loop: t.loop,
         system_prompt: t.system_prompt,
+        panel_scope: normalizarPanelScope(t.panel_scope),
+        exclude_self: t.exclude_self === true,
       },
       baseUrl,
       credentialId,

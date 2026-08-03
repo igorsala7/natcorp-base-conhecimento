@@ -79,11 +79,26 @@ function cosseno(a: number[], b: number[]): number {
 }
 
 type ToolRow = { key: string; name: string; description: string; embedding: unknown; active: boolean };
+type CatalogoItem = { key: string; name: string; description: string; emb: number[] };
 
-/** Carrega as tools ATIVAS da base com seus embeddings (só as com embedding). */
-async function loadCatalogo(db: DB, baseCode: string): Promise<{ key: string; name: string; description: string; emb: number[] }[]> {
+// Cache EM MEMÓRIA do catálogo (embeddings das tools) — antes relido do Supabase a
+// cada `matchBaseTools`. TTL curto; zerado por invalidateBaseContext ao editar tools.
+const catalogoCache = new Map<string, { exp: number; cat: CatalogoItem[] }>();
+const CATALOGO_TTL = 60_000;
+
+/** Zera o cache do catálogo de embeddings (chamado por invalidateBaseContext). */
+export function invalidateCatalogo(baseCode?: string): void {
+  if (baseCode) catalogoCache.delete(baseCode.trim().toLowerCase());
+  else catalogoCache.clear();
+}
+
+/** Carrega as tools ATIVAS da base com seus embeddings (só as com embedding). Cacheado. */
+async function loadCatalogo(db: DB, baseCode: string): Promise<CatalogoItem[]> {
   const alvo = String(baseCode ?? "").trim();
   if (!alvo) return [];
+  const chave = alvo.toLowerCase();
+  const hit = catalogoCache.get(chave);
+  if (hit && hit.exp > Date.now()) return hit.cat;
   const { data: base } = await db.from("ai_bases").select("id").ilike("base_code", alvo).eq("active", true).maybeSingle();
   if (!base) return [];
   const { data: rows } = await db
@@ -91,11 +106,13 @@ async function loadCatalogo(db: DB, baseCode: string): Promise<{ key: string; na
     .select("tool:ai_tools(key, name, description, embedding, active)")
     .eq("base_id", base.id)
     .eq("enabled", true);
-  return (rows ?? [])
+  const cat = (rows ?? [])
     .map((r) => (r as { tool: ToolRow | null }).tool)
     .filter((t): t is ToolRow => !!t && t.active)
     .map((t) => ({ key: t.key, name: t.name, description: t.description, emb: parseEmb(t.embedding) }))
-    .filter((t): t is { key: string; name: string; description: string; emb: number[] } => !!t.emb && t.emb.length > 0);
+    .filter((t): t is CatalogoItem => !!t.emb && t.emb.length > 0);
+  catalogoCache.set(chave, { exp: Date.now() + CATALOGO_TTL, cat });
+  return cat;
 }
 
 /**

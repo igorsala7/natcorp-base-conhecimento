@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
   // assume a especialização, então a classificação de tools é peso morto.
   const pularAnaliseIntegracoes = (continuation && !!payload.emptyReport) || modoRelatorioCedo;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes, payload.scope?.tools?.map((t) => t.k))
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });

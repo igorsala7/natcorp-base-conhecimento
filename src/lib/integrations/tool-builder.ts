@@ -10,7 +10,13 @@ import { perfilAtende, acessoFerramenta } from "./gating";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { injetarDataset, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
+import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
+import { selecionarTopK } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
+
+/** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
+ *  o payload enxuto e a escolha precisa mesmo com módulos gordos. Ver tool-narrow.ts. */
+const MAX_TOOLS_MODELO = 12;
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
@@ -55,6 +61,8 @@ export async function buildIntegrationTools(
    *  TELA (coleta/sugestão de filtro) onde as tools de integração são cortadas de
    *  qualquer forma. Mantém a PERSONA e as capacidades; só evita a ida ao modelo (~1s). */
   skipAnalise?: boolean,
+  /** Keys que NUNCA podem ser cortadas pelo top-K (ex.: a tool forçada pelo escopo do widget). */
+  sempreIncluir?: string[],
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -106,22 +114,32 @@ export async function buildIntegrationTools(
     if (cred?.secret.session_key) {
       const res = await resolveIdentity({ baseUrl: primary.baseUrl!, credential: cred, identity });
       if (!res.ok) {
-        return {
-          tools: {},
-          capabilities:
-            "Não foi possível validar este usuário no sistema agora. Responda apenas com a " +
-            "documentação e oriente-o a procurar o RH para dados pessoais.",
-          agentPrompt: "",
-        };
-      }
-      ident = res.identity;
-      profileEmail = res.profile?.email ?? null;
-      if (res.profile?.nome) {
-        profileNote =
-          `Usuário identificado: ${res.profile.nome}` +
-          (res.profile.cargo ? ` — ${res.profile.cargo}` : "") +
-          (res.profile.perfil ? ` (${res.profile.perfil})` : "") +
-          ". ";
+        // Falha do login do colaborador — antes invisível no trace. Agora registra o
+        // MOTIVO (login_recusado / sem_resposta / timeout / erro_rede) para diagnóstico.
+        onPasso?.("identidade", { validado: false, motivo: res.motivo ?? "falha", operador, empresa: identity.cod_empresa });
+        // O OPERADOR (portal PO) tem acesso full que NÃO depende do login do colaborador:
+        // segue com a identidade do token (sem enriquecer) em vez de perder todas as tools.
+        // Os demais painéis falham FECHADO (sem tools de dados; só documentação).
+        if (!operador) {
+          return {
+            tools: {},
+            capabilities:
+              "Não foi possível validar este usuário no sistema agora. Responda apenas com a " +
+              "documentação e oriente-o a procurar o RH para dados pessoais.",
+            agentPrompt: "",
+          };
+        }
+      } else {
+        ident = res.identity;
+        profileEmail = res.profile?.email ?? null;
+        if (res.profile?.nome) {
+          profileNote =
+            `Usuário identificado: ${res.profile.nome}` +
+            (res.profile.cargo ? ` — ${res.profile.cargo}` : "") +
+            (res.profile.perfil ? ` (${res.profile.perfil})` : "") +
+            ". ";
+        }
+        onPasso?.("identidade", { validado: true, nome: res.profile?.nome ?? null, perfil: res.identity.perfil ?? null });
       }
     }
   }
@@ -169,6 +187,13 @@ export async function buildIntegrationTools(
   };
   let chamadasIntegracao = 0;
   const MAX_CHAMADAS_INTEGRACAO = 40;
+  // ── 1) ELEGÍVEIS: passam curadoria + acesso + recorte por assunto + escopo de painel ──
+  const elegiveisTools: Array<{
+    bt: (typeof ctx.tools)[number];
+    escopo: ReturnType<typeof escopoDoPainel>;
+    paramsEscopo: ReturnType<typeof aplicarEscopoParams>;
+    loopEscopo: ReturnType<typeof loopSobEscopo>;
+  }> = [];
   for (const bt of ctx.tools) {
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
     // Allowlist (#4): portal × empresa × perfil por (base, ferramenta). Vazio = liberado.
@@ -183,10 +208,49 @@ export async function buildIntegrationTools(
     // parametrizado. Tool sem tag = sempre consultada (não há assunto para
     // excluir). Essenciais também passam sempre.
     if (routingAtivo && !bt.alwaysInclude && bt.modules.length > 0 && !toolNoRecorte(bt.modules, recorte)) continue;
+    // ESCOPO POR PAINEL (PO/PG/PC): "nenhum" tira a tool do painel; "próprios"/"equipe"
+    // reescrevem empresa/matrícula para a IDENTIDADE (a IA nem vê esses campos, então não
+    // há como pedir os dados de outra pessoa). "próprios" sem matrícula do usuário FALHA
+    // FECHADO — nunca cai para "todos".
+    const escopo = escopoDoPainel(bt.tool.panel_scope, portalAcesso);
+    if (escopo === "nenhum") {
+      onPasso?.("integracoes:escopo", { tool: bt.tool.key, painel: portalAcesso ?? "?", resultado: "bloqueada" });
+      continue;
+    }
+    if (escopo === "proprios" && !String(ident.matricula ?? "").trim()) {
+      onPasso?.("integracoes:escopo", { tool: bt.tool.key, resultado: "bloqueada (sem matrícula para 'próprios')" });
+      continue;
+    }
+    elegiveisTools.push({
+      bt,
+      escopo,
+      paramsEscopo: aplicarEscopoParams(bt.tool.params, escopo),
+      loopEscopo: loopSobEscopo(bt.tool.loop, bt.tool.params, escopo),
+    });
+  }
+
+  // ── 2) TOP-K por relevância LEXICAL (menos tokens + escolha mais precisa) ──────
+  // O classificador já estreitou para um assunto; aqui, nos módulos gordos (ex.: 26
+  // tools), ficamos só com as MAX_TOOLS_MODELO mais relevantes à pergunta. Essenciais/
+  // forçadas sempre entram; sem sinal lexical → mantém TODAS (não arrisca a assertividade).
+  // Custo ZERO — sem chamada de embedding (ver tool-narrow.ts).
+  const manter = selecionarTopK(
+    elegiveisTools.map((e) => ({ key: e.bt.tool.key, name: e.bt.tool.name, description: e.bt.tool.description ?? "", alwaysInclude: e.bt.alwaysInclude })),
+    question ?? "",
+    MAX_TOOLS_MODELO,
+    sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
+  );
+  const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
+  if (selecionadas.length < elegiveisTools.length) {
+    onPasso?.("integracoes:top_k", { de: elegiveisTools.length, para: selecionadas.length, mantidas: selecionadas.map((e) => e.bt.tool.key) });
+  }
+
+  // ── 3) BUILD: monta o toolset do AI SDK só das ferramentas selecionadas ────────
+  for (const { bt, escopo, paramsEscopo, loopEscopo } of selecionadas) {
     if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
-      inputSchema: buildModelSchema(bt.tool.params, bt.tool.loop),
+      inputSchema: buildModelSchema(paramsEscopo, loopEscopo),
       // Envelopa o retorno: se for uma LISTA, registra o dataset completo e injeta
       // `_dataset` (o relatório usa isso p/ incluir todas as linhas — ver #4).
       execute: async (args) => {
@@ -207,6 +271,20 @@ export async function buildIntegrationTools(
           // validar CADA valor de um loop (ex.: cada matrícula da equipe do gestor)
           // — a matrícula-alvo nunca é confiada cega.
           const runOnce = async (callArgs: Record<string, unknown>, stepIndex: number) => {
+            // Escopo por painel + "nunca os próprios": roda por CHAMADA (valida cada
+            // valor de um loop). "todos" sem exclude_self dispensa a checagem.
+            if (escopo !== "todos" || bt.tool.exclude_self) {
+              const gp = await runGuard("escopo_painel", {
+                baseUrl: bt.baseUrl!,
+                baseCode,
+                credential,
+                identity: ident,
+                modelArgs: callArgs,
+                panelScope: escopo,
+                excludeSelf: bt.tool.exclude_self === true,
+              });
+              if (!gp.ok) return { erro: gp.erro };
+            }
             if (bt.tool.guard) {
               const g = await runGuard(bt.tool.guard, {
                 baseUrl: bt.baseUrl!,
@@ -220,7 +298,7 @@ export async function buildIntegrationTools(
             }
             const t0 = Date.now();
             const doExec = () =>
-              executeTool({ tool: bt.tool, baseUrl: bt.baseUrl!, credential, modelArgs: callArgs, identity: ident });
+              executeTool({ tool: { ...bt.tool, params: paramsEscopo }, baseUrl: bt.baseUrl!, credential, modelArgs: callArgs, identity: ident });
             // Cache em memória p/ dados quase-estáticos (estrutura, equipe, cadastro):
             // evita rebater na API a cada mensagem. Só guarda resultados OK.
             let result: ExecResult | null = null;
@@ -247,7 +325,7 @@ export async function buildIntegrationTools(
                 stepIndex,
                 input: callArgs,
                 request: result?.request ?? null,
-                params: bt.tool.params,
+                params: paramsEscopo,
                 status,
                 ok,
                 output: saida,
@@ -271,6 +349,9 @@ export async function buildIntegrationTools(
             let dados = bt.tool.cache_ttl ? dedupItems(result.data) : result.data;
             const termo = typeof callArgs.termo === "string" ? callArgs.termo.trim() : "";
             if (termo) dados = filtrarPorTermo(dados, termo);
+            // "Nunca os próprios dados" (ex.: desligamento): tira as linhas do usuário
+            // que a API por acaso devolveu (backstop do guard, que barra pedir a si).
+            if (bt.tool.exclude_self) dados = filtrarProprioDosResultados(dados, String(ident.matricula ?? ""));
             // Arquivos em base64 são extraídos (para o canal entregar) e o base64
             // é removido do que volta ao modelo.
             const { cleaned, files } = extractDocumentsFromResult(dados);
@@ -279,8 +360,9 @@ export async function buildIntegrationTools(
             return cleaned;
           };
           // LOOP: o usuário pediu vários → o servidor itera e AGREGA num só
-          // resultado (o modelo faz UMA chamada em vez de N).
-          const loop = bt.tool.loop;
+          // resultado (o modelo faz UMA chamada em vez de N). Sob "próprios" o loop
+          // de matrícula/empresa é desligado (loopEscopo) — consulta é do próprio.
+          const loop = loopEscopo;
           // (a) Período mês a mês: modelo informa from/to; itera cada mês.
           if (loop?.unit === "month") {
             const inicio = loop.from ? String(modelArgs[loop.from] ?? "") : "";

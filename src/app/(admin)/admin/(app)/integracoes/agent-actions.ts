@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
+import { invalidateBaseContext } from "@/lib/integrations/resolve";
 import type { IntegResult } from "./actions";
 
 async function garantirPermissao(): Promise<string | null> {
@@ -97,6 +98,7 @@ export async function saveAgent(input: unknown): Promise<IntegResult> {
     spaceId: null,
     after: { key: a.key, tools: a.toolIds.length },
   });
+  invalidateBaseContext();
   revalidatePath("/admin/integracoes");
   return { ok: true, id: agentId };
 }
@@ -114,6 +116,7 @@ export async function linkAgentTool(agentId: string, toolId: string): Promise<In
     .upsert({ agent_id: agentId, tool_id: toolId }, { onConflict: "agent_id,tool_id", ignoreDuplicates: true });
   if (error) return { ok: false, error: `Falha ao vincular: ${error.message}` };
   await audit({ action: "integrations.agent_tool.link", entityType: "ai_agent_tool", entityId: `${agentId}:${toolId}`, spaceId: null });
+  invalidateBaseContext();
   revalidatePath("/admin/integracoes");
   return { ok: true };
 }
@@ -126,6 +129,7 @@ export async function unlinkAgentTool(agentId: string, toolId: string): Promise<
   const { error } = await supabase.from("ai_agent_tools").delete().eq("agent_id", agentId).eq("tool_id", toolId);
   if (error) return { ok: false, error: `Falha ao desvincular: ${error.message}` };
   await audit({ action: "integrations.agent_tool.unlink", entityType: "ai_agent_tool", entityId: `${agentId}:${toolId}`, spaceId: null });
+  invalidateBaseContext();
   revalidatePath("/admin/integracoes");
   return { ok: true };
 }
@@ -138,6 +142,7 @@ export async function deleteAgent(id: string): Promise<IntegResult> {
   const { error } = await supabase.from("ai_agents").delete().eq("id", id);
   if (error) return { ok: false, error: `Falha ao excluir: ${error.message}` };
   await audit({ action: "integrations.agent.delete", entityType: "ai_agent", entityId: id, spaceId: null });
+  invalidateBaseContext();
   revalidatePath("/admin/integracoes");
   return { ok: true };
 }
