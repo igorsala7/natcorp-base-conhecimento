@@ -284,20 +284,36 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
     key: "linha_tempo",
     name: "Linha do tempo do colaborador",
     description:
-      "Histórico/linha do tempo da vida do colaborador na empresa (admissão, promoções, " +
-      "afastamentos, etc.). Opcionalmente filtre por um tipo de fato (use `linha_tempo_fato` " +
-      "para descobrir os fatos disponíveis).",
+      "Histórico/linha do tempo do colaborador na empresa (admissão, mudanças de CARGO/salário, " +
+      "promoções, afastamentos, etc.). DEPENDÊNCIA OBRIGATÓRIA: o `fato` a passar aqui é um valor " +
+      "retornado por `linha_tempo_fato` — SEMPRE chame `linha_tempo_fato` ANTES (mesma matrícula) para " +
+      "descobrir o `fato` EXATO e escolha o que corresponde ao pedido (ex.: cargos → o fato de cargo); " +
+      "NUNCA invente o `fato`.",
     path_template: "/consultas/v1/linha_tempo",
-    params: [empresa(), matricula(), texto("fato", "Tipo/assunto do fato a filtrar, quando o usuário especificar."), OBRIGA],
+    params: [
+      empresa(),
+      matricula(),
+      texto(
+        "fato",
+        "Tipo de fato a consultar. DEVE ser EXATAMENTE um dos valores retornados por linha_tempo_fato para " +
+          "esta matrícula (chame-a ANTES) — ex.: o fato de cargo para 'histórico de cargos'. Não invente.",
+        true,
+      ),
+      OBRIGA,
+    ],
   },
   {
     key: "linha_tempo_fato",
     name: "Fatos da linha do tempo",
     description:
-      "Lista os TIPOS de fato disponíveis na linha do tempo do colaborador. Use antes de " +
-      "filtrar `linha_tempo` por um fato específico.",
+      "Lista os TIPOS de fato disponíveis na linha do tempo do colaborador (ex.: cargo, salário, " +
+      "afastamento). Chame ANTES de `linha_tempo`: os valores retornados aqui são os ÚNICOS válidos no " +
+      "parâmetro `fato` de `linha_tempo`. Passo 1 do fluxo (passo 2 = linha_tempo com o `fato` escolhido).",
     path_template: "/consultas/v1/linha_tempo/fato",
     params: [empresa(), matricula(), OBRIGA],
+    response_hint:
+      "Escolha o `fato` que corresponde ao que o usuário pediu (ex.: cargos → o fato de cargo) e então " +
+      "chame linha_tempo com esse `fato` e a mesma matrícula. Se pediu vários colaboradores, passe a lista de matrículas.",
   },
   {
     key: "historico_financeiro",
