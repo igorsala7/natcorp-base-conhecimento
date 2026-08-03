@@ -320,7 +320,8 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
     name: "Histórico financeiro (eventos)",
     description:
       "Eventos financeiros (proventos e descontos) do colaborador. Para um único mês, informe " +
-      "periodo_ini; para um período (ex.: o ano todo), periodo_ini e periodo_fim — o sistema traz mês a mês.",
+      "periodo_ini; para um período (ex.: o ano todo), periodo_ini e periodo_fim — o sistema traz mês a mês. " +
+      "Se o usuário não indicou um mês, liste os disponíveis com historico_financeiro_meses antes.",
     path_template: "/consultas/v1/eventos_financeiros",
     params: [
       empresa(),
@@ -340,6 +341,9 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
       "Use para oferecer ao usuário os períodos válidos antes de consultar um mês.",
     path_template: "/relatorios/v1/recibo_pagamento/meses",
     params: [empresa("cod_empresa"), matricula(), fixo("origem", "HF"), OBRIGA],
+    response_hint:
+      "É a fonte dos meses VÁLIDOS. Ofereça-os ao usuário; ao escolher, chame historico_financeiro (eventos) " +
+      "ou relatorio_recibo_pagamento (PDF) com o mês. Não invente meses que não estejam nesta lista.",
   },
   {
     key: "consultar_feedback",
@@ -432,6 +436,9 @@ export const NATCORP_TOOLS_COLAB: NatcorpTool[] = [
       "os períodos válidos antes de gerar o aviso.",
     path_template: "/relatorios/v1/aviso_ferias/meses",
     params: [empresa("cod_empresa"), matricula(), OBRIGA],
+    response_hint:
+      "É a fonte dos períodos VÁLIDOS. Ofereça-os ao usuário; ao escolher, chame relatorio_aviso_ferias com " +
+      "esse período (data_ini/data_fim). Não invente períodos fora desta lista.",
   },
   {
     key: "relatorio_espelho_ponto",
@@ -593,9 +600,9 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     key: "estrutura_filiais",
     name: "Estrutura: filiais",
     description:
-      "Lista as FILIAIS (código e nome) — informe o código da empresa (já resolvido). Use para " +
-      "RESOLVER um NOME de filial em CÓDIGO (cod_filial): case o nome dito (ex.: 'Matriz') com o nome " +
-      "na lista da empresa.",
+      "Lista as FILIAIS (código e nome) de uma empresa. Passe o código da empresa (resolva o NOME da " +
+      "empresa com estrutura_empresas ANTES, se o usuário deu o nome). Use para RESOLVER um NOME de filial " +
+      "em CÓDIGO (cod_filial): case o nome dito (ex.: 'Matriz') com o nome na lista da empresa.",
     path_template: "/estrutura/v1/filial",
     params: [filtro("empresa", "Código da empresa (já resolvido)."), termo(), usuario()],
     cache_ttl: 1800,
@@ -635,7 +642,9 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
   {
     key: "estrutura_funcoes",
     name: "Estrutura: funções",
-    description: "Lista as FUNÇÕES (código e nome) de um cargo.",
+    description:
+      "Lista as FUNÇÕES (código e nome) de um cargo. Passe o código do cargo (resolva o NOME do cargo com " +
+      "estrutura_cargos ANTES, se o usuário deu o nome).",
     path_template: "/estrutura/v1/funcao",
     params: [filtro("cargo", "Código do cargo."), termo(), usuario()],
     cache_ttl: 1800,
@@ -648,7 +657,10 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
       "BI de histórico financeiro da organização: totais (valor, horas, qtde) por ocorrência, " +
       "AGRUPADOS conforme `agrupamento`. Dados GERAIS — não use para um colaborador específico. " +
       "Informe a EMPRESA (código) e o período (periodo_ini; e periodo_fim para um intervalo). Os demais " +
-      "filtros (filial, cargo, centro de custo, unidade adm.) são opcionais e devem casar com o agrupamento.",
+      "filtros (filial, cargo, centro de custo, unidade adm.) são opcionais e devem casar com o agrupamento. " +
+      "DEPENDÊNCIA: todos os filtros são CÓDIGOS. Se o usuário deu NOMES (ex.: empresa 'Natcorp', filial " +
+      "'Matriz', cargo 'Analista'), resolva cada um em código ANTES com a estrutura_* correspondente " +
+      "(estrutura_empresas, estrutura_filiais, estrutura_cargos, estrutura_centros_custo, estrutura_unidades_adm); NUNCA invente o código.",
     path_template: "/financeiro/agrupamento/hist/finan/v1/{agrupamento}",
     params: [
       agrupamento(
@@ -681,7 +693,10 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
     description:
       "BI de Segurança do Trabalho (SESMT): riscos ocupacionais e qtde de expostos, AGRUPADOS conforme " +
       "`agrupamento`. Dados GERAIS da organização. Informe a EMPRESA (código); os demais filtros (filial, " +
-      "centro de custo, cargo, função, local) são opcionais e devem casar com o agrupamento escolhido.",
+      "centro de custo, cargo, função, local) são opcionais e devem casar com o agrupamento escolhido. " +
+      "DEPENDÊNCIA: todos os filtros são CÓDIGOS. Se o usuário deu NOMES, resolva cada um em código ANTES " +
+      "com a estrutura_* correspondente (estrutura_empresas, estrutura_filiais, estrutura_centros_custo, " +
+      "estrutura_cargos, estrutura_funcoes, estrutura_locais_trabalho); NUNCA invente o código.",
     path_template: "/sesmt/seguranca/agrupamento/risco/v1/{agrupamento}",
     params: [
       agrupamento(
