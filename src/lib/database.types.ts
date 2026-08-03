@@ -812,6 +812,8 @@ export type Database = {
           key: string
           loop: Json | null
           always_include: boolean
+          panel_scope: Json | null
+          exclude_self: boolean
           method: string
           name: string
           params: Json
@@ -837,6 +839,8 @@ export type Database = {
           key: string
           loop?: Json | null
           always_include?: boolean
+          panel_scope?: Json | null
+          exclude_self?: boolean
           method?: string
           name: string
           params?: Json
@@ -862,6 +866,8 @@ export type Database = {
           key?: string
           loop?: Json | null
           always_include?: boolean
+          panel_scope?: Json | null
+          exclude_self?: boolean
           method?: string
           name?: string
           params?: Json

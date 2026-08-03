@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { getOAuthToken } from "./oauth";
 import type { RuntimeCredential } from "./executor";
 import type { Identity } from "./params";
+import type { EscopoPainel } from "./panel-scope";
 
 export type GuardResult = { ok: true } | { ok: false; erro: string };
 
@@ -39,6 +40,10 @@ export type GuardContext = {
   fetchImpl?: typeof fetch;
   /** Deps do guard de confirmação (só usadas por saque_confirmation). */
   confirm?: ConfirmDeps;
+  /** Escopo por painel resolvido para o usuário (usado por escopo_painel). */
+  panelScope?: EscopoPainel;
+  /** "Nunca os próprios dados" (usado por escopo_painel). */
+  excludeSelf?: boolean;
 };
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -177,9 +182,50 @@ async function escopoPessoa(ctx: GuardContext): Promise<GuardResult> {
     : { ok: false, erro: "Você só pode consultar colaboradores da SUA equipe (Painel do Gestor)." };
 }
 
+/**
+ * ESCOPO POR PAINEL configurável (ai_tools.panel_scope) — roda por chamada. Diferente
+ * de `escopo_pessoa` (que fixa PO=todos/PG=equipe/PC=próprios), aqui o alcance vem da
+ * configuração da tool para o painel do usuário, já resolvido em `ctx.panelScope`:
+ *   - "proprios": a matrícula/empresa já foram forçadas à identidade; aqui é só a rede
+ *     (recusa se, por algum motivo, vier uma matrícula diferente da própria).
+ *   - "equipe": a matrícula-alvo precisa estar na equipe do gestor.
+ *   - "todos": libera (o sistema aplica o acesso já parametrizado).
+ * `excludeSelf` (ex.: requisição de desligamento) recusa mirar a PRÓPRIA matrícula em
+ * qualquer escopo — o filtro dos RESULTADOS (linhas próprias) é feito no motor.
+ */
+async function escopoPainel(ctx: GuardContext): Promise<GuardResult> {
+  const scope: EscopoPainel = ctx.panelScope ?? "todos";
+  const own = String(ctx.identity.matricula ?? "").trim();
+  const alvo = String(ctx.modelArgs.matricula ?? "").trim();
+
+  if (ctx.excludeSelf && alvo && alvo === own)
+    return { ok: false, erro: "Você não pode consultar os SEUS próprios dados nesta ferramenta." };
+
+  if (scope === "proprios") {
+    if (!alvo || alvo === own) return { ok: true };
+    return { ok: false, erro: "No seu painel você só pode consultar os SEUS próprios dados." };
+  }
+  if (scope === "equipe") {
+    if (!alvo || alvo === own) return { ok: true }; // sem alvo = os próprios
+    if (!ctx.credential?.secret.session_key || !ctx.identity.usuario)
+      return { ok: false, erro: "Não foi possível validar sua equipe agora. Tente mais tarde." };
+    let team: Set<string>;
+    try {
+      team = await fetchGestorTeam(ctx);
+    } catch {
+      return { ok: false, erro: "Não foi possível validar sua equipe agora. Tente mais tarde." };
+    }
+    return team.has(alvo)
+      ? { ok: true }
+      : { ok: false, erro: "Você só pode consultar colaboradores da SUA equipe." };
+  }
+  return { ok: true }; // "todos"
+}
+
 const GUARDS: Record<string, (ctx: GuardContext) => Promise<GuardResult>> = {
   team_membership: teamMembership,
   escopo_pessoa: escopoPessoa,
+  escopo_painel: escopoPainel,
   saque_confirmation: saqueConfirmation,
 };
 

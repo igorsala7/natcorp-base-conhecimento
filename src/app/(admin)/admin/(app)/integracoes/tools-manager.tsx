@@ -24,6 +24,7 @@ import {
   type LoopConfig,
   type ToolParam,
 } from "@/lib/integrations/tools";
+import { type EscopoPainel, type PanelScopeMap } from "@/lib/integrations/panel-scope";
 import { saveTool, deleteTool, duplicateTool, listarPerfisDaBase, setToolFlags, bulkSetToolModules, bulkSetToolAccess } from "./tool-actions";
 import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
@@ -53,7 +54,33 @@ export type ToolRow = {
   guard: string | null;
   cache_ttl: number | null;
   loop: LoopConfig | null;
+  /** Escopo de dados por painel (PO/PG/PC). NULL = "todos" para todos os painéis. */
+  panel_scope: PanelScopeMap | null;
+  /** Nunca traz/mira os próprios dados do usuário (ex.: requisição de desligamento). */
+  exclude_self: boolean;
 };
+
+/** Patch de flags de nível-tool (edição inline da tabela + edição em lote). */
+type FlagPatch = {
+  active?: boolean;
+  always_include?: boolean;
+  loop?: LoopConfig | null;
+  panel_scope?: PanelScopeMap | null;
+  exclude_self?: boolean;
+};
+
+/** Rótulos e ordem dos painéis (PO/PG/PC) para os seletores de escopo. */
+const PORTAL_LABEL: Record<"PO" | "PG" | "PC", string> = {
+  PO: PORTAIS.find((p) => p.code === "PO")?.label ?? "Operador",
+  PG: PORTAIS.find((p) => p.code === "PG")?.label ?? "Gestor",
+  PC: PORTAIS.find((p) => p.code === "PC")?.label ?? "Colaborador",
+};
+const ESCOPO_OPCOES: { v: EscopoPainel; label: string; hint: string }[] = [
+  { v: "nenhum", label: "— (bloqueada)", hint: "A ferramenta não aparece para este painel." },
+  { v: "proprios", label: "Próprios dados", hint: "Força a empresa/matrícula do próprio usuário." },
+  { v: "equipe", label: "Dados da equipe", hint: "Só colaboradores da equipe do gestor." },
+  { v: "todos", label: "Todos os dados", hint: "Respeita o acesso já parametrizado no sistema." },
+];
 
 type CredentialOption = { id: string; name: string; base: string };
 
@@ -143,7 +170,7 @@ export function ToolsManager({
   // Edição inline (tabela) de flags tool-level. Silencioso (só refresh) para não
   // encher de toast a cada clique. Ligar Loop usa a config padrão (mês a mês) —
   // ajuste fino no editor.
-  function toggleFlag(t: ToolRow, patch: { active?: boolean; always_include?: boolean; loop?: LoopConfig | null }) {
+  function toggleFlag(t: ToolRow, patch: FlagPatch) {
     run(() => setToolFlags({ toolIds: [t.id], ...patch }));
   }
 
@@ -160,7 +187,7 @@ export function ToolsManager({
   function toggleAll(checked: boolean) {
     setSelectedIds(checked ? new Set(tools.map((t) => t.id)) : new Set());
   }
-  function bulkFlag(patch: { active?: boolean; always_include?: boolean; loop?: LoopConfig | null }) {
+  function bulkFlag(patch: FlagPatch) {
     if (!selArr.length) return;
     run(() => setToolFlags({ toolIds: selArr, ...patch }), `${selArr.length} tool(s) atualizada(s).`);
   }
@@ -377,7 +404,7 @@ function ToolsTable({
   onEdit: (t: ToolRow) => void;
   onDelete: (t: ToolRow) => void;
   onDuplicate: (t: ToolRow) => void;
-  onFlag: (t: ToolRow, patch: { active?: boolean; always_include?: boolean; loop?: LoopConfig | null }) => void;
+  onFlag: (t: ToolRow, patch: FlagPatch) => void;
 }) {
   const th = "px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-muted";
   const td = "px-2.5 py-2 align-middle";
@@ -398,6 +425,7 @@ function ToolsTable({
             <th className={`${th} text-center`}>Loop</th>
             <th className={`${th} text-center`}>Módulos</th>
             <th className={`${th} text-center`}>Bases</th>
+            <th className={`${th} text-center`} title="Alcance da consulta por painel: Operador · Gestor · Colaborador">Escopo · PO/PG/PC</th>
             <th className={th}></th>
           </tr>
         </thead>
@@ -447,6 +475,9 @@ function ToolsTable({
                 )}
               </td>
               <td className={`${td} text-center tabular-nums text-text-muted`}>{basesCount.get(t.id)?.length ?? 0}</td>
+              <td className={`${td} text-center`}>
+                <PanelScopeCell tool={t} disabled={pending} onFlag={onFlag} />
+              </td>
               <td className={`${td} whitespace-nowrap text-right`}>
                 <Button size="sm" variant="ghost" onClick={() => onEdit(t)} title="Editar">
                   <Pencil />
@@ -462,6 +493,59 @@ function ToolsTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * Célula de ESCOPO POR PAINEL (edição inline). Três seletores compactos (PO/PG/PC),
+ * cada um: — (bloqueada) · Próprios · Equipe · Todos. Ausência de config = "Todos".
+ * Um seletor "≠eu" indica quando a tool nunca pode trazer os próprios dados.
+ */
+function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: boolean; onFlag: (t: ToolRow, patch: FlagPatch) => void }) {
+  const cur = tool.panel_scope ?? {};
+  const val = (p: "PO" | "PG" | "PC"): EscopoPainel => cur[p] ?? "todos";
+  const set = (p: "PO" | "PG" | "PC", v: EscopoPainel) =>
+    onFlag(tool, { panel_scope: { PO: val("PO"), PG: val("PG"), PC: val("PC"), [p]: v } });
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {(["PO", "PG", "PC"] as const).map((p) => {
+        const v = val(p);
+        return (
+          <label key={p} className="flex flex-col items-center gap-0.5">
+            <span className="text-[10px] font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p}</span>
+            <select
+              aria-label={`Escopo ${PORTAL_LABEL[p]} de ${tool.name}`}
+              title={ESCOPO_OPCOES.find((o) => o.v === v)?.hint}
+              disabled={disabled}
+              value={v}
+              onChange={(e) => set(p, e.target.value as EscopoPainel)}
+              className={`rounded border bg-surface px-1 py-0.5 text-xs ${
+                v === "nenhum"
+                  ? "border-border text-text-muted"
+                  : v === "todos"
+                    ? "border-border text-text"
+                    : "border-[var(--color-primary)]/40 text-[var(--color-primary)]"
+              }`}
+            >
+              {ESCOPO_OPCOES.map((o) => (
+                <option key={o.v} value={o.v}>{o.v === "nenhum" ? "—" : o.v === "proprios" ? "Próprio" : o.v === "equipe" ? "Equipe" : "Todos"}</option>
+              ))}
+            </select>
+          </label>
+        );
+      })}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onFlag(tool, { exclude_self: !tool.exclude_self })}
+        title={tool.exclude_self ? "Nunca os próprios dados — ligado (clique p/ desligar)" : "Permitir os próprios dados (clique p/ nunca mostrar os próprios)"}
+        className={`ml-0.5 self-end rounded border px-1 py-0.5 text-[10px] font-medium ${
+          tool.exclude_self ? "border-[var(--color-accent)] text-[var(--color-accent)]" : "border-border text-text-muted"
+        }`}
+      >
+        ≠eu
+      </button>
     </div>
   );
 }
@@ -511,7 +595,7 @@ function BulkBar({
 }: {
   count: number;
   pending: boolean;
-  onFlag: (patch: { active?: boolean; always_include?: boolean; loop?: LoopConfig | null }) => void;
+  onFlag: (patch: FlagPatch) => void;
   onModulos: () => void;
   onAcesso: () => void;
   onClear: () => void;
@@ -850,6 +934,13 @@ export function ToolDialog({
   const [loopFrom, setLoopFrom] = useState(tool?.loop?.from ?? "periodo_ini");
   const [loopTo, setLoopTo] = useState(tool?.loop?.to ?? "periodo_fim");
   const [loopMax, setLoopMax] = useState(tool?.loop?.max != null ? String(tool.loop.max) : "24");
+  // Escopo por painel (PO/PG/PC) + "nunca os próprios dados".
+  const [panelScope, setPanelScope] = useState<PanelScopeMap>(() => ({
+    PO: tool?.panel_scope?.PO ?? "todos",
+    PG: tool?.panel_scope?.PG ?? "todos",
+    PC: tool?.panel_scope?.PC ?? "todos",
+  }));
+  const [excludeSelf, setExcludeSelf] = useState(tool?.exclude_self ?? false);
   // Acesso por base (shuttle) + allowlists de portal/perfil por base (#4).
   const [baseIds, setBaseIds] = useState<Set<string>>(new Set(initialBaseIds));
   const [acesso, setAcesso] = useState<Record<string, { portais: string[]; empresas: string[]; perfis: string[] }>>(initialAcesso);
@@ -892,6 +983,8 @@ export function ToolDialog({
       guard: guard.trim() || null,
       cache_ttl: cache && Number.isFinite(cache) ? cache : null,
       loop,
+      panel_scope: panelScope,
+      exclude_self: excludeSelf,
       bases: [...baseIds].map((id) => ({
         id,
         portais: acesso[id]?.portais ?? [],
@@ -1055,6 +1148,34 @@ export function ToolDialog({
           ) : (
             <Shuttle items={moduleItems} selected={tags} onChange={setTags} leftTitle="Módulos disponíveis" rightTitle="Tags desta tool" />
           )}
+        </div>
+
+        {/* Escopo por painel (PO/PG/PC) — controle de acesso a dados de pessoas */}
+        <div className="rounded-lg border border-border bg-surface-2/40 p-3">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted">Escopo por painel (PO/PG/PC)</span>
+          <p className="mb-2 text-xs leading-relaxed text-text-muted">
+            Alcance da consulta de <strong>empresa/matrícula</strong> por painel. <em>Próprios</em> força os dados do
+            próprio usuário (a IA nem vê o campo); <em>Equipe</em> valida a matrícula na equipe do gestor; <em>Todos</em>{" "}
+            respeita o acesso já parametrizado no sistema; <em>—</em> bloqueia a ferramenta para o painel.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {(["PO", "PG", "PC"] as const).map((p) => (
+              <Field key={p} label={`${p} · ${PORTAL_LABEL[p]}`} htmlFor={`scope_${p}`}>
+                <select
+                  id={`scope_${p}`}
+                  className={controlClass}
+                  value={panelScope[p] ?? "todos"}
+                  onChange={(e) => setPanelScope((s) => ({ ...s, [p]: e.target.value as EscopoPainel }))}
+                >
+                  {ESCOPO_OPCOES.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                </select>
+              </Field>
+            ))}
+          </div>
+          <label className="mt-2 flex items-center gap-2 text-sm text-text">
+            <input type="checkbox" checked={excludeSelf} onChange={(e) => setExcludeSelf(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
+            Nunca os próprios dados (ex.: requisição de desligamento — o usuário não pode se ver)
+          </label>
         </div>
 
         {/* Avançado */}

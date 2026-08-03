@@ -1,5 +1,6 @@
 import type { AuthType } from "./credentials";
 import type { LoopConfig, ToolParam } from "./tools";
+import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 
@@ -23,6 +24,10 @@ export type RuntimeTool = {
   loop?: LoopConfig | null;
   /** Instrução própria da tool, concatenada ao prompt quando a tool está ativa. */
   system_prompt?: string | null;
+  /** Escopo de dados por painel (PO/PG/PC). NULL/ausente = "todos" (sem recorte extra). */
+  panel_scope?: PanelScopeMap | null;
+  /** Nunca traz/mira os PRÓPRIOS dados do usuário (ex.: requisição de desligamento). */
+  exclude_self?: boolean | null;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */
