@@ -350,6 +350,10 @@ export async function POST(req: NextRequest) {
   const _stRel = Array.isArray(payload.screenTables) && payload.screenTables[0] && typeof payload.screenTables[0] === "object" ? (payload.screenTables[0] as { nome?: unknown; colunas?: unknown }) : null;
   const relNome = String((_rdRel?.nome ?? _stRel?.nome) ?? "Relatório").slice(0, 160);
   const relCols = (Array.isArray(_rdRel?.colunas) ? _rdRel!.colunas : Array.isArray(_stRel?.colunas) ? _stRel!.colunas : []).map((c) => String(c)).filter(Boolean).slice(0, 60);
+  // Pergunta EXPLICITAMENTE sobre a tela atual ("nesta página", "na tela", "esses N
+  // registros") → o usuário quer o relatório que está olhando, mesmo que exista uma tool
+  // do mesmo assunto: não pergunta a fonte. (Definido aqui em cima porque o roteador usa.)
+  const RX_PAGINA_ATUAL = /p[áa]gina atual|nesta p[áa]gina|\bna tela\b|vis[íi]ve|aparente|ess[ae]s? \d+ (linhas|registros)|estes registros|essa p[áa]gina|o que (est[áa]|aparece|tem) (na tela|aqui)|apenas (o que|os que)/i;
   // ROTEAMENTO DE FONTE (decidido ANTES de montar as tools): o usuário está em modo
   // relatório, mas se a mensagem casa com tool(s) E NÃO tem relação com o relatório
   // (título/colunas/labels), vai DIRETO para a tool — sem perguntar a fonte (a
@@ -370,9 +374,12 @@ export async function POST(req: NextRequest) {
   // Roteou AUTOMATICAMENTE para o relatório da tela (a tela bate e nenhuma tool é
   // fortemente similar) — assume o relatório SEM perguntar a fonte (regra do usuário).
   let roteouRelatorioDireto = false;
-  // Uma tool só é "concorrente forte" da tela acima deste limiar; abaixo, a tela vence
-  // (o usuário está OLHANDO o relatório). Entre relação-com-tela E tool forte → ambíguo.
-  const LIMIAR_TOOL_FORTE = 0.85;
+  // Uma tool é "concorrente forte" da tela acima deste limiar; abaixo, a tela vence (o
+  // usuário está OLHANDO o relatório). Entre relação-com-tela E tool forte → AMBÍGUO
+  // (pergunta). 0.75 (era 0.85): uma tool que cobre o MESMO assunto da tela (ex.: dados de
+  // colaboradores numa tela que tem colaboradores) casa ~0.75-0.84 — antes isso ia SILENCIOSO
+  // pro relatório; agora pergunta, nomeando a tool. (matchBaseTools já filtra em ≥0.70.)
+  const LIMIAR_TOOL_FORTE = 0.75;
   // Roda quando o usuário NÃO escolheu explicitamente "IA" (fonte "relatorio" OU
   // nenhuma) e há relatório na tela: mesmo sem escolher a fonte, se a mensagem casa
   // com uma tool e NÃO tem relação com a tela, é uma pergunta de TOOL — não do
@@ -381,18 +388,21 @@ export async function POST(req: NextRequest) {
     matchesCache = await matchBaseTools(supabase, baseCode, consultaTool);
     relacionaTela = mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto);
     const topSim = matchesCache[0]?.sim ?? 0;
+    const paginaExplicita = RX_PAGINA_ATUAL.test(question);
     if (matchesCache.length > 0 && !relacionaTela) {
       // Casa com tool e NÃO tem relação com a tela → pergunta de TOOL: vai direto à IA.
       fonteEfetiva = "ia";
       roteouDireto = true;
-    } else if (relacionaTela && topSim < LIMIAR_TOOL_FORTE) {
-      // A tela BATE com a mensagem e nenhuma tool é fortemente similar → o usuário quer
-      // o RELATÓRIO que está olhando: assume sem perguntar (regra A).
+    } else if (relacionaTela && (paginaExplicita || topSim < LIMIAR_TOOL_FORTE)) {
+      // A tela BATE e (a) a pergunta é EXPLÍCITA da página ("nesta tela", "esses N registros")
+      // OU (b) nenhuma tool é fortemente similar → o usuário quer o RELATÓRIO que está
+      // olhando: assume sem perguntar (regra A).
       fonteEfetiva = "relatorio";
       roteouRelatorioDireto = true;
     }
-    // relacionaTela && topSim >= LIMIAR_TOOL_FORTE → AMBÍGUO (bate nos dois com força):
-    // deixa fonteEfetiva indefinida → o GATE abaixo pergunta a fonte.
+    // relacionaTela && topSim >= LIMIAR_TOOL_FORTE && !paginaExplicita → AMBÍGUO (uma tool
+    // cobre o mesmo assunto da tela): deixa fonteEfetiva indefinida → o GATE abaixo pergunta
+    // a fonte, NOMEANDO a(s) tool(s) casada(s).
   }
   // COMPOSTO por TOOL (detecção robusta de "precisa de tool"): há relatório na tela E uma
   // tool casou com a mensagem trazendo um dado de OUTRO domínio (termo da tool NÃO aparece
@@ -429,7 +439,7 @@ export async function POST(req: NextRequest) {
   // roda depois — ambos independem do RAG. Aqui só decidimos se o RAG de DOCUMENTAÇÃO é
   // peso morto neste turno (coleta do relatório ou sugestão de filtro de relatório vazio).
   const RX_DADOS_REL = /an[áa]lis|resum|relat[óo]ri|planilha|excel|\bcsv\b|\bpdf\b|\bword\b|power\s?point|\bppt\b|gr[áa]fic|export|\btotal|\bsoma|m[ée]dia|quant|maior|menor|compar|estat[íi]st|percentu|ranking|\btop\b|\bdados\b|registros|\bfolha\b|consolidad|listar|liste|filtr|agrup|antig|recent|prime[ir]|[úu]ltim|mais (nov|velh|antig|recent)|\bque (t[êe]m|possu|cont[êe]m|estejam?|est[ãa]o)\b/i;
-  const RX_PAGINA_ATUAL = /p[áa]gina atual|nesta p[áa]gina|\bna tela\b|vis[íi]ve|aparente|ess[ae]s? \d+ (linhas|registros)|estes registros|essa p[áa]gina|o que (est[áa]|aparece|tem) (na tela|aqui)|apenas (o que|os que)/i;
+  // RX_PAGINA_ATUAL foi movida para antes do roteador de fonte (o roteador a usa).
   // ── B: RELATÓRIO VAZIO (IR/IG na tela/coletado com 0 linhas) → oferecer FILTRAR ──
   // O sinal `emptyReport` vem do widget: (1) a coleta do relatório retornou 0 linhas
   // (confiável, mesmo com OUTRAS tabelas na tela), ou (2) heurística de DOM.
@@ -733,18 +743,24 @@ export async function POST(req: NextRequest) {
   // deixou fonteEfetiva indefinida). Se roteou direto p/ relatório (roteouRelatorioDireto)
   // ou p/ IA (roteouDireto), ou a mensagem NÃO tem relação com a tela, não pergunta.
   if (temRelatorioNaTela && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
+    // Ambíguo: a tela cobre o assunto E há tool(s) que também cobrem. NOMEIA as tool(s)
+    // casada(s) como opção (era o vago "Conhecimento da IA") — o usuário vê que dá p/
+    // buscar "dados de colaboradores" e não só "no relatório desta tela".
+    const toolsAmb = (matchesCache ?? []).slice(0, 3);
+    const opcoesFonte: unknown[] = [
+      // `direto: true` = escolha AUTORITATIVA: não re-perguntar a fonte (o usuário decidiu).
+      { id: "relatorio", label: `📄 ${relNome.slice(0, 44)} (esta tela)`, scope: { fonte: "relatorio", direto: true } },
+      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
+    ];
+    // Sem tool nomeada (não deveria ocorrer aqui): mantém o conhecimento genérico.
+    if (!toolsAmb.length) opcoesFonte.push({ id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia" } });
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(
           sse({
             type: "clarify",
-            question: "Quer que eu responda com base no RELATÓRIO desta tela ou com o CONHECIMENTO da IA?",
-            options: [
-              // `direto: true` = escolha AUTORITATIVA: não re-perguntar a fonte no GATE 1
-              // (o usuário já decidiu o relatório; evita a 2ª pergunta redundante).
-              { id: "relatorio", label: "📄 Relatório desta tela", scope: { fonte: "relatorio", direto: true } },
-              { id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia" } },
-            ],
+            question: `Isso pode vir do RELATÓRIO desta tela${toolsAmb.length ? " ou de uma FERRAMENTA de dados" : ""}. De onde quer que eu busque?`,
+            options: opcoesFonte,
           }),
         );
         controller.enqueue(finalizarTrace("clarify_fonte_inicial"));
@@ -794,17 +810,18 @@ export async function POST(req: NextRequest) {
     });
     return sseResponse(stream, cors);
   };
-  // GATE 1: fonte no RELATÓRIO e a mensagem casa com tool(s) MAS também tem relação
-  // com o relatório (ambíguo) → pergunta a fonte. Se NÃO tinha relação, já roteou
-  // direto (fonteEfetiva="ia", roteouDireto) e este gate nem entra.
-  if (fonteEfetiva === "relatorio" && !continuation && !social && !scopeIn?.direto && !scopeIn?.tool && baseCode) {
+  // GATE 1: fonte no RELATÓRIO (escolha não-autoritativa) e a mensagem casa com tool(s)
+  // MAS também tem relação com o relatório (ambíguo) → pergunta a fonte, NOMEANDO a(s)
+  // tool(s). Pulado quando o roteador já ASSUMIU o relatório (roteouRelatorioDireto:
+  // pergunta explícita da página ou tool fraca) — aí não re-pergunta.
+  if (fonteEfetiva === "relatorio" && !roteouRelatorioDireto && !continuation && !social && !scopeIn?.direto && !scopeIn?.tool && baseCode) {
     const matches = matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool);
     if (matches.length > 0) {
       return clarifyResponse(
-        "Essa informação pode vir do RELATÓRIO desta tela ou do CONHECIMENTO da IA (integrações). De onde quer que eu busque?",
+        "Isso pode vir do RELATÓRIO desta tela ou de uma FERRAMENTA de dados. De onde quer que eu busque?",
         [
-          { id: "relatorio", label: "📄 Relatório desta tela", scope: { fonte: "relatorio", direto: true } },
-          { id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia", tools: matches.map((m) => ({ k: m.key, n: m.name, d: m.description.slice(0, 140) })) } },
+          { id: "relatorio", label: `📄 ${relNome.slice(0, 44)} (esta tela)`, scope: { fonte: "relatorio", direto: true } },
+          ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
         ],
         "clarify_fonte",
       );
@@ -1161,6 +1178,14 @@ export async function POST(req: NextRequest) {
   // Guarda a falha real da geração p/ traduzi-la numa mensagem útil no catch abaixo
   // (o textStream às vezes só encerra o loop sem re-lançar o erro do provedor).
   let erroGeracao: unknown = null;
+  // Teto de passos ADAPTATIVO: o `inputTokens` do turno é a SOMA do prefixo reenviado a
+  // cada passo (system+tools+histórico), então cada passo a menos corta tokens e latência.
+  // Pergunta COMPOSTA (vários assuntos / doc+API / comparação) precisa de mais passos —
+  // mantém 9 p/ não truncar; pergunta SIMPLES de análise raramente passa de 3-4 tools →
+  // 6 basta. Sem tools de análise (só integração): 6 composta / 4 simples.
+  const _temAnaliseTools = Object.keys(visualTools).length > 0 || Object.keys(queryTools).length > 0;
+  const _perguntaComplexa = perguntaComposta || compostoPorTool || pareceComposta(question);
+  const maxPassos = _temAnaliseTools ? (_perguntaComplexa ? 9 : 6) : (_perguntaComplexa ? 6 : 4);
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
     // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).
@@ -1191,7 +1216,7 @@ export async function POST(req: NextRequest) {
     // resultado e responder. `stopWhen` trava o loop.
     // Teto de passos maior quando há geração de arquivos: o usuário pode pedir
     // vários formatos (Word + PPT + PDF) numa tacada = uma chamada por formato.
-    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(Object.keys(visualTools).length > 0 || Object.keys(queryTools).length > 0 ? 9 : 5) } : {}),
+    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(maxPassos) } : {}),
   });
 
   const stream = new ReadableStream({
@@ -1349,7 +1374,7 @@ export async function POST(req: NextRequest) {
             `ve_tools_integracao=${_veTools ? "SIM" : "não"}${_veTools ? " [" + _integAtivas.join(", ") + "]" : (temIntegTools && cortaIntegracao ? " (havia tools, cortadas pelo modo relatório)" : "")} | ` +
             `analise_pura=${modoAnalisePura} modo_relatorio=${modoRelatorio} composto=${compostoPorTool} | p_perfil=${track.p_perfil ?? "-"} | ` +
             `finalidade=${_purpose} provedor=${_aiCfg?.kind ?? "-"} modelo=${_aiCfg?.model ?? "-"} | ` +
-            `tokens_envio=${usage?.inputTokens ?? "?"} (novos≈${envioNovo ?? "?"}, cache_read=${cacheRead ?? 0}, passos=${nPassos ?? "?"}) tokens_resposta=${usage?.outputTokens ?? "?"} (total=${usage?.totalTokens ?? "?"}) | ` +
+            `tokens_envio=${usage?.inputTokens ?? "?"} (novos≈${envioNovo ?? "?"}, cache_read=${cacheRead ?? 0}, passos=${nPassos ?? "?"}/${maxPassos}) tokens_resposta=${usage?.outputTokens ?? "?"} (total=${usage?.totalTokens ?? "?"}) | ` +
             `tokens_tabelas_regioes≈${_tokRep + _tokTab + _tokScan} (relatorio=${_tokRep} tabelas=${_tokTab} tela=${_tokScan}) | ` +
             `ferramentas_do_modelo=[${Object.keys(allTools).join(", ")}]`,
         );
