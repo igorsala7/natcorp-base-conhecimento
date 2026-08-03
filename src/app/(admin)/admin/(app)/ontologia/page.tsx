@@ -7,8 +7,9 @@ import { pickSpace } from "@/lib/content/current-space";
 import { hasAiKey } from "@/lib/ai/config";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { listSpaceNodes } from "../importar/embeddings-actions";
-import { listOntology } from "./actions";
+import { listOntology, listSpaceLanguages } from "./actions";
 import { OntologyManager } from "./ontology-manager";
+import { OntologyLanguages } from "./ontology-languages";
 
 export const metadata: Metadata = { title: "Ontologia" };
 
@@ -37,11 +38,12 @@ export default async function OntologiaPage({
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
-  const [{ terms, jobs }, nodes, canManage, aiReady] = await Promise.all([
+  const [{ terms, jobs }, nodes, canManage, aiReady, langs] = await Promise.all([
     listOntology(atual.id),
     listSpaceNodes(atual.id),
     hasPermission("ai.configure", atual.id),
     hasAiKey("chat"),
+    listSpaceLanguages(atual.id),
   ]);
 
   return (
@@ -75,6 +77,10 @@ export default async function OntologiaPage({
           nodes={nodes}
           canManage={canManage}
         />
+      </div>
+
+      <div className="mt-6">
+        <OntologyLanguages key={`lang-${atual.id}`} spaceId={atual.id} initialLangs={langs} canManage={canManage} />
       </div>
     </div>
   );

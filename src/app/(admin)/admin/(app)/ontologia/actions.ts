@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
+import { criarJobTraducao } from "@/lib/ai/ontology-enqueue";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
-import { enqueueOntologyScan, enqueueOntologyImport } from "@/lib/jobs/boss";
+import { enqueueOntologyScan, enqueueOntologyImport, enqueueOntologyTranslate } from "@/lib/jobs/boss";
 import { normalizarTermo } from "@/lib/ai/ontology";
+import { idiomaValido, idiomaNome } from "@/lib/i18n/languages";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 
 export type OntologyKind = "conceito" | "entidade" | "acao" | "sigla" | "outro";
@@ -301,4 +303,157 @@ export async function enqueueOntologyImportJob(input: {
   await audit({ action: "ontology.import", entityType: "space", entityId: spaceId, spaceId, after: { original_name: originalName } });
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
+}
+
+// ── MULTILÍNGUE (Fase 1c): idiomas habilitados + revisão das traduções ──────────
+
+/** Idiomas ATIVOS do espaço (além do PT canônico). */
+export async function listSpaceLanguages(spaceId: string): Promise<string[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("space_languages").select("lang").eq("space_id", spaceId).eq("active", true);
+  return (data ?? []).map((r) => r.lang);
+}
+
+/** Define EXATAMENTE os idiomas ativos do espaço e enfileira a tradução dos habilitados. */
+export async function setSpaceLanguages(spaceId: string, langs: string[]): Promise<Ok> {
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const validos = [...new Set(langs.map((l) => String(l).trim().toLowerCase()).filter((l) => idiomaValido(l) && l !== "pt"))];
+  const supabase = await createClient();
+  await supabase.from("space_languages").update({ active: false }).eq("space_id", spaceId);
+  for (const lang of validos) {
+    const { error } = await supabase
+      .from("space_languages")
+      .upsert({ space_id: spaceId, lang, active: true, label: idiomaNome(lang) }, { onConflict: "space_id,lang" });
+    if (error) return { ok: false, error: error.message };
+  }
+  try {
+    await enfileirarTraducoesPendentes(createAdminClient(), spaceId, null);
+  } catch {
+    /* best-effort */
+  }
+  revalidatePath("/admin/ontologia");
+  return { ok: true };
+}
+
+/** Dispara a tradução (um idioma, ou todos os habilitados) — usa o worker. */
+export async function traduzirOntologia(spaceId: string, lang?: string): Promise<Ok> {
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const admin = createAdminClient();
+  try {
+    if (lang) {
+      if (!idiomaValido(lang) || lang === "pt") return { ok: false, error: "Idioma inválido." };
+      const jobId = await criarJobTraducao(admin, { spaceId, lang, createdBy: null });
+      if (jobId) await enqueueOntologyTranslate(jobId);
+    } else {
+      await enfileirarTraducoesPendentes(admin, spaceId, null);
+    }
+  } catch {
+    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+  }
+  return { ok: true };
+}
+
+export type LinhaTraducao = {
+  termId: string;
+  ptTerm: string;
+  ptAliases: string[];
+  term: string | null;
+  aliases: string[];
+  description: string | null;
+  reviewed: boolean;
+};
+
+/** Termos do espaço com a tradução no idioma (para revisar/editar). */
+export async function listTranslations(spaceId: string, lang: string): Promise<LinhaTraducao[]> {
+  const supabase = await createClient();
+  const { data: termos } = await supabase
+    .from("ontology_terms")
+    .select("id, term")
+    .eq("space_id", spaceId)
+    .order("term");
+  const lista = termos ?? [];
+  const ids = lista.map((t) => t.id);
+
+  const aliasPt = new Map<string, string[]>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from("ontology_aliases").select("term_id, alias").in("term_id", ids.slice(i, i + 200));
+    for (const a of data ?? []) {
+      const l = aliasPt.get(a.term_id) ?? [];
+      l.push(a.alias);
+      aliasPt.set(a.term_id, l);
+    }
+  }
+
+  const trad = new Map<string, { term: string; description: string | null; aliases: string[]; reviewed: boolean }>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase
+      .from("ontology_translations")
+      .select("term_id, term, description, aliases, reviewed")
+      .eq("lang", lang)
+      .in("term_id", ids.slice(i, i + 200));
+    for (const r of data ?? []) {
+      const aliases = Array.isArray(r.aliases) ? (r.aliases as unknown[]).map((a) => String(a)) : [];
+      trad.set(r.term_id, { term: r.term, description: r.description, aliases, reviewed: r.reviewed });
+    }
+  }
+
+  return lista.map((t) => {
+    const tr = trad.get(t.id);
+    return {
+      termId: t.id,
+      ptTerm: t.term,
+      ptAliases: aliasPt.get(t.id) ?? [],
+      term: tr?.term ?? null,
+      aliases: tr?.aliases ?? [],
+      description: tr?.description ?? null,
+      reviewed: tr?.reviewed ?? false,
+    };
+  });
+}
+
+/** Salva/edita a tradução de um termo (revisão humana → reviewed=true). */
+export async function saveTranslation(input: {
+  termId: string;
+  lang: string;
+  term: string;
+  description: string | null;
+  aliases: string[];
+}): Promise<Ok> {
+  const supabase = await createClient();
+  const { data: t } = await supabase.from("ontology_terms").select("space_id").eq("id", input.termId).maybeSingle();
+  if (!t) return { ok: false, error: "Termo não encontrado." };
+  try {
+    await requirePermission("ai.configure", t.space_id);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  if (!idiomaValido(input.lang) || input.lang === "pt") return { ok: false, error: "Idioma inválido." };
+  const term = input.term.trim();
+  if (term.length < 1) return { ok: false, error: "Informe o termo traduzido." };
+  const aliases = [...new Set(input.aliases.map((a) => String(a).trim()).filter(Boolean))];
+  const { error } = await supabase.from("ontology_translations").upsert(
+    {
+      term_id: input.termId,
+      lang: input.lang,
+      term,
+      term_norm: normalizarTermo(term),
+      description: input.description?.trim() || null,
+      aliases,
+      source: "manual",
+      reviewed: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "term_id,lang" },
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/ontologia");
+  return { ok: true };
 }
