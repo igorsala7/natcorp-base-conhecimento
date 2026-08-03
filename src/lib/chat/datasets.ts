@@ -104,36 +104,103 @@ export function registrarDataset(reg: DatasetRegistry, data: unknown): { id: str
  *  vários tool-calls acumulados passavam de 1M tokens no Gemini). A análise sobre 100% das
  *  linhas é feita pelas ferramentas de dados (dados_de), não relendo tudo no prompt. */
 const MAX_ITENS_MODELO = 50;
+/** A partir desta profundidade uma lista é ANINHADA (não a de topo) e é podada aqui — ex.:
+ *  loop `{itens:[{valor, dados:{items:[...]}}]}`, onde a lista de topo é pequena (nº de
+ *  colaboradores) mas cada `dados` traz centenas de linhas → 1M. Topo (0/1) fica pro
+ *  tratamento principal abaixo. */
+const PODAR_MIN_DEPTH = 2;
+const MAX_DEPTH_PODA = 8;
+/** Rede de segurança final: acima disto (chars do JSON) poda agressiva, aconteça o que acontecer. */
+const HARD_MAX_CHARS = 400_000;
 
 const CHAVES_LISTA = ["items", "itens", "data", "dados", "rows", "registros", "result", "results", "lista"];
 
+function notaAmostra(id: string, total: number): string {
+  return (
+    `Amostra de ${MAX_ITENS_MODELO} de ${total} registros. Para o TOTAL exato, contar, filtrar, somar/média ` +
+    `ou exportar, use as ferramentas de dados com dados_de="${id}" (elas cobrem 100% das linhas) — NUNCA conte/analise pela amostra.`
+  );
+}
+
+/** Poda listas ANINHADAS grandes (profundidade ≥ `PODAR_MIN_DEPTH`): registra cada uma como
+ *  dataset e troca pela amostra + id. Preserva a referência quando nada muda (não recria). */
+function podarProfundo(node: unknown, reg: DatasetRegistry, depth: number): unknown {
+  if (node == null || typeof node !== "object") {
+    if (typeof node === "string" && node.length > 20_000) return node.slice(0, 20_000) + "…(truncado)";
+    return node;
+  }
+  if (depth >= MAX_DEPTH_PODA) return node;
+  if (Array.isArray(node)) {
+    let mudou = false;
+    const filhos = node.map((el) => { const c = podarProfundo(el, reg, depth + 1); if (c !== el) mudou = true; return c; });
+    if (depth >= PODAR_MIN_DEPTH && filhos.length > MAX_ITENS_MODELO && filhos.some(ehLinha)) {
+      const meta = registrarDataset(reg, filhos);
+      if (meta) return { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas, _amostra: MAX_ITENS_MODELO, _nota: notaAmostra(meta.id, meta.total), itens: filhos.slice(0, MAX_ITENS_MODELO) };
+    }
+    return mudou ? filhos : node;
+  }
+  const o: Record<string, unknown> = {};
+  let mudou = false;
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) { const c = podarProfundo(v, reg, depth + 1); o[k] = c; if (c !== v) mudou = true; }
+  return mudou ? o : node;
+}
+
+/** Poda de emergência (arrays→10, strings curtas) quando NADA mais conteve o tamanho. */
+function podaAgressiva(node: unknown, depth: number): unknown {
+  if (typeof node === "string") return node.length > 300 ? node.slice(0, 300) + "…" : node;
+  if (node == null || typeof node !== "object") return node;
+  if (depth > MAX_DEPTH_PODA) return Array.isArray(node) ? `[${node.length} itens omitidos]` : "{…}";
+  if (Array.isArray(node)) {
+    const cut = node.slice(0, 10).map((x) => podaAgressiva(x, depth + 1));
+    if (node.length > 10) cut.push(`…(+${node.length - 10} itens omitidos)`);
+    return cut;
+  }
+  const o: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) o[k] = podaAgressiva(v, depth + 1);
+  return o;
+}
+
+function redeSegurancaFinal(out: unknown): unknown {
+  try {
+    const s = JSON.stringify(out);
+    if (!s || s.length <= HARD_MAX_CHARS) return out;
+  } catch {
+    return out;
+  }
+  return podaAgressiva(out, 0);
+}
+
 /** Injeta o metadado de dataset no resultado devolvido ao modelo. Registra TODAS as linhas
  *  no dataset (para dados_de) mas entrega ao modelo só uma AMOSTRA quando a lista é grande —
- *  senão o contexto estoura. O `_total`/`_dataset` + as ferramentas cobrem os 100%. */
+ *  senão o contexto estoura. Poda também listas ANINHADAS (loop por colaborador) e tem uma
+ *  rede de segurança final. O `_total`/`_dataset` + as ferramentas cobrem os 100%. */
 export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown): unknown {
   if (!reg || !saida || typeof saida !== "object") return saida;
-  const meta = registrarDataset(reg, saida);
-  if (!meta) return saida;
-  const truncado = meta.total > MAX_ITENS_MODELO;
-  const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
-  if (truncado) {
-    tag._amostra = MAX_ITENS_MODELO;
-    tag._nota =
-      `Amostra de ${MAX_ITENS_MODELO} de ${meta.total} registros. Para o TOTAL exato, contar, filtrar, somar/média ` +
-      `ou exportar, use as ferramentas de dados com dados_de="${meta.id}" (elas cobrem 100% das linhas) — NUNCA conte/` +
-      `analise pela amostra.`;
-  }
-  if (Array.isArray(saida)) return { ...tag, itens: truncado ? saida.slice(0, MAX_ITENS_MODELO) : saida };
-  const o = saida as Record<string, unknown>;
-  if (truncado) {
-    // Trunca a MESMA lista que `extrairLista` registrou (1º array com linhas-objeto),
-    // para o metadado (_total) e a amostra falarem da mesma coisa.
-    for (const k of CHAVES_LISTA) {
-      const v = o[k];
-      if (Array.isArray(v) && v.some(ehLinha)) return { ...o, [k]: v.slice(0, MAX_ITENS_MODELO), ...tag };
+  // 1) Poda listas ANINHADAS grandes (cada `dados` do loop pode ter centenas de linhas).
+  const podado = podarProfundo(saida, reg, 0);
+  // 2) Topo: registra a lista principal + tag + amostra (comportamento existente).
+  const meta = registrarDataset(reg, podado);
+  let out: unknown = podado;
+  if (meta) {
+    const truncado = meta.total > MAX_ITENS_MODELO;
+    const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
+    if (truncado) { tag._amostra = MAX_ITENS_MODELO; tag._nota = notaAmostra(meta.id, meta.total); }
+    if (Array.isArray(podado)) {
+      out = { ...tag, itens: truncado ? podado.slice(0, MAX_ITENS_MODELO) : podado };
+    } else {
+      const o = podado as Record<string, unknown>;
+      let feito = false;
+      if (truncado) {
+        for (const k of CHAVES_LISTA) {
+          const v = o[k];
+          if (Array.isArray(v) && v.some(ehLinha)) { out = { ...o, [k]: v.slice(0, MAX_ITENS_MODELO), ...tag }; feito = true; break; }
+        }
+      }
+      if (!feito) out = { ...o, ...tag };
     }
   }
-  return { ...o, ...tag };
+  // 3) Rede de segurança: se AINDA estiver gigante, poda agressiva.
+  return redeSegurancaFinal(out);
 }
 
 export type TabelaExpandida = { colunas: string[]; linhas: string[][]; total: number; truncado: boolean };

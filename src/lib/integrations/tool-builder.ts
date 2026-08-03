@@ -156,6 +156,19 @@ export async function buildIntegrationTools(
   // Instruções próprias das tools EXPOSTAS — concatenadas na nota de capacidades
   // (ex.: uma tool externa que precisa de um passo/formato específico).
   const promptsFerramentas: string[] = [];
+  // Dedup POR TURNO + teto de chamadas: modelos às vezes re-chamam a MESMA consulta em
+  // loop (ex.: Gemini 3 re-emitindo function calls sem thoughtSignature) e martelam a API
+  // com a mesma matrícula dezenas de vezes. Dentro de um turno o resultado não muda: a 2ª
+  // chamada idêntica (só GET/leitura) devolve o já obtido, sem rebater na API; e um teto
+  // impede o loop de rodar sem fim.
+  const dedupTurno = new Map<string, unknown>();
+  const chaveDeArgs = (a: unknown): string => {
+    if (!a || typeof a !== "object") return String(a);
+    const o = a as Record<string, unknown>;
+    return Object.keys(o).sort().map((k) => `${k}=${JSON.stringify(o[k])}`).join("&");
+  };
+  let chamadasIntegracao = 0;
+  const MAX_CHAMADAS_INTEGRACAO = 40;
   for (const bt of ctx.tools) {
     if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
     // Allowlist (#4): portal × empresa × perfil por (base, ferramenta). Vazio = liberado.
@@ -176,7 +189,15 @@ export async function buildIntegrationTools(
       inputSchema: buildModelSchema(bt.tool.params, bt.tool.loop),
       // Envelopa o retorno: se for uma LISTA, registra o dataset completo e injeta
       // `_dataset` (o relatório usa isso p/ incluir todas as linhas — ver #4).
-      execute: async (args) => injetarDataset(datasets, await (async () => {
+      execute: async (args) => {
+        // Repetição IDÊNTICA no mesmo turno (loop do modelo) → devolve o já obtido, sem
+        // rebater na API. Só leituras (GET); escrita nunca é deduplicada.
+        const chaveDedup = String(bt.tool.method ?? "GET").toUpperCase() === "GET" ? `${bt.tool.key}:${chaveDeArgs(args)}` : null;
+        if (chaveDedup && dedupTurno.has(chaveDedup)) return dedupTurno.get(chaveDedup);
+        if (chamadasIntegracao >= MAX_CHAMADAS_INTEGRACAO)
+          return { erro: `Já foram feitas ${MAX_CHAMADAS_INTEGRACAO} consultas nesta rodada (provável repetição em loop). Responda com o que já foi coletado; se faltar informação, peça ao usuário para refinar — menos itens por vez ou uma pergunta de cada vez.` };
+        chamadasIntegracao++;
+        const _resultado = injetarDataset(datasets, await (async () => {
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
@@ -300,7 +321,10 @@ export async function buildIntegrationTools(
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
         }
-      })()),
+        })());
+        if (chaveDedup) dedupTurno.set(chaveDedup, _resultado);
+        return _resultado;
+      },
     });
   }
 

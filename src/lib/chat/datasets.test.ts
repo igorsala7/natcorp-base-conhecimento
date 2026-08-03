@@ -94,6 +94,29 @@ describe("injetarDataset", () => {
     expect(out._amostra).toBeUndefined();
     expect(out._nota).toBeUndefined();
   });
+
+  it("capa listas ANINHADAS grandes (loop {itens:[{valor,dados}]}), não só a de topo", () => {
+    const reg = newRegistry();
+    // Réplica do loop por colaborador: lista de topo pequena (3), mas cada `dados`
+    // traz 500 linhas → sem podar o aninhado, estouraria o contexto.
+    const porColab = (m: number) => ({ valor: String(m), dados: { items: linhas(500) } });
+    const out = injetarDataset(reg, { itens: [porColab(1), porColab(2), porColab(3)] }) as Record<string, unknown>;
+    const itens = out.itens as Array<{ dados: { items: Record<string, unknown> } }>;
+    const it0 = itens[0]!.dados.items;
+    expect(it0._total).toBe(500);                     // sabe o total real de cada colaborador
+    expect((it0.itens as unknown[]).length).toBe(50); // mas só vê 50
+    expect(String(it0._dataset)).toMatch(/^ds\d+$/);  // e pode consultar 100% via dados_de
+    expect(JSON.stringify(out).length).toBeLessThan(60_000); // não estoura o contexto
+  });
+
+  it("rede de segurança: nada explode mesmo sem lista reconhecível gigante", () => {
+    const reg = newRegistry();
+    // Objeto enorme sem uma lista de topo reconhecível: cada chave tem uma lista grande.
+    const gigante: Record<string, unknown> = {};
+    for (let i = 0; i < 30; i++) gigante["bloco_" + i] = { registros: linhas(300) };
+    const out = injetarDataset(reg, gigante);
+    expect(JSON.stringify(out).length).toBeLessThan(500_000);
+  });
 });
 
 describe("expandirTabela", () => {

@@ -116,6 +116,16 @@ export async function authHeaders(
   }
 }
 
+/** Monta o `curl` equivalente à chamada, com valores de segredo REDIGIDOS. Para o
+ *  terminal (debug das tools) — nunca imprime token/senha/api-key/cookie em claro. */
+function curlDeChamada(method: string, url: string, headers: Record<string, string>, body?: string): string {
+  const segredo = (k: string) => /authorization|api[-_ ]?key|token|secret|cookie|senha|password|bearer/i.test(k);
+  const linhas = [`curl -X ${method} '${url}'`];
+  for (const [k, v] of Object.entries(headers)) linhas.push(`  -H '${k}: ${segredo(k) ? "***REDIGIDO***" : v}'`);
+  if (body) linhas.push(`  --data '${body.length > 2000 ? body.slice(0, 2000) + "…(truncado)" : body}'`);
+  return linhas.join(" \\\n");
+}
+
 /**
  * Executa uma tool: resolve params (identidade + máscara), monta a requisição,
  * autentica e chama a API. No 401 de OAuth, invalida o token e tenta 1×.
@@ -126,6 +136,8 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const req = buildHttpRequest(input.tool, input.baseUrl, buckets);
 
   const auth = await authHeaders(input.credential, fetchImpl);
+  // cURL no terminal (segredos redigidos): permite reproduzir/depurar a chamada da tool.
+  console.log(`[tool-curl] ${input.tool.key}\n${curlDeChamada(req.method, req.url, { ...req.headers, ...auth }, req.body)}`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15_000);
   try {
