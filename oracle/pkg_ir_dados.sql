@@ -148,7 +148,7 @@ create or replace package body pkg_ir_dados as
   -- o caminho rápido serializar no motor. `c` já vem entre aspas (nome de coluna).
   function expr_texto(c in varchar2) return varchar2 is
   begin
-    return 'trim(regexp_replace(case when instr('||c||','''<'')>0 '||
+    return 'trim(regexp_replace(case when instr('||c||',''<'')>0 '||
            'then regexp_replace(substr('||c||',1,8000),''<[^>]+>'','' '') '||
            'else substr('||c||',1,8000) end,''[[:space:]]{2,}'','' ''))';
   end expr_texto;
