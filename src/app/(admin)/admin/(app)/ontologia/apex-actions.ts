@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
-import { enqueueApexIngest, enqueueApexDocs } from "@/lib/jobs/boss";
+import { enqueueApexIngest, enqueueApexDocs, enqueueDbIngest, enqueueDbDocs } from "@/lib/jobs/boss";
 import { normalizarApexJson } from "@/lib/apex/metadata";
+import { normalizarDbJson } from "@/lib/dbobjects/metadata";
 import { normalizarTermo } from "@/lib/ai/ontology";
 import { idiomaNome } from "@/lib/i18n/languages";
 import type { Json } from "@/lib/database.types";
@@ -67,6 +68,69 @@ export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueApexDocs(job.id);
+  } catch {
+    await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
+    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+  }
+  revalidatePath("/admin/ontologia");
+  return { ok: true, jobId: job.id };
+}
+
+/** Recebe o JSON de `pkg_db_meta.f_schema_json` (objetos de banco) → cria e enfileira a ingestão. */
+export async function ingestDbJson(spaceId: string, jsonText: string): Promise<Ok> {
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  let meta: Json;
+  try {
+    meta = JSON.parse(jsonText) as Json;
+  } catch {
+    return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+  }
+  if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
+  const admin = createAdminClient();
+  const { data: job } = await admin
+    .from("data_dictionary_jobs")
+    .insert({ space_id: spaceId, kind: "db_objects", input: { meta } })
+    .select("id")
+    .single();
+  if (!job) return { ok: false, error: "Falha ao criar o job." };
+  try {
+    await enqueueDbIngest(job.id);
+  } catch {
+    await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
+    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+  }
+  revalidatePath("/admin/ontologia");
+  return { ok: true, jobId: job.id };
+}
+
+/** Gera a DOCUMENTAÇÃO TÉCNICA dos objetos de banco (um artigo por objeto) na base. */
+export async function gerarDbDocs(spaceId: string, jsonText: string): Promise<Ok> {
+  try {
+    await requirePermission("content.create", spaceId);
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
+  }
+  let meta: Json;
+  try {
+    meta = JSON.parse(jsonText) as Json;
+  } catch {
+    return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+  }
+  if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
+  const admin = createAdminClient();
+  const { data: job } = await admin
+    .from("data_dictionary_jobs")
+    .insert({ space_id: spaceId, kind: "db_docs", input: { meta } })
+    .select("id")
+    .single();
+  if (!job) return { ok: false, error: "Falha ao criar o job." };
+  try {
+    await enqueueDbDocs(job.id);
   } catch {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
     return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };

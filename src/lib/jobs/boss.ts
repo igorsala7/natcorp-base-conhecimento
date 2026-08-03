@@ -24,6 +24,8 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("ontology-translate");
       await boss.createQueue("apex-ingest");
       await boss.createQueue("apex-docs");
+      await boss.createQueue("db-ingest");
+      await boss.createQueue("db-docs");
       await boss.createQueue("bulk-process");
       await boss.createQueue("analyze");
       await boss.createQueue("analyze-semantic");
@@ -144,6 +146,18 @@ export async function enqueueApexIngest(jobId: string): Promise<void> {
 export async function enqueueApexDocs(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("apex-docs", { jobId });
+}
+
+/** Ingestão de objetos de banco (tabelas/views/código) → dicionário de dados + ontologia. */
+export async function enqueueDbIngest(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("db-ingest", { jobId });
+}
+
+/** Documentação técnica dos objetos de banco → artigos na base de conhecimento. */
+export async function enqueueDbDocs(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("db-docs", { jobId });
 }
 
 /** Processamento em lote (publicar → embedding → ontologia) da seleção. */

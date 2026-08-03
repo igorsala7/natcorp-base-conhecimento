@@ -36,6 +36,7 @@ import { runTraducaoOntologia } from "../src/lib/ai/ontology-translate-run";
 import { enfileirarTraducoesPendentes } from "../src/lib/ai/ontology-translate-enqueue";
 import { runApexIngest } from "../src/lib/apex/ingest-run";
 import { runApexDocs } from "../src/lib/apex/docs-run";
+import { runDbIngest, runDbDocs } from "../src/lib/dbobjects/run";
 import { normalizarTermo } from "../src/lib/ai/ontology";
 import { mesclarTermos, type TermoAcumulado } from "../src/lib/ai/ontology-merge";
 import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
@@ -1084,6 +1085,8 @@ async function main() {
   await boss.createQueue("ontology-translate");
   await boss.createQueue("apex-ingest");
   await boss.createQueue("apex-docs");
+  await boss.createQueue("db-ingest");
+  await boss.createQueue("db-docs");
   await boss.createQueue("bulk-process");
   await boss.createQueue("analyze-semantic");
   await boss.createQueue("backup");
@@ -1319,6 +1322,36 @@ async function main() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Documentação APEX ${jobId} falhou:`, msg);
+        await supabase.from("data_dictionary_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("db-ingest", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Ingestão de objetos de banco (job ${jobId})`);
+      try {
+        const r = await runDbIngest(supabase, jobId);
+        console.log(`Ingestão de banco ${jobId} concluída (${r.objetos} objetos, ${r.colunas} colunas, ${r.termos} termos)`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Ingestão de banco ${jobId} falhou:`, msg);
+        await supabase.from("data_dictionary_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("db-docs", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Documentação técnica de banco (job ${jobId})`);
+      try {
+        const r = await runDbDocs(supabase, jobId);
+        console.log(`Documentação de banco ${jobId} concluída (${r.objetos} objetos, ${r.artigos} artigos)`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Documentação de banco ${jobId} falhou:`, msg);
         await supabase.from("data_dictionary_jobs").update({ status: "error", error: msg }).eq("id", jobId);
       }
     }

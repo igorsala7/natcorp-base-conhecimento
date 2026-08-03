@@ -4,40 +4,10 @@ import type { Database } from "@/lib/database.types";
 import { normalizarApexJson } from "./metadata";
 import { colunasParaResolver, construirLinhasDicionario, type ResolucaoColunas } from "./ingest";
 import { resolverColunasRegiao } from "@/lib/ai/apex-resolve";
-import { normalizarTermo } from "@/lib/ai/ontology";
+import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 
 type DbClient = SupabaseClient<Database>;
-type LinhaDic = Database["public"]["Tables"]["data_dictionary"]["Insert"];
-
-/** Alimenta a ONTOLOGIA a partir do dicionário: a LABEL do campo/coluna vira o termo
- *  canônico e a COLUNA do banco (+ outras labels) viram sinônimos. Devolve nº de termos novos. */
-async function alimentarOntologia(supabase: DbClient, spaceId: string, linhas: LinhaDic[]): Promise<number> {
-  let criados = 0;
-  for (const c of linhas.filter((l) => l.kind === "column" && l.label)) {
-    const term = String(c.label ?? "").trim();
-    if (term.length < 2) continue;
-    const norm = normalizarTermo(term);
-    const { data: existente } = await supabase.from("ontology_terms").select("id").eq("space_id", spaceId).eq("term_norm", norm).maybeSingle();
-    let termId = existente?.id;
-    if (!termId) {
-      const { data: novo } = await supabase.from("ontology_terms").insert({ space_id: spaceId, term, term_norm: norm, kind: "entidade", source: "ia" }).select("id").single();
-      termId = novo?.id;
-      if (termId) criados++;
-    }
-    if (!termId) continue;
-    const aliases = new Set<string>();
-    if (c.db_column) aliases.add(String(c.db_column));
-    const labels = (c.metadata as { labels?: unknown } | null)?.labels;
-    if (Array.isArray(labels)) for (const l of labels) { const s = String(l).trim(); if (s && s.toLowerCase() !== term.toLowerCase()) aliases.add(s); }
-    for (const a of aliases) {
-      const an = normalizarTermo(a);
-      if (an.length < 2 || an === norm) continue;
-      await supabase.from("ontology_aliases").upsert({ term_id: termId, alias: a, alias_norm: an, source: "ia" }, { onConflict: "term_id,alias_norm", ignoreDuplicates: true });
-    }
-  }
-  return criados;
-}
 
 /**
  * Executa um job de INGESTÃO de app APEX: resolve as colunas por região (IA lê o SQL),
@@ -74,7 +44,7 @@ export async function runApexIngest(supabase: DbClient, jobId: string): Promise<
   done += 1;
   await supabase.from("data_dictionary_jobs").update({ done, progress: Math.round((done / total) * 100) }).eq("id", jobId);
 
-  const termos = await alimentarOntologia(supabase, spaceId, linhas);
+  const termos = await alimentarOntologiaDeColunas(supabase, spaceId, linhas);
   try {
     await enfileirarTraducoesPendentes(supabase, spaceId, null);
   } catch {

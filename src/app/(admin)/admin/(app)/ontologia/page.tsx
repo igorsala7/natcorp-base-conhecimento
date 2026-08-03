@@ -12,6 +12,7 @@ import { OntologyManager } from "./ontology-manager";
 import { OntologyLanguages } from "./ontology-languages";
 import { ApexXliffTranslator } from "./apex-xliff-translator";
 import { ApexIngest } from "./apex-ingest";
+import { DbIngest } from "./db-ingest";
 import { listDataDictionaryColumns } from "./apex-actions";
 
 export const metadata: Metadata = { title: "Ontologia" };
@@ -90,6 +91,12 @@ export default async function OntologiaPage({
       {canManage && (
         <div className="mt-6">
           <ApexIngest key={`ingest-${atual.id}`} spaceId={atual.id} initialCols={dicCols} />
+        </div>
+      )}
+
+      {canManage && (
+        <div className="mt-6">
+          <DbIngest key={`db-${atual.id}`} spaceId={atual.id} />
         </div>
       )}
 
