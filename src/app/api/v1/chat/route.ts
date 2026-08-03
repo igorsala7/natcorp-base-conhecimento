@@ -29,6 +29,7 @@ import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, 
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
 import { matchBaseTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
+import { pareceComposta } from "@/lib/integrations/module-match";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
@@ -797,7 +798,11 @@ export async function POST(req: NextRequest) {
   // GATE 2: CONHECIMENTO da IA (escolhido OU roteado direto) e MAIS DE UMA tool
   // candidata → pergunta qual (título + descrição via `sublabel`). Uma só já foi
   // forçada acima (toolForcado); zero → segue com todas as tools.
-  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && baseCode) {
+  // PEDIDO COMPOSTO (vários assuntos numa frase): NÃO colapsa numa lista única de
+  // "qual delas?" — as tools candidatas são de assuntos DIFERENTES (férias, cargos,
+  // pagamento, ponto…), não opções da MESMA informação. Deixa o agente tratar cada
+  // termo (ele tem todas as tools) e perguntar por item quando precisar.
+  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && baseCode && !pareceComposta(question)) {
     const cand: ToolMatch[] = scopeIn?.tools?.length
       ? scopeIn.tools.map((t) => ({ key: t.k, name: t.n, description: t.d, sim: 1 }))
       : (matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool));

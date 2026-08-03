@@ -11,6 +11,10 @@ describe("pareceComposta (rede do recorte p/ pergunta com vários assuntos)", ()
     expect(pareceComposta("Traga o saldo de horas e também o histórico de cargos")).toBe(true);
     expect(pareceComposta("Quero as férias, além disso os últimos afastamentos")).toBe(true);
   });
+  it("detecta ENUMERAÇÃO de vários itens (lista com vírgulas / vírgula + 'e')", () => {
+    expect(pareceComposta("pedi dados de férias, histórico de cargos, relatório de pagamento e espelho de ponto")).toBe(true);
+    expect(pareceComposta("quero cargo, salário e admissão")).toBe(true);
+  });
   it("pergunta simples (1 assunto) → false", () => {
     expect(pareceComposta("Qual o saldo de horas do colaborador 345?")).toBe(false);
     expect(pareceComposta("Liste as férias de 2023")).toBe(false);

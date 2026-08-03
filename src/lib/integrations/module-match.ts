@@ -70,5 +70,9 @@ export function pareceComposta(p: string): boolean {
   const t = (p ?? "").trim();
   if (!t) return false;
   if ((t.match(/\?/g) ?? []).length >= 2) return true;
+  // Enumeração de vários itens: "X, Y, Z e W" (lista com vírgulas) ou "X, Y e Z".
+  const virgulas = (t.match(/,/g) ?? []).length;
+  if (virgulas >= 2) return true;
+  if (virgulas >= 1 && /\s+e\s+/i.test(t)) return true;
   return /\b(além disso|e também|e quais|e quantos|e qual são|e os últimos|e o histórico)\b/i.test(t);
 }
