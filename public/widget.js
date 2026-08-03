@@ -5894,6 +5894,81 @@
   // ==== Base de Dados (fontes do chat: uploads + relatórios salvos) ====
   var baseBtn, basePanel, baseOpen = false, baseFileInput;
   var baseRelIds = [], baseUploads = [], baseModo = "completa";
+  // ── Fase 3: tradução da TELA host em runtime (best-effort, opt-in) ────────────
+  // Só texto ESTÁTICO visível; pula inputs/scripts/editáveis e o próprio widget (que
+  // vive em Shadow DOM, isolado do walk da luz). Guarda o original p/ reverter. NÃO
+  // cobre conteúdo dinâmico via canvas nem validação do servidor.
+  var _trOrig = null, _trObserver = null, _trOn = false;
+  function trCacheGet(lang) { try { return JSON.parse(localStorage.getItem("kb.tr." + KEY + "." + lang) || "{}"); } catch (e) { return {}; } }
+  function trCacheSet(lang, m) { try { localStorage.setItem("kb.tr." + KEY + "." + lang, JSON.stringify(m)); } catch (e) { } }
+  function coletarNosTexto() {
+    var out = [];
+    if (!document.body || !document.createTreeWalker) return out;
+    var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        var p = n.parentElement; if (!p) return NodeFilter.FILTER_REJECT;
+        var tag = p.tagName;
+        if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TEXTAREA") return NodeFilter.FILTER_REJECT;
+        if (p.closest && p.closest("input,select,textarea,[contenteditable],[data-kb-notranslate]")) return NodeFilter.FILTER_REJECT;
+        var t = (n.nodeValue || "").trim();
+        if (t.length < 2 || !/[a-zA-ZÀ-ÿ]/.test(t)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var node; while ((node = w.nextNode())) out.push(node);
+    return out;
+  }
+  function aplicarTr(n, orig, trad) {
+    var pre = (orig.match(/^\s*/) || [""])[0], pos = (orig.match(/\s*$/) || [""])[0];
+    var novo = pre + trad + pos;
+    if (n.nodeValue !== novo) n.nodeValue = novo; // guarda contra loop do observer
+  }
+  function traduzirTela(lang) {
+    if (!lang || lang === "pt") return;
+    _trOrig = _trOrig || new Map();
+    var nodes = coletarNosTexto();
+    var cache = trCacheGet(lang), pend = [], seen = {};
+    nodes.forEach(function (n) {
+      if (!_trOrig.has(n)) _trOrig.set(n, n.nodeValue || "");
+      var t = (_trOrig.get(n) || "").trim();
+      if (cache[t]) { aplicarTr(n, _trOrig.get(n), cache[t]); return; }
+      if (!seen[t]) { seen[t] = 1; pend.push(t); }
+    });
+    for (var i = 0; i < pend.length; i += 50) {
+      (function (lote) {
+        fetch(API + "/api/v1/translate-ui", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+          body: JSON.stringify({ key: KEY, track: track, lang: lang, texts: lote })
+        }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+          if (!d || !d.translations) return;
+          var c = trCacheGet(lang);
+          Object.keys(d.translations).forEach(function (s) { c[s] = d.translations[s]; });
+          trCacheSet(lang, c);
+          if (!_trOn) return;
+          coletarNosTexto().forEach(function (n) {
+            var t = (_trOrig && _trOrig.get(n) ? _trOrig.get(n) : (n.nodeValue || "")).trim();
+            if (d.translations[t]) { if (_trOrig && !_trOrig.has(n)) _trOrig.set(n, n.nodeValue || ""); aplicarTr(n, (_trOrig && _trOrig.get(n)) || n.nodeValue, d.translations[t]); }
+          });
+        }).catch(function () { });
+      })(pend.slice(i, i + 50));
+    }
+  }
+  function reverterTela() {
+    if (_trOrig) { _trOrig.forEach(function (orig, n) { try { n.nodeValue = orig; } catch (e) { } }); _trOrig = null; }
+    if (_trObserver) { try { _trObserver.disconnect(); } catch (e) { } _trObserver = null; }
+    _trOn = false;
+  }
+  function ligarTraducaoTela(lang) {
+    if (!lang || lang === "pt") { reverterTela(); return; }
+    _trOn = true;
+    traduzirTela(lang);
+    if (!_trObserver && window.MutationObserver) {
+      var deb = null;
+      _trObserver = new MutationObserver(function () { if (deb) clearTimeout(deb); deb = setTimeout(function () { if (_trOn) traduzirTela(lang); }, 500); });
+      try { _trObserver.observe(document.body, { childList: true, subtree: true, characterData: true }); } catch (e) { }
+    }
+  }
+
   function setupBaseDados() {
     if (!hasPromptIdentity()) return; // precisa de identidade (escopo por usuário)
     promptBar = promptBar || panel.querySelector(".pbar");
@@ -5922,8 +5997,23 @@
     langSel.addEventListener("change", function () {
       widgetLang = langSel.value;
       try { localStorage.setItem(LS_LANG, widgetLang); } catch (e) { }
+      // Se a tradução da tela está ligada, reverte e reaplica no novo idioma.
+      if (_trOn) { reverterTela(); if (widgetLang !== "pt") ligarTraducaoTela(widgetLang); }
+      if (trChk) { trChk.disabled = widgetLang === "pt"; if (widgetLang === "pt") trChk.checked = false; }
     });
     promptBar.appendChild(langSel);
+    // Toggle opt-in: traduzir a TELA host em runtime (best-effort). Fora do PT.
+    var trWrap = document.createElement("label");
+    trWrap.className = "pbtn"; trWrap.style.cursor = "pointer"; trWrap.title = "Traduz os textos da tela para o idioma escolhido (experimental)";
+    var trChk = document.createElement("input");
+    trChk.type = "checkbox"; trChk.style.margin = "0 4px 0 0"; trChk.disabled = widgetLang === "pt";
+    trChk.addEventListener("change", function () {
+      if (trChk.checked && widgetLang !== "pt") ligarTraducaoTela(widgetLang);
+      else reverterTela();
+    });
+    trWrap.appendChild(trChk);
+    trWrap.appendChild(document.createTextNode("Traduzir a tela"));
+    promptBar.appendChild(trWrap);
     basePanel = document.createElement("div");
     basePanel.className = "ppanel";
     promptBar.appendChild(basePanel);
