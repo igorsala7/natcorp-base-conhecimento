@@ -1,7 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { runGuard, type ConfirmDeps, type PendingRow } from "./guards";
+import { runGuard, decisaoEscopoPessoa, type ConfirmDeps, type PendingRow } from "./guards";
 import { invalidateOAuthToken } from "./oauth";
 import type { RuntimeCredential } from "./executor";
+
+describe("decisaoEscopoPessoa (escopo por painel)", () => {
+  it("sem alvo ou alvo = o próprio → sempre ok (consulta os próprios dados)", () => {
+    expect(decisaoEscopoPessoa("PC", "123", "")).toBe("ok");
+    expect(decisaoEscopoPessoa("PC", "123", "123")).toBe("ok");
+    expect(decisaoEscopoPessoa("", "123", " 123 ")).toBe("ok");
+  });
+  it("Operador (PO) consulta qualquer matrícula", () => {
+    expect(decisaoEscopoPessoa("PO", "123", "999")).toBe("ok");
+    expect(decisaoEscopoPessoa("po", "123", "999")).toBe("ok");
+  });
+  it("Gestor (PG) exige checagem de equipe", () => {
+    expect(decisaoEscopoPessoa("PG", "123", "999")).toBe("equipe");
+  });
+  it("Colaborador (PC) nega consultar outro", () => {
+    expect(decisaoEscopoPessoa("PC", "123", "999")).toBe("nega");
+  });
+  it("painel desconhecido nega consultar outro (seguro por padrão)", () => {
+    expect(decisaoEscopoPessoa("", "123", "999")).toBe("nega");
+    expect(decisaoEscopoPessoa("XX", "123", "999")).toBe("nega");
+  });
+});
 
 /** Store + entrega em memória para o guard de confirmação (sem DB, sem e-mail). */
 function fakeConfirm(over: Partial<ConfirmDeps> = {}) {

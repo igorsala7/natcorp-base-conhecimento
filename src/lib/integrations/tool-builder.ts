@@ -24,6 +24,8 @@ export type IntegrationBundle = {
   capabilities: string;
   /** Prompt do agente ativo (ex.: Nati) — vira a seção "Especialização". */
   agentPrompt: string;
+  /** Nome do agente que virou persona (para diagnóstico/log). `null` se nenhum. */
+  agentName?: string | null;
 };
 
 /**
@@ -49,6 +51,10 @@ export async function buildIntegrationTools(
   datasets?: DatasetRegistry,
   /** Trace do fluxo (rastreio) — registra as decisões desta etapa passo a passo. */
   onPasso?: (passo: string, info?: Record<string, unknown>) => void,
+  /** Pula a análise-LLM do pedido (`analisarPedido`) — usado em turnos de OPERAÇÃO DE
+   *  TELA (coleta/sugestão de filtro) onde as tools de integração são cortadas de
+   *  qualquer forma. Mantém a PERSONA e as capacidades; só evita a ida ao modelo (~1s). */
+  skipAnalise?: boolean,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -61,7 +67,7 @@ export async function buildIntegrationTools(
   // menos tokens e resposta mais rápida). Só classifica quando faz sentido: a base
   // usa roteamento por assunto OU o assistente de tela está ligado.
   let recorte: ModuleTag[] = [];
-  if (question?.trim() && (ctx.toolRouting || screenAssist)) {
+  if (!skipAnalise && question?.trim() && (ctx.toolRouting || screenAssist)) {
     const tags = ctx.tools.flatMap((t) => t.modules);
     const analise = await analisarPedido(question, tags);
     onPasso?.("integracoes:analise", {
@@ -73,6 +79,10 @@ export async function buildIntegrationTools(
       return { tools: {}, capabilities: "", agentPrompt: "" };
     }
     recorte = analise.modulos;
+  } else if (skipAnalise) {
+    // Operação de tela: sem narrowing (recorte=[] → todas as curadas) e sem LLM. A
+    // PERSONA/capacidades ainda são montadas abaixo; as tools são cortadas na rota.
+    onPasso?.("integracoes:analise", { pulado: true, motivo: "operação de tela (persona sem análise-LLM)" });
   }
   const routingAtivo = recorte.length > 0;
 
@@ -334,5 +344,5 @@ export async function buildIntegrationTools(
   const agentPrompt = agentePersona?.system_prompt?.trim() || "";
 
   onPasso?.("integracoes", { resultado: "tools montadas", tools: Object.keys(tools), recorte: recorte.map((m) => m.modulo) });
-  return { tools, capabilities, agentPrompt };
+  return { tools, capabilities, agentPrompt, agentName: agentePersona?.name ?? null };
 }

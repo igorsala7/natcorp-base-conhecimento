@@ -10,7 +10,7 @@
 
 export type ParamTipo = "string" | "number" | "date" | "enum" | "boolean";
 /** `credencial` injeta um campo do SEGREDO da credencial (ex.: session_key) — nunca do modelo. */
-export type ParamOrigem = "modelo" | "identidade" | "fixo" | "credencial";
+export type ParamOrigem = "modelo" | "identidade" | "fixo" | "credencial" | "pessoa";
 /** `none` = a IA preenche, mas NÃO vai na requisição (uso interno, ex.: código de um guard). */
 export type ParamLocal = "query" | "path" | "body" | "header" | "none";
 /**
@@ -88,6 +88,7 @@ export const PARAM_ORIGENS: readonly { value: ParamOrigem; label: string; hint: 
   { value: "identidade", label: "Identidade (token)", hint: "Injetado do token cifrado — nunca do modelo." },
   { value: "fixo", label: "Valor fixo", hint: "Constante definida aqui." },
   { value: "credencial", label: "Segredo da credencial", hint: "Injeta um campo do segredo da credencial (ex.: session_key)." },
+  { value: "pessoa", label: "Pessoa (por painel)", hint: "A IA informa a matrícula-alvo; o servidor libera conforme o painel (Operador=qualquer, Gestor=equipe, Colaborador=só o próprio). Sem alvo, usa o próprio (via `campoIdentidade`). Requer o guard escopo_pessoa." },
 ];
 
 export const PARAM_LOCAIS: readonly { value: ParamLocal; label: string }[] = [

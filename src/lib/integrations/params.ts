@@ -31,8 +31,22 @@ export function buildModelSchema(
 ): z.ZodObject<Record<string, z.ZodTypeAny>> {
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const p of params) {
-    if (p.origem !== "modelo") continue;
+    if (p.origem !== "modelo" && p.origem !== "pessoa") continue;
     if (loop?.unit === "month" && p.nome === loop.param) continue; // o servidor preenche por mês
+    // `pessoa`: a IA informa a MATRÍCULA-ALVO (quem consultar); vazio = o próprio usuário.
+    // Sempre opcional; o guard escopo_pessoa libera conforme o painel (PO/PG/PC).
+    if (p.origem === "pessoa") {
+      shape[p.nome] = z
+        .string()
+        .describe(
+          (p.descricao ? p.descricao + " " : "") +
+            "Matrícula do COLABORADOR-ALVO da consulta — informe a matrícula de QUEM o usuário quer ver (ex.: cada um de " +
+            "uma lista de colaboradores; consulte um por vez). Deixe VAZIO para consultar o PRÓPRIO usuário logado. O " +
+            "sistema libera conforme o painel: Operador vê qualquer um; Gestor, só a equipe; Colaborador, só a si.",
+        )
+        .optional();
+      continue;
+    }
     let campo: z.ZodTypeAny;
     switch (p.tipo) {
       case "number":
@@ -107,7 +121,12 @@ export function resolveParams(
     if (p.origem === "identidade") raw = p.campoIdentidade ? identity[p.campoIdentidade] : undefined;
     else if (p.origem === "fixo") raw = p.valorFixo ?? undefined;
     else if (p.origem === "credencial") raw = p.campoCredencial ? credentialSecret?.[p.campoCredencial] : undefined;
-    else raw = modelArgs[p.nome];
+    else if (p.origem === "pessoa") {
+      // Matrícula-alvo: usa a do MODELO se veio (o guard escopo_pessoa já validou/ajustou
+      // pelo painel); senão cai para a IDENTIDADE (consulta do próprio usuário).
+      const alvo = modelArgs[p.nome];
+      raw = alvo != null && String(alvo).trim() !== "" ? alvo : identity[p.campoIdentidade ?? "matricula"];
+    } else raw = modelArgs[p.nome];
 
     if (raw === undefined || raw === null || raw === "") {
       if (p.obrigatorio) throw new Error(`Parâmetro obrigatório ausente: ${p.nome}`);

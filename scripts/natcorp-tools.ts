@@ -735,6 +735,27 @@ export const NATCORP_TOOLS_GESTOR: NatcorpTool[] = [
 /** Todas as ferramentas (catálogo + ativação por base). */
 export const NATCORP_TOOLS: NatcorpTool[] = [...NATCORP_TOOLS_COLAB, ...NATCORP_TOOLS_GESTOR];
 
+// ESCOPO POR PAINEL nas consultas de PESSOA (PO=todos, PG=equipe, PC=só ele): a matrícula
+// passa a vir do MODELO (alvo) + guard `escopo_pessoa`. Espelha a correção aplicada no banco
+// para o re-seed não reverter. Escrita/próprias ficam de fora (atualizar_*, antecipacao_
+// efetivar/simular, meus_dados, lista_opcoes) — nelas a matrícula continua sendo a do próprio.
+const TOOLS_LEITURA_PESSOA = new Set([
+  "consultar_ferias", "consultar_beneficios", "consultar_feedback", "consultar_marcacoes",
+  "historico_financeiro", "historico_financeiro_meses", "linha_tempo", "linha_tempo_fato",
+  "relatorio_aviso_ferias", "relatorio_aviso_ferias_meses", "relatorio_espelho_ponto",
+  "relatorio_informe_rendimentos", "relatorio_recibo_pagamento", "resultado_apuracao_ponto",
+  "antecipacao_historico", "antecipacao_saldo", "antecipacao_regras",
+]);
+for (const t of NATCORP_TOOLS) {
+  if (TOOLS_LEITURA_PESSOA.has(t.key)) {
+    const mat = t.params.find((p) => p.nome === "matricula");
+    if (mat) { mat.origem = "pessoa"; if (!mat.campoIdentidade) mat.campoIdentidade = "matricula"; }
+    t.guard = "escopo_pessoa";
+  } else if (t.key === "dados_colaborador_equipe" && t.guard === "team_membership") {
+    t.guard = "escopo_pessoa"; // já usa matricula=modelo; ganha PO=todos
+  }
+}
+
 // ── Agentes ───────────────────────────────────────────────────────────────────
 export type NatcorpAgent = {
   key: string;

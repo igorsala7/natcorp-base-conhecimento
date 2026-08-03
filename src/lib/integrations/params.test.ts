@@ -47,3 +47,23 @@ describe("buildModelSchema + resolveParams (fim a fim, sem HTTP)", () => {
     expect(b.query).toEqual({ cod_empresa: "77", competencia: "08/2026", tipo: "proventos" });
   });
 });
+
+describe("resolveParams — origem 'pessoa' (matrícula-alvo por painel)", () => {
+  const params: ToolParam[] = [
+    { nome: "matricula", descricao: "", tipo: "string", origem: "pessoa", obrigatorio: true, local: "query", campoIdentidade: "matricula" },
+  ];
+  it("usa a matrícula-ALVO do modelo quando informada (ex.: Operador consultando outro)", () => {
+    const identity = identityFromTrack({ p_matricula: "123" });
+    expect(resolveParams(params, { matricula: "999" }, identity).query).toEqual({ matricula: "999" });
+  });
+  it("cai para a matrícula do PRÓPRIO usuário quando o modelo não informa", () => {
+    const identity = identityFromTrack({ p_matricula: "123" });
+    expect(resolveParams(params, {}, identity).query).toEqual({ matricula: "123" });
+    expect(resolveParams(params, { matricula: "" }, identity).query).toEqual({ matricula: "123" });
+  });
+  it("expõe o parâmetro 'pessoa' no schema do modelo (opcional)", () => {
+    const schema = buildModelSchema(params);
+    expect(schema.safeParse({}).success).toBe(true); // opcional
+    expect(schema.safeParse({ matricula: "999" }).success).toBe(true);
+  });
+});

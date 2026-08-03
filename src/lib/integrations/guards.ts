@@ -127,8 +127,59 @@ async function saqueConfirmation(ctx: GuardContext): Promise<GuardResult> {
   };
 }
 
+/**
+ * ESCOPO POR PAINEL para consultas de PESSOA (matrícula-alvo do modelo): o Operador (PO)
+ * consulta qualquer um; o Gestor (PG), só a sua equipe; o Colaborador (PC), só a si. Sem
+ * alvo (ou alvo = o próprio) sempre passa (consulta os próprios dados). Painel desconhecido
+ * → seguro: só os próprios dados. A matrícula-alvo já foi normalizada em `modelArgs.matricula`.
+ */
+/**
+ * Decisão PURA do escopo por painel (testável): "ok" libera; "nega" recusa; "equipe" exige
+ * a checagem de equipe (só o Gestor). Sem alvo, ou alvo = o próprio → sempre "ok".
+ * PO=ok (Operador vê todos), PG=equipe, PC/desconhecido="nega" (só os próprios).
+ */
+export function decisaoEscopoPessoa(portal: string, own: string, alvo: string): "ok" | "nega" | "equipe" {
+  const a = String(alvo ?? "").trim();
+  const o = String(own ?? "").trim();
+  if (!a || a === o) return "ok";
+  const p = String(portal ?? "").trim().toUpperCase();
+  if (p === "PO") return "ok";
+  if (p === "PG") return "equipe";
+  return "nega"; // PC ou painel desconhecido → só os próprios dados
+}
+
+async function escopoPessoa(ctx: GuardContext): Promise<GuardResult> {
+  const own = String(ctx.identity.matricula ?? "");
+  const alvo = String(ctx.modelArgs.matricula ?? "");
+  const d = decisaoEscopoPessoa(String(ctx.identity.portal ?? ""), own, alvo);
+  if (d === "ok") return { ok: true };
+  if (d === "nega") {
+    const portal = String(ctx.identity.portal ?? "").trim().toUpperCase();
+    return {
+      ok: false,
+      erro: portal === "PC"
+        ? "No Painel do Colaborador você só pode consultar os SEUS próprios dados."
+        : "No seu painel só é possível consultar os seus próprios dados.",
+    };
+  }
+  // "equipe" (Gestor): só passa se o alvo estiver na equipe do gestor logado.
+  if (!ctx.credential?.secret.session_key || !ctx.identity.usuario) {
+    return { ok: false, erro: "Não foi possível validar sua equipe agora. Tente mais tarde." };
+  }
+  let team: Set<string>;
+  try {
+    team = await fetchGestorTeam(ctx);
+  } catch {
+    return { ok: false, erro: "Não foi possível validar sua equipe agora. Tente mais tarde." };
+  }
+  return team.has(String(alvo).trim())
+    ? { ok: true }
+    : { ok: false, erro: "Você só pode consultar colaboradores da SUA equipe (Painel do Gestor)." };
+}
+
 const GUARDS: Record<string, (ctx: GuardContext) => Promise<GuardResult>> = {
   team_membership: teamMembership,
+  escopo_pessoa: escopoPessoa,
   saque_confirmation: saqueConfirmation,
 };
 
