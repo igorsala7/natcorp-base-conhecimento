@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { enqueueOntologyScan, enqueueOntologyImport } from "@/lib/jobs/boss";
@@ -147,6 +149,14 @@ export async function saveTerm(input: {
     if (error) return { ok: false, error: error.message.includes("unique") ? "Já existe um termo igual." : error.message };
   }
   await audit({ action: id ? "ontology.term.update" : "ontology.term.create", entityType: "space", entityId: spaceId, spaceId, after: { term: nome } });
+  // AUTO-MIGRAÇÃO: enfileira a tradução do espaço para os idiomas habilitados (o job traduz
+  // só os termos SEM tradução → o termo novo entra automaticamente). Best-effort: não derruba
+  // o salvar. (Editar um termo já traduzido não regenera a tradução — refino futuro.)
+  try {
+    await enfileirarTraducoesPendentes(createAdminClient(), spaceId, null);
+  } catch {
+    /* não derruba o salvar */
+  }
   revalidatePath("/admin/ontologia");
   return { ok: true };
 }

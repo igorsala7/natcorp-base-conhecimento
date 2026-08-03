@@ -32,6 +32,8 @@ import { readOutline } from "../src/lib/importer/read-outline";
 import { generateArticle } from "../src/lib/importer/generate-article";
 import { hasAiKey, resolveAi } from "../src/lib/ai/config";
 import { extrairTermos, sinonimosDeTermos } from "../src/lib/ai/ontology-scan";
+import { runTraducaoOntologia } from "../src/lib/ai/ontology-translate-run";
+import { enfileirarTraducoesPendentes } from "../src/lib/ai/ontology-translate-enqueue";
 import { normalizarTermo } from "../src/lib/ai/ontology";
 import { mesclarTermos, type TermoAcumulado } from "../src/lib/ai/ontology-merge";
 import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
@@ -1077,6 +1079,7 @@ async function main() {
   await boss.createQueue("node-embedding");
   await boss.createQueue("ontology-scan");
   await boss.createQueue("ontology-import");
+  await boss.createQueue("ontology-translate");
   await boss.createQueue("bulk-process");
   await boss.createQueue("analyze-semantic");
   await boss.createQueue("backup");
@@ -1240,6 +1243,11 @@ async function main() {
       try {
         await processOntologyScan(jobId);
         console.log(`Ontologia job ${jobId} concluído`);
+        // Auto-migração: os termos novos da varredura entram nas traduções dos idiomas habilitados.
+        try {
+          const { data: j } = await supabase.from("ontology_jobs").select("space_id").eq("id", jobId).single();
+          if (j?.space_id) await enfileirarTraducoesPendentes(supabase, j.space_id, null);
+        } catch { /* best-effort */ }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Ontologia job ${jobId} falhou:`, msg);
@@ -1255,10 +1263,29 @@ async function main() {
       try {
         await processOntologyImport(jobId);
         console.log(`Importação de ontologia ${jobId} concluída`);
+        try {
+          const { data: j } = await supabase.from("ontology_jobs").select("space_id").eq("id", jobId).single();
+          if (j?.space_id) await enfileirarTraducoesPendentes(supabase, j.space_id, null);
+        } catch { /* best-effort */ }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Importação de ontologia ${jobId} falhou:`, msg);
         await supabase.from("ontology_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("ontology-translate", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Tradução de ontologia (job ${jobId})`);
+      try {
+        const { traduzidos } = await runTraducaoOntologia(supabase, jobId);
+        console.log(`Tradução de ontologia ${jobId} concluída (${traduzidos} termos)`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Tradução de ontologia ${jobId} falhou:`, msg);
+        await supabase.from("ontology_translation_jobs").update({ status: "error", error: msg }).eq("id", jobId);
       }
     }
   });

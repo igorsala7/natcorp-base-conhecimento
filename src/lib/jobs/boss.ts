@@ -21,6 +21,7 @@ async function getBoss(): Promise<PgBoss> {
       await boss.createQueue("node-embedding");
       await boss.createQueue("ontology-scan");
       await boss.createQueue("ontology-import");
+      await boss.createQueue("ontology-translate");
       await boss.createQueue("bulk-process");
       await boss.createQueue("analyze");
       await boss.createQueue("analyze-semantic");
@@ -123,6 +124,12 @@ export async function enqueueOntologyScan(jobId: string): Promise<void> {
 export async function enqueueOntologyImport(jobId: string): Promise<void> {
   const boss = await getBoss();
   await boss.send("ontology-import", { jobId });
+}
+
+/** Tradução da ontologia (bulk por espaço+idioma / auto-migração de novos termos). */
+export async function enqueueOntologyTranslate(jobId: string): Promise<void> {
+  const boss = await getBoss();
+  await boss.send("ontology-translate", { jobId });
 }
 
 /** Processamento em lote (publicar → embedding → ontologia) da seleção. */

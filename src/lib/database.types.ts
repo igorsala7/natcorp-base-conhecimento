@@ -2381,6 +2381,7 @@ export type Database = {
       }
       ontology_translations: {
         Row: {
+          aliases: Json
           created_at: string
           description: string | null
           id: string
@@ -2393,6 +2394,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          aliases?: Json
           created_at?: string
           description?: string | null
           id?: string
@@ -2405,6 +2407,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          aliases?: Json
           created_at?: string
           description?: string | null
           id?: string
@@ -2426,40 +2429,49 @@ export type Database = {
           },
         ]
       }
-      ontology_alias_translations: {
+      ontology_translation_jobs: {
         Row: {
-          alias: string
-          alias_id: string
-          alias_norm: string
           created_at: string
+          created_by: string | null
+          done: number
+          error: string | null
           id: string
           lang: string
-          source: string
+          progress: number
+          space_id: string
+          status: string
+          total: number
         }
         Insert: {
-          alias: string
-          alias_id: string
-          alias_norm: string
           created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
           id?: string
           lang: string
-          source?: string
+          progress?: number
+          space_id: string
+          status?: string
+          total?: number
         }
         Update: {
-          alias?: string
-          alias_id?: string
-          alias_norm?: string
           created_at?: string
+          created_by?: string | null
+          done?: number
+          error?: string | null
           id?: string
           lang?: string
-          source?: string
+          progress?: number
+          space_id?: string
+          status?: string
+          total?: number
         }
         Relationships: [
           {
-            foreignKeyName: "ontology_alias_translations_alias_id_fkey"
-            columns: ["alias_id"]
+            foreignKeyName: "ontology_translation_jobs_space_id_fkey"
+            columns: ["space_id"]
             isOneToOne: false
-            referencedRelation: "ontology_aliases"
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]

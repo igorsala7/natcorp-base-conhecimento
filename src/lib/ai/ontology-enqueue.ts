@@ -38,3 +38,20 @@ export async function criarJobOntologia(
     .single();
   return job?.id ?? null;
 }
+
+/**
+ * Cria um job de TRADUÇÃO da ontologia (espaço × idioma). Só insere a linha e
+ * devolve o id; o ENVIO para a fila fica a cargo de quem chama. `null` em falha.
+ * Passe um cliente SERVICE-ROLE (a RLS de escrita é só service-role).
+ */
+export async function criarJobTraducao(
+  db: SupabaseClient<Database>,
+  input: { spaceId: string; lang: string; createdBy: string | null },
+): Promise<string | null> {
+  const { data: job } = await db
+    .from("ontology_translation_jobs")
+    .insert({ space_id: input.spaceId, lang: input.lang, created_by: input.createdBy })
+    .select("id")
+    .single();
+  return job?.id ?? null;
+}
