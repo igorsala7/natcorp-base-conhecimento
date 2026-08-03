@@ -263,6 +263,113 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_profile_modules: {
+        Row: {
+          created_at: string
+          id: string
+          modulo: string
+          profile_id: string
+          submodulo: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modulo: string
+          profile_id: string
+          submodulo?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modulo?: string
+          profile_id?: string
+          submodulo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_profile_modules_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_profiles: {
+        Row: {
+          acoes: string[]
+          active: boolean
+          base_code: string
+          cargo: string | null
+          comportamento: string | null
+          created_at: string
+          created_by: string | null
+          descricao: string | null
+          id: string
+          nome: string | null
+          priority: number
+          prompt_refino: string
+          requires_perfil: string | null
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          acoes?: string[]
+          active?: boolean
+          base_code: string
+          cargo?: string | null
+          comportamento?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string | null
+          priority?: number
+          prompt_refino?: string
+          requires_perfil?: string | null
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          acoes?: string[]
+          active?: boolean
+          base_code?: string
+          cargo?: string | null
+          comportamento?: string | null
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string | null
+          priority?: number
+          prompt_refino?: string
+          requires_perfil?: string | null
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_report_module_cache: {
+        Row: {
+          base_code: string
+          modulos: Json
+          report_key: string
+          updated_at: string
+        }
+        Insert: {
+          base_code: string
+          modulos: Json
+          report_key: string
+          updated_at?: string
+        }
+        Update: {
+          base_code?: string
+          modulos?: Json
+          report_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_agent_tools: {
         Row: {
           agent_id: string
@@ -2010,6 +2117,9 @@ export type Database = {
           session_id: string | null
           space_id: string
           user_ref: string | null
+          widget_user_ref: string | null
+          disclaimer: string | null
+          title: string | null
         }
         Insert: {
           created_at?: string
@@ -2024,6 +2134,9 @@ export type Database = {
           session_id?: string | null
           space_id: string
           user_ref?: string | null
+          widget_user_ref?: string | null
+          disclaimer?: string | null
+          title?: string | null
         }
         Update: {
           created_at?: string
@@ -2038,6 +2151,9 @@ export type Database = {
           session_id?: string | null
           space_id?: string
           user_ref?: string | null
+          widget_user_ref?: string | null
+          disclaimer?: string | null
+          title?: string | null
         }
         Relationships: [
           {

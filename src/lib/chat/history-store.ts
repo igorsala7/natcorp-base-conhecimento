@@ -94,8 +94,9 @@ export async function fetchLatestHistory(
 }
 
 /** Converte a mídia gravada em itens reexibíveis: gráfico inline; arquivo vira
- *  URL assinada de curta duração (bucket privado). Falhas são ignoradas. */
-async function resolveMedia(supabase: Client, raw: unknown): Promise<HistoryMedia[]> {
+ *  URL assinada de curta duração (bucket privado). Falhas são ignoradas.
+ *  Exportada para o Histórico de conversas reusar a mesma reidratação. */
+export async function resolveMedia(supabase: Client, raw: unknown): Promise<HistoryMedia[]> {
   if (!Array.isArray(raw)) return [];
   const out: HistoryMedia[] = [];
   for (const it of raw) {

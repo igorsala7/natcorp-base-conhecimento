@@ -22,6 +22,7 @@ export const PROVIDER_HELP: Record<ProviderKind, string> = {
 
 export type Purpose =
   | "chat"
+  | "report_analysis"
   | "query_rewrite"
   | "embedding"
   | "import_structure"
@@ -32,6 +33,11 @@ export type Purpose =
 
 export const PURPOSES: { key: Purpose; label: string; desc: string }[] = [
   { key: "chat", label: "Chat", desc: "Respostas do assistente e do widget." },
+  {
+    key: "report_analysis",
+    label: "Análise de relatório",
+    desc: "Usado quando o widget faz ANÁLISE PURA do relatório da tela (sem preencher/operar a tela). Prompt enxuto — dá para atribuir um modelo mais forte (raciocínio) OU mais barato/rápido, conforme sua prioridade. Sem atribuição própria, usa o modelo do Chat.",
+  },
   {
     key: "query_rewrite",
     label: "Reescrita de busca",

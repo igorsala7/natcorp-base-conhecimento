@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
+import { ProfilesManager, type ProfileRow } from "./profiles-manager";
 import { RunsManager, type RunRow } from "./runs-manager";
 import { FlowManager } from "./flow-manager";
 import { BuilderChat } from "./builder-chat";
@@ -24,6 +25,7 @@ export function IntegrationsShell({
   tools,
   baseTools,
   agents,
+  profiles,
   providers,
   spaces,
   runs,
@@ -35,6 +37,7 @@ export function IntegrationsShell({
   tools: ToolRow[];
   baseTools: BaseToolRow[];
   agents: AgentRow[];
+  profiles: ProfileRow[];
   providers: ProviderOption[];
   spaces: SpaceOption[];
   runs: RunRow[];
@@ -42,11 +45,12 @@ export function IntegrationsShell({
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
-  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
+  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "perfis" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
   const abas = [
     ["bases", "Bases / Clientes"],
     ["apis", "APIs / Tools"],
     ["agentes", "Agentes"],
+    ["perfis", "Perfis de Análise"],
     ["fluxo", "Fluxo"],
     ["construtor", "Construtor IA"],
     ["execucoes", "Execuções"],
@@ -79,6 +83,12 @@ export function IntegrationsShell({
         <ToolsManager tools={tools} bases={bases} baseTools={baseTools} moduleOptions={moduleOptions} />
       ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
+      ) : tab === "perfis" ? (
+        <ProfilesManager
+          profiles={profiles}
+          bases={bases.map((b) => ({ base_code: b.base_code, name: b.name }))}
+          moduleOptions={moduleOptions}
+        />
       ) : tab === "fluxo" ? (
         <FlowManager
           bases={bases}
