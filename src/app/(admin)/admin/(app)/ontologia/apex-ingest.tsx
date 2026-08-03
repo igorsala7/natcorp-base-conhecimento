@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Boxes, Download, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
+import { Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import {
   dataDictionaryCsv,
+  gerarDocsApex,
   ingestApexJson,
   listApexJobs,
   listDataDictionaryColumns,
@@ -49,6 +50,14 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
     start(async () => {
       const r = await ingestApexJson(spaceId, json);
       if (r.ok) { toast.success("Ingestão enfileirada — progresso abaixo."); iniciarPoll(); }
+      else toast.error(r.error);
+    });
+  }
+
+  function documentar() {
+    start(async () => {
+      const r = await gerarDocsApex(spaceId, json);
+      if (r.ok) { toast.success("Documentação enfileirada — 2 artigos por página (usuário + técnica) na base."); iniciarPoll(); }
       else toast.error(r.error);
     });
   }
@@ -103,6 +112,9 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
         </Button>
         <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend}>
           <FileUp className="size-4" /> Subir JSON
+        </Button>
+        <Button variant="ghost" onClick={documentar} disabled={pend || !json.trim()} title="Gera 2 artigos por página (usuário + técnica) na base de conhecimento">
+          <FileText className="size-4" /> Gerar documentação
         </Button>
         <span className="text-xs text-text-muted">Precisa do worker rodando (npm run worker).</span>
       </div>

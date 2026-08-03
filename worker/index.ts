@@ -35,6 +35,7 @@ import { extrairTermos, sinonimosDeTermos } from "../src/lib/ai/ontology-scan";
 import { runTraducaoOntologia } from "../src/lib/ai/ontology-translate-run";
 import { enfileirarTraducoesPendentes } from "../src/lib/ai/ontology-translate-enqueue";
 import { runApexIngest } from "../src/lib/apex/ingest-run";
+import { runApexDocs } from "../src/lib/apex/docs-run";
 import { normalizarTermo } from "../src/lib/ai/ontology";
 import { mesclarTermos, type TermoAcumulado } from "../src/lib/ai/ontology-merge";
 import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
@@ -1082,6 +1083,7 @@ async function main() {
   await boss.createQueue("ontology-import");
   await boss.createQueue("ontology-translate");
   await boss.createQueue("apex-ingest");
+  await boss.createQueue("apex-docs");
   await boss.createQueue("bulk-process");
   await boss.createQueue("analyze-semantic");
   await boss.createQueue("backup");
@@ -1302,6 +1304,21 @@ async function main() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Ingestão APEX ${jobId} falhou:`, msg);
+        await supabase.from("data_dictionary_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+      }
+    }
+  });
+
+  await boss.work("apex-docs", async (jobs) => {
+    for (const job of jobs) {
+      const { jobId } = job.data as { jobId: string };
+      console.log(`Documentação de app APEX (job ${jobId})`);
+      try {
+        const r = await runApexDocs(supabase, jobId);
+        console.log(`Documentação APEX ${jobId} concluída (${r.paginas} páginas, ${r.artigos} artigos)`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Documentação APEX ${jobId} falhou:`, msg);
         await supabase.from("data_dictionary_jobs").update({ status: "error", error: msg }).eq("id", jobId);
       }
     }

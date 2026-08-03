@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
-import { enqueueApexIngest } from "@/lib/jobs/boss";
+import { enqueueApexIngest, enqueueApexDocs } from "@/lib/jobs/boss";
 import { normalizarApexJson } from "@/lib/apex/metadata";
 import { normalizarTermo } from "@/lib/ai/ontology";
 import { idiomaNome } from "@/lib/i18n/languages";
@@ -35,6 +35,38 @@ export async function ingestApexJson(spaceId: string, jsonText: string): Promise
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueApexIngest(job.id);
+  } catch {
+    await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
+    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+  }
+  revalidatePath("/admin/ontologia");
+  return { ok: true, jobId: job.id };
+}
+
+/** Gera a DOCUMENTAÇÃO por página (usuário + técnica) na base, a partir do mesmo JSON. */
+export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<Ok> {
+  try {
+    await requirePermission("content.create", spaceId);
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
+  }
+  let meta: Json;
+  try {
+    meta = JSON.parse(jsonText) as Json;
+  } catch {
+    return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
+  }
+  if (!normalizarApexJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
+  const admin = createAdminClient();
+  const { data: job } = await admin
+    .from("data_dictionary_jobs")
+    .insert({ space_id: spaceId, kind: "apex_docs", input: { meta } })
+    .select("id")
+    .single();
+  if (!job) return { ok: false, error: "Falha ao criar o job." };
+  try {
+    await enqueueApexDocs(job.id);
   } catch {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
     return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
