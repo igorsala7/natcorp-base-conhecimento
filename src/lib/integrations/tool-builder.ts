@@ -306,7 +306,7 @@ export async function buildIntegrationTools(
             let cachedHit = false;
             try {
               if (bt.tool.cache_ttl) {
-                const m = await getCachedExecMeta(`${baseCode}:${bt.tool.key}:${cacheArgsKey(callArgs, ident)}`, bt.tool.cache_ttl, doExec);
+                const m = await getCachedExecMeta(`${baseCode}:${bt.tool.key}:${cacheArgsKey(callArgs, ident, bt.tool.cache_scope ?? undefined)}`, bt.tool.cache_ttl, doExec);
                 result = m.result;
                 cachedHit = m.cached;
               } else {

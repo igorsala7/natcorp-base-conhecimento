@@ -20,6 +20,8 @@ export type RuntimeTool = {
   guard?: string | null;
   /** Segundos de cache em memória do resultado (dados quase-estáticos). NULL = sem cache. */
   cache_ttl?: number | null;
+  /** Escopo da chave do cache: 'user' (padrão) | 'empresa' | 'global' (ver tool-cache). */
+  cache_scope?: string | null;
   /** Expansão de período (mês a mês): o servidor itera e agrega. NULL = sem loop. */
   loop?: LoopConfig | null;
   /** Instrução própria da tool, concatenada ao prompt quando a tool está ativa. */

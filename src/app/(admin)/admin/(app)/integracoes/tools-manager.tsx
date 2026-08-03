@@ -53,6 +53,7 @@ export type ToolRow = {
   body_mode: string | null;
   guard: string | null;
   cache_ttl: number | null;
+  cache_scope: string;
   loop: LoopConfig | null;
   /** Escopo de dados por painel (PO/PG/PC). NULL = "todos" para todos os painéis. */
   panel_scope: PanelScopeMap | null;
@@ -65,6 +66,7 @@ type FlagPatch = {
   active?: boolean;
   always_include?: boolean;
   loop?: LoopConfig | null;
+  cache_ttl?: number | null;
   panel_scope?: PanelScopeMap | null;
   exclude_self?: boolean;
 };
@@ -423,6 +425,7 @@ function ToolsTable({
             <th className={`${th} text-center`}>Ativa</th>
             <th className={`${th} text-center`}>Essencial</th>
             <th className={`${th} text-center`}>Loop</th>
+            <th className={`${th} text-center`} title="Tempo de cache do resultado, em segundos. 0 = sem cache. Escopo (usuário/empresa/global) no editor.">Cache (s)</th>
             <th className={`${th} text-center`}>Módulos</th>
             <th className={`${th} text-center`}>Bases</th>
             <th className={`${th} text-center`} title="Alcance da consulta por painel: Operador · Gestor · Colaborador">Escopo · PO/PG/PC</th>
@@ -464,6 +467,9 @@ function ToolsTable({
                   title={t.loop ? `Loop: ${t.loop.unit}` : "Ligar loop (config padrão; ajuste no editor)"}
                   onChange={(v) => onFlag(t, { loop: v ? LOOP_DEFAULT : null })}
                 />
+              </td>
+              <td className={`${td} text-center`}>
+                <CacheCell tool={t} disabled={pending} onFlag={onFlag} />
               </td>
               <td className={`${td} text-center tabular-nums`}>
                 {t.tags.length > 0 ? (
@@ -547,6 +553,35 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
         ≠eu
       </button>
     </div>
+  );
+}
+
+/**
+ * Edição INLINE do tempo de cache (segundos) na tabela. 0/vazio = sem cache (null).
+ * Confirma no blur ou Enter; só chama o servidor se mudou. O `key` reinicia o valor
+ * exibido quando o dado muda por fora (após salvar/atualizar).
+ */
+function CacheCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: boolean; onFlag: (t: ToolRow, patch: FlagPatch) => void }) {
+  const atual = tool.cache_ttl ?? 0;
+  const commit = (v: string) => {
+    const n = Math.max(0, Math.floor(Number(v) || 0));
+    const novo = n > 0 ? n : null;
+    if (novo !== (tool.cache_ttl ?? null)) onFlag(tool, { cache_ttl: novo });
+  };
+  return (
+    <input
+      key={atual}
+      type="number"
+      min={0}
+      step={60}
+      disabled={disabled}
+      defaultValue={atual}
+      aria-label={`Cache em segundos de ${tool.name}`}
+      title={tool.cache_ttl ? `Cache ${tool.cache_ttl}s · escopo ${tool.cache_scope}` : "Sem cache (0 = desligado)"}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      className="w-16 rounded border border-border bg-surface px-1 py-0.5 text-center text-xs tabular-nums"
+    />
   );
 }
 
@@ -928,6 +963,7 @@ export function ToolDialog({
   const [bodyMode, setBodyMode] = useState(tool?.body_mode ?? "");
   const [guard, setGuard] = useState(tool?.guard ?? "");
   const [cacheTtl, setCacheTtl] = useState(tool?.cache_ttl != null ? String(tool.cache_ttl) : "");
+  const [cacheScope, setCacheScope] = useState(tool?.cache_scope ?? "user");
   const [loopOn, setLoopOn] = useState(Boolean(tool?.loop));
   const [loopUnit, setLoopUnit] = useState<"month" | "values" | "batch">(tool?.loop?.unit ?? "month");
   const [loopParam, setLoopParam] = useState(tool?.loop?.param ?? "data_ref");
@@ -982,6 +1018,7 @@ export function ToolDialog({
       body_mode: bodyMode.trim() || null,
       guard: guard.trim() || null,
       cache_ttl: cache && Number.isFinite(cache) ? cache : null,
+      cache_scope: cacheScope,
       loop,
       panel_scope: panelScope,
       exclude_self: excludeSelf,
@@ -1194,9 +1231,18 @@ export function ToolDialog({
                   <input id="tool_guard" className={controlClass} value={guard} onChange={(e) => setGuard(e.target.value)} placeholder="(nenhum)" />
                 </Field>
               </div>
-              <Field label="Cache (segundos)" htmlFor="tool_cache" hint="Dados quase-estáticos (estrutura, cadastro). Vazio = sem cache.">
-                <input id="tool_cache" type="number" min={0} className={controlClass} value={cacheTtl} onChange={(e) => setCacheTtl(e.target.value)} placeholder="ex.: 1800" />
-              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Cache (segundos)" htmlFor="tool_cache" hint="Dados quase-estáticos. Vazio = sem cache.">
+                  <input id="tool_cache" type="number" min={0} className={controlClass} value={cacheTtl} onChange={(e) => setCacheTtl(e.target.value)} placeholder="ex.: 3600" />
+                </Field>
+                <Field label="Escopo do cache" htmlFor="tool_cache_scope" hint="empresa/global compartilham entre usuários — só se a saída NÃO depender do usuário.">
+                  <select id="tool_cache_scope" className={controlClass} value={cacheScope} onChange={(e) => setCacheScope(e.target.value)}>
+                    <option value="user">Por usuário (padrão)</option>
+                    <option value="empresa">Por empresa (compartilha)</option>
+                    <option value="global">Global (todos)</option>
+                  </select>
+                </Field>
+              </div>
               <div className="rounded-lg border border-border bg-surface p-3">
                 <label className="flex items-center gap-2 text-sm text-text">
                   <input type="checkbox" checked={loopOn} onChange={(e) => setLoopOn(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />

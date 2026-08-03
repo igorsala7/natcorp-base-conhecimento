@@ -55,6 +55,7 @@ type EmbeddedRow = {
     body_mode: string | null;
     guard: string | null;
     cache_ttl: number | null;
+    cache_scope: string | null;
     loop: LoopConfig | null;
     endpoint_kind: string | null;
     external_url: string | null;
@@ -113,7 +114,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, panel_scope, exclude_self, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, panel_scope, exclude_self, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -160,6 +161,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
         body_mode: t.body_mode,
         guard: t.guard,
         cache_ttl: t.cache_ttl,
+        cache_scope: t.cache_scope,
         loop: t.loop,
         system_prompt: t.system_prompt,
         panel_scope: normalizarPanelScope(t.panel_scope),

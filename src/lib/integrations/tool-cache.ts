@@ -39,10 +39,24 @@ export async function getCachedExec(
 }
 
 /** Chave de cache: parâmetros que afetam a API (menos `termo`) + identidade que escopa. */
-export function cacheArgsKey(modelArgs: Record<string, unknown>, identity: Identity): string {
+/**
+ * Chave dos ARGS + identidade para o cache de resultado. O ESCOPO decide quais
+ * campos da identidade entram — assim dados de referência são compartilhados:
+ *   - "user" (padrão): por usuário (dados pessoais/por-matrícula).
+ *   - "empresa": só a empresa → usuários da mesma empresa compartilham o cache.
+ *   - "global": nada da identidade → todos compartilham (ex.: consulta de CEP).
+ * O baseCode já vai no PREFIXO da chave (em tool-builder), então não repete aqui.
+ */
+export function cacheArgsKey(modelArgs: Record<string, unknown>, identity: Identity, scope?: string): string {
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(modelArgs)) if (k !== "termo") rest[k] = v;
-  return JSON.stringify({ ...rest, u: identity.usuario ?? "", e: identity.cod_empresa ?? "", m: identity.matricula ?? "", b: identity.base ?? "" });
+  const id =
+    scope === "global"
+      ? {}
+      : scope === "empresa"
+        ? { e: identity.cod_empresa ?? "" }
+        : { u: identity.usuario ?? "", e: identity.cod_empresa ?? "", m: identity.matricula ?? "", b: identity.base ?? "" };
+  return JSON.stringify({ ...rest, ...id });
 }
 
 /**

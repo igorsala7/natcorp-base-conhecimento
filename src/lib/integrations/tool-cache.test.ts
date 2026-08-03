@@ -51,11 +51,28 @@ describe("filtrarPorTermo", () => {
 });
 
 describe("cacheArgsKey", () => {
-  it("ignora `termo` e inclui a identidade", () => {
+  it("ignora `termo` e inclui a identidade (escopo padrão = user)", () => {
     const k1 = cacheArgsKey({ empresa: "700", termo: "Natcorp" }, { usuario: "365785" });
     const k2 = cacheArgsKey({ empresa: "700", termo: "Redeflex" }, { usuario: "365785" });
     expect(k1).toBe(k2);
     expect(cacheArgsKey({ empresa: "700" }, { usuario: "999" })).not.toBe(k1);
+  });
+
+  it("escopo 'empresa': mesma empresa + matrículas DIFERENTES → MESMA chave (compartilha)", () => {
+    const args = { agrupamento: "cargos" };
+    const a = cacheArgsKey(args, { cod_empresa: "700", matricula: "111", usuario: "aa" }, "empresa");
+    const b = cacheArgsKey(args, { cod_empresa: "700", matricula: "222", usuario: "bb" }, "empresa");
+    expect(a).toBe(b);
+    // Empresas diferentes → chaves diferentes.
+    expect(cacheArgsKey(args, { cod_empresa: "999", matricula: "111" }, "empresa")).not.toBe(a);
+  });
+
+  it("escopo 'global': identidade some da chave (todos compartilham)", () => {
+    const a = cacheArgsKey({ cep: "01001000" }, { cod_empresa: "700", matricula: "111" }, "global");
+    const b = cacheArgsKey({ cep: "01001000" }, { cod_empresa: "999", matricula: "222" }, "global");
+    expect(a).toBe(b);
+    // Mas o argumento ainda discrimina.
+    expect(cacheArgsKey({ cep: "20040002" }, { cod_empresa: "700" }, "global")).not.toBe(a);
   });
 });
 

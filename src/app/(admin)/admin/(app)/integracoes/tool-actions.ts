@@ -86,6 +86,7 @@ const toolSchema = z.object({
   body_mode: z.string().trim().nullish(),
   guard: z.string().trim().nullish(),
   cache_ttl: z.number().int().positive().nullish(),
+  cache_scope: z.enum(["user", "empresa", "global"]).default("user"),
   loop: loopSchema.nullish(),
   // Escopo por painel (PO/PG/PC) + "nunca os próprios" (ex.: desligamento).
   panel_scope: panelScopeSchema,
@@ -133,6 +134,7 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     body_mode: t.body_mode?.trim() || null,
     guard: t.guard?.trim() || null,
     cache_ttl: t.cache_ttl ?? null,
+    cache_scope: t.cache_scope,
     loop: (t.loop ?? null) as unknown as Json,
     panel_scope: (t.panel_scope ?? null) as unknown as Json,
     exclude_self: t.exclude_self,
@@ -226,6 +228,7 @@ const flagsSchema = z
     active: z.boolean().optional(),
     always_include: z.boolean().optional(),
     loop: loopSchema.nullable().optional(),
+    cache_ttl: z.number().int().min(0).nullable().optional(),
     panel_scope: panelScopeSchema,
     exclude_self: z.boolean().optional(),
   })
@@ -234,6 +237,7 @@ const flagsSchema = z
       v.active !== undefined ||
       v.always_include !== undefined ||
       v.loop !== undefined ||
+      v.cache_ttl !== undefined ||
       v.panel_scope !== undefined ||
       v.exclude_self !== undefined,
     { message: "Nada para alterar." },
@@ -244,19 +248,22 @@ export async function setToolFlags(input: unknown): Promise<IntegResult & { coun
   if (negado) return { ok: false, error: negado };
   const parsed = flagsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-  const { toolIds, active, always_include, loop, panel_scope, exclude_self } = parsed.data;
+  const { toolIds, active, always_include, loop, cache_ttl, panel_scope, exclude_self } = parsed.data;
 
   const patch: {
     updated_at: string;
     active?: boolean;
     always_include?: boolean;
     loop?: Json;
+    cache_ttl?: number | null;
     panel_scope?: Json;
     exclude_self?: boolean;
   } = { updated_at: new Date().toISOString() };
   if (active !== undefined) patch.active = active;
   if (always_include !== undefined) patch.always_include = always_include;
   if (loop !== undefined) patch.loop = (loop ?? null) as unknown as Json;
+  // 0 (ou vazio) desliga o cache → grava NULL.
+  if (cache_ttl !== undefined) patch.cache_ttl = cache_ttl && cache_ttl > 0 ? cache_ttl : null;
   if (panel_scope !== undefined) patch.panel_scope = (panel_scope ?? null) as unknown as Json;
   if (exclude_self !== undefined) patch.exclude_self = exclude_self;
 
@@ -275,6 +282,7 @@ export async function setToolFlags(input: unknown): Promise<IntegResult & { coun
       active,
       always_include,
       loop: loop === undefined ? undefined : !!loop,
+      cache_ttl,
       panel_scope: panel_scope === undefined ? undefined : panel_scope,
       exclude_self,
       count: count ?? toolIds.length,
@@ -427,7 +435,7 @@ export async function duplicateTool(id: string): Promise<IntegResult> {
   const { data: orig, error: e0 } = await supabase
     .from("ai_tools")
     .select(
-      "key, name, description, method, path_template, auth_type, params, response_hint, always_include, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, loop, panel_scope, exclude_self",
+      "key, name, description, method, path_template, auth_type, params, response_hint, always_include, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, cache_scope, loop, panel_scope, exclude_self",
     )
     .eq("id", id)
     .single();
