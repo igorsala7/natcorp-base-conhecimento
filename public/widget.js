@@ -27,6 +27,19 @@
   ];
   var widgetLang = "pt";
   try { widgetLang = localStorage.getItem(LS_LANG) || "pt"; } catch (e) { }
+  // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
+  // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
+  var I18N = {
+    pt: { placeholder: "Escreva ou fale sua pergunta…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar" },
+    en: { placeholder: "Type or speak your question…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear" },
+    es: { placeholder: "Escribe o habla tu pregunta…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar" },
+    fr: { placeholder: "Écrivez ou dites votre question…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer" },
+    de: { placeholder: "Schreiben oder sprechen Sie Ihre Frage…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen" },
+    it: { placeholder: "Scrivi o pronuncia la tua domanda…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella" },
+    ja: { placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア" },
+    zh: { placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除" },
+  };
+  function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
   // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
   var LS_CLEARED = "kb.widget.cleared." + KEY;
   // Rascunho do campo de texto (preserva o que foi digitado ao minimizar/recarregar).
@@ -4359,6 +4372,7 @@
 
     messagesEl = panel.querySelector(".msgs");
     inputEl = panel.querySelector("textarea");
+    if (inputEl && widgetLang !== "pt") inputEl.placeholder = wt("placeholder");
     sendBtn = panel.querySelector("[data-send]");
     attzEl = panel.querySelector(".attz");
     fileInput = panel.querySelector("[data-file]");
@@ -5975,13 +5989,13 @@
     promptBar.style.display = "block";
     baseBtn = document.createElement("button");
     baseBtn.type = "button"; baseBtn.className = "pbtn";
-    baseBtn.innerHTML = ICON_DB + "<span>Base de Dados</span>";
+    baseBtn.innerHTML = ICON_DB + "<span>" + wt("baseDados") + "</span>";
     baseBtn.addEventListener("click", toggleBaseDados);
     promptBar.appendChild(baseBtn);
     // Botão "Histórico" ao lado de "Base de Dados" — abre a lista de conversas do usuário.
     var histBtn = document.createElement("button");
     histBtn.type = "button"; histBtn.className = "pbtn";
-    histBtn.innerHTML = ICON_HISTORY + "<span>Histórico</span>";
+    histBtn.innerHTML = ICON_HISTORY + "<span>" + wt("historico") + "</span>";
     histBtn.addEventListener("click", abrirHistorico);
     promptBar.appendChild(histBtn);
     // Seletor de idioma: muda a ontologia usada e o idioma das respostas do chatbot.
@@ -6000,6 +6014,13 @@
       // Se a tradução da tela está ligada, reverte e reaplica no novo idioma.
       if (_trOn) { reverterTela(); if (widgetLang !== "pt") ligarTraducaoTela(widgetLang); }
       if (trChk) { trChk.disabled = widgetLang === "pt"; if (widgetLang === "pt") trChk.checked = false; }
+      // Reaplica os textos da casca do widget no novo idioma.
+      try {
+        if (inputEl) inputEl.placeholder = wt("placeholder");
+        var _bs = baseBtn && baseBtn.querySelector("span"); if (_bs) _bs.textContent = wt("baseDados");
+        var _hs = histBtn && histBtn.querySelector("span"); if (_hs) _hs.textContent = wt("historico");
+        if (trTxt) trTxt.textContent = wt("traduzir");
+      } catch (e) { }
     });
     promptBar.appendChild(langSel);
     // Toggle opt-in: traduzir a TELA host em runtime (best-effort). Fora do PT.
@@ -6012,7 +6033,8 @@
       else reverterTela();
     });
     trWrap.appendChild(trChk);
-    trWrap.appendChild(document.createTextNode("Traduzir a tela"));
+    var trTxt = document.createTextNode(wt("traduzir"));
+    trWrap.appendChild(trTxt);
     promptBar.appendChild(trWrap);
     basePanel = document.createElement("div");
     basePanel.className = "ppanel";

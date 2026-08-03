@@ -154,10 +154,13 @@ export async function saveTerm(input: {
   }
   await audit({ action: id ? "ontology.term.update" : "ontology.term.create", entityType: "space", entityId: spaceId, spaceId, after: { term: nome } });
   // AUTO-MIGRAÇÃO: enfileira a tradução do espaço para os idiomas habilitados (o job traduz
-  // só os termos SEM tradução → o termo novo entra automaticamente). Best-effort: não derruba
-  // o salvar. (Editar um termo já traduzido não regenera a tradução — refino futuro.)
+  // só os termos SEM tradução → o termo novo entra automaticamente). Best-effort.
   try {
-    await enfileirarTraducoesPendentes(createAdminClient(), spaceId, null);
+    const admin = createAdminClient();
+    // Ao EDITAR, o texto pode ter mudado → apaga as traduções NÃO revisadas deste termo para
+    // regenerarem com o novo texto. As revisadas por humano são preservadas.
+    if (id) await admin.from("ontology_translations").delete().eq("term_id", id).eq("reviewed", false);
+    await enfileirarTraducoesPendentes(admin, spaceId, null);
   } catch {
     /* não derruba o salvar */
   }
@@ -308,6 +311,20 @@ export async function enqueueOntologyImportJob(input: {
 }
 
 // ── MULTILÍNGUE (Fase 1c): idiomas habilitados + revisão das traduções ──────────
+
+export type JobTraducao = { id: string; lang: string; status: string; progress: number; done: number; total: number };
+
+/** Jobs de tradução recentes do espaço (para a barra de progresso). */
+export async function listTranslationJobs(spaceId: string): Promise<JobTraducao[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("ontology_translation_jobs")
+    .select("id, lang, status, progress, done, total")
+    .eq("space_id", spaceId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  return (data ?? []) as JobTraducao[];
+}
 
 /** Idiomas ATIVOS do espaço (além do PT canônico). */
 export async function listSpaceLanguages(spaceId: string): Promise<string[]> {

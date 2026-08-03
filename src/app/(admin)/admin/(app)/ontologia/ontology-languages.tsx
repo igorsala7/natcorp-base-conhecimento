@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Languages, Loader2, RefreshCw, Save, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,10 +9,12 @@ import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { IDIOMAS } from "@/lib/i18n/languages";
 import {
+  listTranslationJobs,
   listTranslations,
   saveTranslation,
   setSpaceLanguages,
   traduzirOntologia,
+  type JobTraducao,
   type LinhaTraducao,
 } from "./actions";
 
@@ -35,8 +37,28 @@ export function OntologyLanguages({
   const [ativos, setAtivos] = useState<string[]>(initialLangs);
   const [langSel, setLangSel] = useState<string | null>(initialLangs[0] ?? null);
   const [linhas, setLinhas] = useState<LinhaTraducao[] | null>(null);
+  const [jobs, setJobs] = useState<JobTraducao[]>([]);
   const [pend, startPend] = useTransition();
   const [carregando, startCarregar] = useTransition();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  function iniciarPoll() {
+    if (pollRef.current) return;
+    let ticks = 0;
+    const run = async () => {
+      ticks += 1;
+      const js = await listTranslationJobs(spaceId);
+      setJobs(js);
+      const ativo = js.some((j) => j.status === "queued" || j.status === "running");
+      if ((!ativo && ticks > 1) || ticks > 30) {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      }
+    };
+    void run();
+    pollRef.current = setInterval(run, 2500);
+  }
 
   function toggle(code: string) {
     setAtivos((a) => (a.includes(code) ? a.filter((x) => x !== code) : [...a, code]));
@@ -45,7 +67,7 @@ export function OntologyLanguages({
   function salvarIdiomas() {
     startPend(async () => {
       const r = await setSpaceLanguages(spaceId, ativos);
-      if (r.ok) toast.success("Idiomas salvos — a tradução dos habilitados foi enfileirada.");
+      if (r.ok) { toast.success("Idiomas salvos — a tradução dos habilitados foi enfileirada."); iniciarPoll(); }
       else toast.error(r.error);
     });
   }
@@ -59,10 +81,12 @@ export function OntologyLanguages({
   function traduzir(lang: string) {
     startPend(async () => {
       const r = await traduzirOntologia(spaceId, lang);
-      if (r.ok) toast.success("Tradução enfileirada — recarregue a lista em instantes para revisar.");
+      if (r.ok) { toast.success("Tradução enfileirada — o progresso aparece abaixo."); iniciarPoll(); }
       else toast.error(r.error);
     });
   }
+
+  const jobsAtivos = jobs.filter((j) => j.status === "queued" || j.status === "running");
 
   const idiomasSalvos = JSON.stringify([...ativos].sort()) !== JSON.stringify([...initialLangs].sort());
 
@@ -107,6 +131,25 @@ export function OntologyLanguages({
           <span className="text-xs text-text-muted">
             Ao salvar, os termos são traduzidos por IA em segundo plano (precisa do worker rodando).
           </span>
+        </div>
+      )}
+
+      {jobsAtivos.length > 0 && (
+        <div className="space-y-2">
+          {jobsAtivos.map((j) => {
+            const nome = IDIOMAS.find((i) => i.code === j.lang)?.nativo ?? j.lang;
+            return (
+              <div key={j.id} className="text-sm">
+                <div className="mb-1 flex justify-between text-text-muted">
+                  <span>Traduzindo {nome}… {j.done}/{j.total || "?"}</span>
+                  <span>{j.progress}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-border">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${j.progress}%` }} />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
