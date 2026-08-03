@@ -18,9 +18,8 @@ describe("identityFromTrack", () => {
       matricula: "12345",
       perfil: "gestor",
       portal: "rh",
+      base: "ACME", // p_base → base (campo de identidade p/ a tool receber o cliente do token)
     });
-    // p_base NÃO é um campo de parâmetro (seleciona a base, não vira valor).
-    expect((id as Record<string, unknown>).base).toBeUndefined();
   });
 
   it("deixa campos ausentes como undefined", () => {
@@ -74,5 +73,18 @@ describe("resolveParams — origem 'pessoa' (matrícula-alvo por painel)", () =>
     expect(schema.safeParse({}).success).toBe(true);
     // string solta não bate o schema de lista (a IA é levada a mandar array).
     expect(schema.safeParse({ matricula: "345" }).success).toBe(false);
+  });
+});
+
+describe("buildModelSchema — loop BATCH (API aceita lista por vírgula)", () => {
+  const params: ToolParam[] = [
+    { nome: "p_matricula", descricao: "Matrículas", tipo: "string", origem: "modelo", obrigatorio: false, local: "query" },
+    { nome: "p_empresa", descricao: "Empresa", tipo: "string", origem: "modelo", obrigatorio: false, local: "query" },
+  ];
+  it("o parâmetro do batch vira LISTA; os demais seguem normais", () => {
+    const schema = buildModelSchema(params, { unit: "batch", param: "p_matricula", max: 20 });
+    expect(schema.safeParse({ p_matricula: ["123", "344", "502"] }).success).toBe(true);
+    expect(schema.safeParse({ p_matricula: "123" }).success).toBe(false); // leva a IA a mandar a lista
+    expect(schema.safeParse({ p_empresa: "700" }).success).toBe(true); // outro param segue string
   });
 });

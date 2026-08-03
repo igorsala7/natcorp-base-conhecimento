@@ -26,7 +26,7 @@ const paramSchema = z.object({
   obrigatorio: z.boolean().optional(),
   mascara: z.string().optional(),
   opcoes: z.array(z.string()).optional(),
-  campoIdentidade: z.enum(["usuario", "cod_empresa", "matricula", "perfil", "portal", "cpf"]).optional(),
+  campoIdentidade: z.enum(["usuario", "cod_empresa", "matricula", "perfil", "portal", "cpf", "base"]).optional(),
   valorFixo: z.string().optional(),
   campoCredencial: z.string().optional(),
   rawPath: z.boolean().optional(),

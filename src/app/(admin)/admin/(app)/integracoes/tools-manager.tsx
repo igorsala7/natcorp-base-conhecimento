@@ -845,7 +845,7 @@ export function ToolDialog({
   const [guard, setGuard] = useState(tool?.guard ?? "");
   const [cacheTtl, setCacheTtl] = useState(tool?.cache_ttl != null ? String(tool.cache_ttl) : "");
   const [loopOn, setLoopOn] = useState(Boolean(tool?.loop));
-  const [loopUnit, setLoopUnit] = useState<"month" | "values">(tool?.loop?.unit ?? "month");
+  const [loopUnit, setLoopUnit] = useState<"month" | "values" | "batch">(tool?.loop?.unit ?? "month");
   const [loopParam, setLoopParam] = useState(tool?.loop?.param ?? "data_ref");
   const [loopFrom, setLoopFrom] = useState(tool?.loop?.from ?? "periodo_ini");
   const [loopTo, setLoopTo] = useState(tool?.loop?.to ?? "periodo_fim");
@@ -867,7 +867,9 @@ export function ToolDialog({
     const loop = loopOn
       ? loopUnit === "month"
         ? { unit: "month" as const, param: loopParam.trim(), from: loopFrom.trim(), to: loopTo.trim(), max: loopMax.trim() ? Number(loopMax.trim()) : 24 }
-        : { unit: "values" as const, param: loopParam.trim(), max: loopMax.trim() ? Number(loopMax.trim()) : 20 }
+        : loopUnit === "batch"
+          ? { unit: "batch" as const, param: loopParam.trim(), max: loopMax.trim() ? Number(loopMax.trim()) : 20 }
+          : { unit: "values" as const, param: loopParam.trim(), max: loopMax.trim() ? Number(loopMax.trim()) : 20 }
       : null;
     return {
       ...(tool ? { id: tool.id } : {}),
@@ -1082,16 +1084,17 @@ export function ToolDialog({
                 {loopOn && (
                   <div className="mt-2 flex flex-col gap-2">
                     <Field label="Modo do loop" htmlFor="loop_unit">
-                      <select id="loop_unit" className={controlClass} value={loopUnit} onChange={(e) => setLoopUnit(e.target.value as "month" | "values")}>
+                      <select id="loop_unit" className={controlClass} value={loopUnit} onChange={(e) => setLoopUnit(e.target.value as "month" | "values" | "batch")}>
                         <option value="month">Período (mês a mês) — modelo informa início/fim</option>
-                        <option value="values">Lista de valores — modelo passa vários no mesmo parâmetro</option>
+                        <option value="values">Lista de valores — 1 chamada por valor (guard por valor)</option>
+                        <option value="batch">Lote (batch) — API aceita lista por vírgula; fatia em lotes</option>
                       </select>
                     </Field>
                     <div className="grid grid-cols-2 gap-2">
-                      <Field label={loopUnit === "month" ? "Param. mensal (API)" : "Param. a repetir (API)"} htmlFor="loop_param" hint={loopUnit === "values" ? "Ex.: matricula — vira uma LISTA para o modelo." : undefined}>
+                      <Field label={loopUnit === "month" ? "Param. mensal (API)" : "Param. a repetir (API)"} htmlFor="loop_param" hint={loopUnit === "values" ? "Ex.: matricula — vira uma LISTA para o modelo." : loopUnit === "batch" ? "Ex.: p_matricula — a API recebe a lista por vírgula, em lotes." : undefined}>
                         <input id="loop_param" className={controlClass} value={loopParam} onChange={(e) => setLoopParam(e.target.value)} placeholder={loopUnit === "month" ? "data_ref" : "matricula"} />
                       </Field>
-                      <Field label={loopUnit === "month" ? "Máx. de meses" : "Máx. de valores"} htmlFor="loop_max">
+                      <Field label={loopUnit === "month" ? "Máx. de meses" : loopUnit === "batch" ? "Itens por lote" : "Máx. de valores"} htmlFor="loop_max">
                         <input id="loop_max" type="number" min={1} className={controlClass} value={loopMax} onChange={(e) => setLoopMax(e.target.value)} />
                       </Field>
                       {loopUnit === "month" && (

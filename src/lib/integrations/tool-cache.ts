@@ -42,7 +42,7 @@ export async function getCachedExec(
 export function cacheArgsKey(modelArgs: Record<string, unknown>, identity: Identity): string {
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(modelArgs)) if (k !== "termo") rest[k] = v;
-  return JSON.stringify({ ...rest, u: identity.usuario ?? "", e: identity.cod_empresa ?? "", m: identity.matricula ?? "" });
+  return JSON.stringify({ ...rest, u: identity.usuario ?? "", e: identity.cod_empresa ?? "", m: identity.matricula ?? "", b: identity.base ?? "" });
 }
 
 /**

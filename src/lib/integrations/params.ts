@@ -14,6 +14,7 @@ export function identityFromTrack(t: TrackFields): Identity {
     matricula: t.p_matricula,
     perfil: t.p_perfil,
     portal: t.p_portal,
+    base: t.p_base,
   };
 }
 
@@ -76,13 +77,16 @@ export function buildModelSchema(
         campo = z.string();
     }
     if (p.descricao && p.tipo !== "date") campo = campo.describe(p.descricao);
-    // Loop por VALORES: o parâmetro vira uma LISTA (um valor, ou vários).
-    if (loop?.unit === "values" && p.nome === loop.param) {
+    // Loop por VALORES/BATCH: o parâmetro vira uma LISTA. `values` consulta um a um;
+    // `batch` manda em lotes (a API aceita lista) — nos dois o modelo passa TODOS os valores.
+    if ((loop?.unit === "values" || loop?.unit === "batch") && p.nome === loop.param) {
       campo = z
         .array(campo)
         .describe(
           (p.descricao ? p.descricao + " " : "") +
-            "Passe UM valor, ou VÁRIOS numa lista se o usuário pedir mais de um — o sistema consulta cada um e junta os resultados.",
+            (loop.unit === "batch"
+              ? "Passe TODOS os valores numa lista (não divida você mesmo) — o sistema envia em lotes e junta os resultados."
+              : "Passe UM valor, ou VÁRIOS numa lista se o usuário pedir mais de um — o sistema consulta cada um e junta os resultados."),
         );
     }
     shape[p.nome] = p.obrigatorio ? campo : campo.optional();

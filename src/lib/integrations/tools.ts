@@ -19,7 +19,7 @@ export type ParamLocal = "query" | "path" | "body" | "header" | "none";
  * resolvido no SERVIDOR (login ORDS) quando a credencial tem `session_key` —
  * nunca vem do token nem do modelo.
  */
-export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal" | "cpf";
+export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal" | "cpf" | "base";
 
 export type ToolParam = {
   /** Nome do parâmetro NA API. */
@@ -56,19 +56,24 @@ export type ToolParam = {
  *  - `month`  : período mensal; o modelo informa `from`/`to` (ISO AAAA-MM) e o
  *               servidor itera mês a mês, injetando cada mês em `param`.
  *  - `values` : o modelo informa uma LISTA de valores em `param` (ex.: várias
- *               matrículas) e o servidor consulta cada um. Só itera quando o
- *               usuário pede mais de um.
+ *               matrículas) e o servidor consulta UM A UM (uma chamada por valor).
+ *               Use quando a API aceita só 1 valor por vez (ou há guard por valor,
+ *               ex.: escopo_pessoa validando cada matrícula). Cap = `max`.
+ *  - `batch`  : a API aceita uma LISTA separada por vírgula no MESMO parâmetro (ex.:
+ *               `123,344,502`). O modelo passa todos; o servidor FATIA em lotes de
+ *               `max` (junta cada lote com vírgula) e faz UMA chamada por lote —
+ *               evita estourar o limite de tamanho de UM request com muitos itens.
  */
 export type LoopConfig = {
   /** Modo da iteração. */
-  unit: "month" | "values";
-  /** Nome do parâmetro single-value que a API espera (recebe cada valor/mês). */
+  unit: "month" | "values" | "batch";
+  /** Nome do parâmetro que a API espera (recebe cada valor/mês, ou o lote em `batch`). */
   param: string;
   /** (month) Parâmetro com o início do período (ISO AAAA-MM). */
   from?: string;
   /** (month) Parâmetro com o fim do período (opcional; ausente = 1 mês). */
   to?: string;
-  /** Teto de iterações (protege contra pedidos absurdos). Padrão 24 (month) / 20 (values). */
+  /** Teto por iteração/lote. Padrão 24 (month) / 20 (values) / 20 por lote (batch). */
   max?: number | null;
 };
 
@@ -106,6 +111,7 @@ export const IDENTITY_FIELDS: readonly { value: IdentityField; label: string }[]
   { value: "perfil", label: "Perfil (gestor/colaborador)" },
   { value: "portal", label: "Portal (p_portal)" },
   { value: "cpf", label: "CPF (resolvido no login)" },
+  { value: "base", label: "Base/cliente (p_base)" },
 ];
 
 /** Um parâmetro em branco para o editor. */

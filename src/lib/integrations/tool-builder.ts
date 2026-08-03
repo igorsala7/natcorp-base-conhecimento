@@ -321,6 +321,26 @@ export async function buildIntegrationTools(
             for (const [i, v] of usados.entries()) itens.push({ valor: v, dados: await runOnce({ ...modelArgs, [loop.param]: v }, i) });
             return { itens, ...(valores.length > max ? { aviso: `Muitos valores: consultei os primeiros ${max}.` } : {}) };
           }
+          // (c) BATCH: a API aceita uma LISTA por vírgula, mas um request com MUITOS itens
+          // estoura o limite de tamanho. O modelo passa todos; o servidor FATIA em lotes de
+          // `max` (junta cada lote com vírgula) e faz UMA chamada por lote, agregando.
+          if (loop?.unit === "batch") {
+            const raw = modelArgs[loop.param];
+            const valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
+              .flatMap((v) => String(v).split(","))
+              .map((v) => v.trim())
+              .filter(Boolean);
+            if (valores.length === 0) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+            const size = Math.max(1, loop.max ?? 20);
+            const MAX_LOTES = 20; // teto de chamadas do batch (protege o teto de 40/turno)
+            const lotes: string[] = [];
+            for (let i = 0; i < valores.length; i += size) lotes.push(valores.slice(i, i + size).join(","));
+            const usados = lotes.slice(0, MAX_LOTES);
+            if (usados.length === 1) return await runOnce({ ...modelArgs, [loop.param]: usados[0]! }, 0);
+            const itens: Array<Record<string, unknown>> = [];
+            for (const [i, lote] of usados.entries()) itens.push({ valor: lote, dados: await runOnce({ ...modelArgs, [loop.param]: lote }, i) });
+            return { itens, ...(lotes.length > MAX_LOTES ? { aviso: `Muitos itens: enviei os primeiros ${MAX_LOTES * size}. Peça o restante em outra consulta.` } : {}) };
+          }
           return await runOnce(modelArgs, 0);
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
