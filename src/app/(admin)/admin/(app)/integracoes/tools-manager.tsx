@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Braces, Globe, List, Pencil, Plus, Table as TableIcon, Trash2, Webhook } from "lucide-react";
+import { Braces, Copy, Globe, List, Pencil, Plus, Table as TableIcon, Trash2, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -24,7 +24,7 @@ import {
   type LoopConfig,
   type ToolParam,
 } from "@/lib/integrations/tools";
-import { saveTool, deleteTool, listarPerfisDaBase, setToolFlags, bulkSetToolModules, bulkSetToolAccess } from "./tool-actions";
+import { saveTool, deleteTool, duplicateTool, listarPerfisDaBase, setToolFlags, bulkSetToolModules, bulkSetToolAccess } from "./tool-actions";
 import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
@@ -198,6 +198,13 @@ export function ToolsManager({
       run(() => deleteTool(t.id), "Tool excluída.");
   }
 
+  // Duplicar: cria uma cópia INATIVA (chave + campos + bases + módulos) para o admin
+  // abrir e ajustar. Não auto-abre o editor (a cópia só aparece após o refresh, e abrir
+  // antes disso mostraria bases vazias — salvar apagaria as bases copiadas).
+  function duplicar(t: ToolRow) {
+    run(() => duplicateTool(t.id), `Cópia de "${t.name}" criada (inativa) — abra para ajustar.`);
+  }
+
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -248,6 +255,7 @@ export function ToolsManager({
             onToggleAll={toggleAll}
             onEdit={abrir}
             onDelete={excluir}
+            onDuplicate={duplicar}
             onFlag={toggleFlag}
           />
         </div>
@@ -279,6 +287,9 @@ export function ToolsManager({
               </div>
               <Button size="sm" variant="ghost" onClick={() => abrir(t)} title="Editar">
                 <Pencil />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => duplicar(t)} disabled={pending} title="Duplicar">
+                <Copy />
               </Button>
               <Button size="icon" variant="danger" onClick={() => excluir(t)} title="Excluir">
                 <Trash2 />
@@ -354,6 +365,7 @@ function ToolsTable({
   onToggleAll,
   onEdit,
   onDelete,
+  onDuplicate,
   onFlag,
 }: {
   tools: ToolRow[];
@@ -364,6 +376,7 @@ function ToolsTable({
   onToggleAll: (checked: boolean) => void;
   onEdit: (t: ToolRow) => void;
   onDelete: (t: ToolRow) => void;
+  onDuplicate: (t: ToolRow) => void;
   onFlag: (t: ToolRow, patch: { active?: boolean; always_include?: boolean; loop?: LoopConfig | null }) => void;
 }) {
   const th = "px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-muted";
@@ -437,6 +450,9 @@ function ToolsTable({
               <td className={`${td} whitespace-nowrap text-right`}>
                 <Button size="sm" variant="ghost" onClick={() => onEdit(t)} title="Editar">
                   <Pencil />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => onDuplicate(t)} disabled={pending} title="Duplicar">
+                  <Copy />
                 </Button>
                 <Button size="icon" variant="danger" onClick={() => onDelete(t)} title="Excluir">
                   <Trash2 />
