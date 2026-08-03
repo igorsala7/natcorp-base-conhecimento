@@ -144,6 +144,8 @@ create or replace package body pkg_ir_dados as
     l_col_tipo   t_tipos;
     l_line       varchar2(32767);
     l_cell       varchar2(32767);
+    l_json       varchar2(32767);  -- buffer da serialização JSON manual (descarregado no CLOB em blocos)
+    l_val        varchar2(32767);  -- valor JSON de UMA célula (já escapado por apex_json.stringify)
     l_num        number;
     l_date       date;
     l_ts         timestamp;
@@ -180,39 +182,45 @@ create or replace package body pkg_ir_dados as
     l_ms_abrir  := ms_entre(l_t0, systimestamp);
 
     if p_com_csv then dbms_lob.createtemporary(l_csv, true); end if;
-    apex_json.initialize_clob_output;
-    apex_json.open_object;
-    apex_json.write('ok', true);
+    dbms_lob.createtemporary(l_out, true);
 
-    -- Cabeçalho: array "colunas" do JSON (e a linha de colunas do CSV, se pedido).
-    apex_json.open_array('colunas');
+    -- SERIALIZAÇÃO MANUAL (buffer VARCHAR2 → CLOB), com escape via apex_json.stringify
+    -- (função PURA). Antes era apex_json.write POR CÉLULA (~colunas×linhas ≈ dezenas de
+    -- milhares de chamadas ao CLOB) — o gargalo dos ~65s. Agora concatenamos em VARCHAR2
+    -- e descarregamos no CLOB em blocos de ~30k. apex_json.stringify garante JSON válido.
+    l_json := '{"ok":true,"colunas":[';
+
+    -- Cabeçalho: colunas (JSON) + tipos (lidos UMA vez) + linha de colunas do CSV.
     l_line := null;
     for i in 1 .. l_col_count loop
       l_col := apex_exec.get_column(l_ctx, i);
       l_col_tipo(i) := l_col.data_type;               -- cacheia o tipo p/ o laço de linhas
+      if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+      if i > 1 then l_json := l_json || ','; end if;
+      l_json := l_json || apex_json.stringify(l_col.name);
       if p_com_csv then
         if i > 1 then l_line := l_line || ';'; end if;
         l_line := l_line || '"' || replace(l_col.name, '"', '""') || '"';
       end if;
-      apex_json.write(l_col.name);
     end loop;
-    apex_json.close_array;
-    if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, l_line || chr(10)); end if;
+    l_json := l_json || '],"amostra":[';
+    if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, l_line || chr(10)); l_line := null; end if;
 
-    -- Linhas: guarda no JSON "amostra" (array-de-arrays) até p_amostra_linhas — que
-    -- hoje cobre 100% dos casos comuns. O CSV completo só é montado se p_com_csv
-    -- (não é consumido pelo widget → por padrão pulamos, o que ~metade do custo).
-    apex_json.open_array('amostra');
+    -- Linhas: array-de-arrays "amostra" até p_amostra_linhas (cobre 100% dos casos comuns).
     l_t_loop0 := systimestamp;
     while apex_exec.next_row(l_ctx) loop
       -- 1ª linha só volta depois da consulta executar e ORDENAR: isola o custo do banco.
       if l_primeira then l_ms_1a := ms_entre(l_t_loop0, systimestamp); l_primeira := false; end if;
       l_total := l_total + 1;
-      -- Passou do teto da amostra e sem CSV: nada a montar — só CONTA (total exato)
-      -- sem tocar nas células. Torna as linhas excedentes praticamente de graça.
+      -- Passou do teto da amostra e sem CSV: só CONTA (total exato), sem tocar nas células.
       if l_total > p_amostra_linhas and not p_com_csv then continue; end if;
-      l_line  := null;
-      if l_total <= p_amostra_linhas then apex_json.open_array; end if;
+      l_line := null;
+
+      if l_total <= p_amostra_linhas then
+        -- descarrega o buffer se estiver cheio ANTES de abrir a linha
+        if length(l_json) > 30000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+        l_json := l_json || case when l_total > 1 then ',[' else '[' end;
+      end if;
 
       for i in 1 .. l_col_count loop
         begin
@@ -232,19 +240,28 @@ create or replace package body pkg_ir_dados as
         exception when others then l_cell := null; -- célula problemática vira vazio
         end;
 
+        if l_total <= p_amostra_linhas then
+          -- Valor JSON: null OU string escapada (capada em 8000 p/ caber no buffer; o
+          -- servidor já trunca a célula em 300 chars, então nada útil se perde).
+          l_val := case when l_cell is null then 'null' else apex_json.stringify(substr(l_cell, 1, 8000)) end;
+          if length(l_json) + length(l_val) + 2 > 32000 then dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null; end if;
+          if i > 1 then l_json := l_json || ','; end if;
+          l_json := l_json || l_val;
+        end if;
         if p_com_csv then
           if i > 1 then l_line := l_line || ';'; end if;
           l_line := l_line || '"' || replace(nvl(l_cell, ''), '"', '""') || '"';
         end if;
-        if l_total <= p_amostra_linhas then apex_json.write(l_cell); end if;
       end loop;
 
-      if l_total <= p_amostra_linhas then apex_json.close_array; end if;
+      if l_total <= p_amostra_linhas then l_json := l_json || ']'; end if;
       if p_com_csv then dbms_lob.writeappend(l_csv, length(l_line) + 1, replace(l_line, '\', '\\') || chr(10)); end if;
     end loop;
-    apex_json.close_array; -- amostra
     l_ms_loop := ms_entre(l_t_loop0, systimestamp);
     apex_exec.close(l_ctx);
+
+    l_json := l_json || ']'; -- fecha "amostra"
+    dbms_lob.writeappend(l_out, length(l_json), l_json); l_json := null;
 
     -- Registro/id (auditoria + fonte do download quando p_com_csv). csv NULL quando off.
     l_t_ins0 := systimestamp;
@@ -254,25 +271,19 @@ create or replace package body pkg_ir_dados as
     commit;
     l_ms_gravar := ms_entre(l_t_ins0, systimestamp);
 
-    apex_json.write('id', l_id);
-    apex_json.write('total_linhas', l_total);
-
-    -- Diagnóstico: onde o tempo foi gasto (o widget loga no console).
-    --   consulta   = abrir_ctx + ate_primeira_linha  (execução + ORDER BY no banco)
-    --   serializar = loop_total - ate_primeira_linha  (montar o JSON célula a célula; + CSV se p_com_csv)
+    -- id + total + tempos_ms (números → concatenação direta, sem escape). Fecha o objeto raiz.
+    --   serializar = loop_total - ate_primeira_linha (montar o JSON; + CSV se p_com_csv)
     l_ms_total := ms_entre(l_t0, systimestamp);
-    apex_json.open_object('tempos_ms');
-    apex_json.write('abrir_ctx',          round(l_ms_abrir));
-    apex_json.write('ate_primeira_linha', round(l_ms_1a));
-    apex_json.write('serializar',         round(greatest(l_ms_loop - l_ms_1a, 0)));
-    apex_json.write('loop_total',         round(l_ms_loop));
-    apex_json.write('gravar',             round(l_ms_gravar));
-    apex_json.write('total',              round(l_ms_total));
-    apex_json.close_object;
-
-    apex_json.close_object;
-    l_out := apex_json.get_clob_output;
-    apex_json.free_output;
+    l_json := ',"id":' || l_id
+      || ',"total_linhas":' || l_total
+      || ',"tempos_ms":{"abrir_ctx":' || round(l_ms_abrir)
+      || ',"ate_primeira_linha":' || round(l_ms_1a)
+      || ',"serializar":' || round(greatest(l_ms_loop - l_ms_1a, 0))
+      || ',"loop_total":' || round(l_ms_loop)
+      || ',"gravar":' || round(l_ms_gravar)
+      || ',"total":' || round(l_ms_total)
+      || '}}';
+    dbms_lob.writeappend(l_out, length(l_json), l_json);
     if p_com_csv then begin dbms_lob.freetemporary(l_csv); exception when others then null; end; end if;
     return l_out;
 

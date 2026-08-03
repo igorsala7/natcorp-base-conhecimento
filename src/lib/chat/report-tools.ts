@@ -2,7 +2,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { normalizeSpec, CHART_TIPO_KEYS, type ChartSpec } from "./chart-spec";
 import { normalizeReport, type ReportSpec } from "@/lib/reports/report-spec";
-import { expandirTabela, type DatasetRegistry } from "./datasets";
+import { expandirTabela, agruparDataset, type DatasetRegistry, type Agregacao } from "./datasets";
 
 /**
  * Ferramentas de VISUALIZAÇÃO do chat (widget/portal): a IA já obteve os dados
@@ -40,12 +40,38 @@ export function aceitouOfertaArquivo(pergunta: string, messages: { role: string;
 const chartObject = z.object({
   tipo: z
     .enum(CHART_TIPO_KEYS)
-    .describe("Tipo do gráfico. Se o usuário NÃO disse o tipo, PERGUNTE a preferência antes de chamar."),
+    .describe(
+      "Tipo do gráfico. Básicos: colunas, barras, linha, area, pizza, rosca. EMPILHADOS (colunas_emp/barras_emp/area_emp) " +
+        "somam as séries numa pilha. combo = 1ª série em colunas + as demais em linha. radar (teia) compara dimensões de " +
+        "poucos itens. dispersao/bolha: série0 = valores de X, série1 = valores de Y (bolha: série2 = tamanho) e cada categoria " +
+        "é o rótulo do ponto. heatmap = matriz categorias(linhas) × séries(colunas) colorida pelo valor. candle (OHLC) precisa " +
+        "de 4 séries NA ORDEM: abertura, máxima, mínima, fechamento (financeiro). Se o usuário NÃO disse o tipo, PERGUNTE.",
+    ),
   titulo: z.string().describe("Título curto e claro do gráfico."),
+  // MUITOS DADOS: em vez de redigitar centenas de categorias/valores (limite de tokens), a IA
+  // referencia o DATASET e o servidor monta o gráfico com 100% das linhas (agrupando).
+  dados_de: z
+    .string()
+    .optional()
+    .describe(
+      "Id do DATASET para montar o gráfico com TODAS as linhas reais (a tabela da tela \"telaN\" ou o `_dataset` de uma ferramenta). Com isto, NÃO redigite `categorias`/`series`: informe `categoria` (coluna do rótulo/eixo X), `valor` (coluna do número) e `agregacao`. É a forma CERTA de graficar muitos registros — o servidor agrega no lugar do modelo.",
+    ),
+  categoria: z
+    .string()
+    .optional()
+    .describe("Com `dados_de`: nome da COLUNA usada como rótulo/eixo X (ex.: \"Departamento\", \"Mês\"). O servidor agrupa por ela."),
+  valor: z
+    .string()
+    .optional()
+    .describe("Com `dados_de`: nome da COLUNA numérica agregada (ex.: \"Salário\"). Omita para CONTAR as linhas de cada categoria."),
+  agregacao: z
+    .enum(["soma", "media", "mediana", "min", "max", "contar", "distintos"])
+    .optional()
+    .describe("Com `dados_de`: como agregar o `valor` por categoria (padrão: soma; sem `valor`: contar)."),
   categorias: z
     .array(z.string())
-    .min(1)
-    .describe("Rótulos do eixo X — ou as fatias, no caso de pizza/rosca (ex.: meses, setores)."),
+    .optional()
+    .describe("Rótulos do eixo X — ou as fatias (pizza/rosca). Redigite APENAS em gráficos pequenos; com `dados_de`, deixe vazio."),
   series: z
     .array(
       z.object({
@@ -53,8 +79,8 @@ const chartObject = z.object({
         valores: z.array(z.number()).describe("Valores numéricos, NA MESMA ORDEM das categorias."),
       }),
     )
-    .min(1)
-    .describe("Uma série (a maioria dos casos) ou várias para comparar. Pizza/rosca usam a 1ª série."),
+    .optional()
+    .describe("Uma série (a maioria dos casos) ou várias para comparar. Redigite só em gráficos pequenos; com `dados_de`, deixe vazio. Pizza/rosca usam a 1ª série."),
   mediana: z
     .boolean()
     .optional()
@@ -69,19 +95,42 @@ const chartObject = z.object({
     ),
 });
 
+const AGGS_CHART: readonly string[] = ["soma", "media", "mediana", "min", "max", "contar", "distintos"];
+
+/** Monta categorias+series a partir de um DATASET (100% das linhas) quando o gráfico veio
+ *  com `dados_de` — a IA não redigita os pontos. Agrupa por `categoria`, agrega `valor`
+ *  (padrão soma; sem `valor`, conta). Até 2000 grupos. Sem `dados_de`/`categoria` ou falha,
+ *  devolve o input como veio (a IA redigitou os pontos, caso pequeno). */
+function resolverGraficoDataset(input: Record<string, unknown>, datasets?: DatasetRegistry): Record<string, unknown> {
+  const dd = String(input.dados_de ?? "").trim();
+  const catCol = String(input.categoria ?? "").trim();
+  if (!datasets || !dd || !catCol) return input;
+  const valCol = String(input.valor ?? "").trim();
+  const op: Agregacao = AGGS_CHART.includes(String(input.agregacao)) ? (input.agregacao as Agregacao) : valCol ? "soma" : "contar";
+  const res = agruparDataset(datasets, dd, catCol, valCol || catCol, op, [], "E", 2000);
+  if (!res || "colunaNaoEncontrada" in res || !res.grupos.length) return input;
+  return {
+    ...input,
+    categorias: res.grupos.map((g) => g.grupo),
+    series: [{ nome: valCol || "Quantidade", valores: res.grupos.map((g) => g.valor) }],
+  };
+}
+
 /** Tool `montar_grafico` — coleta a spec e emite o gráfico interativo no chat. */
-export function buildChartTool(sink: ChartSpec[]): ToolSet {
+export function buildChartTool(sink: ChartSpec[], datasets?: DatasetRegistry): ToolSet {
   return {
     montar_grafico: tool({
       description:
         "Monta um GRÁFICO interativo no chat a partir de dados numéricos que você JÁ obteve pelas ferramentas de " +
         "dados. Use quando o usuário pedir um gráfico/visualização dos resultados. Não invente números — use os " +
-        "valores reais. Se o usuário não escolheu o TIPO, pergunte a preferência (colunas, barras, linha, área, " +
-        "pizza ou rosca) antes de chamar. O usuário poderá TROCAR o tipo e EXPORTAR (CSV/PNG) no próprio chat.",
+        "valores reais. Para MUITOS registros (uma lista/tabela), NÃO redigite os pontos: passe `dados_de` (id do " +
+        "dataset) + `categoria` + `valor` + `agregacao` — o servidor monta o gráfico com TODAS as linhas. Se o " +
+        "usuário não escolheu o TIPO, pergunte a preferência antes de chamar. O usuário poderá TROCAR o tipo, " +
+        "NAVEGAR (scroll/zoom) e EXPORTAR (CSV/PNG) no próprio chat.",
       inputSchema: chartObject,
       execute: async (input) => {
-        const spec = normalizeSpec(input);
-        if (!spec) return { erro: "Não consegui montar: preciso de categorias e ao menos uma série com valores numéricos." };
+        const spec = normalizeSpec(resolverGraficoDataset(input as Record<string, unknown>, datasets));
+        if (!spec) return { erro: "Não consegui montar: preciso de categorias e ao menos uma série com valores numéricos (ou `dados_de` + `categoria`)." };
         sink.push(spec);
         return {
           ok: true,
@@ -119,7 +168,10 @@ export function integUsageDirective(toolForcado?: string): string {
     "claro no contexto (ex.: nome/matrícula da pessoa, período/mês, empresa, código), NÃO adivinhe nem chute — PERGUNTE ao " +
     "usuário o valor em UMA frase curta e só então chame a ferramenta (vá refinando até ter certeza). Se a ferramenta " +
     "retornar VAZIO ou erro, DIGA isso com clareza e pergunte se algum parâmetro deve ser ajustado; NUNCA responda como se " +
-    "não houvesse dados sem antes confirmar os parâmetros com o usuário.";
+    "não houvesse dados sem antes confirmar os parâmetros com o usuário.\n" +
+    "RÓTULO DAS COLUNAS: ao APRESENTAR os dados retornados pela ferramenta, cite cada campo pela LABEL amigável (ex.: " +
+    "\"Cargo\", \"Data de admissão\", \"Salário\"), NUNCA pela CHAVE TÉCNICA do JSON/banco (ex.: \"COD_CARGO\", \"DS_NOME\", " +
+    "\"VL_SALARIO\") — traduza o nome técnico para o termo que o usuário reconhece.";
   return toolForcado
     ? `FONTE ESCOLHIDA: o usuário quer a informação via a ferramenta "${toolForcado}". Chame-a com os parâmetros do CONTEXTO da conversa (não use os dados da tela). ${regra}`
     : regra;
@@ -136,31 +188,43 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
   const cab =
     "ESCOPO DE DADOS DO USUÁRIO (o SISTEMA já aplica isto dentro das ferramentas — é só para você entender o alcance e " +
     "responder certo; NÃO é uma restrição que VOCÊ impõe): ";
+  // Como consultar OUTRA pessoa / uma LISTA (PO e PG): passar a matrícula-alvo e ITERAR.
+  const alvoLista =
+    " CONSULTAR OUTROS / UMA LISTA: para ver os dados de OUTRA pessoa, PASSE a MATRÍCULA dela no parâmetro `matricula` da " +
+    "ferramenta (o sistema libera conforme o painel). Para uma LISTA de colaboradores (ex.: os que estão no relatório da " +
+    "tela), chame a ferramenta UMA VEZ POR colaborador — a matrícula de cada um, uma por chamada — e junte os resultados; " +
+    "NÃO desista após uma só nem diga que só pode a sua própria matrícula.";
+  // Histórico/evolução de um fato do colaborador → LINHA DO TEMPO.
+  const historico =
+    " HISTÓRICO: pedidos de HISTÓRICO/EVOLUÇÃO (\"últimos N\", \"anteriores\", \"ao longo do tempo\", \"de um tempo atrás\", " +
+    "\"quais já teve\") de um FATO do colaborador (cargo, salário, lotação…) → use a LINHA DO TEMPO com o `fato` " +
+    "correspondente (ex.: o fato de CARGO para o histórico de cargos), com a matrícula do colaborador.";
   if (p === "PO") {
     return cab +
       "PAINEL DO OPERADOR — o usuário enxerga TUDO a que tem acesso no sistema. Não há recorte extra além do que o próprio " +
-      "sistema já valida. Atenda normalmente, chamando as ferramentas.";
+      "sistema já valida. Atenda normalmente, chamando as ferramentas." + alvoLista + historico;
   }
   if (p === "PG") {
     return cab +
       `PAINEL DO GESTOR (perfil ${perf || "GESTOR"}) — o usuário enxerga os dados dos COLABORADORES DA EQUIPE DELE e a ` +
-      "ESTRUTURA (empresa/filial/centro de custo) do cadastro dele e dos colaboradores da equipe. As ferramentas já trazem " +
-      "só esse recorte. Se ele pedir dados de alguém FORA da equipe dele, o sistema não retornará — informe que a pessoa " +
-      "está fora da equipe/estrutura dele; não invente outra restrição.";
+      "ESTRUTURA (empresa/filial/centro de custo) do cadastro dele e dos colaboradores da equipe. Se ele pedir dados de " +
+      "alguém FORA da equipe dele, o sistema RECUSA na chamada — aí informe que a pessoa está fora da equipe dele; não " +
+      "invente outra restrição." + alvoLista + historico;
   }
   if (p === "PC") {
     return cab +
       `PAINEL DO COLABORADOR (perfil ${perf || "PORTAL"}) — o usuário SÓ pode ver os PRÓPRIOS dados; JAMAIS dados de outro ` +
       "colaborador. Se ele pedir dados de OUTRA pessoa, explique com clareza que no Painel do Colaborador só dá para " +
-      "consultar os próprios dados. Nas ferramentas, use SEMPRE a identidade DELE (o próprio usuário), nunca a de terceiros.";
+      "consultar os próprios dados. Nas ferramentas, deixe a `matricula` VAZIA (o sistema usa a dele), nunca a de terceiros." +
+      historico;
   }
   return cab +
     "atenda com base no que o sistema liberar para este usuário; NÃO invente restrições — se algo não puder, é o sistema " +
-    "que recusa na própria chamada da ferramenta.";
+    "que recusa na própria chamada da ferramenta." + historico;
 }
 
 /** Tool `perguntar_tipo_grafico` — oferece os tipos como BOTÕES em vez de perguntar em texto. */
-export function buildChartAskTool(sink: ChartChoice[]): ToolSet {
+export function buildChartAskTool(sink: ChartChoice[], datasets?: DatasetRegistry): ToolSet {
   return {
     perguntar_tipo_grafico: tool({
       description:
@@ -171,8 +235,8 @@ export function buildChartAskTool(sink: ChartChoice[]): ToolSet {
       inputSchema: chartAskInput,
       execute: async (input) => {
         const { recomendado, pergunta, ...resto } = input;
-        const spec = normalizeSpec({ ...resto, tipo: recomendado || "colunas" });
-        if (!spec) return { erro: "Não consegui preparar: preciso de categorias e ao menos uma série com valores numéricos." };
+        const spec = normalizeSpec(resolverGraficoDataset({ ...resto, tipo: recomendado || "colunas" } as Record<string, unknown>, datasets));
+        if (!spec) return { erro: "Não consegui preparar: preciso de categorias e ao menos uma série com valores numéricos (ou `dados_de` + `categoria`)." };
         sink.push({ spec, recomendado: recomendado || spec.tipo, pergunta: pergunta || "Que tipo de gráfico você prefere?" });
         return { ok: true, mensagem: `Ofereci os tipos de gráfico ("${spec.titulo || "sem título"}") como botões; o usuário vai escolher.` };
       },
@@ -256,6 +320,10 @@ export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry):
               return { ...b, tabela: { titulo: t.titulo, colunas: exp.colunas, linhas: exp.linhas } };
             }
           }
+          // Gráfico com `dados_de`: monta categorias/valores do dataset (todas as linhas).
+          if (b.tipo === "grafico" && b.grafico && (b.grafico as Record<string, unknown>).dados_de && datasets) {
+            return { ...b, grafico: resolverGraficoDataset(b.grafico as Record<string, unknown>, datasets) as typeof b.grafico };
+          }
           return b;
         });
         const spec = normalizeReport({ ...input, blocos });
@@ -283,6 +351,16 @@ export function visualsDirective(): string {
     "`montar_grafico` com os valores reais. Se o usuário NÃO disse o tipo, chame `perguntar_tipo_grafico` com os dados + o " +
     "tipo `recomendado`: o sistema mostra os tipos como BOTÕES e o usuário escolhe (o gráfico aparece na hora) — NÃO " +
     "pergunte o tipo em texto. NÃO descreva o gráfico em texto — a ferramenta o desenha.\n" +
+    "- GRÁFICO — QUAL dataset (regra CRÍTICA): o `dados_de` do gráfico tem de apontar para o dataset EXATO que o usuário " +
+    "quer ver. Se ele quer um RECORTE que você filtrou (ex.: 'faça o gráfico DESSES', 'dos 10 que você achou', 'só os " +
+    "pagos'), use o id do SUBCONJUNTO — o `resultado_em` do `consultar_registros` — obtido NESTE MESMO turno. Se o filtro " +
+    "foi num turno ANTERIOR, REFAÇA o `consultar_registros` agora para reobter o id do recorte e use ESSE id. É PROIBIDO " +
+    "apontar `dados_de` para a tabela da tela inteira (\"telaN\") quando o usuário quer só o recorte — senão o gráfico traz " +
+    "100% dos registros (ERRADO). Na dúvida sobre quais registros, confirme com o usuário antes de gráficar.\n" +
+    "- GRÁFICO COM MUITOS DADOS: se o recorte/lista tem MUITOS registros (dezenas, centenas), NÃO redigite os pontos — passe " +
+    "`dados_de` (o id CERTO, conforme a regra acima) + `categoria` (coluna do eixo X) + `valor` (coluna do número) + " +
+    "`agregacao`. Mas se são POUCOS registros (ex.: 10) que você JÁ tem no contexto, redigite categorias/series direto — é " +
+    "mais simples e não corre risco de pegar o dataset errado.\n" +
     "- MEDIANA e TENDÊNCIA: pela sua leitura do CONTEXTO, ative `mediana` quando ajudar a comparar os valores e " +
     "`tendencia` quando houver progressão/série temporal (ambas só em colunas/linha/área/barras — nunca em " +
     "pizza/rosca). Não ative nas duas por padrão: só quando agregam.\n" +

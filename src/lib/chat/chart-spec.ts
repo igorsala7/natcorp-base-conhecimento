@@ -8,14 +8,24 @@ import type { ChartData, ChartRow, ChartType } from "@/lib/blocks/schema";
  * Client-safe: só tipos + funções puras (sem `server-only`, sem SDK de IA).
  */
 
-/** Tipos oferecidos no chat (rótulo + o `chartType` do ChartData). */
+/** Tipos oferecidos no chat (rótulo + o `chartType` do ChartData). O widget desenha todos;
+ *  o `chartType` é a correspondência no editor/portal (Recharts) ao salvar/converter. */
 export const CHART_TIPOS = [
   { tipo: "colunas", label: "Colunas", chartType: "column" },
+  { tipo: "colunas_emp", label: "Colunas empilhadas", chartType: "stackedColumn" },
   { tipo: "barras", label: "Barras", chartType: "bar" },
+  { tipo: "barras_emp", label: "Barras empilhadas", chartType: "bar" },
   { tipo: "linha", label: "Linha", chartType: "line" },
   { tipo: "area", label: "Área", chartType: "area" },
+  { tipo: "area_emp", label: "Área empilhada", chartType: "stackedArea" },
+  { tipo: "combo", label: "Combo (colunas + linha)", chartType: "combo" },
   { tipo: "pizza", label: "Pizza", chartType: "pie" },
   { tipo: "rosca", label: "Rosca", chartType: "donut" },
+  { tipo: "radar", label: "Radar / Teia", chartType: "radar" },
+  { tipo: "dispersao", label: "Dispersão", chartType: "scatter" },
+  { tipo: "bolha", label: "Bolha", chartType: "bubble" },
+  { tipo: "heatmap", label: "Mapa de calor", chartType: "column" },
+  { tipo: "candle", label: "Candle (OHLC)", chartType: "column" },
 ] as const;
 
 export type ChartTipo = (typeof CHART_TIPOS)[number]["tipo"];
@@ -70,8 +80,11 @@ export const CHART_PALETTE = [
   "#EC4899",
 ];
 
-const MAX_CATEGORIAS = 40;
-const MAX_SERIES = 6;
+// Teto ALTO: um gráfico pode vir do DATASET completo (o servidor monta as categorias a
+// partir de 100% das linhas — não são redigitadas pelo modelo). O widget navega os muitos
+// pontos por JANELA (scroll/zoom), então não trava a leitura. Ver report-tools (dados_de).
+const MAX_CATEGORIAS = 2000;
+const MAX_SERIES = 12;
 
 function coerceNum(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;

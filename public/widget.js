@@ -123,6 +123,9 @@
   // Coleta multi-página em andamento (dados de TODAS as páginas de um IR).
   var _harvested = null; // { key, colunas, linhas } — sobrepõe a página visível no scan
   var _harvestCache = null; // { key, fp, nome, colunas, linhas } — coleta reutilizável entre perguntas
+  // B — relatório coletado com SUCESSO porém VAZIO (0 linhas): sinal p/ o servidor
+  // oferecer FILTRAR + pesquisar em vez de "não há dados". { nome } enquanto vazio.
+  var _relatorioVazioSinal = null;
   // Fonte de dados escolhida ("relatorio" | "ia") e o relatório a que se aplica —
   // para perguntar UMA vez por relatório e reaproveitar nas próximas mensagens.
   var _fonte = null, _fonteKey = null;
@@ -541,12 +544,19 @@
   function chamarProcessoIR(win, info, region) {
     return new Promise(function (resolve) {
       try {
-        (win || window).apex.server.process("PRC_DADOS_IR",
+        // Guarda o jqXHR: `Parar` chama _coletaXhr.abort() → fecha a conexão com o APEX/
+        // ORDS (e, conforme a config do ORDS, cancela a query no banco = derruba a sessão).
+        _coletaXhr = (win || window).apex.server.process("PRC_DADOS_IR",
           { x01: String(info.app), x02: String(info.page), x03: String(region) },
           {
             dataType: "json",
-            success: function (d) { resolve(d); },
-            error: function (xhr, st) { diag("P: erro AJAX " + st + " " + (xhr && xhr.responseText ? String(xhr.responseText).slice(0, 120) : "")); resolve(null); },
+            success: function (d) { _coletaXhr = null; resolve(d); },
+            error: function (xhr, st) {
+              _coletaXhr = null;
+              if (st === "abort") { diag("P: coleta abortada pelo usuário (Parar)"); resolve(null); return; }
+              diag("P: erro AJAX " + st + " " + (xhr && xhr.responseText ? String(xhr.responseText).slice(0, 120) : ""));
+              resolve(null);
+            },
           });
       } catch (e) { diag("P: exceção na chamada " + (e && e.message)); resolve(null); }
     });
@@ -619,10 +629,12 @@
       // session como STRING: ids do APEX podem exceder a precisão de Number em JS.
       // `track` leva a BASE + identidade (p_*); appUser é o APP_USER lido no navegador.
       // O servidor decide base/caminho e monta os application items a partir do track.
+      _coletaAbort = new AbortController(); // PARAR: aborta a coleta via ORDS
       var resp = await fetch(API + "/api/v1/report-data", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
         body: JSON.stringify({ app_id: Number(info.app), page_id: Number(info.page), session: String(info.sess), region: region, appUser: appUser, track: track }),
+        signal: _coletaAbort.signal,
       });
       if (!resp.ok) {
         var errJson = await resp.json().catch(function () { return null; });
@@ -645,6 +657,7 @@
   // Grava o resultado da coleta (venha do B ou da varredura) e reenvia à IA.
   function finalizarColeta(rv, key, fp, res, esperado, via) {
     if (res && res.linhas.length) {
+      _relatorioVazioSinal = null; // achou dados → não está mais vazio
       // Fail-loud: se o rótulo indicava N e coletamos menos (margem de 2), NÃO
       // apresente como completo — a IA precisa avisar o usuário.
       var incompleto = (esperado != null && res.linhas.length < esperado - 2) || !!res.truncou;
@@ -681,7 +694,7 @@
     else if (_harvestCache.key !== key) diag("cache não serve: região mudou (\"" + _harvestCache.key + "\" → \"" + key + "\")");
     else diag("cache não serve: filtro/resultado mudou → fp anterior [" + _harvestCache.fp + "] ≠ atual [" + fp + "]");
     var esperado = infoPag(rv).total; // total do rótulo ("de N") — pode ser null
-    busy = true; if (sendBtn) sendBtn.disabled = true;
+    setBusyUI(true); // botão vira "Parar" durante a coleta do Oracle
     var stEl = procStatus("Realizando a leitura dos dados", null);
     var prog = function (n) { try { if (stEl && stEl._txt) stEl._txt.textContent = "Realizando a leitura dos dados — " + n + " registro(s)"; } catch { } };
     // Ordem: P (processo On-Demand in-session — 100% da visão ATUAL, respeitando o
@@ -692,13 +705,30 @@
       // P) Processo On-Demand in-session (PRC_DADOS_IR)
       if (cfg.reportProcess !== false) {
         var rp = await coletarProcessoDedup(rv, key, fp);
+        if (_parando) return; // PARAR: usuário interrompeu a coleta
         if (rp && rp.linhas.length) { diag("P OK — " + rp.total + " via processo (in-session)"); finalizarColeta(rv, key, fp, rp, rp.total, "relatório da tela"); return; }
+        // Coletou com SUCESSO porém VAZIO (0 linhas): NÃO é falha — é relatório sem
+        // resultados (não filtrado). Sinaliza p/ o servidor oferecer FILTRAR + pesquisar.
+        if (rp && rp.colunas && (rp.total === 0 || !rp.linhas.length)) { diag("P OK porém VAZIO (0 linhas) → relatório sem resultados"); relatorioVazioEReenvia(rv); return; }
         diag("P indisponível → varredura por página");
       }
+      if (_parando) return; // PARAR
       // C) varredura por página (reserva)
-      try { var res = await coletarRelatorio(rv, prog); finalizarColeta(rv, key, fp, res, esperado, "paginação"); }
-      catch { ask(undefined, undefined, { continuation: true }); }
+      try {
+        var res = await coletarRelatorio(rv, prog);
+        if (_parando) return; // PARAR
+        if (res && res.colunas && !res.linhas.length) { diag("varredura VAZIA → relatório sem resultados"); relatorioVazioEReenvia(rv); return; }
+        finalizarColeta(rv, key, fp, res, esperado, "paginação");
+      }
+      catch { if (_parando) return; ask(undefined, undefined, { continuation: true }); }
     })();
+  }
+  // B — marca o relatório como VAZIO (sem resultados) e reenvia p/ a IA oferecer filtrar.
+  function relatorioVazioEReenvia(rv) {
+    limparProcStatus();
+    _relatorioVazioSinal = { nome: nomeRegiao(rv) || "Relatório" };
+    _harvested = null;
+    ask(undefined, undefined, { continuation: true });
   }
 
   // Extrai relatórios APEX como { nome, tipo, colunas[], linhas[][] }.
@@ -806,6 +836,28 @@
     }
   }
 
+  // B — RELATÓRIO VAZIO: há uma região de IR/IG na tela mas SEM linhas de dados (0
+  // resultados ou a mensagem "sem dados" do APEX). Devolve { nome } para o servidor
+  // oferecer FILTRAR; null se não há relatório na tela ou se ele TEM dados.
+  // Obs.: seletores dependem do tema do APEX — validar em produção.
+  function relatorioVazioNaTela() {
+    try {
+      var rv = document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+      if (!rv) return null; // não há relatório na tela
+      var reg = (rv.closest && rv.closest(".a-IRR")) || rv;
+      // Mensagem de "sem dados" do IR/IG (sinal mais direto e confiável).
+      var noData = reg.querySelector(".a-IRR-noDataMsg, .a-GV-noDataMessage, .a-GV-noData, .t-Report-noData");
+      // Linhas REAIS de dados (ignora cabeçalho, paginação e a própria linha de "sem dados").
+      var rows = reg.querySelectorAll("table.a-IRR-table tbody tr, .a-GV-table tbody tr, table.a-IRR-table tr.a-IRR-row");
+      var temLinha = false;
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].querySelector("td") && !rows[i].querySelector(".a-IRR-noDataMsg, .a-GV-noDataMessage")) { temLinha = true; break; }
+      }
+      if (!noData && temLinha) return null; // tem dados → não é o cenário
+      return { nome: nomeRegiao(rv) || "Relatório" };
+    } catch { return null; }
+  }
+
   // ── Assistente de formulário: ler os CAMPOS (estruturados) e preenchê-los ─────
   // Só roda quando `cfg.formAssist`. Lê um mapa {ref,label,type,value} da tela e
   // guarda os elementos para escrever depois (com confirmação visual do usuário).
@@ -856,6 +908,13 @@
   // tamanho máximo, lista nativa ou lista de valores (para não preencher errado).
   function fieldTipo(el) {
     var tag = (el.tagName || "").toLowerCase();
+    // Barra de pesquisa GLOBAL do Interactive Report (busca todas as colunas de uma vez)
+    // — tipo próprio p/ o servidor tratá-la como ÚLTIMO recurso e PREFERIR os campos de
+    // filtro com rótulo (ex.: "Filial"). Ainda é preenchível normalmente se preciso.
+    try {
+      var _sid = el.id || "", _scls = (typeof el.className === "string" ? el.className : "");
+      if (/_search_field$/i.test(_sid) || /a-IRR-search-field/.test(_scls)) return "busca";
+    } catch { }
     if (tag === "textarea") return "texto longo";
     if (tag === "select") return el.multiple ? "select-multiplo" : "lista";
     if (el.isContentEditable) return "texto";
@@ -901,14 +960,24 @@
     } catch (e) { }
     return null;
   }
+  // Itens INTERNOS do APEX (token de processamento, instância, flow, checksum…) NÃO são
+  // campos do usuário: usam prefixo `p_` minúsculo ou `pCamel` (ex.: p_accept_processing,
+  // pInstance, p_flow_id). Os itens de tela do usuário são `P<numero>_NOME` (P maiúsculo).
+  // Barrar isto evita "filtro" falso nos documentos e ruído no mapa de campos da IA.
+  function nomeInternoApex(s) {
+    s = String(s || "").trim();
+    return /^p_[a-z]/.test(s) || /^p[A-Z]/.test(s);
+  }
   function scanFields() {
     _fieldRefs = [];
     var out = [], lm = {};
-    function push(el, label, type, value) {
+    function push(el, label, type, value, oculto) {
       var ref = String(_fieldRefs.length);
       try { el.setAttribute("data-kb-field", ref); } catch { }
       _fieldRefs.push(el);
-      out.push({ ref: ref, label: limparRotulo(scanTexto(label)).slice(0, 120), type: type, value: value });
+      var item = { ref: ref, label: limparRotulo(scanTexto(label)).slice(0, 120), type: type, value: value };
+      if (oculto) item.oculto = true;
+      out.push(item);
     }
     function collect(doc) {
       if (!doc) return;
@@ -918,6 +987,8 @@
         doc.querySelectorAll("input,select,textarea,[contenteditable='true'],[contenteditable='']").forEach(function (el) {
           if (out.length >= 80) return; // campos: até 80 (botões têm folga própria até 120)
           if (host && host.contains && host.contains(el)) return;
+          // Itens INTERNOS do APEX (p_accept_processing, pInstance…): não são campos da tela.
+          if (nomeInternoApex(el.id || el.name || "")) return;
           // Busca do MENU superior (P9999_SEARCH do APEX) e campos da barra de
           // navegação/cabeçalho: não fazem parte da tela — fora do escopo.
           if (/^p9999_search$/i.test(el.id || "")) return;
@@ -932,16 +1003,22 @@
           var ehLov = (typeof el.className === "string" && /(^|\s)(popup_lov|apex-item-popup-lov)(\s|$)/.test(el.className)) ||
             (el.closest && el.closest(".apex-item-group--popup-lov, .apex-item-popup-lov"));
           if (!ehLov && (el.readOnly || el.getAttribute("aria-readonly") === "true")) return;
-          // Invisível → fora, EXCETO se estiver numa ABA oculta (o tutorial ativa
-          // a aba clicando nela antes de destacar o campo).
-          if (el.getClientRects && el.getClientRects().length === 0 && !(el.closest && el.closest('[role="tabpanel"]'))) return;
+          // Invisível → fora, EXCETO: (a) numa ABA oculta (o tutorial ativa a aba antes
+          // de destacar); (b) numa REGIÃO DE FILTROS RECOLHIDA ("Ver mais" do APEX, ex.:
+          // .collapseRegion) — aí INCLUÍMOS o campo MARCADO como oculto, para a IA saber
+          // que ele existe e mandar EXPANDIR os filtros antes de preencher.
+          var _semRect = el.getClientRects && el.getClientRects().length === 0;
+          var _emAba = el.closest && el.closest('[role="tabpanel"]');
+          var _emColapso = el.closest && el.closest('.collapseRegion, [class*="collaps"]');
+          if (_semRect && !_emAba && !_emColapso) return;
+          var _oculto = !!(_semRect && _emColapso);
           var rot = rotuloEspecial(el) || el.getAttribute("aria-label") || lm[el.id] || el.placeholder || el.name || el.id || (el.type || "campo");
           // radio/checkbox costumam ter o texto no <label> que os envolve.
           if (t === "radio" || t === "checkbox") {
             var wrap = el.closest && el.closest("label");
             if (wrap) { var wt = scanTexto(wrap.textContent); if (wt) rot = wt; }
           }
-          push(el, rot, fieldTipo(el), fieldValor(el));
+          push(el, rot, fieldTipo(el), fieldValor(el), _oculto);
         });
       } catch { }
       // Botões/links de ação (o modelo clica).
@@ -1578,6 +1655,49 @@
         .map(function (l) { return scanTexto(l.textContent); }).filter(Boolean);
     } catch { return []; }
   }
+  // CONTEXTO do relatório: PROGRAMA (título/nome da página) + FILTROS aplicados — os
+  // campos de filtro PREENCHIDOS da tela ("Rótulo: valor") e os chips do Interactive
+  // Report ("Coluna = valor" ou o texto do filtro, inclusive filtros complexos). Vira o
+  // subtítulo dos arquivos gerados, a legenda da modal/tabela do gráfico e é salvo no spec.
+  // Título PRINCIPAL da página (o que o usuário lê no topo) → título do APEX quando
+  // existir; senão o título da aba (document.title); por último o nome do caminho.
+  function tituloPrincipalPagina() {
+    var sels = [".t-Body-title", ".t-BreadcrumbRegion-title", "#t_Body_title", ".apex-page-title", "h1"];
+    for (var i = 0; i < sels.length; i++) {
+      try {
+        var el = document.querySelector(sels[i]);
+        if (el) { var t = scanTexto(el.textContent || "").trim(); if (t && t.length <= 160) return t; }
+      } catch { }
+    }
+    try { var dt = scanTexto(document.title || "").trim(); if (dt) return dt; } catch { }
+    try { return (location.pathname || "").split("/").filter(Boolean).pop() || location.hostname || ""; } catch { }
+    return "";
+  }
+  function contextoRelatorio(flds, rv) {
+    var programa = tituloPrincipalPagina();
+    var filtros = [], vistos = {};
+    function add(s) {
+      var t = scanTexto(String(s == null ? "" : s)).trim();
+      if (!t) return;
+      var k = t.toLowerCase();
+      if (vistos[k]) return;
+      vistos[k] = 1; filtros.push(t);
+    }
+    // Campos de filtro PREENCHIDOS (rótulo + valor). Ignora botões e a barra do IR (vira chip).
+    try {
+      (flds || []).forEach(function (f) {
+        if (!f || f.type === "botao" || f.type === "busca") return;
+        var v = String(f.value == null ? "" : f.value).trim();
+        var lab = String(f.label == null ? "" : f.label).trim();
+        // Ignora item interno do APEX que porventura tenha escapado (rótulo = nome técnico).
+        if (nomeInternoApex(lab)) return;
+        if (v && lab) add(lab + ": " + v);
+      });
+    } catch { }
+    // Chips do Interactive Report (label já vem "Coluna = valor"/texto; cobre filtro complexo).
+    try { if (rv) rotulosFiltro(rv).forEach(add); } catch { }
+    return { programa: programa, filtros: filtros };
+  }
   function ehBuscaIR(el) {
     try {
       return /_search_field$/i.test(el.id || "") || /a-IRR-search-field/.test(typeof el.className === "string" ? el.className : "");
@@ -1680,7 +1800,7 @@
       return;
     }
     _loopStep++;
-    busy = true; sendBtn.disabled = true;        // segura a UI enquanto o loop roda
+    setBusyUI(true);        // botão vira "Parar" enquanto o loop autônomo roda
     // Espera o DOM assentar (hover-intent do submenu + animação de menu/janela do
     // APEX) antes de re-varrer, senão o item recém-revelado ainda não apareceu.
     setTimeout(function () { if (!_loopCancel) ask(undefined, undefined, { continuation: true, loopStep: true }); }, 550);
@@ -1771,7 +1891,27 @@
   // ==== Gráficos (montar_grafico): card interativo — trocar tipo + exportar ====
   var _charts = []; // specs recebidas NESTE turno (guard de stream vazio)
   var CHART_PAL = ["#511C76", "#C95788", "#2C1A63", "#2563EB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9", "#EC4899"];
-  var CHART_TIPOS = [["colunas", "Colunas"], ["barras", "Barras"], ["linha", "Linha"], ["area", "Área"], ["pizza", "Pizza"], ["rosca", "Rosca"]];
+  var CHART_TIPOS = [
+    ["colunas", "Colunas"], ["colunas_emp", "Colunas empilhadas"], ["barras", "Barras"], ["barras_emp", "Barras empilhadas"],
+    ["linha", "Linha"], ["area", "Área"], ["area_emp", "Área empilhada"], ["combo", "Combo (colunas + linha)"],
+    ["pizza", "Pizza"], ["rosca", "Rosca"], ["radar", "Radar / Teia"],
+    ["dispersao", "Dispersão"], ["bolha", "Bolha"], ["heatmap", "Mapa de calor"], ["candle", "Candle (OHLC)"],
+  ];
+  // JANELA de categorias (scroll/zoom): os tipos com eixo X de categorias mostram só uma
+  // FAIXA [i0,i1) por vez (guardada em canvas._view) — assim 2000 pontos ficam navegáveis
+  // e o eixo/legenda ficam fixos. scroll = mover a janela; zoom = encolher a janela.
+  function chartWindowable(tipo) {
+    return tipo === "colunas" || tipo === "barras" || tipo === "linha" || tipo === "area" ||
+      tipo === "colunas_emp" || tipo === "barras_emp" || tipo === "area_emp" || tipo === "combo" ||
+      tipo === "heatmap" || tipo === "candle";
+  }
+  function chartView(canvas, n) {
+    var v = canvas && canvas._view;
+    if (!v || v.i0 == null) return { i0: 0, i1: n };
+    var i0 = Math.max(0, Math.min(v.i0 | 0, n - 1));
+    var i1 = Math.max(i0 + 1, Math.min(v.i1 | 0, n));
+    return { i0: i0, i1: i1 };
+  }
 
   function kbChartBtn(txt, pc, fn) {
     var b = document.createElement("button");
@@ -1846,6 +1986,7 @@
       "font-size:11px;line-height:1.4;padding:6px 8px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.28);max-width:240px;";
     wrap.appendChild(tip);
     canvas.addEventListener("mousemove", function (e) {
+      if (canvas._dragging) { tip.style.display = "none"; return; } // durante o arraste de zoom, sem tooltip
       var rect = canvas.getBoundingClientRect();
       var hit = kbHitTest(canvas._hits, e.clientX - rect.left, e.clientY - rect.top);
       if (!hit) { tip.style.display = "none"; canvas.style.cursor = ""; return; }
@@ -1862,6 +2003,39 @@
     });
     canvas.addEventListener("mouseleave", function () { tip.style.display = "none"; canvas.style.cursor = ""; });
   }
+  // Lê o contexto do gráfico (programa + filtros) do spec, normalizado. `null` se vazio.
+  function lerContextoChart(spec) {
+    var ctx = spec && spec.contexto;
+    if (!ctx || typeof ctx !== "object") return null;
+    var programa = String(ctx.programa == null ? "" : ctx.programa).trim();
+    var filtros = Array.isArray(ctx.filtros)
+      ? ctx.filtros.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean)
+      : [];
+    if (!programa && !filtros.length) return null;
+    return { programa: programa, filtros: filtros };
+  }
+  // Legenda de contexto (programa + filtros aplicados) — sutil mas visível. Aparece no
+  // card, na modal ampliada e acompanha o gráfico salvo (spec.contexto). `null` se vazio.
+  function kbChartCaption(spec) {
+    var ctx = lerContextoChart(spec);
+    if (!ctx) return null;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var box = document.createElement("div");
+    box.style.cssText = "font-size:11px;line-height:1.55;color:#4a4a52;background:" + pc + "0d;border:1px solid " + pc + "26;border-left:3px solid " + pc + ";border-radius:8px;padding:6px 10px;margin-bottom:8px;word-break:break-word;";
+    if (ctx.programa) {
+      var p = document.createElement("div");
+      var pl = document.createElement("strong"); pl.textContent = "Programa: "; pl.style.color = pc;
+      p.appendChild(pl); p.appendChild(document.createTextNode(ctx.programa));
+      box.appendChild(p);
+    }
+    if (ctx.filtros.length) {
+      var f = document.createElement("div"); f.style.marginTop = ctx.programa ? "2px" : "0";
+      var fl = document.createElement("strong"); fl.textContent = "Filtros: "; fl.style.color = pc;
+      f.appendChild(fl); f.appendChild(document.createTextNode(ctx.filtros.join(" · ")));
+      box.appendChild(f);
+    }
+    return box;
+  }
   function kbChartCsv(spec) {
     // Separador SEMPRE ";" (padrão pt-BR / Excel local).
     function cell(v) { v = String(v); return /[";\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
@@ -1869,7 +2043,15 @@
     var linhas = spec.categorias.map(function (c, r) {
       return [c].concat(spec.series.map(function (s) { return s.valores[r] == null ? "" : s.valores[r]; }));
     });
-    return "sep=;\r\n" + [head].concat(linhas).map(function (cols) { return cols.map(cell).join(";"); }).join("\r\n");
+    // Prefixo com o contexto (programa + filtros) — o CSV do gráfico também carrega a origem.
+    var pref = "sep=;\r\n";
+    var ctx = lerContextoChart(spec);
+    if (ctx) {
+      if (ctx.programa) pref += cell("Programa: " + ctx.programa) + "\r\n";
+      if (ctx.filtros.length) pref += cell("Filtros: " + ctx.filtros.join("; ")) + "\r\n";
+      pref += "\r\n";
+    }
+    return pref + [head].concat(linhas).map(function (cols) { return cols.map(cell).join(";"); }).join("\r\n");
   }
 
   // Tabela dos dados do gráfico (aba "Tabela"): categorias × séries + linha de total.
@@ -1971,6 +2153,91 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
   // Constrói o card interativo do gráfico (idêntico ao do chat). opts: { salvar, emModal }.
+  // Navegação de MUITOS pontos (scroll + zoom por JANELA de categorias). Devolve a barra
+  // (minimapa) ou null quando não faz sentido (tipo sem eixo de categorias, ou ≤40 pontos).
+  // Minimapa: arrastar o miolo = mover a janela (scroll); arrastar numa área vazia = marcar
+  // uma FAIXA (zoom); "Tudo" = ver o intervalo inteiro. Opera por ÍNDICE (serve a todos os
+  // tipos com eixo de categorias, sem depender da geometria do desenho).
+  function attachChartNav(canvas, spec, redraw) {
+    if (canvas._navCleanup) { canvas._navCleanup(); canvas._navCleanup = null; }
+    var n = (spec.categorias || []).length;
+    var v0 = canvas._view;
+    var cheia = !v0 || (v0.i0 <= 0 && v0.i1 >= n);
+    // Aparece com muitos pontos OU quando o gráfico está com ZOOM (janela parcial) — aí o
+    // botão "Tudo" é a forma de VOLTAR ao gráfico inteiro.
+    if (!chartWindowable(spec.tipo) || (n <= 40 && cheia)) { if (cheia) canvas._view = null; return null; }
+    if (!canvas._view) canvas._view = { i0: 0, i1: Math.min(40, n) };
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:6px;";
+    var strip = document.createElement("div");
+    strip.style.cssText = "position:relative;flex:1;height:22px;background:" + pc + "10;border:1px solid " + pc + "26;border-radius:6px;cursor:crosshair;overflow:hidden;touch-action:none;";
+    var thumb = document.createElement("div");
+    thumb.style.cssText = "position:absolute;top:0;bottom:0;background:" + pc + "40;cursor:grab;";
+    strip.appendChild(thumb);
+    var info = document.createElement("span");
+    info.style.cssText = "font-size:10px;color:#8a8a92;white-space:nowrap;min-width:88px;text-align:right;font-variant-numeric:tabular-nums;";
+    function sync() { var v = canvas._view; thumb.style.left = (v.i0 / n * 100) + "%"; thumb.style.width = Math.max(2, (v.i1 - v.i0) / n * 100) + "%"; info.textContent = (v.i0 + 1) + "–" + v.i1 + " de " + n; }
+    function setView(i0, i1) { i0 = Math.max(0, Math.round(i0)); i1 = Math.min(n, Math.round(i1)); if (i1 - i0 < 2) i1 = Math.min(n, i0 + 2); canvas._view = { i0: i0, i1: i1 }; sync(); redraw(); }
+    function idxAt(clientX) { var r = strip.getBoundingClientRect(); return Math.max(0, Math.min(n, (clientX - r.left) / (r.width || 1) * n)); }
+    var mode = null, start = 0, sv = null;
+    strip.addEventListener("mousedown", function (e) {
+      var r = strip.getBoundingClientRect(), px = e.clientX - r.left, tx0 = canvas._view.i0 / n * r.width, tx1 = canvas._view.i1 / n * r.width;
+      start = idxAt(e.clientX);
+      if (px >= tx0 - 4 && px <= tx1 + 4) { mode = "pan"; sv = { i0: canvas._view.i0, i1: canvas._view.i1 }; thumb.style.cursor = "grabbing"; } else { mode = "sel"; }
+      e.preventDefault();
+    });
+    function move(e) { if (!mode) return; var cur = idxAt(e.clientX); if (mode === "pan") { var d = cur - start, len = sv.i1 - sv.i0, ni0 = Math.max(0, Math.min(n - len, sv.i0 + d)); setView(ni0, ni0 + len); } else { setView(Math.min(start, cur), Math.max(start, cur)); } }
+    function up() { mode = null; thumb.style.cursor = "grab"; }
+    document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+    canvas._navCleanup = function () { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+    var btnTudo = kbChartBtn("⤢ Tudo", pc, function () { setView(0, n); }); btnTudo.title = "Ver todos os pontos";
+    wrap.appendChild(strip); wrap.appendChild(info); wrap.appendChild(btnTudo);
+    sync();
+    return wrap;
+  }
+  // Zoom por SELEÇÃO NO próprio gráfico: arrasta uma faixa no eixo de categorias e amplia só
+  // aquele trecho. Usa a geometria (canvas._geom) do último desenho — funciona em qualquer
+  // gráfico com eixo de categorias, inclusive os pequenos (≤40). `afterZoom` redesenha + mostra
+  // o minimapa (com "Tudo" para voltar). Só os tipos com _geom (colunas/barras/linha/área/combo).
+  function attachChartZoom(canvas, cwrap, afterZoom) {
+    if (canvas._zoomCleanup) canvas._zoomCleanup();
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var sel = document.createElement("div");
+    sel.style.cssText = "position:absolute;display:none;background:" + pc + "26;border:1px solid " + pc + ";pointer-events:none;z-index:5;border-radius:2px;";
+    cwrap.appendChild(sel);
+    var dragging = false, startPos = 0, geom = null;
+    function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    function down(e) {
+      geom = canvas._geom; if (!geom) return;
+      var p = pos(e), v = geom.vert ? p.y : p.x, lo = geom.a, hi = geom.a + geom.len;
+      if (v < lo - 2 || v > hi + 2) return;
+      dragging = true; canvas._dragging = true; startPos = Math.max(lo, Math.min(hi, v)); sel.style.display = "block";
+      if (geom.vert) { sel.style.left = geom.x + "px"; sel.style.width = geom.wpx + "px"; sel.style.top = startPos + "px"; sel.style.height = "0px"; }
+      else { sel.style.top = geom.y + "px"; sel.style.height = geom.hpx + "px"; sel.style.left = startPos + "px"; sel.style.width = "0px"; }
+      e.preventDefault();
+    }
+    function mv(e) {
+      if (!dragging || !geom) return;
+      var p = pos(e), v = Math.max(geom.a, Math.min(geom.a + geom.len, geom.vert ? p.y : p.x)), a = Math.min(startPos, v), b = Math.max(startPos, v);
+      if (geom.vert) { sel.style.top = a + "px"; sel.style.height = (b - a) + "px"; } else { sel.style.left = a + "px"; sel.style.width = (b - a) + "px"; }
+    }
+    function idxOf(px) { return geom.i0 + ((px - geom.a) / (geom.len || 1)) * (geom.i1 - geom.i0); }
+    function up(e) {
+      if (!dragging) return;
+      dragging = false; canvas._dragging = false; sel.style.display = "none"; if (!geom) return;
+      var p = pos(e), v = Math.max(geom.a, Math.min(geom.a + geom.len, geom.vert ? p.y : p.x));
+      if (Math.abs(v - startPos) < 8) return; // clique/arraste minúsculo → não é seleção
+      var ni0 = Math.floor(Math.min(idxOf(startPos), idxOf(v))), ni1 = Math.ceil(Math.max(idxOf(startPos), idxOf(v)));
+      if (ni1 - ni0 >= 1 && ni1 - ni0 < geom.i1 - geom.i0) {
+        canvas._view = { i0: Math.max(0, ni0), i1: Math.min(canvas._ncats || ni1, ni1) };
+        if (afterZoom) afterZoom();
+      }
+    }
+    canvas.addEventListener("mousedown", down);
+    document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+    canvas._zoomCleanup = function () { canvas.removeEventListener("mousedown", down); document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); try { sel.remove(); } catch (e) { } };
+  }
   function construirCardGrafico(spec, opts) {
     opts = opts || {};
     var pc = (cfg && cfg.primaryColor) || "#511C76";
@@ -1993,6 +2260,8 @@
     var tabG = kbTab("Gráfico"), tabT = kbTab("Tabela");
     tabs.appendChild(tabG); tabs.appendChild(tabT); head.appendChild(tabs);
     card.appendChild(head);
+    // Legenda de contexto (programa + filtros) — visível nas duas abas.
+    var capCard = kbChartCaption(spec); if (capCard) card.appendChild(capCard);
     // Conteúdo: gráfico (canvas) e tabela.
     var cwrap = document.createElement("div");
     cwrap.style.cssText = "position:relative;";
@@ -2001,6 +2270,12 @@
     cwrap.appendChild(canvas);
     card.appendChild(cwrap);
     attachChartHover(canvas, cwrap);
+    // Minimapa de navegação (scroll/zoom) — só aparece com muitos pontos OU com zoom ativo.
+    var navBox = document.createElement("div"); card.appendChild(navBox);
+    function redrawCard() { drawChart(canvas, spec); }
+    function refreshNav() { navBox.innerHTML = ""; var wnav = attachChartNav(canvas, spec, redrawCard); if (wnav) navBox.appendChild(wnav); }
+    // Zoom arrastando NO gráfico → redesenha e mostra o minimapa (com "Tudo" para voltar).
+    attachChartZoom(canvas, cwrap, function () { drawChart(canvas, spec); refreshNav(); });
     var twrap = kbChartTable(spec, pc);
     twrap.style.display = "none";
     card.appendChild(twrap);
@@ -2018,7 +2293,7 @@
       if (t[0] === spec.tipo) o.selected = true;
       sel.appendChild(o);
     });
-    sel.addEventListener("change", function () { spec.tipo = sel.value; drawChart(canvas, spec); });
+    sel.addEventListener("change", function () { spec.tipo = sel.value; canvas._view = null; drawChart(canvas, spec); refreshNav(); });
     var espaco = document.createElement("span"); espaco.style.cssText = "flex:1;";
     var abaTabela = false; // aba atual do card (false=Gráfico, true=Tabela) — p/ o Ampliar
     var amp = kbChartBtn("⤢ Ampliar", pc, function () { abrirModalGrafico(spec, canvas, abaTabela); });
@@ -2039,6 +2314,7 @@
     function setTab(g) {
       abaTabela = !g;
       cwrap.style.display = g ? "" : "none";
+      navBox.style.display = g ? "" : "none";
       twrap.style.display = g ? "none" : "";
       sel.style.display = g ? "" : "none";
       png.style.display = g ? "" : "none";
@@ -2049,6 +2325,7 @@
     tabG.addEventListener("click", function () { setTab(true); });
     tabT.addEventListener("click", function () { setTab(false); });
     kbTabState(tabG, true, pc); kbTabState(tabT, false, pc);
+    refreshNav();
     requestAnimationFrame(function () { drawChart(canvas, spec); });
     // Redesenha ao mudar a LARGURA (expandir o painel, resize): o canvas tem
     // largura em % e, sem redesenhar, o buffer antigo estica e deforma as labels.
@@ -2073,11 +2350,15 @@
       "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
       "background:rgba(15,15,20,.55);padding:16px;";
     var card = document.createElement("div");
+    // Respeita o viewport: max-height (dvh p/ mobile com barra do navegador) + overflow
+    // hidden; coluna flex com cabeçalho/rodapé FIXOS e a área do gráfico/tabela flexível
+    // — assim a barra de botões nunca some e nenhuma informação fica escondida.
     card.style.cssText =
       "background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.4);width:min(940px,94vw);" +
+      "max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:hidden;" +
       "display:flex;flex-direction:column;padding:16px;";
     var hd = document.createElement("div");
-    hd.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:10px;";
+    hd.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-shrink:0;";
     var ttl = document.createElement("div");
     ttl.textContent = spec.titulo || "Gráfico";
     ttl.style.cssText = "font-size:15px;font-weight:700;color:#17171a;flex:1;";
@@ -2089,15 +2370,22 @@
     tabs.appendChild(tabG); tabs.appendChild(tabT);
     hd.appendChild(ttl); hd.appendChild(tabs); hd.appendChild(fechar);
     var bwrap = document.createElement("div");
-    bwrap.style.cssText = "position:relative;";
+    // flex:1 + min-height:0 → ocupa o espaço entre cabeçalho e rodapé e ENCOLHE quando
+    // o viewport é curto, para o rodapé (botões) nunca ser empurrado para fora.
+    bwrap.style.cssText = "position:relative;flex:1;min-height:0;";
     var big = document.createElement("canvas");
-    big.style.cssText = "width:100%;height:min(64vh,560px);display:block;";
+    big.style.cssText = "width:100%;height:100%;display:block;";
     bwrap.appendChild(big);
+    var navBoxM = document.createElement("div"); navBoxM.style.flexShrink = "0"; // minimapa (scroll/zoom)
     var twrap = kbChartTable(spec, pc); // aba Tabela
-    twrap.style.maxHeight = "min(64vh,560px)";
+    twrap.style.flex = "1";
+    twrap.style.minHeight = "0";
+    twrap.style.maxHeight = "none";
+    twrap.style.overflow = "auto";
     twrap.style.display = "none";
     var ft = document.createElement("div");
-    ft.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;";
+    // Rodapé FIXO (não encolhe): a barra de botões fica sempre visível.
+    ft.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;flex-shrink:0;";
     var sel = document.createElement("select");
     sel.setAttribute("aria-label", "Tipo do gráfico");
     sel.style.cssText = "font-size:13px;padding:6px 9px;border-radius:9px;cursor:pointer;border:1px solid rgba(0,0,0,.15);background:#fff;color:#222;";
@@ -2115,14 +2403,20 @@
     });
     ft.appendChild(png);
     ft.appendChild(kbChartBtn("💾 Salvar", pc, function () { salvarGrafico(spec); }));
-    card.appendChild(hd); card.appendChild(bwrap); card.appendChild(twrap); card.appendChild(ft);
+    // Botão explícito de VOLTAR (além do × e do Esc) — some dúvida de como fechar a modal.
+    ft.appendChild(kbChartBtn("✕ Fechar", pc, function () { fecharModal(); }));
+    // Legenda de contexto FIXA (não encolhe) — visível no gráfico e na tabela.
+    var capModal = kbChartCaption(spec); if (capModal) capModal.style.flexShrink = "0";
+    card.appendChild(hd); if (capModal) card.appendChild(capModal); card.appendChild(bwrap); card.appendChild(navBoxM); card.appendChild(twrap); card.appendChild(ft);
     ov.appendChild(card);
     raiz.appendChild(ov);
     attachChartHover(big, bwrap);
     function redraw() { drawChart(big, spec, big.clientHeight || 520); }
+    function refreshNavM() { navBoxM.innerHTML = ""; var wnav = attachChartNav(big, spec, redraw); if (wnav) navBoxM.appendChild(wnav); }
     // Alterna Gráfico/Tabela no modal (PNG e seletor de tipo só valem no gráfico).
     function setTabM(g) {
       bwrap.style.display = g ? "" : "none";
+      navBoxM.style.display = g ? "" : "none";
       twrap.style.display = g ? "none" : "";
       sel.style.display = g ? "" : "none";
       png.style.display = g ? "" : "none";
@@ -2137,6 +2431,8 @@
       if (ov.parentNode) ov.parentNode.removeChild(ov);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("keydown", onKey);
+      if (big._navCleanup) { try { big._navCleanup(); } catch (e) { } }
+      if (big._zoomCleanup) { try { big._zoomCleanup(); } catch (e) { } }
       if (inlineCanvas) drawChart(inlineCanvas, spec); // sincroniza o tipo escolhido
     }
     function onKey(e) { if (e.key === "Escape") fecharModal(); }
@@ -2146,8 +2442,11 @@
     document.addEventListener("keydown", onKey);
     window.addEventListener("resize", onResize);
     sel.addEventListener("change", function () {
-      spec.tipo = sel.value; redraw(); if (inlineCanvas) drawChart(inlineCanvas, spec);
+      spec.tipo = sel.value; big._view = null; redraw(); refreshNavM(); if (inlineCanvas) { inlineCanvas._view = null; drawChart(inlineCanvas, spec); }
     });
+    // Navegação (minimapa) + zoom por seleção — LIGADOS por último, DEPOIS de fechar/Esc/clique-
+    // fora já estarem ativos, para uma eventual falha aqui nunca bloquear o VOLTAR (fechar).
+    try { refreshNavM(); attachChartZoom(big, bwrap, function () { redraw(); refreshNavM(); }); } catch (e) { }
   }
 
   function drawChart(canvas, spec, cssHArg) {
@@ -2164,11 +2463,26 @@
     var fg = "#1a1a1a", muted = "#6b6b72", gridc = "rgba(0,0,0,.08)";
     ctx.font = "11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
     ctx.textBaseline = "middle";
-    var cats = spec.categorias || [], series = spec.series || [];
-    if (!cats.length || !series.length) return;
+    var catsAll = spec.categorias || [], seriesAll = spec.series || [];
+    if (!catsAll.length || !seriesAll.length) return;
     var tipo = spec.tipo;
-    // Somas por série → percentuais no tooltip.
-    var somas = series.map(function (s) { return s.valores.reduce(function (a, b) { return a + (b || 0); }, 0); });
+    // JANELA (scroll/zoom): tipos com eixo de categorias mostram só [i0,i1); os demais usam tudo.
+    var _win = chartWindowable(tipo) ? chartView(canvas, catsAll.length) : { i0: 0, i1: catsAll.length };
+    canvas._win = _win; canvas._ncats = catsAll.length; canvas._geom = null;
+    var cats = catsAll.slice(_win.i0, _win.i1);
+    var series = seriesAll.map(function (s) { return { nome: s.nome, valores: (s.valores || []).slice(_win.i0, _win.i1) }; });
+    if (!cats.length) return;
+    // Tipos com renderizador PRÓPRIO (fora do eixo de barras/colunas padrão).
+    if (tipo === "radar") { drawRadar(ctx, cssW, cssH, cats, series, fg, muted, gridc, hits); return; }
+    if (tipo === "dispersao" || tipo === "bolha") { drawScatter(ctx, cssW, cssH, catsAll, seriesAll, tipo === "bolha", fg, muted, gridc, hits); return; }
+    if (tipo === "heatmap") { drawHeatmap(ctx, cssW, cssH, cats, series, fg, muted, hits); return; }
+    if (tipo === "candle") { drawCandle(ctx, cssW, cssH, cats, series, fg, muted, gridc, hits); return; }
+    // Empilhado (soma as séries numa pilha) e combo (1ª série colunas, resto linha).
+    var emp = tipo === "colunas_emp" || tipo === "barras_emp" || tipo === "area_emp";
+    var combo = tipo === "combo";
+    var baseTipo = tipo === "colunas_emp" || tipo === "combo" ? "colunas" : tipo === "barras_emp" ? "barras" : tipo === "area_emp" ? "area" : tipo;
+    // Somas por série → percentuais no tooltip (sobre TODOS os dados, não só a janela).
+    var somas = seriesAll.map(function (s) { return s.valores.reduce(function (a, b) { return a + (b || 0); }, 0); });
     function pct(v, si) { var t = somas[si] || 0; return t ? Math.round((v / t) * 1000) / 10 : 0; }
     function tipCat(ci) {
       var out = "<b>" + esc(cats[ci]) + "</b>";
@@ -2187,8 +2501,17 @@
     if (series.length > 1) topo = drawLegend(ctx, cssW, series, fg);
     var padT = topo, padR = 12, steps = 4;
     var vmax = -Infinity, vmin = Infinity;
-    for (var si2 = 0; si2 < series.length; si2++) for (var ri = 0; ri < cats.length; ri++) {
-      var v0 = series[si2].valores[ri] || 0; if (v0 > vmax) vmax = v0; if (v0 < vmin) vmin = v0;
+    if (emp) {
+      // Empilhado: a escala vai até a SOMA das séries por categoria (a pilha inteira).
+      for (var re = 0; re < cats.length; re++) {
+        var pos = 0, neg = 0;
+        for (var se = 0; se < series.length; se++) { var ve = series[se].valores[re] || 0; if (ve >= 0) pos += ve; else neg += ve; }
+        if (pos > vmax) vmax = pos; if (pos < vmin) vmin = pos; if (neg < vmin) vmin = neg; if (neg > vmax) vmax = neg;
+      }
+    } else {
+      for (var si2 = 0; si2 < series.length; si2++) for (var ri = 0; ri < cats.length; ri++) {
+        var v0 = series[si2].valores[ri] || 0; if (v0 > vmax) vmax = v0; if (v0 < vmin) vmin = v0;
+      }
     }
     if (vmax === -Infinity) return;
     vmin = Math.min(0, vmin); if (vmax === vmin) vmax = vmin + 1;
@@ -2201,7 +2524,7 @@
     var med = spec.mediana ? kbMediana(todos) : null;
     var reg = spec.tendencia ? kbReg(series[0].valores) : null;
 
-    if (tipo === "barras") {
+    if (baseTipo === "barras") {
       // Rótulos à esquerda: largura DINÂMICA para não truncar quando há espaço.
       var maxLab = 0;
       for (var m = 0; m < cats.length; m++) { var lw = ctx.measureText(cats[m]).width; if (lw > maxLab) maxLab = lw; }
@@ -2215,16 +2538,29 @@
         ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(kbFmt(vv), gx, y0 + plotH + 12);
       }
       var bandH = plotH / cats.length, zeroX = x0 + plotW * zeroFrac;
+      // Geometria p/ o zoom por seleção NO gráfico (barras = eixo de categorias VERTICAL).
+      canvas._geom = { vert: true, a: y0, len: plotH, i0: _win.i0, i1: _win.i1, x: x0, wpx: plotW };
       for (var c = 0; c < cats.length; c++) {
         var by = y0 + bandH * c;
         ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbTrunc(ctx, cats[c], padL - 8), x0 - 6, by + bandH / 2);
         hits.push({ x: 0, y: by, w: padL, h: bandH, html: tipCat(c) });
-        var sh = (bandH * 0.7) / series.length;
-        for (var s2 = 0; s2 < series.length; s2++) {
-          var val = series[s2].valores[c] || 0, bw = plotW * val / span, ry = by + bandH * 0.15 + sh * s2;
-          ctx.fillStyle = CHART_PAL[s2 % CHART_PAL.length];
-          ctx.fillRect(zeroX, ry, bw, sh * 0.86);
-          hits.push({ x: Math.min(zeroX, zeroX + bw), y: ry, w: Math.max(3, Math.abs(bw)), h: sh * 0.86, html: tipVal(c, s2) });
+        if (emp) {
+          var cur = zeroX, hh = bandH * 0.72, ry0 = by + bandH * 0.14;
+          for (var se2 = 0; se2 < series.length; se2++) {
+            var vE = series[se2].valores[c] || 0, bwE = plotW * vE / span;
+            ctx.fillStyle = CHART_PAL[se2 % CHART_PAL.length];
+            ctx.fillRect(cur, ry0, bwE, hh);
+            hits.push({ x: Math.min(cur, cur + bwE), y: ry0, w: Math.max(3, Math.abs(bwE)), h: hh, html: tipVal(c, se2) });
+            cur += bwE;
+          }
+        } else {
+          var sh = (bandH * 0.7) / series.length;
+          for (var s2 = 0; s2 < series.length; s2++) {
+            var val = series[s2].valores[c] || 0, bw = plotW * val / span, ry = by + bandH * 0.15 + sh * s2;
+            ctx.fillStyle = CHART_PAL[s2 % CHART_PAL.length];
+            ctx.fillRect(zeroX, ry, bw, sh * 0.86);
+            hits.push({ x: Math.min(zeroX, zeroX + bw), y: ry, w: Math.max(3, Math.abs(bw)), h: sh * 0.86, html: tipVal(c, s2) });
+          }
         }
         hits.push({ x: x0, y: by, w: plotW, h: bandH, html: tipCat(c) }); // faixa (fallback)
       }
@@ -2249,6 +2585,8 @@
     var padB2 = girar ? Math.min(Math.floor(cssH * 0.30), 56) : 24;
     var plotH2 = Math.max(10, cssH - padT - padB2);
     var x02 = padL2, y02 = padT;
+    // Geometria p/ o zoom por seleção NO gráfico (colunas/linha/área = eixo X HORIZONTAL).
+    canvas._geom = { vert: false, a: x02, len: plotW2, i0: _win.i0, i1: _win.i1, y: y02, hpx: plotH2 };
     var valorY = function (val) { return y02 + plotH2 - plotH2 * (val - vmin) / span; };
     var zeroY = valorY(0);
     for (var g2 = 0; g2 <= steps; g2++) {
@@ -2267,7 +2605,37 @@
       }
       hits.push({ x: x02 + band * c2, y: y02 + plotH2, w: band, h: padB2, html: tipCat(c2) });
     }
-    if (tipo === "colunas") {
+    if (combo) {
+      // COMBO: 1ª série = colunas; as demais = linhas sobrepostas.
+      var sc0 = series[0];
+      for (var cc = 0; cc < cats.length; cc++) {
+        var vC = sc0.valores[cc] || 0, vyC = valorY(vC), bxC = x02 + band * cc + band * 0.2;
+        ctx.fillStyle = CHART_PAL[0];
+        ctx.fillRect(bxC, Math.min(vyC, zeroY), band * 0.6, Math.max(1, Math.abs(zeroY - vyC)));
+        hits.push({ x: bxC, y: Math.min(vyC, zeroY), w: band * 0.6, h: Math.max(3, Math.abs(zeroY - vyC)), html: tipVal(cc, 0) });
+        hits.push({ x: x02 + band * cc, y: y02, w: band, h: plotH2, html: tipCat(cc) });
+      }
+      for (var sl = 1; sl < series.length; sl++) {
+        var colL = CHART_PAL[sl % CHART_PAL.length]; ctx.strokeStyle = colL; ctx.lineWidth = 2.3; ctx.beginPath();
+        var ptsL = [];
+        for (var cl = 0; cl < cats.length; cl++) { var vl = series[sl].valores[cl] || 0, pxl = x02 + band * cl + band / 2, pyl = valorY(vl); ptsL.push([pxl, pyl]); if (cl === 0) ctx.moveTo(pxl, pyl); else ctx.lineTo(pxl, pyl); }
+        ctx.stroke(); ctx.fillStyle = colL;
+        for (var pl2 = 0; pl2 < ptsL.length; pl2++) { ctx.beginPath(); ctx.arc(ptsL[pl2][0], ptsL[pl2][1], 2.6, 0, 6.2832); ctx.fill(); }
+      }
+    } else if (baseTipo === "colunas" && emp) {
+      // COLUNAS EMPILHADAS: cada série soma sobre a anterior (pos/neg separados).
+      for (var ce = 0; ce < cats.length; ce++) {
+        var accP = 0, accN = 0, bxs = x02 + band * ce + band * 0.2, bws = band * 0.6;
+        for (var ss = 0; ss < series.length; ss++) {
+          var vs = series[ss].valores[ce] || 0, base0 = vs >= 0 ? accP : accN, yTop = valorY(base0 + vs), yBot = valorY(base0);
+          ctx.fillStyle = CHART_PAL[ss % CHART_PAL.length];
+          ctx.fillRect(bxs, Math.min(yTop, yBot), bws, Math.max(1, Math.abs(yBot - yTop)));
+          hits.push({ x: bxs, y: Math.min(yTop, yBot), w: bws, h: Math.max(3, Math.abs(yBot - yTop)), html: tipVal(ce, ss) });
+          if (vs >= 0) accP += vs; else accN += vs;
+        }
+        hits.push({ x: x02 + band * ce, y: y02, w: band, h: plotH2, html: tipCat(ce) });
+      }
+    } else if (baseTipo === "colunas") {
       var sw = (band * 0.7) / series.length;
       for (var c3 = 0; c3 < cats.length; c3++) {
         for (var s3 = 0; s3 < series.length; s3++) {
@@ -2278,6 +2646,24 @@
         }
         hits.push({ x: x02 + band * c3, y: y02, w: band, h: plotH2, html: tipCat(c3) }); // faixa (fallback)
       }
+    } else if (baseTipo === "area" && emp) {
+      // ÁREA EMPILHADA: cada série ocupa a faixa entre o acumulado anterior e o novo.
+      var accArr = cats.map(function () { return 0; });
+      for (var sa = 0; sa < series.length; sa++) {
+        var colA = CHART_PAL[sa % CHART_PAL.length], top = [], botp = [];
+        for (var ca = 0; ca < cats.length; ca++) {
+          var prev = accArr[ca], nv = prev + (series[sa].valores[ca] || 0), pxa = x02 + band * ca + band / 2;
+          accArr[ca] = nv; top.push([pxa, valorY(nv)]); botp.push([pxa, valorY(prev)]);
+        }
+        ctx.beginPath(); ctx.moveTo(top[0][0], top[0][1]);
+        for (var t2 = 1; t2 < top.length; t2++) ctx.lineTo(top[t2][0], top[t2][1]);
+        for (var bb = botp.length - 1; bb >= 0; bb--) ctx.lineTo(botp[bb][0], botp[bb][1]);
+        ctx.closePath(); ctx.globalAlpha = 0.5; ctx.fillStyle = colA; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = colA; ctx.lineWidth = 1.5; ctx.beginPath();
+        for (var tt = 0; tt < top.length; tt++) { if (tt === 0) ctx.moveTo(top[tt][0], top[tt][1]); else ctx.lineTo(top[tt][0], top[tt][1]); }
+        ctx.stroke();
+      }
+      for (var ch2 = 0; ch2 < cats.length; ch2++) hits.push({ x: x02 + band * ch2, y: y02, w: band, h: plotH2, html: tipCat(ch2) });
     } else {
       for (var s4 = 0; s4 < series.length; s4++) {
         var col = CHART_PAL[s4 % CHART_PAL.length]; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
@@ -2287,7 +2673,7 @@
           pts.push([px2, py2]); if (c4 === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
         }
         ctx.stroke();
-        if (tipo === "area" && pts.length) {
+        if (baseTipo === "area" && pts.length) {
           ctx.lineTo(pts[pts.length - 1][0], zeroY); ctx.lineTo(pts[0][0], zeroY); ctx.closePath();
           ctx.globalAlpha = 0.15; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
         }
@@ -2316,6 +2702,96 @@
     }
   }
 
+  // RADAR / TEIA: categorias = eixos (raios), séries = polígonos. Legível com poucos eixos.
+  function drawRadar(ctx, w, h, cats, series, fg, muted, gridc, hits) {
+    var n = Math.min(cats.length, 24);
+    if (n < 3) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText("Radar precisa de ao menos 3 categorias.", w / 2, h / 2); return; }
+    var topo = series.length > 1 ? drawLegend(ctx, w, series, fg) : 8;
+    var cx = w / 2, cy = (h + topo) / 2, R = Math.min(w, h - topo) * 0.36, vmax = 0;
+    for (var s = 0; s < series.length; s++) for (var i = 0; i < n; i++) { var v = series[s].valores[i] || 0; if (v > vmax) vmax = v; }
+    if (vmax <= 0) vmax = 1;
+    ctx.strokeStyle = gridc;
+    for (var r = 1; r <= 4; r++) { ctx.beginPath(); for (var a = 0; a <= n; a++) { var ang = -Math.PI / 2 + (a % n) * 2 * Math.PI / n, rr = R * r / 4, px = cx + Math.cos(ang) * rr, py = cy + Math.sin(ang) * rr; if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.stroke(); }
+    ctx.fillStyle = muted; ctx.font = "10px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    for (var e = 0; e < n; e++) {
+      var ea = -Math.PI / 2 + e * 2 * Math.PI / n, ex = cx + Math.cos(ea) * R, ey = cy + Math.sin(ea) * R;
+      ctx.strokeStyle = gridc; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.textAlign = Math.abs(Math.cos(ea)) < 0.3 ? "center" : (Math.cos(ea) > 0 ? "left" : "right");
+      ctx.fillText(kbTrunc(ctx, cats[e], 70), cx + Math.cos(ea) * (R + 12), cy + Math.sin(ea) * (R + 12));
+    }
+    for (var si = 0; si < series.length; si++) {
+      var col = CHART_PAL[si % CHART_PAL.length]; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+      for (var p = 0; p <= n; p++) { var idx = p % n, va = -Math.PI / 2 + idx * 2 * Math.PI / n, rv = R * (series[si].valores[idx] || 0) / vmax, vx = cx + Math.cos(va) * rv, vy = cy + Math.sin(va) * rv; if (p === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy); }
+      ctx.closePath(); ctx.globalAlpha = 0.14; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+      for (var pp = 0; pp < n; pp++) { var pa = -Math.PI / 2 + pp * 2 * Math.PI / n, prv = R * (series[si].valores[pp] || 0) / vmax, ppx = cx + Math.cos(pa) * prv, ppy = cy + Math.sin(pa) * prv; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(ppx, ppy, 2.6, 0, 6.2832); ctx.fill(); hits.push({ x: ppx - 6, y: ppy - 6, w: 12, h: 12, html: "<b>" + esc(cats[pp]) + "</b><br>" + (series.length > 1 ? esc(series[si].nome) + ": " : "") + kbNum(series[si].valores[pp] || 0) }); }
+    }
+  }
+  // DISPERSÃO / BOLHA: série0=X, série1=Y, série2=tamanho (bolha). 1 série → X=índice.
+  function drawScatter(ctx, w, h, catsAll, seriesAll, bubble, fg, muted, gridc, hits) {
+    var xs, ys, sz;
+    if (seriesAll.length >= 2) { xs = seriesAll[0].valores; ys = seriesAll[1].valores; sz = bubble && seriesAll[2] ? seriesAll[2].valores : null; }
+    else { xs = catsAll.map(function (_, i) { return i; }); ys = seriesAll[0] ? seriesAll[0].valores : []; sz = null; }
+    var n = Math.min(xs.length, ys.length); if (!n) return;
+    var xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity, smax = 0;
+    for (var i = 0; i < n; i++) { var x = xs[i] || 0, y = ys[i] || 0; if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y; if (sz) { var sv = sz[i] || 0; if (sv > smax) smax = sv; } }
+    if (xmin === xmax) { xmin -= 1; xmax += 1; } if (ymin === ymax) { ymin -= 1; ymax += 1; } ymin = Math.min(0, ymin);
+    var padL = 46, padR = 12, padT = 10, padB = 26, plotW = Math.max(10, w - padL - padR), plotH = Math.max(10, h - padT - padB), x0 = padL, y0 = padT;
+    var X = function (v) { return x0 + plotW * (v - xmin) / (xmax - xmin); }, Y = function (v) { return y0 + plotH - plotH * (v - ymin) / (ymax - ymin); };
+    ctx.font = "11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    for (var g = 0; g <= 4; g++) { var vy = ymin + (ymax - ymin) * g / 4, gy = Y(vy); ctx.strokeStyle = gridc; ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x0 + plotW, gy); ctx.stroke(); ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbFmt(vy), x0 - 6, gy); }
+    for (var gx = 0; gx <= 4; gx++) { var vx = xmin + (xmax - xmin) * gx / 4; ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(kbFmt(vx), X(vx), y0 + plotH + 12); }
+    var xlbl = seriesAll.length >= 2 ? seriesAll[0].nome : "índice", ylbl = seriesAll.length >= 2 ? seriesAll[1].nome : (seriesAll[0] ? seriesAll[0].nome : "valor");
+    for (var p = 0; p < n; p++) {
+      var cxp = X(xs[p] || 0), cyp = Y(ys[p] || 0), rr = bubble && smax > 0 ? 4 + 16 * Math.sqrt((sz[p] || 0) / smax) : 4.5;
+      ctx.fillStyle = CHART_PAL[p % CHART_PAL.length] + "cc"; ctx.beginPath(); ctx.arc(cxp, cyp, rr, 0, 6.2832); ctx.fill();
+      hits.push({ x: cxp - rr, y: cyp - rr, w: rr * 2, h: rr * 2, html: "<b>" + esc(catsAll[p] || ("#" + (p + 1))) + "</b><br>" + esc(xlbl) + ": " + kbNum(xs[p] || 0) + "<br>" + esc(ylbl) + ": " + kbNum(ys[p] || 0) + (bubble && sz ? "<br>" + esc(seriesAll[2].nome) + ": " + kbNum(sz[p] || 0) : "") });
+    }
+  }
+  // MAPA DE CALOR: linhas = categorias, colunas = séries, célula = valor → intensidade.
+  function drawHeatmap(ctx, w, h, cats, series, fg, muted, hits) {
+    var rows = cats.length, cols = series.length; if (!rows || !cols) return;
+    var vmin = Infinity, vmax = -Infinity;
+    for (var i = 0; i < rows; i++) for (var j = 0; j < cols; j++) { var v = series[j].valores[i] || 0; if (v < vmin) vmin = v; if (v > vmax) vmax = v; }
+    if (vmin === vmax) vmax = vmin + 1;
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    ctx.font = "11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    var maxLab = 0; for (var m = 0; m < rows; m++) { var lw = ctx.measureText(cats[m]).width; if (lw > maxLab) maxLab = lw; }
+    var padL = Math.max(44, Math.min(Math.ceil(maxLab) + 10, Math.floor(w * 0.4))), padT = 24, padR = 10, padB = 8;
+    var gw = Math.max(6, (w - padL - padR) / cols), gh = Math.max(6, (h - padT - padB) / rows);
+    ctx.fillStyle = muted; ctx.textAlign = "center";
+    for (var jc = 0; jc < cols; jc++) ctx.fillText(kbTrunc(ctx, series[jc].nome, gw - 4), padL + gw * jc + gw / 2, padT - 8);
+    for (var r = 0; r < rows; r++) {
+      ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbTrunc(ctx, cats[r], padL - 8), padL - 6, padT + gh * r + gh / 2);
+      for (var c = 0; c < cols; c++) {
+        var val = series[c].valores[r] || 0, t = (val - vmin) / (vmax - vmin);
+        ctx.fillStyle = pc; ctx.globalAlpha = 0.1 + 0.86 * t; ctx.fillRect(padL + gw * c + 1, padT + gh * r + 1, gw - 2, gh - 2); ctx.globalAlpha = 1;
+        hits.push({ x: padL + gw * c, y: padT + gh * r, w: gw, h: gh, html: "<b>" + esc(cats[r]) + " · " + esc(series[c].nome) + "</b><br>" + kbNum(val) });
+      }
+    }
+  }
+  // CANDLE (OHLC): série0=abertura, 1=máxima, 2=mínima, 3=fechamento.
+  function drawCandle(ctx, w, h, cats, series, fg, muted, gridc, hits) {
+    if (series.length < 4) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText("Candle precisa de 4 séries: abertura, máxima, mínima, fechamento.", w / 2, h / 2); return; }
+    var O = series[0].valores, H = series[1].valores, L = series[2].valores, C = series[3].valores, n = cats.length;
+    var vmin = Infinity, vmax = -Infinity;
+    for (var i = 0; i < n; i++) { var lo = L[i], hi = H[i]; if (lo < vmin) vmin = lo; if (hi > vmax) vmax = hi; }
+    if (!isFinite(vmin) || !isFinite(vmax)) return; if (vmin === vmax) vmax = vmin + 1;
+    var pd = (vmax - vmin) * 0.05; vmin -= pd; vmax += pd;
+    var padL = 48, padR = 10, padT = 10, padB = 26, plotW = Math.max(10, w - padL - padR), plotH = Math.max(10, h - padT - padB), x0 = padL, y0 = padT;
+    var Y = function (v) { return y0 + plotH - plotH * (v - vmin) / (vmax - vmin); };
+    ctx.font = "11px system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+    for (var g = 0; g <= 4; g++) { var vv = vmin + (vmax - vmin) * g / 4, gy = Y(vv); ctx.strokeStyle = gridc; ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x0 + plotW, gy); ctx.stroke(); ctx.fillStyle = muted; ctx.textAlign = "right"; ctx.fillText(kbFmt(vv), x0 - 6, gy); }
+    var band = plotW / n, girar = band < 34;
+    for (var c = 0; c < n; c++) {
+      var cx = x0 + band * c + band / 2, o = O[c] || 0, cl = C[c] || 0, up = cl >= o, col = up ? "#10B981" : "#EF4444";
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, Y(H[c] || 0)); ctx.lineTo(cx, Y(L[c] || 0)); ctx.stroke();
+      var yO = Y(o), yC = Y(cl), bw = Math.max(3, band * 0.5); ctx.fillStyle = col; ctx.fillRect(cx - bw / 2, Math.min(yO, yC), bw, Math.max(1, Math.abs(yC - yO)));
+      ctx.fillStyle = muted;
+      if (girar) { ctx.save(); ctx.translate(cx, y0 + plotH + 8); ctx.rotate(-Math.PI / 5); ctx.textAlign = "right"; ctx.fillText(kbTrunc(ctx, cats[c], 46), 0, 0); ctx.restore(); }
+      else { ctx.textAlign = "center"; ctx.fillText(kbTrunc(ctx, cats[c], band), cx, y0 + plotH + 12); }
+      hits.push({ x: x0 + band * c, y: y0, w: band, h: plotH, html: "<b>" + esc(cats[c]) + "</b><br>Abt: " + kbNum(o) + "<br>Máx: " + kbNum(H[c] || 0) + "<br>Mín: " + kbNum(L[c] || 0) + "<br>Fch: " + kbNum(cl) });
+    }
+  }
   function drawLegend(ctx, w, series, fg) {
     var x = 6, y = 12; ctx.textAlign = "left";
     for (var i = 0; i < series.length; i++) {
@@ -2604,6 +3080,9 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   var ICON_SEND =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+  // Ícone de PARAR (quadrado) — o botão de enviar vira "Parar" enquanto processa.
+  var ICON_STOP =
+    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
   // Avatar do assistente: um brilho ("sparkle"), como nas referências.
   var ICON_BOT =
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 4.8L18 8.5l-4.3 1.7L12 15l-1.7-4.8L6 8.5l4.3-1.7L12 2z"/><path d="M19 13l.8 2.3L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.7L19 13z" opacity=".65"/></svg>';
@@ -3510,6 +3989,269 @@
     } catch (e) { toastWidget("Falha ao exportar CSV.", true); }
   }
 
+  // ==== Histórico de conversas (Fase 3) ====
+  var ICON_HISTORY =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>';
+  // API do histórico — mesma auth do saved-reports (chave pública + token de rastreio).
+  async function apiConversas(payload) {
+    try {
+      var resp = await fetch(API + "/api/v1/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload)),
+      });
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+  // Clique em "limpar" → pergunta: só LIMPAR (mantém no histórico) ou APAGAR (remove).
+  function pedirLimparOuApagar() {
+    // Sem identidade não há histórico por usuário → limpa direto (comportamento antigo).
+    if (!hasPromptIdentity()) { clearChat(); return; }
+    var m = widgetModal("Limpar conversa");
+    var txt = document.createElement("div");
+    txt.style.cssText = "font-size:13px;color:#374151;line-height:1.55;";
+    txt.textContent = "O que você quer fazer com esta conversa?";
+    var opts = document.createElement("div"); opts.style.cssText = "display:flex;flex-direction:column;gap:9px;margin-top:12px;";
+    var b1 = optCardLimpar("🧹  Limpar a tela", "A conversa continua salva no Histórico e você começa uma nova.");
+    var b2 = optCardLimpar("🗑️  Apagar as mensagens", "Remove esta conversa do histórico. Não dá para desfazer.");
+    opts.appendChild(b1); opts.appendChild(b2);
+    var rowc = document.createElement("div"); rowc.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px;";
+    var cancelar = tutBtn("Cancelar", false); rowc.appendChild(cancelar);
+    m.body.appendChild(txt); m.body.appendChild(opts); m.body.appendChild(rowc);
+    cancelar.addEventListener("click", m.fechar);
+    b1.addEventListener("click", function () { m.fechar(); clearChat(); toastWidget("Conversa mantida no Histórico."); });
+    b2.addEventListener("click", async function () {
+      b2.style.pointerEvents = "none"; b2.style.opacity = ".6";
+      await apagarConversaAtual(); m.fechar();
+    });
+  }
+  // Cartão de opção (botão grande) do diálogo Limpar×Apagar.
+  function optCardLimpar(titulo, desc) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var b = document.createElement("button"); b.type = "button";
+    b.style.cssText = "text-align:left;border:1px solid " + pc + "33;background:" + pc + "08;border-radius:11px;padding:11px 13px;cursor:pointer;display:block;width:100%;";
+    var h = document.createElement("div"); h.textContent = titulo; h.style.cssText = "font-size:13px;font-weight:800;color:" + pc + ";";
+    var d = document.createElement("div"); d.textContent = desc; d.style.cssText = "font-size:11.5px;color:#6b7280;margin-top:3px;line-height:1.45;";
+    b.appendChild(h); b.appendChild(d); return b;
+  }
+  // Apaga a conversa ATUAL do histórico (se já existir no servidor) e limpa a tela.
+  async function apagarConversaAtual() {
+    var cid = conversationId; // ler ANTES do clearChat (que zera o id)
+    if (cid) {
+      var r = await apiConversas({ action: "delete", id: cid });
+      if (r && r.ok) toastWidget("Conversa apagada.");
+      else toastWidget("Não deu para apagar no servidor — a tela foi limpa.", true);
+    }
+    clearChat();
+  }
+  // Lista o histórico do usuário (título/subtítulo/data + ressalva), com busca por termo
+  // e intervalo de datas. Espelha "Meus relatórios salvos".
+  async function abrirHistorico() {
+    var m = widgetModal("Histórico de conversas", { wide: true });
+    m.body.textContent = "Carregando…";
+    var r = await apiConversas({ action: "list" });
+    m.body.innerHTML = "";
+    if (!r || !r.ok) { m.body.textContent = ((r && r.erro) || "Falha ao carregar.") + (r && r.detalhe ? " (" + r.detalhe + ")" : ""); return; }
+    var itens = r.itens || [];
+    if (!itens.length) {
+      var e = document.createElement("div");
+      e.style.cssText = "color:#6b7280;font-size:13px;text-align:center;padding:22px 8px;";
+      e.textContent = "Nenhuma conversa no histórico ainda.";
+      m.body.appendChild(e); return;
+    }
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var bar = document.createElement("div");
+    bar.style.cssText = "position:sticky;top:0;background:#fff;z-index:3;padding:0 0 8px;margin:-2px 0 6px;border-bottom:1px solid #f1f2f4;";
+    var busca = document.createElement("input"); busca.type = "search"; busca.placeholder = "🔍  Buscar por termo na conversa…";
+    busca.style.cssText = "width:100%;padding:8px 11px;border:1px solid #e5e7eb;border-radius:9px;font-size:13px;box-sizing:border-box;";
+    var linha2 = document.createElement("div"); linha2.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center;";
+    var estiloData = "padding:6px 8px;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#374151;min-width:0;flex:0 1 auto;";
+    var de = document.createElement("input"); de.type = "date"; de.title = "Data inicial"; de.setAttribute("aria-label", "Data inicial"); de.style.cssText = estiloData;
+    var seta = document.createElement("span"); seta.textContent = "→"; seta.style.cssText = "color:#9ca3af;font-size:12px;flex:none;";
+    var ate = document.createElement("input"); ate.type = "date"; ate.title = "Data final"; ate.setAttribute("aria-label", "Data final"); ate.style.cssText = estiloData;
+    linha2.appendChild(de); linha2.appendChild(seta); linha2.appendChild(ate);
+    bar.appendChild(busca); bar.appendChild(linha2);
+    m.body.appendChild(bar);
+    var contador = document.createElement("div"); contador.style.cssText = "font-size:11px;color:#9ca3af;margin:0 2px 8px;";
+    m.body.appendChild(contador);
+    var lista = document.createElement("div"); m.body.appendChild(lista);
+    function normaliza(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+    function passa(it) {
+      var q = normaliza(busca.value.trim());
+      if (q && normaliza(it.title).indexOf(q) < 0 && normaliza(it.subtitle).indexOf(q) < 0 && normaliza(it.disclaimer).indexOf(q) < 0) return false;
+      var d = String(it.created_at || "").slice(0, 10);
+      if (de.value && d < de.value) return false;
+      if (ate.value && d > ate.value) return false;
+      return true;
+    }
+    function linhaConversa(it) {
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid #eef0f2;border-radius:10px;margin-bottom:8px;cursor:pointer;";
+      var ico = document.createElement("span"); ico.innerHTML = ICON_CHAT;
+      ico.style.cssText = "display:inline-flex;width:20px;height:20px;flex:none;color:" + pc + ";margin-top:1px;";
+      var sg = ico.querySelector("svg"); if (sg) { sg.setAttribute("width", "18"); sg.setAttribute("height", "18"); }
+      var info = document.createElement("div"); info.style.cssText = "flex:1;min-width:0;";
+      var nm = document.createElement("div"); nm.style.cssText = "font-weight:700;font-size:13px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; nm.textContent = it.title || "Conversa";
+      info.appendChild(nm);
+      if (it.subtitle) { var sb = document.createElement("div"); sb.style.cssText = "font-size:11.5px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"; sb.textContent = it.subtitle; info.appendChild(sb); }
+      var meta = document.createElement("div"); meta.style.cssText = "font-size:11px;color:#9ca3af;margin-top:3px;"; meta.textContent = formatarData(it.created_at) + (it.mensagens ? " · " + it.mensagens + " mensagem(ns)" : ""); info.appendChild(meta);
+      // Coluna da RESSALVA do agente (ex.: "Resposta baseada no relatório desta tela…").
+      if (it.disclaimer) { var dz = document.createElement("div"); dz.style.cssText = "font-size:11px;font-style:italic;color:#6b7280;margin-top:5px;background:#f9fafb;border-radius:7px;padding:5px 8px;line-height:1.4;"; dz.textContent = "ℹ️ " + it.disclaimer; info.appendChild(dz); }
+      var del = document.createElement("button"); del.type = "button"; del.innerHTML = ICON_TRASH; del.title = "Apagar (clique 2× p/ confirmar)"; del.setAttribute("aria-label", "Apagar");
+      del.style.cssText = "border:0;background:transparent;color:#b45309;cursor:pointer;width:30px;height:30px;flex:none;border-radius:8px;";
+      row.appendChild(ico); row.appendChild(info); row.appendChild(del);
+      row.addEventListener("click", function (ev) { if (ev.target === del || del.contains(ev.target)) return; abrirDetalheConversa(it.id, it.title); });
+      var armado = false, tmr = null;
+      del.addEventListener("click", async function (ev) {
+        ev.stopPropagation();
+        if (!armado) { armado = true; del.style.background = "#b4530922"; tmr = setTimeout(function () { armado = false; del.style.background = "transparent"; }, 2500); return; }
+        clearTimeout(tmr); del.disabled = true;
+        var dr = await apiConversas({ action: "delete", id: it.id });
+        if (dr && dr.ok) { var ix = itens.indexOf(it); if (ix >= 0) itens.splice(ix, 1); if (conversationId === it.id) conversationId = null; aplicar(); toastWidget("Conversa apagada."); }
+        else { del.disabled = false; armado = false; del.style.background = "transparent"; toastWidget("Falha ao apagar.", true); }
+      });
+      return row;
+    }
+    function aplicar() {
+      lista.innerHTML = "";
+      var vis = itens.filter(passa);
+      contador.textContent = vis.length === itens.length ? (itens.length + " conversa(s)") : (vis.length + " de " + itens.length);
+      if (!vis.length) {
+        var z = document.createElement("div"); z.style.cssText = "color:#6b7280;font-size:13px;text-align:center;padding:22px 8px;";
+        z.textContent = itens.length ? "Nenhuma conversa bate com o filtro." : "Nenhuma conversa no histórico.";
+        lista.appendChild(z); return;
+      }
+      vis.forEach(function (it) { lista.appendChild(linhaConversa(it)); });
+    }
+    busca.addEventListener("input", aplicar);
+    de.addEventListener("change", aplicar);
+    ate.addEventListener("change", aplicar);
+    aplicar();
+  }
+  // Abre uma conversa do histórico: transcrição + Ampliar + Exportar (Word/PDF/CSV).
+  async function abrirDetalheConversa(id, titulo) {
+    var m = widgetModal(titulo || "Conversa", { wide: true });
+    m.body.textContent = "Carregando…";
+    var r = await apiConversas({ action: "get", id: id });
+    m.body.innerHTML = "";
+    if (!r || !r.ok) { m.body.textContent = ((r && r.erro) || "Falha ao carregar.") + (r && r.detalhe ? " (" + r.detalhe + ")" : ""); return; }
+    var msgs = r.mensagens || [];
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var bar = document.createElement("div"); bar.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;";
+    var meta = document.createElement("div"); meta.style.cssText = "flex:1;font-size:11.5px;color:#6b7280;min-width:80px;"; meta.textContent = formatarData(r.created_at) + " · " + msgs.length + " mensagem(ns)";
+    bar.appendChild(meta);
+    bar.appendChild(kbChartBtn("⤢ Ampliar", pc, function () { abrirConversaAmpliada(titulo, r); }));
+    bar.appendChild(kbChartBtn("⬇ Word", pc, function () { exportarConversa(id, "docx"); }));
+    bar.appendChild(kbChartBtn("⬇ PDF", pc, function () { exportarConversa(id, "pdf"); }));
+    bar.appendChild(kbChartBtn("⬇ CSV", pc, function () { exportarConversa(id, "csv"); }));
+    m.body.appendChild(bar);
+    if (r.disclaimer) { var ds = document.createElement("div"); ds.style.cssText = "font-size:11.5px;font-style:italic;color:#6b7280;margin-bottom:10px;background:#f9fafb;border-radius:8px;padding:7px 10px;"; ds.textContent = "ℹ️ " + r.disclaimer; m.body.appendChild(ds); }
+    var wrap = document.createElement("div"); wrap.style.cssText = "max-height:56vh;overflow:auto;";
+    wrap.appendChild(construirTranscricao(msgs, pc, r.usuario));
+    m.body.appendChild(wrap);
+  }
+  // Monta a transcrição como no chat de verdade: cada mensagem com QUEM (usuário
+  // identificado × Assistente IA) + QUANDO (data/hora/min), o balão com markdown
+  // (reusa as classes .m.a/.m.u), e a MÍDIA do assistente (gráficos interativos +
+  // arquivos). `usuario` = identificador do dono da conversa (nome/matrícula).
+  function construirTranscricao(msgs, pc, usuario) {
+    var box = document.createElement("div");
+    var rotuloUser = usuario ? "Você · " + usuario : "Você";
+    (msgs || []).forEach(function (mm) {
+      var ehUser = mm.role === "user";
+      var wrap = document.createElement("div");
+      wrap.style.cssText = "display:flex;flex-direction:column;margin-bottom:14px;" + (ehUser ? "align-items:flex-end;" : "align-items:flex-start;");
+      // Cabeçalho: quem enviou + data/hora:minuto.
+      var head = document.createElement("div");
+      head.style.cssText = "font-size:10.5px;color:#9ca3af;margin:0 4px 3px;font-weight:700;";
+      head.textContent = (ehUser ? rotuloUser : "Assistente (IA)") + (mm.created_at ? " · " + formatarData(mm.created_at) : "");
+      wrap.appendChild(head);
+      // Balão (mesmas classes do chat: markdown no assistente, texto no usuário).
+      var bolha = document.createElement("div");
+      bolha.className = "m " + (ehUser ? "u" : "a");
+      if (ehUser) { bolha.textContent = String(mm.content == null ? "" : mm.content); }
+      else { bolha.innerHTML = mdToHtml(String(mm.content == null ? "" : mm.content)); bolha.style.maxWidth = "92%"; }
+      wrap.appendChild(bolha);
+      // Fontes/citações do assistente (mesma sanfona do chat).
+      if (!ehUser && mm.citations && mm.citations.length) {
+        var cit = construirCitacoes(mm.citations);
+        if (cit) { cit.style.maxWidth = "92%"; cit.style.marginTop = "6px"; wrap.appendChild(cit); }
+      }
+      // Anexos ENVIADOS pelo usuário (chips).
+      if (ehUser && mm.attachments && mm.attachments.length) {
+        var chips = document.createElement("div"); chips.style.cssText = "display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;justify-content:flex-end;";
+        mm.attachments.forEach(function (a) {
+          var chip = document.createElement("span"); chip.textContent = "📎 " + (a && a.name ? a.name : "arquivo");
+          chip.style.cssText = "font-size:10.5px;color:#4a4a52;background:#eef0f2;border-radius:8px;padding:3px 8px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+          chips.appendChild(chip);
+        });
+        wrap.appendChild(chips);
+      }
+      // MÍDIA do assistente: gráficos (card interativo) + arquivos (download), como no chat.
+      if (!ehUser && mm.media && mm.media.length) {
+        var mwrap = document.createElement("div"); mwrap.style.cssText = "width:100%;max-width:92%;margin-top:6px;";
+        mm.media.forEach(function (it) {
+          if (it && it.kind === "chart" && it.spec) {
+            var built = construirCardGrafico(it.spec, { salvar: false });
+            built.card.style.margin = "6px 0 0 0"; built.card.style.maxWidth = "100%";
+            mwrap.appendChild(built.card);
+          } else if (it && it.kind === "file" && it.url) {
+            mwrap.appendChild(linkArquivoTranscricao(it.url, it.filename));
+          }
+        });
+        wrap.appendChild(mwrap);
+      }
+      box.appendChild(wrap);
+    });
+    if (!msgs || !msgs.length) { var z = document.createElement("div"); z.style.cssText = "color:#9ca3af;font-size:12.5px;text-align:center;padding:16px;"; z.textContent = "Sem mensagens."; box.appendChild(z); }
+    return box;
+  }
+  // Link de download de um arquivo dentro da transcrição (URL assinada do bucket).
+  function linkArquivoTranscricao(href, filename) {
+    var a = document.createElement("a");
+    a.href = href; a.download = filename || "arquivo"; a.rel = "noopener"; a.target = "_blank";
+    a.textContent = "📎 " + (filename || "arquivo");
+    a.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:8px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.12);background:#fff;color:#111;text-decoration:none;font-size:12.5px;font-weight:600;max-width:100%;";
+    return a;
+  }
+  // Amplia a conversa (overlay grande, centralizado) — espelha a modal do gráfico.
+  function abrirConversaAmpliada(titulo, r) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var raiz = (messagesEl.getRootNode && messagesEl.getRootNode()) || document.body;
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:rgba(15,15,20,.55);padding:16px;";
+    var card = document.createElement("div");
+    card.style.cssText = "background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.4);width:min(940px,94vw);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:hidden;display:flex;flex-direction:column;padding:16px;";
+    var hd = document.createElement("div"); hd.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-shrink:0;";
+    var ttl = document.createElement("div"); ttl.textContent = titulo || "Conversa"; ttl.style.cssText = "font-size:15px;font-weight:700;color:#17171a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    var fechar = document.createElement("button"); fechar.type = "button"; fechar.setAttribute("aria-label", "Fechar"); fechar.innerHTML = "&times;"; fechar.style.cssText = "border:none;background:transparent;font-size:26px;line-height:1;cursor:pointer;color:#555;padding:0 6px;";
+    hd.appendChild(ttl); hd.appendChild(fechar);
+    var body = document.createElement("div"); body.style.cssText = "flex:1;min-height:0;overflow:auto;";
+    if (r.disclaimer) { var ds = document.createElement("div"); ds.style.cssText = "font-size:11.5px;font-style:italic;color:#6b7280;margin-bottom:10px;background:#f9fafb;border-radius:8px;padding:7px 10px;"; ds.textContent = "ℹ️ " + r.disclaimer; body.appendChild(ds); }
+    body.appendChild(construirTranscricao(r.mensagens || [], pc, r.usuario));
+    card.appendChild(hd); card.appendChild(body);
+    ov.appendChild(card); raiz.appendChild(ov);
+    function fecharOv() { if (ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") fecharOv(); }
+    fechar.addEventListener("click", fecharOv);
+    ov.addEventListener("click", function (e) { if (e.target === ov) fecharOv(); });
+    document.addEventListener("keydown", onKey);
+  }
+  // Exporta a conversa (Word/PDF/CSV) — o servidor monta o arquivo com a ressalva no subtítulo.
+  async function exportarConversa(id, formato) {
+    try {
+      var r = await apiConversas({ action: "export", id: id, formato: formato });
+      if (!r || !r.ok || !r.content) { toastWidget((r && r.erro) || "Falha ao gerar o arquivo.", true); return; }
+      var bin = atob(String(r.content)); var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var blob = new Blob([bytes], { type: r.mime || "application/octet-stream" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a"); a.href = url; a.download = r.filename || ("conversa." + formato);
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch { } }, 2000);
+    } catch (e) { toastWidget("Falha ao gerar o arquivo.", true); }
+  }
+
   // ==== Montagem ====
   function mount() {
     host = document.createElement("div");
@@ -3613,7 +4355,7 @@
 
     panel.querySelector("[data-close]").addEventListener("click", toggle);
     panel.querySelector("[data-expand]").addEventListener("click", toggleExpand);
-    panel.querySelector("[data-clear]").addEventListener("click", clearChat);
+    panel.querySelector("[data-clear]").addEventListener("click", pedirLimparOuApagar);
     panel.querySelector("[data-reports-menu]").addEventListener("click", function (e) { e.stopPropagation(); abrirMenuRelatorios(e.currentTarget); });
     panel.querySelector("[data-attach]").addEventListener("click", function () {
       fileInput.click();
@@ -3624,7 +4366,8 @@
       files.forEach(uploadAttachment);
       fileInput.value = ""; // permite reanexar o mesmo arquivo
     });
-    sendBtn.addEventListener("click", submit);
+    // Enquanto processa, o botão é "Parar"; senão, "Enviar".
+    sendBtn.addEventListener("click", function () { if (busy) pararTudo(); else submit(); });
     inputEl.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -4244,6 +4987,13 @@
 
   function renderHistory(msgs) {
     msgs.forEach(function (m) {
+      // Mensagem SÓ de mídia (ex.: gráfico do fluxo de botões): renderiza a mídia SEM a
+      // bolha vazia de texto.
+      if (m.role === "assistant" && (!m.content || !m.content.trim()) && m.media && m.media.length) {
+        renderMedia(m.media);
+        history.push({ role: m.role, content: m.content || "" });
+        return;
+      }
       var el = addMsg(m.role, m.content, m.createdAt);
       if (m.role === "assistant") {
         el.innerHTML = mdToHtml(m.content);
@@ -4264,6 +5014,7 @@
     conversationId = null;
     contextScope = null;
     _harvested = null; _harvestCache = null; // esquece a coleta em cache
+    _relatorioVazioSinal = null; // esquece o sinal de relatório vazio
     _fonte = null; _fonteKey = null; // esquece a fonte escolhida (relatório/IA)
     try {
       localStorage.setItem(LS_CLEARED, new Date().toISOString());
@@ -4276,6 +5027,36 @@
 
   var history = [];
   var busy = false;
+  // PARAR: controle de interrupção. `_chatAbort` aborta o fetch do chat (o servidor
+  // recebe req.signal e para o streamText); `_coletaXhr`/`_coletaAbort` abortam a coleta
+  // do Oracle (apex.server.process / ORDS); `_parando` marca que o usuário interrompeu,
+  // para descartar continuações/coletas em voo sem mostrar erro.
+  var _chatAbort = null, _coletaXhr = null, _coletaAbort = null, _parando = false;
+  // Alterna o botão enviar↔parar e mantém `busy` num só lugar (não desabilita: durante o
+  // processamento o mesmo botão vira "Parar" e continua clicável).
+  function setBusyUI(b) {
+    busy = b;
+    if (!sendBtn) return;
+    try {
+      sendBtn.disabled = false;
+      sendBtn.classList.toggle("kb-stop", b);
+      sendBtn.setAttribute("aria-label", b ? "Parar" : "Enviar");
+      sendBtn.innerHTML = b ? ICON_STOP : ICON_SEND;
+    } catch { }
+  }
+  // Interrompe TUDO que estiver em voo: geração da IA e coleta do Oracle.
+  function pararTudo() {
+    _parando = true;
+    try { if (_chatAbort) _chatAbort.abort(); } catch { }
+    try { if (_coletaXhr && _coletaXhr.abort) _coletaXhr.abort(); } catch { }
+    try { if (_coletaAbort) _coletaAbort.abort(); } catch { }
+    _chatAbort = null; _coletaXhr = null; _coletaAbort = null;
+    try { limparProcStatus(); } catch { }
+    // remove o balão "digitando" se houver (a coleta não tem catch p/ limpá-lo).
+    try { var d = messagesEl && messagesEl.querySelector(".m.a .dots"); if (d) { var row = d.closest(".row") || d.closest(".m"); if (row && row.parentNode) row.parentNode.removeChild(row); } } catch { }
+    setBusyUI(false);
+    statusMsg("Interrompido.", "#b45309");
+  }
   // Tema em foco na conversa (eco do servidor via evento SSE `theme`). Vai como
   // `contextScope` na próxima pergunta — evita perguntar de novo no mesmo assunto.
   var contextScope = null;
@@ -4284,6 +5065,30 @@
   // já filtrada (reaproveita o estilo `.sugg` das perguntas sugeridas).
   // Botões para escolher o TIPO do gráfico. Ao clicar, completa a spec e desenha
   // NA HORA (reusa renderChart) — sem ida ao servidor.
+  // Após clicar um botão de pergunta do agente: NÃO remove — TRAVA (desabilita todos,
+  // destaca o escolhido, apaga os outros) para tudo ficar visível no chat.
+  function travarEscolha(box, btn) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    try {
+      var bs = box.querySelectorAll("button");
+      for (var i = 0; i < bs.length; i++) {
+        var b = bs[i];
+        b.disabled = true; b.style.cursor = "default";
+        if (b === btn) { b.style.background = pc; b.style.color = "#fff"; b.style.borderColor = pc; b.style.fontWeight = "700"; b.style.opacity = "1"; }
+        else { b.style.opacity = ".45"; }
+      }
+    } catch (e) { }
+  }
+  // Registra a pergunta do agente + a opção clicada (+ gráfico) no HISTÓRICO, para o Q&A
+  // dos botões reaparecer ao reabrir a conversa. Best-effort (só com identidade + conversa).
+  function persistirEscolha(pergunta, escolha, chart) {
+    if (!conversationId || !hasPromptIdentity()) return;
+    var payload = { action: "append", conversationId: conversationId };
+    if (pergunta) payload.pergunta = pergunta;
+    if (escolha) payload.escolha = escolha;
+    if (chart) payload.chart = chart;
+    try { apiConversas(payload); } catch (e) { }
+  }
   function renderChartChoice(pergunta, spec, recomendado) {
     if (pergunta) addMsg("assistant", pergunta);
     var box = document.createElement("div");
@@ -4294,10 +5099,11 @@
       b.textContent = t[1] + (t[0] === recomendado ? "  ★" : "");
       if (t[0] === recomendado) b.title = "Recomendado";
       b.addEventListener("click", function () {
-        box.remove();
+        travarEscolha(box, b);
         var s = {}; for (var k in spec) s[k] = spec[k];
         s.tipo = t[0];
         renderChart(s);
+        persistirEscolha(pergunta, t[1], s); // pergunta + tipo escolhido + o gráfico resultante
         messagesEl.scrollTop = messagesEl.scrollHeight;
       });
       box.appendChild(b);
@@ -4325,7 +5131,8 @@
         b.textContent = o.label;
       }
       b.addEventListener("click", function () {
-        box.remove();
+        travarEscolha(box, b);
+        persistirEscolha(question, o.label);
         ask(o.scope);
       });
       box.appendChild(b);
@@ -4623,6 +5430,10 @@
   function ask(scope, attachmentIds, opts) {
     var continuacao = !!(opts && opts.continuation);
     var loopStep = !!(opts && opts.loopStep); // continuação do loop autônomo (pós-ação)
+    // PARAR: se o usuário interrompeu, descarta continuações/coletas em voo. Uma ação do
+    // usuário (nova mensagem / clique em botão — !continuacao) reinicia o estado.
+    if (continuacao && _parando) return;
+    if (!continuacao) _parando = false;
     // Mensagem nova do usuário (ou desambiguação) → zera o loop autônomo e
     // encerra um tutorial em andamento (o usuário mudou de assunto).
     if (!continuacao) { _loopStep = 0; _loopCancel = false; _execLabels = []; _filtroConfirmado = false; _harvested = null; limparDestaques(); if (_tutorial) encerrarTutorial(); }
@@ -4635,8 +5446,7 @@
     _turnActed = false; // recomeça a cada turno; habilita o próximo passo se agir
     _avisouTurno = continuacao; // continuação do loop não toca o som; resposta nova pode
     desbloquearAudio(); // envio é gesto do usuário → libera o som p/ tocar depois
-    busy = true;
-    sendBtn.disabled = true;
+    setBusyUI(true); // botão vira "Parar"
     var typingBubble = document.createElement("div");
     typingBubble.className = "m a";
     typingBubble.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
@@ -4719,15 +5529,36 @@
       var scan = scanPage();
       if (scan.text) body.pageContent = scan.text;
       if (scan.tables && scan.tables.length) body.screenTables = scan.tables;
+      // B — sinaliza relatório VAZIO: (1) a coleta retornou 0 linhas (_relatorioVazioSinal,
+      // sinal confiável) ou (2) heurística de DOM quando NÃO há nenhuma tabela com dados.
+      if (_relatorioVazioSinal) { body.emptyReport = _relatorioVazioSinal; }
+      else if (!(body.screenTables && body.screenTables.length)) {
+        var _rvz = relatorioVazioNaTela();
+        if (_rvz) { body.emptyReport = _rvz; diag("relatório vazio na tela → oferece filtrar (" + (_rvz.nome || "-") + ")"); }
+      }
     }
     // Assistente de formulário: envia o mapa estruturado dos campos da tela para
     // a IA opinar/preencher (só se habilitado na config deste widget).
     if (cfg.formAssist) {
       var flds = scanFields();
       if (flds.length) body.fields = flds;
+      // DIAGNÓSTICO: campos editáveis captados (rótulo:tipo) — p/ conferir se o campo
+      // de filtro (ex.: "Filial") está sendo detectado e como (e a barra vira "busca").
+      try { diag("campos: " + flds.filter(function (f) { return f.type !== "botao"; }).map(function (f) { return f.label + "(" + f.type + ")"; }).join(" · ")); } catch { }
       // Campo em foco (após o scan, que marca data-kb-field): contexto p/ "aqui/isto".
       var foco = campoEmFoco();
       if (foco) body.focusedField = foco;
+    }
+    // CONTEXTO (programa + filtros aplicados) → subtítulo do arquivo gerado e legenda do
+    // gráfico/tabela. Independe do formAssist: o programa (título da página) e os chips do
+    // Interactive Report vêm do DOM; os campos preenchidos entram só quando o assistente de
+    // formulário os capturou (`flds`). Respeita `cfg.scan` (privacidade).
+    if (cfg.scan !== false) {
+      try {
+        var _rvCtx = acharRegiaoCache(document) || document.querySelector(".a-IRR-reportView, .a-IRR, .a-GV");
+        var _ctx = contextoRelatorio(typeof flds !== "undefined" ? flds : null, _rvCtx);
+        if (_ctx.programa || _ctx.filtros.length) body.contexto = _ctx;
+      } catch { }
     }
     // REAPROVEITA a coleta anterior em NOVAS perguntas sobre o MESMO relatório
     // (sem alteração de filtro/busca) — sem paginar de novo. Sem isto, uma 2ª
@@ -4772,10 +5603,12 @@
         " paginado=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].paginado : "-") +
         " total=" + (body.screenTables && body.screenTables[0] ? body.screenTables[0].total : "-"));
     } catch { }
+    _chatAbort = new AbortController(); // PARAR: permite abortar a geração da IA
     fetch(API + "/api/v1/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
       body: JSON.stringify(body),
+      signal: _chatAbort.signal,
     })
       .then(function (res) {
         if (!res.ok) {
@@ -4810,6 +5643,8 @@
       })
       .catch(function (err) {
         if (typing.parentNode) typing.remove();
+        // PARAR: aborto do usuário não é erro — só encerra o turno em silêncio.
+        if (_parando || (err && err.name === "AbortError")) { done(); return; }
         addMsg("assistant", "Desculpe, houve um erro: " + err.message);
         done();
       });
@@ -4945,8 +5780,8 @@
       else if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
     }
     function done() {
-      busy = false;
-      sendBtn.disabled = false;
+      _chatAbort = null;
+      setBusyUI(false); // botão volta a "Enviar"
     }
   }
 
@@ -4980,7 +5815,9 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  function renderCitations(cites) {
+  // Constrói a sanfona de FONTES e a RETORNA (o Histórico reusa este bloco).
+  function construirCitacoes(cites) {
+    if (!cites || !cites.length) return null;
     // Sanfona FECHADA: no painel do widget a lista de fontes ocupava mais
     // altura que a resposta. <details> nativo — sem estado, sem JS de toggle.
     var det = document.createElement("details");
@@ -5032,8 +5869,13 @@
       box.appendChild(a);
     });
     det.appendChild(box);
-    messagesEl.appendChild(det);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return det;
+  }
+  // Reexibe as fontes no chat (append). A construção fica em construirCitacoes para
+  // o Histórico de conversas reusar o mesmo bloco de fontes.
+  function renderCitations(cites) {
+    var det = construirCitacoes(cites);
+    if (det) { messagesEl.appendChild(det); messagesEl.scrollTop = messagesEl.scrollHeight; }
   }
 
   // ==== Base de Dados (fontes do chat: uploads + relatórios salvos) ====
@@ -5048,6 +5890,12 @@
     baseBtn.innerHTML = ICON_DB + "<span>Base de Dados</span>";
     baseBtn.addEventListener("click", toggleBaseDados);
     promptBar.appendChild(baseBtn);
+    // Botão "Histórico" ao lado de "Base de Dados" — abre a lista de conversas do usuário.
+    var histBtn = document.createElement("button");
+    histBtn.type = "button"; histBtn.className = "pbtn";
+    histBtn.innerHTML = ICON_HISTORY + "<span>Histórico</span>";
+    histBtn.addEventListener("click", abrirHistorico);
+    promptBar.appendChild(histBtn);
     basePanel = document.createElement("div");
     basePanel.className = "ppanel";
     promptBar.appendChild(basePanel);

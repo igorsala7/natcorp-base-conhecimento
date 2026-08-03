@@ -1,10 +1,11 @@
 import "server-only";
-import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type RGB } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees, type PDFPage, type PDFFont, type RGB } from "pdf-lib";
 import type { OutFile } from "@/lib/integrations/documents";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import { CHART_PALETTE, medianOf, linReg } from "@/lib/chat/chart-spec";
 import { parseMarkdown, type MdRun } from "./markdown";
+import { winAnsiSafe } from "./winansi";
 
 /**
  * Gera o PDF do relatório com pdf-lib (fontes-padrão embutidas → texto sempre
@@ -58,7 +59,7 @@ function fmtNum(v: number): string {
 }
 /** Trunca `txt` para caber em `maxW` (na fonte/size dados), com reticências. */
 function trunc(font: PDFFont, txt: string, size: number, maxW: number): string {
-  txt = String(txt ?? "");
+  txt = winAnsiSafe(String(txt ?? ""));
   if (font.widthOfTextAtSize(txt, size) <= maxW) return txt;
   while (txt.length > 1 && font.widthOfTextAtSize(txt + "…", size) > maxW) txt = txt.slice(0, -1);
   return txt + "…";
@@ -66,7 +67,7 @@ function trunc(font: PDFFont, txt: string, size: number, maxW: number): string {
 /** Quebra `txt` em linhas que cabem em `maxW`. */
 function wrap(font: PDFFont, txt: string, size: number, maxW: number): string[] {
   const out: string[] = [];
-  for (const paragrafo of String(txt ?? "").split(/\n/)) {
+  for (const paragrafo of winAnsiSafe(String(txt ?? "")).split(/\n/)) {
     const palavras = paragrafo.split(/\s+/).filter(Boolean);
     let linha = "";
     for (const p of palavras) {
@@ -231,12 +232,19 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
   const span = vmax - vmin;
 
   const padL = 42;
-  const padB = 22;
   const legendH = series.length > 1 ? 16 : 0;
   const plotX = x + padL;
+  const plotW = w - padL - 6;
+  // Rótulos do eixo X: ROTACIONA quando não cabem na largura da banda (antes eram
+  // truncados a "…" e ficavam ilegíveis) e reserva mais espaço embaixo (padB).
+  const ehBarras = spec.tipo === "barras";
+  const bandTmp = plotW / Math.max(1, cats.length);
+  let maxLabW = 0;
+  if (!ehBarras) for (const c of cats) { const lw = ctx.font.widthOfTextAtSize(String(c ?? ""), 8); if (lw > maxLabW) maxLabW = lw; }
+  const girar = !ehBarras && maxLabW > bandTmp - 2;
+  const padB = girar ? Math.min(54, Math.max(22, Math.ceil(maxLabW * 0.72) + 8)) : 22;
   const plotTop = areaTop - legendH;
   const plotBottom = areaTop - areaH + padB;
-  const plotW = w - padL - 6;
   const plotH = plotTop - plotBottom;
   if (plotH <= 10) return;
 
@@ -266,9 +274,11 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
     // Barras horizontais: recalcula com eixo trocado.
     const bandH = plotH / Math.max(1, cats.length);
     const zeroX = plotX + (plotW * (0 - vmin)) / span;
+    // Afina os rótulos (1 a cada `passoB`) quando as barras ficam finas demais p/ o texto.
+    const passoB = Math.max(1, Math.ceil((9 / Math.max(1, bandH))));
     cats.forEach((c, ci) => {
       const by = plotTop - bandH * ci;
-      page.drawText(trunc(ctx.font, c, 8, padL - 4), { x, y: by - bandH / 2 - 3, size: 8, font: ctx.font, color: COR.muted });
+      if (ci % passoB === 0) page.drawText(trunc(ctx.font, c, 8, padL - 4), { x, y: by - bandH / 2 - 3, size: 8, font: ctx.font, color: COR.muted });
       const sh = (bandH * 0.7) / series.length;
       series.forEach((s, si) => {
         const v = s.valores[ci] ?? 0;
@@ -277,15 +287,20 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
       });
     });
   } else {
-    // Rótulos de categoria no eixo X.
+    // Rótulos de categoria no eixo X: rotacionados quando não cabem, e AFINADOS (1 a cada
+    // `passo`) quando há muitos, para não virarem uma mancha ilegível.
+    const passoX = Math.max(1, Math.ceil(cats.length / Math.max(1, Math.floor(plotW / (girar ? 15 : 26)))));
     cats.forEach((c, ci) => {
-      page.drawText(trunc(ctx.font, c, 8, band), {
-        x: plotX + band * ci + 2,
-        y: plotBottom - 12,
-        size: 8,
-        font: ctx.font,
-        color: COR.muted,
-      });
+      if (ci % passoX !== 0) return;
+      if (girar) {
+        page.drawText(trunc(ctx.font, String(c ?? ""), 8, padB * 1.32), {
+          x: plotX + band * ci + band / 2 - 2, y: plotBottom - 4, size: 8, font: ctx.font, color: COR.muted, rotate: degrees(-45),
+        });
+      } else {
+        page.drawText(trunc(ctx.font, String(c ?? ""), 8, band), {
+          x: plotX + band * ci + 2, y: plotBottom - 12, size: 8, font: ctx.font, color: COR.muted,
+        });
+      }
     });
     if (spec.tipo === "colunas") {
       const sw = (band * 0.7) / series.length;
@@ -374,7 +389,9 @@ function drawRuns(ctx: Ctx, runs: MdRun[], size: number, color: RGB, indent = 0,
 
 /** Renderiza um texto em MARKDOWN (títulos/negrito/itálico/listas/tabelas). */
 function desenharMarkdown(ctx: Ctx, texto: string) {
-  for (const b of parseMarkdown(texto)) {
+  // Saneia ANTES de parsear: os runs (negrito/itálico/listas) já saem WinAnsi-safe,
+  // então o drawRuns nunca recebe emoji e o pdf-lib não quebra.
+  for (const b of parseMarkdown(winAnsiSafe(texto))) {
     if (b.kind === "heading") {
       ctx.y -= 4;
       const size = b.level === 1 ? 15 : b.level === 2 ? 13 : 11.5;
