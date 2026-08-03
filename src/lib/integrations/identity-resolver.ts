@@ -17,7 +17,13 @@ import type { RuntimeCredential } from "./executor";
 import { getOAuthToken } from "./oauth";
 
 export type ResolvedProfile = { nome?: string; cargo?: string; perfil?: string; email?: string };
-export type ResolveResult = { ok: boolean; identity: Identity; profile?: ResolvedProfile };
+export type ResolveResult = {
+  ok: boolean;
+  identity: Identity;
+  profile?: ResolvedProfile;
+  /** Por que a validação falhou (diagnóstico p/ o trace). Ausente quando ok. */
+  motivo?: string;
+};
 
 const AUTH_PATH = "/chatbot/login/v1/autenticacao";
 const PROFILE_PATH = "/chatbot/login/v1/dados_colab_usuario";
@@ -93,8 +99,9 @@ export async function resolveIdentity(input: {
         controller.signal,
       ),
     );
-    if (!auth || String(auth.status).toUpperCase() !== "OK") {
-      return store({ ok: false, identity });
+    if (!auth) return store({ ok: false, identity, motivo: "sem_resposta_login" });
+    if (String(auth.status).toUpperCase() !== "OK") {
+      return store({ ok: false, identity, motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}` });
     }
 
     // 2) Enriquecimento — CPF, perfil, nome, cargo.
@@ -125,7 +132,7 @@ export async function resolveIdentity(input: {
     return store({ ok: true, identity: enriched, profile });
   } catch {
     // Falha de rede/parse: falha fechada (sem tools de dados), mas não quebra o chat.
-    return store({ ok: false, identity });
+    return store({ ok: false, identity, motivo: controller.signal.aborted ? "timeout" : "erro_rede" });
   } finally {
     clearTimeout(timer);
   }

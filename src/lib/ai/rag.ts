@@ -303,7 +303,13 @@ async function retrieveWith(
   // módulo, espalhados em vários chunks). Quando o usuário pede a lista inteira,
   // trazemos TODOS os chunks dos arquivos que casam a consulta e mesclamos (sem
   // duplicar), para o modelo montar a lista completa em vez de 2-3 exemplos.
-  if (documentIds.length && pedeEnumeracao(query)) {
+  //
+  // MAS só quando a documentação é a fonte PRINCIPAL do turno (limit > 3). Nos
+  // modos em que a doc foi deliberadamente reduzida — roteado a uma tool (limit 2)
+  // ou modo relatório (limit 3) — NÃO despejamos 40 chunks: um "quais" numa
+  // pergunta pessoal (ex.: "quais são os meus benefícios?") casa RX_ENUMERA e
+  // enchia o prompt com ~22k tokens de doc (lento e fora de propósito).
+  if (documentIds.length && limit > 3 && pedeEnumeracao(query)) {
     // Consulta LIMPA (sem "quais/todos/liste…") para o AND do tsquery casar o
     // CONTEÚDO, não as palavras da pergunta.
     const { data: lista } = await supabase.rpc("knowledge_list_chunks", {
