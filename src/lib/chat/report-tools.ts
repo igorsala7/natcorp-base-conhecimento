@@ -205,12 +205,16 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
   const cab =
     "ESCOPO DE DADOS DO USUÁRIO (o SISTEMA já aplica isto dentro das ferramentas — é só para você entender o alcance e " +
     "responder certo; NÃO é uma restrição que VOCÊ impõe): ";
-  // Como consultar OUTRA pessoa / uma LISTA (PO e PG): passar a matrícula-alvo e ITERAR.
+  // Como consultar OUTRA pessoa / VÁRIOS: preferir LISTA numa só chamada quando o
+  // parâmetro aceita valores separados por vírgula; senão, iterar por valor único.
   const alvoLista =
-    " CONSULTAR OUTROS / UMA LISTA: para ver os dados de OUTRA pessoa, PASSE a MATRÍCULA dela no parâmetro `matricula` da " +
-    "ferramenta (o sistema libera conforme o painel). Para uma LISTA de colaboradores (ex.: os que estão no relatório da " +
-    "tela), chame a ferramenta UMA VEZ POR colaborador — a matrícula de cada um, uma por chamada — e junte os resultados; " +
-    "NÃO desista após uma só nem diga que só pode a sua própria matrícula.";
+    " CONSULTAR OUTROS / VÁRIOS: para os dados de OUTRA pessoa, passe a MATRÍCULA dela no parâmetro de matrícula (o sistema " +
+    "libera conforme o painel). Para VÁRIOS colaboradores, PREFIRA a ferramenta que aceita LISTA: quando a descrição/exemplo " +
+    "do parâmetro mostra valores separados por VÍRGULA (ex.: `123,344,502`), passe TODAS as matrículas (ou empresas/filiais/" +
+    "centros de custo/cargos…) de uma vez em UMA ÚNICA chamada — NÃO chame uma vez por pessoa. Deixar esses filtros em BRANCO " +
+    "traz TODOS do escopo liberado (ex.: todos os colaboradores de uma empresa/filial — ideal para CONTAR ou listar em massa). " +
+    "Só faça uma-chamada-por-valor quando o parâmetro aceitar um ÚNICO valor. NÃO desista após uma só nem diga que só pode a " +
+    "própria matrícula.";
   // Histórico/evolução de um fato do colaborador → LINHA DO TEMPO.
   const historico =
     " HISTÓRICO: pedidos de HISTÓRICO/EVOLUÇÃO (\"últimos N\", \"anteriores\", \"ao longo do tempo\", \"de um tempo atrás\", " +
