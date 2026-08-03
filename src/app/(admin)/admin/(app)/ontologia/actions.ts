@@ -8,8 +8,10 @@ import { criarJobTraducao } from "@/lib/ai/ontology-enqueue";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { enqueueOntologyScan, enqueueOntologyImport, enqueueOntologyTranslate } from "@/lib/jobs/boss";
-import { normalizarTermo } from "@/lib/ai/ontology";
+import { normalizarTermo, glossarioParaTraducao } from "@/lib/ai/ontology";
 import { idiomaValido, idiomaNome } from "@/lib/i18n/languages";
+import { extrairSourcesXliff, preencherTargetsXliff, buildXliff, linhasParaUnidades } from "@/lib/i18n/xliff";
+import { traduzirTextosUI } from "@/lib/ai/ui-translate";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 
 export type OntologyKind = "conceito" | "entidade" | "acao" | "sigla" | "outro";
@@ -456,4 +458,39 @@ export async function saveTranslation(input: {
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/ontologia");
   return { ok: true };
+}
+
+/**
+ * Fase 2 — assistente de tradução do APEX: traduz os textos de UI (colados como
+ * XLIFF exportado do APEX, ou lista simples 1-por-linha) para `lang`, usando o
+ * GLOSSÁRIO da ontologia (consistência com o chatbot). Devolve o XLIFF pronto para
+ * REIMPORTAR na tradução nativa do APEX. Síncrono (cap de 300 textos por vez para
+ * não estourar o tempo da action; acima disso, divida a entrada).
+ */
+export async function traduzirXliff(
+  spaceId: string,
+  lang: string,
+  entrada: string,
+  modo: "xliff" | "lista",
+): Promise<{ ok: true; xliff: string; traduzidos: number; unidades: number } | { ok: false; error: string }> {
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  if (!idiomaValido(lang) || lang === "pt") return { ok: false, error: "Idioma inválido." };
+  const txt = (entrada ?? "").trim();
+  if (!txt) return { ok: false, error: "Cole o XLIFF do APEX ou a lista de textos." };
+  const unidades = modo === "xliff" ? extrairSourcesXliff(txt) : linhasParaUnidades(txt);
+  if (!unidades.length) return { ok: false, error: "Nenhum texto encontrado na entrada." };
+  const MAX = 300;
+  const usar = unidades.slice(0, MAX);
+  const supabase = await createClient();
+  const glossario = await glossarioParaTraducao(supabase, spaceId, lang);
+  const alvo = await traduzirTextosUI(usar, lang, glossario);
+  const xliff =
+    modo === "xliff"
+      ? preencherTargetsXliff(txt, alvo)
+      : buildXliff(usar.map((u) => ({ ...u, target: alvo.get(u.id) ?? "" })), "pt-BR", lang);
+  return { ok: true, xliff, traduzidos: alvo.size, unidades: unidades.length };
 }

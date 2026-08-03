@@ -324,3 +324,28 @@ export async function expandirConsulta(
     return vazio;
   }
 }
+
+/**
+ * Glossário PT→idioma dos termos do espaço (termo canônico + tradução), para dar
+ * CONSISTÊNCIA à tradução da UI (XLIFF): a interface e o chatbot usam o mesmo termo.
+ * `[]` quando o idioma ainda não tem traduções. Server-side.
+ */
+export async function glossarioParaTraducao(
+  supabase: DbClient,
+  spaceId: string,
+  lang: string,
+): Promise<{ pt: string; alvo: string }[]> {
+  const { data: termos } = await supabase.from("ontology_terms").select("id, term").eq("space_id", spaceId);
+  const lista = termos ?? [];
+  const ids = lista.map((t) => t.id);
+  const trad = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase
+      .from("ontology_translations")
+      .select("term_id, term")
+      .eq("lang", lang)
+      .in("term_id", ids.slice(i, i + 200));
+    for (const r of data ?? []) trad.set(r.term_id, r.term);
+  }
+  return lista.filter((t) => trad.has(t.id)).map((t) => ({ pt: t.term, alvo: trad.get(t.id)! }));
+}

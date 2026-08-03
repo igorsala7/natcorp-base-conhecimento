@@ -10,6 +10,7 @@ import { listSpaceNodes } from "../importar/embeddings-actions";
 import { listOntology, listSpaceLanguages } from "./actions";
 import { OntologyManager } from "./ontology-manager";
 import { OntologyLanguages } from "./ontology-languages";
+import { ApexXliffTranslator } from "./apex-xliff-translator";
 
 export const metadata: Metadata = { title: "Ontologia" };
 
@@ -82,6 +83,12 @@ export default async function OntologiaPage({
       <div className="mt-6">
         <OntologyLanguages key={`lang-${atual.id}`} spaceId={atual.id} initialLangs={langs} canManage={canManage} />
       </div>
+
+      {canManage && (
+        <div className="mt-6">
+          <ApexXliffTranslator key={`xliff-${atual.id}`} spaceId={atual.id} activeLangs={langs} />
+        </div>
+      )}
     </div>
   );
 }
