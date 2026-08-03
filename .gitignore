@@ -49,3 +49,4 @@ yarn-error.log*
 /playwright/.cache/
 /.next-verify/
 .claude/settings.local.json
+APIs.sql
