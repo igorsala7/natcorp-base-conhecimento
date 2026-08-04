@@ -50,3 +50,6 @@ yarn-error.log*
 /.next-verify/
 .claude/settings.local.json
 APIs.sql
+
+# Fixture de teste de endpoints (contém PII — não versionar)
+scripts/endpoint-test/fixture.json
