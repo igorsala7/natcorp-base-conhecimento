@@ -891,6 +891,7 @@
   var _hlOv = null, _hlEl = null, _hlReposition = null, _hlTimer = null; // destaque (overlay flutuante)
   var _callout = null, _calloutAtivo = false; // balão do tutorial, ancorado ao campo
   var _tutorial = null;      // walkthrough guiado em andamento (passos + índice)
+  var _tutDocs = null;       // documentos com o listener de "clique no campo" (topo + iframes do modal)
   // Loop autônomo (Fase B): após executar uma ação, re-varremos a tela e reenviamos
   // à IA p/ ela DAR O PRÓXIMO PASSO (menus/janelas do APEX abrem em etapas), até
   // concluir. Confirma só o que grava/navega — o resto roda direto.
@@ -992,6 +993,30 @@
     s = String(s || "").trim();
     return /^p_[a-z]/.test(s) || /^p[A-Z]/.test(s);
   }
+  // MODAL no topo que BLOQUEIA o fundo (aria-modal, ou jQuery-UI/APEX dialog com
+  // backdrop visível). Enquanto um está aberto, a coleta de campos (scan e tutorial)
+  // é RESTRITA a ele — sem isso o tutorial passava pelos campos da página de trás.
+  function modalAtivo() {
+    try {
+      var back = document.querySelector(".ui-widget-overlay");
+      var backVis = !!(back && back.getClientRects && back.getClientRects().length);
+      var cands = document.querySelectorAll('[aria-modal="true"], .ui-dialog[role="dialog"], .t-Dialog, .a-Dialog');
+      var melhor = null, maiorZ = -1;
+      for (var i = 0; i < cands.length; i++) {
+        var d = cands[i];
+        if (host && host.contains && host.contains(d)) continue;               // não é o widget
+        if (!d.getClientRects || d.getClientRects().length === 0) continue;    // invisível
+        if (d.getAttribute && d.getAttribute("aria-hidden") === "true") continue;
+        // Sem aria-modal e sem backdrop visível → não bloqueia o fundo → ignora.
+        if ((!d.getAttribute || d.getAttribute("aria-modal") !== "true") && !backVis) continue;
+        var z = 0; try { z = parseInt(getComputedStyle(d).zIndex, 10) || 0; } catch (e) { }
+        if (z >= maiorZ) { maiorZ = z; melhor = d; }
+      }
+      return melhor;
+    } catch (e) { return null; }
+  }
+  // Raiz da varredura de CAMPOS: o modal aberto (se houver), senão o documento inteiro.
+  function raizVarredura() { return modalAtivo() || document; }
   function scanFields() {
     _fieldRefs = [];
     var out = [], lm = {};
@@ -1071,7 +1096,7 @@
         });
       } catch { }
     }
-    collect(document);
+    collect(raizVarredura()); // modal aberto restringe ao seu conteúdo (não à página de trás)
     return out;
   }
   // Descreve o campo em FOCO na página (o último focado fora do widget), p/ dar
@@ -1162,18 +1187,53 @@
     try {
       if (el.getClientRects().length) return false; // já visível
       var doc = el.ownerDocument;
+      // 1) Aba ARIA / jQuery UI (role=tabpanel): clica o tab que a controla.
       var tp = el.closest('[role="tabpanel"]');
-      if (!tp) return false;
-      var tab = null;
-      if (tp.id) { try { tab = doc.querySelector('[role="tab"][aria-controls="' + tp.id + '"]'); } catch { tab = null; } }
-      if (!tab && tp.getAttribute("aria-labelledby")) { try { tab = doc.getElementById(tp.getAttribute("aria-labelledby")); } catch { tab = null; } }
-      if (tab) { try { tab.click(); } catch { } return true; }
+      if (tp) {
+        var tab = null;
+        if (tp.id) { try { tab = doc.querySelector('[role="tab"][aria-controls="' + tp.id + '"]'); } catch { tab = null; } }
+        if (!tab && tp.getAttribute("aria-labelledby")) { try { tab = doc.getElementById(tp.getAttribute("aria-labelledby")); } catch { tab = null; } }
+        if (tab) { try { tab.click(); } catch { } return true; }
+      }
+      // 2) APEX Region Display Selector / abas por link (#id): sobe até um ancestral OCULTO
+      // com id e clica o link de aba (.apex-rds / .t-Tabs / role=tab) que aponta para ele.
+      var node = el.parentElement, guard = 0;
+      while (node && node.tagName !== "BODY" && guard++ < 40) {
+        if (node.id && (!node.getClientRects || node.getClientRects().length === 0)) {
+          var aba = null;
+          try { aba = doc.querySelector('.apex-rds a[href="#' + node.id + '"], .t-Tabs a[href="#' + node.id + '"], a[role="tab"][href="#' + node.id + '"]'); } catch { aba = null; }
+          if (aba) { try { aba.click(); } catch { } return true; }
+        }
+        node = node.parentElement;
+      }
     } catch { }
     return false;
   }
+  // Se o campo está numa REGIÃO RECOLHIDA (colapso), tenta EXPANDIR (clica o toggle
+  // do cabeçalho, ou abre o <details>). Sobe pelos ancestrais. Retorna true se tentou.
+  function expandirColapsoSePreciso(el) {
+    try {
+      if (el.getClientRects().length) return false; // já visível
+      var node = el.parentElement, tentou = false, guard = 0;
+      while (node && node.tagName !== "BODY" && guard++ < 40) {
+        var cls = (typeof node.className === "string" ? node.className : "") || "";
+        var ehColap = /collaps/i.test(cls) || node.tagName === "DETAILS" || (node.classList && node.classList.contains("t-Region--collapsible"));
+        if (ehColap) {
+          if (node.tagName === "DETAILS" && !node.open) { try { node.open = true; tentou = true; } catch (e) { } }
+          var tog = node.querySelector('[aria-expanded="false"]');
+          if (!tog) { var head = node.querySelector('.t-Region-header, .t-Region-headerItems, .a-CollapsibleRegion-heading'); if (head) tog = head.querySelector('button, a, [role="button"]'); }
+          if (tog) { try { tog.click(); tentou = true; } catch (e) { } }
+          if (tentou && el.getClientRects().length) return true; // revelou
+        }
+        node = node.parentElement;
+      }
+      return tentou;
+    } catch (e) { return false; }
+  }
   function highlightField(el) {
     if (!el) return;
-    var trocouAba = revelarAbaSePreciso(el); // ativa a aba do campo, se preciso
+    var trocouAba = revelarAbaSePreciso(el);      // ativa a aba do campo, se preciso
+    var expandiu = expandirColapsoSePreciso(el);  // expande a região recolhida, se preciso
     var ov = ensureHlOverlay();
     _hlEl = el;
     ov.style.display = "block";
@@ -1186,9 +1246,16 @@
     // scroll DENTRO de iframes, que não dispara o listener da página top.
     clearInterval(_hlTimer);
     _hlTimer = setInterval(reposDestaque, 80);
-    // Rola e reposiciona; se trocou de aba, espera o painel renderizar.
+    // Rola e reposiciona; se trocou de aba / expandiu, espera o painel renderizar.
     var focar = function () { scrollFieldIntoView(el); reposDestaque(); };
-    if (trocouAba) setTimeout(focar, 300); else focar();
+    if (trocouAba || expandiu) setTimeout(focar, 300); else focar();
+    // FALLBACK: se, mesmo após tentar, o campo continua oculto (aba/seção que não
+    // consegui abrir sozinho), peço ao usuário para revelar e seguir.
+    setTimeout(function () {
+      if (_hlEl === el && el.isConnected && el.getClientRects && el.getClientRects().length === 0) {
+        statusMsg("Não consegui revelar este campo sozinho — abra a seção/aba correspondente e clique em “Prosseguir” para continuar.", null);
+      }
+    }, 600);
   }
   function unhighlightField() {
     if (_hlOv) _hlOv.style.display = "none";
@@ -1284,7 +1351,7 @@
       (primario ? "border:1px solid " + pc + ";background:" + pc + ";color:#fff;" : "border:1px solid " + pc + "44;background:transparent;color:" + pc + ";");
     return b;
   }
-  function encerrarTutorial() { unhighlightField(); hideCallout(); _tutorial = null; }
+  function encerrarTutorial() { desligarCliqueTutorial(); unhighlightField(); hideCallout(); _tutorial = null; }
   // Rola o CHAT para o fim AGORA e nos próximos frames. O append de um passo do
   // tutorial vem seguido do destaque do campo (scrollIntoView no host) e do balão,
   // cujos reflows podem reposicionar a lista de mensagens — sem esta reafirmação,
@@ -1333,6 +1400,7 @@
     t.n = 0;
     if (!coletarCamposTutorial().length) { _tutorial = null; return; }
     mostrarPassoTutorial();
+    ligarCliqueTutorial(); // clicar num campo passa a mostrar a explicação dele
   }
   // Chave ESTÁVEL de um campo — sobrevive a mudanças de layout/refs entre passos.
   function chaveCampo(el) {
@@ -1374,8 +1442,14 @@
   //  - campos em ABA inativa ao fim (reveláveis por clique na aba);
   //  - campos ocultos por regra DINÂMICA (região escondida) ficam de FORA — voltam
   //    sozinhos quando a região aparece, porque re-varremos a cada passo.
+  // Botões de AÇÃO que CONCLUEM o processo — vão por ÚLTIMO no tutorial (mesmo no topo).
+  var RX_ACAO_TUT = /\b(criar|salvar|gravar|apagar|excluir|deletar|remover|cadastrar)\b/i;
+  // Está numa REGIÃO COLAPSADA (recolhida)? (APEX Universal Theme, genérico, <details>)
+  function emRegiaoColapsada(el) {
+    return !!(el.closest && el.closest('.collapseRegion, [class*="collaps"], [class*="Collaps"], .t-Region--collapsible, details:not([open])'));
+  }
   function coletarCamposTutorial() {
-    var vis = [], tab = [], seen = [];
+    var vis = [], tab = [], colap = [], acoes = [], seen = [];
     function jaTem(el) { for (var i = 0; i < seen.length; i++) if (seen[i] === el) return true; seen.push(el); return false; }
     function coletar(doc) {
       if (!doc) return;
@@ -1384,14 +1458,26 @@
           if (!campoElegivelTutorial(el) || jaTem(el)) return;
           var visivel = el.getClientRects && el.getClientRects().length > 0;
           var emAba = el.closest && el.closest('[role="tabpanel"]');
-          if (!visivel && !emAba) return;            // oculto por regra dinâmica → pula
           if (visivel) { var r = rectInTop(el); vis.push({ el: el, top: r.top, bottom: r.top + (r.height || 0), left: r.left }); }
-          else tab.push(el);                          // aba inativa → revelável
+          else if (emAba) tab.push(el);              // aba inativa → revelável por clique na aba
+          else if (emRegiaoColapsada(el)) colap.push(el); // região recolhida → expandimos no walk
+          // else: realmente oculto por regra dinâmica → pula (volta sozinho quando aparecer)
+        });
+      } catch { }
+      // Botões de AÇÃO (criar/salvar/apagar/deletar) — entram no tutorial, sempre por ÚLTIMO.
+      try {
+        doc.querySelectorAll("button,input[type='submit'],input[type='button'],a.t-Button,a.a-Button,[role='button']").forEach(function (el) {
+          if (jaTem(el)) return;
+          if (host && host.contains && host.contains(el)) return;
+          if (el.disabled || el.getAttribute("aria-disabled") === "true") return;
+          if (el.getClientRects && el.getClientRects().length === 0) return; // invisível
+          var lbl = (el.getAttribute("aria-label") || (el.tagName === "INPUT" ? el.value : scanTexto(el.textContent)) || el.title || "").toString();
+          if (RX_ACAO_TUT.test(lbl)) acoes.push(el);
         });
       } catch { }
       try { doc.querySelectorAll("iframe").forEach(function (f) { var d = null; try { d = f.contentDocument; } catch { d = null; } if (d) coletar(d); }); } catch { }
     }
-    coletar(document);
+    coletar(raizVarredura()); // modal aberto restringe o walk ao modal (não à página de trás)
     vis.sort(function (a, b) { return a.top - b.top || a.left - b.left; });
     var ord = [], k = 0;
     while (k < vis.length) {
@@ -1400,15 +1486,29 @@
       vis.slice(k, j).sort(function (a, b) { return a.left - b.left; }).forEach(function (v) { ord.push(v.el); });
       k = j;
     }
-    tab.forEach(function (el) { ord.push(el); });
+    tab.forEach(function (el) { ord.push(el); });     // campos de aba inativa
+    colap.forEach(function (el) { ord.push(el); });   // campos de região recolhida
+    acoes.forEach(function (el) { ord.push(el); });   // botões de AÇÃO por ÚLTIMO
     return ord.map(function (el) { return { el: el, chave: chaveCampo(el) }; });
   }
-  function mostrarPassoTutorial() {
+  function mostrarPassoTutorial(alvoForcado) {
     var t = _tutorial;
     if (!t) return;
+    if (t._box && t._box.parentNode) { try { t._box.remove(); } catch (e) { } } t._box = null; // tira os botões do passo anterior
     // Re-varre a tela AGORA (respeita regiões/campos que apareceram ou sumiram) e
     // pega o PRÓXIMO campo visível ainda não visitado, na ordem de leitura atual.
     var lista = coletarCamposTutorial();
+    // CLIQUE num campo à frente: marca os campos ANTES dele como visitados, para que o
+    // "primeiro não-visitado" passe a ser ELE — assim "Prosseguir" segue A PARTIR daqui
+    // (não volta pra trás). Ajusta t.n para a posição real do campo clicado.
+    if (alvoForcado) {
+      var idxF = -1;
+      for (var x = 0; x < lista.length; x++) if (lista[x].el === alvoForcado) { idxF = x; break; }
+      if (idxF >= 0) {
+        for (var y = 0; y < idxF; y++) { var ch = lista[y].chave; if (ch && !t.visitados[ch]) { t.visitados[ch] = true; t.pilha.push(ch); } }
+        t.n = idxF; // +1 abaixo → nº do passo = posição do campo clicado
+      }
+    }
     var alvo = null, restantes = 0;
     for (var i = 0; i < lista.length; i++) { if (lista[i].chave && !t.visitados[lista[i].chave]) { restantes++; if (!alvo) alvo = lista[i]; } }
     if (!alvo) { statusMsg("Tutorial concluído — é só me chamar quando precisar.", null); encerrarTutorial(); return; }
@@ -1467,11 +1567,69 @@
     if (podeVoltar) { var voC = tutBtn("← Voltar", false); voC.addEventListener("click", voltar); box.appendChild(voC); }
     var saC = tutBtn("Sair", false); saC.addEventListener("click", sair); box.appendChild(saC);
     messagesEl.appendChild(box);
+    t._box = box; // rastreia os botões do passo atual (removidos ao mostrar o próximo)
     scrollChatFimSoon(); // o chat acompanha o passo (fica no fim), antes de mexer no host
 
     // (2) Destaca o campo no HOST e ancora o BALÃO flutuante (avatar + etapa + botões).
     highlightField(el); // ativa a aba se preciso, rola o host e destaca
     mostrarCallout({ titulo: titulo, explicacao: explic }, t.n, total, ultimo, avancar, sair, podeVoltar, voltar);
+  }
+  // ==== Clicar num campo DURANTE o tutorial → mostra a explicação DAQUELE campo ====
+  // Documentos onde o clique é escutado: o topo + os iframes DENTRO do escopo (modal).
+  function docsTutorial() {
+    var docs = [document];
+    try {
+      var raiz = raizVarredura();
+      var frames = raiz.querySelectorAll ? raiz.querySelectorAll("iframe") : [];
+      for (var i = 0; i < frames.length; i++) {
+        var d = null; try { d = frames[i].contentDocument; } catch (e) { d = null; }
+        if (d && docs.indexOf(d) < 0) docs.push(d);
+      }
+    } catch (e) { }
+    return docs;
+  }
+  // Clique num campo DURANTE o tutorial: PULA a demonstração para ELE (mostrarPassoTutorial
+  // marca os anteriores como vistos), então "Prosseguir" segue A PARTIR daqui — não volta.
+  function explicarCampoTutorial(el) {
+    if (!_tutorial) return;
+    hideCallout(); unhighlightField();
+    mostrarPassoTutorial(el);
+  }
+  function onTutorialClick(e) {
+    try {
+      if (!_tutorial || _picking) return; // não interfere no fluxo de "clique p/ preencher"
+      var el = e.target;
+      if (!el) return;
+      if (host && host.contains && host.contains(el)) return;               // clique no widget
+      if (_callout && _callout.contains && _callout.contains(el)) return;   // clique no próprio balão
+      // Resolve o CAMPO: o próprio, um <label for>/envolvente, ou um ancestral editável.
+      var sel = "input,select,textarea,[contenteditable='true'],[contenteditable='']";
+      var campo = null;
+      if (el.matches && el.matches(sel)) campo = el;
+      if (!campo && el.closest) {
+        var lab = el.closest("label");
+        if (lab) {
+          var forId = lab.getAttribute("for");
+          campo = forId ? (el.ownerDocument || document).getElementById(forId) : lab.querySelector(sel);
+        }
+        if (!campo) campo = el.closest(sel);
+      }
+      if (!campo || !campoElegivelTutorial(campo)) return;
+      // Campo do TOPO fora do modal → ignora (os de iframe já vêm só do escopo escutado).
+      var raiz = raizVarredura();
+      if (campo.ownerDocument === document && raiz !== document && raiz.contains && !raiz.contains(campo)) return;
+      explicarCampoTutorial(campo);
+    } catch (e2) { }
+  }
+  function ligarCliqueTutorial() {
+    desligarCliqueTutorial();
+    _tutDocs = docsTutorial();
+    _tutDocs.forEach(function (d) { try { d.addEventListener("click", onTutorialClick, true); } catch (e) { } });
+  }
+  function desligarCliqueTutorial() {
+    if (!_tutDocs) return;
+    _tutDocs.forEach(function (d) { try { d.removeEventListener("click", onTutorialClick, true); } catch (e) { } });
+    _tutDocs = null;
   }
   // Uma opção de <select> casa o valor pedido? Casa por CÓDIGO (value) ou por
   // NOME (texto), com limite de palavra para "200" não casar "2000" nem "1200".
@@ -1696,6 +1854,27 @@
     try { var dt = scanTexto(document.title || "").trim(); if (dt) return dt; } catch { }
     try { return (location.pathname || "").split("/").filter(Boolean).pop() || location.hostname || ""; } catch { }
     return "";
+  }
+  // Títulos das REGIÕES da tela (ex.: "Região Sindical", "Adicional de Insalubridade") —
+  // identidade compacta da tela p/ o RAG do tutorial achar a doc sem despejar todos os campos.
+  function coletarTitulosRegioes() {
+    var out = [], seen = {};
+    function coletar(doc) {
+      if (!doc) return;
+      try {
+        doc.querySelectorAll(".t-Region-title, .a-CollapsibleRegion-heading, .a-IRR-title, .a-CardView-title").forEach(function (h) {
+          if (host && host.contains && host.contains(h)) return;
+          if (h.getClientRects && h.getClientRects().length === 0) return; // região oculta/técnica
+          var t = scanTexto(h.textContent || "").trim();
+          if (!t || t.length > 80 || seen[t.toLowerCase()]) return;
+          if (/^(itens|par[âa]metros|breadcrumb)$/i.test(t)) return;      // regiões internas/técnicas
+          seen[t.toLowerCase()] = 1; out.push(t);
+        });
+      } catch (e) { }
+      try { doc.querySelectorAll("iframe").forEach(function (f) { var d = null; try { d = f.contentDocument; } catch (e) { d = null; } if (d) coletar(d); }); } catch (e) { }
+    }
+    coletar(raizVarredura());
+    return out.slice(0, 12);
   }
   function contextoRelatorio(flds, rv) {
     var programa = tituloPrincipalPagina();
@@ -5575,6 +5754,12 @@
       // Campo em foco (após o scan, que marca data-kb-field): contexto p/ "aqui/isto".
       var foco = campoEmFoco();
       if (foco) body.focusedField = foco;
+      // Identidade compacta da tela (nome/breadcrumb + títulos das regiões) → o RAG do
+      // tutorial acha a doc DESTA tela sem despejar todos os campos na consulta.
+      try {
+        var _tit = tituloPrincipalPagina(), _reg = coletarTitulosRegioes();
+        if (_tit || _reg.length) body.tela = { titulo: _tit || "", regioes: _reg };
+      } catch (e) { }
     }
     // CONTEXTO (programa + filtros aplicados) → subtítulo do arquivo gerado e legenda do
     // gráfico/tabela. Independe do formAssist: o programa (título da página) e os chips do
