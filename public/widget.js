@@ -1089,6 +1089,28 @@
           push(el, lbl, "botao", "");
         });
       } catch { }
+      // REGIÕES da tela (type "regiao"): o tutorial DESTACA a seção e a IA EXPLICA o que
+      // ela é, pelo TÍTULO + o RESUMO do conteúdo (nº de campos, se tem IR/IG/relatório).
+      try {
+        doc.querySelectorAll(".t-Region").forEach(function (reg) {
+          if (out.length >= 130) return;
+          if (host && host.contains && host.contains(reg)) return;
+          if (reg.getClientRects && reg.getClientRects().length === 0) return; // oculta
+          if (nomeInternoApex(reg.id || "")) return;
+          var h = reg.querySelector(".t-Region-header .t-Region-title, .t-Region-title, [id$='_heading']");
+          var titulo = h ? limparRotulo(scanTexto(h.textContent)).trim() : "";
+          if (!titulo || titulo.length > 90 || /^(itens|par[âa]metros|breadcrumb|global)/i.test(titulo)) return;
+          var nC = 0; try { nC = reg.querySelectorAll("input:not([type=hidden]),select,textarea").length; } catch (e) { }
+          var temIR = !!reg.querySelector(".a-IRR, .a-IRR-reportView"), temIG = !!reg.querySelector(".a-GV");
+          if (!nC && !temIR && !temIG && !reg.querySelector("table")) return; // região vazia/decorativa → fora
+          var resumo = [];
+          if (nC) resumo.push(nC + " campo(s)");
+          if (temIR) resumo.push("relatório interativo");
+          else if (temIG) resumo.push("grade interativa (IG)");
+          else if (reg.querySelector("table")) resumo.push("relatório/tabela");
+          push(reg, titulo, "regiao", resumo.join(", "));
+        });
+      } catch { }
       try {
         doc.querySelectorAll("iframe").forEach(function (f) {
           var d = null; try { d = f.contentDocument; } catch { d = null; }
@@ -1407,8 +1429,11 @@
     try { return (el.id || el.name || el.getAttribute("aria-label") || rotuloCampo(el) || "").toString() || null; } catch { return null; }
   }
   // Rótulo legível: aria-label → <label for> → placeholder → name → id.
+  function ehRegiao(el) { return !!(el && el.classList && el.classList.contains("t-Region")); }
   function rotuloCampo(el) {
     try {
+      // Região: usa o TÍTULO da seção como rótulo do passo.
+      if (ehRegiao(el)) { var rh = el.querySelector(".t-Region-title, [id$='_heading']"); if (rh) return limparRotulo(scanTexto(rh.textContent)).slice(0, 120); }
       var rot = el.getAttribute("aria-label") || "";
       if (!rot && el.id) { var lab = (el.ownerDocument || document).querySelector('label[for="' + el.id + '"]'); if (lab) rot = scanTexto(lab.textContent); }
       if (!rot) rot = el.placeholder || el.name || el.id || (el.type || "campo");
@@ -1419,7 +1444,9 @@
   }
   // Explicação genérica (quando a IA não cobriu o campo — ex.: surgido dinamicamente).
   function explicacaoGenerica(el) {
-    var rot = rotuloCampo(el), tipo = fieldTipo(el);
+    var rot = rotuloCampo(el);
+    if (ehRegiao(el)) return 'Seção "' + rot + '" da tela — reúne os campos/itens relacionados a seguir.';
+    var tipo = fieldTipo(el);
     return 'Campo "' + rot + '"' + (tipo && tipo.indexOf("texto") !== 0 ? " (" + tipo + ")" : "") + ". Informe aqui o valor de " + rot + ".";
   }
   // Campo elegível ao tutorial? (mesma regra do scan, sem o teste de visibilidade.)
@@ -1489,7 +1516,29 @@
     tab.forEach(function (el) { ord.push(el); });     // campos de aba inativa
     colap.forEach(function (el) { ord.push(el); });   // campos de região recolhida
     acoes.forEach(function (el) { ord.push(el); });   // botões de AÇÃO por ÚLTIMO
-    return ord.map(function (el) { return { el: el, chave: chaveCampo(el) }; });
+    // Intercala um passo de REGIÃO antes do 1º item de cada seção (destaca a região
+    // inteira + explica o que ela é). Só regiões TITULADAS (as mesmas do scanFields).
+    var passos = [], regVista = {};
+    for (var q = 0; q < ord.length; q++) {
+      var reg = regiaoTituladaDe(ord[q]);
+      if (reg && reg.id && !regVista[reg.id]) { regVista[reg.id] = 1; passos.push({ el: reg, chave: chaveCampo(reg), regiao: true }); }
+      passos.push({ el: ord[q], chave: chaveCampo(ord[q]) });
+    }
+    return passos;
+  }
+  // A .t-Region TITULADA mais próxima do elemento (sobe por regiões aninhadas). Casa com
+  // as regiões coletadas no scanFields, para reusar a explicação da IA (por id/chave).
+  function regiaoTituladaDe(el) {
+    try {
+      var reg = el.closest && el.closest(".t-Region");
+      while (reg) {
+        var h = reg.querySelector(".t-Region-title, [id$='_heading']");
+        var t = h ? scanTexto(h.textContent).trim() : "";
+        if (reg.id && t && !/^(itens|par[âa]metros|breadcrumb|global)/i.test(t)) return reg;
+        reg = reg.parentElement && reg.parentElement.closest ? reg.parentElement.closest(".t-Region") : null;
+      }
+    } catch (e) { }
+    return null;
   }
   function mostrarPassoTutorial(alvoForcado) {
     var t = _tutorial;

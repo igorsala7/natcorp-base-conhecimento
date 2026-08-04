@@ -212,8 +212,10 @@ export function formAssistDirective(flags: FormAssistFlags = {}): string {
       "ENSINAR A TELA (tutorial guiado): quando o usuário PERGUNTAR como usar/preencher esta tela ou aplicação (ex.: \"como " +
       "uso essa tela?\", \"como preencho isso?\", \"me ensina a usar\", \"não sei mexer aqui\", \"o que faço nessa tela?\") — " +
       "é PERGUNTA, não comando de ação — use a ferramenta tutorial_tela em vez de operar a tela. Inclua TODOS os campos " +
-      "PREENCHÍVEIS da lista ELEMENTOS DA TELA (input/select/textarea/radio/checkbox) E os botões de AÇÃO relevantes. ORDEM: " +
-      "hierarquia LÓGICA de preenchimento — de cima para baixo, o campo-pai antes do filho (cascata). Os botões de AÇÃO que " +
+      "PREENCHÍVEIS da lista ELEMENTOS DA TELA (input/select/textarea/radio/checkbox) E os botões de AÇÃO relevantes. Explique " +
+      "TAMBÉM as REGIÕES/seções (os itens type=\"regiao\" da lista): diga o que cada seção É, com base no TÍTULO dela e no seu " +
+      "CONTEÚDO (o resumo traz nº de campos e se há relatório/grade) — o passo da REGIÃO vem ANTES dos campos que ela contém. " +
+      "ORDEM: hierarquia LÓGICA de preenchimento — de cima para baixo, o campo-pai antes do filho (cascata). Os botões de AÇÃO que " +
       "CONCLUEM o processo — CRIAR, SALVAR, GRAVAR, APAGAR, EXCLUIR, DELETAR — vão SEMPRE por ÚLTIMO, mesmo que apareçam no " +
       "TOPO da tela. NÃO PULE campos: percorra a tela INTEIRA, um item por vez. Cada passo tem uma explicação CURTA (1-2 " +
       "frases) do que o campo/botão é e como usá-lo, baseada na DOCUMENTAÇÃO do contexto; se a doc NÃO cobrir aquele item, " +
@@ -907,7 +909,9 @@ export function buildFormTools(fields: ScreenField[], sink: UiAction[]): ToolSet
           if (acha(p.ref)) expl.set(p.ref, { titulo: p.titulo.trim(), explicacao: p.explicacao.trim() });
         }
         const generico = (f: ScreenField) =>
-          `Campo "${f.label}"${f.type && f.type !== "texto" ? ` (${f.type})` : ""}. Informe aqui o valor de ${f.label}.`;
+          f.type === "regiao"
+            ? `Seção "${f.label}" da tela${f.value ? ` — ${f.value}` : ""}. Reúne os campos/itens a seguir.`
+            : `Campo "${f.label}"${f.type && f.type !== "texto" ? ` (${f.type})` : ""}. Informe aqui o valor de ${f.label}.`;
         const passoDe = (f: ScreenField): TutorialStep => {
           const e = expl.get(f.ref);
           return { ref: f.ref, titulo: (e?.titulo || f.label) || f.label, explicacao: e?.explicacao || generico(f) };
