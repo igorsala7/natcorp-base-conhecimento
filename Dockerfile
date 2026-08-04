@@ -60,6 +60,11 @@ COPY --from=builder /app/supabase ./supabase
 # Chromium do Playwright (captura de prints por URL no worker) + libs do SO.
 RUN npx playwright install --with-deps chromium \
  && chmod -R a+rx /ms-playwright
+# LibreOffice (headless) — o worker converte PLANILHAS COM FLUXOGRAMAS em PDF para a IA
+# ler por visão (bibliotecas JS de xlsx não renderizam a tela). Só o Calc + fontes.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libreoffice-calc fonts-dejavu fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
 # Roda como usuário não-root (o `node` já existe na imagem oficial).
 RUN chown -R node:node /app
 USER node

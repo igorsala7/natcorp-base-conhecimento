@@ -38,6 +38,8 @@ export async function createImportJob(input: {
   mime: string;
   sizeBytes: number;
   targetParentId?: string | null;
+  /** Planilha COM FLUXOGRAMAS: "pdf"/"image" interpreta via LibreOffice + visão. */
+  flowRender?: "pdf" | "image" | null;
 }): Promise<ImportResult> {
   try {
     await requirePermission("content.import", input.spaceId);
@@ -67,6 +69,7 @@ export async function createImportJob(input: {
       target_parent_id: input.targetParentId ?? null,
       created_by: user?.id ?? null,
       status: "queued",
+      flow_render: input.flowRender === "pdf" || input.flowRender === "image" ? input.flowRender : null,
     })
     .select("id")
     .single();

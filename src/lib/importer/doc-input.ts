@@ -68,12 +68,24 @@ export async function buildDocInput(opts: {
     buf: Buffer,
     o: { maxPages: number; width?: number },
   ) => Promise<{ page: number; png: Uint8Array }[]>;
+  /** Força RASTERIZAR o PDF em imagens p/ QUALQUER modelo (escolha "Imagem" do fluxograma). */
+  forceImages?: boolean;
 }): Promise<DocInput> {
-  const { kind, buf, extraction, rasterize } = opts;
+  const { kind, buf, extraction, rasterize, forceImages } = opts;
   const textPart: DocPart = { type: "text", text: extractionToTranscript(extraction) };
 
   const isPdf = extraction.source === "pdf";
   const pags = pageCount(extraction);
+
+  // Escolha "Imagem" (fluxograma): rasteriza as páginas independentemente do modelo.
+  if (forceImages && isPdf && rasterize) {
+    try {
+      const paginas = await rasterize(buf, { maxPages: RASTER_PAGE_LIMIT });
+      if (paginas.length > 0) {
+        return { parts: [textPart, ...paginas.map((p) => ({ type: "image" as const, image: p.png, mediaType: "image/png" as const }))], modo: "imagens" };
+      }
+    } catch { /* sem canvas/render → segue p/ PDF nativo/texto */ }
+  }
 
   // PDF nativo (Anthropic/Gemini) quando cabe no limite de páginas.
   if (isPdf && (kind === "anthropic" || kind === "google") && pags > 0 && pags <= PDF_PAGE_LIMIT) {

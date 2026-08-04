@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Upload, Link2, Loader2, Camera } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
@@ -47,6 +48,9 @@ export function ImportManager({
   const [url, setUrl] = useState("");
   const [importandoUrl, setImportandoUrl] = useState(false);
   const [capturaAberta, setCapturaAberta] = useState(false);
+  // Resolver pendente do diálogo "planilha com fluxograma?" (PDF/Imagem/importar normal).
+  const [flowAsk, setFlowAsk] = useState<((v: "pdf" | "image" | null) => void) | null>(null);
+  const responderFluxo = (v: "pdf" | "image" | null) => { flowAsk?.(v); setFlowAsk(null); };
 
   // Realtime: acompanha progresso dos jobs deste espaço.
   useEffect(() => {
@@ -97,11 +101,20 @@ export function ImportManager({
 
   // Vários arquivos de uma vez: envia e enfileira UM a UM (o worker também
   // processa um de cada vez). A ordem de seleção vira a ordem da fila.
+  // Planilha (xlsx/xlsm): pode conter FLUXOGRAMAS. Pergunta UMA vez, ao ver uma planilha
+  // no lote, se deve interpretar como fluxograma (LibreOffice + visão) e em que formato.
+  async function perguntarFluxo(): Promise<"pdf" | "image" | null> {
+    return new Promise((resolve) => setFlowAsk(() => resolve));
+  }
+
   async function onFiles(files: File[]) {
+    const temPlanilha = files.some((f) => /\.xls[xm]$/i.test(f.name));
+    const escolhaFluxo = temPlanilha ? await perguntarFluxo() : null;
     setUploading(true);
     const erros: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i]!;
+      const ehPlanilha = /\.xls[xm]$/i.test(file.name);
       if (!extensaoAceita(file.name)) {
         erros.push(`"${file.name}": tipo de arquivo não permitido.`);
         continue;
@@ -123,6 +136,7 @@ export function ImportManager({
         originalName: file.name,
         mime: file.type || "application/octet-stream",
         sizeBytes: file.size,
+        flowRender: ehPlanilha ? escolhaFluxo : null,
       });
       if (!res.ok) erros.push(`"${file.name}": ${res.error}`);
     }
@@ -299,6 +313,26 @@ export function ImportManager({
 
       {validar && (
         <ImportValidateDialog jobId={validar.id} name={validar.name} onClose={() => setValidar(null)} />
+      )}
+
+      {flowAsk && (
+        <Dialog open onClose={() => responderFluxo(null)} title="Planilha com fluxogramas?" size="sm">
+          <div className="flex flex-col gap-3">
+            <p className="text-sm leading-relaxed text-text-muted">
+              Detectei uma <strong>planilha</strong>. Se ela tiver <strong>fluxogramas</strong> (desenhados com células/formas),
+              a IA pode interpretá-los <strong>aba por aba</strong> — explicando cada etapa e <strong>redesenhando</strong> o
+              fluxo no editor. Para isso a planilha é convertida (visão). Em que formato?
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => responderFluxo("pdf")}>Interpretar fluxogramas — via PDF (recomendado)</Button>
+              <Button variant="secondary" onClick={() => responderFluxo("image")}>Interpretar fluxogramas — via Imagem</Button>
+              <Button variant="ghost" onClick={() => responderFluxo(null)}>Não — importar como planilha normal (dados)</Button>
+            </div>
+            <p className="text-xs text-text-muted">
+              PDF é mais fiel na maioria dos modelos; Imagem funciona com qualquer modelo de visão.
+            </p>
+          </div>
+        </Dialog>
       )}
     </div>
   );

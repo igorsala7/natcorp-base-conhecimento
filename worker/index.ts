@@ -29,6 +29,9 @@ import {
 import { buildDocInput } from "../src/lib/importer/doc-input";
 import { rasterizePdf } from "../src/lib/importer/rasterize";
 import { readOutline } from "../src/lib/importer/read-outline";
+import { renderOfficeToPdf } from "../src/lib/importer/render-office";
+import { readFlowchart } from "../src/lib/importer/read-flowchart";
+import { montarArvoreFluxos } from "../src/lib/importer/flow-tree";
 import { generateArticle } from "../src/lib/importer/generate-article";
 import { hasAiKey, resolveAi } from "../src/lib/ai/config";
 import { extrairTermos, sinonimosDeTermos } from "../src/lib/ai/ontology-scan";
@@ -116,6 +119,13 @@ async function processJob(jobId: string) {
     .download(job.source_file);
   if (dlErr || !file) throw new Error(`Falha ao baixar: ${dlErr?.message}`);
   const buf = Buffer.from(await file.arrayBuffer());
+
+  // FLUXOGRAMA: a planilha vira PDF (LibreOffice) e a IA (visão) LÊ aba por aba,
+  // redesenhando cada fluxo no bloco `flow` + o passo a passo. Caminho próprio.
+  if (job.flow_render) {
+    await processFlowchart(jobId, job, buf);
+    return;
+  }
 
   await setProgress(jobId, { progress: 30 }, "Extraindo conteúdo");
   const extraction = await extractDocument(
@@ -270,6 +280,50 @@ async function processJob(jobId: string) {
       result_tree: { tree, images: imageUrls, usedAi, usedAiContent },
     },
     "Pronto para revisão",
+  );
+}
+
+/**
+ * FLUXOGRAMA (planilha): converte o xlsx em PDF (LibreOffice), a IA (visão) interpreta
+ * cada ABA como um grafo (nós + setas + início/fim) e monta um artigo por fluxo — com
+ * o passo a passo e o fluxograma REDESENHADO no bloco `flow`. Termina em 'preview'
+ * (mesma tela de revisão do import normal). Qualquer falha sobe e o job vira 'error'.
+ */
+async function processFlowchart(
+  jobId: string,
+  job: { original_name: string | null; flow_render: string | null },
+  buf: Buffer,
+) {
+  if (!(await hasAiKey("import_structure"))) {
+    throw new Error("Configure uma IA de VISÃO em 'import_structure' (Sistema→IA) para interpretar fluxogramas.");
+  }
+  await setProgress(jobId, { status: "extracting", progress: 25 }, "Convertendo a planilha em PDF (LibreOffice)…");
+  const pdf = await renderOfficeToPdf(buf, job.original_name ?? "planilha.xlsx");
+
+  await setProgress(jobId, { status: "inferring", progress: 55 }, "Lendo os fluxogramas (visão), aba por aba…");
+  const extraction = await extractDocument(pdf, "convertido.pdf", "application/pdf");
+  const cfg = await resolveAi("import_structure");
+  if (!cfg) throw new Error("IA de 'import_structure' indisponível.");
+  const docInput = await buildDocInput({
+    kind: cfg.kind,
+    buf: pdf,
+    extraction,
+    rasterize: rasterizePdf,
+    forceImages: job.flow_render === "image",
+  });
+  await logJob(jobId, `Leitura pela IA (${docInput.modo}) — modo fluxograma (${job.flow_render}).`);
+
+  const r = await readFlowchart(docInput);
+  if ("erro" in r) throw new Error(`Interpretação do fluxo: ${r.erro}`);
+
+  const tituloRaiz = (job.original_name ?? "Fluxos").replace(/\.[^.]+$/, "").trim();
+  const tree = montarArvoreFluxos(r.fluxos, tituloRaiz);
+  if (!tree.length) throw new Error("Nenhum fluxo aproveitável foi interpretado.");
+
+  await setProgress(
+    jobId,
+    { status: "preview", progress: 100, result_tree: { tree, images: [], usedAi: true, usedAiContent: true } },
+    `Pronto para revisão — ${r.fluxos.length} fluxo(s) interpretado(s)`,
   );
 }
 

@@ -2753,6 +2753,7 @@ export type Database = {
           created_by: string | null
           error: string | null
           extracted: Json | null
+          flow_render: string | null
           id: string
           log: Json
           mime: string | null
@@ -2771,6 +2772,7 @@ export type Database = {
           created_by?: string | null
           error?: string | null
           extracted?: Json | null
+          flow_render?: string | null
           id?: string
           log?: Json
           mime?: string | null
@@ -2789,6 +2791,7 @@ export type Database = {
           created_by?: string | null
           error?: string | null
           extracted?: Json | null
+          flow_render?: string | null
           id?: string
           log?: Json
           mime?: string | null
