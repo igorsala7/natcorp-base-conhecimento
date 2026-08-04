@@ -2129,6 +2129,7 @@ export type Database = {
           widget_user_ref: string | null
           disclaimer: string | null
           title: string | null
+          hidden_at: string | null
         }
         Insert: {
           created_at?: string
@@ -2146,6 +2147,7 @@ export type Database = {
           widget_user_ref?: string | null
           disclaimer?: string | null
           title?: string | null
+          hidden_at?: string | null
         }
         Update: {
           created_at?: string
@@ -2163,6 +2165,7 @@ export type Database = {
           widget_user_ref?: string | null
           disclaimer?: string | null
           title?: string | null
+          hidden_at?: string | null
         }
         Relationships: [
           {

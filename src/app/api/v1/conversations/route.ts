@@ -18,7 +18,7 @@ import type { BrandInfo } from "@/lib/reports/pdf";
  * Ações (`action`):
  *   list   → { ok, itens: [{ id, created_at, disclaimer, title, subtitle, mensagens }] }
  *   get    → { id } → { ok, id, created_at, disclaimer, page, mensagens: [{ role, content, created_at }] }
- *   delete → { id } → { ok }  (as mensagens caem por ON DELETE CASCADE)
+ *   delete → { id } → { ok }  (SOFT-DELETE: marca hidden_at — oculta do usuário, mantém a linha p/ rastreio)
  *   export → { id, formato: 'docx'|'pdf'|'csv' } → { ok, filename, mime, content(base64) }
  */
 export const runtime = "nodejs";
@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       .select("id, created_at, disclaimer, page, title")
       .eq("space_id", key.space_id)
       .eq("widget_user_ref", userRef)
+      .is("hidden_at", null)
       .order("created_at", { ascending: false })
       .limit(MAX_CONVERSAS);
     if (error) { console.error("[conversations] list:", error); return json({ ok: false, erro: "Falha ao listar.", detalhe: error.message }, 500); }
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
       .eq("id", id)
       .eq("space_id", key.space_id)
       .eq("widget_user_ref", userRef)
+      .is("hidden_at", null)
       .maybeSingle();
     if (error) { console.error("[conversations] get:", error); return json({ ok: false, erro: "Falha ao carregar.", detalhe: error.message }, 500); }
     if (!conv) return json({ ok: false, erro: "Conversa não encontrada." }, 404);
@@ -160,13 +162,17 @@ export async function POST(req: NextRequest) {
   if (action === "delete") {
     const id = String(p.id ?? "");
     if (!id) return json({ ok: false, erro: "Informe o id." }, 400);
+    // SOFT-DELETE: "apagar" apenas OCULTA a conversa do usuário — a linha (e as mensagens)
+    // permanece na tabela p/ RASTREIO/auditoria. list/get/export/append filtram hidden_at.
+    // `.is("hidden_at", null)` torna idempotente: re-apagar uma já oculta é no-op (ok).
     const { error } = await db
       .from("conversations")
-      .delete()
+      .update({ hidden_at: new Date().toISOString() })
       .eq("id", id)
       .eq("space_id", key.space_id)
-      .eq("widget_user_ref", userRef);
-    if (error) { console.error("[conversations] delete:", error); return json({ ok: false, erro: "Falha ao apagar.", detalhe: error.message }, 500); }
+      .eq("widget_user_ref", userRef)
+      .is("hidden_at", null);
+    if (error) { console.error("[conversations] delete (soft):", error); return json({ ok: false, erro: "Falha ao apagar.", detalhe: error.message }, 500); }
     return json({ ok: true }, 200);
   }
 
@@ -181,6 +187,7 @@ export async function POST(req: NextRequest) {
       .eq("id", convId)
       .eq("space_id", key.space_id)
       .eq("widget_user_ref", userRef)
+      .is("hidden_at", null)
       .maybeSingle();
     if (!conv) return json({ ok: false, erro: "Conversa não encontrada." }, 404);
     const pergunta = String(p.pergunta ?? "").trim().slice(0, 2000);
@@ -208,6 +215,7 @@ export async function POST(req: NextRequest) {
       .eq("id", id)
       .eq("space_id", key.space_id)
       .eq("widget_user_ref", userRef)
+      .is("hidden_at", null)
       .maybeSingle();
     if (error) { console.error("[conversations] export:", error); return json({ ok: false, erro: "Falha ao carregar.", detalhe: error.message }, 500); }
     if (!conv) return json({ ok: false, erro: "Conversa não encontrada." }, 404);
