@@ -78,9 +78,12 @@ export async function buildDocInput(opts: {
   const pags = pageCount(extraction);
 
   // Escolha "Imagem" (fluxograma): rasteriza as páginas independentemente do modelo.
+  // Largura maior (2000px) que o padrão de tela: o fluxograma cabe inteiro numa página
+  // (fit-to-page), então precisa de mais resolução para os rótulos das caixas ficarem
+  // legíveis para a IA de visão — poucas páginas, custo de tokens aceitável.
   if (forceImages && isPdf && rasterize) {
     try {
-      const paginas = await rasterize(buf, { maxPages: RASTER_PAGE_LIMIT });
+      const paginas = await rasterize(buf, { maxPages: RASTER_PAGE_LIMIT, width: 2000 });
       if (paginas.length > 0) {
         return { parts: [textPart, ...paginas.map((p) => ({ type: "image" as const, image: p.png, mediaType: "image/png" as const }))], modo: "imagens" };
       }
