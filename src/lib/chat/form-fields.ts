@@ -503,17 +503,24 @@ export function harvestDoneNote(): string {
 export function pareceTutorial(msg: string): boolean {
   const q = (msg || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   if (!q) return false;
-  const gatilhos = [
-    "como uso", "como utilizo", "como usar essa tela", "como usar esta tela",
-    "como funciona essa tela", "como funciona esta tela", "como funciona essa aplicacao", "como funciona este programa",
-    "me ensina", "ensina me", "me explica essa tela", "me explique essa tela", "explica essa tela", "explique esta tela",
-    "tutorial", "passo a passo dessa tela", "passo a passo desta tela",
-    "nao sei mexer", "nao sei usar", "nao sei preencher",
-    "o que faco nessa tela", "o que faco nesta tela", "o que e essa tela", "o que e esta tela",
-    "para que serve essa tela", "para que serve esta tela",
-    "como preencho isso", "como preencho essa tela", "como preencho esta tela", "como preencher essa tela", "como preencher esta tela",
+  // Colapsa os DEMONSTRATIVOS (essa/esse/esta/este + nessa/dessa/…) para não enumerar
+  // cada combinação: "essa tela"/"este programa" → "esse tela"/"esse programa".
+  const t = q.replace(/\b[dn]?(esse|este|essa|esta)\b/g, (m) => (m[0] === "d" ? "desse" : m[0] === "n" ? "nesse" : "esse"));
+  const alvo = "(tela|programa|aplicativo|aplicacao|sistema|pagina|modulo|funcionalidade|formulario|cadastro)";
+  const rx: RegExp[] = [
+    /\btutorial\b/,
+    /\bpasso a passo\b/,
+    /\bme (ensina|ensine|explica|explique)\b/,
+    /\b(ensina|explica) me\b/,
+    /\bnao sei (mexer|usar|preencher|utilizar)\b/,
+    // "o que é / o que faço / para que serve / como funciona" + (esse programa/tela/… | isso).
+    new RegExp(`\\b(o que (e|faco)|para que serve|como funciona) (esse|nesse|isso|isto|aqui)( ${alvo})?`),
+    // "como (se/eu) usa/utiliza/preenche/uso/…" + (isso | esse programa/tela/…).
+    new RegExp(`\\bcomo (se |eu )?(us[ao]|utiliz[ao]|preench[eo]|usar|utilizar|preencher) (isso|isto|aqui|esse|nesse|${alvo})`),
+    /\bcomo (se )?(usa|utiliza|preenche)\b/, // "como se usa?" curto
+    /\bcomo (uso|utilizo|preencho|usar|utilizar)\b/, // "como uso?"
   ];
-  return gatilhos.some((g) => q.includes(g));
+  return rx.some((r) => r.test(t));
 }
 
 /** Tool que dispara a COLETA multi-página de um relatório paginado (o widget

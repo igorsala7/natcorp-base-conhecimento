@@ -1,4 +1,4 @@
-import { streamText, stepCountIs, type ToolSet } from "ai";
+import { streamText, stepCountIs, type ToolSet, type ModelMessage } from "ai";
 import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -772,14 +772,18 @@ export async function POST(req: NextRequest) {
   // E também casa fortemente com uma tool (relacionaTela + tool ≥ LIMIAR_TOOL_FORTE, que
   // deixou fonteEfetiva indefinida). Se roteou direto p/ relatório (roteouRelatorioDireto)
   // ou p/ IA (roteouDireto), ou a mensagem NÃO tem relação com a tela, não pergunta.
-  if (temRelatorioNaTela && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
+  // `temIntegTools`: só pergunta "relatório × ferramenta" quando o CLASSIFICADOR achou que
+  // o pedido precisa de DADOS (montou tools relevantes). Num HOW-TO/documentação ("o que é
+  // esse programa e como se usa?") ele devolve zero tools — aí NÃO se oferece ferramenta
+  // nenhuma (as que casam por embedding a ~0.57 são ruído da tela), segue para a doc/tutorial.
+  if (temRelatorioNaTela && temIntegTools && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
     // Ambíguo: a tela cobre o assunto E há tool(s) que também cobrem. NOMEIA as tool(s)
     // casada(s) como opção (era o vago "Conhecimento da IA") — o usuário vê que dá p/
     // buscar "dados de colaboradores" e não só "no relatório desta tela".
     const toolsAmb = (matchesCache ?? []).slice(0, 3);
     const opcoesFonte: unknown[] = [
       // `direto: true` = escolha AUTORITATIVA: não re-perguntar a fonte (o usuário decidiu).
-      { id: "relatorio", label: `📄 ${relNome.slice(0, 44)} (esta tela)`, scope: { fonte: "relatorio", direto: true } },
+      { id: "relatorio", label: "📄 Dados desta página", scope: { fonte: "relatorio", direto: true } },
       ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
     ];
     // Sem tool nomeada (não deveria ocorrer aqui): mantém o conhecimento genérico.
@@ -850,7 +854,7 @@ export async function POST(req: NextRequest) {
       return clarifyResponse(
         "Isso pode vir do RELATÓRIO desta tela ou de uma FERRAMENTA de dados. De onde quer que eu busque?",
         [
-          { id: "relatorio", label: `📄 ${relNome.slice(0, 44)} (esta tela)`, scope: { fonte: "relatorio", direto: true } },
+          { id: "relatorio", label: "📄 Dados desta página", scope: { fonte: "relatorio", direto: true } },
           ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
         ],
         "clarify_fonte",
@@ -1170,7 +1174,7 @@ export async function POST(req: NextRequest) {
     ? `IDIOMA OBRIGATÓRIO: responda SEMPRE em ${idiomaNativo(idioma)}, independentemente do idioma da pergunta ou da documentação. ` +
       `Traduza rótulos, botões, títulos e mensagens para ${idiomaNativo(idioma)}; mantenha nomes próprios, códigos e valores numéricos como estão.`
     : "";
-  const systemPrompt = composeSystemPrompt(
+  let systemPrompt = composeSystemPrompt(
     {
       persona,
       especializacao: especializacaoFinal,
@@ -1181,6 +1185,17 @@ export async function POST(req: NextRequest) {
     },
     contextoStr,
   );
+  // (Fix 3) Análise de relatório com ferramentas: orienta a PLANEJAR as agregações e a
+  // CONCLUIR dentro do orçamento de passos — sem disparar uma chamada por mês/métrica
+  // (o que estourava o teto e deixava a resposta vazia) — e a declarar a base usada.
+  if (modoAnalisePura && (Object.keys(visualTools).length > 0 || Object.keys(queryTools).length > 0)) {
+    systemPrompt +=
+      "\n\n## PLANEJAMENTO DA ANÁLISE\n" +
+      "Planeje as agregações ANTES de chamar ferramentas e faça o MENOR número de chamadas: " +
+      "uma única agregação agrupada já traz vários recortes de uma vez (agrupe por todas as dimensões pedidas e peça todas as métricas juntas) — " +
+      "não dispare uma chamada por mês nem por métrica. Deixe passos de sobra para REDIGIR: não gaste todo o orçamento só consultando. " +
+      "Na resposta, diga em quais dados ela se baseia (períodos, agrupamentos e nº de registros considerados).";
+  }
   // Tokens estimados por bloco (~4 chars/token, pt-BR) — read-only, não muda o prompt.
   // Serve para ver no log/console quais blocos mais pesam e comparar antes/depois.
   const _tok = (s: string) => Math.round((s ?? "").length / 4);
@@ -1216,6 +1231,8 @@ export async function POST(req: NextRequest) {
   // Guarda a falha real da geração p/ traduzi-la numa mensagem útil no catch abaixo
   // (o textStream às vezes só encerra o loop sem re-lançar o erro do provedor).
   let erroGeracao: unknown = null;
+  // Tokens da passada final forçada (fallback), somados ao turno no registro/trace.
+  let fechoUsage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null = null;
   // Teto de passos ADAPTATIVO: o `inputTokens` do turno é a SOMA do prefixo reenviado a
   // cada passo (system+tools+histórico), então cada passo a menos corta tokens e latência.
   // Pergunta COMPOSTA (vários assuntos / doc+API / comparação) precisa de mais passos —
@@ -1226,6 +1243,18 @@ export async function POST(req: NextRequest) {
   // Teto de passos do loop agêntico. Pergunta simples (só listar/mostrar) fecha cedo:
   // chamar a tool + responder bastam. Composta/análise recebe mais fôlego.
   const maxPassos = _temAnaliseTools ? (_perguntaComplexa ? 9 : 5) : (_perguntaComplexa ? 6 : 3);
+  // Modelo por FINALIDADE (configurável em Sistema→IA). (Fix 3) Análise de relatório
+  // COMPLEXA (com ferramentas) migra do "report_analysis" (análise de uma tacada) para o
+  // "chat_ferramentas" (modelo forte, que CONVERGE melhor no loop de tools); análise
+  // simples segue no report_analysis; turno agêntico usa chat_ferramentas; demais, chat.
+  const finalidadeTurno: "report_analysis" | "chat_ferramentas" | null = modoAnalisePura
+    ? (_perguntaComplexa && _temAnaliseTools ? "chat_ferramentas" : "report_analysis")
+    : turnoAgentico
+      ? "chat_ferramentas"
+      : null;
+  const modeloTurno = await (finalidadeTurno
+    ? languageModel(finalidadeTurno, { kind: "user", ...track }, track.p_base ?? "")
+    : chatModel({ kind: "user", ...track }, track.p_base ?? ""));
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
     // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).
@@ -1237,14 +1266,7 @@ export async function POST(req: NextRequest) {
       erroGeracao = error;
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    // Modelo por FINALIDADE (tudo configurável em Sistema→IA; sem atribuição própria, cai no
-    // Chat): ANÁLISE PURA do relatório → "report_analysis"; turno AGÊNTICO (ferramentas/composto)
-    // → "chat_ferramentas" (modelo forte, converge melhor no loop de tools); demais → "chat".
-    model: await (modoAnalisePura
-      ? languageModel("report_analysis", { kind: "user", ...track }, track.p_base ?? "")
-      : turnoAgentico
-        ? languageModel("chat_ferramentas", { kind: "user", ...track }, track.p_base ?? "")
-        : chatModel({ kind: "user", ...track }, track.p_base ?? "")),
+    model: modeloTurno,
     // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o
     // padrão conservador do provedor cortar a resposta pela metade.
     maxOutputTokens: completo || temTools ? 8192 : 4096,
@@ -1271,10 +1293,60 @@ export async function POST(req: NextRequest) {
           controller.enqueue(sse({ type: "token", value: delta }));
         }
       } catch (err) {
-        // Aborto do usuário (botão Parar) não é erro — o widget já cuida da UI.
-        // Só sinaliza falha quando nada foi gerado (senão clobbaria a resposta parcial).
-        if (!req.signal.aborted && !full.trim()) {
-          controller.enqueue(sse({ type: "error", message: mensagemErroChat(erroGeracao ?? err) }));
+        // O textStream às vezes encerra o loop SEM re-lançar o erro do provedor — aqui só
+        // REGISTRAMOS; a rede de segurança abaixo decide o que mostrar (uma passada final
+        // ou a mensagem de erro), sem emitir nada em duplicidade.
+        if (!erroGeracao) erroGeracao = err;
+      }
+      // REDE DE SEGURANÇA: o turno terminou SEM texto. Duas causas, ambas deixavam o
+      // usuário com resposta vazia: (a) o loop agêntico esgotou o teto de passos numa
+      // CHAMADA DE FERRAMENTA e nunca redigiu; (b) o provedor falhou e o stream só
+      // encerrou. Aborto do usuário (botão Parar) NÃO conta como falha.
+      if (!req.signal.aborted && !full.trim()) {
+        // (Fix 1) Sem erro do provedor e havia ferramentas → o modelo gastou os passos
+        // consultando e não concluiu. Faz UMA passada final SEM ferramentas, obrigando-o a
+        // RESPONDER com os dados JÁ obtidos e a DECLARAR a base — a análise pode estar
+        // incompleta porque não deu para processar 100% dos dados neste turno.
+        if (!erroGeracao && temTools) {
+          try {
+            const resp = await Promise.resolve(result.response).catch(() => null);
+            const histMsgs: ModelMessage[] = resp?.messages ?? [];
+            if (histMsgs.length) {
+              const notaFechamento =
+                "O limite de passos foi atingido ANTES de concluir a coleta/varredura completa dos dados. " +
+                "Com base APENAS nos resultados que você JÁ obteve nas ferramentas acima, responda agora à pergunta do usuário. " +
+                "NÃO chame nenhuma ferramenta. " +
+                "COMECE a resposta deixando EXPLÍCITO em que dados ela se baseia: quais consultas você efetivamente fez e o que retornaram — quando fizer sentido, os períodos/meses, os agrupamentos e QUANTOS registros foram considerados. " +
+                "Se algum recorte pedido (por exemplo, um dos meses ou uma filial) NÃO chegou a ser consultado, diga isso claramente — não estime nem invente. " +
+                "Avise, em uma frase, que a resposta pode estar incompleta porque não foi possível processar 100% dos dados neste turno.";
+              const fecho = streamText({
+                abortSignal: req.signal,
+                onError: ({ error }) => { erroGeracao = error; console.error("[chat] falha no fechamento forçado:", error); },
+                model: modeloTurno,
+                maxOutputTokens: 4096,
+                system: systemPrompt,
+                messages: [
+                  ...withImageParts(messages, attach.imageParts, attach.fileParts),
+                  ...histMsgs,
+                  { role: "user" as const, content: notaFechamento },
+                ],
+                // SEM tools: esta passada só REDIGE a resposta com os dados já obtidos.
+              });
+              for await (const delta of fecho.textStream) {
+                full += delta;
+                controller.enqueue(sse({ type: "token", value: delta }));
+              }
+              fechoUsage = await Promise.resolve(fecho.totalUsage).catch(() => null);
+            }
+          } catch (e) { console.error("[chat] fechamento forçado falhou:", e); }
+        }
+        // (Fix 2) Ainda vazio → mostra o MOTIVO (erro do provedor, ou vazio inexplicado),
+        // em vez de deixar o usuário sem resposta e sem pista.
+        if (!full.trim()) {
+          controller.enqueue(sse({
+            type: "error",
+            message: mensagemErroChat(erroGeracao ?? new Error("A resposta veio vazia. Tente reformular ou refazer a pergunta.")),
+          }));
         }
       }
       // CONTEXTO (programa + filtros) capturado pelo widget → subtítulo dos arquivos e
@@ -1371,6 +1443,13 @@ export async function POST(req: NextRequest) {
       // `usage` sozinho é só o ÚLTIMO passo → subcontava turnos com ferramentas e
       // divergia da tela de Consumo (que soma passo a passo). Ver ai@6 stream result.
       const usage = await Promise.resolve(result.totalUsage).catch(() => null);
+      // Soma a passada final forçada (fallback) ao turno, p/ o registro e o trace refletirem
+      // o consumo real. (O middleware de `languageModel` já contabiliza cada chamada em ai_usage.)
+      const _somaTok = (a?: number | null, b?: number | null) =>
+        a == null && b == null ? null : (a ?? 0) + (b ?? 0);
+      const totalTokensTurno = _somaTok(usage?.totalTokens, fechoUsage?.totalTokens);
+      const inputTokensTurno = _somaTok(usage?.inputTokens, fechoUsage?.inputTokens);
+      const outputTokensTurno = _somaTok(usage?.outputTokens, fechoUsage?.outputTokens);
       // Métricas do prompt cache do provedor (best-effort) — mostra a taxa de acerto
       // do cache entre turnos (cache_read alto = prefixo reaproveitado; barato/rápido).
       const provMeta = (await Promise.resolve(result.providerMetadata).catch(() => null)) as
@@ -1392,7 +1471,7 @@ export async function POST(req: NextRequest) {
       // DIAGNÓSTICO no console: tipo de agente, perfil, provedor/modelo e TOKENS do turno
       // (envio × resposta) — inclusive quanto pesou o ENVIO das tabelas/regiões da tela.
       try {
-        const _purpose = modoAnalisePura ? "report_analysis" : turnoAgentico ? "chat_ferramentas" : "chat";
+        const _purpose = finalidadeTurno ?? "chat";
         const _aiCfg = await resolveAi(_purpose, track.p_base ?? "").catch(() => null);
         // QUEM está respondendo (persona): perfil de análise > agente de integração > chat.
         const _agente = personaReport
@@ -1426,16 +1505,16 @@ export async function POST(req: NextRequest) {
         citations: citations as never,
         media: (media.length ? media : null) as never,
         latency_ms: Date.now() - started,
-        tokens: usage?.totalTokens ?? null,
-        input_tokens: usage?.inputTokens ?? null,
-        output_tokens: usage?.outputTokens ?? null,
+        tokens: totalTokensTurno,
+        input_tokens: inputTokensTurno,
+        output_tokens: outputTokensTurno,
       });
       passo("resposta", {
         caracteres: full.length,
         acoes_tela: uiActions.map((a) => a.tipo),
         graficos: chartSpecs.length,
         arquivos: outFiles.length,
-        tokens_total: usage?.totalTokens ?? null,
+        tokens_total: totalTokensTurno,
         cache_read: cacheRead,
         cache_creation: cacheCreation,
       });
