@@ -3,6 +3,7 @@ import type { LoopConfig, ToolParam } from "./tools";
 import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
+import { sanitizarUrl, sanitizarBody } from "./run-log-sanitize";
 
 /** A tool como o motor precisa dela (subconjunto de ai_tools). */
 export type RuntimeTool = {
@@ -64,8 +65,9 @@ export type ExecResult = {
   ok: boolean;
   status: number;
   data: unknown;
-  /** Requisição montada (para o log). Contém segredos crus — sanitize antes de gravar. */
-  request?: { method: string; url: string; body?: string };
+  /** Requisição montada (para o log). `url`/`body` contêm segredos crus — sanitize antes de
+   *  gravar. `curl` já vem com TODOS os segredos redigidos (pronto para exibir/persistir). */
+  request?: { method: string; url: string; body?: string; curl?: string };
 };
 
 /** Monta a requisição HTTP a partir dos buckets resolvidos (função pura). */
@@ -143,8 +145,13 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const req = buildHttpRequest(input.tool, input.baseUrl, buckets);
 
   const auth = await authHeaders(input.credential, fetchImpl);
-  // cURL no terminal (segredos redigidos): permite reproduzir/depurar a chamada da tool.
-  console.log(`[tool-curl] ${input.tool.key}\n${curlDeChamada(req.method, req.url, { ...req.headers, ...auth }, req.body)}`);
+  // cURL com TODOS os segredos redigidos — headers de auth E credenciais na query/corpo
+  // (ex.: `key`=session_key vai na URL). Vai para o terminal E para o trace do admin/logs:
+  // reproduzível para depurar a chamada da tool, sem nunca vazar token/senha/session_key.
+  const urlRedigida = sanitizarUrl(req.url, input.tool.params);
+  const corpoRedigido = req.body ? JSON.stringify(sanitizarBody(req.body, input.tool.params)) : undefined;
+  const curl = curlDeChamada(req.method, urlRedigida, { ...req.headers, ...auth }, corpoRedigido);
+  console.log(`[tool-curl] ${input.tool.key}\n${curl}`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15_000);
   try {
@@ -173,7 +180,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     } catch {
       /* resposta não-JSON: devolve o texto cru */
     }
-    return { ok: res.ok, status: res.status, data, request: { method: req.method, url: req.url, body: req.body } };
+    return { ok: res.ok, status: res.status, data, request: { method: req.method, url: req.url, body: req.body, curl } };
   } finally {
     clearTimeout(timer);
   }

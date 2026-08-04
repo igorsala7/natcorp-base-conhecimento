@@ -20,6 +20,7 @@ const MAX_TOOLS_MODELO = 12;
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
+import { sanitizarBody } from "./run-log-sanitize";
 import { ANTHROPIC_CACHE } from "@/lib/ai/anthropic-cache";
 
 export { identityFromTrack };
@@ -316,6 +317,19 @@ export async function buildIntegrationTools(
               threw = e instanceof Error ? e.message : String(e);
             }
             const durationMs = Date.now() - t0;
+            // Tool ESCOLHIDA + PARÂMETROS do modelo (redigidos) + cURL da chamada (segredos
+            // redigidos) no trace do admin/logs — permite ver qual tool foi usada, com quais
+            // argumentos, o endpoint atingido, e reproduzir/depurar a chamada.
+            if (result?.request?.curl) {
+              onPasso?.("integracoes:curl", {
+                tool: bt.tool.key,
+                params: sanitizarBody(JSON.stringify(callArgs), paramsEscopo),
+                status: result.status ?? null,
+                ms: durationMs,
+                ...(cachedHit ? { cache: true } : {}),
+                curl: result.request.curl,
+              });
+            }
             const registrar = (saida: unknown, ok: boolean, status: number | null, files: number, error: string | null) =>
               logToolRun({
                 baseCode,
