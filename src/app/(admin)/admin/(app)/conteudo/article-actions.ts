@@ -9,6 +9,7 @@ import { reindexNodeChunks } from "@/lib/content/chunk";
 import {
   commitDraftIfAny,
   extractText,
+  publishAncestors,
   publishNodeCore,
   unpublishNodeCore,
 } from "@/lib/content/publish-core";
@@ -591,6 +592,10 @@ export async function publishSubtree(
     .from("nodes")
     .update({ status: "published", published_at: now })
     .in("id", ids);
+
+  // Publica também as pastas ACIMA da raiz da subárvore — senão publicar uma
+  // pasta aninhada dentro de uma pasta em rascunho a deixa podada no portal.
+  await publishAncestors(supabase, nodeId);
 
   const {
     data: { user },

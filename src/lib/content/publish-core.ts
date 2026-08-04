@@ -43,6 +43,32 @@ export async function commitDraftIfAny(db: PublishDb, nodeId: string): Promise<b
   return true;
 }
 
+/**
+ * Publica as PASTAS ancestrais ainda em rascunho. Um nó publicado cujo ancestral
+ * NÃO está publicado é PODADO do portal (some — ver getPortalTree). Publicar
+ * conteúdo deve tornar o CAMINHO até ele visível; sem isto, publicar um artigo
+ * dentro de uma pasta em rascunho o deixava invisível no portal. Só age ao
+ * PUBLICAR (nunca ao despublicar), então "despublicar pasta para esconder a
+ * seção" continua valendo. Sobe nó a nó (nunca lê a árvore inteira, que estoura
+ * o teto de 1000 linhas do PostgREST). Best-effort: a RLS de `nodes` exige
+ * `content.edit` no ancestral — um editor com escopo de subárvore não publica
+ * pastas ACIMA do seu escopo (esse caso segue dependendo de quem tem permissão).
+ */
+export async function publishAncestors(db: PublishDb, nodeId: string): Promise<void> {
+  const now = new Date().toISOString();
+  let cursor = nodeId;
+  for (let i = 0; i < 60; i++) {
+    const atual = await db.from("nodes").select("parent_id").eq("id", cursor).maybeSingle();
+    const parentId = atual.data?.parent_id;
+    if (!parentId) break;
+    const pai = await db.from("nodes").select("status").eq("id", parentId).maybeSingle();
+    if (pai.data && pai.data.status !== "published") {
+      await db.from("nodes").update({ status: "published", published_at: now, publish_at: null }).eq("id", parentId);
+    }
+    cursor = parentId;
+  }
+}
+
 export type CoreResult = { ok: true } | { ok: false; error: string };
 
 /**
@@ -74,6 +100,10 @@ export async function publishNodeCore(
   if (error) return { ok: false, error: `Falha: ${error.message}` };
 
   await db.from("articles").update({ published_at: now }).eq("node_id", nodeId);
+
+  // Torna o CAMINHO visível: publica pastas ancestrais em rascunho — senão o
+  // portal poda este nó (publicado sob pai não-publicado) e ele some.
+  await publishAncestors(db, nodeId);
 
   // Snapshot obrigatório a cada publicação (histórico append-only).
   await db.rpc("create_article_version", { p_node_id: nodeId, p_label: versionLabel });
