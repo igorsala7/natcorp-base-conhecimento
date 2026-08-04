@@ -38,6 +38,7 @@ import { newRegistry, type Filtro } from "@/lib/chat/datasets";
 import { classificarAnalise, estimarCustoB, filtrarSubconjunto, avgCharsColuna } from "@/lib/chat/analysis-router";
 import { enqueueSemanticAnalyze } from "@/lib/jobs/boss";
 import { buildQueryTool } from "@/lib/chat/query-tools";
+import { deveClassificarSujeito, classificarSujeito, montarOpcoesSujeito, diretrizReferente } from "@/lib/chat/subject-clarify";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
@@ -427,7 +428,15 @@ export async function POST(req: NextRequest) {
     const termos = (m.name + " " + m.key).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
     return termos.length > 0 && !termos.some((t) => _alvoRel.includes(t));
   };
-  const compostoPorTool = _precisaComposto && (matchesCache ?? []).some(_toolDominioNovo);
+  // Override por MATCH FORTE: a ontologia expande o vocabulário do relatório (todo o
+  // domínio, ex.: "folha") e pode "engolir" uma tool específica como se fosse o MESMO
+  // assunto — aí _toolDominioNovo dá false e cairíamos em modo_relatorio, cortando a tool.
+  // Mas um casamento MUITO forte com uma tool (ex.: "holerite" → relatorio_recibo_pagamento
+  // 0.77) é intenção CLARA de tool → mantém as tools (alinha com o viés SEGURO acima).
+  const LIMIAR_COMPOSTO_FORTE = 0.75;
+  const compostoPorTool =
+    _precisaComposto &&
+    ((matchesCache ?? []).some(_toolDominioNovo) || ((matchesCache ?? [])[0]?.sim ?? 0) >= LIMIAR_COMPOSTO_FORTE);
   if (podeRotear) {
     passo("ontologia", { formas: formasOnto.slice(0, 12) });
     passo("roteador_fonte", {
@@ -764,6 +773,37 @@ export async function POST(req: NextRequest) {
   // automaticamente — sem perguntar a fonte.
   const geraArquivo =
     /(ger[ae]r?|export[ae]r?|baix[ae]r?|cri[ae]r?|monta[er]?|faz(er)?|quero|me d[êe]|preciso)\s+(?:\w+\s+){0,3}(arquivo|documento|planilha|excel|xlsx|csv|pdf|word|docx|ppt|pptx|apresenta[çc]|slides?|relat[óo]rio)/i.test(question);
+  // ══ SUJEITO AMBÍGUO (referente por histórico) ═══════════════════════════════════
+  // Mensagem SEM sujeito ("dele", "e a matrícula?", "quanto ganham?") + candidatos no
+  // contexto (colaboradores/itens LISTADOS antes OU relatório na tela) → confirma
+  // QUEM/O QUÊ antes de responder (pessoas listadas × relatório × geral). O classificador
+  // (modelo barato) só roda quando PARECE anáfora + HÁ contexto (pré-filtro regex).
+  // Sem nada no contexto que case → NÃO pergunta. Já escolhido (`referente`) → segue.
+  if (
+    !scopeIn?.referente && !continuation && !social && !modoTutorial && !geraArquivo &&
+    deveClassificarSujeito(question, messages, !!reportDataResolved || temRelatorioNaTela)
+  ) {
+    const decSuj = await classificarSujeito({
+      question,
+      historico: messages,
+      colunasRelatorio: relCols,
+      temRelatorio: !!reportDataResolved || temRelatorioNaTela,
+      track,
+    });
+    if (decSuj.ambiguo && (decSuj.candidatos.length || decSuj.refereRelatorio)) {
+      passo("clarify_sujeito", { candidatos: decSuj.candidatos.length, relatorio: decSuj.refereRelatorio });
+      const opcoesSuj = montarOpcoesSujeito(decSuj, !!reportDataResolved || temRelatorioNaTela);
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(sse({ type: "clarify", question: "Só pra confirmar: a que você se refere?", options: opcoesSuj }));
+          controller.enqueue(finalizarTrace("clarify_sujeito"));
+          controller.enqueue(sse({ type: "done", conversationId: convId }));
+          controller.close();
+        },
+      });
+      return sseResponse(stream, cors);
+    }
+  }
   // FONTE DE DADOS (Fase 1): há relatório na tela e o usuário ainda NÃO escolheu a
   // fonte → pergunta por botões [Relatório desta tela] / [Conhecimento da IA] antes
   // de responder. Pulada em conversa social, no loop (continuation), após a coleta E
@@ -1109,12 +1149,23 @@ export async function POST(req: NextRequest) {
   const blocoGloss = glossario
     ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
     : "";
+  // FONTE (relatório da tela × ferramentas): com um relatório carregado + tools de integração
+  // (pergunta composta), o modelo tende a FILTRAR o relatório mesmo quando ele NÃO tem o dado
+  // pedido — ex.: pedir a LISTA DE COLABORADORES num relatório que só traz cargo agregado, sem
+  // coluna de nome/matrícula. Lista as colunas e manda CHAMAR a ferramenta quando o relatório
+  // não contém o que foi pedido (não força tool p/ o que É respondível pelas colunas).
+  const blocoFonteRelatorio = reportBloco && !cortaIntegracao && temIntegTools && relCols.length
+    ? `FONTE DOS DADOS (relatório da tela × ferramentas do sistema): o relatório "${relNome}" carregado tem SOMENTE estas colunas: ${relCols.join(", ")}. ` +
+      `Se a pergunta é respondível com essas colunas (contar/somar/filtrar/agrupar/comparar/rankear por elas), analise o relatório. ` +
+      `Mas se ela pede REGISTROS ou CAMPOS que NÃO estão nessas colunas — por exemplo, uma LISTA DE COLABORADORES/pessoas (nomes, matrículas) quando o relatório só traz dados por cargo, sem coluna de nome/matrícula — NÃO filtre o relatório: CHAME a ferramenta de integração adequada para buscar no sistema e diga que está buscando.`
+    : "";
   const usoFerramentasStr = [
     integ.capabilities,
     blocoFormAssist,
     blocoRelatorioVazio,
     blocoEntregar,
     blocoIntegUsage,
+    blocoFonteRelatorio,
     blocoEscopoRel,
     blocoEscopo,
     blocoVisuals,
@@ -1124,6 +1175,7 @@ export async function POST(req: NextRequest) {
     .join("\n\n");
   const contextoStr = [
     notaDataAtual(),
+    diretrizReferente(scopeIn?.referente),
     enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
     blocoRag,
     attach.contextBlock,

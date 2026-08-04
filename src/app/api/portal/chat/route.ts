@@ -12,6 +12,7 @@ import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import { getPortalAccess } from "@/lib/portal/data";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
+import { deveClassificarSujeito, classificarSujeito, montarOpcoesSujeito, diretrizReferente } from "@/lib/chat/subject-clarify";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
@@ -229,6 +230,25 @@ export async function POST(req: NextRequest) {
     return new Response(stream, { headers });
   }
 
+  // SUJEITO AMBÍGUO (referente por histórico): mensagem SEM sujeito ("detalhe o primeiro",
+  // "e esse?") + itens LISTADOS num turno anterior → confirma o referente (itens listados ×
+  // consulta geral). Aqui não há relatório de tela; roda o classificador só quando parece
+  // anáfora + há histórico substancial (pré-filtro barato). Sem candidato → não pergunta.
+  if (!payload.scope?.referente && !social && deveClassificarSujeito(question, messages, false)) {
+    const decSuj = await classificarSujeito({ question, historico: messages, colunasRelatorio: [], temRelatorio: false, track });
+    if (decSuj.ambiguo && decSuj.candidatos.length) {
+      const opcoesSuj = montarOpcoesSujeito(decSuj, false);
+      const stream = new ReadableStream({
+        start(c) {
+          c.enqueue(sse({ type: "clarify", question: "Só pra confirmar: a que você se refere?", options: opcoesSuj }));
+          c.enqueue(sse({ type: "done", conversationId: convId }));
+          c.close();
+        },
+      });
+      return new Response(stream, { headers });
+    }
+  }
+
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
   // Pulada em turnos sociais e quando o leitor deu uma URL (intenção já é clara).
   if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !temTools) {
@@ -285,6 +305,7 @@ export async function POST(req: NextRequest) {
       },
       [
         notaDataAtual(),
+        diretrizReferente(payload.scope?.referente),
         enumera ? notaEnumeracao() : completo ? notaCompletude() : "",
         buildContextBlock(sources),
         attach.contextBlock,

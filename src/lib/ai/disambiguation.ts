@@ -27,6 +27,9 @@ export type ClarifyScope = {
   tool?: string;
   /** Roteador de fonte: candidatas do 1º passo (evita re-embeddar no 2º). {k:key,n:nome,d:descr}. */
   tools?: { k: string; n: string; d: string }[];
+  /** Desambiguação de SUJEITO: referente confirmado pelo usuário (itens listados ×
+   *  resultados do relatório × consulta geral). Ver subject-clarify.ts. */
+  referente?: "listados" | "relatorio" | "geral";
 };
 
 /** Um botão de opção na pergunta de desambiguação. */
