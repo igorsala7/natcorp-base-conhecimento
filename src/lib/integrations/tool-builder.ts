@@ -409,7 +409,15 @@ export async function buildIntegrationTools(
             // Colaborador que não informa matrícula consulta a si). O guard valida cada valor.
             const pLoop = bt.tool.params.find((pp) => pp.nome === loop.param);
             if (valores.length === 0 && pLoop?.origem === "pessoa" && ident.matricula) valores = [String(ident.matricula)];
-            if (valores.length === 0) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+            if (valores.length === 0) {
+              // O loop é otimização p/ MÚLTIPLOS valores (separados por vírgula), não obrigação.
+              // Se o param do loop é OPCIONAL (não `obrigatorio`), uma chamada SEM ele é válida
+              // (a API aceita o filtro em branco = todos) → faz uma chamada única e a API decide.
+              // Só EXIGE valor quando o param é marcado obrigatório. Ex.: listar colaboradores por
+              // cargo numa tool cujo loop é sobre matrícula (opcional).
+              if (pLoop?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+              return await runOnce(modelArgs, 0);
+            }
             const max = loop.max ?? 20;
             const usados = valores.slice(0, max);
             if (usados.length === 1) return await runOnce({ ...modelArgs, [loop.param]: usados[0]! }, 0);
@@ -426,7 +434,13 @@ export async function buildIntegrationTools(
               .flatMap((v) => String(v).split(","))
               .map((v) => v.trim())
               .filter(Boolean);
-            if (valores.length === 0) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+            if (valores.length === 0) {
+              // Idem "values": só exige o param do loop quando ele é `obrigatorio`. Opcional e
+              // sem valor → uma chamada única sem ele (a API decide); com valores → segue o batch.
+              const pLoopB = bt.tool.params.find((pp) => pp.nome === loop.param);
+              if (pLoopB?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+              return await runOnce(modelArgs, 0);
+            }
             const size = Math.max(1, loop.max ?? 20);
             const MAX_LOTES = 20; // teto de chamadas do batch (protege o teto de 40/turno)
             const lotes: string[] = [];
