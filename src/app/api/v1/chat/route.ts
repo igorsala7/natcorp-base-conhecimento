@@ -126,6 +126,9 @@ export async function POST(req: NextRequest) {
     focusedField?: unknown;
     comparacao?: unknown;
     baseDados?: unknown;
+    // Identidade compacta da tela p/ o RAG do tutorial: { titulo, regioes[] } (nome da
+    // página/breadcrumb + títulos das regiões). Enxuga a consulta vs. todos os campos.
+    tela?: unknown;
     // Idioma escolhido no seletor do widget (ISO 639-1: en, es, fr, de, it, ja, zh…).
     // Vazio/pt = comportamento atual. Usa a ontologia daquele idioma + responde nele.
     lang?: unknown;
@@ -484,8 +487,27 @@ export async function POST(req: NextRequest) {
   const _tRagStart = Date.now();
   // Modo relatório / roteado a tool: doc é reduzida e de baixo valor semântico → busca
   // LÉXICA (pula o embedding da pergunta, que custa ~15s no pior caso com cache frio).
+  // Tutorial MANTÉM a busca híbrida (semântica): é ela que acha a documentação DESTA
+  // tela. A consulta é enriquecida abaixo com a identidade da tela (rótulos), sem o quê
+  // "como uso essa tela?" não casa doc nenhuma.
   const ragLexicalOnly = modoRelatorioCedo || ragParaTool;
-  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRag, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly });
+  // TUTORIAL: "como uso essa tela?" não tem termo nenhum da tela — enriquece a consulta
+  // do RAG com a IDENTIDADE da tela para ACHAR a documentação DESTA tela (não how-tos
+  // genéricos). Preferimos os TÍTULOS (nome da página/breadcrumb + títulos das regiões),
+  // que são curtos e específicos; sem eles, cai para alguns rótulos de campo.
+  const consultaRagFinal = (() => {
+    if (!modoTutorial) return consultaRag;
+    const tela = payload.tela && typeof payload.tela === "object" ? (payload.tela as { titulo?: unknown; regioes?: unknown }) : null;
+    const titulo = tela && typeof tela.titulo === "string" ? tela.titulo.trim() : "";
+    const regioes = tela && Array.isArray(tela.regioes) ? tela.regioes.map((r) => String(r).trim()).filter(Boolean).slice(0, 12) : [];
+    const partes = [String(consultaRag), pageContextHint(page), titulo, ...regioes].filter(Boolean);
+    if (partes.length <= 2) {
+      // Sem títulos (widget antigo) → alguns rótulos de campo, sem o "(Valor Necessário)".
+      partes.push(...screenFields.slice(0, 12).map((f) => String(f.label || "").replace(/\s*\([^)]*\)/g, "").trim()).filter(Boolean));
+    }
+    return partes.filter(Boolean).join(" ").slice(0, 400);
+  })();
+  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly });
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
   passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });

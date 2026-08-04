@@ -212,18 +212,20 @@ export function formAssistDirective(flags: FormAssistFlags = {}): string {
       "ENSINAR A TELA (tutorial guiado): quando o usuário PERGUNTAR como usar/preencher esta tela ou aplicação (ex.: \"como " +
       "uso essa tela?\", \"como preencho isso?\", \"me ensina a usar\", \"não sei mexer aqui\", \"o que faço nessa tela?\") — " +
       "é PERGUNTA, não comando de ação — use a ferramenta tutorial_tela em vez de operar a tela. Inclua TODOS os campos " +
-      "PREENCHÍVEIS da lista ELEMENTOS DA TELA (input/select/textarea/radio/checkbox), na ORDEM de preenchimento (de cima para " +
-      "baixo, respeitando a cascata: o campo-pai antes do filho). NÃO PULE campos: o objetivo é percorrer a tela INTEIRA, um " +
-      "campo por vez. Botões (ex.: Salvar) entram só se forem parte do fluxo de preenchimento. Cada passo tem uma explicação " +
-      "CURTA e clara (2-4 frases) do que o campo é e como preenchê-lo, baseada na DOCUMENTAÇÃO do contexto — e se a doc NÃO " +
-      "cobrir aquele campo, ainda assim INCLUA-O e explique brevemente pelo rótulo e pelo tipo (ex.: \"campo de data no " +
-      "formato dd/mm/aaaa\"), sem inventar regras específicas. NÃO preencha nada. O TEXTO da resposta deve, ANTES do passo " +
-      "a passo, APRESENTAR o programa/tela com base na DOCUMENTAÇÃO do contexto: o que É, para que SERVE (a FINALIDADE) e " +
-      "como FUNCIONA no geral (o fluxo do processo) — em um parágrafo curto, sem conhecimento geral e sem inventar; se a " +
-      "doc não descrever esta tela, diga isso em uma linha e siga assim mesmo. Termine o texto PERGUNTANDO se o usuário " +
-      "quer iniciar o tutorial guiado (ex.: \"Quer que eu inicie o tutorial guiado, destacando cada campo?\") — o sistema " +
-      "mostra os botões Iniciar / Agora não, e só destaca os campos depois que ele confirmar. As explicações CAMPO A CAMPO " +
-      "NÃO entram no texto — vão em `passos`, e o sistema mostra uma por vez, destacando o campo e rolando até ele.\n") +
+      "PREENCHÍVEIS da lista ELEMENTOS DA TELA (input/select/textarea/radio/checkbox) E os botões de AÇÃO relevantes. ORDEM: " +
+      "hierarquia LÓGICA de preenchimento — de cima para baixo, o campo-pai antes do filho (cascata). Os botões de AÇÃO que " +
+      "CONCLUEM o processo — CRIAR, SALVAR, GRAVAR, APAGAR, EXCLUIR, DELETAR — vão SEMPRE por ÚLTIMO, mesmo que apareçam no " +
+      "TOPO da tela. NÃO PULE campos: percorra a tela INTEIRA, um item por vez. Cada passo tem uma explicação CURTA (1-2 " +
+      "frases) do que o campo/botão é e como usá-lo, baseada na DOCUMENTAÇÃO do contexto; se a doc NÃO cobrir aquele item, " +
+      "ainda assim INCLUA-O e explique brevemente pelo rótulo, tipo e ONTOLOGIA (ex.: \"campo de data no formato dd/mm/aaaa\"), " +
+      "sem inventar regras específicas. NÃO preencha nada. O TEXTO da resposta deve, ANTES do passo a passo, APRESENTAR a tela: " +
+      "o que É, para que SERVE (a FINALIDADE) e como FUNCIONA no geral — em um parágrafo curto, usando a DOCUMENTAÇÃO, a " +
+      "ONTOLOGIA e a INTERPRETAÇÃO dos campos/botões da tela. Se a doc NÃO descrever esta tela, NÃO diga que 'não encontrou " +
+      "documentação' — apenas INTERPRETE a tela (pelos rótulos, tipos e ontologia) e siga normalmente com a apresentação e o " +
+      "tutorial. Termine PERGUNTANDO se o usuário quer iniciar o tutorial guiado (ex.: \"Quer que eu inicie o tutorial guiado, " +
+      "destacando cada campo?\") — o sistema mostra os botões Iniciar / Agora não, e só destaca os campos depois que ele " +
+      "confirmar. As explicações CAMPO A CAMPO NÃO entram no texto — vão em `passos`, e o sistema mostra uma por vez, " +
+      "destacando o campo e rolando até ele.\n") +
     // ── SITUACIONAL: OCR (só quando há anexo de imagem/PDF) ──────────────────
     g(flags.temAnexos,
       "PREENCHER A PARTIR DE DOCUMENTO (OCR): quando o usuário ANEXAR uma imagem ou PDF de um documento (ex.: comprovante " +
@@ -879,14 +881,15 @@ export function buildFormTools(fields: ScreenField[], sink: UiAction[]): ToolSet
         "aplicação (uma pergunta, não um comando de ação), monte a SEQUÊNCIA ordenada de campos a explicar. O sistema " +
         "destaca cada campo, um por vez, rola até ele e mostra a explicação no chat, com botões Prosseguir/Sair. NÃO " +
         "preenche nada — só ensina. Use a DOCUMENTAÇÃO do contexto para as explicações; não invente. Uma única chamada " +
-        "com TODOS os passos, na ordem de preenchimento (de cima para baixo / cascata: pai antes do filho).",
+        "com TODOS os passos, na ordem de preenchimento (de cima para baixo / cascata: pai antes do filho). Os botões de " +
+        "AÇÃO que concluem o processo (CRIAR, SALVAR, GRAVAR, APAGAR, EXCLUIR, DELETAR) vão por ÚLTIMO, mesmo que estejam no topo.",
       inputSchema: z.object({
         passos: z
           .array(
             z.object({
               ref: z.string().describe("O ref do campo a destacar (o texto entre colchetes em ELEMENTOS DA TELA)."),
               titulo: z.string().describe("Nome curto do campo/etapa (ex.: o rótulo do campo)."),
-              explicacao: z.string().describe("O que o campo é e como preenchê-lo (2-4 frases), com base na documentação."),
+              explicacao: z.string().describe("O que o campo/botão é e como usá-lo (1-2 frases CURTAS), com base na documentação/ontologia."),
             }),
           )
           .min(1)
