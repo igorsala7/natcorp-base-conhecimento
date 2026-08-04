@@ -62,12 +62,21 @@ export function ehParamEmpresa(p: ToolParam): boolean {
   return (n === "empresa" || n === "emp" || n === "cod_empresa" || n === "codempresa" || /(^|_)empresa/.test(n)) && semUser(n);
 }
 
+/** Parâmetro que MIRA o código de CANDIDATO (recrutamento), não o do usuário logado. */
+export function ehParamCandidato(p: ToolParam): boolean {
+  if (p.campoIdentidade === "cod_candidato") return true;
+  const n = String(p.nome ?? "").toLowerCase();
+  return /(^|_)(cod_?)?candidat/.test(n) && semUser(n);
+}
+
 /**
- * Reescreve os parâmetros SÓ em "proprios": empresa E matrícula passam a vir da
- * IDENTIDADE (o próprio usuário), então a IA nem enxerga esses campos. Em "equipe"
- * os parâmetros ficam intactos — a matrícula-alvo vem do modelo e é validada na
- * equipe pelo guard (forçar a empresa quebraria gestor com equipe multi-empresa,
- * espelhando o comportamento antigo do escopo_pessoa). "todos"/"nenhum" não mexem.
+ * Reescreve os parâmetros SÓ em "proprios": empresa, matrícula E cod_candidato passam
+ * a vir da IDENTIDADE (o próprio usuário/candidato logado), então a IA nem enxerga
+ * esses campos — é isso que fixa o "só o próprio dado" (ex.: um candidato só vê o
+ * SEU cod_candidato; o recrutador em PO/PG segue com origem=modelo, vendo qualquer um).
+ * Em "equipe" os parâmetros ficam intactos — a matrícula-alvo vem do modelo e é
+ * validada na equipe pelo guard (forçar a empresa quebraria gestor multi-empresa,
+ * espelhando o antigo escopo_pessoa). "todos"/"nenhum" não mexem.
  */
 export function aplicarEscopoParams(params: ToolParam[], scope: EscopoPainel): ToolParam[] {
   if (scope !== "proprios") return params;
@@ -76,6 +85,8 @@ export function aplicarEscopoParams(params: ToolParam[], scope: EscopoPainel): T
       return { ...p, origem: "identidade" as const, campoIdentidade: "cod_empresa" as const };
     if (ehParamMatricula(p) && p.origem !== "identidade")
       return { ...p, origem: "identidade" as const, campoIdentidade: "matricula" as const };
+    if (ehParamCandidato(p) && p.origem !== "identidade")
+      return { ...p, origem: "identidade" as const, campoIdentidade: "cod_candidato" as const };
     return p;
   });
 }
@@ -89,7 +100,7 @@ export function loopSobEscopo(loop: LoopConfig | null | undefined, params: ToolP
   const l = loop ?? null;
   if (!l || scope !== "proprios") return l;
   const alvo = params.find((p) => p.nome === l.param);
-  if (alvo && (ehParamMatricula(alvo) || ehParamEmpresa(alvo))) return null;
+  if (alvo && (ehParamMatricula(alvo) || ehParamEmpresa(alvo) || ehParamCandidato(alvo))) return null;
   return l;
 }
 

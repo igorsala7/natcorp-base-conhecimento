@@ -4,6 +4,7 @@ import {
   escopoDoPainel,
   ehParamMatricula,
   ehParamEmpresa,
+  ehParamCandidato,
   aplicarEscopoParams,
   loopSobEscopo,
   filtrarProprioDosResultados,
@@ -69,18 +70,27 @@ describe("detecção de parâmetro", () => {
     expect(ehParamEmpresa(P({ nome: "emp" }))).toBe(true);
     expect(ehParamEmpresa(P({ nome: "empresa_user" }))).toBe(false);
   });
+  it("candidato (recrutamento)", () => {
+    expect(ehParamCandidato(P({ nome: "cod_candidato" }))).toBe(true);
+    expect(ehParamCandidato(P({ nome: "candidato" }))).toBe(true);
+    expect(ehParamCandidato(P({ nome: "x", campoIdentidade: "cod_candidato", origem: "identidade" }))).toBe(true);
+    expect(ehParamCandidato(P({ nome: "candidato_user" }))).toBe(false);
+    expect(ehParamCandidato(P({ nome: "cod_empresa" }))).toBe(false);
+  });
 });
 
 describe("aplicarEscopoParams", () => {
   const params = [
     P({ nome: "matricula", origem: "modelo" }),
     P({ nome: "cod_empresa", origem: "modelo" }),
+    P({ nome: "cod_candidato", origem: "modelo" }),
     P({ nome: "competencia", origem: "modelo" }),
   ];
-  it("próprios: força matrícula E empresa à identidade", () => {
+  it("próprios: força matrícula, empresa E cod_candidato à identidade", () => {
     const r = aplicarEscopoParams(params, "proprios");
     expect(r.find((p) => p.nome === "matricula")).toMatchObject({ origem: "identidade", campoIdentidade: "matricula" });
     expect(r.find((p) => p.nome === "cod_empresa")).toMatchObject({ origem: "identidade", campoIdentidade: "cod_empresa" });
+    expect(r.find((p) => p.nome === "cod_candidato")).toMatchObject({ origem: "identidade", campoIdentidade: "cod_candidato" });
     expect(r.find((p) => p.nome === "competencia")?.origem).toBe("modelo");
   });
   it("equipe: NÃO mexe nos parâmetros (matrícula do modelo; guard valida a equipe)", () => {

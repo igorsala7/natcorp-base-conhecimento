@@ -5,7 +5,7 @@
  * Quando a credencial da base tem `session_key`, o sistema:
  *   1. VALIDA o usuário em `login/v1/autenticacao` (só segue se `status = OK`);
  *   2. ENRIQUECE a identidade com os dados de `login/v1/dados_colab_usuario`
- *      (CPF, perfil gestor/colaborador, nome, cargo).
+ *      (CPF, cod_candidato, perfil gestor/colaborador, nome, cargo).
  * Assim o CPF entra como IDENTIDADE (injetado no servidor, nunca pelo modelo) e
  * o `docs_user` (assinatura) funciona sem passar o CPF pela IA.
  *
@@ -116,9 +116,13 @@ export async function resolveIdentity(input: {
     if (!prof) return store({ ok: true, identity }); // validado, mas sem cadastro extra
 
     const cpf = typeof prof.cpf === "string" ? prof.cpf : undefined;
+    // `cod_candidato` do login → identidade da sessão: fixa o "só o próprio dado"
+    // nas tools com o param P_COD_CANDIDATO (origem=identidade). Pode vir número.
+    const codCandidato =
+      prof.cod_candidato != null && String(prof.cod_candidato).trim() !== "" ? String(prof.cod_candidato).trim() : undefined;
     const gestor = String(prof.gestor ?? "").toUpperCase() === "SIM";
     const perfil = gestor ? "gestor" : "colaborador";
-    const enriched: Identity = { ...identity, perfil, ...(cpf ? { cpf } : {}) };
+    const enriched: Identity = { ...identity, perfil, ...(cpf ? { cpf } : {}), ...(codCandidato ? { cod_candidato: codCandidato } : {}) };
     const email =
       (typeof prof.email_pessoal === "string" && prof.email_pessoal) ||
       (typeof prof.email_funcional === "string" && prof.email_funcional) ||

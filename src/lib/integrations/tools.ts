@@ -15,11 +15,13 @@ export type ParamOrigem = "modelo" | "identidade" | "fixo" | "credencial" | "pes
 export type ParamLocal = "query" | "path" | "body" | "header" | "none";
 /**
  * Campos de identidade disponíveis para injeção nas tools.
- * `usuario/cod_empresa/matricula/perfil/portal` vêm do TOKEN (p_*). `cpf` é
- * resolvido no SERVIDOR (login ORDS) quando a credencial tem `session_key` —
- * nunca vem do token nem do modelo.
+ * `usuario/cod_empresa/matricula/perfil/portal` vêm do TOKEN (p_*). `cpf` e
+ * `cod_candidato` são resolvidos no SERVIDOR (login ORDS) quando a credencial tem
+ * `session_key` — nunca vêm do token nem do modelo. `cod_candidato` serve às tools
+ * de "só o próprio dado" (o param P_COD_CANDIDATO com origem=identidade fixa o
+ * candidato do usuário logado, invisível ao modelo).
  */
-export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal" | "cpf" | "base";
+export type IdentityField = "usuario" | "cod_empresa" | "matricula" | "perfil" | "portal" | "cpf" | "base" | "cod_candidato";
 
 export type ToolParam = {
   /** Nome do parâmetro NA API. */
@@ -111,6 +113,7 @@ export const IDENTITY_FIELDS: readonly { value: IdentityField; label: string }[]
   { value: "perfil", label: "Perfil (gestor/colaborador)" },
   { value: "portal", label: "Portal (p_portal)" },
   { value: "cpf", label: "CPF (resolvido no login)" },
+  { value: "cod_candidato", label: "Cód. candidato (P_COD_CANDIDATO — resolvido no login)" },
   { value: "base", label: "Base/cliente (p_base)" },
 ];
 
