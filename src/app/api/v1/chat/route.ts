@@ -592,10 +592,15 @@ export async function POST(req: NextRequest) {
   // No modo RELATÓRIO cortamos as tools de API (integ.tools) — a resposta sai do
   // relatório. Mantemos gráfico/arquivo (visualTools) e consulta/filtro (queryTools).
   const cortaIntegracao = modoRelatorio || relatorioVazioParaFiltrar;
-  // Análise pura: corta as tools de AÇÃO (preencher/marcar/clicar/tutorial) — mantém só
-  // `destacar_tela` (realce, read-only). As de cálculo/visual/consulta seguem via queryTools/
-  // visualTools (então NÃO fica "prompt com tools e zero ferramentas", que quebrava o gemini).
-  const formToolsFinal: ToolSet = modoAnalisePura
+  // Turno de DADOS puro: a pergunta precisa de dados do sistema (tools de integração
+  // ATIVAS) e NÃO é operação de tela (coletar/filtrar relatório, tutorial). Aí as tools
+  // de TELA (preencher/marcar/clicar/tutorial) são ruído — cortá-las reduz tokens e
+  // passos do loop agêntico (ex.: "quais os colaboradores da minha equipe" não mexe na tela).
+  const turnoDadosPuro = temIntegTools && !cortaIntegracao && !operacaoDeTela && !modoTutorial && !relatorioVazioParaFiltrar;
+  // Análise pura OU dados puros: corta as tools de AÇÃO (preencher/marcar/clicar/tutorial)
+  // — mantém só `destacar_tela` (realce, read-only). As de cálculo/visual/consulta seguem
+  // via queryTools/visualTools (então NÃO fica "prompt com tools e zero ferramentas").
+  const formToolsFinal: ToolSet = modoAnalisePura || turnoDadosPuro
     ? (formTools.destacar_tela ? { destacar_tela: formTools.destacar_tela } : {})
     : formTools;
   const allTools: ToolSet = { ...(cortaIntegracao ? {} : integTools), ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
@@ -837,7 +842,11 @@ export async function POST(req: NextRequest) {
   // "qual delas?" — as tools candidatas são de assuntos DIFERENTES (férias, cargos,
   // pagamento, ponto…), não opções da MESMA informação. Deixa o agente tratar cada
   // termo (ele tem todas as tools) e perguntar por item quando precisar.
-  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && baseCode && !pareceComposta(question)) {
+  // `!roteouDireto`: quando UMA tool casou forte (≥ LIMIAR_DIRETO), a intenção é clara —
+  // NÃO pergunta "qual delas?"; deixa o agente rodar com as tools e escolher (ex.: "minha
+  // equipe" casa listar_colaboradores_resumo ~0.73 junto de outras ~0.72 do mesmo assunto:
+  // perguntar 5 variações da mesma coisa só atrapalha). Pergunta só no sinal fraco.
+  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && baseCode && !pareceComposta(question) && !roteouDireto) {
     const cand: ToolMatch[] = scopeIn?.tools?.length
       ? scopeIn.tools.map((t) => ({ key: t.k, name: t.n, description: t.d, sim: 1 }))
       : (matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool));
@@ -1042,7 +1051,7 @@ export async function POST(req: NextRequest) {
     (!!payload.comparacao && typeof payload.comparacao === "object") ||
     baseRelIds.length > 0 ||
     /relat[óo]rios?\s+salvos?|meus\s+relat[óo]rios|(compar|cruz)\w*\s+(com\s+)?(o\s+)?(meu\s+)?salvo/i.test(question);
-  const blocoFormAssist = screenFields.length > 0 && !modoAnalisePura
+  const blocoFormAssist = screenFields.length > 0 && !modoAnalisePura && !turnoDadosPuro
     ? formAssistDirective({
         modoTutorial,
         temPaginado,
@@ -1192,7 +1201,9 @@ export async function POST(req: NextRequest) {
   // 6 basta. Sem tools de análise (só integração): 6 composta / 4 simples.
   const _temAnaliseTools = Object.keys(visualTools).length > 0 || Object.keys(queryTools).length > 0;
   const _perguntaComplexa = perguntaComposta || compostoPorTool || pareceComposta(question);
-  const maxPassos = _temAnaliseTools ? (_perguntaComplexa ? 9 : 6) : (_perguntaComplexa ? 6 : 4);
+  // Teto de passos do loop agêntico. Pergunta simples (só listar/mostrar) fecha cedo:
+  // chamar a tool + responder bastam. Composta/análise recebe mais fôlego.
+  const maxPassos = _temAnaliseTools ? (_perguntaComplexa ? 9 : 5) : (_perguntaComplexa ? 6 : 3);
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
     // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).

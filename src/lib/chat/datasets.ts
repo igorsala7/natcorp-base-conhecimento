@@ -184,7 +184,10 @@ export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown)
   if (meta) {
     const truncado = meta.total > MAX_ITENS_MODELO;
     const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
+    // Truncado → é AMOSTRA (usa ferramentas de dados p/ o total). Completo → o modelo já
+    // tem TODAS as linhas: marca `_completo` para ele responder direto sem re-consultar.
     if (truncado) { tag._amostra = MAX_ITENS_MODELO; tag._nota = notaAmostra(meta.id, meta.total); }
+    else tag._completo = true;
     if (Array.isArray(podado)) {
       out = { ...tag, itens: truncado ? podado.slice(0, MAX_ITENS_MODELO) : podado };
     } else {

@@ -171,7 +171,11 @@ export function integUsageDirective(toolForcado?: string): string {
     "não houvesse dados sem antes confirmar os parâmetros com o usuário.\n" +
     "RÓTULO DAS COLUNAS: ao APRESENTAR os dados retornados pela ferramenta, cite cada campo pela LABEL amigável (ex.: " +
     "\"Cargo\", \"Data de admissão\", \"Salário\"), NUNCA pela CHAVE TÉCNICA do JSON/banco (ex.: \"COD_CARGO\", \"DS_NOME\", " +
-    "\"VL_SALARIO\") — traduza o nome técnico para o termo que o usuário reconhece.";
+    "\"VL_SALARIO\") — traduza o nome técnico para o termo que o usuário reconhece.\n" +
+    "EFICIÊNCIA (menos passos): se a ferramenta já devolveu a lista COMPLETA (vem o marcador `_completo`, e NÃO " +
+    "`_amostra`/`_nota`), você JÁ tem TODAS as linhas — se o pedido é só LISTAR/MOSTRAR/APRESENTAR, responda DIRETO com " +
+    "esses dados, SEM chamar consultar_registros/agregar/estatísticas de novo. Use as ferramentas de dados apenas quando o " +
+    "resultado veio como AMOSTRA (`_nota`) ou para FILTRAR/CONTAR/SOMAR/analisar um recorte específico.";
   return toolForcado
     ? `FONTE ESCOLHIDA: o usuário quer a informação via a ferramenta "${toolForcado}". Chame-a com os parâmetros do CONTEXTO da conversa (não use os dados da tela). ${regra}`
     : regra;
