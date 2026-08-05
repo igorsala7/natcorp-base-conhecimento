@@ -157,8 +157,10 @@ async function retrieveWith(
   const basePathById = new Map<string, string>();
   const rootTitleById = new Map<string, string | null>();
   const themeByNode = new Map<string, NodeTheme>();
-  for (const e of escoposUsar) {
-    const ctx = await spaceContext(supabase, e.spaceId, e.tree);
+  // V4: contexto de cada espaço em PARALELO (eram awaits seriais → latência somada em
+  // chaves multi-espaço). NÃO muda o QUE é buscado nem a ordem de mesclagem — só a espera.
+  const ctxs = await Promise.all(escoposUsar.map((e) => spaceContext(supabase, e.spaceId, e.tree)));
+  for (const ctx of ctxs) {
     nodeIds.push(...ctx.nodeIds);
     for (const [id, path] of ctx.basePathById) basePathById.set(id, path);
     for (const [id, t] of ctx.rootTitleById) rootTitleById.set(id, t);
@@ -279,8 +281,9 @@ async function retrieveWith(
   // o que faltar, respeitando o escopo, e insere no topo (corta o último).
   if (responsaveis.length) {
     const artigos = new Set<string>();
-    for (const nid of responsaveis) {
-      const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: nid });
+    // V4: subtree_ids dos responsáveis em PARALELO (era 1 RPC serial por termo).
+    const subs = await Promise.all(responsaveis.map((nid) => supabase.rpc("subtree_ids", { p_node_id: nid })));
+    for (const { data: sub } of subs) {
       for (const r of sub ?? []) if (r.type === "article") artigos.add(r.id);
     }
     const escopoSet = nodeIds.length ? new Set(nodeIds) : null;
