@@ -27,6 +27,8 @@ type Fix = {
   identity: Record<string, string>;
   params: Record<string, string>;
   requisicoes: Record<string, string>;
+  /** Override por ENDPOINT: overrides[toolKey][nomeParam] = valor (ex.: p_situacao A/D/T). */
+  overrides?: Record<string, Record<string, string>>;
 };
 
 // Caminho relativo à RAIZ do repo — o run.sh faz `cd` para a raiz antes de rodar.
@@ -36,11 +38,16 @@ const TIMEOUT = 30_000;
 
 /** Valor de um parâmetro origem=modelo, a partir do fixture (por nome + chave da tool). */
 function valorParam(nome: string, toolKey: string): string | undefined {
+  // Override por ENDPOINT tem prioridade (fixture.overrides[toolKey][nomeParam]).
+  const ov = (fix.overrides || {})[toolKey];
+  if (ov && ov[nome] != null && String(ov[nome]) !== "") return String(ov[nome]);
   const n = String(nome || "").toLowerCase().replace(/^p_/, "");
   const P = fix.params || {};
   const R = fix.requisicoes || {};
   // Nº de requisição: casa o TIPO pela chave da tool (requisicoes_req_desligamento → desligamento).
-  if (/requis|num_?req|protocolo|nr_?req|id_?req|cod_?req/.test(n)) {
+  // Ancorado no início: só o PRÓPRIO nº (requisicao/id_req/num_req/protocolo), nunca
+  // "data_requisicao_ini" (data) nem "sit_requisicao" (situação).
+  if (/^(requisic|id_?req|num_?req|nr_?req|cod_?req|protocolo)/.test(n)) {
     const tk = toolKey.toLowerCase();
     for (const [tipo, val] of Object.entries(R)) if (val && tk.includes(tipo)) return String(val);
   }
