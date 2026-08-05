@@ -5412,6 +5412,7 @@
         row.style.cssText = "display:flex;align-items:flex-start;gap:9px;cursor:pointer;text-align:left;";
         var cb = document.createElement("input");
         cb.type = "checkbox";
+        cb.checked = !!o.checked; // a IA já pré-marca as fontes ADERENTES; o usuário só confirma/ajusta
         cb.style.cssText = "margin-top:3px;flex:none;width:16px;height:16px;cursor:pointer;";
         var txt = document.createElement("span");
         txt.style.cssText = "display:flex;flex-direction:column;gap:2px;min-width:0;";

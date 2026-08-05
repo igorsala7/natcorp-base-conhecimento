@@ -46,7 +46,7 @@ import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { ehAfirmacao } from "@/lib/integrations/guards";
 import { confirmarPendencia } from "@/lib/integrations/confirmations";
-import { rotulosAmigaveisTools } from "@/lib/chat/tool-clarify";
+import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool-clarify";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -873,10 +873,19 @@ export async function POST(req: NextRequest) {
     // quando o usuário quer cruzar fontes), oferece MULTI-SELEÇÃO — marque TODAS. O widget
     // junta num único scope { fonte:"ia", tools:[...], usarRelatorio }; o servidor força
     // TODAS as tools e mantém o relatório. Mostra o CONTEXTO inteiro (até 8, era 3).
-    const toolsAmb = (matchesCache ?? []).slice(0, 8);
+    // Pool AMPLO (top-20 do embedding) — o top-5 BORRA numa pergunta multi-intenção. Uma
+    // IA rápida lê a pergunta + as descrições/sinônimos e escolhe as ADERENTES por FACETA
+    // (salário/férias/avaliações/cargos…), descartando genéricas (ponto/apuração/equipe).
+    const poolAmplo = await matchBaseTools(supabase, baseCode, consultaTool, { limiar: 0.45, limite: 20 });
+    const aderentes = new Set(
+      await selecionarToolsAderentes(consultaTools, poolAmplo.map((m) => ({ key: m.key, name: m.name, description: m.description }))),
+    );
+    // Aderentes primeiro, PRÉ-MARCADAS (você só confirma). IA vaga/off → top-8 do embedding.
+    const toolsAmb = aderentes.size ? poolAmplo.filter((m) => aderentes.has(m.key)) : (matchesCache ?? poolAmplo).slice(0, 8);
+    passo("clarify_fonte_inicial", { pool: poolAmplo.length, aderentes: [...aderentes], modo: aderentes.size ? "ia" : "embedding" });
     const opcoesFonte: unknown[] = [
-      { id: "relatorio", label: "📄 Dados desta página (relatório da tela)", relatorio: true },
-      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, tool: { k: m.key, n: m.name, d: m.description ?? "" } })),
+      { id: "relatorio", label: "📄 Dados desta página (relatório da tela)", relatorio: true, checked: true },
+      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, tool: { k: m.key, n: m.name, d: m.description ?? "" }, checked: aderentes.has(m.key) })),
     ];
     const stream = new ReadableStream({
       start(controller) {
@@ -884,9 +893,11 @@ export async function POST(req: NextRequest) {
           sse({
             type: "clarify",
             multiSelect: true,
-            question: toolsAmb.length
-              ? "Essa resposta pode combinar MAIS DE UMA fonte. Marque TODAS que eu devo usar — o relatório desta tela e/ou as ferramentas — e eu cruzo os dados numa resposta só:"
-              : "De onde quer que eu busque os dados?",
+            question: aderentes.size
+              ? "Já marquei as fontes que parecem cobrir sua pergunta (o relatório desta tela + as ferramentas de cada assunto). Confirme ou ajuste as caixas e eu cruzo tudo numa resposta só:"
+              : toolsAmb.length
+                ? "Essa resposta pode combinar MAIS DE UMA fonte. Marque TODAS que eu devo usar — o relatório desta tela e/ou as ferramentas — e eu cruzo os dados numa resposta só:"
+                : "De onde quer que eu busque os dados?",
             options: opcoesFonte,
           }),
         );
