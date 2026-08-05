@@ -90,6 +90,7 @@ export function buildSchemaTools(): ToolSet {
         external_url: z.string().optional(),
         system_prompt: z.string().optional(),
         response_hint: z.string().optional(),
+        search_terms: z.string().optional().describe("Sinônimos e exemplos de pergunta que melhoram o MATCH da IA (não aparece para o usuário; só entra no embedding)."),
         params: z.array(paramSchema).optional(),
         baseCodes: z.array(z.string()).optional().describe("Bases (base_code) onde a tool fica ativa. Omitido: mantém (edição) ou todas (nova)."),
         active: z.boolean().optional(),
@@ -106,6 +107,7 @@ export function buildSchemaTools(): ToolSet {
           auth_type: a.auth_type ?? (existing?.auth_type as string) ?? "oauth2",
           params: (a.params ?? existing?.params ?? []) as unknown as Json,
           response_hint: a.response_hint ?? existing?.response_hint ?? null,
+          search_terms: a.search_terms ?? existing?.search_terms ?? "",
           active: a.active ?? existing?.active ?? true,
           endpoint_kind: a.endpoint_kind ?? (existing?.endpoint_kind as string) ?? "base",
           external_url: a.external_url ?? existing?.external_url ?? null,
@@ -121,8 +123,17 @@ export function buildSchemaTools(): ToolSet {
         // save. Sem isto, o embedding só era gerado pelo script em lote — e editar a
         // descrição para melhorar a escolha da IA NÃO surtia efeito. Best-effort (não
         // derruba o save; a tool sem embedding ainda existe pelo caminho lexical).
-        if (!existing || existing.name !== row.name || (existing.description ?? "") !== row.description) {
-          await syncToolEmbedding(db, toolId, row.name, row.description);
+        if (
+          !existing ||
+          existing.name !== row.name ||
+          (existing.description ?? "") !== row.description ||
+          (existing.search_terms ?? "") !== row.search_terms ||
+          (existing.response_hint ?? "") !== (row.response_hint ?? "")
+        ) {
+          await syncToolEmbedding(db, toolId, row.name, row.description, {
+            searchTerms: row.search_terms,
+            responseHint: row.response_hint,
+          });
         }
 
         // Acesso por base: se enviou baseCodes, reescreve; se é nova e não enviou, ativa em todas.

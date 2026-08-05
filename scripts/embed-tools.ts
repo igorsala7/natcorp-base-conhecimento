@@ -28,7 +28,7 @@ async function main() {
   const db = createClient<Database>(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } });
   const todas = process.argv.includes("--all");
 
-  const { data: tools, error } = await db.from("ai_tools").select("id, name, description, embedding");
+  const { data: tools, error } = await db.from("ai_tools").select("id, name, description, embedding, search_terms, response_hint");
   if (error) {
     console.error("Falha ao ler ai_tools:", error.message);
     process.exit(1);
@@ -41,7 +41,7 @@ async function main() {
   }
   let ok = 0;
   for (const t of alvo) {
-    await syncToolEmbedding(db, t.id, t.name, t.description);
+    await syncToolEmbedding(db, t.id, t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint });
     ok++;
     process.stdout.write(`\r  ${ok}/${alvo.length}`);
   }

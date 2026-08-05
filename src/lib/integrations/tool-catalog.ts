@@ -15,8 +15,14 @@ type DB = SupabaseClient<Database>;
  */
 
 /** Texto canônico embedado por tool (e reusado para embedar a mensagem do usuário). */
-export function toolCatalogText(name: string, description: string): string {
-  return [name, description]
+export function toolCatalogText(
+  name: string,
+  description: string,
+  extra?: { searchTerms?: string | null; responseHint?: string | null },
+): string {
+  // Sinônimos/exemplos (search_terms) e o que a tool RETORNA (response_hint) enriquecem
+  // o embedding — o matching semântico passa a entender o vocabulário do usuário.
+  return [name, description, extra?.searchTerms, extra?.responseHint]
     .map((s) => String(s ?? "").trim())
     .filter(Boolean)
     .join(" — ")
@@ -46,8 +52,14 @@ function vecLiteral(emb: number[]): string {
 }
 
 /** Recalcula e grava o embedding de UMA tool (chamado no saveTool). Best-effort. */
-export async function syncToolEmbedding(db: DB, toolId: string, name: string, description: string): Promise<void> {
-  const emb = await embedTexto(toolCatalogText(name, description));
+export async function syncToolEmbedding(
+  db: DB,
+  toolId: string,
+  name: string,
+  description: string,
+  extra?: { searchTerms?: string | null; responseHint?: string | null },
+): Promise<void> {
+  const emb = await embedTexto(toolCatalogText(name, description, extra));
   if (!emb) return;
   const { error } = await db.from("ai_tools").update({ embedding: vecLiteral(emb) }).eq("id", toolId);
   if (error) console.error("[tool-catalog] gravar embedding falhou:", error.message);

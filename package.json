@@ -21,6 +21,7 @@
     "worker": "tsx --tsconfig worker/tsconfig.json --env-file=.env.local worker/index.ts",
     "worker:prod": "tsx --tsconfig worker/tsconfig.json worker/index.ts",
     "embed:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools.ts",
+    "gen:search-terms": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/gen-search-terms.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",

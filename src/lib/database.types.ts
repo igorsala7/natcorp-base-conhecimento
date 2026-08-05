@@ -823,6 +823,7 @@ export type Database = {
           params: Json
           path_template: string
           response_hint: string | null
+          search_terms: string
           system_prompt: string
           updated_at: string
         }
@@ -851,6 +852,7 @@ export type Database = {
           params?: Json
           path_template?: string
           response_hint?: string | null
+          search_terms?: string
           system_prompt?: string
           updated_at?: string
         }
@@ -879,6 +881,7 @@ export type Database = {
           params?: Json
           path_template?: string
           response_hint?: string | null
+          search_terms?: string
           system_prompt?: string
           updated_at?: string
         }
