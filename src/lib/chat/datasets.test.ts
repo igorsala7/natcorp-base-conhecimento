@@ -635,3 +635,23 @@ describe("agregarDataset — guarda de identificador (A7)", () => {
     expect(r!.valor).toBe(5010);
   });
 });
+
+// A3: resultado de ferramenta VAZIO marca _sem_dados p/ o modelo não inventar.
+describe("injetarDataset — resultado vazio (A3)", () => {
+  it("lista vazia → _sem_dados + aviso", () => {
+    const reg = newRegistry();
+    const out = injetarDataset(reg, { items: [] }) as Record<string, unknown>;
+    expect(out._sem_dados).toBe(true);
+    expect(String(out._aviso)).toMatch(/n[ãa]o encontrou/i);
+  });
+  it("array vazio no topo → _sem_dados", () => {
+    const reg = newRegistry();
+    const out = injetarDataset(reg, [] as unknown) as Record<string, unknown>;
+    expect(out._sem_dados).toBe(true);
+  });
+  it("resultado COM dados não marca _sem_dados", () => {
+    const reg = newRegistry();
+    const out = injetarDataset(reg, { items: linhas(3) }) as Record<string, unknown>;
+    expect(out._sem_dados).toBeUndefined();
+  });
+});

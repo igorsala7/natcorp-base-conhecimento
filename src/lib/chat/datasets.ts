@@ -189,6 +189,17 @@ function redeSegurancaFinal(out: unknown): unknown {
  *  no dataset (para dados_de) mas entrega ao modelo só uma AMOSTRA quando a lista é grande —
  *  senão o contexto estoura. Poda também listas ANINHADAS (loop por colaborador) e tem uma
  *  rede de segurança final. O `_total`/`_dataset` + as ferramentas cobrem os 100%. */
+/** A3: o resultado é uma lista de dados VAZIA (0 registros)? (array vazio no topo, ou uma
+ *  chave de lista conhecida vazia). Sinal de "não existe esse dado para o filtro". */
+function pareceVazio(data: unknown): boolean {
+  if (Array.isArray(data)) return data.length === 0;
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    for (const k of CHAVES_LISTA) if (Array.isArray(o[k])) return (o[k] as unknown[]).length === 0;
+  }
+  return false;
+}
+
 export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown): unknown {
   if (!reg || !saida || typeof saida !== "object") return saida;
   // 1) Poda listas ANINHADAS grandes (cada `dados` do loop pode ter centenas de linhas).
@@ -216,6 +227,14 @@ export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown)
       }
       if (!feito) out = { ...o, ...tag };
     }
+  } else if (pareceVazio(podado)) {
+    // A3: consulta retornou ZERO registros → marca explícito para o modelo NÃO inventar.
+    const extra = !Array.isArray(podado) && podado && typeof podado === "object" ? (podado as Record<string, unknown>) : {};
+    out = {
+      ...extra,
+      _sem_dados: true,
+      _aviso: "A consulta retornou ZERO registros. Se esta é a única fonte para o pedido, responda claramente que NÃO encontrou esse dado no sistema (para o filtro informado) — NÃO invente valores nem responda por conhecimento geral.",
+    };
   }
   // 3) Rede de segurança: se AINDA estiver gigante, poda agressiva.
   return redeSegurancaFinal(out);
