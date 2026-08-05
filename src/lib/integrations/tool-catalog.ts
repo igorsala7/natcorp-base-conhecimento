@@ -1,6 +1,6 @@
 import "server-only";
 import { embed } from "ai";
-import { embeddingModel, embeddingCallOptions } from "@/lib/ai/config";
+import { embeddingModel, embeddingCallOptions, aiTimeout } from "@/lib/ai/config";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 
@@ -38,6 +38,9 @@ export async function embedTexto(texto: string): Promise<number[] | null> {
       model: await embeddingModel(),
       value: t,
       providerOptions: await embeddingCallOptions(),
+      // V2: mesma proteção do RAG — provedor de embedding FRIO (~15s) não pode travar a
+      // hot-path do matcher de tools; estoura o timeout e cai no léxico/rota sem embedding.
+      abortSignal: aiTimeout("embedding_query"),
     });
     return embedding as number[];
   } catch (e) {
