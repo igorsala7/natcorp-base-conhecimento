@@ -27,6 +27,8 @@ export type ClarifyScope = {
   tool?: string;
   /** Roteador de fonte: candidatas do 1º passo (evita re-embeddar no 2º). {k:key,n:nome,d:descr}. */
   tools?: { k: string; n: string; d: string }[];
+  /** Multi-fonte (pergunta COMPOSTA): usar TAMBÉM o relatório da tela junto das `tools`. */
+  usarRelatorio?: boolean;
   /** Desambiguação de SUJEITO: referente confirmado pelo usuário (itens listados ×
    *  resultados do relatório × consulta geral). Ver subject-clarify.ts. */
   referente?: "listados" | "relatorio" | "geral";

@@ -5392,26 +5392,39 @@
     messagesEl.appendChild(box);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
-  function renderClarify(question, options) {
+  function renderClarify(question, options, multiSelect) {
     if (question) addMsg("assistant", question);
     var box = document.createElement("div");
     box.className = "opts";
+    // MULTI-SELEÇÃO (pergunta composta): o usuário MARCA várias fontes (relatório + N
+    // ferramentas) e confirma UMA vez; as escolhas viram um scope único.
+    var selMulti = multiSelect ? [] : null;
     (options || []).forEach(function (o) {
       var b = document.createElement("button");
+      var mark = multiSelect ? document.createElement("span") : null;
+      if (mark) mark.textContent = "☐ ";
       if (o.sublabel) {
         // Cartão: nome do artigo em destaque + resumo abaixo (igual ao portal).
         var ol = document.createElement("span");
         ol.className = "ol";
-        ol.textContent = o.label;
+        if (mark) ol.appendChild(mark);
+        ol.appendChild(document.createTextNode(o.label));
         var os = document.createElement("span");
         os.className = "os";
         os.textContent = o.sublabel;
         b.appendChild(ol);
         b.appendChild(os);
       } else {
-        b.textContent = o.label;
+        if (mark) b.appendChild(mark);
+        b.appendChild(document.createTextNode(o.label));
       }
       b.addEventListener("click", function () {
+        if (multiSelect) {
+          var i = selMulti.indexOf(o);
+          if (i >= 0) { selMulti.splice(i, 1); if (mark) mark.textContent = "☐ "; b.style.fontWeight = ""; }
+          else { selMulti.push(o); if (mark) mark.textContent = "☑ "; b.style.fontWeight = "600"; }
+          return; // não envia — espera o botão "Buscar nessas fontes"
+        }
         travarEscolha(box, b);
         persistirEscolha(question, o.label);
         if (o.outro) {
@@ -5423,6 +5436,23 @@
       });
       box.appendChild(b);
     });
+    if (multiSelect) {
+      var conf = document.createElement("button");
+      conf.textContent = "Buscar nessas fontes";
+      conf.style.fontWeight = "600";
+      conf.addEventListener("click", function () {
+        if (!selMulti.length) { conf.textContent = "Marque ao menos uma fonte…"; return; }
+        // Junta as escolhas num scope único: força TODAS as tools + mantém o relatório.
+        var scope = { direto: true }, tools = [], usarRel = false;
+        selMulti.forEach(function (o) { if (o.relatorio) usarRel = true; else if (o.tool) tools.push(o.tool); });
+        if (tools.length) { scope.fonte = "ia"; scope.tools = tools; }
+        if (usarRel) { scope.usarRelatorio = true; if (!tools.length) scope.fonte = "relatorio"; }
+        travarEscolha(box, conf);
+        persistirEscolha(question, selMulti.map(function (o) { return o.label; }).join(" + "));
+        ask(scope);
+      });
+      box.appendChild(conf);
+    }
     messagesEl.appendChild(box);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
@@ -5964,7 +5994,7 @@
         clarified = true;
         if (typing.parentNode) typing.remove();
         avisarMensagem();
-        renderClarify(evt.question, evt.options);
+        renderClarify(evt.question, evt.options, evt.multiSelect);
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         limparProcStatus(); // a resposta começou → tira o status "Analisando…"

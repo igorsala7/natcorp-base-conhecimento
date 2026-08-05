@@ -623,6 +623,10 @@ export async function POST(req: NextRequest) {
     .map((t) => reportDataBlock({ nome: `Anexo: ${t.name}`, colunas: t.colunas, linhas: t.linhas, total: t.linhas.length, incompleto: false }, datasets))
     .filter(Boolean)
     .join("\n\n");
+  // Multi-fonte (o usuário MARCOU o relatório + ferramentas no gate): cruza AMBOS.
+  const blocoCombinar = scopeIn?.usarRelatorio && reportBloco
+    ? "O usuário escolheu COMBINAR o RELATÓRIO desta tela com as ferramentas selecionadas — use AMBAS as fontes e cruze os dados numa resposta só; não responda por apenas uma."
+    : "";
   // Modo RELATÓRIO: já veio coleta (reportBloco) OU o usuário escolheu "relatório".
   // Nesse modo respondemos com o relatório e NÃO usamos as tools de API — a menos
   // que a pergunta seja COMPOSTA (relatório + documentação/sistema).
@@ -864,23 +868,25 @@ export async function POST(req: NextRequest) {
   // esse programa e como se usa?") ele devolve zero tools — aí NÃO se oferece ferramenta
   // nenhuma (as que casam por embedding a ~0.57 são ruído da tela), segue para a doc/tutorial.
   if (temRelatorioNaTela && temIntegTools && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
-    // Ambíguo: a tela cobre o assunto E há tool(s) que também cobrem. NOMEIA as tool(s)
-    // casada(s) como opção (era o vago "Conhecimento da IA") — o usuário vê que dá p/
-    // buscar "dados de colaboradores" e não só "no relatório desta tela".
-    const toolsAmb = (matchesCache ?? []).slice(0, 3);
+    // MULTI-FONTE: a pergunta pode precisar do relatório da tela E de UMA OU MAIS
+    // ferramentas (pergunta COMPOSTA). Em vez de forçar UMA escolha (irritante e impreciso
+    // quando o usuário quer cruzar fontes), oferece MULTI-SELEÇÃO — marque TODAS. O widget
+    // junta num único scope { fonte:"ia", tools:[...], usarRelatorio }; o servidor força
+    // TODAS as tools e mantém o relatório. Mostra o CONTEXTO inteiro (até 8, era 3).
+    const toolsAmb = (matchesCache ?? []).slice(0, 8);
     const opcoesFonte: unknown[] = [
-      // `direto: true` = escolha AUTORITATIVA: não re-perguntar a fonte (o usuário decidiu).
-      { id: "relatorio", label: "📄 Dados desta página", scope: { fonte: "relatorio", direto: true } },
-      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
+      { id: "relatorio", label: "📄 Dados desta página (relatório da tela)", relatorio: true },
+      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, tool: { k: m.key, n: m.name, d: m.description ?? "" } })),
     ];
-    // Sem tool nomeada (não deveria ocorrer aqui): mantém o conhecimento genérico.
-    if (!toolsAmb.length) opcoesFonte.push({ id: "ia", label: "🧠 Conhecimento da IA", scope: { fonte: "ia" } });
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(
           sse({
             type: "clarify",
-            question: `Isso pode vir do RELATÓRIO desta tela${toolsAmb.length ? " ou de uma FERRAMENTA de dados" : ""}. De onde quer que eu busque?`,
+            multiSelect: true,
+            question: toolsAmb.length
+              ? "Essa resposta pode combinar MAIS DE UMA fonte. Marque TODAS que eu devo usar — o relatório desta tela e/ou as ferramentas — e eu cruzo os dados numa resposta só:"
+              : "De onde quer que eu busque os dados?",
             options: opcoesFonte,
           }),
         );
@@ -1273,6 +1279,7 @@ export async function POST(req: NextRequest) {
     baseSoFontes ? "" : scanBlock,
     baseSoFontes ? "" : tablesBloco,
     baseSoFontes ? "" : reportBloco,
+    blocoCombinar,
     continuation ? (reportBloco ? harvestDoneNote() : continuationNote(executedActions)) : "",
     blocoFields,
     formAssist && !baseSoFontes && !modoAnalisePura ? focusedFieldNote(payload.focusedField) : "",
