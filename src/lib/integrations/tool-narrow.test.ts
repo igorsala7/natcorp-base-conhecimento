@@ -52,3 +52,43 @@ describe("selecionarTopK", () => {
     expect(keep.has("beneficios")).toBe(true);
   });
 });
+
+describe("selecionarTopK — modo SEMÂNTICO (sim)", () => {
+  it("piso RELATIVO corta a cauda de ruído, mesmo com poucas tools (≤ max)", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie"), T("t4", "Delta")];
+    const sim = new Map([["t1", 0.75], ["t2", 0.72], ["t3", 0.58], ["t4", 0.55]]);
+    // topo 0.75 → piso max(0.60, 0.67)=0.67 → só as duas próximas do topo (corta 0.58/0.55).
+    const keep = selecionarTopK(tools, "zzz", 12, undefined, sim);
+    expect(keep).toEqual(new Set(["t1", "t2"]));
+  });
+
+  it("resgate LEXICAL: termo exato no NOME entra mesmo com sim abaixo do piso", () => {
+    const tools = [T("t1", "Alpha"), T("cnpj", "Consulta CNPJ")];
+    const sim = new Map([["t1", 0.8], ["cnpj", 0.4]]);
+    const keep = selecionarTopK(tools, "quero o cnpj da empresa", 12, undefined, sim);
+    expect(keep.has("t1")).toBe(true); // por similaridade
+    expect(keep.has("cnpj")).toBe(true); // resgatada pelo termo "cnpj" no nome
+  });
+
+  it("anti-INUNDAÇÃO: nada acima do piso → só o top-N por sim (não o módulo inteiro)", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie"), T("t4", "Delta"), T("t5", "Echo")];
+    const sim = new Map([["t1", 0.55], ["t2", 0.52], ["t3", 0.5], ["t4", 0.48], ["t5", 0.45]]);
+    const keep = selecionarTopK(tools, "zzz", 12, undefined, sim);
+    expect(keep).toEqual(new Set(["t1", "t2", "t3"])); // ANTIFLOOD_N = 3
+  });
+
+  it("forçadas (alwaysInclude) entram sempre, mesmo com sim baixíssimo", () => {
+    const tools = [T("t1", "Alpha"), T("ess", "Essencial", "", true)];
+    const sim = new Map([["t1", 0.9], ["ess", 0.1]]);
+    const keep = selecionarTopK(tools, "zzz", 12, undefined, sim);
+    expect(keep.has("ess")).toBe(true);
+    expect(keep.has("t1")).toBe(true);
+  });
+
+  it("sem sim para estas tools (Map não cobre) → cai no modo LÉXICO", () => {
+    const tools = [T("a", "A"), T("b", "B"), T("c", "C")];
+    const sim = new Map([["outra", 0.9]]); // topSim 0 nas tools → fallback lexical
+    const keep = selecionarTopK(tools, "qualquer", 12, undefined, sim);
+    expect(keep).toEqual(new Set(["a", "b", "c"])); // ≤ max no lexical → todas
+  });
+});

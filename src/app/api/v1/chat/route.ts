@@ -29,7 +29,7 @@ import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/c
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
-import { matchBaseTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
+import { matchBaseTools, simTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
@@ -344,8 +344,12 @@ export async function POST(req: NextRequest) {
   // HISTÓRICO (consultaRag resolve follow-ups como "e do João?"), não só a última msg
   // crua — que casava quase sem contexto e escolhia tool errada.
   const consultaTools = consultaRag?.trim() ? consultaRag : question;
+  // C — similaridade SEMÂNTICA para SELECIONAR o toolset (não só rotear): 1 embedding do
+  // turno, com timeout → cai no léxico se o provedor estiver frio. Só quando há p_base e
+  // vamos montar tools (evita embed à toa em tutorial/sem base).
+  const simSelecao = track.p_base && !querTutorial ? await simTools(supabase, track.p_base, consultaTools) : null;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });

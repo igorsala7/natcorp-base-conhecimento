@@ -64,6 +64,9 @@ export async function buildIntegrationTools(
   skipAnalise?: boolean,
   /** Keys que NUNCA podem ser cortadas pelo top-K (ex.: a tool forçada pelo escopo do widget). */
   sempreIncluir?: string[],
+  /** C — similaridade SEMÂNTICA da consulta com cada tool (key→sim) neste turno. Quando
+   *  presente, o TOP-K seleciona por similaridade (piso relativo) em vez de só léxico. */
+  sim?: Map<string, number> | null,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -256,10 +259,17 @@ export async function buildIntegrationTools(
     question ?? "",
     MAX_TOOLS_MODELO,
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
+    sim,
   );
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
   if (selecionadas.length < elegiveisTools.length) {
-    onPasso?.("integracoes:top_k", { de: elegiveisTools.length, para: selecionadas.length, mantidas: selecionadas.map((e) => e.bt.tool.key) });
+    onPasso?.("integracoes:top_k", {
+      de: elegiveisTools.length,
+      para: selecionadas.length,
+      modo: sim?.size ? "semantico" : "lexico",
+      // Mostra a similaridade de cada tool mantida — visibilidade da precisão no trace.
+      mantidas: selecionadas.map((e) => (sim?.size ? `${e.bt.tool.key} ${(sim.get(e.bt.tool.key) ?? 0).toFixed(2)}` : e.bt.tool.key)),
+    });
   }
 
   // ── 3) BUILD: monta o toolset do AI SDK só das ferramentas selecionadas ────────

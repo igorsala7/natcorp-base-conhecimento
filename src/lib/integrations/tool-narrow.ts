@@ -35,15 +35,51 @@ function termos(s: string): string[] {
  * mantém as essenciais/forçadas + as `max` melhores por sobreposição de termos.
  * Sem sinal lexical algum → mantém todas (protege a assertividade).
  */
+const MIN_SEM = 0.6; // piso ABSOLUTO de similaridade: abaixo disso, semanticamente fraco
+const MARGEM_SEM = 0.08; // piso RELATIVO ao topo: corta a cauda longe da melhor tool
+const ANTIFLOOD_N = 3; // nada passou o piso → top-N por sim (NUNCA despeja o módulo inteiro)
+
 export function selecionarTopK(
   tools: ToolLite[],
   question: string,
   max: number,
   sempreIncluir?: Set<string>,
+  sim?: Map<string, number> | null,
 ): Set<string> {
-  if (tools.length <= max) return new Set(tools.map((t) => t.key));
-  const qs = new Set(termos(question));
   const forcada = (t: ToolLite) => t.alwaysInclude || sempreIncluir?.has(t.key) === true;
+  const qs = new Set(termos(question));
+
+  // ── MODO SEMÂNTICO (há embedding do turno): PRECISÃO por similaridade ──────────
+  // Mantém só as tools próximas da MELHOR (piso relativo) e acima de um mínimo real —
+  // corta a cauda de ruído (o ~0.57 que fazia o modelo consultar a tool errada). Aplica
+  // MESMO com poucas tools (o ganho de assertividade é justamente cortar as irrelevantes).
+  // Resgate LEXICAL: termo exato no NOME (código/sigla que o embedding às vezes perde)
+  // entra mesmo com sim menor. Anti-inundação: nada confiável → só o top-N por sim (o gate
+  // de desambiguação pergunta), jamais o módulo inteiro.
+  if (sim && sim.size) {
+    const simDe = (t: ToolLite) => sim.get(t.key) ?? 0;
+    const naoForcadas = tools.filter((t) => !forcada(t));
+    const topSim = naoForcadas.reduce((m, t) => Math.max(m, simDe(t)), 0);
+    if (topSim > 0) {
+      const piso = Math.max(MIN_SEM, topSim - MARGEM_SEM);
+      const lexForte = (t: ToolLite) => {
+        for (const term of new Set(termos(t.name))) if (qs.has(term)) return true;
+        return false;
+      };
+      let cand = naoForcadas
+        .filter((t) => simDe(t) >= piso || lexForte(t))
+        .sort((a, b) => simDe(b) - simDe(a));
+      if (!cand.length) cand = naoForcadas.slice().sort((a, b) => simDe(b) - simDe(a)).slice(0, ANTIFLOOD_N);
+      const keep = new Set<string>();
+      for (const t of tools) if (forcada(t)) keep.add(t.key); // essenciais/forçadas: sempre
+      for (const t of cand) { if (keep.size >= max) break; keep.add(t.key); }
+      return keep;
+    }
+    // topSim == 0 (tools fora do catálogo semântico) → cai no modo lexical abaixo.
+  }
+
+  // ── MODO LEXICAL (fallback: sem embedding do turno ou sem sinal semântico) ─────
+  if (tools.length <= max) return new Set(tools.map((t) => t.key));
   const score = (t: ToolLite): number => {
     let s = 0;
     for (const term of new Set(termos(t.name))) if (qs.has(term)) s += 3;

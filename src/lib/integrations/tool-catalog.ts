@@ -144,6 +144,32 @@ export async function matchBaseTools(
     .slice(0, limite);
 }
 
+/**
+ * Similaridade da mensagem contra TODAS as tools do catálogo (Map `key`→sim). Embeda a
+ * mensagem 1× e reusa o catálogo cacheado — serve à SELEÇÃO do toolset (não só à rota).
+ * `timeoutMs`: se o provedor de embedding estiver frio e demorar, devolve Map VAZIO →
+ * o chamador cai no fallback léxico sem travar o turno.
+ */
+export async function simTools(
+  db: DB,
+  baseCode: string,
+  mensagem: string,
+  timeoutMs = 2500,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const msg = String(mensagem ?? "").trim();
+  if (!msg) return out;
+  const cat = await loadCatalogo(db, baseCode);
+  if (!cat.length) return out;
+  const q = await Promise.race([
+    embedTexto(msg),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+  if (!q) return out;
+  for (const t of cat) out.set(t.key, cosseno(q, t.emb));
+  return out;
+}
+
 /** Metadados (nome/descrição) de tools por chave — sem embeddar (usado no 2º passo). */
 export async function loadToolsByKeys(db: DB, baseCode: string, keys: string[]): Promise<ToolMatch[]> {
   const alvo = String(baseCode ?? "").trim();
