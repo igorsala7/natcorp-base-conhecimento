@@ -385,6 +385,21 @@
       })();
     });
   }
+  // Espera o "Fim das Linhas Exibidas" AVANÇAR (autoridade do próprio APEX), não só a
+  // assinatura visual — sobrevive a páginas com linhas visualmente IGUAIS, onde a
+  // assinatura (1º texto + contagem) pode repetir e faria a coleta parar cedo.
+  // Resolve com o novo `ate` (>0) ou 0 se estourou o tempo sem avançar.
+  function esperarAvanco(rv, ateAntes, timeout) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() {
+        var ip = infoPag(rv);
+        if (ip && ip.ate && ip.ate > ateAntes) return resolve(ip.ate);
+        if (Date.now() - t0 > timeout) return resolve(0);
+        setTimeout(tick, 150);
+      })();
+    });
+  }
   // "Impressão digital" do estado do relatório: total de registros + colunas +
   // termo de busca + FILTROS ATIVOS (chips do Ações). INVARIANTE à página exibida, mas
   // SENSÍVEL a filtro/busca/colunas — permite reusar a coleta em cache e detectar
@@ -414,7 +429,7 @@
   async function coletarRelatorio(rv, onProgress) {
     // SEM teto artificial de linhas/páginas — o limite prático é o TEMPO (para não
     // travar a tela). Volumes grandes são enviados como RESUMO ESTATÍSTICO à IA.
-    var CAP_PAG = 100000, CAP_LIN = 500000, ESPERA = 6000, TEMPO_MAX = 240000; // ~4 min
+    var CAP_PAG = 100000, CAP_LIN = 500000, ESPERA = 8000, TEMPO_MAX = 240000; // ~4 min
     var t0ini = Date.now();
     // REBOBINA: se o usuário parou numa página adiante (ex.: 31-60), volta ao
     // INÍCIO clicando "Anterior" até ele desabilitar (1ª página), para coletar TUDO.
@@ -428,22 +443,35 @@
     var t0 = extrairIRRegiao(rv, 1000);
     if (!t0) return null;
     var colunas = t0.colunas, todas = [], seen = {}, truncou = false;
-    function add(linhas) { for (var i = 0; i < linhas.length; i++) { var k = linhas[i].join(""); if (!seen[k]) { seen[k] = 1; todas.push(linhas[i]); } } }
+    // AUTORIDADE do APEX: se o relatorio informa Total + Fim-Exibido (aria-label
+    // "Total de Linhas = N"), pagina por POSICAO — cada avanco traz linhas novas, que
+    // entram TODAS (sem dedup de conteudo, que descartaria registros visualmente iguais
+    // e parava cedo, ex.: 350 de 1142). Sem esse dado, dedup + parada em "nada novo".
+    var ip0 = infoPag(rv);
+    var usaPos = !!(ip0 && ip0.total && ip0.ate);
+    var total = usaPos ? ip0.total : 0, ate = usaPos ? ip0.ate : 0;
+    function add(linhas) { for (var i = 0; i < linhas.length; i++) { if (usaPos) { todas.push(linhas[i]); } else { var k = linhas[i].join(""); if (!seen[k]) { seen[k] = 1; todas.push(linhas[i]); } } } }
     add(t0.linhas);
     if (onProgress) onProgress(todas.length);
     for (var pag = 1; pag < CAP_PAG; pag++) {
+      if (usaPos && ate >= total) break; // fim pela AUTORIDADE (Fim-Exibido alcancou o Total)
       if (todas.length >= CAP_LIN) { truncou = true; break; }
       if (Date.now() - t0ini > TEMPO_MAX) { truncou = true; break; } // orçamento de tempo
       var btn = botaoProximo(rv);
-      if (!btn || ehDesabilitado(btn)) break;
+      if (!btn || ehDesabilitado(btn)) { if (usaPos && ate < total) truncou = true; break; }
       var antes = assinaturaPagina(rv);
       try { btn.click(); } catch { break; }
-      if (!(await esperarMudanca(rv, antes, ESPERA))) break; // não avançou → fim/travou
+      if (usaPos) {
+        var nAte = await esperarAvanco(rv, ate, ESPERA);
+        if (!nAte) nAte = await esperarAvanco(rv, ate, ESPERA); // 2o ciclo (pagina lenta), sem reclicar
+        if (!nAte) { truncou = true; break; }
+        ate = nAte;
+      } else if (!(await esperarMudanca(rv, antes, ESPERA))) break; // não avançou → fim/travou
       var t = extrairIRRegiao(rv, 1000);
       if (!t) break;
       var antesN = todas.length;
       add(t.linhas);
-      if (todas.length === antesN) break; // nada novo → evita loop infinito
+      if (!usaPos && todas.length === antesN) break; // nada novo → evita loop infinito
       if (onProgress) onProgress(todas.length);
     }
     return { colunas: colunas, linhas: todas, truncou: truncou };
