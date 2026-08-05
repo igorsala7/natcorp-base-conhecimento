@@ -952,34 +952,40 @@ export type Database = {
         Row: {
           action: string
           base_code: string
-          code_hash: string
+          code_hash: string | null
+          confirmed_at: string | null
           created_at: string
           detail: string | null
           expires_at: string
           id: string
           subject: string
+          tool_key: string | null
           used_at: string | null
         }
         Insert: {
           action: string
           base_code: string
-          code_hash: string
+          code_hash?: string | null
+          confirmed_at?: string | null
           created_at?: string
           detail?: string | null
           expires_at: string
           id?: string
           subject: string
+          tool_key?: string | null
           used_at?: string | null
         }
         Update: {
           action?: string
           base_code?: string
-          code_hash?: string
+          code_hash?: string | null
+          confirmed_at?: string | null
           created_at?: string
           detail?: string | null
           expires_at?: string
           id?: string
           subject?: string
+          tool_key?: string | null
           used_at?: string | null
         }
         Relationships: []

@@ -83,11 +83,13 @@ export async function buildIntegrationTools(
       precisaDados: analise.precisaDados,
       modulos: analise.modulos.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
     });
-    if (!analise.precisaDados) {
+    if (!analise.precisaDados && !sempreIncluir?.length) {
       onPasso?.("integracoes", { resultado: "sem tools", motivo: "classificador: pedido não precisa de dados (how-to/documentação)" });
       return { tools: {}, capabilities: "", agentPrompt: "" };
     }
-    recorte = analise.modulos;
+    // "sem dados" MAS há tool(s) FORÇADA(s) (ex.: confirmação in-chat pendente) → não
+    // corta tudo: segue sem narrowing (recorte=[]) para a forçada aparecer.
+    recorte = analise.precisaDados ? analise.modulos : [];
   } else if (skipAnalise) {
     // Operação de tela: sem narrowing (recorte=[] → todas as curadas) e sem LLM. A
     // PERSONA/capacidades ainda são montadas abaixo; as tools são cortadas na rota.
@@ -108,7 +110,6 @@ export async function buildIntegrationTools(
 
   let ident = identity;
   let profileNote = "";
-  let profileEmail: string | null = null;
   const primary = ctx.tools.find((t) => t.credentialId && t.baseUrl);
   if (primary && identity.cod_empresa && identity.matricula) {
     const cred = await loadCredentialSecret(primary.credentialId!);
@@ -132,7 +133,6 @@ export async function buildIntegrationTools(
         }
       } else {
         ident = res.identity;
-        profileEmail = res.profile?.email ?? null;
         if (res.profile?.nome) {
           profileNote =
             `Usuário identificado: ${res.profile.nome}` +
@@ -224,7 +224,7 @@ export async function buildIntegrationTools(
     // Recorte por assunto (Opção A): só filtra tools QUE TÊM módulo/submódulo
     // parametrizado. Tool sem tag = sempre consultada (não há assunto para
     // excluir). Essenciais também passam sempre.
-    if (routingAtivo && !bt.alwaysInclude && bt.modules.length > 0 && !toolNoRecorte(bt.modules, recorte)) continue;
+    if (routingAtivo && !bt.alwaysInclude && !sempreIncluir?.includes(bt.tool.key) && bt.modules.length > 0 && !toolNoRecorte(bt.modules, recorte)) continue;
     // ESCOPO POR PAINEL (PO/PG/PC): "nenhum" tira a tool do painel; "próprios"/"equipe"
     // reescrevem empresa/matrícula para a IDENTIDADE (a IA nem vê esses campos, então não
     // há como pedir os dados de outra pessoa). "próprios" sem matrícula do usuário FALHA
@@ -309,7 +309,9 @@ export async function buildIntegrationTools(
                 credential,
                 identity: ident,
                 modelArgs: callArgs,
-                confirm: buildConfirmDeps(baseCode, profileEmail),
+                confirm: buildConfirmDeps(baseCode),
+                toolKey: bt.tool.key,
+                actionLabel: bt.tool.name,
               });
               if (!g.ok) return { erro: g.erro };
             }

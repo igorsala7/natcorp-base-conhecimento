@@ -8,26 +8,22 @@
  * equipe (colaboradores_resumo, essa sim escopada por usuario+gestor). A
  * matrícula-alvo nunca é confiada cega — precisa estar na equipe.
  */
-import { createHash } from "node:crypto";
 import { getOAuthToken } from "./oauth";
 import type { RuntimeCredential } from "./executor";
 import type { Identity } from "./params";
 import type { EscopoPainel } from "./panel-scope";
+import { GUARD_CATALOG } from "./guard-catalog";
 
 export type GuardResult = { ok: true } | { ok: false; erro: string };
 
-/** Linha de confirmação pendente (código guardado como HASH). */
-export type PendingRow = { id: string; code_hash: string; expires_at: number; used_at: number | null };
+/** Linha de confirmação pendente. `confirmed_at` é setado pela ROTA do chat quando o
+ *  usuário responde "sim" — a IA nunca confirma sozinha. */
+export type PendingRow = { id: string; expires_at: number; used_at: number | null; confirmed_at: number | null };
 /** Dependências injetadas do guard de confirmação (testável / server real). */
 export type ConfirmDeps = {
   findPending: (subject: string, action: string) => Promise<PendingRow[]>;
-  createPending: (row: { subject: string; action: string; detail: string; code_hash: string; expires_at: number }) => Promise<void>;
+  createPending: (row: { subject: string; action: string; detail: string; expires_at: number; toolKey?: string }) => Promise<void>;
   markUsed: (id: string) => Promise<void>;
-  /** E-mail (canal fora-da-banda) para onde enviar o código; null = sem e-mail. */
-  emailFor: () => Promise<string | null>;
-  /** Entrega o código pelo canal fora-da-banda; devolve se conseguiu. */
-  deliver: (to: string, code: string, detail: string) => Promise<boolean>;
-  genCode: () => string;
   now: () => number;
 };
 
@@ -38,15 +34,17 @@ export type GuardContext = {
   identity: Identity;
   modelArgs: Record<string, unknown>;
   fetchImpl?: typeof fetch;
-  /** Deps do guard de confirmação (só usadas por saque_confirmation). */
+  /** Deps do guard de confirmação (saque_confirmation / confirmation). */
   confirm?: ConfirmDeps;
   /** Escopo por painel resolvido para o usuário (usado por escopo_painel). */
   panelScope?: EscopoPainel;
   /** "Nunca os próprios dados" (usado por escopo_painel). */
   excludeSelf?: boolean;
+  /** Chave e rótulo da ferramenta — usados pelo guard genérico `confirmation`
+   *  (namespace por tool no `action` + texto da pergunta de confirmação). */
+  toolKey?: string;
+  actionLabel?: string;
 };
-
-const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 // Cache da equipe por (credencial, gestor) — evita rebuscar a cada consulta.
 const teamCache = new Map<string, { exp: number; matriculas: Set<string> }>();
@@ -99,37 +97,73 @@ async function teamMembership(ctx: GuardContext): Promise<GuardResult> {
 }
 
 /**
- * Confirmação FORA-DA-BANDA para uma ação sensível (efetivar saque). Sem código
- * no `modelArgs`: gera um código, guarda o HASH, envia por e-mail (o MODELO não
- * vê) e RECUSA pedindo que o usuário informe o código. Com código: valida contra
- * a pendência (não usada, não expirada). Assim a IA não consegue efetivar sozinha.
+ * Confirmação IN-CHAT para uma ação sensível. Sem confirmação ainda: cria uma pendência
+ * e RECUSA, instruindo a IA a PERGUNTAR ao usuário (a IA não pode confirmar sozinha).
+ * Quando o usuário responde "sim", quem marca a pendência (`confirmed_at`) é a ROTA do
+ * chat — o guard não vê a conversa. Na tentativa seguinte, o guard vê a pendência
+ * confirmada e libera. `action` é o NAMESPACE: a confirmação de uma ação não vale p/ outra.
  */
-async function saqueConfirmation(ctx: GuardContext): Promise<GuardResult> {
+async function confirmationCore(
+  ctx: GuardContext,
+  opts: { action: string; detail: string; pergunta: string },
+): Promise<GuardResult> {
   const d = ctx.confirm;
   if (!d) return { ok: false, erro: "Confirmação indisponível no momento." };
   const subject = `${ctx.identity.usuario ?? ""}:${ctx.identity.matricula ?? ""}`;
-  const codigo = String(ctx.modelArgs.codigo ?? "").trim();
-  const detail = String(ctx.modelArgs.valor ?? "").trim();
-  const abertas = (await d.findPending(subject, "saque")).filter((p) => !p.used_at && p.expires_at > d.now());
+  const abertas = (await d.findPending(subject, opts.action)).filter((p) => !p.used_at && p.expires_at > d.now());
 
-  if (codigo) {
-    const match = abertas.find((p) => p.code_hash === sha(codigo));
-    if (!match) return { ok: false, erro: "Código de confirmação inválido ou expirado. Peça um novo." };
-    await d.markUsed(match.id);
+  // Já confirmada pelo usuário (via rota) → efetiva (marca usada p/ não repetir).
+  const confirmada = abertas.find((p) => p.confirmed_at != null);
+  if (confirmada) {
+    await d.markUsed(confirmada.id);
     return { ok: true };
   }
 
-  // Sem código → emite, envia fora-da-banda e recusa (a IA nunca vê o código).
-  const email = await d.emailFor();
-  if (!email) return { ok: false, erro: "Não há e-mail cadastrado para enviar a confirmação. Procure o RH." };
-  const code = d.genCode();
-  await d.createPending({ subject, action: "saque", detail, code_hash: sha(code), expires_at: d.now() + 10 * 60_000 });
-  const enviado = await d.deliver(email, code, detail);
-  if (!enviado) return { ok: false, erro: "Não consegui enviar o código de confirmação agora. Tente mais tarde." };
+  // Ainda não confirmada: cria a pendência (na 1ª vez) e pede o "sim" ao usuário.
+  if (abertas.length === 0) {
+    await d.createPending({ subject, action: opts.action, detail: opts.detail, toolKey: ctx.toolKey, expires_at: d.now() + 10 * 60_000 });
+  }
   return {
     ok: false,
-    erro: "Enviei um código de confirmação para o seu e-mail cadastrado. Informe esse código para confirmar o saque.",
+    erro:
+      `CONFIRMAÇÃO NECESSÁRIA — NÃO execute ainda. Pergunte ao usuário: "${opts.pergunta}?" e só ` +
+      `chame esta ferramenta de novo DEPOIS que ELE responder que sim. Não confirme por conta própria.`,
   };
+}
+
+/** Confirmação específica de SAQUE — mostra o valor (`modelArgs.valor`) na pergunta. */
+async function saqueConfirmation(ctx: GuardContext): Promise<GuardResult> {
+  const valor = String(ctx.modelArgs.valor ?? "").trim();
+  return confirmationCore(ctx, {
+    action: "saque",
+    detail: valor,
+    pergunta: `confirma o saque${valor ? ` de R$ ${valor}` : ""}`,
+  });
+}
+
+/**
+ * Confirmação GENÉRICA, reusável em qualquer gravação sensível. Namespace POR
+ * FERRAMENTA (`confirm:<toolKey>`) — a confirmação de uma ação nunca libera outra —
+ * e o texto usa o rótulo da tool (`actionLabel`).
+ */
+async function genericConfirmation(ctx: GuardContext): Promise<GuardResult> {
+  const rotulo = String(ctx.actionLabel ?? "").trim();
+  return confirmationCore(ctx, {
+    action: `confirm:${ctx.toolKey ?? "acao"}`,
+    detail: rotulo || "esta ação",
+    pergunta: rotulo ? `confirma: ${rotulo}` : "confirma esta ação",
+  });
+}
+
+/**
+ * A mensagem do usuário é uma AFIRMAÇÃO/confirmação? A ROTA do chat usa isto para
+ * liberar uma pendência de confirmação in-chat. Ancorada no início para não casar
+ * uma frase longa qualquer (só vale quando há uma pendência esperando, de todo modo).
+ */
+export function ehAfirmacao(msg: string): boolean {
+  const m = String(msg ?? "").trim().toLowerCase();
+  if (!m) return false;
+  return /^(sim|isso|confirmo|confirmar|confirmado|pode|podes|ok|okay|autorizo|claro|positivo|correto|exato|com certeza|é isso)\b/.test(m);
 }
 
 /**
@@ -227,7 +261,16 @@ const GUARDS: Record<string, (ctx: GuardContext) => Promise<GuardResult>> = {
   escopo_pessoa: escopoPessoa,
   escopo_painel: escopoPainel,
   saque_confirmation: saqueConfirmation,
+  confirmation: genericConfirmation,
 };
+
+// Sincronia com o catálogo da UI (guard-catalog.ts): todo guard registrado precisa ter
+// metadados lá para aparecer no seletor da tela — e vice-versa. Aviso em dev se divergir.
+if (process.env.NODE_ENV !== "production") {
+  const doc = new Set(GUARD_CATALOG.map((g) => g.key));
+  for (const k of Object.keys(GUARDS)) if (!doc.has(k)) console.warn(`[guards] "${k}" sem entrada em guard-catalog.ts (não aparece no seletor).`);
+  for (const g of GUARD_CATALOG) if (!(g.key in GUARDS)) console.warn(`[guards] catálogo lista "${g.key}", mas não há guard com esse nome.`);
+}
 
 /** Roda o guard nomeado. Falha FECHADA: nome desconhecido bloqueia. */
 export async function runGuard(name: string, ctx: GuardContext): Promise<GuardResult> {

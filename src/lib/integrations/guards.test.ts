@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runGuard, decisaoEscopoPessoa, type ConfirmDeps, type PendingRow } from "./guards";
+import { runGuard, decisaoEscopoPessoa, ehAfirmacao, type ConfirmDeps, type PendingRow } from "./guards";
 import { invalidateOAuthToken } from "./oauth";
 import type { RuntimeCredential } from "./executor";
 
@@ -25,30 +25,28 @@ describe("decisaoEscopoPessoa (escopo por painel)", () => {
   });
 });
 
-/** Store + entrega em memória para o guard de confirmação (sem DB, sem e-mail). */
+/** Store em memória para o guard de confirmação IN-CHAT (sem DB, sem e-mail). */
 function fakeConfirm(over: Partial<ConfirmDeps> = {}) {
-  const rows: (PendingRow & { subject: string; action: string })[] = [];
-  const sent: { to: string; code: string }[] = [];
+  const rows: (PendingRow & { subject: string; action: string; tool_key?: string })[] = [];
   const state = { time: 1000 };
   const deps: ConfirmDeps = {
     findPending: async (subject, action) => rows.filter((r) => r.subject === subject && r.action === action && !r.used_at),
     createPending: async (row) => {
-      rows.push({ id: `id${rows.length}`, used_at: null, ...row });
+      rows.push({ id: `id${rows.length}`, used_at: null, confirmed_at: null, subject: row.subject, action: row.action, tool_key: row.toolKey, expires_at: row.expires_at });
     },
     markUsed: async (id) => {
       const r = rows.find((x) => x.id === id);
       if (r) r.used_at = state.time;
     },
-    emailFor: async () => "user@x.com",
-    deliver: async (to, code) => {
-      sent.push({ to, code });
-      return true;
-    },
-    genCode: () => "123456",
     now: () => state.time,
     ...over,
   };
-  return { deps, rows, sent, state };
+  /** Simula a ROTA marcando confirmada a pendência mais recente do subject (o "sim"). */
+  const confirmar = (subject: string) => {
+    const p = [...rows].reverse().find((r) => r.subject === subject && !r.used_at && r.confirmed_at == null);
+    if (p) p.confirmed_at = state.time;
+  };
+  return { deps, rows, state, confirmar };
 }
 const idn = { usuario: "365785", matricula: "365785" };
 
@@ -109,7 +107,7 @@ describe("guard team_membership", () => {
   });
 });
 
-describe("guard saque_confirmation (confirmação fora-da-banda)", () => {
+describe("guard saque_confirmation (confirmação in-chat)", () => {
   const base = (confirm: ConfirmDeps, modelArgs: Record<string, unknown>) => ({
     baseUrl: "x",
     baseCode: "natcorp",
@@ -117,51 +115,85 @@ describe("guard saque_confirmation (confirmação fora-da-banda)", () => {
     identity: idn,
     modelArgs,
     confirm,
+    toolKey: "registrar_saque",
   });
 
-  it("sem código emite+envia+recusa; código certo efetiva; reuso recusa", async () => {
+  it("cria pendência e recusa; após o 'sim' (rota) efetiva; reuso recria", async () => {
     const f = fakeConfirm();
     const r1 = await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
     expect(r1.ok).toBe(false);
     expect(f.rows.length).toBe(1);
-    expect(f.sent).toEqual([{ to: "user@x.com", code: "123456" }]);
+    expect(f.rows[0]!.confirmed_at).toBeNull();
+    expect(f.rows[0]!.tool_key).toBe("registrar_saque");
 
-    const r2 = await runGuard("saque_confirmation", base(f.deps, { valor: "200", codigo: "123456" }));
+    // IA re-chama antes do "sim" → ainda recusa, SEM criar outra pendência.
+    const r1b = await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
+    expect(r1b.ok).toBe(false);
+    expect(f.rows.length).toBe(1);
+
+    // A ROTA marca confirmada (usuário disse "sim").
+    f.confirmar(`${idn.usuario}:${idn.matricula}`);
+    const r2 = await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
     expect(r2.ok).toBe(true);
 
-    const r3 = await runGuard("saque_confirmation", base(f.deps, { valor: "200", codigo: "123456" }));
-    expect(r3.ok).toBe(false); // já usado
+    // Já usada → nova tentativa recria pendência (novo saque exige nova confirmação).
+    const r3 = await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
+    expect(r3.ok).toBe(false);
+    expect(f.rows.length).toBe(2);
   });
 
-  it("código errado recusa", async () => {
+  it("confirmada mas EXPIRADA não efetiva", async () => {
     const f = fakeConfirm();
     await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
-    const r = await runGuard("saque_confirmation", base(f.deps, { valor: "200", codigo: "000000" }));
-    expect(r.ok).toBe(false);
-  });
-
-  it("código expirado recusa", async () => {
-    const f = fakeConfirm();
-    await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
-    f.state.time = 999_999_999;
-    const r = await runGuard("saque_confirmation", base(f.deps, { valor: "200", codigo: "123456" }));
-    expect(r.ok).toBe(false);
-  });
-
-  it("sem e-mail cadastrado recusa e não emite", async () => {
-    const f = fakeConfirm({ emailFor: async () => null });
+    f.confirmar(`${idn.usuario}:${idn.matricula}`);
+    f.state.time = 999_999_999; // passou dos 10 min
     const r = await runGuard("saque_confirmation", base(f.deps, { valor: "200" }));
     expect(r.ok).toBe(false);
-    expect(f.rows.length).toBe(0);
   });
 
   it("sem deps de confirmação recusa (falha fechada)", async () => {
-    const r = await runGuard("saque_confirmation", {
-      baseUrl: "x",
-      credential: null,
-      identity: idn,
-      modelArgs: {},
-    });
+    const r = await runGuard("saque_confirmation", { baseUrl: "x", credential: null, identity: idn, modelArgs: {} });
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("guard confirmation (genérico, in-chat, namespaceado por ferramenta)", () => {
+  const base = (confirm: ConfirmDeps, toolKey: string) => ({
+    baseUrl: "x",
+    credential: null,
+    identity: idn,
+    modelArgs: {},
+    confirm,
+    toolKey,
+    actionLabel: "Atualizar dados",
+  });
+
+  it("cria pendência (com tool_key) e recusa; após o 'sim' efetiva", async () => {
+    const f = fakeConfirm();
+    const r1 = await runGuard("confirmation", base(f.deps, "atualizar_dados"));
+    expect(r1.ok).toBe(false);
+    expect(f.rows[0]!.tool_key).toBe("atualizar_dados");
+    f.confirmar(`${idn.usuario}:${idn.matricula}`);
+    const r2 = await runGuard("confirmation", base(f.deps, "atualizar_dados"));
+    expect(r2.ok).toBe(true);
+  });
+
+  it("confirmar UMA ferramenta NÃO libera OUTRA (namespace por action)", async () => {
+    const f = fakeConfirm();
+    await runGuard("confirmation", base(f.deps, "ferramenta_a"));
+    f.confirmar(`${idn.usuario}:${idn.matricula}`); // marca a de A
+    const r = await runGuard("confirmation", base(f.deps, "ferramenta_b"));
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("ehAfirmacao", () => {
+  it("reconhece afirmações no início da mensagem", () => {
+    for (const m of ["sim", "Sim", "sim, pode", "confirmo", "confirmar", "pode", "ok", "isso", "autorizo", "com certeza"])
+      expect(ehAfirmacao(m)).toBe(true);
+  });
+  it("rejeita negações e frases não-afirmativas", () => {
+    for (const m of ["não", "nao quero", "espera", "qual o valor?", "", "cancela", "prefiro não"])
+      expect(ehAfirmacao(m)).toBe(false);
   });
 });
