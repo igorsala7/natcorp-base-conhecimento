@@ -616,6 +616,13 @@ export async function POST(req: NextRequest) {
   // Coleta multi-página concluída? (o widget percorreu as páginas e mandou o
   // conjunto completo em `reportData`.) Registra como dataset + bloco de contexto.
   const reportBloco = formAssist ? reportDataBlock(reportDataResolved, datasets) : "";
+  // A2: anexos TABULARES (CSV/XLS) entram como DATASET consultável — mesma máquina do
+  // relatório da tela (registra em `datasets`, statsBlock 100% + query-tools). Independe
+  // de formAssist (é arquivo do usuário, não a tela). Um bloco por anexo.
+  const anexoTabelaBloco = attach.tabelas
+    .map((t) => reportDataBlock({ nome: `Anexo: ${t.name}`, colunas: t.colunas, linhas: t.linhas, total: t.linhas.length, incompleto: false }, datasets))
+    .filter(Boolean)
+    .join("\n\n");
   // Modo RELATÓRIO: já veio coleta (reportBloco) OU o usuário escolheu "relatório".
   // Nesse modo respondemos com o relatório e NÃO usamos as tools de API — a menos
   // que a pergunta seja COMPOSTA (relatório + documentação/sistema).
@@ -642,7 +649,7 @@ export async function POST(req: NextRequest) {
   // Consulta/filtro server-side: disponível sempre que houver dados tabulares
   // coletados (relatório de todas as páginas, tabela da tela ou lista de tool).
   // Corrige o filtro pela AMOSTRA (contagem/arquivo com N errado) — ver datasets.ts.
-  const temDadosTabulares = !modoTutorial && (!!reportBloco || !!tablesBloco || temIntegTools);
+  const temDadosTabulares = !modoTutorial && (!!reportBloco || !!tablesBloco || temIntegTools || !!anexoTabelaBloco);
   const queryTools = temDadosTabulares ? buildQueryTool(datasets) : {};
   // Roteador de fonte (2º passo): se o usuário escolheu uma TOOL específica (ou o 1º
   // passo só encontrou uma candidata), força só ela — a IA consulta essa integração
@@ -1253,6 +1260,7 @@ export async function POST(req: NextRequest) {
     enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
     blocoRag,
     attach.contextBlock,
+    anexoTabelaBloco,
     fontesBlock,
     baseSoFontes
       ? "MODO \"SÓ ESTAS FONTES\": responda APENAS com base nas FONTES DE DADOS SELECIONADAS acima. NÃO use os dados da tela, nem documentação/base de conhecimento geral, nem ontologia. Se a resposta não estiver nessas fontes, diga que não encontrou nelas."

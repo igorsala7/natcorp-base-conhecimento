@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocument } from "@/lib/importer/extract";
 import { assertArquivoSeguro, ehImagem } from "@/lib/importer/file-guard";
+import { extractTable } from "@/lib/importer/extract-table";
 
 /**
  * Anexos de arquivo nos chats (Fase 3C). Reusa o portão de segurança do
@@ -27,6 +28,12 @@ export type ReceiveResult = { ok: true; attachment: AttachmentMeta } | { ok: fal
 export type ImagePart = { type: "image"; image: Uint8Array; mediaType: string };
 /** Arquivo enviado ao modelo (ex.: PDF sem texto → visão/OCR nativo). */
 export type FilePart = { type: "file"; data: Uint8Array; mediaType: string };
+/** A2: anexo TABULAR já estruturado (vira dataset consultável no turno). */
+export type AttachTable = { name: string; colunas: string[]; linhas: string[][] };
+const RE_TAB = /\.(csv|tsv|xlsx|xlsm|xls)$/i;
+function ehTabular(name: string, mime: string): boolean {
+  return RE_TAB.test(name) || /csv|tab-separated|spreadsheet|excel|officedocument\.spreadsheet/i.test(mime);
+}
 
 function sanitizeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "arquivo";
@@ -104,11 +111,11 @@ export async function receiveAttachment(
 export async function loadAttachmentsForTurn(
   spaceId: string,
   ids: unknown,
-): Promise<{ contextBlock: string; metas: AttachmentMeta[]; ids: string[]; imageParts: ImagePart[]; fileParts: FilePart[] }> {
+): Promise<{ contextBlock: string; metas: AttachmentMeta[]; ids: string[]; imageParts: ImagePart[]; fileParts: FilePart[]; tabelas: AttachTable[] }> {
   const lista = Array.isArray(ids)
     ? ids.filter((x): x is string => typeof x === "string").slice(0, MAX_PER_TURN)
     : [];
-  if (lista.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [] };
+  if (lista.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [], tabelas: [] };
 
   const supabase = createAdminClient();
   const { data } = await supabase
@@ -117,12 +124,29 @@ export async function loadAttachmentsForTurn(
     .eq("space_id", spaceId)
     .in("id", lista);
   const rows = data ?? [];
-  if (rows.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [] };
+  if (rows.length === 0) return { contextBlock: "", metas: [], ids: [], imageParts: [], fileParts: [], tabelas: [] };
 
-  const docs = rows.filter((r) => !(r.mime ?? "").startsWith("image/"));
+  const docsTodos = rows.filter((r) => !(r.mime ?? "").startsWith("image/"));
   const imgs = rows.filter((r) => (r.mime ?? "").startsWith("image/"));
 
-  // Documentos → bloco de texto (DADO, anti-injeção).
+  // A2: anexo TABULAR (CSV/XLS) vira DATASET consultável (query-tools 100%), NÃO texto
+  // truncado. Baixa o arquivo e extrai as linhas; o route registra como dados_de="telaN".
+  // Falha na estruturação → cai no texto (fallback), sem perder o anexo.
+  const tabelas: AttachTable[] = [];
+  const docs = docsTodos.filter((r) => !ehTabular(r.name, r.mime ?? ""));
+  for (const r of docsTodos.filter((x) => ehTabular(x.name, x.mime ?? ""))) {
+    try {
+      const dl = await supabase.storage.from(BUCKET).download(r.storage_path);
+      if (!dl.data) { docs.push(r); continue; }
+      const t = await extractTable(Buffer.from(await dl.data.arrayBuffer()), r.name, r.mime ?? "");
+      if (t) tabelas.push({ name: r.name, colunas: t.colunas, linhas: t.linhas });
+      else docs.push(r);
+    } catch {
+      docs.push(r);
+    }
+  }
+
+  // Documentos NÃO-tabulares → bloco de texto (DADO, anti-injeção).
   let contextBlock = "";
   if (docs.length) {
     const partes = docs.map(
@@ -168,7 +192,7 @@ export async function loadAttachmentsForTurn(
     size: r.size_bytes,
     chars: r.char_count ?? 0,
   }));
-  return { contextBlock, metas, ids: rows.map((r) => r.id), imageParts, fileParts };
+  return { contextBlock, metas, ids: rows.map((r) => r.id), imageParts, fileParts, tabelas };
 }
 
 /**
