@@ -4,6 +4,7 @@ import { tool, type ToolSet } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/auth/audit";
 import type { Json } from "@/lib/database.types";
+import { syncToolEmbedding } from "./tool-catalog";
 
 /**
  * Ferramentas do CHAT CONSTRUTOR de Integrações: o assistente monta/edita o
@@ -115,6 +116,14 @@ export function buildSchemaTools(): ToolSet {
         const up = await db.from("ai_tools").upsert(row, { onConflict: "key" }).select("id").single();
         if (up.error || !up.data) return `Erro ao salvar a ferramenta: ${up.error?.message}`;
         const toolId = up.data.id;
+
+        // Matcher SEMÂNTICO: (re)gera o embedding (nome — descrição) SEMPRE que muda no
+        // save. Sem isto, o embedding só era gerado pelo script em lote — e editar a
+        // descrição para melhorar a escolha da IA NÃO surtia efeito. Best-effort (não
+        // derruba o save; a tool sem embedding ainda existe pelo caminho lexical).
+        if (!existing || existing.name !== row.name || (existing.description ?? "") !== row.description) {
+          await syncToolEmbedding(db, toolId, row.name, row.description);
+        }
 
         // Acesso por base: se enviou baseCodes, reescreve; se é nova e não enviou, ativa em todas.
         let baseIds: string[] | null = null;
