@@ -147,7 +147,7 @@ export async function buildIntegrationTools(
 
   const db = createAdminClient();
   const [{ data: agents }, { data: links }] = await Promise.all([
-    db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil").eq("active", true),
+    db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil, is_default").eq("active", true),
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
   // Trava por PERFIL: um agente que exige um perfil (ex.: "gestor") só entra
@@ -158,6 +158,17 @@ export async function buildIntegrationTools(
     : (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
   const elegiveisIds = new Set(elegiveis.map((a) => a.id));
   const curated = new Set((links ?? []).filter((l) => elegiveisIds.has(l.agent_id)).map((l) => l.tool_id));
+  // CLAIMED = tools curadas sob ALGUM agente ativo (elegível OU não p/ este usuário). É a
+  // distinção que conserta as ÓRFÃS: uma tool CLAIMED mas por agente NÃO-elegível fica
+  // EXCLUÍDA (respeita a trava de perfil do agente). Uma tool de LEITURA sem agente algum
+  // (órfã da importação ORDS) é reclamada pelo(s) agente(s) PADRÃO (is_default): se houver
+  // um default elegível, ela aparece — controlada por panel_scope + allowlists. (Órfã de
+  // ESCRITA segue excluída — abaixo.) Sem isto, ~61 tools ativas sem vínculo (requisições,
+  // candidatos, seleção…) nunca apareciam.
+  const idsAgentesAtivos = new Set((agents ?? []).map((a) => a.id));
+  const claimed = new Set((links ?? []).filter((l) => idsAgentesAtivos.has(l.agent_id)).map((l) => l.tool_id));
+  // Há um agente PADRÃO elegível para este usuário? (reclama as órfãs de leitura)
+  const temDefaultElegivel = elegiveis.some((a) => a.is_default);
   // Qual agente elegível "responde" por cada tool (para o log). O 1º vínculo vence.
   const agentKeyById = new Map(elegiveis.map((a) => [a.id, a.key]));
   const agentKeyByTool = new Map<string, string>();
@@ -196,7 +207,12 @@ export async function buildIntegrationTools(
     loopEscopo: ReturnType<typeof loopSobEscopo>;
   }> = [];
   for (const bt of ctx.tools) {
-    if (temAgentes && !curated.has(bt.toolId)) continue; // fora de todo agente ativo
+    // Exclui quando NÃO curada e: (a) CLAIMED por agente não-elegível (trava de perfil); OU
+    // (b) órfã de ESCRITA — write sem curadoria não tem confirmação (guard), então NÃO é
+    // exposta solta (o modelo poderia gravar sem confirmação); OU (c) órfã de LEITURA mas
+    // SEM agente PADRÃO elegível — sem um default, a órfã não tem "dono" e não aparece.
+    const ehEscrita = String(bt.tool.method ?? "GET").toUpperCase() !== "GET";
+    if (temAgentes && !curated.has(bt.toolId) && (claimed.has(bt.toolId) || ehEscrita || !temDefaultElegivel)) continue;
     // Allowlist (#4): portal × empresa × perfil por (base, ferramenta). Vazio = liberado.
     if (
       !acessoFerramenta(

@@ -160,14 +160,17 @@ export function buildSchemaTools(): ToolSet {
         if (up.error || !up.data) return `Erro ao salvar o agente: ${up.error?.message}`;
         const agentId = up.data.id;
 
-        if (a.toolKeys) {
-          const { data: tks } = await db.from("ai_tools").select("id, key").in("key", a.toolKeys);
-          await db.from("ai_agent_tools").delete().eq("agent_id", agentId);
+        // ADITIVO: só VINCULA (upsert), nunca apaga — assim o Construtor jamais engole
+        // vínculos que o usuário fez na mão. Para REMOVER uma tool de um agente, use a
+        // tela (o diálogo do agente é WYSIWYG). onConflict ignora o que já está vinculado.
+        if (a.toolKeys?.length) {
+          const { data: tks } = await db.from("ai_tools").select("id").in("key", a.toolKeys);
           const rows = (tks ?? []).map((t) => ({ agent_id: agentId, tool_id: t.id }));
-          if (rows.length) await db.from("ai_agent_tools").insert(rows);
+          if (rows.length)
+            await db.from("ai_agent_tools").upsert(rows, { onConflict: "agent_id,tool_id", ignoreDuplicates: true });
         }
         await audit({ action: existing ? "integrations.builder.agent.update" : "integrations.builder.agent.create", entityType: "ai_agent", entityId: agentId, spaceId: null, after: { key: a.key } });
-        return `Agente "${a.key}" ${existing ? "atualizado" : "criado"}${a.toolKeys ? ` com ${a.toolKeys.length} ferramenta(s)` : ""}.`;
+        return `Agente "${a.key}" ${existing ? "atualizado" : "criado"}${a.toolKeys?.length ? ` (+${a.toolKeys.length} ferramenta(s) vinculada(s), sem remover as já existentes)` : ""}.`;
       },
     }),
 

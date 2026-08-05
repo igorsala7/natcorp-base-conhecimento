@@ -25,6 +25,7 @@ import {
   type ToolParam,
 } from "@/lib/integrations/tools";
 import { type EscopoPainel, type PanelScopeMap } from "@/lib/integrations/panel-scope";
+import { GUARD_CATALOG, guardInfo } from "@/lib/integrations/guard-catalog";
 import { saveTool, deleteTool, duplicateTool, listarPerfisDaBase, setToolFlags, bulkSetToolModules, bulkSetToolAccess } from "./tool-actions";
 import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
@@ -1227,8 +1228,22 @@ export function ToolDialog({
                 <Field label="Envelope do corpo (body_mode)" htmlFor="tool_bodymode" hint="vazio/object · array · wrap:chave">
                   <input id="tool_bodymode" className={controlClass} value={bodyMode} onChange={(e) => setBodyMode(e.target.value)} placeholder="ex.: wrap:saque" />
                 </Field>
-                <Field label="Guard (servidor)" htmlFor="tool_guard" hint="ex.: team_membership · saque_confirmation">
-                  <input id="tool_guard" className={controlClass} value={guard} onChange={(e) => setGuard(e.target.value)} placeholder="(nenhum)" />
+                <Field label="Guard (servidor)" htmlFor="tool_guard" hint="Checagem no servidor antes de chamar a API.">
+                  <select id="tool_guard" className={controlClass} value={guard} onChange={(e) => setGuard(e.target.value)}>
+                    <option value="">(nenhum)</option>
+                    {GUARD_CATALOG.map((g) => (
+                      <option key={g.key} value={g.key}>{g.label}</option>
+                    ))}
+                    {guard && !guardInfo(guard) && <option value={guard}>{guard} (desconhecido)</option>}
+                  </select>
+                  {guardInfo(guard) && (
+                    <p className="mt-1 text-xs leading-snug text-text-muted">{guardInfo(guard)!.description}</p>
+                  )}
+                  {guard && !guardInfo(guard) && (
+                    <p className="mt-1 text-xs leading-snug text-amber-600 dark:text-amber-500">
+                      Guard desconhecido — a ferramenta fica bloqueada até corrigir.
+                    </p>
+                  )}
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-3">

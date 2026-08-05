@@ -34,6 +34,7 @@ const agentSchema = z.object({
   scope_permission: z.string().trim().nullish(),
   priority: z.number().int().default(0),
   active: z.boolean().default(true),
+  is_default: z.boolean().default(false),
   toolIds: z.array(z.string().uuid()).default([]),
 });
 
@@ -57,6 +58,7 @@ export async function saveAgent(input: unknown): Promise<IntegResult> {
     scope_permission: a.scope_permission?.trim() || null,
     priority: a.priority,
     active: a.active,
+    is_default: a.is_default,
     updated_at: new Date().toISOString(),
   };
 

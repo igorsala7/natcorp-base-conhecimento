@@ -27,6 +27,7 @@ export type AgentRow = {
   scope_permission: string | null;
   priority: number;
   active: boolean;
+  is_default: boolean;
   toolIds: string[];
 };
 export type ProviderOption = { id: string; name: string };
@@ -165,6 +166,7 @@ export function AgentDialog({
   const [scope, setScope] = useState(agent?.scope_permission ?? "");
   const [priority, setPriority] = useState(agent?.priority ?? 0);
   const [active, setActive] = useState(agent?.active ?? true);
+  const [isDefault, setIsDefault] = useState(agent?.is_default ?? false);
   const [toolIds, setToolIds] = useState<Set<string>>(new Set(agent?.toolIds ?? []));
 
   function toggleTool(id: string) {
@@ -203,6 +205,7 @@ export function AgentDialog({
                 scope_permission: scope,
                 priority: Number(priority) || 0,
                 active,
+                is_default: isDefault,
                 toolIds: [...toolIds],
               })
             }
@@ -283,6 +286,14 @@ export function AgentDialog({
         <label className="flex items-center gap-2 text-sm text-text">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-4 accent-[var(--color-primary)]" />
           Agente ativo
+        </label>
+
+        <label className="flex items-start gap-2 text-sm text-text">
+          <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="mt-0.5 size-4 accent-[var(--color-primary)]" />
+          <span>
+            Agente <strong>padrão</strong>
+            <span className="mt-0.5 block text-xs text-text-muted">Ferramentas ativas sem nenhum agente vinculado (só leitura) ficam disponíveis por este agente — ainda filtradas pelo escopo de painel e allowlists. Pode marcar mais de um.</span>
+          </span>
         </label>
       </div>
     </Dialog>
