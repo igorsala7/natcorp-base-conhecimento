@@ -118,9 +118,33 @@ function paragrafo(ctx: Ctx, txt: string, size: number, font: PDFFont, color: RG
 
 function desenharTabela(ctx: Ctx, colunas: string[], linhas: string[][], titulo?: string) {
   if (titulo) paragrafo(ctx, titulo, 12, ctx.bold, COR.texto, 4);
-  const n = colunas.length;
-  const colW = CONTENT_W / n;
-  const size = 9.5;
+
+  // Larguras por CONTEÚDO (não divisão igual): cada coluna pede o que precisa, com teto.
+  // Se a soma couber, usa proporcional (nada espremido); senão reduz a fonte; se ainda
+  // não couber, TROCA para layout de registros (rótulo: valor) — evita a tabela
+  // "extremamente espremida" quando há muitas colunas.
+  const naturais = (s: number) =>
+    colunas.map((c, i) => {
+      let w = ctx.bold.widthOfTextAtSize(String(c ?? ""), s);
+      for (const linha of linhas) w = Math.max(w, ctx.font.widthOfTextAtSize(String(linha[i] ?? ""), s));
+      return Math.min(w + 12, CONTENT_W * 0.45); // padding + teto p/ 1 coluna não estourar
+    });
+  let size = 9.5;
+  let nat = naturais(size);
+  let soma = nat.reduce((a, b) => a + b, 0);
+  if (soma > CONTENT_W) {
+    size = 7.5; // 1ª saída: fonte menor cabe mais colunas
+    nat = naturais(size);
+    soma = nat.reduce((a, b) => a + b, 0);
+    if (soma > CONTENT_W) {
+      desenharRegistros(ctx, colunas, linhas); // 2ª saída: reformata, sem espremer
+      return;
+    }
+  }
+  // Distribui a folga proporcionalmente (colunas mais largas ganham mais espaço).
+  const folga = CONTENT_W - soma;
+  const larg = nat.map((w) => w + (folga * w) / soma);
+  const xIni = larg.map((_, i) => M + larg.slice(0, i).reduce((a, b) => a + b, 0));
   const padY = 6;
 
   const desenharCabecalho = () => {
@@ -128,8 +152,8 @@ function desenharTabela(ctx: Ctx, colunas: string[], linhas: string[][], titulo?
     ensure(ctx, hH);
     ctx.page.drawRectangle({ x: M, y: ctx.y - hH, width: CONTENT_W, height: hH, color: ctx.primary });
     colunas.forEach((c, i) => {
-      ctx.page.drawText(trunc(ctx.bold, c, size, colW - 10), {
-        x: M + i * colW + 5,
+      ctx.page.drawText(trunc(ctx.bold, c, size, larg[i]! - 10), {
+        x: xIni[i]! + 5,
         y: ctx.y - size - padY,
         size,
         font: ctx.bold,
@@ -142,7 +166,7 @@ function desenharTabela(ctx: Ctx, colunas: string[], linhas: string[][], titulo?
   desenharCabecalho();
   linhas.forEach((linha, r) => {
     // Altura da linha = maior nº de linhas quebradas entre as células.
-    const wrapped = colunas.map((_, i) => wrap(ctx.font, linha[i] ?? "", size, colW - 10));
+    const wrapped = colunas.map((_, i) => wrap(ctx.font, linha[i] ?? "", size, larg[i]! - 10));
     const nLinhas = Math.max(1, ...wrapped.map((w) => w.length));
     const rowH = nLinhas * (size * 1.28) + padY;
     if (ctx.y - rowH < M + FOOTER_H) {
@@ -155,7 +179,7 @@ function desenharTabela(ctx: Ctx, colunas: string[], linhas: string[][], titulo?
     wrapped.forEach((cel, i) => {
       cel.forEach((txt, li) => {
         ctx.page.drawText(txt, {
-          x: M + i * colW + 5,
+          x: xIni[i]! + 5,
           y: ctx.y - size - padY / 2 - li * (size * 1.28),
           size,
           font: ctx.font,
@@ -173,6 +197,35 @@ function desenharTabela(ctx: Ctx, colunas: string[], linhas: string[][], titulo?
     ctx.y -= rowH;
   });
   ctx.y -= 12;
+}
+
+/**
+ * Layout de REGISTROS (rótulo: valor por linha) — usado quando a tabela teria colunas
+ * espremidas demais (muitas colunas / conteúdo largo). Cada linha vira um bloco legível
+ * em toda a largura, sem perder nenhum dado.
+ */
+function desenharRegistros(ctx: Ctx, colunas: string[], linhas: string[][]) {
+  const size = 9.5;
+  linhas.forEach((linha, r) => {
+    // Cabeçalho do bloco: a 1ª coluna (nome/matrícula) — ou "Registro N".
+    const rotulo0 = String(colunas[0] ?? "").trim();
+    const val0 = String(linha[0] ?? "").trim();
+    const cab = val0 ? (rotulo0 ? `${rotulo0}: ${val0}` : val0) : `Registro ${r + 1}`;
+    ensure(ctx, size * 1.6);
+    paragrafo(ctx, cab, 10, ctx.bold, COR.texto, 2);
+    // Demais colunas como "Coluna: valor" (pula vazias).
+    for (let i = 1; i < colunas.length; i++) {
+      const val = String(linha[i] ?? "").trim();
+      if (!val) continue;
+      paragrafo(ctx, `${colunas[i]}: ${val}`, size, ctx.font, COR.texto, 1);
+    }
+    // Divisória entre registros.
+    ctx.y -= 4;
+    ensure(ctx, 8);
+    ctx.page.drawLine({ start: { x: M, y: ctx.y }, end: { x: M + CONTENT_W, y: ctx.y }, thickness: 0.5, color: COR.border });
+    ctx.y -= 8;
+  });
+  ctx.y -= 6;
 }
 
 /** Desenha um gráfico (vetor) dentro de uma caixa; `top` é o y do topo (y-up). */
