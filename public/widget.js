@@ -4436,6 +4436,12 @@
   // arquivos). `usuario` = identificador do dono da conversa (nome/matrícula).
   function construirTranscricao(msgs, pc, usuario) {
     var box = document.createElement("div");
+    // FIX: a transcrição do HISTÓRICO é montada FORA do escopo onde --pc/--pc2 vivem (o
+    // dialog fica fora do wrap principal do widget) → o balão do USUÁRIO (.m.u usa
+    // background:var(--pc)) ficava SEM fundo, enquanto o do assistente (#fff fixo) mantinha.
+    // Fixa as variáveis no próprio container da transcrição.
+    box.style.setProperty("--pc", pc);
+    box.style.setProperty("--pc2", derive(pc));
     var rotuloUser = usuario ? "Você · " + usuario : "Você";
     (msgs || []).forEach(function (mm) {
       var ehUser = mm.role === "user";
