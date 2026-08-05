@@ -147,6 +147,7 @@ async function retrieveWith(
   scope?: ClarifyScope | null,
   lang?: string | null,
   lexicalOnly = false,
+  grupos?: number,
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -265,6 +266,9 @@ async function retrieveWith(
     p_limit: limit,
     // Boost: chunks com termos/sinônimos da ontologia sobem na fusão (4º sinal).
     p_boost: boost ?? undefined,
+    // A5: teto de GRUPOS (top-N manuais/documentos). undefined → default 2 (função);
+    // pergunta composta pede 3-4 para cruzar mais manuais.
+    p_group_limit: grupos ?? undefined,
   });
 
   let resultados = data ?? [];
@@ -362,7 +366,9 @@ async function retrieveWith(
         node_id: null,
         document_id: r.document_id,
         title: r.title ?? "Documento",
-        origin: null,
+        // A8: âncora de ORIGEM = nome do arquivo (como o node usa o título do manual) —
+        // dá à regra anti-mistura algo para distinguir 2 PDFs/arquivos diferentes.
+        origin: r.title ?? "Documento",
         heading_path: r.heading_path,
         content: r.content,
         snippet: r.snippet ?? null,
@@ -447,7 +453,7 @@ export async function retrievePublicContext(
   limit = 8,
   scope?: ClarifyScope | null,
   lang?: string | null,
-  opts?: { lexicalOnly?: boolean },
+  opts?: { lexicalOnly?: boolean; grupos?: number },
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
@@ -460,7 +466,7 @@ export async function retrievePublicContext(
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly);
+  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly, opts?.grupos);
 }
 
 /**

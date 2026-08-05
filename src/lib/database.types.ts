@@ -4407,6 +4407,7 @@ export type Database = {
           p_boost?: string
           p_document_ids?: string[]
           p_embedding?: string
+          p_group_limit?: number
           p_limit?: number
           p_node_ids?: string[]
           p_query: string
