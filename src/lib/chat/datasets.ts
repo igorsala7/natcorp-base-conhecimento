@@ -90,12 +90,27 @@ function celula(v: unknown): string {
  * `null` quando o resultado não é uma lista de registros.
  */
 export function registrarDataset(reg: DatasetRegistry, data: unknown): { id: string; total: number; colunas: string[] } | null {
-  const rows = extrairLista(data);
-  if (!rows || rows.length === 0) return null;
-  const colunas = inferirColunas(rows);
+  const rowsRaw = extrairLista(data);
+  if (!rowsRaw || rowsRaw.length === 0) return null;
+  const colunas = inferirColunas(rowsRaw);
   if (colunas.length === 0) return null;
+  // Re-chaveia cada linha por `cN` (E mantém o nome real) — as query-tools leem a
+  // célula por `r["c"+i]` (asRow/filtrarLinhas/agregações). Sem os `cN`, agregar/
+  // filtrar/somar sobre um `ds*` (resultado de API via injetarDataset) lia célula
+  // VAZIA → soma=0, filtro não casava — mesmo o modelo sendo instruído a usar
+  // dados_de="dsN" p/ o total exato. Espelha registrarTabelaTela; celula() coage
+  // número/booleano/objeto a texto (idêntico ao que asRow/expandirTabela aplicam).
+  const rows: DatasetRow[] = rowsRaw.map((r) => {
+    const o: DatasetRow = {};
+    colunas.forEach((nome, i) => {
+      const v = celula(r[nome]);
+      o["c" + i] = v;
+      if (nome && o[nome] === undefined) o[nome] = v;
+    });
+    return o;
+  });
   const id = "ds" + (reg.list.length + 1);
-  reg.list.push({ id, rows, colunas });
+  reg.list.push({ id, rows, colunas, headers: colunas });
   return { id, total: rows.length, colunas };
 }
 
@@ -348,7 +363,24 @@ export type AgregacaoResultado = {
   valoresNumericos: number;   // quantas células entraram no cálculo (numéricas)
   ignorados: number;          // células não-vazias que não são número (ignoradas no cálculo)
   colunaNaoEncontrada?: string;
+  colunaIdentificador?: string; // A7: coluna é identificador (matrícula/CPF/id) → agregar valor não faz sentido
 };
+
+/** A7: a coluna parece um IDENTIFICADOR (matrícula/CPF/CNPJ/código/id)? Somar/mediar isso
+ *  gera um total sem sentido (ex.: "soma de matrícula"). Detecta por TOKEN do nome — não
+ *  dá falso-positivo em "idade"/"salário"/"valor" (que não têm o token exato). */
+const TOKENS_ID = new Set(["matricula", "matr", "cpf", "cnpj", "pis", "nis", "ctps", "rg", "codigo", "cod", "id", "protocolo", "nsr", "chapa"]);
+function pareceIdentificador(nome: string): boolean {
+  return String(nome)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .some((t) => TOKENS_ID.has(t));
+}
+/** Operações de VALOR (fazem média/soma dos números) — sem sentido num identificador.
+ *  `min`/`max`/`contar`/`distintos` continuam liberados (ex.: "menor matrícula" é válido). */
+const OPS_VALOR_ID = new Set<Agregacao>(["soma", "media", "mediana", "variancia", "desvio_padrao", "moda", "amplitude"]);
 
 /** Percentil por interpolação linear (igual ao PERCENTILE_CONT do Oracle). */
 export function percentil(ordenado: number[], p: number): number {
@@ -442,9 +474,15 @@ export function agregarDataset(
   const filt = filtrarLinhas(ds, filtros, modo);
   if ("colunaNaoEncontrada" in filt) return { ...base, coluna: ds.colunas[idxCol] ?? coluna, colunaNaoEncontrada: filt.colunaNaoEncontrada };
   const linhasConsideradas = filt.linhas.length;
+  const nomeCol = ds.colunas[idxCol] ?? coluna;
+  // A7: bloqueia operação de VALOR sobre um identificador (matrícula/CPF/código) — sem sentido.
+  if (OPS_VALOR_ID.has(operacao) && pareceIdentificador(nomeCol)) {
+    return { ...base, operacao, coluna: nomeCol, linhasConsideradas,
+      colunaIdentificador: `"${nomeCol}" parece um IDENTIFICADOR (matrícula/CPF/código/id) — ${operacao} não faz sentido. Para quantidade use "contar"/"distintos"; para valores, escolha uma coluna de medida (salário, dias, horas…).` };
+  }
   const { nums, ignorados, distintos } = extrairNumeros(filt.linhas, idxCol);
   const valor = operacao === "distintos" ? distintos : calcularOperacao(operacao, nums, linhasConsideradas);
-  return { operacao, coluna: ds.colunas[idxCol] ?? coluna, valor, linhasConsideradas, valoresNumericos: nums.length, ignorados };
+  return { operacao, coluna: nomeCol, valor, linhasConsideradas, valoresNumericos: nums.length, ignorados };
 }
 
 export type EstatisticasColuna = {

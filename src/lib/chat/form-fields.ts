@@ -641,11 +641,13 @@ const fmtN = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2
  */
 function statsBlock(nome: string, colunas: string[], linhas: string[][], id: string): string {
   const M = colunas.length;
-  const amostraDet = Math.min(linhas.length, 300);
+  // A6: fareja o tipo por amostra DISTRIBUÍDA (stride), não pelas primeiras 300 — num
+  // relatório ordenado, coluna vazia no início e numérica no fim sumia do resumo.
+  const passoSniff = Math.max(1, Math.ceil(linhas.length / 300));
   const numericas: number[] = [];
   for (let ci = 0; ci < M; ci++) {
     let ok = 0, tot = 0;
-    for (let r = 0; r < amostraDet; r++) {
+    for (let r = 0; r < linhas.length; r += passoSniff) {
       const v = linhas[r]?.[ci];
       if (v != null && String(v).trim()) { tot++; if (parseNumBR(String(v)) != null) ok++; }
     }

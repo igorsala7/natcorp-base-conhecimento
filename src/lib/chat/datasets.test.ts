@@ -584,3 +584,54 @@ describe("projetarSerie (projeção por registro)", () => {
     expect(projetarSerie(newRegistry(), "ds9", ["M1", "M2"], 6)).toBeNull();
   });
 });
+
+// Regressão A1: query-tools sobre um dataset de RESULTADO DE API (ds*). Antes, as linhas
+// eram chaveadas só pelo nome real e as agregações leem por r["c"+i] → tudo lia vazio
+// (soma=0, filtro não casava). O registrarDataset agora re-chaveia por cN.
+describe("registrarDataset — query-tools sobre ds* (A1)", () => {
+  it("agregar SOMA lê as células (não zero) sobre um ds*", () => {
+    const reg = newRegistry();
+    const meta = registrarDataset(reg, { items: linhas(5) }); // salario 1000..1004
+    expect(meta).not.toBeNull();
+    const r = agregarDataset(reg, meta!.id, "salario", "soma");
+    expect(r).not.toBeNull();
+    expect(r!.valor).toBe(5010); // 1000+1001+1002+1003+1004
+    expect(r!.valoresNumericos).toBe(5); // todas as células entraram
+    expect(r!.linhasConsideradas).toBe(5);
+  });
+
+  it("contar via agregar reflete 100% das linhas do ds*", () => {
+    const reg = newRegistry();
+    const meta = registrarDataset(reg, { items: linhas(5) });
+    expect(agregarDataset(reg, meta!.id, "matricula", "contar")!.valor).toBe(5);
+  });
+
+  it("consultar_registros filtra o ds* sobre 100% (não amostra vazia)", () => {
+    const reg = newRegistry();
+    const meta = registrarDataset(reg, { items: linhas(5) });
+    const c = consultarDataset(reg, meta!.id, [{ coluna: "salario", operador: "maior_igual", valor: "1002" }], "E");
+    expect(c).not.toBeNull();
+    expect(c!.total).toBe(3); // 1002, 1003, 1004
+  });
+});
+
+// A7: não somar/mediar um IDENTIFICADOR (matrícula/CPF/código) — total sem sentido.
+describe("agregarDataset — guarda de identificador (A7)", () => {
+  it("SOMA sobre 'matricula' é bloqueada (aviso, valor 0), mas contar/distintos seguem", () => {
+    const reg = newRegistry();
+    const meta = registrarDataset(reg, { items: linhas(5) }); // matricula 100..104
+    const soma = agregarDataset(reg, meta!.id, "matricula", "soma");
+    expect(soma!.colunaIdentificador).toBeTruthy();
+    expect(soma!.valor).toBe(0);
+    expect(agregarDataset(reg, meta!.id, "matricula", "contar")!.colunaIdentificador).toBeUndefined();
+    expect(agregarDataset(reg, meta!.id, "matricula", "distintos")!.valor).toBe(5);
+  });
+
+  it("SOMA sobre coluna de valor ('salario') NÃO é bloqueada", () => {
+    const reg = newRegistry();
+    const meta = registrarDataset(reg, { items: linhas(5) });
+    const r = agregarDataset(reg, meta!.id, "salario", "soma");
+    expect(r!.colunaIdentificador).toBeUndefined();
+    expect(r!.valor).toBe(5010);
+  });
+});
