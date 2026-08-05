@@ -340,8 +340,12 @@ export async function POST(req: NextRequest) {
     ...(payload.scope?.tools?.map((t) => t.k) ?? []),
     ...(confToolKey ? [confToolKey] : []),
   ];
+  // Seleção de tools (classificador de módulo + narrowing léxico) usa a consulta COM
+  // HISTÓRICO (consultaRag resolve follow-ups como "e do João?"), não só a última msg
+  // crua — que casava quase sem contexto e escolhia tool errada.
+  const consultaTools = consultaRag?.trim() ? consultaRag : question;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
@@ -388,7 +392,7 @@ export async function POST(req: NextRequest) {
   // enriquecido). Só carrega quando pode haver roteamento (há base + relatório/IA).
   const podeRotear = !!baseCode && !continuation && !social && (temRelatorioNaTela || fonteEscolhida === "ia");
   const formasOnto = podeRotear ? await formasExpandidas(supabase, key.space_ids, question, idioma) : [];
-  const consultaTool = formasOnto.length ? `${question}\n${formasOnto.slice(0, 6).join("\n")}` : question;
+  const consultaTool = formasOnto.length ? `${consultaTools}\n${formasOnto.slice(0, 6).join("\n")}` : consultaTools;
   let fonteEfetiva: "relatorio" | "ia" | undefined = fonteEscolhida;
   let matchesCache: ToolMatch[] | null = null;
   let roteouDireto = false;
