@@ -91,4 +91,13 @@ describe("selecionarTopK — modo SEMÂNTICO (sim)", () => {
     const keep = selecionarTopK(tools, "qualquer", 12, undefined, sim);
     expect(keep).toEqual(new Set(["a", "b", "c"])); // ≤ max no lexical → todas
   });
+
+  it("relax (COMPOSTO): afrouxa o piso e mantém a co-intenção de menor sim", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie")];
+    const sim = new Map([["t1", 0.75], ["t2", 0.72], ["t3", 0.62]]);
+    // ESTRITO: piso max(0.60, 0.67)=0.67 → corta t3 (0.62)
+    expect(selecionarTopK(tools, "zzz", 12, undefined, sim, false)).toEqual(new Set(["t1", "t2"]));
+    // RELAX: piso max(0.55, 0.59)=0.59 → mantém as três
+    expect(selecionarTopK(tools, "zzz", 12, undefined, sim, true)).toEqual(new Set(["t1", "t2", "t3"]));
+  });
 });

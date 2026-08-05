@@ -17,6 +17,7 @@ import { buildConfirmDeps } from "./confirmations";
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
  *  o payload enxuto e a escolha precisa mesmo com módulos gordos. Ver tool-narrow.ts. */
 const MAX_TOOLS_MODELO = 12;
+const MAX_TOOLS_COMPOSTO = 18; // COMPOSTO (multi-intenção): teto maior p/ caber as co-intenções
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
@@ -67,6 +68,9 @@ export async function buildIntegrationTools(
   /** C — similaridade SEMÂNTICA da consulta com cada tool (key→sim) neste turno. Quando
    *  presente, o TOP-K seleciona por similaridade (piso relativo) em vez de só léxico. */
   sim?: Map<string, number> | null,
+  /** COMPOSTO (chavinha TOOL_COMPOSITE_RELAX + pergunta composta): afrouxa a seleção
+   *  semântica (piso menor, teto maior) para não perder co-intenções no multi-tool. */
+  relaxComposto?: boolean,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -254,12 +258,14 @@ export async function buildIntegrationTools(
   // tools), ficamos só com as MAX_TOOLS_MODELO mais relevantes à pergunta. Essenciais/
   // forçadas sempre entram; sem sinal lexical → mantém TODAS (não arrisca a assertividade).
   // Custo ZERO — sem chamada de embedding (ver tool-narrow.ts).
+  const maxTools = relaxComposto ? MAX_TOOLS_COMPOSTO : MAX_TOOLS_MODELO;
   const manter = selecionarTopK(
     elegiveisTools.map((e) => ({ key: e.bt.tool.key, name: e.bt.tool.name, description: e.bt.tool.description ?? "", alwaysInclude: e.bt.alwaysInclude })),
     question ?? "",
-    MAX_TOOLS_MODELO,
+    maxTools,
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
     sim,
+    relaxComposto,
   );
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
   if (selecionadas.length < elegiveisTools.length) {
@@ -267,6 +273,7 @@ export async function buildIntegrationTools(
       de: elegiveisTools.length,
       para: selecionadas.length,
       modo: sim?.size ? "semantico" : "lexico",
+      relax: !!relaxComposto,
       // Mostra a similaridade de cada tool mantida — visibilidade da precisão no trace.
       mantidas: selecionadas.map((e) => (sim?.size ? `${e.bt.tool.key} ${(sim.get(e.bt.tool.key) ?? 0).toFixed(2)}` : e.bt.tool.key)),
     });

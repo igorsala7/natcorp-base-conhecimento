@@ -37,6 +37,8 @@ function termos(s: string): string[] {
  */
 const MIN_SEM = 0.6; // piso ABSOLUTO de similaridade: abaixo disso, semanticamente fraco
 const MARGEM_SEM = 0.08; // piso RELATIVO ao topo: corta a cauda longe da melhor tool
+const MIN_SEM_RELAX = 0.55; // modo COMPOSTO (multi-intenção): afrouxa para priorizar RECALL —
+const MARGEM_SEM_RELAX = 0.16; // co-intenções ficam mais espalhadas; não corta as de menor sim.
 const ANTIFLOOD_N = 3; // nada passou o piso → top-N por sim (NUNCA despeja o módulo inteiro)
 
 export function selecionarTopK(
@@ -45,6 +47,8 @@ export function selecionarTopK(
   max: number,
   sempreIncluir?: Set<string>,
   sim?: Map<string, number> | null,
+  /** COMPOSTO (multi-intenção): afrouxa piso/margem p/ não cortar co-intenções. */
+  relax = false,
 ): Set<string> {
   const forcada = (t: ToolLite) => t.alwaysInclude || sempreIncluir?.has(t.key) === true;
   const qs = new Set(termos(question));
@@ -61,7 +65,7 @@ export function selecionarTopK(
     const naoForcadas = tools.filter((t) => !forcada(t));
     const topSim = naoForcadas.reduce((m, t) => Math.max(m, simDe(t)), 0);
     if (topSim > 0) {
-      const piso = Math.max(MIN_SEM, topSim - MARGEM_SEM);
+      const piso = Math.max(relax ? MIN_SEM_RELAX : MIN_SEM, topSim - (relax ? MARGEM_SEM_RELAX : MARGEM_SEM));
       const lexForte = (t: ToolLite) => {
         for (const term of new Set(termos(t.name))) if (qs.has(term)) return true;
         return false;

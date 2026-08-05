@@ -348,8 +348,13 @@ export async function POST(req: NextRequest) {
   // turno, com timeout → cai no léxico se o provedor estiver frio. Só quando há p_base e
   // vamos montar tools (evita embed à toa em tutorial/sem base).
   const simSelecao = track.p_base && !querTutorial ? await simTools(supabase, track.p_base, consultaTools) : null;
+  // Salvaguarda de COMPOSTO (chavinha TOOL_COMPOSITE_RELAX, DESLIGADA por padrão): em
+  // pergunta composta, afrouxa a seleção semântica (piso menor + teto maior) para não
+  // perder co-intenções num pedido multi-tool. Os dados dizem que hoje não é preciso —
+  // fica "na manga" para ligar se o teste revelar composto perdendo ferramenta.
+  const relaxComposto = process.env.TOOL_COMPOSITE_RELAX === "1" && perguntaComposta;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
