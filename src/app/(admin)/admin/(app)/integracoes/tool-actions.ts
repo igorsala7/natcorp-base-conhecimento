@@ -72,6 +72,7 @@ const toolSchema = z.object({
   auth_type: z.enum(["none", "basic", "api_key", "bearer", "oauth2"]),
   params: z.array(paramSchema).default([]),
   response_hint: z.string().trim().nullish(),
+  search_terms: z.string().trim().nullish(),
   active: z.boolean().default(true),
   // Roteamento por assunto (Opção A): essencial (entra sempre) + tags de módulo.
   always_include: z.boolean().default(false),
@@ -125,6 +126,7 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     auth_type: t.auth_type,
     params: t.params as unknown as Json,
     response_hint: t.response_hint?.trim() || null,
+    search_terms: t.search_terms?.trim() || "",
     active: t.active,
     always_include: t.always_include,
     endpoint_kind: t.endpoint_kind,
@@ -165,7 +167,7 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
   // Catálogo semântico: recalcula o embedding (name + description) da tool para o
   // roteador de fonte do chat casar a mensagem com a tool certa. Best-effort — não
   // derruba o salvamento se o provedor de embedding falhar.
-  await syncToolEmbedding(supabase, toolId!, t.name, t.description);
+  await syncToolEmbedding(supabase, toolId!, t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint });
 
   // Acesso por base: reescreve ai_base_tools (enabled + allowlists portal/perfil)
   // a partir do editor de bases. Só quando `bases` foi enviado (o diálogo sempre

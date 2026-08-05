@@ -44,6 +44,7 @@ export type ToolRow = {
   auth_type: AuthType;
   params: ToolParam[];
   response_hint: string | null;
+  search_terms: string | null;
   active: boolean;
   always_include: boolean;
   tags: ModuleTag[];
@@ -939,6 +940,7 @@ export function ToolDialog({
   const [pathTemplate, setPathTemplate] = useState(tool?.path_template ?? "");
   const [authType, setAuthType] = useState<AuthType>(tool?.auth_type ?? "oauth2");
   const [responseHint, setResponseHint] = useState(tool?.response_hint ?? "");
+  const [searchTerms, setSearchTerms] = useState(tool?.search_terms ?? "");
   const [active, setActive] = useState(tool?.active ?? true);
   const [params, setParams] = useState<ToolParam[]>(tool?.params ?? []);
   // Endpoint (interno × externo) + prompt próprio.
@@ -1008,6 +1010,7 @@ export function ToolDialog({
       path_template: pathTemplate,
       auth_type: authType,
       response_hint: responseHint,
+      search_terms: searchTerms,
       active,
       always_include: alwaysInclude,
       modulos: [...tags].map(parseTagKey),
@@ -1136,6 +1139,10 @@ export function ToolDialog({
 
         <Field label="Dica de resposta (opcional)" htmlFor="tool_resp" hint="Como a IA deve resumir/interpretar o retorno.">
           <input id="tool_resp" className={controlClass} value={responseHint} onChange={(e) => setResponseHint(e.target.value)} />
+        </Field>
+
+        <Field label="Sinônimos e exemplos (opcional)" htmlFor="tool_search" hint="Termos e perguntas do dia a dia que a IA deve casar com esta tool (ex.: holerite, salário, 'quanto recebi'). Não aparece pro usuário; entra no embedding e melhora a escolha da tool.">
+          <textarea id="tool_search" className={controlClass} rows={3} value={searchTerms} onChange={(e) => setSearchTerms(e.target.value)} />
         </Field>
 
         {/* Acesso por base (shuttle) */}
