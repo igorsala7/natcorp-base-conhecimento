@@ -152,6 +152,12 @@ export function resolveParams(
     if (p.tipo === "date" && p.mascara && typeof val === "string") {
       val = applyDateMask(val, p.mascara);
     }
+    // P_BASE e P_PAINEL SEMPRE em MAIÚSCULO (exigência da API ORDS) — normaliza o valor
+    // qualquer que seja a origem (identidade/token, fixo ou modelo) antes da requisição.
+    if (typeof val === "string") {
+      const nomeNorm = String(p.nome).toLowerCase().replace(/^p_/, "");
+      if (nomeNorm === "base" || nomeNorm === "painel" || nomeNorm === "portal") val = val.toUpperCase();
+    }
 
     if (p.local === "body") {
       buckets.body[p.nome] = val;

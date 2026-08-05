@@ -76,6 +76,21 @@ describe("resolveParams — origem 'pessoa' (matrícula-alvo por painel)", () =>
   });
 });
 
+describe("resolveParams — P_BASE e P_PAINEL sempre em MAIÚSCULO", () => {
+  const params: ToolParam[] = [
+    { nome: "p_base", descricao: "", tipo: "string", origem: "identidade", obrigatorio: true, local: "query", campoIdentidade: "base" },
+    { nome: "p_painel", descricao: "", tipo: "string", origem: "identidade", obrigatorio: true, local: "query", campoIdentidade: "portal" },
+    { nome: "p_empresa", descricao: "", tipo: "string", origem: "modelo", obrigatorio: false, local: "query" },
+  ];
+  it("força maiúsculo em p_base/p_painel; não altera os demais", () => {
+    const identity = identityFromTrack({ p_base: "natcorp", p_portal: "po" });
+    const b = resolveParams(params, { p_empresa: "abc700" }, identity);
+    expect(b.query.p_base).toBe("NATCORP");
+    expect(b.query.p_painel).toBe("PO");
+    expect(b.query.p_empresa).toBe("abc700");
+  });
+});
+
 describe("buildModelSchema — loop BATCH (API aceita lista por vírgula)", () => {
   const params: ToolParam[] = [
     { nome: "p_matricula", descricao: "Matrículas", tipo: "string", origem: "modelo", obrigatorio: false, local: "query" },
