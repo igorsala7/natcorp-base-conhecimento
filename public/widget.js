@@ -5386,7 +5386,12 @@
       b.addEventListener("click", function () {
         travarEscolha(box, b);
         persistirEscolha(question, o.label);
-        ask(o.scope);
+        if (o.outro) {
+          // [Outro]: em vez de enviar, deixa o usuário detalhar melhor o pedido.
+          if (inputEl) { inputEl.focus(); inputEl.placeholder = "Descreva com mais detalhes o que você precisa…"; }
+        } else {
+          ask(o.scope);
+        }
       });
       box.appendChild(b);
     });

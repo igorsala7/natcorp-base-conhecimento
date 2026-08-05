@@ -44,6 +44,9 @@ import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { ehAfirmacao } from "@/lib/integrations/guards";
+import { confirmarPendencia } from "@/lib/integrations/confirmations";
+import { rotulosAmigaveisTools } from "@/lib/chat/tool-clarify";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
 import { withPrefixCache } from "@/lib/ai/anthropic-cache";
@@ -321,8 +324,24 @@ export async function POST(req: NextRequest) {
   // coletado OU fonte=relatório e não-composta) — é onde o PERFIL DE ANÁLISE por módulo
   // assume a especialização, então a classificação de tools é peso morto.
   const pularAnaliseIntegracoes = (continuation && !!payload.emptyReport) || modoRelatorioCedo;
+  // CONFIRMAÇÃO IN-CHAT: se o usuário respondeu "sim" e há uma pendência recente, o
+  // SISTEMA (não a IA) marca como confirmada e recupera a tool que pediu confirmação,
+  // FORÇANDO-a de volta neste turno (a pergunta crua "sim" não a acha pelo classificador).
+  let confToolKey: string | null = null;
+  if (String(track.p_base ?? "").trim() && ehAfirmacao(question)) {
+    const idc = identityFromTrack(track);
+    const subj = `${idc.usuario ?? ""}:${idc.matricula ?? ""}`;
+    if (idc.usuario || idc.matricula) {
+      confToolKey = await confirmarPendencia(String(track.p_base).trim(), subj);
+      if (confToolKey) passo("confirmacao", { marcada: true, tool: confToolKey });
+    }
+  }
+  const forcarTools = [
+    ...(payload.scope?.tools?.map((t) => t.k) ?? []),
+    ...(confToolKey ? [confToolKey] : []),
+  ];
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes, payload.scope?.tools?.map((t) => t.k))
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
@@ -615,9 +634,17 @@ export async function POST(req: NextRequest) {
   // Roteador de fonte (2º passo): se o usuário escolheu uma TOOL específica (ou o 1º
   // passo só encontrou uma candidata), força só ela — a IA consulta essa integração
   // com os parâmetros do contexto, sem usar os dados da tela.
+  // VENCEDOR CLARO: a top domina a 2ª candidata por uma margem (ou é a única) → força SÓ a
+  // top, para o modelo não chamar várias tools parecidas. Empate (sem margem) → NÃO força:
+  // com roteamento direto o conjunto segue ao modelo; no caminho ambíguo o gate pergunta a fonte.
+  const MARGEM_TOP = 0.06;
+  const topDominaClaro =
+    !!matchesCache &&
+    matchesCache.length > 0 &&
+    (matchesCache.length === 1 || matchesCache[0]!.sim - (matchesCache[1]?.sim ?? 0) >= MARGEM_TOP);
   const toolChave = scopeIn?.tool
     || (fonteEfetiva === "ia" && scopeIn?.tools?.length === 1 ? scopeIn.tools[0]!.k : undefined)
-    || (roteouDireto && matchesCache?.length === 1 ? matchesCache[0]!.key : undefined);
+    || (roteouDireto && topDominaClaro ? matchesCache![0]!.key : undefined);
   const toolForcado = fonteEfetiva === "ia" && toolChave && integ.tools[toolChave] ? toolChave : undefined;
   const integTools = toolForcado ? { [toolForcado]: integ.tools[toolForcado]! } : integ.tools;
   // No modo RELATÓRIO cortamos as tools de API (integ.tools) — a resposta sai do
@@ -838,6 +865,40 @@ export async function POST(req: NextRequest) {
           }),
         );
         controller.enqueue(finalizarTrace("clarify_fonte_inicial"));
+        controller.enqueue(sse({ type: "done", conversationId: convId }));
+        controller.close();
+      },
+    });
+    return sseResponse(stream, cors);
+  }
+
+  // GATE FERRAMENTA × FERRAMENTA: roteou FORTE para tool (roteouDireto) mas SEM vencedor
+  // claro (empate entre as top candidatas, ver `topDominaClaro`) → em vez de deixar o modelo
+  // chamar VÁRIAS parecidas, pergunta QUAL, listando as top 2–3 + "Outro" (o usuário detalha).
+  if (roteouDireto && !topDominaClaro && (matchesCache?.length ?? 0) >= 2 && !scopeIn?.tool && !scopeIn?.direto) {
+    const cc = matchesCache ?? [];
+    // Item 2 — CAP de 2: a 3ª candidata só aparece se ainda for páreo com a 2ª (menos escolha).
+    const candsTool = cc.length >= 3 && cc[1]!.sim - cc[2]!.sim < MARGEM_TOP ? cc.slice(0, 3) : cc.slice(0, 2);
+    // Item 3 — rótulo AMIGÁVEL por IA (chavinha CLARIFY_TOOL_AI_LABELS); [] quando desligado.
+    const rotulos = await rotulosAmigaveisTools(candsTool.map((m) => ({ key: m.key, name: m.name, description: m.description })));
+    const opcoesTool: unknown[] = [
+      ...candsTool.map((m, i) => {
+        // Item 1 — o que a pessoa VAI OBTER na frente (rótulo IA → descrição → nome); nome como apoio.
+        const principal = rotulos[i] || m.description || m.name;
+        return {
+          id: m.key,
+          label: `📋 ${principal}`,
+          sublabel: principal === m.name ? undefined : m.name,
+          scope: { fonte: "ia", tool: m.key, direto: true },
+        };
+      }),
+      { id: "__outro__", label: "🤔 Não é nenhuma dessas — me ajuda a explicar", outro: true, scope: {} },
+    ];
+    passo("clarify_tool", { candidatas: candsTool.map((m) => `${m.key} ${m.sim.toFixed(2)}`), rotulos_ia: rotulos.length > 0 });
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sse({ type: "clarify", question: "Sobre qual dessas você quer saber?", options: opcoesTool }));
+        controller.enqueue(finalizarTrace("clarify_tool"));
         controller.enqueue(sse({ type: "done", conversationId: convId }));
         controller.close();
       },
