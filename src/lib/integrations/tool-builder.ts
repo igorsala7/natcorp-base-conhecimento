@@ -278,7 +278,7 @@ export async function buildIntegrationTools(
         if (chamadasIntegracao >= MAX_CHAMADAS_INTEGRACAO)
           return { erro: `Já foram feitas ${MAX_CHAMADAS_INTEGRACAO} consultas nesta rodada (provável repetição em loop). Responda com o que já foi coletado; se faltar informação, peça ao usuário para refinar — menos itens por vez ou uma pergunta de cada vez.` };
         chamadasIntegracao++;
-        const _resultado = injetarDataset(datasets, await (async () => {
+        const _promessa = (async () => injetarDataset(datasets, await (async () => {
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
@@ -473,9 +473,13 @@ export async function buildIntegrationTools(
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
         }
-        })());
-        if (chaveDedup) dedupTurno.set(chaveDedup, _resultado);
-        return _resultado;
+        })()))();
+        // Guarda a PROMESSA (não o resultado) já aqui, ANTES do await: chamadas IDÊNTICAS
+        // em PARALELO no mesmo passo (Gemini 3 re-emitindo function calls em rajada)
+        // compartilham este resultado em vez de baterem N× na API. O set é síncrono logo
+        // após criar a promessa, então a 2ª chamada do mesmo passo já a encontra.
+        if (chaveDedup) dedupTurno.set(chaveDedup, _promessa);
+        return await _promessa;
       },
     });
   }
