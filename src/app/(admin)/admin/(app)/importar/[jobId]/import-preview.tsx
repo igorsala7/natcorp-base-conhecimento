@@ -20,6 +20,7 @@ import type { LayoutQuestion } from "@/lib/importer/question-schema";
 import { diretivasParaDirecao } from "@/lib/importer/question-schema";
 import { Loader2, Sparkles } from "lucide-react";
 import { listSpaceFolders } from "../../conteudo/space-actions";
+import { Select } from "@/components/ui/select";
 
 /** Remove um nó pelo caminho de índices, retornando uma nova árvore. */
 function removeAt(tree: ProposedNode[], path: number[]): ProposedNode[] {
@@ -264,11 +265,11 @@ export function ImportPreview({
       >
         <div className="space-y-4">
           <Field label="Documentação" htmlFor="imp-space">
-            <select
+            <Select
               id="imp-space"
               value={spaceId}
-              onChange={(e) => {
-                setSpaceId(e.target.value);
+              onChange={(v) => {
+                setSpaceId(v);
                 setParentId("__root__"); // pasta do espaço antigo não vale mais
               }}
               className={`${controlClass} h-10`}
@@ -278,7 +279,7 @@ export function ImportPreview({
                   {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           <Field
@@ -286,10 +287,10 @@ export function ImportPreview({
             htmlFor="imp-parent"
             hint={loadingFolders ? "Carregando pastas…" : undefined}
           >
-            <select
+            <Select
               id="imp-parent"
               value={parentId}
-              onChange={(e) => setParentId(e.target.value)}
+              onChange={(v) => setParentId(v)}
               disabled={loadingFolders}
               className={`${controlClass} h-10`}
             >
@@ -300,7 +301,7 @@ export function ImportPreview({
                   {f.title}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           <div className="rounded-lg border border-border p-3">

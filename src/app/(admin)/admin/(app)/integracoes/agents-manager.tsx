@@ -14,6 +14,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { saveAgent, deleteAgent } from "./agent-actions";
 import type { IntegResult } from "./actions";
 import type { ToolRow } from "./tools-manager";
+import { Select } from "@/components/ui/select";
 
 export type AgentRow = {
   id: string;
@@ -231,12 +232,12 @@ export function AgentDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Provedor de IA" htmlFor="ag_prov" hint="Vazio = usa a IA padrão de chat.">
-            <select id="ag_prov" className={controlClass} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+            <Select id="ag_prov" value={providerId} onChange={(v) => setProviderId(v)}>
               <option value="">— IA padrão de chat —</option>
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Modelo" htmlFor="ag_model" hint="Ex.: claude-sonnet-5, gpt-5…">
             <input id="ag_model" className={controlClass} value={model} onChange={(e) => setModel(e.target.value)} disabled={!providerId} />
@@ -267,12 +268,12 @@ export function AgentDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Agente-pai (hierarquia)" htmlFor="ag_parent" hint="Opcional. Orquestrador → especialista.">
-            <select id="ag_parent" className={controlClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <Select id="ag_parent" value={parentId} onChange={(v) => setParentId(v)}>
               <option value="">— nenhum —</option>
               {paisPossiveis.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Prioridade" htmlFor="ag_prio" hint="Maior = considerado antes no roteamento.">
             <input id="ag_prio" type="number" className={controlClass} value={priority} onChange={(e) => setPriority(Number(e.target.value))} />

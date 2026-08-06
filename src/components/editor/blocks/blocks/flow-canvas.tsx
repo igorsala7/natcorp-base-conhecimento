@@ -20,6 +20,7 @@ import { FlowView, type FlowSelection } from "@/components/portal/flow-view";
 import { uploadToAssets } from "@/lib/content/upload";
 import { IconPicker } from "../icon-picker";
 import type { BlockEditProps } from "../edit-types";
+import { Select } from "@/components/ui/select";
 
 type FlowBlockT = Extract<Block, { type: "flow" }>;
 type Menu = { kind: "node" | "edge"; id: string; x: number; y: number };
@@ -368,9 +369,9 @@ function NodeMenu({
     <div>
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Bloco</p>
       <Linha label="Tipo">
-        <select
+        <Select
           value={node.type}
-          onChange={(e) => patchNode(node.id, (n) => ({ ...n, type: e.target.value as FlowNodeType }))}
+          onChange={(v) => patchNode(node.id, (n) => ({ ...n, type: v as FlowNodeType }))}
           className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs"
         >
           {TIPOS.map((t) => (
@@ -378,7 +379,7 @@ function NodeMenu({
               {FLOW_NODE_LABEL[t]}
             </option>
           ))}
-        </select>
+        </Select>
       </Linha>
       <Linha label="Fonte">
         <Seg
@@ -494,9 +495,9 @@ function EdgeMenu({
         />
       </Linha>
       <Linha label="Formato">
-        <select
+        <Select
           value={s.shape ?? "bezier"}
-          onChange={(e) => est({ shape: e.target.value as FlowEdgeShape })}
+          onChange={(v) => est({ shape: v as FlowEdgeShape })}
           className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs"
         >
           {FORMATOS.map(([v, l]) => (
@@ -504,7 +505,7 @@ function EdgeMenu({
               {l}
             </option>
           ))}
-        </select>
+        </Select>
       </Linha>
       <Linha label="Cor">
         <Cor value={s.color} def="#94a3b8" onChange={(v) => est({ color: v })} />

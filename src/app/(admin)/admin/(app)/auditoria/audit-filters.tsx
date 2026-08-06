@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 export function AuditFilters({
   actors,
@@ -25,18 +26,18 @@ export function AuditFilters({
   const cls = cn(controlClass, "h-8 w-auto px-2 py-1");
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select className={cls} value={sp.get("actor") ?? ""} onChange={(e) => set("actor", e.target.value)} aria-label="Ator">
+      <Select className={cls} value={sp.get("actor") ?? ""} onChange={(v) => set("actor", v)} aria-label="Ator">
         <option value="">Todos os atores</option>
         {actors.map((a) => (
           <option key={a.id} value={a.id}>{a.label}</option>
         ))}
-      </select>
-      <select className={cls} value={sp.get("action") ?? ""} onChange={(e) => set("action", e.target.value)} aria-label="Ação">
+      </Select>
+      <Select className={cls} value={sp.get("action") ?? ""} onChange={(v) => set("action", v)} aria-label="Ação">
         <option value="">Todas as ações</option>
         {actions.map((a) => (
           <option key={a.key} value={a.key}>{a.label}</option>
         ))}
-      </select>
+      </Select>
       <input type="date" className={cls} value={sp.get("from") ?? ""} onChange={(e) => set("from", e.target.value)} aria-label="De" />
       <input type="date" className={cls} value={sp.get("to") ?? ""} onChange={(e) => set("to", e.target.value)} aria-label="Até" />
       {[...sp.keys()].length > 0 && (

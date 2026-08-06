@@ -10,6 +10,7 @@ import { Input, controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import { createSpace, type NewSpaceMode } from "@/app/(admin)/admin/(app)/conteudo/space-actions";
+import { Select } from "@/components/ui/select";
 
 const MODES: { key: NewSpaceMode; icon: typeof FilePlus2; label: string; desc: string }[] = [
   {
@@ -145,10 +146,10 @@ export function NewSpaceDialog({
                 : "A cópia é feita uma única vez e segue independente."
             }
           >
-            <select
+            <Select
               id="space-origem"
               value={sourceId}
-              onChange={(e) => setSourceId(e.target.value)}
+              onChange={(v) => setSourceId(v)}
               className={`${controlClass} h-10`}
             >
               {spaces.map((s) => (
@@ -156,7 +157,7 @@ export function NewSpaceDialog({
                   {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
 
@@ -183,10 +184,10 @@ export function NewSpaceDialog({
 
             {copiarLayout && !precisaOrigem && (
               <Field label="Copiar o layout de" htmlFor="space-layout" className="mt-3">
-                <select
+                <Select
                   id="space-layout"
                   value={sourceId}
-                  onChange={(e) => setSourceId(e.target.value)}
+                  onChange={(v) => setSourceId(v)}
                   className={`${controlClass} h-10`}
                 >
                   {spaces.map((s) => (
@@ -194,7 +195,7 @@ export function NewSpaceDialog({
                       {s.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
             )}
           </div>

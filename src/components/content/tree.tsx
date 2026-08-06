@@ -58,6 +58,7 @@ import {
 } from "@/app/(admin)/admin/(app)/conteudo/template-actions";
 import { saveArticle } from "@/app/(admin)/admin/(app)/conteudo/article-actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
+import { Select } from "@/components/ui/select";
 
 // Um degrau curto por nível (padrão Microsoft Learn): em árvores fundas a
 // indentação larga é quem come a largura do título.
@@ -1064,9 +1065,9 @@ export function Tree({
               className={cn(controlClass, "h-7 min-w-0 flex-1 px-2 py-1")}
             />
             {creating === "article" && (
-              <select
+              <Select
                 value={templateSel}
-                onChange={(e) => setTemplateSel(e.target.value)}
+                onChange={(v) => setTemplateSel(v)}
                 aria-label="Modelo do artigo"
                 title="Modelo inicial do artigo"
                 className={cn(controlClass, "h-7 w-auto max-w-36 shrink-0 px-1 py-1 text-xs")}
@@ -1082,7 +1083,7 @@ export function Tree({
                     {t.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             <Button type="submit" size="sm" className="h-7 shrink-0">
               Criar
@@ -1127,13 +1128,23 @@ export function Tree({
           >
             <Sparkles className="size-4" /> Processar
           </Button>
-          <select
-            defaultValue=""
-            className={cn(controlClass, "h-7 w-auto px-1 py-1 text-xs")}
+          {/* Controlado com value="" — volta sozinho ao rótulo depois de mover (o
+              nativo precisava zerar o campo na mão). Com filtro: numa árvore de
+              centenas de pastas, rolar até a pasta certa era o gargalo. */}
+          <Select
+            value=""
+            className={cn("h-7 w-auto px-1 py-1 text-xs")}
             aria-label="Mover para"
-            onChange={(e) => {
-              const dest = e.target.value;
-              e.target.value = "";
+            placeholder="Mover para…"
+            buscaPlaceholder="Digite o nome da pasta…"
+            options={[
+              { value: "__root__", label: "Raiz" },
+              ...folders
+                .filter((f) => !checkedIds.has(f.id))
+                .map((f) => ({ value: f.id, label: `${"— ".repeat(f.depth)}${f.node.title}` })),
+            ]}
+            onChange={(dest) => {
+              if (!dest) return;
               const ids = [...checkedIds];
               run(async () => {
                 const r = await moveNodesToParent(ids, dest === "__root__" ? null : dest);
@@ -1141,20 +1152,7 @@ export function Tree({
                 return r;
               });
             }}
-          >
-            <option value="" disabled>
-              Mover para…
-            </option>
-            <option value="__root__">Raiz</option>
-            {folders
-              .filter((f) => !checkedIds.has(f.id))
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {"— ".repeat(f.depth)}
-                  {f.node.title}
-                </option>
-              ))}
-          </select>
+          />
           {selectedArticles.length >= 2 && (
             <Button
               type="button"

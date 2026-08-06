@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BellRing, Loader2, MailCheck } from "lucide-react";
+import { Select } from "@/components/ui/select";
 
 const FREQUENCIAS = [
   { value: "instant", label: "Assim que publicar" },
@@ -74,9 +75,9 @@ export function SubscribeForm({ spaceSlug }: { spaceSlug: string }) {
           aria-label="Seu e-mail"
           className="h-10 min-w-52 flex-1 rounded-md border border-border-strong bg-bg px-3 text-sm focus:border-primary focus:outline-none"
         />
-        <select
+        <Select
           value={frequency}
-          onChange={(e) => setFrequency(e.target.value)}
+          onChange={(v) => setFrequency(v)}
           aria-label="Frequência"
           className="h-10 rounded-md border border-border-strong bg-bg px-2 text-sm focus:border-primary focus:outline-none"
         >
@@ -85,7 +86,7 @@ export function SubscribeForm({ spaceSlug }: { spaceSlug: string }) {
               {f.label}
             </option>
           ))}
-        </select>
+        </Select>
         <button
           type="submit"
           disabled={estado === "enviando"}

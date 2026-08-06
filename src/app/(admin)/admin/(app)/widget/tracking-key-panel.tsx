@@ -8,6 +8,7 @@ import { Input, controlClass } from "@/components/ui/input";
 import { eyebrowLabel } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
+import { Select } from "@/components/ui/select";
 import {
   getTrackingKey,
   generateTrackingKey,
@@ -213,9 +214,9 @@ end;`;
       {/* Espaço */}
       <label className="block">
         <span className={eyebrowLabel}>Documentação (espaço)</span>
-        <select
+        <Select
           value={spaceId}
-          onChange={(e) => setSpaceId(e.target.value)}
+          onChange={(v) => setSpaceId(v)}
           className={`${controlClass} mt-1 max-w-md`}
         >
           {spaces.map((s) => (
@@ -223,7 +224,7 @@ end;`;
               {s.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
 
       {/* Chave */}

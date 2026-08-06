@@ -8,6 +8,7 @@ import { controlClass } from "@/components/ui/input";
 import { ChatPanel, type SimIdentity } from "@/components/admin/chat-panel";
 import { useToast } from "@/components/ui/toast";
 import { updateSpaceChatPrompt } from "../configuracoes/actions";
+import { Select } from "@/components/ui/select";
 
 /**
  * Bancada do Assistente: à esquerda a PARAMETRIZAÇÃO da persona (system prompt)
@@ -126,11 +127,11 @@ export function AssistantWorkbench({
             </div>
 
             <Field label="Base (cliente)" htmlFor="sim-base">
-              <select
+              <Select
                 id="sim-base"
                 value={sim.base_code ?? ""}
-                onChange={(e) => setSimField("base_code", e.target.value)}
-                className={controlClass}
+                onChange={(v) => setSimField("base_code", v)}
+               
               >
                 <option value="">— nenhuma (documentação) —</option>
                 {bases.map((b) => (
@@ -138,7 +139,7 @@ export function AssistantWorkbench({
                     {b.name} ({b.base_code})
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             {sim.base_code && (
@@ -158,11 +159,11 @@ export function AssistantWorkbench({
                   </Field>
                 </div>
                 <Field label="Perfil" htmlFor="sim-perfil" hint="Se a base resolver o login, o perfil real vem de lá (sobrepõe este).">
-                  <select id="sim-perfil" value={sim.perfil ?? ""} onChange={(e) => setSimField("perfil", e.target.value)} className={controlClass}>
+                  <Select id="sim-perfil" value={sim.perfil ?? ""} onChange={(v) => setSimField("perfil", v)}>
                     <option value="">— (resolvido no login) —</option>
                     <option value="colaborador">colaborador</option>
                     <option value="gestor">gestor</option>
-                  </select>
+                  </Select>
                 </Field>
                 <p className="text-xs text-text-muted">Trocar a base começa uma conversa nova.</p>
               </>

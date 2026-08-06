@@ -38,6 +38,7 @@ import { BackupPanel, type BackupRow, type BackupSettingsRow } from "./backup-pa
 import { PromptsPanel, type PromptCatUI } from "./prompts-panel";
 import { WebAccessPanel, type WebAccessData } from "./web-access-panel";
 import { ExtensionPanel } from "./extension-panel";
+import { Select } from "@/components/ui/select";
 
 export type ProviderRow = {
   id: string;
@@ -242,17 +243,17 @@ function AbaIA({
       <Surface elevation={1} padding="lg">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className={eyebrowLabel}>Configuração por base</h2>
-          <select
+          <Select
             aria-label="Base"
             className={`${controlClass} h-9 w-auto`}
             value={baseSel}
-            onChange={(e) => { setBaseSel(e.target.value); setNovo(false); }}
+            onChange={(v) => { setBaseSel(v); setNovo(false); }}
           >
             <option value="">Padrão (todas as bases)</option>
             {bases.map((b) => (
               <option key={b} value={b}>{b}</option>
             ))}
-          </select>
+          </Select>
           <span className="text-xs text-text-muted">
             {baseSel
               ? "Provedores e atribuições PRÓPRIOS desta base. Sem override, ela herda o padrão."
@@ -357,11 +358,11 @@ function AbaIA({
                 <Input id="p-nome" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex.: OpenAI produção" />
               </Field>
               <Field label="Tipo" htmlFor="p-tipo">
-                <select id="p-tipo" className={`${controlClass} h-10`} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ProviderKind })}>
+                <Select id="p-tipo" className={`${controlClass} h-10`} value={form.kind} onChange={(v) => setForm({ ...form, kind: v as ProviderKind })}>
                   {(Object.keys(PROVIDER_LABEL) as ProviderKind[]).map((k) => (
                     <option key={k} value={k}>{PROVIDER_LABEL[k]}</option>
                   ))}
-                </select>
+                </Select>
               </Field>
             </div>
 
@@ -572,16 +573,16 @@ function ConsumoIA() {
       <div className="flex flex-wrap items-center gap-3">
         <h2 className={eyebrowLabel}>Consumo de IA</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
+          <Select
             aria-label="Tipo de consumo"
             value={tipo}
-            onChange={(e) => setTipo(e.target.value as UsoTipo)}
+            onChange={(v) => setTipo(v as UsoTipo)}
             className={`${controlClass} h-8 w-auto px-2 py-1 text-xs`}
           >
             <option value="all">Tipo: Todos</option>
             <option value="user">Tipo: Usuário (Chat)</option>
             <option value="system">Tipo: Sistema</option>
-          </select>
+          </Select>
           <div className="flex overflow-hidden rounded-md border border-border">
             {[7, 30, 90].map((n) => (
               <button
@@ -805,17 +806,17 @@ function LinhaFinalidade({
         <span className="ml-2 text-xs text-text-muted">{desc}</span>
       </div>
       <div className="flex flex-wrap items-end gap-2">
-        <select
+        <Select
           aria-label={`Provedor para ${label}`}
           className={`${controlClass} h-9 w-auto`}
           value={providerId}
-          onChange={(e) => { setProviderId(e.target.value); setModel(""); }}
+          onChange={(v) => { setProviderId(v); setModel(""); }}
         >
           <option value="">{base ? "— herdar o padrão —" : "— usar variáveis de ambiente —"}</option>
           {elegiveis.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
-        </select>
+        </Select>
 
         {providerId && (
           <input
@@ -868,11 +869,11 @@ function AbaEmail({
   return (
     <Surface elevation={1} padding="lg" className="mt-5 space-y-4">
       <Field label="Como enviar" htmlFor="transp">
-        <select id="transp" className={`${controlClass} h-10`} value={f.transport} onChange={(e) => setF({ ...f, transport: e.target.value as typeof f.transport })}>
+        <Select id="transp" className={`${controlClass} h-10`} value={f.transport} onChange={(v) => setF({ ...f, transport: v as typeof f.transport })}>
           <option value="off">Desligado (não envia e-mail)</option>
           <option value="brevo">Brevo (API)</option>
           <option value="smtp">SMTP genérico</option>
-        </select>
+        </Select>
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">

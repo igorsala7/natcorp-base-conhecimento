@@ -11,6 +11,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { saveWidgetKey, regenerateWidgetKey, deleteWidgetKey } from "./actions";
+import { Select } from "@/components/ui/select";
 
 export type ApiKeyRow = {
   id: string;
@@ -184,19 +185,19 @@ export function ApiKeyManager({
           <h3 className="text-sm font-semibold">{draft.id ? "Editar chave" : "Nova chave de API"}</h3>
           {!fixedSpaceId && (
             <Field label="Documentação" htmlFor="api-doc" hint="Qual documentação esta chave consulta (chat e busca).">
-              <select
+              <Select
                 id="api-doc"
                 value={draft.spaceId}
-                onChange={(e) => setDraft({ ...draft, spaceId: e.target.value })}
+                onChange={(v) => setDraft({ ...draft, spaceId: v })}
                 disabled={!!draft.id}
-                className={controlClass}
+               
               >
                 {spaces.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           )}
           <Field label="Nome" htmlFor="api-nome" hint="Só para você identificar (ex.: 'Site institucional', 'Backend').">

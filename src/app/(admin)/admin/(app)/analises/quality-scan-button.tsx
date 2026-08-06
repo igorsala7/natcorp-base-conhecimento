@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { runQualityScan } from "./quality-actions";
+import { Select } from "@/components/ui/select";
 
 /** Dispara a varredura de qualidade de uma documentação (roda no worker). */
 export function QualityScanButton({ spaces }: { spaces: { id: string; name: string }[] }) {
@@ -17,9 +18,9 @@ export function QualityScanButton({ spaces }: { spaces: { id: string; name: stri
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select
+      <Select
         value={spaceId}
-        onChange={(e) => setSpaceId(e.target.value)}
+        onChange={(v) => setSpaceId(v)}
         aria-label="Documentação"
         className={`${controlClass} h-9 w-auto`}
       >
@@ -28,7 +29,7 @@ export function QualityScanButton({ spaces }: { spaces: { id: string; name: stri
             {s.name}
           </option>
         ))}
-      </select>
+      </Select>
       <Button
         size="sm"
         variant="secondary"

@@ -3,6 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { ChartView } from "./chart-view";
 import { CHART_TIPOS, specToChartData, specToCsv, type ChartSpec, type ChartTipo } from "@/lib/chat/chart-spec";
+import { Select } from "@/components/ui/select";
 
 const fmtNum = (v: number | undefined) => Number(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
@@ -133,10 +134,10 @@ export function AskAiChart({ spec }: { spec: ChartSpec }) {
       )}
       <div className="mt-1 flex items-center gap-2">
         {grafico && (
-          <select
+          <Select
             aria-label="Tipo do gráfico"
             value={tipo}
-            onChange={(e) => setTipo(e.target.value as ChartTipo)}
+            onChange={(v) => setTipo(v as ChartTipo)}
             className="rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text"
           >
             {CHART_TIPOS.map((t) => (
@@ -144,7 +145,7 @@ export function AskAiChart({ spec }: { spec: ChartSpec }) {
                 {t.label}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         <span className="flex-1" />
         <button

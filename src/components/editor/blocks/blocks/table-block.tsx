@@ -11,6 +11,7 @@ import {
 } from "@/lib/blocks/table-styles";
 import { RichText } from "../rich-text/rich-text";
 import type { BlockEditProps } from "../edit-types";
+import { Select } from "@/components/ui/select";
 
 type Escopo = "cell" | "row" | "col";
 
@@ -107,15 +108,15 @@ export function TableBlock({ block, onChange }: BlockEditProps) {
         <span className="h-3 w-px bg-border" />
         <label className="flex items-center gap-1">
           Bordas
-          <select
+          <Select
             value={borders}
-            onChange={(e) => patchData({ borders: e.target.value as "all" | "rows" | "none" })}
+            onChange={(v) => patchData({ borders: v as "all" | "rows" | "none" })}
             className={`${controlClass} w-auto`}
           >
             <option value="rows">Linhas</option>
             <option value="all">Grade</option>
             <option value="none">Nenhuma</option>
-          </select>
+          </Select>
         </label>
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={striped} onChange={(e) => patchData({ striped: e.target.checked })} />
@@ -126,11 +127,11 @@ export function TableBlock({ block, onChange }: BlockEditProps) {
         {/* Cor da célula/linha/coluna em foco. */}
         <div className="flex items-center gap-1.5">
           <span>Cor</span>
-          <select value={escopo} onChange={(e) => setEscopo(e.target.value as Escopo)} className={`${controlClass} w-auto`} title="Aplicar a…">
+          <Select value={escopo} onChange={(v) => setEscopo(v as Escopo)} className={`${controlClass} w-auto`} title="Aplicar a…">
             <option value="cell">célula</option>
             <option value="row">linha</option>
             <option value="col">coluna</option>
-          </select>
+          </Select>
           <button
             type="button"
             title="Sem cor"

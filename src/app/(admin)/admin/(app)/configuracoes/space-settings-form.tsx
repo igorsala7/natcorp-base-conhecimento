@@ -10,6 +10,7 @@ import { Surface } from "@/components/ui/surface";
 import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { updateSpaceSettings, clearSpaceEmbeddings, verifyCustomDomain, type DomainCheck } from "./actions";
+import { Select } from "@/components/ui/select";
 
 type Current = {
   id: string;
@@ -111,12 +112,12 @@ export function SpaceSettingsForm({
           <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
           <p className="mt-1 text-sm text-text-muted">Nome, visibilidade e domínio do espaço.</p>
         </div>
-        <select
+        <Select
           value={current.id}
-          onChange={(e) => {
+          onChange={(v) => {
             // Mantém `from`: sem ele o botão de voltar perde o destino.
             const params = new URLSearchParams(searchParams.toString());
-            params.set("space", e.target.value);
+            params.set("space", v);
             router.push(`/admin/configuracoes?${params.toString()}`);
           }}
           className={`${controlClass} h-9 w-auto px-2`}
@@ -125,7 +126,7 @@ export function SpaceSettingsForm({
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <Surface elevation={1} padding="lg" className="space-y-4 rounded-xl">

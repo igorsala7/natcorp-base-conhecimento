@@ -15,6 +15,7 @@ import { PromptLibrary, SavePromptButton } from "@/components/chat/prompt-librar
 import { listMyPrompts, saveMyPrompt, deleteMyPrompt } from "@/app/(admin)/admin/(app)/prompt-library-actions";
 import type { SpaceInfo } from "@/lib/content/spaces";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
+import { Select } from "@/components/ui/select";
 
 const promptBackend = { list: listMyPrompts, save: saveMyPrompt, del: deleteMyPrompt };
 
@@ -239,9 +240,9 @@ export function ChatPanel({
     <Surface elevation={1} padding="none" className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border p-2">
         {!fixedSpaceId && (
-          <select
+          <Select
             value={spaceId}
-            onChange={(e) => changeSpace(e.target.value)}
+            onChange={(v) => changeSpace(v)}
             className={`${controlClass} h-8 w-auto px-2`}
             aria-label="Espaço"
           >
@@ -251,7 +252,7 @@ export function ChatPanel({
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         <span className="hidden text-xs text-text-muted sm:inline">
           Só responde com o conteúdo deste espaço.

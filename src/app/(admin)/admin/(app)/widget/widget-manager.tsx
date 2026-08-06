@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
 import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Surface } from "@/components/ui/surface";
+import { Select } from "@/components/ui/select";
 import {
   saveWidgetKey,
   regenerateWidgetKey,
@@ -455,23 +456,23 @@ export function WidgetManager({
               <input className={controlClass} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </Field>
             <Field label="Documentação dona (define permissão e registra as conversas)">
-              <select
-                className={controlClass}
+              <Select
+               
                 value={draft.spaceId}
                 disabled={!!draft.id || !!fixedSpaceId}
-                onChange={(e) =>
+                onChange={(v) =>
                   setDraft({
                     ...draft,
-                    spaceId: e.target.value,
+                    spaceId: v,
                     // Trocar a dona não pode deixar a antiga no escopo por inércia.
-                    scopeSpaceIds: [e.target.value],
+                    scopeSpaceIds: [v],
                   })
                 }
               >
                 {spaces.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             <fieldset>
@@ -600,25 +601,25 @@ export function WidgetManager({
               />
             </Field>
             <Field label="Posição inicial">
-              <select
-                className={controlClass}
+              <Select
+               
                 value={draft.position}
-                onChange={(e) => setDraft({ ...draft, position: e.target.value as "right" | "left" })}
+                onChange={(v) => setDraft({ ...draft, position: v as "right" | "left" })}
               >
                 <option value="right">Direita</option>
                 <option value="left">Esquerda</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Tamanho da bolha">
-              <select
-                className={controlClass}
+              <Select
+               
                 value={draft.bubbleSize}
-                onChange={(e) => setDraft({ ...draft, bubbleSize: e.target.value as Draft["bubbleSize"] })}
+                onChange={(v) => setDraft({ ...draft, bubbleSize: v as Draft["bubbleSize"] })}
               >
                 <option value="sm">Pequena</option>
                 <option value="md">Média</option>
                 <option value="lg">Grande</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Imagem do widget (bolha flutuante)">
               <MidiaPicker
@@ -637,15 +638,15 @@ export function WidgetManager({
               />
             </Field>
             <Field label="Formato do avatar">
-              <select
-                className={controlClass}
+              <Select
+               
                 value={draft.avatarShape}
-                onChange={(e) => setDraft({ ...draft, avatarShape: e.target.value as Draft["avatarShape"] })}
+                onChange={(v) => setDraft({ ...draft, avatarShape: v as Draft["avatarShape"] })}
               >
                 <option value="circle">Círculo</option>
                 <option value="rounded">Arredondado</option>
                 <option value="square">Quadrado</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Mensagem de boas-vindas">
               <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />

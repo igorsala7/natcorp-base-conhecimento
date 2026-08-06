@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { AUTH_TYPES, CREDENTIAL_FIELDS, type AuthType } from "@/lib/integrations/credentials";
 import { saveWhatsappConfig } from "./whatsapp-actions";
+import { Select } from "@/components/ui/select";
 
 export type WhatsappSettings = {
   active: boolean;
@@ -91,12 +92,12 @@ export function WhatsappPanel({
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-3">
         <span className="text-sm font-semibold text-text">Canal</span>
-        <select className={`${controlClass} h-9 w-auto`} value={baseSel} onChange={(e) => setBaseSel(e.target.value)}>
+        <Select className={`${controlClass} h-9 w-auto`} value={baseSel} onChange={(v) => setBaseSel(v)}>
           <option value="">Padrão (fallback)</option>
           {bases.map((b) => (
             <option key={b} value={b}>{channels[b] ? b : `${b} — novo`}</option>
           ))}
-        </select>
+        </Select>
         <span className="text-xs text-text-muted">
           {baseSel
             ? "Conta própria deste cliente (Meta ou Evolution) — roteada pelo número/instância que recebe."
@@ -224,14 +225,14 @@ function WhatsappForm({
       {/* Provedor: Meta oficial ou Evolution (self-hosted) */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
         <span className="text-sm font-semibold text-text">Provedor</span>
-        <select
+        <Select
           className={`${controlClass} h-9 w-auto`}
           value={provider}
-          onChange={(e) => setProvider(e.target.value as WhatsappSettings["provider"])}
+          onChange={(v) => setProvider(v as WhatsappSettings["provider"])}
         >
           <option value="meta">Meta — WhatsApp Cloud API (oficial)</option>
           <option value="evolution">Evolution API (self-hosted, não-oficial)</option>
-        </select>
+        </Select>
         <span className="text-xs text-text-muted">
           {isEvo
             ? "Conecta seu número por QR code no servidor Evolution — sem aprovação da Meta."
@@ -329,14 +330,14 @@ function WhatsappForm({
             <input id="wa_ep" className={controlClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://sua-api/identificar" />
           </Field>
           <Field label="Método" htmlFor="wa_m">
-            <select id="wa_m" className={controlClass} value={method} onChange={(e) => setMethod(e.target.value)}>
+            <Select id="wa_m" value={method} onChange={(v) => setMethod(v)}>
               {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Autenticação" htmlFor="wa_at">
-            <select id="wa_at" className={controlClass} value={authType} onChange={(e) => setAuthType(e.target.value as AuthType)}>
+            <Select id="wa_at" value={authType} onChange={(v) => setAuthType(v as AuthType)}>
               {AUTH_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -344,9 +345,9 @@ function WhatsappForm({
             <input id="wa_pp" className={controlClass} value={phoneParam} onChange={(e) => setPhoneParam(e.target.value)} />
           </Field>
           <Field label="Onde vai o telefone" htmlFor="wa_pl">
-            <select id="wa_pl" className={controlClass} value={phoneLocal} onChange={(e) => setPhoneLocal(e.target.value)}>
+            <Select id="wa_pl" value={phoneLocal} onChange={(v) => setPhoneLocal(v)}>
               {LOCAIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
 

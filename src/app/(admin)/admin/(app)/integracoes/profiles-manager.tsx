@@ -15,6 +15,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { saveProfile, deleteProfile } from "./profile-actions";
 import type { IntegResult } from "./actions";
 import type { ModuleTag } from "./tools-manager";
+import { Select } from "@/components/ui/select";
 
 export type ProfileRow = {
   id: string;
@@ -237,12 +238,12 @@ function ProfileDialog({
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Base do cliente" htmlFor="pf_base" hint="O p_base do token.">
-            <select id="pf_base" className={controlClass} value={baseCode} onChange={(e) => setBaseCode(e.target.value)}>
+            <Select id="pf_base" value={baseCode} onChange={(v) => setBaseCode(v)}>
               {bases.length === 0 && <option value="">— nenhuma base —</option>}
               {bases.map((b) => (
                 <option key={b.base_code} value={b.base_code}>{b.name} ({b.base_code})</option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Título" htmlFor="pf_titulo" hint="Identifica o perfil na lista.">
             <input id="pf_titulo" className={controlClass} value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Analista de SESMT" />

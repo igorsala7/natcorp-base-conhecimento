@@ -21,6 +21,7 @@ import {
 } from "./embeddings-actions";
 import { ingestKnowledgeFile } from "../base-conhecimento/actions";
 import { MAX_BYTES, MAX_MB, ACCEPT } from "../base-conhecimento/constants";
+import { Select } from "@/components/ui/select";
 
 export type EmbJobRow = {
   id: string;
@@ -253,11 +254,11 @@ export function EmbeddingsManager({
         </h2>
 
         <Field label="Documentação de destino" htmlFor="emb-space">
-          <select
+          <Select
             id="emb-space"
             value={spaceId}
-            onChange={(e) => {
-              setSpaceId(e.target.value);
+            onChange={(v) => {
+              setSpaceId(v);
               setNodeSel("__all__"); // pasta do espaço antigo não vale mais
             }}
             className={`${controlClass} h-10`}
@@ -267,7 +268,7 @@ export function EmbeddingsManager({
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         <div className="flex flex-wrap items-end gap-2">
@@ -276,10 +277,10 @@ export function EmbeddingsManager({
             htmlFor="emb-node"
             hint={nodesLoading ? "Carregando…" : "Um diretório (subárvore), um artigo, ou tudo."}
           >
-            <select
+            <Select
               id="emb-node"
               value={nodeSel}
-              onChange={(e) => setNodeSel(e.target.value)}
+              onChange={(v) => setNodeSel(v)}
               disabled={nodesLoading}
               className={`${controlClass} h-10 min-w-[18rem]`}
             >
@@ -291,7 +292,7 @@ export function EmbeddingsManager({
                   {n.title}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Button onClick={gerar} disabled={gerando || !spaceId}>
             {gerando ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}

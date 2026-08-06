@@ -7,6 +7,7 @@ import { FLOW_NODE_LABEL, newId } from "@/lib/blocks/schema";
 import { useToast } from "@/components/ui/toast";
 import { generateFlowchart } from "@/app/(admin)/admin/(app)/conteudo/flow-actions";
 import type { EditorActions } from "./edit-types";
+import { Select } from "@/components/ui/select";
 
 type FlowBlockT = Extract<Block, { type: "flow" }>;
 const TIPOS: FlowNodeType[] = ["start", "process", "decision", "io", "subroutine", "end"];
@@ -82,9 +83,9 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
         <div className="space-y-1.5">
           {d.nodes.map((n) => (
             <div key={n.id} className="flex items-center gap-1.5">
-              <select
+              <Select
                 value={n.type}
-                onChange={(e) => setNode(n.id, { type: e.target.value as FlowNodeType })}
+                onChange={(v) => setNode(n.id, { type: v as FlowNodeType })}
                 className="shrink-0 rounded-md border border-border bg-surface px-1.5 py-1 text-xs outline-none"
                 title="Tipo do nó"
               >
@@ -93,7 +94,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                     {FLOW_NODE_LABEL[t]}
                   </option>
                 ))}
-              </select>
+              </Select>
               <input
                 value={n.label}
                 onChange={(e) => setNode(n.id, { label: e.target.value })}
@@ -124,9 +125,9 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
         <div className="space-y-1.5">
           {d.edges.map((e) => (
             <div key={e.id} className="flex items-center gap-1">
-              <select
+              <Select
                 value={e.from}
-                onChange={(ev) => setEdge(e.id, { from: ev.target.value })}
+                onChange={(v) => setEdge(e.id, { from: v })}
                 className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none"
               >
                 {d.nodes.map((n) => (
@@ -134,11 +135,11 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                     {n.label || n.id}
                   </option>
                 ))}
-              </select>
+              </Select>
               <ArrowRight className="size-3.5 shrink-0 text-text-muted" />
-              <select
+              <Select
                 value={e.to}
-                onChange={(ev) => setEdge(e.id, { to: ev.target.value })}
+                onChange={(v) => setEdge(e.id, { to: v })}
                 className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none"
               >
                 {d.nodes.map((n) => (
@@ -146,7 +147,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                     {n.label || n.id}
                   </option>
                 ))}
-              </select>
+              </Select>
               <input
                 value={e.label ?? ""}
                 onChange={(ev) => setEdge(e.id, { label: ev.target.value || undefined })}

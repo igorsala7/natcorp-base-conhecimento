@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
 import { cn } from "@/lib/utils";
+import { Select } from "@/components/ui/select";
 import {
   AUTH_TYPES,
   CREDENTIAL_FIELDS,
@@ -371,18 +372,18 @@ export function BaseDialog({
               : "Salve a base e cadastre credenciais; depois escolha a padrão aqui."
           }
         >
-          <select
+          <Select
             id="base_cred"
-            className={controlClass}
+           
             value={credentialId}
-            onChange={(e) => setCredentialId(e.target.value)}
+            onChange={(v) => setCredentialId(v)}
             disabled={credenciais.length === 0}
           >
             <option value="">— sem autenticação —</option>
             {credenciais.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         {/* Roteamento por assunto (Opção A) — economiza tokens */}
@@ -523,11 +524,11 @@ function CredentialDialog({
           <input id="cred_name" className={controlClass} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Tipo de autenticação" htmlFor="cred_auth">
-          <select id="cred_auth" className={controlClass} value={authType} onChange={(e) => setAuthType(e.target.value as AuthType)}>
+          <Select id="cred_auth" value={authType} onChange={(v) => setAuthType(v as AuthType)}>
             {AUTH_TYPES.map((a) => (
               <option key={a.value} value={a.value}>{a.label}</option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         {campos.length > 0 && (

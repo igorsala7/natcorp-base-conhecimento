@@ -54,6 +54,7 @@ import {
 } from "../actions";
 import { createCaptureStudio } from "../capture-actions";
 import { sugerirCaminhoCaptura } from "../../importar/capture-actions";
+import { Select } from "@/components/ui/select";
 
 type MsgView = StudioMsg | { role: "system"; text: string };
 
@@ -374,11 +375,11 @@ export function Studio({
         </h1>
         <label className="flex items-center gap-2 text-sm text-text-muted">
           Criar em:
-          <select
+          <Select
             value={parentId}
-            onChange={(e) => {
-              setParentId(e.target.value);
-              void saveStudioState(sessao.id, [], e.target.value === "__root__" ? null : e.target.value);
+            onChange={(v) => {
+              setParentId(v);
+              void saveStudioState(sessao.id, [], v === "__root__" ? null : v);
             }}
             disabled={criada}
             className={`${controlClass} h-9 w-auto`}
@@ -390,7 +391,7 @@ export function Studio({
                 {f.title}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <Button onClick={criar} disabled={!podecriar || criando || !!ocupado}>
           {criando ? (

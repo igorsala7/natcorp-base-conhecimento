@@ -22,6 +22,7 @@ import {
   type TagInfo,
 } from "@/app/(admin)/admin/(app)/conteudo/tag-actions";
 import { listAuthors, type AuthorRow } from "@/app/(admin)/admin/(app)/usuarios/author-actions";
+import { Select } from "@/components/ui/select";
 
 /**
  * Propriedades de um nó da árvore: nome, slug, ícone e descrição.
@@ -238,11 +239,11 @@ export function NodePropertiesDialog({
               htmlFor="prop-autor"
               hint="Perfil público exibido no artigo. Cadastre autores em Usuários."
             >
-              <select
+              <Select
                 id="prop-autor"
                 value={authorId ?? ""}
                 disabled={tagIds === null}
-                onChange={(e) => setAuthorId(e.target.value || null)}
+                onChange={(v) => setAuthorId(v || null)}
                 className={`${controlClass} h-10`}
               >
                 <option value="">Sem autor</option>
@@ -251,7 +252,7 @@ export function NodePropertiesDialog({
                     {a.public_name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </>
         )}

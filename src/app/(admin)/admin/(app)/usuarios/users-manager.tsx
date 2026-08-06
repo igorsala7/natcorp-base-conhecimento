@@ -29,6 +29,7 @@ import {
 import { saveAuthor, deleteAuthor, type AuthorRow, type AuthorActionResult } from "./author-actions";
 import { listSpaceFolders } from "../conteudo/space-actions";
 import { uploadAvatar } from "@/lib/content/upload";
+import { Select } from "@/components/ui/select";
 
 type Perms = { invite: boolean; manage: boolean; suspend: boolean };
 
@@ -148,6 +149,7 @@ function InviteDialog({
     return res;
   }, undefined);
   const assignable = roles.filter((r) => r.level < actorLevel);
+  const [papelConvite, setPapelConvite] = useState(assignable[0]?.key ?? "");
   return (
     <Dialog
       open={open}
@@ -168,13 +170,18 @@ function InviteDialog({
           />
         </Field>
         <Field label="Papel" htmlFor="invite-role" required hint="Só papéis abaixo do seu nível aparecem aqui.">
-          <select id="invite-role" name="roleKey" required className={`${controlClass} h-10 w-full`}>
-            {assignable.map((r) => (
-              <option key={r.id} value={r.key}>
-                {r.name} (nível {r.level})
-              </option>
-            ))}
-          </select>
+          {/* O formulário é server action (FormData), e o Select é um botão — o
+              hidden carrega o valor. Papéis customizados podem crescer, e aí o
+              filtro por digitação aparece sozinho. */}
+          <input type="hidden" name="roleKey" value={papelConvite} />
+          <Select
+            id="invite-role"
+            value={papelConvite}
+            onChange={setPapelConvite}
+            className="h-10 w-full"
+            aria-label="Papel do convite"
+            options={assignable.map((r) => ({ value: r.key, label: r.name, hint: `nível ${r.level}` }))}
+          />
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -241,9 +248,9 @@ export function UsersManager({
             className="pl-9"
           />
         </div>
-        <select
+        <Select
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
+          onChange={(v) => setRoleFilter(v)}
           className={`${controlClass} h-10 w-auto`}
           aria-label="Filtrar por papel"
         >
@@ -253,7 +260,7 @@ export function UsersManager({
               {r.name}
             </option>
           ))}
-        </select>
+        </Select>
         <Segmented
           value={statusFilter}
           onChange={setStatusFilter}
@@ -545,10 +552,10 @@ function UserDrawer({
           {can.manage && (
             <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-border p-3">
               <Field label="Papel" htmlFor="rule-papel">
-                <select
+                <Select
                   id="rule-papel"
                   value={novoPapel}
-                  onChange={(e) => setNovoPapel(e.target.value)}
+                  onChange={(v) => setNovoPapel(v)}
                   className={`${controlClass} h-9 w-auto`}
                 >
                   {atribuiveis.map((r) => (
@@ -556,15 +563,15 @@ function UserDrawer({
                       {r.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field label="Documentação" htmlFor="rule-espaco">
-                <select
+                <Select
                   id="rule-espaco"
                   value={novoEspaco}
-                  onChange={(e) => {
-                    setNovoEspaco(e.target.value);
-                    carregarPastas(e.target.value);
+                  onChange={(v) => {
+                    setNovoEspaco(v);
+                    carregarPastas(v);
                   }}
                   className={`${controlClass} h-9 w-auto`}
                 >
@@ -573,13 +580,13 @@ function UserDrawer({
                       {s.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field label="Diretório (opcional)" htmlFor="rule-no">
-                <select
+                <Select
                   id="rule-no"
                   value={novoNo}
-                  onChange={(e) => setNovoNo(e.target.value)}
+                  onChange={(v) => setNovoNo(v)}
                   className={`${controlClass} h-9 w-auto max-w-[14rem]`}
                 >
                   <option value="">Toda a documentação</option>
@@ -589,7 +596,7 @@ function UserDrawer({
                       {p.title}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Button
                 size="sm"
@@ -769,14 +776,14 @@ function UserDrawer({
                       : "O perfil público será removido; o usuário continua existindo."}
                   </p>
                   {a.artigos > 0 && (
-                    <select value={reatribuirPara} onChange={(e) => setReatribuirPara(e.target.value)} className={`${controlClass} mt-2 h-9 w-full`}>
+                    <Select value={reatribuirPara} onChange={(v) => setReatribuirPara(v)} className={`${controlClass} mt-2 h-9 w-full`}>
                       <option value="">Reatribuir artigos para…</option>
                       {outrosAutores.map((x) => (
                         <option key={x.id} value={x.id}>
                           {x.public_name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                   <div className="mt-3 flex items-center gap-2">
                     <Button

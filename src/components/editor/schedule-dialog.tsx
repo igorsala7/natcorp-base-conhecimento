@@ -7,6 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { Select } from "@/components/ui/select";
 import {
   getSchedule,
   listPublishedArticles,
@@ -140,10 +141,10 @@ export function ScheduleDialog({
             htmlFor="agd-redirect"
             hint="Quem abrir o link antigo cai neste artigo — URLs compartilhadas não quebram."
           >
-            <select
+            <Select
               id="agd-redirect"
               value={redirectTo}
-              onChange={(e) => setRedirectTo(e.target.value)}
+              onChange={(v) => setRedirectTo(v)}
               disabled={!carregado}
               className={`${controlClass} h-10`}
             >
@@ -153,7 +154,7 @@ export function ScheduleDialog({
                   {d.title}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
 

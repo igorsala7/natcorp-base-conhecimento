@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { deleteAuthor, saveAuthor, type AuthorRow } from "./author-actions";
+import { Select } from "@/components/ui/select";
 
 type UserOption = { id: string; label: string };
 
@@ -193,10 +194,10 @@ export function AuthorsManager({
           <div className="space-y-4">
             {ehNovo && (
               <Field label="Usuário" htmlFor="autor-usuario">
-                <select
+                <Select
                   id="autor-usuario"
                   value={editando.userId}
-                  onChange={(e) => setEditando({ ...editando, userId: e.target.value })}
+                  onChange={(v) => setEditando({ ...editando, userId: v })}
                   className={`${controlClass} h-10`}
                 >
                   {semPerfil.map((u) => (
@@ -204,7 +205,7 @@ export function AuthorsManager({
                       {u.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
             )}
             <Field label="Nome público" htmlFor="autor-nome">
@@ -292,10 +293,10 @@ export function AuthorsManager({
       >
         {excluindo && excluindo.artigos > 0 && (
           <Field label="Reatribuir artigos para" htmlFor="autor-reatribuir">
-            <select
+            <Select
               id="autor-reatribuir"
               value={reatribuirPara}
-              onChange={(e) => setReatribuirPara(e.target.value)}
+              onChange={(v) => setReatribuirPara(v)}
               className={`${controlClass} h-10`}
             >
               <option value="">Escolha um autor…</option>
@@ -306,7 +307,7 @@ export function AuthorsManager({
                     {a.public_name}
                   </option>
                 ))}
-            </select>
+            </Select>
           </Field>
         )}
       </Dialog>

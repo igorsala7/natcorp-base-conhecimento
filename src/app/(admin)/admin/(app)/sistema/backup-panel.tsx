@@ -9,8 +9,9 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Field, eyebrowLabel } from "@/components/ui/field";
-import { Input, controlClass } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
+import { Select } from "@/components/ui/select";
 import {
   criarBackup, restaurarBackup, excluirBackup, salvarConfigBackup,
   criarUploadUrl, importarUpload, salvarConfigGithub, enviarParaGithub, importarDoGithub,
@@ -229,11 +230,11 @@ export function BackupPanel({
             Incluir arquivos do Storage (imagens/anexos)
           </label>
           <Field label="Frequência">
-            <select className={controlClass} value={cfg.frequency}
-              onChange={(e) => setCfg({ ...cfg, frequency: e.target.value })} disabled={!cfg.auto_enabled}>
+            <Select value={cfg.frequency}
+              onChange={(v) => setCfg({ ...cfg, frequency: v })} disabled={!cfg.auto_enabled}>
               <option value="daily">Diária</option>
               <option value="weekly">Semanal</option>
-            </select>
+            </Select>
           </Field>
           <Field label="Hora do dia (0–23)">
             <Input type="number" min={0} max={23} value={cfg.hour}
@@ -241,10 +242,10 @@ export function BackupPanel({
           </Field>
           {cfg.frequency === "weekly" && (
             <Field label="Dia da semana">
-              <select className={controlClass} value={cfg.weekday}
-                onChange={(e) => setCfg({ ...cfg, weekday: Number(e.target.value) })} disabled={!cfg.auto_enabled}>
+              <Select value={String(cfg.weekday)}
+                onChange={(v) => setCfg({ ...cfg, weekday: Number(v) })} disabled={!cfg.auto_enabled}>
                 {DIAS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-              </select>
+              </Select>
             </Field>
           )}
           <Field label="Guardar backups por (dias)">

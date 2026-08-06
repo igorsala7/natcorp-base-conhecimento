@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { wordDiff, type DiffOp } from "@/lib/content/word-diff";
+import { Select } from "@/components/ui/select";
 import {
   listArticleVersions,
   getArticleVersion,
@@ -167,17 +168,17 @@ export function HistoryPanel({
             <div className="mb-3 rounded-lg border border-border p-2">
               <p className="mb-1 text-xs font-medium text-text-muted">Comparar</p>
               <div className="flex items-center gap-1">
-                <select className="h-7 min-w-0 flex-1 rounded border border-border bg-bg px-1 text-xs" value={aId} onChange={(e) => setAId(e.target.value)}>
+                <Select className="h-7 min-w-0 flex-1 rounded border border-border bg-bg px-1 text-xs" value={aId} onChange={(v) => setAId(v)}>
                   {versions.map((v) => (
                     <option key={v.id} value={v.id}>v{v.version}{v.label ? ` · ${v.label}` : ""}</option>
                   ))}
-                </select>
+                </Select>
                 <span className="text-xs text-text-muted">↔</span>
-                <select className="h-7 min-w-0 flex-1 rounded border border-border bg-bg px-1 text-xs" value={bId} onChange={(e) => setBId(e.target.value)}>
+                <Select className="h-7 min-w-0 flex-1 rounded border border-border bg-bg px-1 text-xs" value={bId} onChange={(v) => setBId(v)}>
                   {versions.map((v) => (
                     <option key={v.id} value={v.id}>v{v.version}{v.label ? ` · ${v.label}` : ""}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <Button size="sm" variant="secondary" className="mt-2 w-full" onClick={compare} disabled={versions.length < 1}>
                 Ver diferenças

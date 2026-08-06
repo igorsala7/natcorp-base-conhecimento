@@ -8,6 +8,7 @@ import type { SpaceInfo } from "@/lib/content/spaces";
 import { NewSpaceDialog } from "./new-space-dialog";
 import { controlClass } from "@/components/ui/input";
 import { SPACE_COOKIE } from "@/lib/content/space-cookie";
+import { Select } from "@/components/ui/select";
 
 /** Seletor de espaço + atalho de configurações + criação de espaço-cliente. */
 export function SpaceSwitcher({
@@ -72,9 +73,9 @@ export function SpaceSwitcher({
         <Library className="size-4 shrink-0" />
         <span className="hidden sm:inline">Documentação:</span>
       </span>
-      <select
+      <Select
         value={currentId}
-        onChange={(e) => irPara(e.target.value)}
+        onChange={(v) => irPara(v)}
         className={`${controlClass} h-9 min-w-0 flex-1 px-2 text-sm font-semibold`}
         aria-label="Documentação em manutenção"
         title="Documentação sendo mantida — a escolha vale para as próximas telas"
@@ -85,7 +86,7 @@ export function SpaceSwitcher({
             {s.name}
           </option>
         ))}
-      </select>
+      </Select>
       <div className="flex shrink-0 items-center gap-1.5">
         {canManage && (
           <Link

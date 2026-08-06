@@ -15,6 +15,7 @@ import { controlClass } from "@/components/ui/input";
 import { rowsToChart } from "@/lib/blocks/tabular";
 import type { EditorActions } from "./edit-types";
 import { DataImport } from "./data-import";
+import { Select } from "@/components/ui/select";
 
 type ChartBlock = Extract<Block, { type: "chart" }>;
 
@@ -91,17 +92,17 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
     <div className="space-y-4">
       {/* Tipo — troca preservando os dados */}
       <Grupo title="Tipo de gráfico">
-        <select
+        <Select
           value={d.chartType}
-          onChange={(e) => set({ chartType: e.target.value as ChartData["chartType"] })}
-          className={controlClass}
+          onChange={(v) => set({ chartType: v as ChartData["chartType"] })}
+         
         >
           {CHART_TYPES.map((t) => (
             <option key={t.type} value={t.type}>
               {t.label}
             </option>
           ))}
-        </select>
+        </Select>
         <p className="mt-1 text-[0.6875rem] text-text-muted">
           Trocar o tipo mantém os dados — teste qual fica melhor.
         </p>
@@ -202,13 +203,13 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
 
       {/* Eixos */}
       <Grupo title={circular ? "Rótulo (fatias)" : "Eixo X"}>
-        <select value={d.xKey} onChange={(e) => set({ xKey: e.target.value })} className={controlClass}>
+        <Select value={d.xKey} onChange={(v) => set({ xKey: v })}>
           {d.columns.map((c) => (
             <option key={c.key} value={c.key}>
               {c.label}
             </option>
           ))}
-        </select>
+        </Select>
       </Grupo>
 
       <Grupo title={circular ? "Valor" : "Séries (Y)"}>
@@ -243,10 +244,10 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
 
       {chartSupportsZ(d.chartType) && (
         <Grupo title="Eixo Z (tamanho da bolha)">
-          <select
+          <Select
             value={d.zKey ?? ""}
-            onChange={(e) => set({ zKey: e.target.value || undefined })}
-            className={controlClass}
+            onChange={(v) => set({ zKey: v || undefined })}
+           
           >
             <option value="">— nenhum —</option>
             {d.columns.map((c) => (
@@ -254,7 +255,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
                 {c.label}
               </option>
             ))}
-          </select>
+          </Select>
         </Grupo>
       )}
 

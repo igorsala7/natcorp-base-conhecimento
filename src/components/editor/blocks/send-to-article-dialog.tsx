@@ -7,6 +7,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { Select } from "@/components/ui/select";
 import {
   listDestinationSpaces,
   listDestinationNodes,
@@ -198,9 +199,9 @@ export function SendToArticleDialog({
 
         <div>
           <label className="mb-1 block text-xs font-medium text-text-muted">Documentação</label>
-          <select
+          <Select
             value={spaceId}
-            onChange={(e) => setSpaceId(e.target.value)}
+            onChange={(v) => setSpaceId(v)}
             className="w-full rounded-md border border-border bg-surface px-2.5 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
           >
             {spaces.map((s) => (
@@ -209,7 +210,7 @@ export function SendToArticleDialog({
                 {s.type === "client" ? " (cliente)" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div>

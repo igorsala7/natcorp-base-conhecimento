@@ -8,6 +8,7 @@ import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { IDIOMAS } from "@/lib/i18n/languages";
 import { traduzirXliff } from "./actions";
+import { Select } from "@/components/ui/select";
 
 /**
  * Fase 2 — assistente de tradução do APEX. Cola o XLIFF exportado do APEX (ou uma
@@ -73,13 +74,13 @@ export function ApexXliffTranslator({ spaceId, activeLangs }: { spaceId: string;
             </button>
           ))}
         </div>
-        <select className={`${controlClass} h-9`} value={lang} onChange={(e) => setLang(e.target.value)}>
+        <Select className={`${controlClass} h-9`} value={lang} onChange={(v) => setLang(v)}>
           {langs.map((code) => (
             <option key={code} value={code}>
               {IDIOMAS.find((i) => i.code === code)?.nativo ?? code}
             </option>
           ))}
-        </select>
+        </Select>
         <Button onClick={traduzir} disabled={rodando || !entrada.trim()}>
           {rodando ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           Traduzir

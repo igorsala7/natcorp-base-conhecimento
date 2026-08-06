@@ -5,6 +5,7 @@ import { Download } from "lucide-react";
 import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
+import { Select } from "@/components/ui/select";
 
 type Ponto = { day: string; spaceId: string; views: number };
 
@@ -74,9 +75,9 @@ export function ViewsChart({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className={eyebrowLabel}>Visualizações por dia (90 dias)</p>
         <div className="flex items-center gap-2">
-          <select
+          <Select
             value={spaceId}
-            onChange={(e) => setSpaceId(e.target.value)}
+            onChange={(v) => setSpaceId(v)}
             aria-label="Filtrar por documentação"
             className={`${controlClass} h-8 w-auto text-xs`}
           >
@@ -86,7 +87,7 @@ export function ViewsChart({
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
           <a
             href="/admin/analises/export"
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text-muted transition-colors hover:border-primary hover:text-primary"

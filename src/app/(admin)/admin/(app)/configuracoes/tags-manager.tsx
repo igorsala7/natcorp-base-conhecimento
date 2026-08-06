@@ -11,6 +11,7 @@ import { controlClass } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
+import { Select } from "@/components/ui/select";
 import {
   createTag,
   deleteTag,
@@ -194,10 +195,10 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
         }
       >
         <Field label="Tag-destino" htmlFor="tag-destino">
-          <select
+          <Select
             id="tag-destino"
             value={destino}
-            onChange={(e) => setDestino(e.target.value)}
+            onChange={(v) => setDestino(v)}
             className={`${controlClass} h-10`}
           >
             {selecionadas.map((t) => (
@@ -205,7 +206,7 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
                 {t.name} ({t.artigos} artigo{t.artigos === 1 ? "" : "s"})
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </Dialog>
     </Surface>

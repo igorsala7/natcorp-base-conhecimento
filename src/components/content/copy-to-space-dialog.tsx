@@ -8,6 +8,7 @@ import { Field } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import type { SpaceInfo } from "@/lib/content/spaces";
+import { Select } from "@/components/ui/select";
 import {
   listSpaceFolders,
   copyNodesToSpace,
@@ -132,11 +133,11 @@ export function CopyToSpaceDialog({
           )}
 
           <Field label="Documentação de destino" htmlFor="dest-space">
-            <select
+            <Select
               id="dest-space"
               value={destId}
-              onChange={(e) => {
-                setDestId(e.target.value);
+              onChange={(v) => {
+                setDestId(v);
                 setParentId("__root__");
               }}
               className={`${controlClass} h-10`}
@@ -146,7 +147,7 @@ export function CopyToSpaceDialog({
                   {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           <Field
@@ -154,10 +155,10 @@ export function CopyToSpaceDialog({
             htmlFor="dest-parent"
             hint={carregando ? "Carregando pastas…" : undefined}
           >
-            <select
+            <Select
               id="dest-parent"
               value={parentId}
-              onChange={(e) => setParentId(e.target.value)}
+              onChange={(v) => setParentId(v)}
               disabled={carregando}
               className={`${controlClass} h-10`}
             >
@@ -168,7 +169,7 @@ export function CopyToSpaceDialog({
                   {f.title}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           <label className="flex items-start gap-2.5 rounded-lg border border-border p-3 text-sm">

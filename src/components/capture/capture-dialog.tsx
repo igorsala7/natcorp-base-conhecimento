@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { controlClass } from "@/components/ui/input";
 import type { CaminhoSugerido } from "@/lib/capture/plan-schema";
+import { Select } from "@/components/ui/select";
 import {
   listCaptureRecipes,
   saveCaptureRecipe,
@@ -402,10 +403,10 @@ export function CaptureDialog({
 function CampoInput({ campo, valor, onChange }: { campo: CaminhoSugerido["campos"][number]; valor: string; onChange: (v: string) => void }) {
   if ((campo.tipo === "lista" || campo.tipo === "radio") && campo.opcoes?.length) {
     return (
-      <select className={`${controlClass} mt-0.5 text-sm`} value={valor} onChange={(e) => onChange(e.target.value)}>
+      <Select className={`${controlClass} mt-0.5 text-sm`} value={valor} onChange={(v) => onChange(v)}>
         <option value="">Selecione…</option>
         {campo.opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+      </Select>
     );
   }
   if (campo.tipo === "checkbox") {

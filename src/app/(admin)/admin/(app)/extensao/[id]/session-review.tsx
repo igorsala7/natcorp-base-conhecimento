@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
 import { RenderBlocks } from "@/lib/blocks/render";
 import { newId, type Block } from "@/lib/blocks/schema";
+import { Select } from "@/components/ui/select";
 import {
   getSessionReview,
   toggleExtEvent,
@@ -228,9 +229,9 @@ export function SessionReview({
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className={eyebrowLabel}>Documentação</span>
-                  <select
+                  <Select
                     value={spaceId}
-                    onChange={(e) => setSpaceId(e.target.value)}
+                    onChange={(v) => setSpaceId(v)}
                     className={`${controlClass} mt-1`}
                   >
                     {spaces.map((s) => (
@@ -239,7 +240,7 @@ export function SessionReview({
                         {s.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <label>
                   <span className={eyebrowLabel}>Título</span>

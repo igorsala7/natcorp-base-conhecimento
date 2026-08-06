@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { eyebrowLabel } from "@/components/ui/field";
 import { addItemClass } from "@/components/ui/segmented";
 import { Input, controlClass } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   SOCIAL_NETWORKS,
   ROTULO_REDE,
@@ -148,9 +149,9 @@ export function SocialEditor({
     <div className="space-y-2">
       {social.map((s, i) => (
         <div key={i} className="flex items-center gap-1.5">
-          <select
+          <Select
             value={s.network}
-            onChange={(e) => set(i, { network: e.target.value as SocialNetwork })}
+            onChange={(v) => set(i, { network: v as SocialNetwork })}
             aria-label={`Rede social ${i + 1}`}
             className={`${controlClass} w-32 shrink-0`}
           >
@@ -159,7 +160,7 @@ export function SocialEditor({
                 {ROTULO_REDE[n]}
               </option>
             ))}
-          </select>
+          </Select>
           <Input
             value={s.url}
             onChange={(e) => set(i, { url: e.target.value })}
