@@ -29,7 +29,16 @@ services:
       start_period: 40s
 
   worker:
-    # Reaproveita a imagem construída pelo serviço "web" (não constrói de novo).
+    # MESMA imagem do web. O bloco `build` precisa estar aqui também: sem ele, o
+    # compose tenta BAIXAR `natcorp-kb:latest` de um registro antes de o web ter
+    # construído ("pull access denied for natcorp-kb"). Com o build declarado, a
+    # segunda passada é só cache — segundos.
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
     image: natcorp-kb:latest
     env_file: .env
     command: ["npm", "run", "worker:prod"]

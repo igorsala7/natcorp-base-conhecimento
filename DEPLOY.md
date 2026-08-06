@@ -46,6 +46,12 @@ As migrations estão numeradas por data, então o `*` já aplica na ordem certa.
 ## 4. Construir e subir
 
 ```bash
+> **O `.env` precisa existir ANTES do build.** As `NEXT_PUBLIC_*` são embutidas no
+> bundle do navegador em tempo de build (build args). Se o compose avisar
+> `The "NEXT_PUBLIC_SUPABASE_URL" variable is not set`, ele vai construir uma
+> imagem com string vazia e o app não conecta no Supabase pelo navegador — pare,
+> preencha o `.env` e rode de novo.
+
 docker compose up -d --build
 ```
 

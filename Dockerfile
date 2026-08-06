@@ -18,10 +18,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # ---- deps: instala TODAS as dependências ------------------------------------
-# (o build precisa das devDependencies; o worker roda TypeScript via `tsx`.)
+# O build precisa das devDependencies (tailwindcss e plugins, typescript) e o
+# worker roda TypeScript via `tsx`, que também é devDependency.
+#
+# `--include=dev` é OBRIGATÓRIO aqui: o estágio `base` define NODE_ENV=production
+# e, com isso, o `npm ci` OMITE as devDependencies por padrão. Sem a flag o build
+# quebra em "Cannot find module 'tailwindcss'" — e só no servidor, porque em
+# desenvolvimento as dependências já estão instaladas.
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --include=dev
 
 # ---- builder: compila o Next -------------------------------------------------
 FROM base AS builder
