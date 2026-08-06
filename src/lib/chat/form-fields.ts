@@ -298,16 +298,14 @@ export function formAssistDirective(flags: FormAssistFlags = {}): string {
     "AGORA, e continue até CONCLUIR toda a tarefa. É PROIBIDO devolver ao usuário uma lista de passos manuais (\"clique aqui, " +
     "depois ali\") — quem clica é VOCÊ. Respeite EXATAMENTE os valores pedidos (a cor, a coluna, o texto — não troque).\n" +
     // ── SITUACIONAL: exportar/gráfico (só quando há intenção visual) ─────────
+    // As regras GERAIS de arquivo/gráfico vivem em visuals-directive.ts (visualsCore).
+    // Aqui fica só o que é específico DA TELA: o id `telaN` e o menu "Ações" do APEX.
     g(flags.temVisual,
-      "EXPORTAR EM ARQUIVO OU GRÁFICO (motor do assistente): quando o usuário pedir os DADOS em um arquivo (CSV, Excel, PDF, " +
-      "Word, PowerPoint) OU um GRÁFICO, use SEMPRE as ferramentas do assistente — gerar_relatorio para arquivos; " +
-      "montar_grafico / perguntar_tipo_grafico para gráficos. NUNCA opere o menu \"Ações\" do Interactive Report/Grid da tela " +
-      "para isso (nem \"Fazer Download\" para exportar, nem \"Formato\" → \"Gráfico\" para plotar), nem clique em botões de " +
-      "exportar/gráfico da página. IMPORTANTE — NÃO REDIGITE AS LINHAS: cada relatório em \"TABELAS DA TELA\" traz um id " +
-      "entre colchetes (ex.: [dados_de=\"tela1\"]). Para exportar/graficar, passe esse id em `tabela.dados_de` (no gráfico, " +
-      "monte as `series` a partir das colunas indicadas) — o servidor inclui TODAS as linhas reais. Redigitar dezenas de " +
-      "linhas na chamada é ERRADO (a chamada estoura/vaza como texto). As linhas mostradas ali são só a PRÉVIA para você " +
-      "ANALISAR. O resultado aparece no chat.\n") +
+      "EXPORTAR/GRAFICAR OS DADOS DA TELA: NUNCA opere o menu \"Ações\" do Interactive Report/Grid (nem \"Fazer Download\" " +
+      "para exportar, nem \"Formato\" → \"Gráfico\" para plotar) e não clique em botões de exportar/gráfico da página — use " +
+      "as ferramentas do assistente. Cada relatório em \"TABELAS DA TELA\" traz um id entre colchetes (ex.: " +
+      "[dados_de=\"tela1\"]): passe esse id, NÃO redigite as linhas. As linhas mostradas ali são só a PRÉVIA para você " +
+      "ANALISAR.\n") +
     // ── SITUACIONAL: relatório paginado (só quando a tela tem paginação) ─────
     g(flags.temPaginado,
       "RELATÓRIO PAGINADO (regra FORTE): se em TABELAS DA TELA um relatório aparecer marcado como PAGINADO (há mais páginas " +

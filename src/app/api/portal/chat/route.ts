@@ -21,7 +21,8 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
-import { buildChartTool, buildReportTool, visualsDirective, pedeVisualizacao } from "@/lib/chat/report-tools";
+import { buildVisualTools, intencaoVisual } from "@/lib/chat/report-tools";
+import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
 import { newRegistry } from "@/lib/chat/datasets";
 import { buildQueryTool } from "@/lib/chat/query-tools";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
@@ -153,12 +154,24 @@ export async function POST(req: NextRequest) {
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, question, undefined, datasets)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   const temTools = Object.keys(integ.tools).length > 0;
-  // Visualização (gráfico/relatório): habilitada onde há ferramentas de dados OU
-  // quando o usuário PEDE PDF/relatório/gráfico (aí sai da DOCUMENTAÇÃO).
-  const temVisual = temTools || pedeVisualizacao(question);
+  // Visualização (gráfico/relatório): SEMPRE ligada (ver a rota do widget — o gate por
+  // regex deixava todo follow-up sem ferramenta). A intenção declarada só dá a ênfase.
+  const intencaoVis = intencaoVisual(question, messages);
+  const temVisual = process.env.VISUAL_TOOLS_SEMPRE !== "0";
   const chartSpecs: ChartSpec[] = [];
   const reportSpecs: ReportSpec[] = [];
-  const visualTools = temVisual ? { ...buildChartTool(chartSpecs), ...buildReportTool(reportSpecs, datasets) } : {};
+  const brandPortal: BrandInfo = {
+    marca: espaco?.name || "Relatório",
+    primariaHex: "#511C76",
+    dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+  };
+  // `datasets` aqui era o argumento ESQUECIDO: sem ele `dados_de` nunca funcionou no
+  // portal — o modelo passava o id certo, nada era expandido e a tool devolvia erro.
+  const visualTools = temVisual
+    // Sem `chartChoices`: o portal não renderiza os botões de tipo — sem isso o
+    // gráfico sem `tipo` seria empurrado para uma escolha que ninguém vê.
+    ? buildVisualTools({ charts: chartSpecs, reports: reportSpecs, arquivos: outFiles }, datasets, (spec) => renderReport(spec, brandPortal))
+    : {};
   // Consulta/filtro server-side sobre listas de ferramentas (evita filtrar pela
   // amostra e reportar/exportar um total errado). Ver datasets.ts.
   const queryTools = temTools ? buildQueryTool(datasets) : {};
@@ -299,7 +312,11 @@ export async function POST(req: NextRequest) {
       {
         persona,
         especializacao: integ.agentPrompt,
-        usoFerramentas: [integ.capabilities, temVisual ? visualsDirective() : ""].filter(Boolean).join("\n\n"),
+        usoFerramentas: [
+          integ.capabilities,
+          temVisual ? visualsCore() + (intencaoVis ? "\n" + visualsExtras() : "") : "",
+          temTools ? datasetsDirective() : "",
+        ].filter(Boolean).join("\n\n"),
         regras: resolveRegras(aP.regras_absolutas),
         comTools,
       },
@@ -338,21 +355,7 @@ export async function POST(req: NextRequest) {
       } catch {
         c.enqueue(sse({ type: "error", message: "Falha ao gerar a resposta." }));
       }
-      // Relatórios: gera o PDF (layout de marca) e o adiciona aos arquivos.
-      if (reportSpecs.length) {
-        const brand: BrandInfo = {
-          marca: espaco?.name || "Relatório",
-          primariaHex: "#511C76",
-          dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
-        };
-        for (const spec of reportSpecs) {
-          try {
-            outFiles.push(await renderReport(spec, brand));
-          } catch (e) {
-            console.error("[chat] falha ao gerar o arquivo do relatório:", e);
-          }
-        }
-      }
+      // Os arquivos já saem prontos de dentro de `gerar_relatorio` (ver report-tools.ts).
       // Arquivos retornados pelas APIs (base64) → link de download no chat.
       for (const f of outFiles) {
         c.enqueue(

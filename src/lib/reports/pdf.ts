@@ -1,9 +1,10 @@
 import "server-only";
-import { PDFDocument, StandardFonts, rgb, degrees, type PDFPage, type PDFFont, type RGB } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees, type PDFImage, type PDFPage, type PDFFont, type RGB } from "pdf-lib";
 import type { OutFile } from "@/lib/integrations/documents";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import { CHART_PALETTE, medianOf, linReg } from "@/lib/chat/chart-spec";
+import { chartSvg } from "./chart-svg";
 import { parseMarkdown, type MdRun } from "./markdown";
 import { winAnsiSafe } from "./winansi";
 
@@ -466,7 +467,15 @@ function desenharMarkdown(ctx: Ctx, texto: string) {
   }
 }
 
-function desenharBloco(ctx: Ctx, b: ReportBlock) {
+/**
+ * Tipos desenhados em VETOR aqui (nítidos em qualquer zoom). O resto — empilhados,
+ * combo, radar — vem de `chart-svg.ts` rasterizado: melhor uma imagem correta do que
+ * um vetor bonito da forma ERRADA, que era o que acontecia antes (tudo que este
+ * arquivo não reconhecia caía no ramo de linha, em silêncio).
+ */
+const PDF_VETOR: ReadonlySet<string> = new Set(["pizza", "rosca", "barras", "colunas", "linha", "area"]);
+
+function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
   if (b.tipo === "texto") {
     desenharMarkdown(ctx, b.texto);
   } else if (b.tipo === "tabela") {
@@ -474,7 +483,13 @@ function desenharBloco(ctx: Ctx, b: ReportBlock) {
   } else if (b.tipo === "grafico") {
     const boxH = 210;
     ensure(ctx, boxH + 6);
-    desenharGrafico(ctx, b.grafico, ctx.y, boxH);
+    if (imagem) {
+      const w = CONTENT_W;
+      const h = Math.min(boxH, (imagem.height / imagem.width) * w);
+      ctx.page.drawImage(imagem, { x: M, y: ctx.y - h, width: w, height: h });
+    } else {
+      desenharGrafico(ctx, b.grafico, ctx.y, boxH);
+    }
     ctx.y -= boxH + 12;
   }
 }
@@ -523,7 +538,30 @@ export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promi
   // Título + subtítulo.
   paragrafo(ctx, spec.titulo, 20, ctx.bold, COR.texto, spec.subtitulo ? 2 : 10);
   if (spec.subtitulo) paragrafo(ctx, spec.subtitulo, 11, ctx.font, COR.muted, 12);
-  for (const b of spec.blocos) desenharBloco(ctx, b);
+  // Rasteriza ANTES do desenho (que é síncrono) os gráficos que este arquivo não
+  // desenha em vetor — empilhados, combo, radar. Sem isto eles caíam no ramo de
+  // linha e saíam com a forma errada, sem ninguém perceber.
+  const imagens = new Map<number, PDFImage>();
+  for (let i = 0; i < spec.blocos.length; i++) {
+    const b = spec.blocos[i]!;
+    if (b.tipo !== "grafico" || PDF_VETOR.has(b.grafico.tipo)) continue;
+    try {
+      const { Resvg } = await import("@resvg/resvg-js");
+      const svg = chartSvg(b.grafico, CHART_PALETTE, 900, 520);
+      const png = new Resvg(svg, { fitTo: { mode: "width", value: 1100 }, background: "white" }).render().asPng();
+      imagens.set(i, await doc.embedPng(Buffer.from(png)));
+    } catch (e) {
+      // Sem imagem, `desenharBloco` cai no vetor — que ao menos mostra os números.
+      console.error("[pdf] falha ao rasterizar o gráfico:", e);
+    }
+  }
+  spec.blocos.forEach((b, i) => desenharBloco(ctx, b, imagens.get(i)));
+  // Avisos de degradação (tipo trocado por limitação do formato) — em vez de trocar
+  // em silêncio, o arquivo DIZ o que mudou.
+  if (spec.avisos?.length) {
+    ensure(ctx, 30);
+    for (const a of spec.avisos) paragrafo(ctx, "⚠ " + a, 8.5, ctx.font, COR.muted, 3);
+  }
   carimbarRodapes(ctx);
   const bytes = await doc.save();
   return { filename: nomeArquivo(spec.titulo), mimeType: "application/pdf", base64: Buffer.from(bytes).toString("base64") };

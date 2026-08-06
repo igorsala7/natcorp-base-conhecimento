@@ -10,6 +10,12 @@ import {
 import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
 import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildIntegrationTools, type IntegrationBundle } from "@/lib/integrations/tool-builder";
+import { buildReportTool } from "@/lib/chat/report-tools";
+import { datasetsDirective, visualsCore } from "@/lib/chat/visuals-directive";
+import { newRegistry } from "@/lib/chat/datasets";
+import { buildQueryTool } from "@/lib/chat/query-tools";
+import { renderReport } from "@/lib/reports/exporters";
+import type { ReportSpec } from "@/lib/reports/report-spec";
 import type { Identity } from "@/lib/integrations/params";
 import type { OutFile } from "@/lib/integrations/documents";
 import { resolveCategory } from "@/lib/ai/prompts";
@@ -97,6 +103,8 @@ export async function POST(req: NextRequest) {
   // e resolve o login, como um usuário real do widget. Só quem administra
   // integrações pode simular — o restante ignora `sim` (chat de documentação normal).
   const outFiles: OutFile[] = [];
+  // Registro de datasets do turno (ids `dsN` que as ferramentas visuais expandem).
+  const datasets = newRegistry();
   // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
   const runMeta: { conversationId: string | null } = { conversationId: null };
   let integ: IntegrationBundle = { tools: {}, capabilities: "", agentPrompt: "" };
@@ -108,9 +116,23 @@ export async function POST(req: NextRequest) {
       perfil: sim.perfil || undefined,
       portal: sim.portal || undefined,
     };
-    integ = await buildIntegrationTools(sim.base_code, identity, outFiles, runMeta, question);
+    integ = await buildIntegrationTools(sim.base_code, identity, outFiles, runMeta, question, undefined, datasets);
   }
-  const temTools = Object.keys(integ.tools).length > 0;
+  // Este chat é o SIMULADOR do agente: sem as ferramentas visuais, um admin testando
+  // "gera um excel" via uma recusa que a produção não daria — falso negativo caro.
+  // Só `gerar_relatorio`: o arquivo aparece como download aqui. `montar_grafico` fica
+  // de FORA porque este painel não renderiza o card de gráfico — dar a ferramenta seria
+  // criar um buraco silencioso (o modelo chamaria e nada apareceria).
+  const reportSpecs: ReportSpec[] = [];
+  const temIntegTools = Object.keys(integ.tools).length > 0;
+  const visualTools = buildReportTool(
+    reportSpecs,
+    datasets,
+    (spec) => renderReport(spec, { marca: "Relatório", primariaHex: "#511C76", dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) }),
+    outFiles,
+  );
+  const allTools = { ...integ.tools, ...visualTools, ...(temIntegTools ? buildQueryTool(datasets) : {}) };
+  const temTools = Object.keys(allTools).length > 0;
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:
   // uma conversationId de OUTRO espaço é descartada — nunca cruza espaços.
@@ -194,7 +216,7 @@ export async function POST(req: NextRequest) {
       {
         persona,
         especializacao: integ.agentPrompt,
-        usoFerramentas: integ.capabilities,
+        usoFerramentas: [integ.capabilities, visualsCore({ comGrafico: false }), temIntegTools ? datasetsDirective() : ""].filter(Boolean).join("\n\n"),
         regras: resolveRegras(aP.regras_absolutas),
         comTools: temTools,
       },
@@ -207,7 +229,7 @@ export async function POST(req: NextRequest) {
       temTools,
     ),
     // Loop agêntico só quando a simulação trouxe ferramentas de uma base.
-    ...(temTools ? { tools: integ.tools, stopWhen: stepCountIs(5) } : {}),
+    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(8) } : {}),
     onFinish: async ({ text, usage }) => {
       await supabase.from("messages").insert({
         conversation_id: convId!,

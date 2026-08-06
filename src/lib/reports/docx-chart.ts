@@ -56,13 +56,16 @@ export function chartXml(spec: ChartSpec, colors: string[]): string {
         return `<c:ser><c:idx val="${si}"/><c:order val="${si}"/>${txRef(s.nome, si)}<c:spPr><a:solidFill><a:srgbClr val="${cor(si)}"/></a:solidFill><a:ln><a:solidFill><a:srgbClr val="${cor(si)}"/></a:solidFill></a:ln></c:spPr>${catRef(cats)}${valRef(vals, si)}${linhaSmooth}</c:ser>`;
       })
       .join("");
+    // Empilhado: uma linha de XML por gráfico ("stacked" + sobreposição total).
+    const empilhado = tipo === "colunas_emp" || tipo === "barras_emp" || tipo === "area_emp";
+    const agrupamento = empilhado ? "stacked" : "standard";
     if (tipo === "linha") plot = `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${sers}<c:marker val="1"/><c:axId val="${AX1}"/><c:axId val="${AX2}"/></c:lineChart>`;
-    else if (tipo === "area") plot = `<c:areaChart><c:grouping val="standard"/><c:varyColors val="0"/>${sers}<c:axId val="${AX1}"/><c:axId val="${AX2}"/></c:areaChart>`;
+    else if (tipo === "area" || tipo === "area_emp") plot = `<c:areaChart><c:grouping val="${agrupamento}"/><c:varyColors val="0"/>${sers}<c:axId val="${AX1}"/><c:axId val="${AX2}"/></c:areaChart>`;
     else {
-      const dir = tipo === "barras" ? "bar" : "col";
-      plot = `<c:barChart><c:barDir val="${dir}"/><c:grouping val="clustered"/><c:varyColors val="0"/>${sers}<c:gapWidth val="90"/><c:axId val="${AX1}"/><c:axId val="${AX2}"/></c:barChart>`;
+      const dir = tipo === "barras" || tipo === "barras_emp" ? "bar" : "col";
+      plot = `<c:barChart><c:barDir val="${dir}"/><c:grouping val="${empilhado ? "stacked" : "clustered"}"/><c:varyColors val="0"/>${sers}${empilhado ? '<c:overlap val="100"/>' : ""}<c:gapWidth val="90"/><c:axId val="${AX1}"/><c:axId val="${AX2}"/></c:barChart>`;
     }
-    const horiz = tipo === "barras";
+    const horiz = tipo === "barras" || tipo === "barras_emp";
     axes =
       `<c:catAx><c:axId val="${AX1}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${horiz ? "l" : "b"}"/><c:crossAx val="${AX2}"/></c:catAx>` +
       `<c:valAx><c:axId val="${AX2}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${horiz ? "b" : "l"}"/><c:crossAx val="${AX1}"/></c:valAx>`;

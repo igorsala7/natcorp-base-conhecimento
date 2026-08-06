@@ -1,4 +1,4 @@
-import { normalizeSpec, type ChartSpec } from "@/lib/chat/chart-spec";
+import { degradarTipo, normalizeSpec, type ChartSpec, type DestinoGrafico } from "@/lib/chat/chart-spec";
 
 /**
  * Spec de RELATÓRIO que a IA preenche (`gerar_relatorio`) e o construtor de PDF
@@ -18,7 +18,25 @@ export type ReportBlock =
 export type ReportFormat = "pdf" | "xlsx" | "csv" | "docx" | "pptx";
 export const REPORT_FORMATS: ReportFormat[] = ["pdf", "xlsx", "csv", "docx", "pptx"];
 
-export type ReportSpec = { titulo: string; subtitulo?: string; formato: ReportFormat; blocos: ReportBlock[] };
+export type ReportSpec = {
+  titulo: string;
+  subtitulo?: string;
+  formato: ReportFormat;
+  blocos: ReportBlock[];
+  /** O que o formato NÃO conseguiu entregar como pedido (tipo de gráfico trocado,
+   *  gráfico omitido em CSV…). Devolvido ao modelo para ele CONTAR ao usuário e
+   *  impresso como legenda no arquivo — degradar em silêncio é o que queremos matar. */
+  avisos?: string[];
+};
+
+/** Quem desenha o gráfico em cada formato de arquivo. */
+const DESTINO_DO_FORMATO: Record<ReportFormat, DestinoGrafico | null> = {
+  pdf: "pdf",
+  xlsx: "svg",   // vira imagem (SVG → PNG) na planilha
+  docx: "svg",   // tenta OOXML nativo, cai para imagem — o piso é o SVG
+  pptx: "pptx",
+  csv: null,     // CSV é texto puro: não existe gráfico
+};
 
 const MAX_BLOCOS = 40;
 const MAX_COLS = 40; // relatórios reais (IR) têm muitas colunas — não truncar
@@ -50,7 +68,10 @@ export function normalizeReport(raw: unknown): ReportSpec | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const blocosRaw = Array.isArray(o.blocos) ? o.blocos.slice(0, MAX_BLOCOS) : [];
+  const formato = (REPORT_FORMATS as string[]).includes(String(o.formato)) ? (o.formato as ReportFormat) : "pdf";
+  const destino = DESTINO_DO_FORMATO[formato];
   const blocos: ReportBlock[] = [];
+  const avisos: string[] = [];
   for (const b of blocosRaw) {
     if (!b || typeof b !== "object") continue;
     const bo = b as Record<string, unknown>;
@@ -61,10 +82,20 @@ export function normalizeReport(raw: unknown): ReportSpec | null {
       if (t) blocos.push(t);
     } else if (bo.tipo === "grafico") {
       const g = normalizeSpec(bo.grafico ?? bo);
-      if (g) blocos.push({ tipo: "grafico", grafico: g });
+      if (!g) continue;
+      if (!destino) { avisos.push("O CSV é só texto: o gráfico ficou de fora (peça xlsx ou pdf para incluí-lo)."); continue; }
+      // Nada de trocar o tipo por baixo do pano: troca e AVISA.
+      const d = degradarTipo(g.tipo, destino);
+      if (d.aviso) avisos.push(d.aviso);
+      blocos.push({ tipo: "grafico", grafico: d.tipo === g.tipo ? g : { ...g, tipo: d.tipo } });
     }
   }
   if (blocos.length === 0) return null;
-  const formato = (REPORT_FORMATS as string[]).includes(String(o.formato)) ? (o.formato as ReportFormat) : "pdf";
-  return { titulo: str(o.titulo, 160) || "Relatório", subtitulo: o.subtitulo ? str(o.subtitulo, 200) : undefined, formato, blocos };
+  return {
+    titulo: str(o.titulo, 160) || "Relatório",
+    subtitulo: o.subtitulo ? str(o.subtitulo, 200) : undefined,
+    formato,
+    blocos,
+    ...(avisos.length ? { avisos: [...new Set(avisos)] } : {}),
+  };
 }

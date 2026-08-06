@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeSpec, specToChartData, specToCsv, medianOf, linReg } from "./chart-spec";
+import { CHART_SUPORTE, CHART_TIPO_KEYS, degradarTipo, normalizeSpec, specToChartData, specToCsv, sugerirTipo, medianOf, linReg } from "./chart-spec";
 
 describe("normalizeSpec", () => {
   it("alinha os valores ao número de categorias (preenche e corta)", () => {
@@ -102,5 +102,78 @@ describe("specToCsv", () => {
     expect(linhas[0]).toBe("Categoria,Bruto");
     expect(linhas[1]).toBe("Jan,10");
     expect(linhas[2]).toBe('"Fev, ""23""",20');
+  });
+});
+
+/**
+ * O chat oferece 15 tipos; PDF/Excel/Word/PPT desenham menos. Até aqui um `radar`
+ * num PPT virava barras e um `candle` num PDF virava linha — números certos, forma
+ * errada, zero aviso. Estes testes travam a regra: ou o destino desenha, ou avisa.
+ */
+describe("degradarTipo", () => {
+  it("tipo suportado passa intacto e sem aviso", () => {
+    expect(degradarTipo("colunas", "pdf")).toEqual({ tipo: "colunas" });
+    expect(degradarTipo("radar", "pptx")).toEqual({ tipo: "radar" });
+  });
+
+  it("empilhado sem suporte cai para a versão base, avisando", () => {
+    const b = degradarTipo("barras_emp", "recharts");
+    expect(b.tipo).toBe("barras");
+    expect(b.aviso).toMatch(/empilhad/i);
+  });
+
+  it("candle no PDF vira linha e DIZ que só sobrou o fechamento", () => {
+    const r = degradarTipo("candle", "pdf");
+    expect(r.tipo).toBe("linha");
+    expect(r.aviso).toContain("fechamento");
+  });
+
+  it("radar no Word nativo cai para barras com aviso", () => {
+    const r = degradarTipo("radar", "docxNativo");
+    expect(r.tipo).toBe("barras");
+    expect(r.aviso).toBeTruthy();
+  });
+
+  it("o substituto SEMPRE é suportado pelo destino (nada de degradar para outro buraco)", () => {
+    for (const tipo of CHART_TIPO_KEYS) {
+      for (const destino of ["svg", "pdf", "docxNativo", "pptx", "recharts"] as const) {
+        const r = degradarTipo(tipo, destino);
+        expect(CHART_SUPORTE[r.tipo][destino], `${tipo} → ${r.tipo} em ${destino}`).toBe(true);
+      }
+    }
+  });
+
+  it("todo tipo do enum tem entrada na tabela de suporte", () => {
+    for (const tipo of CHART_TIPO_KEYS) expect(CHART_SUPORTE[tipo]).toBeDefined();
+  });
+});
+
+describe("sugerirTipo", () => {
+  const serie = (valores: number[]) => [{ nome: "v", valores }];
+
+  it("rótulos de mês → linha", () => {
+    expect(sugerirTipo({ categorias: ["01/2026", "02/2026", "03/2026", "04/2026"], series: serie([1, 2, 3, 4]) })).toBe("linha");
+    expect(sugerirTipo({ categorias: ["jan", "fev", "mar"], series: serie([1, 2, 3]) })).toBe("linha");
+  });
+
+  it("poucas fatias positivas de uma série → pizza", () => {
+    expect(sugerirTipo({ categorias: ["Ativo", "Férias", "Afastado"], series: serie([120, 14, 3]) })).toBe("pizza");
+  });
+
+  it("valor negativo derruba a pizza (fatia negativa não existe)", () => {
+    expect(sugerirTipo({ categorias: ["A", "B"], series: serie([10, -5]) })).not.toBe("pizza");
+  });
+
+  it("muitas categorias → barras (horizontal cabe mais)", () => {
+    const cats = Array.from({ length: 20 }, (_, i) => "C" + i);
+    expect(sugerirTipo({ categorias: cats, series: serie(cats.map(() => 1)) })).toBe("barras");
+  });
+
+  it("rótulo longo → barras", () => {
+    expect(sugerirTipo({ categorias: ["Departamento de Recursos Humanos", "Tecnologia da Informação"], series: [{ nome: "a", valores: [1, 2] }, { nome: "b", valores: [3, 4] }] })).toBe("barras");
+  });
+
+  it("poucas categorias curtas com 2 séries → colunas", () => {
+    expect(sugerirTipo({ categorias: ["A", "B", "C"], series: [{ nome: "x", valores: [1, 2, 3] }, { nome: "y", valores: [3, 2, 1] }] })).toBe("colunas");
   });
 });

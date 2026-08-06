@@ -1,8 +1,16 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { normalizeSpec, CHART_TIPO_KEYS, type ChartSpec } from "./chart-spec";
-import { normalizeReport, type ReportSpec } from "@/lib/reports/report-spec";
-import { expandirTabela, agruparDataset, type DatasetRegistry, type Agregacao } from "./datasets";
+import { normalizeSpec, sugerirTipo, CHART_TIPO_KEYS, type ChartSpec } from "./chart-spec";
+import { normalizeReport, REPORT_FORMATS, type ReportFormat, type ReportSpec } from "@/lib/reports/report-spec";
+import {
+  colunaMaisProxima,
+  expandirTabela,
+  agruparDataset,
+  listarDatasets,
+  textoDatasetsDisponiveis,
+  type DatasetRegistry,
+  type Agregacao,
+} from "./datasets";
 
 /**
  * Ferramentas de VISUALIZAÇÃO do chat (widget/portal): a IA já obteve os dados
@@ -22,6 +30,32 @@ export function pedeVisualizacao(pergunta: string): boolean {
   return RX_VISUAL.test(String(pergunta ?? ""));
 }
 
+/** Verbo de geração + tipo de arquivo ("gere um excel", "faz uma planilha"). Era uma
+ *  segunda regex solta na rota, que DISCORDAVA de RX_VISUAL: o usuário pedia arquivo,
+ *  o sistema entendia que pedia, e mesmo assim não entregava a ferramenta ao modelo. */
+export const RX_GERA_ARQUIVO = new RegExp(
+  // verbo de geração/entrega + (até 3 palavras) + tipo de arquivo
+  "(ger[ae]r?|export[ae]r?|baix[ae]r?|download|cri[ae]r?|monta[er]?|fa[çc]a|faz(er)?|quero|me d[êe]|manda[er]?|envi[ae]r?|preciso)" +
+    "\\s+(?:\\w+\\s+){0,3}(arquivo|documento|planilha|excel|xlsx|csv|pdf|word|docx|ppt|pptx|apresenta[çc]|slides?|relat[óo]rio|anexo)" +
+    // …ou "baixar/download" apontando para o que está na conversa ("quero baixar isso")
+    "|\\b(baix[ae]r|download)\\s+(isso|esses?|essas?|aqui|tudo|os dados|essa lista)",
+  "i",
+);
+/** Verbos de plotagem que RX_VISUAL não cobria ("plota isso", "desenha um comparativo"). */
+export const RX_PLOTAR = /\bplot(a|ar|e)\b|\bdesenh(a|ar|e)\b|comparativo em (pizza|barras|colunas|linha|[áa]rea)/i;
+
+/**
+ * O turno tem INTENÇÃO visual/de arquivo? União das três regexes + o aceite de oferta.
+ *
+ * Isto NÃO decide mais se as ferramentas existem (elas ficam sempre ligadas — um
+ * follow-up como "agora em pizza" não casa com regex nenhuma e ficava sem ferramenta).
+ * Serve para ENFATIZAR no prompt e para dimensionar o orçamento de passos.
+ */
+export function intencaoVisual(pergunta: string, messages: { role: string; content: string }[] = []): boolean {
+  const q = String(pergunta ?? "");
+  return RX_VISUAL.test(q) || RX_GERA_ARQUIVO.test(q) || RX_PLOTAR.test(q) || aceitouOfertaArquivo(q, messages);
+}
+
 /** Menção a ARQUIVO/geração na fala do assistente (para detectar oferta aceita). */
 const RX_OFERTA_ARQUIVO = /excel|planilha|\bcsv\b|\bpdf\b|\bword\b|\bdocx?\b|\bppt\b|\bpptx\b|apresenta[çc]|documento|arquivo|relat[óo]ri|export|gerar?|montar|criar/i;
 /** Aceite curto do usuário ("sim", "pode gerar", "isso", "manda", 👍…). */
@@ -38,14 +72,21 @@ export function aceitouOfertaArquivo(pergunta: string, messages: { role: string;
 }
 
 const chartObject = z.object({
+  // OPCIONAL de propósito: a AUSÊNCIA é o sinal de "o usuário não escolheu" — aí o
+  // sistema oferece os tipos como botões (ou assume a sugestão calculada no servidor).
+  // Era isto que exigia uma segunda ferramenta quase idêntica, que confundia o modelo.
   tipo: z
     .enum(CHART_TIPO_KEYS)
+    .optional()
     .describe(
-      "Tipo do gráfico. Básicos: colunas, barras, linha, area, pizza, rosca. EMPILHADOS (colunas_emp/barras_emp/area_emp) " +
+      "Tipo do gráfico — passe SÓ se o usuário disse qual quer. Se ele não disse, OMITA este campo: o sistema " +
+        "mostra os tipos como botões no chat (ou escolhe o melhor pelos dados). Nunca pergunte o tipo em texto. " +
+        "Básicos: colunas, barras, linha, area, pizza, rosca. EMPILHADOS (colunas_emp/barras_emp/area_emp) " +
         "somam as séries numa pilha. combo = 1ª série em colunas + as demais em linha. radar (teia) compara dimensões de " +
         "poucos itens. dispersao/bolha: série0 = valores de X, série1 = valores de Y (bolha: série2 = tamanho) e cada categoria " +
         "é o rótulo do ponto. heatmap = matriz categorias(linhas) × séries(colunas) colorida pelo valor. candle (OHLC) precisa " +
-        "de 4 séries NA ORDEM: abertura, máxima, mínima, fechamento (financeiro). Se o usuário NÃO disse o tipo, PERGUNTE.",
+        "de 4 séries NA ORDEM: abertura, máxima, mínima, fechamento (financeiro). Em ARQUIVO, tipo que o formato não " +
+        "desenha é trocado por um equivalente e o sistema avisa qual foi.",
     ),
   titulo: z.string().describe("Título curto e claro do gráfico."),
   // MUITOS DADOS: em vez de redigitar centenas de categorias/valores (limite de tokens), a IA
@@ -97,44 +138,124 @@ const chartObject = z.object({
 
 const AGGS_CHART: readonly string[] = ["soma", "media", "mediana", "min", "max", "contar", "distintos"];
 
+/**
+ * Resultado de resolver o `dados_de` de um gráfico. Antes isto devolvia o input
+ * INTOCADO em quatro falhas distintas (sem registro, id inexistente, coluna errada,
+ * zero grupos) — o gráfico morria depois, no saneamento, com uma frase genérica que
+ * não dizia o que corrigir. Agora cada falha tem nome e mensagem própria.
+ */
+type ResolucaoGrafico =
+  | { ok: true; input: Record<string, unknown> }
+  | { ok: false; causa: "dataset_inexistente" | "coluna_nao_encontrada" | "sem_grupos"; erro: string };
+
 /** Monta categorias+series a partir de um DATASET (100% das linhas) quando o gráfico veio
  *  com `dados_de` — a IA não redigita os pontos. Agrupa por `categoria`, agrega `valor`
- *  (padrão soma; sem `valor`, conta). Até 2000 grupos. Sem `dados_de`/`categoria` ou falha,
- *  devolve o input como veio (a IA redigitou os pontos, caso pequeno). */
-function resolverGraficoDataset(input: Record<string, unknown>, datasets?: DatasetRegistry): Record<string, unknown> {
+ *  (padrão soma; sem `valor`, conta). Até 2000 grupos. Sem `dados_de`/`categoria`, devolve
+ *  o input como veio — é o caso legítimo do gráfico pequeno digitado pelo modelo. */
+function resolverGraficoDataset(input: Record<string, unknown>, datasets?: DatasetRegistry): ResolucaoGrafico {
   const dd = String(input.dados_de ?? "").trim();
   const catCol = String(input.categoria ?? "").trim();
-  if (!datasets || !dd || !catCol) return input;
+  if (!dd) return { ok: true, input };                        // gráfico digitado à mão
+  if (!datasets) return { ok: true, input };                  // rota sem registro (nada a expandir)
+  if (!datasets.list.some((d) => d.id === dd)) {
+    return {
+      ok: false,
+      causa: "dataset_inexistente",
+      erro: `dados_de:"${dd}" não existe neste turno. Disponíveis AGORA: ${textoDatasetsDisponiveis(datasets)}. ` +
+        "Use um destes ids. Se o recorte foi num turno anterior, chame consultar_registros AGORA e use o `resultado_em` que ele devolver.",
+    };
+  }
+  if (!catCol) {
+    const cols = listarDatasets(datasets).find((d) => d.id === dd)?.colunas ?? [];
+    return {
+      ok: false,
+      causa: "coluna_nao_encontrada",
+      erro: `Você passou dados_de:"${dd}" mas não disse qual coluna é o eixo X. Informe \`categoria\` com uma destas: ${cols.slice(0, 12).join(", ")}.`,
+    };
+  }
   const valCol = String(input.valor ?? "").trim();
   const op: Agregacao = AGGS_CHART.includes(String(input.agregacao)) ? (input.agregacao as Agregacao) : valCol ? "soma" : "contar";
   const res = agruparDataset(datasets, dd, catCol, valCol || catCol, op, [], "E", 2000);
-  if (!res || "colunaNaoEncontrada" in res || !res.grupos.length) return input;
+  const cols = listarDatasets(datasets).find((d) => d.id === dd)?.colunas ?? [];
+  if (!res || "colunaNaoEncontrada" in res) {
+    const faltou = res && "colunaNaoEncontrada" in res ? res.colunaNaoEncontrada : catCol;
+    const perto = colunaMaisProxima(datasets, dd, faltou);
+    return {
+      ok: false,
+      causa: "coluna_nao_encontrada",
+      erro: `A coluna "${faltou}" não existe em "${dd}". Colunas reais: ${cols.slice(0, 12).join(", ")}.` +
+        (perto ? ` Você quis dizer "${perto}"?` : "") + " Repita a chamada com uma dessas.",
+    };
+  }
+  if (!res.grupos.length) {
+    return {
+      ok: false,
+      causa: "sem_grupos",
+      erro: `Agrupei "${dd}" por "${catCol}"${valCol ? ` somando "${valCol}"` : ""} e não sobrou nenhum valor ` +
+        "(células vazias ou sem número). Tente `agregacao`:\"contar\" para contar linhas, ou escolha outra coluna: " +
+        cols.slice(0, 12).join(", ") + ".",
+    };
+  }
   return {
-    ...input,
-    categorias: res.grupos.map((g) => g.grupo),
-    series: [{ nome: valCol || "Quantidade", valores: res.grupos.map((g) => g.valor) }],
+    ok: true,
+    input: {
+      ...input,
+      categorias: res.grupos.map((g) => g.grupo),
+      series: [{ nome: valCol || "Quantidade", valores: res.grupos.map((g) => g.valor) }],
+    },
   };
 }
 
-/** Tool `montar_grafico` — coleta a spec e emite o gráfico interativo no chat. */
-export function buildChartTool(sink: ChartSpec[], datasets?: DatasetRegistry): ToolSet {
+/** Sem `tipo`, escolhe pelos DADOS (é onde o modelo mais erra). Preserva o que veio. */
+function comTipoSugerido(input: Record<string, unknown>): Record<string, unknown> {
+  if (input.tipo) return input;
+  const spec = normalizeSpec(input);
+  return spec ? { ...input, tipo: sugerirTipo(spec) } : input;
+}
+
+/** Sem `dados_de` e sem pontos digitados: o modelo não mandou fonte nenhuma. */
+const ERRO_SEM_FONTE =
+  "Faltou a fonte dos pontos. Escolha UMA das duas formas:\n" +
+  '(a) dados_de + categoria (+ valor + agregacao) — o servidor usa 100% das linhas. Ex.: {"tipo":"colunas","titulo":"Salário médio por cargo","dados_de":"tela1","categoria":"Cargo","valor":"Salário","agregacao":"media"}\n' +
+  '(b) categorias + series, para gráficos pequenos. Ex.: {"tipo":"pizza","titulo":"Situação","categorias":["Ativo","Férias"],"series":[{"nome":"Colaboradores","valores":[128,14]}]}';
+
+/**
+ * Tool `montar_grafico` — uma só. Antes eram DUAS (`montar_grafico` e
+ * `perguntar_tipo_grafico`) com schemas 95% idênticos e três descrições que se
+ * contradiziam; o modelo escolhia errado. Agora a AUSÊNCIA de `tipo` é o sinal:
+ * sem tipo → o chat mostra os tipos como botões, com a recomendação calculada AQUI
+ * (é onde o modelo mais errava). O formato do SSE não muda — o widget é o mesmo.
+ */
+export function buildChartTool(sink: ChartSpec[], datasets?: DatasetRegistry, escolhas?: ChartChoice[]): ToolSet {
   return {
     montar_grafico: tool({
       description:
         "Monta um GRÁFICO interativo no chat a partir de dados numéricos que você JÁ obteve pelas ferramentas de " +
-        "dados. Use quando o usuário pedir um gráfico/visualização dos resultados. Não invente números — use os " +
-        "valores reais. Para MUITOS registros (uma lista/tabela), NÃO redigite os pontos: passe `dados_de` (id do " +
-        "dataset) + `categoria` + `valor` + `agregacao` — o servidor monta o gráfico com TODAS as linhas. Se o " +
-        "usuário não escolheu o TIPO, pergunte a preferência antes de chamar. O usuário poderá TROCAR o tipo, " +
-        "NAVEGAR (scroll/zoom) e EXPORTAR (CSV/PNG) no próprio chat.",
+        "dados. Não invente números. Para MUITOS registros, NÃO redigite os pontos: passe `dados_de` (id do dataset) " +
+        "+ `categoria` + `valor` + `agregacao` — o servidor monta o gráfico com TODAS as linhas. " +
+        "SOBRE O TIPO: se o usuário disse qual quer, passe `tipo`. Se NÃO disse, OMITA `tipo` — o sistema mostra os " +
+        "tipos como botões no chat e ele escolhe. Nunca pergunte o tipo em texto. " +
+        "O usuário poderá trocar o tipo, navegar (scroll/zoom) e exportar (CSV/PNG) no próprio chat.",
       inputSchema: chartObject,
       execute: async (input) => {
-        const spec = normalizeSpec(resolverGraficoDataset(input as Record<string, unknown>, datasets));
-        if (!spec) return { erro: "Não consegui montar: preciso de categorias e ao menos uma série com valores numéricos (ou `dados_de` + `categoria`)." };
-        sink.push(spec);
+        const bruto = input as Record<string, unknown>;
+        const res = resolverGraficoDataset(bruto, datasets);
+        if (!res.ok) return { erro: res.erro };
+        const semTipo = !bruto.tipo;
+        const spec = normalizeSpec(res.input);
+        if (!spec) return { erro: ERRO_SEM_FONTE };
+        // Sem tipo escolhido E ainda sem nenhum gráfico na conversa → oferece botões.
+        // Depois do primeiro, assume a sugestão: perguntar toda vez vira ruído.
+        if (semTipo && escolhas && !sink.length) {
+          const rec = sugerirTipo(spec);
+          escolhas.push({ spec: { ...spec, tipo: rec }, recomendado: rec, pergunta: "Que tipo de gráfico você prefere?" });
+          return { ok: true, mensagem: `Ofereci os tipos de gráfico ("${spec.titulo || "sem título"}") como botões; o usuário vai escolher.` };
+        }
+        const final = semTipo ? { ...spec, tipo: sugerirTipo(spec) } : spec;
+        sink.push(final);
         return {
           ok: true,
-          mensagem: `Gráfico "${spec.titulo || "sem título"}" pronto (${spec.tipo}). Apresentei ao usuário; ele pode trocar o tipo e exportar.`,
+          mensagem: `Gráfico "${final.titulo || "sem título"}" pronto (${final.tipo}). Apresentei ao usuário; ele pode trocar o tipo e exportar.`,
         };
       },
     }),
@@ -143,14 +264,6 @@ export function buildChartTool(sink: ChartSpec[], datasets?: DatasetRegistry): T
 
 /** Escolha de tipo de gráfico oferecida como BOTÕES (o widget renderiza na hora). */
 export type ChartChoice = { spec: ChartSpec; recomendado: string; pergunta: string };
-
-const chartAskInput = chartObject.omit({ tipo: true }).extend({
-  recomendado: z
-    .enum(CHART_TIPO_KEYS)
-    .optional()
-    .describe("O tipo que VOCÊ recomenda (será destacado no botão). Baseie-se nos dados."),
-  pergunta: z.string().optional().describe("A pergunta curta a exibir (ex.: 'Qual tipo de gráfico você prefere?')."),
-});
 
 /** Diretriz de uso das integrações: perguntar parâmetros em dúvida (refinar) e nunca
  *  fingir que não há dados sem confirmar. `toolForcado` = tool escolhida pelo roteador. */
@@ -248,27 +361,6 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
     "que recusa na própria chamada da ferramenta." + historico;
 }
 
-/** Tool `perguntar_tipo_grafico` — oferece os tipos como BOTÕES em vez de perguntar em texto. */
-export function buildChartAskTool(sink: ChartChoice[], datasets?: DatasetRegistry): ToolSet {
-  return {
-    perguntar_tipo_grafico: tool({
-      description:
-        "Use quando o usuário pedir um GRÁFICO mas NÃO tiver dito o TIPO. Em vez de perguntar em texto, passe os DADOS " +
-        "reais (categorias + séries) e o tipo `recomendado`: o sistema mostra os tipos (colunas, barras, linha, área, " +
-        "pizza, rosca) como BOTÕES no chat e o usuário escolhe — o gráfico aparece na hora. NÃO pergunte o tipo em texto " +
-        "nem chame montar_grafico junto. Se o usuário JÁ disse o tipo, use montar_grafico direto.",
-      inputSchema: chartAskInput,
-      execute: async (input) => {
-        const { recomendado, pergunta, ...resto } = input;
-        const spec = normalizeSpec(resolverGraficoDataset({ ...resto, tipo: recomendado || "colunas" } as Record<string, unknown>, datasets));
-        if (!spec) return { erro: "Não consegui preparar: preciso de categorias e ao menos uma série com valores numéricos (ou `dados_de` + `categoria`)." };
-        sink.push({ spec, recomendado: recomendado || spec.tipo, pergunta: pergunta || "Que tipo de gráfico você prefere?" });
-        return { ok: true, mensagem: `Ofereci os tipos de gráfico ("${spec.titulo || "sem título"}") como botões; o usuário vai escolher.` };
-      },
-    }),
-  };
-}
-
 const reportInput = z.object({
   titulo: z.string().describe("Título do relatório/arquivo."),
   subtitulo: z.string().optional().describe("Linha de contexto opcional (ex.: período, nome do usuário)."),
@@ -279,6 +371,13 @@ const reportInput = z.object({
       "Formato do arquivo a gerar, conforme o usuário pediu: 'pdf' (relatório de marca; é o padrão se omitido), 'xlsx' " +
         "(Excel) ou 'csv' (planilha — priorize TABELAS), 'docx' (Word — texto + tabelas) ou 'pptx' (PowerPoint — um " +
         "slide por bloco). Na dúvida sobre o formato, PERGUNTE. Para dados tabulares (listas), xlsx/csv são os melhores.",
+    ),
+  formatos: z
+    .array(z.enum(["pdf", "xlsx", "csv", "docx", "pptx"]))
+    .optional()
+    .describe(
+      "Use quando o usuário pedir o MESMO conteúdo em VÁRIOS formatos de uma vez (ex.: \"em Word, PPT e PDF\"): " +
+        "liste todos aqui numa ÚNICA chamada — o sistema gera um arquivo por formato. Não faça uma chamada por formato.",
     ),
   blocos: z
     .array(
@@ -316,8 +415,31 @@ const reportInput = z.object({
     .describe("Blocos do relatório, na ordem em que devem aparecer."),
 });
 
-/** Tool `gerar_relatorio` — coleta a spec; o servidor gera o PDF (entregue como arquivo). */
-export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry): ToolSet {
+/** Arquivo pronto para download (mesmo formato dos arquivos vindos das APIs). */
+export type ArquivoGerado = { filename: string; mimeType: string; base64: string };
+/** Gera o arquivo de verdade. INJETADO pela rota — mantém este módulo sem `server-only`. */
+export type RenderRelatorio = (spec: ReportSpec) => Promise<ArquivoGerado>;
+
+/** Teto por turno: cada arquivo trafega como data: URL no SSE. */
+const MAX_ARQUIVOS_TURNO = 3;
+const MAX_BYTES_ARQUIVO = 8 * 1024 * 1024;
+
+/**
+ * Tool `gerar_relatorio` — gera o arquivo AQUI, não depois do stream.
+ *
+ * Antes ela empurrava a spec para um sink e respondia "Entreguei ao usuário como
+ * download" ANTES de qualquer geração; o render acontecia depois do stream e uma
+ * falha virava só um `console.error`. O usuário ficava sem arquivo, com o modelo
+ * jurando que tinha entregado. Gerando aqui, a falha volta como erro de ferramenta
+ * no MESMO turno — e o modelo ainda pode reagir (trocar de formato, filtrar linhas).
+ * O custo é a barreira da tool, onde o modelo já estava esperando de qualquer jeito.
+ */
+export function buildReportTool(
+  sink: ReportSpec[],
+  datasets?: DatasetRegistry,
+  render?: RenderRelatorio,
+  arquivos?: ArquivoGerado[],
+): ToolSet {
   return {
     gerar_relatorio: tool({
       description:
@@ -336,95 +458,107 @@ export function buildReportTool(sink: ReportSpec[], datasets?: DatasetRegistry):
         // Expande no servidor as tabelas que referenciam um DATASET (todas as
         // linhas reais), antes de sanear — assim o PDF não depende do modelo
         // redigitar centenas de linhas.
-        const blocos = input.blocos.map((b) => {
+        const blocos: unknown[] = [];
+        for (let i = 0; i < input.blocos.length; i++) {
+          const b = input.blocos[i]!;
           const t = b.tabela;
           if (b.tipo === "tabela" && t?.dados_de && datasets) {
             const exp = expandirTabela(datasets, t.dados_de, t.campos, t.colunas);
-            if (exp) {
-              if (exp.truncado) truncadoAviso = ` (limitei às primeiras ${exp.linhas.length} de ${exp.total} linhas)`;
-              return { ...b, tabela: { titulo: t.titulo, colunas: exp.colunas, linhas: exp.linhas } };
+            // ABORTA em vez de seguir. Sem isto, o id inválido caía nas `colunas`/
+            // `linhas` vazias do modelo, o bloco era descartado no saneamento, e o
+            // usuário recebia um arquivo VAZIO com "gerei com sucesso".
+            if (!exp) {
+              return {
+                erro: `O bloco ${i + 1} (tabela) aponta para dados_de:"${t.dados_de}", que não existe neste turno. ` +
+                  `Disponíveis AGORA: ${textoDatasetsDisponiveis(datasets)}. NENHUM arquivo foi gerado — ` +
+                  "repita a chamada com um id válido, ou chame primeiro a ferramenta de dados.",
+              };
             }
+            if (exp.truncado) truncadoAviso = ` (limitei às primeiras ${exp.linhas.length} de ${exp.total} linhas)`;
+            blocos.push({ ...b, tabela: { titulo: t.titulo, colunas: exp.colunas, linhas: exp.linhas } });
+            continue;
           }
           // Gráfico com `dados_de`: monta categorias/valores do dataset (todas as linhas).
           if (b.tipo === "grafico" && b.grafico && (b.grafico as Record<string, unknown>).dados_de && datasets) {
-            return { ...b, grafico: resolverGraficoDataset(b.grafico as Record<string, unknown>, datasets) as typeof b.grafico };
+            const res = resolverGraficoDataset(b.grafico as Record<string, unknown>, datasets);
+            if (!res.ok) return { erro: `O bloco ${i + 1} (gráfico) falhou: ${res.erro} NENHUM arquivo foi gerado.` };
+            blocos.push({ ...b, grafico: comTipoSugerido(res.input) });
+            continue;
           }
-          return b;
-        });
-        const spec = normalizeReport({ ...input, blocos });
-        if (!spec) return { erro: "Não consegui montar o relatório: preciso de ao menos um bloco válido (tabela, texto ou gráfico)." };
-        sink.push(spec);
-        const rotulo = { pdf: "PDF", xlsx: "Excel (xlsx)", csv: "CSV", docx: "Word (docx)", pptx: "PowerPoint (pptx)" }[spec.formato];
+          // Gráfico digitado à mão sem `tipo`: escolhe pelos dados, não cai em "colunas".
+          if (b.tipo === "grafico" && b.grafico && !(b.grafico as Record<string, unknown>).tipo) {
+            blocos.push({ ...b, grafico: comTipoSugerido(b.grafico as Record<string, unknown>) });
+            continue;
+          }
+          blocos.push(b);
+        }
+        // Vários formatos numa chamada só ("Word + PPT + PDF") — sem gastar um passo
+        // do orçamento por formato.
+        const pedidos = (input.formatos?.length ? input.formatos : [input.formato ?? "pdf"])
+          .filter((f): f is ReportFormat => (REPORT_FORMATS as string[]).includes(f));
+        const formatos = [...new Set(pedidos.length ? pedidos : (["pdf"] as ReportFormat[]))];
+        const specs: ReportSpec[] = [];
+        for (const formato of formatos) {
+          const spec = normalizeReport({ ...input, formato, blocos });
+          if (!spec) {
+            return {
+              erro: "Não consegui montar o relatório: nenhum bloco válido sobrou. Cada bloco precisa de `texto`, " +
+                "de `tabela` (com `dados_de` OU `colunas`+`linhas`) ou de `grafico`. NENHUM arquivo foi gerado.",
+            };
+          }
+          specs.push(spec);
+        }
+        if (arquivos && arquivos.length + specs.length > MAX_ARQUIVOS_TURNO) {
+          return { erro: `Limite de ${MAX_ARQUIVOS_TURNO} arquivos por resposta. Gere os demais numa próxima mensagem.` };
+        }
+        const rotulos: Record<ReportFormat, string> = { pdf: "PDF", xlsx: "Excel (xlsx)", csv: "CSV", docx: "Word (docx)", pptx: "PowerPoint (pptx)" };
+        const gerados: string[] = [];
+        for (const spec of specs) {
+          sink.push(spec);
+          if (!render || !arquivos) { gerados.push(rotulos[spec.formato]); continue; }
+          try {
+            const arq = await render(spec);
+            if (arq.base64.length * 0.75 > MAX_BYTES_ARQUIVO) {
+              return { erro: `O ${rotulos[spec.formato]} passou de 8 MB. Reduza as linhas (filtre antes) ou use csv/xlsx, que são mais leves.` };
+            }
+            arquivos.push(arq);
+            gerados.push(`${rotulos[spec.formato]} — ${arq.filename}`);
+          } catch (e) {
+            return {
+              erro: `Falhou ao gerar o ${rotulos[spec.formato]}: ${e instanceof Error ? e.message : String(e)}. ` +
+                "DIGA isso ao usuário; não afirme que entregou. Tente outro formato ou menos linhas.",
+            };
+          }
+        }
+        const avisos = [...new Set(specs.flatMap((s) => s.avisos ?? []))];
         return {
           ok: true,
-          mensagem: `Arquivo "${spec.titulo}" gerado em ${rotulo} (${spec.blocos.length} bloco(s))${truncadoAviso}. Entreguei ao usuário como download.`,
+          mensagem:
+            `Relatório "${specs[0]!.titulo}" gerado: ${gerados.join(" · ")} (${specs[0]!.blocos.length} bloco(s))${truncadoAviso}. ` +
+            "O sistema anexa o(s) arquivo(s) ao final desta resposta — descreva como um link de download." +
+            (avisos.length ? " AVISE o usuário: " + avisos.join(" ") : ""),
         };
       },
     }),
   };
 }
 
-/** Diretriz de USO (alta prioridade) para gráficos/relatórios. */
-export function visualsDirective(): string {
-  return (
-    "GRÁFICOS E RELATÓRIOS: quando o usuário pedir para VISUALIZAR os dados (um gráfico) ou um RELATÓRIO, primeiro " +
-    "obtenha os números pelas ferramentas de dados e então:\n" +
-    "- GRÁFICO: use SEMPRE o motor do assistente (`montar_grafico` / `perguntar_tipo_grafico`) — NUNCA o menu \"Ações\" → " +
-    "\"Formato\" → \"Gráfico\" do Interactive Report/Grid da tela. Analise os dados e RECOMENDE o tipo mais adequado — série " +
-    "ao longo do tempo/progressão → linha (ou área); comparação entre poucas categorias → colunas; muitas categorias ou " +
-    "rótulos longos → barras (horizontais); partes de um todo em % → pizza (ou rosca). Se o usuário JÁ disse o tipo, chame " +
-    "`montar_grafico` com os valores reais. Se o usuário NÃO disse o tipo, chame `perguntar_tipo_grafico` com os dados + o " +
-    "tipo `recomendado`: o sistema mostra os tipos como BOTÕES e o usuário escolhe (o gráfico aparece na hora) — NÃO " +
-    "pergunte o tipo em texto. NÃO descreva o gráfico em texto — a ferramenta o desenha.\n" +
-    "- GRÁFICO — QUAL dataset (regra CRÍTICA): o `dados_de` do gráfico tem de apontar para o dataset EXATO que o usuário " +
-    "quer ver. Se ele quer um RECORTE que você filtrou (ex.: 'faça o gráfico DESSES', 'dos 10 que você achou', 'só os " +
-    "pagos'), use o id do SUBCONJUNTO — o `resultado_em` do `consultar_registros` — obtido NESTE MESMO turno. Se o filtro " +
-    "foi num turno ANTERIOR, REFAÇA o `consultar_registros` agora para reobter o id do recorte e use ESSE id. É PROIBIDO " +
-    "apontar `dados_de` para a tabela da tela inteira (\"telaN\") quando o usuário quer só o recorte — senão o gráfico traz " +
-    "100% dos registros (ERRADO). Na dúvida sobre quais registros, confirme com o usuário antes de gráficar.\n" +
-    "- GRÁFICO COM MUITOS DADOS: se o recorte/lista tem MUITOS registros (dezenas, centenas), NÃO redigite os pontos — passe " +
-    "`dados_de` (o id CERTO, conforme a regra acima) + `categoria` (coluna do eixo X) + `valor` (coluna do número) + " +
-    "`agregacao`. Mas se são POUCOS registros (ex.: 10) que você JÁ tem no contexto, redigite categorias/series direto — é " +
-    "mais simples e não corre risco de pegar o dataset errado.\n" +
-    "- MEDIANA e TENDÊNCIA: pela sua leitura do CONTEXTO, ative `mediana` quando ajudar a comparar os valores e " +
-    "`tendencia` quando houver progressão/série temporal (ambas só em colunas/linha/área/barras — nunca em " +
-    "pizza/rosca). Não ative nas duas por padrão: só quando agregam.\n" +
-    "- ARQUIVO (PDF/Excel/CSV/Word/PowerPoint): quando o usuário pedir o resultado 'em PDF', um relatório, uma planilha " +
-    "(Excel/CSV), um documento (Word) ou uma apresentação (PowerPoint), CHAME `gerar_relatorio` com o `formato` " +
-    "correspondente (pdf/xlsx/csv/docx/pptx) + título + blocos ('texto' para as explicações/passos, 'tabela' para dados, " +
-    "'gráfico' opcional). Escolha o formato pelo pedido; se ele não disse e o conteúdo é uma LISTA de dados, sugira/use " +
-    "xlsx (ou csv); se for texto/passo a passo, pdf ou docx; se for apresentação, pptx — na dúvida, PERGUNTE. O conteúdo " +
-    "pode vir das ferramentas OU da DOCUMENTAÇÃO (ex.: monte o passo a passo com o que os artigos trazem). NÃO se recuse a " +
-    "gerar só porque a documentação é parcial: compile o que existe (e diga no texto o que ficou de fora). O arquivo vai " +
-    "como download — não repita a tabela inteira no chat.\n" +
-    "- PÁGINA SEM TABELA/RELATÓRIO (dados só na tela): se pedirem um documento e NÃO houver uma tabela/dataset da tela " +
-    "(nenhum id [dados_de=\"...\"] no contexto), monte o arquivo AUTOMATICAMENTE com o CONTEÚDO DA TELA que você recebeu " +
-    "(o bloco de conteúdo da página, os campos e seus valores). Use blocos `texto` e, quando houver itens/valores, um bloco " +
-    "`tabela` com `colunas` e `linhas` que VOCÊ digita a partir do que está NA TELA — aqui NÃO use `dados_de` (não existe " +
-    "dataset). Não se recuse por 'não ter ferramenta nem tabela': os dados da tela BASTAM e são a fonte padrão quando a " +
-    "página não tem relatório.\n" +
-    "- PRECISA CHAMAR A FERRAMENTA (senão não há arquivo): para ENTREGAR um arquivo você TEM de chamar `gerar_relatorio` " +
-    "NESTA mesma resposta. NUNCA diga que 'gerou', 'anexou' ou que 'o download vai iniciar automaticamente' sem ter chamado " +
-    "a ferramenta. O arquivo aparece como um LINK DE DOWNLOAD no chat (NÃO é um download automático do navegador) — descreva " +
-    "assim. Se `gerar_relatorio` retornar erro, DIGA ao usuário que não conseguiu e por quê — não finja sucesso.\n" +
-    "- VOCÊ SEMPRE CONSEGUE GERAR (regra ABSOLUTA): gerar Excel/CSV/PDF/Word/PowerPoint É a sua ferramenta `gerar_relatorio`. " +
-    "É TERMINANTEMENTE PROIBIDO dizer que gerar o arquivo está 'fora da sua capacidade', que 'não pode fazer isso' ou pedir " +
-    "para o usuário BAIXAR/EXPORTAR o relatório pelo próprio sistema/menu — isso NUNCA pode acontecer. Se você OFERECEU um " +
-    "arquivo e o usuário ACEITOU (mesmo com um 'sim'/'pode' curto), CHAME `gerar_relatorio` AGORA, na mesma resposta — não " +
-    "reescreva os dados no chat no lugar do arquivo. Nunca ofereça um arquivo que você não vá gerar com a ferramenta.\n" +
-    "- GRÁFICO DENTRO DO ARQUIVO: se o usuário pedir o Excel/Word/PDF/PowerPoint COM um GRÁFICO dos dados (ex.: \"faz um " +
-    "ppt com gráfico\", \"um excel com um gráfico das faltas\"), INCLUA um bloco `grafico` na chamada (tipo + categorias " +
-    "+ series com os valores reais) — o arquivo é renderizado com o GRÁFICO desenhado (no Excel/Word como imagem, no PPT " +
-    "nativo, no PDF vetorial). Não deixe de fora: se pediram gráfico, o bloco `grafico` é OBRIGATÓRIO no relatório.\n" +
-    "- FORMATAÇÃO DO TEXTO: nos blocos `texto` você PODE usar markdown — títulos com `##`, **negrito**, *itálico*, listas " +
-    "com `-` ou `1.` — o gerador converte em títulos destacados, negrito e listas de verdade (nada de marcação crua no " +
-    "arquivo). Estruture bem: um título de seção antes de cada parte, destaques em negrito no que importa.\n" +
-    "- TODOS OS DADOS no relatório: quando a ferramenta retornar uma LISTA, ela vem com um id em `_dataset` (e `_total`, " +
-    "`_colunas`). Para a tabela do relatório, NÃO redigite as linhas — passe `tabela.dados_de` com esse id, `colunas` " +
-    "(cabeçalhos) e `campos` (as chaves de `_colunas`, na mesma ordem). O servidor inclui TODAS as linhas reais. Redigite " +
-    "linhas só em tabelas pequenas que você mesmo montou. Ignore os campos `_dataset`/`_total`/`_colunas` na sua resposta " +
-    "em texto (são metadados internos). IMPORTANTE: o `_dataset` só vale NESTE turno — para gerar o relatório com todos os " +
-    "dados, CHAME a ferramenta de dados AGORA (mesmo que já tenha consultado antes) e use o `_dataset` que ela retornar.\n" +
-    "Nunca invente dados para preencher um gráfico ou relatório: use apenas o que as ferramentas retornaram."
-  );
+/**
+ * As três ferramentas visuais numa chamada só. Existe porque as duas rotas de chat
+ * montavam a lista de argumentos separadamente e o portal esquecia o `datasets` —
+ * `dados_de` nunca funcionou lá. Com um construtor único, não há o que esquecer.
+ */
+export type VisualSinks = {
+  charts: ChartSpec[];
+  /** Omita onde o cliente não renderiza o evento `chart_choice` (portal): sem ele, o
+   *  gráfico sem `tipo` sai direto com o tipo sugerido, em vez de sumir. */
+  chartChoices?: ChartChoice[];
+  reports: ReportSpec[];
+  arquivos?: ArquivoGerado[];
+};
+export function buildVisualTools(sinks: VisualSinks, datasets?: DatasetRegistry, render?: RenderRelatorio): ToolSet {
+  return {
+    ...buildChartTool(sinks.charts, datasets, sinks.chartChoices),
+    ...buildReportTool(sinks.reports, datasets, render, sinks.arquivos),
+  };
 }

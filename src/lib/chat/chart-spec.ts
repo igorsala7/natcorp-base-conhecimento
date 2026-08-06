@@ -150,6 +150,85 @@ export function specToChartData(spec: ChartSpec): ChartData {
   };
 }
 
+/**
+ * QUEM desenha o quê. O chat oferece 15 tipos e o widget desenha os 15 em canvas,
+ * mas os ARQUIVOS não: até aqui um `radar` num PPT virava barras e um `candle` num
+ * PDF virava linha — com os números certos e a FORMA errada, sem nenhum aviso.
+ * Isso é integridade de dado, não estética. Esta tabela é a fonte única da verdade;
+ * `degradarTipo` troca por um substituto honesto E devolve o aviso para contar ao
+ * usuário. Nunca degrade em silêncio.
+ */
+export type DestinoGrafico = "svg" | "pdf" | "docxNativo" | "pptx" | "recharts";
+type Suporte = Record<DestinoGrafico, boolean>;
+const S = (svg: boolean, pdf: boolean, docxNativo: boolean, pptx: boolean, recharts: boolean): Suporte =>
+  ({ svg, pdf, docxNativo, pptx, recharts });
+
+export const CHART_SUPORTE: Record<ChartTipo, Suporte> = {
+  //              svg    pdf    docx   pptx   recharts
+  colunas:     S(true,  true,  true,  true,  true),
+  colunas_emp: S(true,  true,  true,  true,  true),
+  barras:      S(true,  true,  true,  true,  true),
+  barras_emp:  S(true,  true,  true,  true,  false),
+  linha:       S(true,  true,  true,  true,  true),
+  area:        S(true,  true,  true,  true,  true),
+  area_emp:    S(true,  true,  true,  true,  true),
+  combo:       S(true,  true,  false, true,  true),
+  pizza:       S(true,  true,  true,  true,  true),
+  rosca:       S(true,  true,  true,  true,  true),
+  radar:       S(true,  true,  false, true,  true),
+  dispersao:   S(false, false, false, false, true),
+  bolha:       S(false, false, false, false, true),
+  heatmap:     S(false, false, false, false, false),
+  candle:      S(false, false, false, false, false),
+};
+
+/** Substituto quando o destino não desenha o tipo pedido — e por quê, em português. */
+const SUBSTITUTO: Partial<Record<ChartTipo, { tipo: ChartTipo; motivo: string }>> = {
+  colunas_emp: { tipo: "colunas", motivo: "as séries aparecem lado a lado, não empilhadas" },
+  barras_emp: { tipo: "barras", motivo: "as séries aparecem lado a lado, não empilhadas" },
+  area_emp: { tipo: "area", motivo: "as séries aparecem sobrepostas, não empilhadas" },
+  combo: { tipo: "colunas", motivo: "todas as séries saem em colunas" },
+  radar: { tipo: "barras", motivo: "as dimensões viram barras" },
+  heatmap: { tipo: "colunas", motivo: "a matriz vira colunas agrupadas" },
+  candle: { tipo: "linha", motivo: "sai só a linha de fechamento" },
+  dispersao: { tipo: "colunas", motivo: "os pontos viram colunas — a relação X×Y se perde" },
+  bolha: { tipo: "colunas", motivo: "os pontos viram colunas — X×Y e o tamanho se perdem" },
+};
+
+const rotuloTipo = (t: ChartTipo) => CHART_TIPOS.find((c) => c.tipo === t)?.label ?? t;
+
+/**
+ * Ajusta o tipo ao que o destino REALMENTE desenha. Devolve o tipo a usar e, quando
+ * houve troca, um aviso pronto para o modelo repassar e para a legenda do arquivo.
+ */
+export function degradarTipo(tipo: ChartTipo, destino: DestinoGrafico): { tipo: ChartTipo; aviso?: string } {
+  if (CHART_SUPORTE[tipo]?.[destino]) return { tipo };
+  const sub = SUBSTITUTO[tipo];
+  const alvo = sub && CHART_SUPORTE[sub.tipo]?.[destino] ? sub.tipo : "colunas";
+  const motivo = sub?.motivo ?? "o formato não desenha esse tipo";
+  return { tipo: alvo, aviso: `"${rotuloTipo(tipo)}" não existe neste formato — saiu como ${rotuloTipo(alvo)} (${motivo}).` };
+}
+
+/** Rótulo que "cheira" a tempo: 03/2026, 2026-03, 2026, jan…, semana 4, 1º tri. */
+const RX_TEMPO = /^(0?[1-9]|1[0-2])[/-]\d{2,4}$|^\d{4}(-\d{2})?$|^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/i;
+
+/**
+ * Tipo mais adequado para estes dados — decidido AQUI, não pelo modelo (é onde ele
+ * mais erra). Usado quando a chamada vem sem `tipo`: vira a recomendação destacada
+ * nos botões e o padrão quando não há escolha do usuário.
+ */
+export function sugerirTipo(spec: { categorias: string[]; series: ChartSerie[] }): ChartTipo {
+  const n = spec.categorias.length;
+  const nSeries = spec.series.length;
+  const temporal = n >= 3 && spec.categorias.filter((c) => RX_TEMPO.test(c.trim())).length >= Math.ceil(n * 0.6);
+  if (temporal) return "linha";
+  // Poucas fatias de uma série só, todas positivas → parte de um todo.
+  if (nSeries === 1 && n >= 2 && n <= 6 && spec.series[0]!.valores.every((v) => v >= 0)) return "pizza";
+  const rotuloMedio = n ? spec.categorias.reduce((s, c) => s + c.length, 0) / n : 0;
+  if (n > 12 || rotuloMedio > 14) return "barras"; // horizontais: rótulo longo cabe
+  return "colunas";
+}
+
 function csvCell(v: string): string {
   return /[",\r\n;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }

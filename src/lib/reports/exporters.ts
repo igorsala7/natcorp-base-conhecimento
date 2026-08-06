@@ -6,6 +6,7 @@ import type { ReportSpec, ReportBlock } from "./report-spec";
 import { renderReportPdf, type BrandInfo } from "./pdf";
 import { parseMarkdown, runsText, type MdRun } from "./markdown";
 import { chartSvg } from "./chart-svg";
+import { CHART_SUPORTE } from "@/lib/chat/chart-spec";
 import { chartXml, injectDocxCharts } from "./docx-chart";
 
 // PNG 1×1 (fallback exigido pelo Word ao embutir SVG; o Word moderno mostra o SVG).
@@ -83,7 +84,8 @@ function renderCsv(spec: ReportSpec): OutFile {
   }
   // "sep=;" faz o Excel reconhecer o delimitador; + BOM para abrir UTF-8.
   const csv = "﻿sep=;\r\n" + linhas.join("\r\n");
-  return { filename: slug(spec.titulo, "csv"), mimeType: "text/csv", base64: Buffer.from(csv, "utf8").toString("base64") };
+  const comAviso = spec.avisos?.length ? csv + "\r\n" + spec.avisos.map((a) => "# " + a).join("\r\n") : csv;
+  return { filename: slug(spec.titulo, "csv"), mimeType: "text/csv", base64: Buffer.from(comAviso, "utf8").toString("base64") };
 }
 
 /** Nome de aba único e válido (≤31 chars, sem caracteres proibidos). */
@@ -205,6 +207,14 @@ async function renderXlsx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
     escreverTabela(ws2, b.colunas, b.linhas, 1);
     ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.min(b.colunas.length, 40) } };
     ws2.views = [{ state: "frozen", ySplit: 1 }];
+  }
+
+  // Avisos de degradação: linha própria abaixo do conteúdo da 1ª aba.
+  for (const av of spec.avisos ?? []) {
+    const cel = ws.getCell(row + 1, 1);
+    cel.value = "⚠ " + av;
+    cel.font = { italic: true, color: { argb: "FF6B6577" }, size: 10 };
+    row += 1;
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -345,7 +355,11 @@ async function renderDocxImpl(spec: ReportSpec, brand: BrandInfo, nativo: boolea
     } else if (bl.tipo === "grafico") {
       const g = bl.grafico;
       filhos.push(tituloSecao(g.titulo || "Gráfico"));
-      if (nativo) {
+      // Guard POR GRÁFICO: o XML nativo não sabe combo nem radar. Antes o Word só caía
+      // para imagem se algo LANÇASSE, e no documento INTEIRO — então um combo saía como
+      // barras. Agora só ESTE gráfico vira imagem; os outros seguem nativos (editáveis).
+      const podeNativo = nativo && CHART_SUPORTE[g.tipo]?.docxNativo !== false;
+      if (podeNativo) {
         // Marcador que será trocado pelo gráfico NATIVO após gerar o .docx.
         const marker = `@@KBCHART${chartsNativos.length}@@`;
         chartsNativos.push({ marker, xml: chartXml(g, chartCols(c)) });
@@ -381,6 +395,11 @@ async function renderDocxImpl(spec: ReportSpec, brand: BrandInfo, nativo: boolea
     ],
   });
 
+  // Avisos de degradação (tipo de gráfico trocado por limitação do formato). Ficam
+  // NO arquivo — o usuário precisa saber que o que ele vê não é o que pediu.
+  for (const a of spec.avisos ?? []) {
+    filhos.push(new Paragraph({ spacing: { before: 80 }, children: [new TextRun({ text: "⚠ " + a, italics: true, size: 17, color: "6B6577", font: FONTE })] }));
+  }
   const doc = new Document({
     styles: { default: { document: { run: { font: FONTE, size: 22 } } } },
     sections: [{ properties: {}, footers: { default: rodape }, children: filhos }],
@@ -419,7 +438,15 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
   });
 
   const chartColors = [c.primary, c.secondary, c.contrast, mixWhite(c.primary, 0.4), mixWhite(c.secondary, 0.4)];
-  const tipoChart: Record<string, string> = { colunas: "bar", barras: "bar", linha: "line", area: "area", pizza: "pie", rosca: "doughnut" };
+  // Tipos nativos do PowerPoint. Antes esta tabela cobria 6 e o `|| "bar"` abaixo
+  // transformava radar/empilhado/combo em barras SEM AVISO. Agora cobre o que o PPT
+  // sabe desenhar; o que ele não sabe já chegou aqui trocado por `degradarTipo`.
+  const tipoChart: Record<string, string> = {
+    colunas: "bar", colunas_emp: "bar", barras: "bar", barras_emp: "bar",
+    linha: "line", area: "area", area_emp: "area", combo: "bar",
+    pizza: "pie", rosca: "doughnut", radar: "radar",
+  };
+  const empilhadoPpt = new Set(["colunas_emp", "barras_emp", "area_emp"]);
 
   // Capa (fundo da marca + acento).
   const capa = pres.addSlide();
@@ -480,7 +507,8 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
         const data = g.series.map((s) => ({ name: s.nome, labels: g.categorias, values: s.valores }));
         slide.addChart(ct as never, data, {
           x: 0.6, y: 1.0, w: W - 1.2, h: 5.7,
-          barDir: g.tipo === "colunas" ? "col" : "bar",
+          barDir: g.tipo === "colunas" || g.tipo === "colunas_emp" || g.tipo === "combo" ? "col" : "bar",
+          ...(empilhadoPpt.has(g.tipo) ? { barGrouping: "stacked", barOverlapPct: 100 } : {}),
           chartColors, showLegend: g.series.length > 1, legendPos: "b",
           showValue: false, showTitle: false,
           catAxisLabelFontFace: FONTE, valAxisLabelFontFace: FONTE, legendFontFace: FONTE,
@@ -493,6 +521,13 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
     }
   }
 
+  // Avisos de degradação num slide final — melhor dizer do que deixar o usuário
+  // achar que o gráfico saiu como pediu.
+  if (spec.avisos?.length) {
+    const s = pres.addSlide({ masterName: "NATCORP" });
+    s.addText("Observações", { x: 0.5, y: 0.35, w: W - 1, h: 0.5, fontSize: 22, bold: true, color: c.primary, fontFace: FONTE });
+    s.addText(spec.avisos.map((a) => ({ text: "⚠ " + a, options: { breakLine: true } })), { x: 0.5, y: 1.1, w: W - 1, h: 4, fontSize: 13, color: "555555", fontFace: FONTE });
+  }
   const buf = (await pres.write({ outputType: "nodebuffer" })) as Buffer;
   return {
     filename: slug(spec.titulo, "pptx"),

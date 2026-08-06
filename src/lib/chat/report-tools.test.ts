@@ -1,0 +1,223 @@
+import { describe, it, expect } from "vitest";
+import { buildChartTool, buildReportTool, intencaoVisual, type ArquivoGerado } from "./report-tools";
+import { newRegistry, registrarTabelaTela } from "./datasets";
+import type { ChartSpec } from "./chart-spec";
+import type { ReportSpec } from "@/lib/reports/report-spec";
+
+/** Registro com uma tabela da tela, como o turno real monta. */
+function registroComTela() {
+  const reg = newRegistry();
+  registrarTabelaTela(reg, ["Nome", "Cargo", "Salário"], [
+    ["Ana", "Analista", "5.000,00"],
+    ["Bia", "Gestora", "9.000,00"],
+    ["Cid", "Analista", "4.200,00"],
+  ]);
+  return reg;
+}
+
+/** Executa a tool pelo nome, sem depender do runtime do AI SDK. */
+async function exec(tools: Record<string, unknown>, nome: string, input: unknown) {
+  const t = tools[nome] as { execute: (i: unknown, o?: unknown) => Promise<unknown> };
+  return (await t.execute(input, {})) as Record<string, unknown>;
+}
+
+/**
+ * O gate por regex era o motivo de o agente "se perder": um follow-up como
+ * "agora em pizza" não casava com nada, e o modelo ficava LITERALMENTE sem a
+ * ferramenta. Hoje a regex só dá ÊNFASE — mas ela precisa cobrir o que o usuário
+ * realmente escreve, porque ainda controla o orçamento de passos.
+ */
+describe("intencaoVisual", () => {
+  const casos: [string, boolean][] = [
+    ["gera um excel disso", true],
+    ["exporta em pdf", true],
+    ["quero uma planilha", true],
+    ["faz um gráfico das faltas", true],
+    ["crie um documento com o passo a passo", true],
+    ["faça um arquivo com esses dados", true],
+    ["me manda em anexo", true],
+    ["quero baixar isso", true],
+    ["plota isso aí", true],
+    ["desenha um comparativo em pizza", true],
+    ["monta um ppt com os números", true],
+    ["quantos colaboradores estão ativos?", false],
+    ["qual o salário da Ana?", false],
+    ["bom dia", false],
+  ];
+  for (const [frase, esperado] of casos) {
+    it(`${esperado ? "reconhece" : "ignora"}: "${frase}"`, () => {
+      expect(intencaoVisual(frase)).toBe(esperado);
+    });
+  }
+
+  it('aceite curto conta como intenção quando o assistente ofereceu o arquivo', () => {
+    const hist = [{ role: "assistant", content: "Quer que eu gere um Excel com isso?" }];
+    expect(intencaoVisual("pode", hist)).toBe(true);
+    expect(intencaoVisual("pode", [])).toBe(false);
+  });
+});
+
+describe("montar_grafico", () => {
+  it("expande o dataset e devolve o gráfico pronto", async () => {
+    const reg = registroComTela();
+    const sink: ChartSpec[] = [];
+    const r = await exec(buildChartTool(sink, reg), "montar_grafico", {
+      tipo: "colunas", titulo: "Por cargo", dados_de: "tela1", categoria: "Cargo", agregacao: "contar",
+    });
+    expect(r.ok).toBe(true);
+    expect(sink).toHaveLength(1);
+    expect(sink[0]!.categorias).toEqual(expect.arrayContaining(["Analista", "Gestora"]));
+  });
+
+  it("dataset inexistente: erro DIZ os ids reais e não empurra nada para o sink", async () => {
+    const reg = registroComTela();
+    const sink: ChartSpec[] = [];
+    const r = await exec(buildChartTool(sink, reg), "montar_grafico", {
+      tipo: "colunas", titulo: "X", dados_de: "ds9", categoria: "Cargo",
+    });
+    expect(r.ok).toBeUndefined();
+    expect(String(r.erro)).toContain("ds9");
+    expect(String(r.erro)).toContain("tela1");
+    expect(sink).toHaveLength(0);
+  });
+
+  it("coluna errada: erro cita as colunas REAIS e sugere a mais próxima", async () => {
+    const reg = registroComTela();
+    const r = await exec(buildChartTool([], reg), "montar_grafico", {
+      tipo: "colunas", titulo: "X", dados_de: "tela1", categoria: "Departamento",
+    });
+    expect(String(r.erro)).toContain("Cargo");
+    expect(String(r.erro)).toContain("Departamento");
+  });
+
+  it("sem tipo e sem gráfico anterior: oferece os botões em vez de chutar", async () => {
+    const reg = registroComTela();
+    const sink: ChartSpec[] = [];
+    const escolhas: { spec: ChartSpec; recomendado: string; pergunta: string }[] = [];
+    const r = await exec(buildChartTool(sink, reg, escolhas), "montar_grafico", {
+      titulo: "Por cargo", dados_de: "tela1", categoria: "Cargo", agregacao: "contar",
+    });
+    expect(r.ok).toBe(true);
+    expect(sink).toHaveLength(0);
+    expect(escolhas).toHaveLength(1);
+    expect(escolhas[0]!.recomendado).toBeTruthy();
+  });
+
+  it("sem tipo, mas já houve gráfico: assume a sugestão (perguntar toda vez vira ruído)", async () => {
+    const reg = registroComTela();
+    const sink: ChartSpec[] = [{ tipo: "colunas", titulo: "anterior", categorias: ["a"], series: [{ nome: "s", valores: [1] }] }];
+    const escolhas: { spec: ChartSpec; recomendado: string; pergunta: string }[] = [];
+    await exec(buildChartTool(sink, reg, escolhas), "montar_grafico", {
+      titulo: "Por cargo", dados_de: "tela1", categoria: "Cargo", agregacao: "contar",
+    });
+    expect(escolhas).toHaveLength(0);
+    expect(sink).toHaveLength(2);
+  });
+
+  it("sem fonte nenhuma: o erro ENSINA as duas formas, com exemplo", async () => {
+    const r = await exec(buildChartTool([], newRegistry()), "montar_grafico", { tipo: "pizza", titulo: "X" });
+    expect(String(r.erro)).toContain("dados_de");
+    expect(String(r.erro)).toContain("categorias");
+  });
+});
+
+describe("gerar_relatorio", () => {
+  const renderFake = async (spec: ReportSpec): Promise<ArquivoGerado> =>
+    ({ filename: `r.${spec.formato}`, mimeType: "application/octet-stream", base64: "AAAA" });
+
+  it("gera o arquivo DENTRO da tool e devolve o nome real", async () => {
+    const reg = registroComTela();
+    const sink: ReportSpec[] = [];
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(buildReportTool(sink, reg, renderFake, arquivos), "gerar_relatorio", {
+      titulo: "Equipe", formato: "xlsx", blocos: [{ tipo: "tabela", tabela: { dados_de: "tela1" } }],
+    });
+    expect(r.ok).toBe(true);
+    expect(arquivos).toHaveLength(1);
+    expect(String(r.mensagem)).toContain("r.xlsx");
+    // A tabela foi expandida com as LINHAS REAIS, não redigitadas pelo modelo.
+    const bloco = sink[0]!.blocos[0] as { tipo: "tabela"; linhas: string[][] };
+    expect(bloco.linhas).toHaveLength(3);
+  });
+
+  it("dados_de inválido ABORTA: nenhum arquivo, erro dizendo os ids válidos", async () => {
+    const reg = registroComTela();
+    const sink: ReportSpec[] = [];
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(buildReportTool(sink, reg, renderFake, arquivos), "gerar_relatorio", {
+      titulo: "Equipe", formato: "xlsx", blocos: [{ tipo: "tabela", tabela: { dados_de: "ds7" } }],
+    });
+    // Este é o bug que produzia um Excel VAZIO com "gerei com sucesso".
+    expect(r.ok).toBeUndefined();
+    expect(String(r.erro)).toContain("ds7");
+    expect(String(r.erro)).toContain("NENHUM arquivo");
+    expect(arquivos).toHaveLength(0);
+    expect(sink).toHaveLength(0);
+  });
+
+  it("falha do render vira ERRO da ferramenta, não sucesso silencioso", async () => {
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(
+      buildReportTool([], registroComTela(), async () => { throw new Error("resvg quebrou"); }, arquivos),
+      "gerar_relatorio",
+      { titulo: "X", formato: "pdf", blocos: [{ tipo: "texto", texto: "oi" }] },
+    );
+    expect(r.ok).toBeUndefined();
+    expect(String(r.erro)).toContain("resvg quebrou");
+    expect(arquivos).toHaveLength(0);
+  });
+
+  it("vários formatos numa chamada só (não gasta um passo por formato)", async () => {
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(
+      buildReportTool([], registroComTela(), renderFake, arquivos),
+      "gerar_relatorio",
+      { titulo: "X", formatos: ["pdf", "docx", "pptx"], blocos: [{ tipo: "texto", texto: "oi" }] },
+    );
+    expect(r.ok).toBe(true);
+    expect(arquivos.map((a) => a.filename)).toEqual(["r.pdf", "r.docx", "r.pptx"]);
+  });
+
+  it("respeita o teto de arquivos por turno", async () => {
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(
+      buildReportTool([], registroComTela(), renderFake, arquivos),
+      "gerar_relatorio",
+      { titulo: "X", formatos: ["pdf", "docx", "pptx", "xlsx"], blocos: [{ tipo: "texto", texto: "oi" }] },
+    );
+    expect(String(r.erro)).toContain("Limite");
+    expect(arquivos).toHaveLength(0);
+  });
+
+  it("gráfico degradado pelo formato: a mensagem manda AVISAR o usuário", async () => {
+    const arquivos: ArquivoGerado[] = [];
+    const r = await exec(
+      buildReportTool([], registroComTela(), renderFake, arquivos),
+      "gerar_relatorio",
+      {
+        titulo: "X", formato: "csv",
+        blocos: [
+          { tipo: "texto", texto: "oi" },
+          { tipo: "grafico", grafico: { tipo: "radar", titulo: "g", categorias: ["a", "b"], series: [{ nome: "s", valores: [1, 2] }] } },
+        ],
+      },
+    );
+    expect(r.ok).toBe(true);
+    expect(String(r.mensagem)).toContain("AVISE o usuário");
+  });
+});
+
+describe("tipo sugerido dentro do arquivo", () => {
+  const renderFake = async (spec: ReportSpec): Promise<ArquivoGerado> =>
+    ({ filename: `r.${spec.formato}`, mimeType: "x", base64: "AAAA" });
+
+  it("bloco de gráfico sem `tipo` não cai em colunas por padrão", async () => {
+    const sink: ReportSpec[] = [];
+    await exec(buildReportTool(sink, registroComTela(), renderFake, []), "gerar_relatorio", {
+      titulo: "X", formato: "pdf",
+      blocos: [{ tipo: "grafico", grafico: { titulo: "Evolução", categorias: ["01/2026", "02/2026", "03/2026"], series: [{ nome: "s", valores: [1, 2, 3] }] } }],
+    });
+    const g = sink[0]!.blocos[0] as { tipo: "grafico"; grafico: { tipo: string } };
+    expect(g.grafico.tipo).toBe("linha"); // rótulos de mês → série temporal
+  });
+});
