@@ -287,6 +287,27 @@ async function loadCatalogo(db: DB, baseCode: string): Promise<CatalogoItem[]> {
 }
 
 /**
+ * LISTA as tools da base para o usuário escolher à mão ("Outra fonte" no gate),
+ * sem limiar de similaridade — é o catálogo inteiro, ordenado por nome.
+ *
+ * Reusa o mesmo `loadCatalogo` cacheado do roteamento: nenhuma query nova. Por isso
+ * herda a regra dele — tool SEM embedding não aparece aqui. Na prática elas também
+ * não seriam roteadas por similaridade; se um dia isso incomodar, basta trocar por
+ * um `select key,name,description` próprio (forçar por chave já funciona sem vetor).
+ */
+export async function listBaseTools(
+  db: DB,
+  baseCode: string,
+  limite = 80,
+): Promise<{ key: string; name: string; description: string | null }[]> {
+  const cat = await loadCatalogo(db, baseCode);
+  return cat
+    .map((t) => ({ key: t.key, name: t.name, description: t.description }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+    .slice(0, limite);
+}
+
+/**
  * CASA a mensagem contra o catálogo da base: embeda a mensagem 1x e ordena por
  * cosseno. Só embeda se houver catálogo (economiza a chamada quando a base não tem
  * tools). Retorna as acima do limiar (padrão 0.38), no máximo `limite`.

@@ -19,6 +19,11 @@
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_PANEL = "kb.widget.panelpos." + KEY; // posição própria da JANELA (arrastada pelo cabeçalho)
   var LS_SID = "kb.widget.sid." + KEY;
+  // Abaixo desta largura o painel vira TELA CHEIA (modo app): sem transparência ao
+  // rolar, sem arrastar, sem expandir. É o mesmo 640 que a CSS e o guard do modo
+  // expandido já usavam — a constante existe para os três nunca divergirem (a CSS
+  // é string, então dá para interpolar).
+  var BP_MOBILE = 640;
   // Idioma escolhido no seletor: usa a ontologia daquele idioma + responde nele. Espelha
   // src/lib/i18n/languages.ts (pt = canônico). Guardado por chave do widget.
   var LS_LANG = "kb.widget.lang." + KEY;
@@ -28,8 +33,17 @@
     { code: "de", nativo: "Deutsch" }, { code: "it", nativo: "Italiano" },
     { code: "ja", nativo: "日本語" }, { code: "zh", nativo: "中文" },
   ];
+  // (TEMPORÁRIO) Tradução ESCONDIDA do usuário final a pedido do produto — em
+  // avaliação, NÃO removida. Reverter = trocar para true (só isto).
+  // O backend (/api/v1/translate-ui), o parâmetro `lang` do chat, o I18N da casca
+  // e o admin de Ontologia continuam intactos e voltam a funcionar sozinhos.
+  var MOSTRAR_TRADUZIR = false;
   var widgetLang = "pt";
   try { widgetLang = localStorage.getItem(LS_LANG) || "pt"; } catch (e) { }
+  // Escondido o seletor, quem já tinha "English" salvo continuaria recebendo em
+  // inglês SEM ter como voltar. Sobrepõe em runtime — sem apagar o localStorage,
+  // para a escolha do usuário voltar quando o recurso voltar.
+  if (!MOSTRAR_TRADUZIR) widgetLang = "pt";
   // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
   // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
   var I18N = {
@@ -3193,7 +3207,24 @@
       // removida ao fim — para o arrastar da bolha não ficar com lag.
       ".panel.anim{transition:left .5s cubic-bezier(.4,0,.2,1),top .5s cubic-bezier(.4,0,.2,1),width .5s cubic-bezier(.4,0,.2,1),height .5s cubic-bezier(.4,0,.2,1),border-radius .5s cubic-bezier(.4,0,.2,1)}" +
       "@media(prefers-reduced-motion:reduce){.panel.anim{transition:none}.panel.open,.panel.closing{animation-duration:.01s}}" +
-      "@media(max-width:640px){.hd [data-expand]{display:none}}" +
+      // MOBILE — modo app: o painel ocupa a tela inteira. A geometria em px é do
+      // setGeom (viewport VISUAL); a classe existe para SOLTAR os limites de tamanho
+      // de .panel, que senão clampariam a altura inline.
+      "@media(max-width:" + BP_MOBILE + "px){" +
+      ".hd [data-expand]{display:none}" +
+      ".panel.full{max-width:none;max-height:100dvh;border-radius:0;border:none;box-shadow:none}" +
+      ".panel.full .hd{padding:calc(12px + env(safe-area-inset-top)) 10px 14px;gap:8px;cursor:default;touch-action:auto}" +
+      ".panel.full .hd button{width:36px;height:36px}" +
+      // Alvo de toque de 44px no minimizar — é o único caminho de sair da tela cheia.
+      ".panel.full .hd [data-close]{width:44px;height:44px;font-size:26px}" +
+      // Sem isto o gesto de rolar o chat "vaza" e arrasta a página do sistema host
+      // (rubber-band). Resolve sem travar o <body> do host, que destruiria o scroll dele.
+      ".panel.full .msgs{overscroll-behavior:contain;padding:14px 12px 8px}" +
+      ".panel.full .opts{padding-left:12px}" +
+      // 16px: abaixo disso o iOS Safari dá auto-zoom ao focar e desalinha o painel fixo.
+      ".panel.full .ft textarea{font-size:16px}" +
+      ".panel.full .pw{padding-bottom:calc(9px + env(safe-area-inset-bottom))}" +
+      "}" +
       "@keyframes kbin{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:scale(1)}}" +
       "@keyframes kbout{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.82)}}" +
       // Cabeçalho (gradiente)
@@ -3264,6 +3295,28 @@
       ".opts button:hover{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 8%,#fff)}" +
       ".opts .ol{display:block;font-size:13px;font-weight:600;color:var(--pc)}" +
       ".opts .os{display:block;font-size:12px;color:#6b6577;margin-top:2px;line-height:1.4}" +
+      // Multi-seleção: cada fonte é um cartão com caixa de marcação. Alvo de 44px
+      // (dedo) e estado marcado destacado pela borda — o `.on` é alternado por JS,
+      // não por :has(), para não depender do suporte do navegador.
+      ".opts .opt{display:flex;align-items:flex-start;gap:10px;min-height:44px;text-align:left;cursor:pointer;" +
+      "border:1.5px solid;border-color:color-mix(in srgb,var(--pc) 22%,#fff);background:#fff;border-radius:14px;padding:10px 12px;transition:border-color .15s,background .15s}" +
+      ".opts .opt:hover{border-color:var(--pc)}" +
+      ".opts .opt.on{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 7%,#fff)}" +
+      ".opts .opt input{flex:none;width:18px;height:18px;margin-top:2px;cursor:pointer;accent-color:var(--pc)}" +
+      ".opts .otx{display:flex;flex-direction:column;gap:2px;min-width:0}" +
+      // Gaveta do "Outra fonte": só aparece ao marcar a linha.
+      ".opts .ofx{display:none;margin-left:28px;flex-direction:column;gap:8px}" +
+      ".opts .ofx.on{display:flex}" +
+      // 16px no campo: abaixo disso o iOS Safari dá auto-zoom ao focar.
+      ".opts .find{width:100%;box-sizing:border-box;font-size:16px;border:1.5px solid #e6ddf1;border-radius:12px;padding:10px 12px;outline:none;background:#faf8fd;min-height:44px}" +
+      ".opts .find:focus{border-color:var(--pc);background:#fff}" +
+      ".opts .flist{max-height:172px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px}" +
+      ".opts .fnone{font-size:12px;color:#6b6577;padding:8px 4px;line-height:1.4}" +
+      // Confirmar: botão PRIMÁRIO. Sem isto ele herda `.opts button` e fica idêntico
+      // a mais uma linha de opção. `.opts .go` (0,2,0) vence `.opts button` (0,1,1).
+      ".opts .go{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;border-radius:14px;" +
+      "padding:12px 16px;min-height:44px;font-weight:700;font-size:14px;text-align:center;box-shadow:0 8px 18px rgba(60,30,110,.28)}" +
+      ".opts .go:hover{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));filter:brightness(1.08)}" +
       // Rodapé / entrada
       ".ft{border-top:1px solid #efe9f6;padding:12px;display:flex;gap:9px;align-items:flex-end;background:#fff}" +
       ".ft textarea{flex:1;resize:none;border:1.5px solid #e6ddf1;border-radius:16px;padding:11px 14px;font-size:14px;line-height:1.4;outline:none;overflow-y:hidden;background:#faf8fd;transition:border-color .15s,background .15s;min-height:44px}" +
@@ -4850,7 +4903,16 @@
   function savedPanelPos() {
     try { return JSON.parse(localStorage.getItem(LS_PANEL) || "null"); } catch { return null; }
   }
+  function ehMobile() { return window.innerWidth <= BP_MOBILE; }
+  // Altura/topo do viewport VISUAL. No iOS o teclado NÃO muda innerHeight (o layout
+  // viewport fica igual) — só o visual viewport encolhe e o Safari rola a página.
+  // Sem isto, o campo de digitar some atrás do teclado no modo tela cheia.
+  function vvH() { var v = window.visualViewport; return (v && v.height) ? Math.round(v.height) : window.innerHeight; }
+  function vvTop() { var v = window.visualViewport; return (v && v.offsetTop) ? Math.round(v.offsetTop) : 0; }
   function geomCanto() {
+    // MOBILE: tela cheia, como um app aberto. Sai antes de savedPanelPos() — a
+    // posição arrastada no desktop fica GUARDADA (não apagada) e volta ao girar.
+    if (ehMobile()) return { left: 0, width: window.innerWidth, top: vvTop(), height: vvH(), radius: 0, origem: "center" };
     var margem = window.innerWidth <= 480 ? 10 : 12; // celular: cola mais nas bordas
     var pw = Math.min(440, window.innerWidth - margem * 2);
     var ph = Math.min(680, window.innerHeight - 96);
@@ -4881,21 +4943,37 @@
     panel.style.borderRadius = g.radius + "px";
     panel.style.transformOrigin = g.origem;
   }
+  // Em tela cheia a bolha (que vira "×" ao abrir) fica ATRÁS do painel: seria um
+  // segundo botão de fechar que ninguém vê. Esconde enquanto o painel ocupa a tela
+  // — minimizar é o "−" do cabeçalho, como pedido.
+  function atualizarBolha() {
+    try { bubble.style.display = (open && ehMobile()) ? "none" : ""; } catch (e) { }
+  }
 
   // Aplica o estado (canto × expandido) INSTANTANEAMENTE — usado ao abrir e no
   // resize. `adiarRemocao` mantém a classe .exp durante a retração animada, para
   // os limites de tamanho não "clamparem" a altura no meio da transição.
   function aplicarExpansao(adiarRemocao) {
     var btn = panel.querySelector("[data-expand]");
-    if (expanded && window.innerWidth > 640) {
+    if (ehMobile()) {
+      // Modo app: tela cheia. Sem .exp (o Expandir já é escondido aqui) e sem o
+      // escurecimento ao rolar — a página atrás está 100% coberta, não há o que ler.
+      panel.classList.add("full");
+      panel.classList.remove("exp");
+      panel.classList.remove("kb-dim"); // mata um escurecimento em voo ao girar a tela
+      setGeom(geomCanto());
+    } else if (expanded && window.innerWidth > BP_MOBILE) {
+      panel.classList.remove("full");
       panel.classList.add("exp");
       setGeom(geomExp());
       if (btn) { btn.innerHTML = ICON_COLLAPSE; btn.setAttribute("aria-label", "Recolher"); btn.setAttribute("title", "Recolher"); }
     } else {
+      panel.classList.remove("full"); // voltou para desktop: solta a tela cheia
       if (!adiarRemocao) panel.classList.remove("exp");
       setGeom(geomCanto());
       if (btn) { btn.innerHTML = ICON_EXPAND; btn.setAttribute("aria-label", "Expandir"); btn.setAttribute("title", "Expandir para o centro"); }
     }
+    atualizarBolha();
   }
   function toggleExpand() {
     expanded = !expanded;
@@ -4914,7 +4992,12 @@
 
   function placePanel() {
     if (panel.classList.contains("exp")) return; // expandido: geometria já aplicada
+    // Mantém a classe de tela cheia em sincronia com a largura (resize/rotação):
+    // sem ela os limites de tamanho de .panel clampariam a geometria inline.
+    if (ehMobile()) { panel.classList.add("full"); panel.classList.remove("kb-dim"); }
+    else panel.classList.remove("full");
     setGeom(geomCanto());
+    atualizarBolha();
   }
   function setupDrag() {
     var dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
@@ -4962,6 +5045,26 @@
       if (expanded) aplicarExpansao(); // recalcula (ou volta ao canto no mobile)
       else placePanel();               // mantém a janela arrastada dentro da tela
     });
+    // TECLADO / barra de URL no mobile: reancora a tela cheia no viewport VISUAL.
+    // Um quadro por rajada de eventos (o iOS dispara vários por gesto).
+    var _vvRaf = 0;
+    function reancorarMobile() {
+      if (_vvRaf) return;
+      _vvRaf = requestAnimationFrame(function () {
+        _vvRaf = 0;
+        if (!open || !ehMobile()) return;
+        setGeom(geomCanto());
+        try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { } // última mensagem acima do teclado
+      });
+    }
+    try {
+      var vv = window.visualViewport;
+      if (vv) { vv.addEventListener("resize", reancorarMobile); vv.addEventListener("scroll", reancorarMobile); }
+      // O iOS reporta dimensões erradas NO instante do orientationchange.
+      window.addEventListener("orientationchange", function () {
+        setTimeout(function () { positionBubble(); aplicarExpansao(); }, 250);
+      });
+    } catch (e) { }
   }
   // TRANSPARÊNCIA AO ROLAR ATRÁS: enquanto o usuário rola a PÁGINA (não o chat), o
   // painel fica a 30% de opacidade para deixar ler o conteúdo por trás; volta ao
@@ -4970,6 +5073,9 @@
   var _dimTimer = 0;
   function dimPanel() {
     if (!panel || !panel.classList.contains("open")) return;
+    // Tela cheia (mobile): NUNCA escurecer. Um guard aqui cobre todas as origens de
+    // uma vez — touchmove, wheel, scroll capturado e os iframes mesmo-origem.
+    if (panel.classList.contains("full")) return;
     panel.classList.add("kb-dim");
     try { if (_dimTimer) clearTimeout(_dimTimer); } catch { }
     _dimTimer = setTimeout(function () { try { if (panel) panel.classList.remove("kb-dim"); } catch { } }, 650);
@@ -5015,6 +5121,7 @@
       if (e.button != null && e.button !== 0) return;
       if (e.target.closest && e.target.closest("button")) return; // botões do cabeçalho
       if (panel.classList.contains("exp")) return;                // expandido: não arrasta
+      if (panel.classList.contains("full")) return;               // tela cheia: não há para onde arrastar
       dragging = true; moved = false;
       sx = e.clientX; sy = e.clientY;
       var r = panel.getBoundingClientRect();
@@ -5165,6 +5272,7 @@
         if (!open) { panel.classList.remove("open"); panel.classList.remove("closing"); }
       }, 260);
     }
+    atualizarBolha();
   }
 
   // ==== Mensagens ====
@@ -5367,6 +5475,10 @@
         if (b === btn) { b.style.background = pc; b.style.color = "#fff"; b.style.borderColor = pc; b.style.fontWeight = "700"; b.style.opacity = "1"; }
         else { b.style.opacity = ".45"; }
       }
+      // Multi-seleção: trava também os checkboxes e a busca — senão continuam
+      // clicáveis depois de confirmado e não fazem mais nada.
+      var ins = box.querySelectorAll("input");
+      for (var j = 0; j < ins.length; j++) { ins[j].disabled = true; ins[j].style.cursor = "default"; }
     } catch (e) { }
   }
   // Registra a pergunta do agente + a opção clicada (+ gráfico) no HISTÓRICO, para o Q&A
@@ -5401,7 +5513,8 @@
     messagesEl.appendChild(box);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
-  function renderClarify(question, options, multiSelect) {
+  function normFonte(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+  function renderClarify(question, options, multiSelect, outros) {
     if (question) addMsg("assistant", question);
     var box = document.createElement("div");
     box.className = "opts";
@@ -5409,16 +5522,16 @@
     // (relatório + N ferramentas) de uma vez e clica UMA vez em confirmar; vira um scope único.
     if (multiSelect) {
       var checks = [];
+      var marcadosOutros = {};   // chave da tool → marcada (sobrevive à refiltragem da lista)
+      var campoOutro = null;     // input de descrição livre, quando "Outra fonte" está aberta
       (options || []).forEach(function (o) {
         var row = document.createElement("label");
         row.className = "opt";
-        row.style.cssText = "display:flex;align-items:flex-start;gap:9px;cursor:pointer;text-align:left;";
         var cb = document.createElement("input");
         cb.type = "checkbox";
         cb.checked = !!o.checked; // a IA já pré-marca as fontes ADERENTES; o usuário só confirma/ajusta
-        cb.style.cssText = "margin-top:3px;flex:none;width:16px;height:16px;cursor:pointer;";
         var txt = document.createElement("span");
-        txt.style.cssText = "display:flex;flex-direction:column;gap:2px;min-width:0;";
+        txt.className = "otx";
         if (o.sublabel) {
           var ol = document.createElement("span"); ol.className = "ol"; ol.textContent = o.label;
           var os = document.createElement("span"); os.className = "os"; os.textContent = o.sublabel;
@@ -5428,22 +5541,88 @@
         }
         row.appendChild(cb);
         row.appendChild(txt);
-        checks.push({ cb: cb, o: o });
+        row.classList.toggle("on", cb.checked);
+        cb.addEventListener("change", function () { row.classList.toggle("on", cb.checked); });
         box.appendChild(row);
+        if (!o.outro) { checks.push({ cb: cb, o: o }); return; }
+        // "OUTRA FONTE": abre uma gaveta com o catálogo COMPLETO — o usuário escolhe
+        // da lista OU escreve o que precisa. Marcar a linha já mostra as primeiras,
+        // então quem não sabe o que digitar continua tendo o que clicar.
+        var gav = document.createElement("div");
+        gav.className = "ofx";
+        var busca = document.createElement("input");
+        busca.className = "find";
+        busca.type = "text";
+        busca.placeholder = "Busque pelo nome ou escreva o que você precisa…";
+        var lista = document.createElement("div");
+        lista.className = "flist";
+        gav.appendChild(busca); gav.appendChild(lista);
+        box.appendChild(gav);
+        campoOutro = busca;
+        function pintarLista() {
+          var termo = normFonte(busca.value).trim();
+          var base = outros || [];
+          var achou = termo
+            ? base.filter(function (t) { return normFonte(t.n + " " + (t.d || "")).indexOf(termo) >= 0; })
+            : base;
+          lista.textContent = "";
+          achou.slice(0, 8).forEach(function (t) {
+            var l = document.createElement("label");
+            l.className = "opt";
+            var c = document.createElement("input");
+            c.type = "checkbox";
+            c.checked = !!marcadosOutros[t.k]; // restaura o que já estava marcado
+            c.addEventListener("change", function () {
+              marcadosOutros[t.k] = c.checked;
+              l.classList.toggle("on", c.checked);
+            });
+            var s = document.createElement("span");
+            s.className = "otx";
+            var sl = document.createElement("span"); sl.className = "ol"; sl.textContent = t.n;
+            s.appendChild(sl);
+            if (t.d) { var sd = document.createElement("span"); sd.className = "os"; sd.textContent = t.d; s.appendChild(sd); }
+            l.appendChild(c); l.appendChild(s);
+            l.classList.toggle("on", c.checked);
+            lista.appendChild(l);
+          });
+          if (!achou.length) {
+            var vazio = document.createElement("div");
+            vazio.className = "fnone";
+            vazio.textContent = "Nenhuma fonte com esse nome — vou usar sua descrição: “" + busca.value.trim() + "”";
+            lista.appendChild(vazio);
+          }
+        }
+        busca.addEventListener("input", pintarLista);
+        cb.addEventListener("change", function () {
+          gav.classList.toggle("on", cb.checked);
+          if (!cb.checked) return;
+          pintarLista();                       // mostra a lista ANTES de digitar nada
+          try { busca.focus(); } catch (e) { }
+          try { row.scrollIntoView({ block: "nearest" }); } catch (e) { }
+        });
       });
       var conf = document.createElement("button");
+      conf.className = "go";
       conf.textContent = "Buscar nessas fontes";
-      conf.style.fontWeight = "600";
       conf.addEventListener("click", function () {
         var sel = checks.filter(function (c) { return c.cb.checked; }).map(function (c) { return c.o; });
-        if (!sel.length) { conf.textContent = "Marque ao menos uma fonte…"; return; }
+        var extras = (outros || []).filter(function (t) { return marcadosOutros[t.k]; });
+        var descricao = campoOutro ? campoOutro.value.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+        if (!sel.length && !extras.length && !descricao) { conf.textContent = "Marque uma fonte ou descreva…"; return; }
         // Junta as escolhas num scope único: força TODAS as tools + mantém o relatório.
         var scope = { direto: true }, tools = [], usarRel = false;
         sel.forEach(function (o) { if (o.relatorio) usarRel = true; else if (o.tool) tools.push(o.tool); });
+        extras.forEach(function (t) { tools.push({ k: t.k, n: t.n, d: t.d || "" }); });
         if (tools.length) { scope.fonte = "ia"; scope.tools = tools; }
         if (usarRel) { scope.usarRelatorio = true; if (!tools.length) scope.fonte = "relatorio"; }
+        // Só descrição livre: precisa de `fonte` explícita, senão o roteador do
+        // servidor não vê escolha nenhuma e reabre o gate.
+        if (descricao) { scope.outraFonte = descricao; if (!scope.fonte) scope.fonte = "ia"; }
         travarEscolha(box, conf);
-        persistirEscolha(question, sel.map(function (o) { return o.label; }).join(" + "));
+        var rotulos = sel.map(function (o) { return o.label; })
+          .concat(extras.map(function (t) { return t.n; }));
+        if (descricao) rotulos.push("“" + descricao + "”");
+        persistirEscolha(question, rotulos.join(" + "));
         ask(scope);
       });
       box.appendChild(conf);
@@ -6019,7 +6198,7 @@
         clarified = true;
         if (typing.parentNode) typing.remove();
         avisarMensagem();
-        renderClarify(evt.question, evt.options, evt.multiSelect);
+        renderClarify(evt.question, evt.options, evt.multiSelect, evt.outros);
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         limparProcStatus(); // a resposta começou → tira o status "Analisando…"
@@ -6320,44 +6499,48 @@
     histBtn.innerHTML = ICON_HISTORY + "<span>" + wt("historico") + "</span>";
     histBtn.addEventListener("click", abrirHistorico);
     promptBar.appendChild(histBtn);
-    // Seletor de idioma: muda a ontologia usada e o idioma das respostas do chatbot.
-    var langSel = document.createElement("select");
-    langSel.className = "pbtn"; langSel.title = "Idioma do assistente";
-    langSel.style.cursor = "pointer";
-    LANGS.forEach(function (l) {
-      var o = document.createElement("option");
-      o.value = l.code; o.textContent = l.nativo;
-      if (l.code === widgetLang) o.selected = true;
-      langSel.appendChild(o);
-    });
-    langSel.addEventListener("change", function () {
-      widgetLang = langSel.value;
-      try { localStorage.setItem(LS_LANG, widgetLang); } catch (e) { }
-      // Se a tradução da tela está ligada, reverte e reaplica no novo idioma.
-      if (_trOn) { reverterTela(); if (widgetLang !== "pt") ligarTraducaoTela(widgetLang); }
-      if (trChk) { trChk.disabled = widgetLang === "pt"; if (widgetLang === "pt") trChk.checked = false; }
-      // Reaplica os textos da casca do widget no novo idioma.
-      try {
-        if (inputEl) inputEl.placeholder = wt("placeholder");
-        var _bs = baseBtn && baseBtn.querySelector("span"); if (_bs) _bs.textContent = wt("baseDados");
-        var _hs = histBtn && histBtn.querySelector("span"); if (_hs) _hs.textContent = wt("historico");
-        if (trTxt) trTxt.textContent = wt("traduzir");
-      } catch (e) { }
-    });
-    promptBar.appendChild(langSel);
-    // Toggle opt-in: traduzir a TELA host em runtime (best-effort). Fora do PT.
-    var trWrap = document.createElement("label");
-    trWrap.className = "pbtn"; trWrap.style.cursor = "pointer"; trWrap.title = "Traduz os textos da tela para o idioma escolhido (experimental)";
-    var trChk = document.createElement("input");
-    trChk.type = "checkbox"; trChk.style.margin = "0 4px 0 0"; trChk.disabled = widgetLang === "pt";
-    trChk.addEventListener("change", function () {
-      if (trChk.checked && widgetLang !== "pt") ligarTraducaoTela(widgetLang);
-      else reverterTela();
-    });
-    trWrap.appendChild(trChk);
-    var trTxt = document.createTextNode(wt("traduzir"));
-    trWrap.appendChild(trTxt);
-    promptBar.appendChild(trWrap);
+    // Idioma do assistente + tradução da tela. Escondidos temporariamente por
+    // MOSTRAR_TRADUZIR (ver o topo do arquivo) — nada foi removido.
+    if (MOSTRAR_TRADUZIR) {
+      // Seletor de idioma: muda a ontologia usada e o idioma das respostas do chatbot.
+      var langSel = document.createElement("select");
+      langSel.className = "pbtn"; langSel.title = "Idioma do assistente";
+      langSel.style.cursor = "pointer";
+      LANGS.forEach(function (l) {
+        var o = document.createElement("option");
+        o.value = l.code; o.textContent = l.nativo;
+        if (l.code === widgetLang) o.selected = true;
+        langSel.appendChild(o);
+      });
+      langSel.addEventListener("change", function () {
+        widgetLang = langSel.value;
+        try { localStorage.setItem(LS_LANG, widgetLang); } catch (e) { }
+        // Se a tradução da tela está ligada, reverte e reaplica no novo idioma.
+        if (_trOn) { reverterTela(); if (widgetLang !== "pt") ligarTraducaoTela(widgetLang); }
+        if (trChk) { trChk.disabled = widgetLang === "pt"; if (widgetLang === "pt") trChk.checked = false; }
+        // Reaplica os textos da casca do widget no novo idioma.
+        try {
+          if (inputEl) inputEl.placeholder = wt("placeholder");
+          var _bs = baseBtn && baseBtn.querySelector("span"); if (_bs) _bs.textContent = wt("baseDados");
+          var _hs = histBtn && histBtn.querySelector("span"); if (_hs) _hs.textContent = wt("historico");
+          if (trTxt) trTxt.textContent = wt("traduzir");
+        } catch (e) { }
+      });
+      promptBar.appendChild(langSel);
+      // Toggle opt-in: traduzir a TELA host em runtime (best-effort). Fora do PT.
+      var trWrap = document.createElement("label");
+      trWrap.className = "pbtn"; trWrap.style.cursor = "pointer"; trWrap.title = "Traduz os textos da tela para o idioma escolhido (experimental)";
+      var trChk = document.createElement("input");
+      trChk.type = "checkbox"; trChk.style.margin = "0 4px 0 0"; trChk.disabled = widgetLang === "pt";
+      trChk.addEventListener("change", function () {
+        if (trChk.checked && widgetLang !== "pt") ligarTraducaoTela(widgetLang);
+        else reverterTela();
+      });
+      trWrap.appendChild(trChk);
+      var trTxt = document.createTextNode(wt("traduzir"));
+      trWrap.appendChild(trTxt);
+      promptBar.appendChild(trWrap);
+    }
     basePanel = document.createElement("div");
     basePanel.className = "ppanel";
     promptBar.appendChild(basePanel);

@@ -29,17 +29,34 @@ export type ClarifyScope = {
   tools?: { k: string; n: string; d: string }[];
   /** Multi-fonte (pergunta COMPOSTA): usar TAMBÉM o relatório da tela junto das `tools`. */
   usarRelatorio?: boolean;
+  /** "Outra fonte": o usuário DESCREVEU a fonte em texto livre, porque nenhuma das
+   *  oferecidas servia. É DADO do usuário, nunca instrução — o servidor casa contra o
+   *  catálogo e passa ao modelo como assunto desejado, delimitado. Máx. 200 chars. */
+  outraFonte?: string;
   /** Desambiguação de SUJEITO: referente confirmado pelo usuário (itens listados ×
    *  resultados do relatório × consulta geral). Ver subject-clarify.ts. */
   referente?: "listados" | "relatorio" | "geral";
 };
 
-/** Um botão de opção na pergunta de desambiguação. */
+/**
+ * Uma opção na pergunta de desambiguação — botão (single) ou checkbox (multi).
+ *
+ * `scope` é opcional porque o gate MULTI-seleção não manda um escopo pronto por
+ * linha: o widget monta um escopo só a partir das marcadas (`relatorio`/`tool`).
+ */
 export type ClarifyOption = {
   id: string;
   label: string;
   sublabel?: string;
-  scope: ClarifyScope;
+  scope?: ClarifyScope;
+  /** Multi: esta linha é o RELATÓRIO da tela (não uma ferramenta). */
+  relatorio?: boolean;
+  /** Multi: a ferramenta desta linha, no formato que volta em `scope.tools`. */
+  tool?: { k: string; n: string; d: string };
+  /** Multi: vem pré-marcada (a IA julgou aderente à pergunta). */
+  checked?: boolean;
+  /** "Nenhuma dessas": abre a busca no catálogo completo + descrição livre. */
+  outro?: boolean;
 };
 
 /** Resposta de desambiguação devolvida ao cliente. */
