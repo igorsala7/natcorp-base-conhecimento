@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { readPortalIdentity } from "@/lib/portal/track-client";
+import { comBase } from "@/lib/base-path";
 
 /**
  * Registra o acesso do leitor a uma página do portal (documentação, diretório ou
@@ -42,7 +43,7 @@ export function PortalTracker({
     }
 
     try {
-      void fetch("/api/portal/track", {
+      void fetch(comBase("/api/portal/track"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         keepalive: true,

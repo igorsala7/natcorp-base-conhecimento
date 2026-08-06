@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BellRing, Loader2, MailCheck } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { comBase } from "@/lib/base-path";
 
 const FREQUENCIAS = [
   { value: "instant", label: "Assim que publicar" },
@@ -26,7 +27,7 @@ export function SubscribeForm({ spaceSlug }: { spaceSlug: string }) {
     setEstado("enviando");
     setErro(null);
     try {
-      const res = await fetch("/api/portal/subscribe", {
+      const res = await fetch(comBase("/api/portal/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaceSlug, email, frequency }),

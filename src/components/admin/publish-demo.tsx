@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
+import { comBase } from "@/lib/base-path";
 
 /**
  * Botão de demonstração da Fase 0.5: chama POST /api/demo/publish, que é
@@ -17,7 +18,7 @@ export function PublishDemo() {
   async function tryPublish() {
     setLoading(true);
     setResult(null);
-    const res = await fetch("/api/demo/publish", { method: "POST" });
+    const res = await fetch(comBase("/api/demo/publish"), { method: "POST" });
     const body = await res.json().catch(() => ({}));
     setResult(
       res.ok

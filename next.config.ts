@@ -1,7 +1,20 @@
 import type { NextConfig } from "next";
 
+/**
+ * Caminho público quando o app NÃO fica na raiz do domínio — a Natcorp serve em
+ * `https://www.natcorpbr.com.br/natcorp/ia`, atrás de um nginx. O Next então gera
+ * links, rotas e assets já com o prefixo; sem isso o navegador pede `/_next/...`
+ * na raiz do domínio e leva 404.
+ *
+ * Vazio (padrão) = app na raiz, que é o caso em desenvolvimento.
+ * IMPORTANTE: o nginx precisa repassar o caminho COMPLETO (proxy_pass sem barra
+ * no fim). Ver DEPLOY.md.
+ */
+const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(basePath ? { basePath } : {}),
   // Builds de VERIFICAÇÃO (CI local, agente) podem apontar para outro
   // diretório: `NEXT_DIST_DIR=.next-verify npm run build`. Sem isso, um
   // `next build` rodado enquanto o `next dev` está de pé sobrescreve o
@@ -34,7 +47,13 @@ const nextConfig: NextConfig = {
     // Origens confiáveis para Server Actions (checagem anti-CSRF do Next). O
     // curinga cobre os subdomínios aleatórios do túnel rápido do Cloudflare.
     serverActions: {
-      allowedOrigins: ["localhost:3008", "*.trycloudflare.com"],
+      // Em produção atrás de proxy, o Origin é o domínio público. Sem ele na lista,
+      // o Next recusa as Server Actions por CSRF e os botões do admin "não fazem nada".
+      allowedOrigins: [
+        "localhost:3008",
+        "*.trycloudflare.com",
+        ...(process.env.NEXT_PUBLIC_SITE_URL ? [new URL(process.env.NEXT_PUBLIC_SITE_URL).host] : []),
+      ],
     },
   },
   async headers() {

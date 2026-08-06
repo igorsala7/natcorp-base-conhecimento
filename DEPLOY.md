@@ -139,3 +139,44 @@ docker compose exec web sh            # shell no container web
 - **Server Actions atrás de proxy**: se algum botão "não fizer nada" atrás do
   proxy, garanta que o proxy repassa o header `Host`/`X-Forwarded-Host` correto
   (o Next valida a origem contra o Host por CSRF).
+
+## Servindo sob um caminho (nginx)
+
+O app da Natcorp responde em `https://www.natcorpbr.com.br/natcorp/ia`, não na raiz.
+Dois lados precisam concordar:
+
+**1. O app** — `NEXT_PUBLIC_BASE_PATH=/natcorp/ia` no `.env`. O Next passa a gerar
+rotas, links e assets já com o prefixo. É variável de BUILD: mudou, precisa
+`docker compose up -d --build`.
+
+**2. O nginx** — precisa repassar o caminho COMPLETO, ou seja `proxy_pass` **sem
+barra no fim**:
+
+```nginx
+location /natcorp/ia {
+    proxy_pass http://127.0.0.1:3008;      # SEM barra no fim — mantém /natcorp/ia
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # SSE do chat: sem isto a resposta em streaming chega toda de uma vez no fim.
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+```
+
+A barra é o detalhe que quebra tudo: `proxy_pass http://127.0.0.1:3008/;` (COM barra)
+faz o nginx REMOVER o `/natcorp/ia` antes de repassar, e o app — que gera tudo com o
+prefixo — passa a receber caminhos que não existem para ele. Ou os dois usam o
+prefixo, ou nenhum usa.
+
+Conferir depois de subir:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://www.natcorpbr.com.br/natcorp/ia/api/health
+```
+
+O widget embutido no APEX também muda de endereço — o `<script src>` passa a ser
+`https://www.natcorpbr.com.br/natcorp/ia/widget.js`. Ele descobre a API a partir do
+próprio `src`, então nada mais precisa ser ajustado no lado do APEX.

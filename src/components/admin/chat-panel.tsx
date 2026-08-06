@@ -16,6 +16,7 @@ import { listMyPrompts, saveMyPrompt, deleteMyPrompt } from "@/app/(admin)/admin
 import type { SpaceInfo } from "@/lib/content/spaces";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
 import { Select } from "@/components/ui/select";
+import { comBase } from "@/lib/base-path";
 
 const promptBackend = { list: listMyPrompts, save: saveMyPrompt, del: deleteMyPrompt };
 
@@ -135,7 +136,7 @@ export function ChatPanel({
     setStreaming(true);
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch(comBase("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

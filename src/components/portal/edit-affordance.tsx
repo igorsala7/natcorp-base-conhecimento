@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Pencil } from "lucide-react";
 import { ancoraDePrevia } from "@/lib/content/preview-anchor";
+import { comBase } from "@/lib/base-path";
 
 /**
  * Atalho de edição para quem está logado com permissão, mostrado no portal.
@@ -35,7 +36,7 @@ export function EditAffordance({
       return;
     }
     let vivo = true;
-    fetch(`/api/admin/edit-access?space=${encodeURIComponent(spaceId)}`, {
+    fetch(comBase(`/api/admin/edit-access?space=${encodeURIComponent(spaceId)}`), {
       credentials: "same-origin",
     })
       .then((r) => (r.ok ? r.json() : { canEdit: false }))

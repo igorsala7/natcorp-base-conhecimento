@@ -17,6 +17,9 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?falta no .env — a URL do Supabase e embutida no bundle do navegador em tempo de build}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?falta no .env — a chave anon e embutida no bundle do navegador em tempo de build}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        # Vazio = app na raiz. Com prefixo (ex.: /natcorp/ia) o nginx precisa repassar
+        # o caminho COMPLETO — proxy_pass SEM barra no fim. Ver DEPLOY.md.
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     image: natcorp-kb:latest
     env_file: .env
     environment:
@@ -25,7 +28,7 @@ services:
       - "${WEB_PORT:-3000}:${PORT:-3000}"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-3000}/api/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-3000}${NEXT_PUBLIC_BASE_PATH:-}/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -45,6 +48,9 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?falta no .env — a URL do Supabase e embutida no bundle do navegador em tempo de build}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?falta no .env — a chave anon e embutida no bundle do navegador em tempo de build}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        # Vazio = app na raiz. Com prefixo (ex.: /natcorp/ia) o nginx precisa repassar
+        # o caminho COMPLETO — proxy_pass SEM barra no fim. Ver DEPLOY.md.
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     image: natcorp-kb:latest
     env_file: .env
     command: ["npm", "run", "worker:prod"]

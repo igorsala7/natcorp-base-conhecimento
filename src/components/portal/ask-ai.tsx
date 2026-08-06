@@ -21,6 +21,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { AskAiChart } from "./ask-ai-chart";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
+import { comBase } from "@/lib/base-path";
 
 /** Espelha `RetrievedSource` do servidor. `url` é nulo quando a fonte é um
  *  arquivo da base de conhecimento, que não tem página no portal. */
@@ -258,7 +259,7 @@ function AskAiPanelInner({
     }
     setStreaming(true);
     try {
-      const res = await fetch("/api/portal/chat", {
+      const res = await fetch(comBase("/api/portal/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -36,9 +36,13 @@ FROM base AS builder
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_SITE_URL
+# Prefixo de caminho quando o app não fica na raiz do domínio (ex.: /natcorp/ia).
+# Também é de BUILD: o Next embute o prefixo nos assets e nas rotas.
+ARG NEXT_PUBLIC_BASE_PATH
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH \
     # Placeholder só para o schema de env do servidor passar no build. O valor
     # REAL entra em runtime (env_file). Nenhum segredo real fica na imagem.
     SUPABASE_SERVICE_ROLE_KEY=build-time-placeholder

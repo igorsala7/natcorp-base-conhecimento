@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { comBase } from "@/lib/base-path";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -36,7 +37,7 @@ export function BuilderChat() {
     setMessages([...base, { role: "assistant", content: "" }]);
     setStreaming(true);
     try {
-      const res = await fetch("/api/integrations/builder", {
+      const res = await fetch(comBase("/api/integrations/builder"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: base }),

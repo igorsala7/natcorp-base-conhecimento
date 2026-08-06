@@ -12,7 +12,10 @@
     console.error("[widget] data-key ausente no <script>.");
     return;
   }
-  var API = new URL(script.src).origin;
+  // Base da API = a URL do PRÓPRIO script, sem o "/widget.js" — assim funciona tanto
+  // na raiz do domínio quanto sob um prefixo de caminho (a Natcorp serve em
+  // /natcorp/ia). Usar só o `origin` fazia toda chamada cair na raiz e tomar 404.
+  var API = new URL(script.src).href.replace(/\/widget\.js(\?.*)?$/, "");
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_PANEL = "kb.widget.panelpos." + KEY; // posição própria da JANELA (arrastada pelo cabeçalho)
   var LS_SID = "kb.widget.sid." + KEY;
