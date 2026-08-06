@@ -15,12 +15,14 @@ import { Surface } from "@/components/ui/surface";
 import { Segmented } from "@/components/ui/segmented";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
+import { Select } from "@/components/ui/select";
 import {
   addAlias,
   deleteAlias,
   deleteTerm,
   enqueueOntologyImportJob,
   enqueueOntologyScanJob,
+  atualizarRoteamentoFerramentas,
   saveTerm,
   type OntologyJobRow,
   type OntologyKind,
@@ -140,6 +142,19 @@ export function OntologyManager({
     });
   }
 
+  // Leva os termos/sinônimos desta documentação para o roteamento de ferramentas.
+  const [levando, setLevando] = useState(false);
+  async function levarParaFerramentas() {
+    setLevando(true);
+    try {
+      const r = await atualizarRoteamentoFerramentas(spaceId);
+      if (r.ok) toast.success(r.resumo ?? "Roteamento das ferramentas atualizado.");
+      else toast.error(r.error ?? "Falhou.");
+    } finally {
+      setLevando(false);
+    }
+  }
+
   async function varrer() {
     setGerando(true);
     const node = nodeSel === "__all__" ? undefined : nodes.find((n) => n.id === nodeSel);
@@ -209,10 +224,10 @@ export function OntologyManager({
               htmlFor="onto-escopo"
               hint="Tudo, um diretório (com todo o conteúdo abaixo) ou um artigo."
             >
-              <select
+              <Select
                 id="onto-escopo"
                 value={nodeSel}
-                onChange={(e) => setNodeSel(e.target.value)}
+                onChange={(v) => setNodeSel(v)}
                 className={`${controlClass} h-10 min-w-[18rem]`}
               >
                 <option value="__all__">Toda a documentação</option>
@@ -223,11 +238,23 @@ export function OntologyManager({
                     {n.title}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Button onClick={varrer} disabled={gerando || ativos.length > 0}>
               {gerando ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
               {ativos.length > 0 ? "Em andamento…" : "Nova varredura"}
+            </Button>
+            {/* O vocabulário daqui também alimenta a ESCOLHA DE FERRAMENTA do chat —
+                mas só depois de regerar os vetores por base. Ação explícita porque
+                são dezenas de embeddings; travar o salvar de cada sinônimo seria pior. */}
+            <Button
+              variant="secondary"
+              onClick={levarParaFerramentas}
+              disabled={levando}
+              title="Leva os termos e sinônimos desta documentação para o roteamento de ferramentas do chat (embedding por base)"
+            >
+              {levando ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              Aplicar às ferramentas
             </Button>
           </div>
         )}
@@ -313,9 +340,9 @@ export function OntologyManager({
             placeholder="Buscar termo ou sinônimo…"
             className="h-9 w-56"
           />
-          <select
+          <Select
             value={kindFilter}
-            onChange={(e) => setKindFilter(e.target.value as OntologyKind | "")}
+            onChange={(v) => setKindFilter(v as OntologyKind | "")}
             aria-label="Filtrar por tipo"
             className={`${controlClass} h-9 w-auto`}
           >
@@ -325,7 +352,7 @@ export function OntologyManager({
                 {KIND_LABEL[k]}
               </option>
             ))}
-          </select>
+          </Select>
           <Segmented<"" | OntologySource>
             value={sourceFilter}
             onChange={setSourceFilter}
@@ -514,10 +541,10 @@ export function OntologyManager({
               />
             </Field>
             <Field label="Tipo" htmlFor="onto-kind">
-              <select
+              <Select
                 id="onto-kind"
                 value={editando.kind}
-                onChange={(e) => setEditando({ ...editando, kind: e.target.value as OntologyKind })}
+                onChange={(v) => setEditando({ ...editando, kind: v as OntologyKind })}
                 className={`${controlClass} h-10`}
               >
                 {KINDS.map((k) => (
@@ -525,7 +552,7 @@ export function OntologyManager({
                     {KIND_LABEL[k]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Descrição (opcional)" htmlFor="onto-desc">
               <textarea
@@ -543,10 +570,10 @@ export function OntologyManager({
               htmlFor="onto-node"
               hint="Quando este termo é perguntado no chat, o conteúdo escolhido é FORÇADO no contexto (um diretório inclui a subárvore)."
             >
-              <select
+              <Select
                 id="onto-node"
                 value={editando.nodeId ?? ""}
-                onChange={(e) => setEditando({ ...editando, nodeId: e.target.value || null })}
+                onChange={(v) => setEditando({ ...editando, nodeId: v || null })}
                 className={`${controlClass} h-10`}
               >
                 <option value="">— nenhum —</option>
@@ -557,7 +584,7 @@ export function OntologyManager({
                     {n.title}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
         )}

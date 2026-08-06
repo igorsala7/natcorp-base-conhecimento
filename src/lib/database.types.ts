@@ -732,6 +732,63 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_tool_base_embeddings: {
+        Row: {
+          base_id: string
+          embedding: string | null
+          fonte_hash: string
+          termos_ontologia: number
+          tool_id: string
+          updated_at: string
+        }
+        Insert: {
+          base_id: string
+          embedding?: string | null
+          fonte_hash: string
+          termos_ontologia?: number
+          tool_id: string
+          updated_at?: string
+        }
+        Update: {
+          base_id?: string
+          embedding?: string | null
+          fonte_hash?: string
+          termos_ontologia?: number
+          tool_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_tool_priority_rules: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          loser_tool_id: string
+          modo: string
+          motivo: string | null
+          winner_tool_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          loser_tool_id: string
+          modo?: string
+          motivo?: string | null
+          winner_tool_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          loser_tool_id?: string
+          modo?: string
+          motivo?: string | null
+          winner_tool_id?: string
+        }
+        Relationships: []
+      }
       ai_tool_runs: {
         Row: {
           agent_key: string | null
@@ -816,6 +873,8 @@ export type Database = {
           key: string
           loop: Json | null
           always_include: boolean
+          prioridade: number
+          grupo_ambiguidade: string | null
           panel_scope: Json | null
           exclude_self: boolean
           method: string
@@ -845,6 +904,8 @@ export type Database = {
           key: string
           loop?: Json | null
           always_include?: boolean
+          prioridade?: number
+          grupo_ambiguidade?: string | null
           panel_scope?: Json | null
           exclude_self?: boolean
           method?: string
@@ -874,6 +935,8 @@ export type Database = {
           key?: string
           loop?: Json | null
           always_include?: boolean
+          prioridade?: number
+          grupo_ambiguidade?: string | null
           panel_scope?: Json | null
           exclude_self?: boolean
           method?: string

@@ -90,6 +90,15 @@ function idiomaAtivo(lang?: string | null): string | null {
   return l && l !== IDIOMA_CANONICO ? l : null;
 }
 
+/**
+ * Entradas da ontologia de um conjunto de espaços (cacheado). Exportada para quem
+ * precisa decidir POR CONCEITO — ex.: o enriquecimento do embedding de ferramenta,
+ * que descarta conceito disparado por termo genérico/curto demais.
+ */
+export async function entradasOntologia(supabase: DbClient, spaceIds: string[], lang?: string | null): Promise<EntradaOntologia[]> {
+  return carregarOntologia(supabase, spaceIds, lang);
+}
+
 async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: string | null): Promise<EntradaOntologia[]> {
   const idioma = idiomaAtivo(lang);
   const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO);

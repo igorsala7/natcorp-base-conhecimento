@@ -13,6 +13,7 @@ import { idiomaValido, idiomaNome } from "@/lib/i18n/languages";
 import { extrairSourcesXliff, preencherTargetsXliff, buildXliff, linhasParaUnidades } from "@/lib/i18n/xliff";
 import { traduzirTextosUI } from "@/lib/ai/ui-translate";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
+import { syncToolBaseEmbeddings } from "@/lib/integrations/tool-catalog";
 
 export type OntologyKind = "conceito" | "entidade" | "acao" | "sigla" | "outro";
 
@@ -510,4 +511,35 @@ export async function traduzirXliff(
       ? preencherTargetsXliff(txt, alvo)
       : buildXliff(usar.map((u) => ({ ...u, target: alvo.get(u.id) ?? "" })), "pt-BR", lang);
   return { ok: true, xliff, traduzidos: alvo.size, unidades: unidades.length };
+}
+
+/**
+ * Leva o vocabulário desta ontologia para o ROTEAMENTO DE FERRAMENTAS: regera os
+ * embeddings por base (`ai_tool_base_embeddings`) das bases ligadas a este espaço.
+ *
+ * É ação explícita, não gatilho no salvar: são dezenas de embeddings por base, e
+ * travar a tela a cada sinônimo digitado seria pior. Idempotente — só refaz o que
+ * mudou (hash), então clicar duas vezes não custa nada.
+ */
+export async function atualizarRoteamentoFerramentas(spaceId: string): Promise<Ok & { resumo?: string }> {
+  const supabase = await createClient();
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const { data: vinculos } = await supabase.from("ai_base_spaces").select("base_id").eq("space_id", spaceId);
+  const baseIds = [...new Set((vinculos ?? []).map((v) => v.base_id))];
+  if (!baseIds.length) {
+    return { ok: false, error: "Nenhuma base de integração usa esta documentação — não há ferramenta para atualizar." };
+  }
+  const { data: bases } = await supabase.from("ai_bases").select("base_code, name").in("id", baseIds).eq("active", true);
+  const partes: string[] = [];
+  for (const b of bases ?? []) {
+    const r = await syncToolBaseEmbeddings(supabase, b.base_code, {});
+    partes.push(`${b.name}: ${r.regerados} atualizada(s) de ${r.total}`);
+  }
+  if (!partes.length) return { ok: false, error: "Nenhuma base ativa." };
+  revalidatePath("/admin/ontologia");
+  return { ok: true, resumo: partes.join(" · ") };
 }
