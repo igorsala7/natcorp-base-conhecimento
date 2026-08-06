@@ -5,13 +5,15 @@ import { loadBaseContext, loadCredentialSecret } from "./resolve";
 import { buildModelSchema, identityFromTrack, type Identity } from "./params";
 import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
+import { limparMarcacaoHtml } from "./html-values";
+import { redigirCredenciais } from "./redact-fields";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende, acessoFerramenta } from "./gating";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { injetarDataset, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
-import { selecionarTopK } from "./tool-narrow";
+import { selecionarTopK, dependenciasCitadas, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
@@ -71,6 +73,9 @@ export async function buildIntegrationTools(
   /** COMPOSTO (chavinha TOOL_COMPOSITE_RELAX + pergunta composta): afrouxa a seleção
    *  semântica (piso menor, teto maior) para não perder co-intenções no multi-tool. */
   relaxComposto?: boolean,
+  /** MULTI-FACETA: uma similaridade por INTENÇÃO da pergunta (ver facets.ts). Com 2+,
+   *  cada intenção garante as suas ferramentas em vez de sumir no ranking único. */
+  simFacetas?: { faceta: string; sim: Map<string, number> }[] | null,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -258,21 +263,76 @@ export async function buildIntegrationTools(
   // tools), ficamos só com as MAX_TOOLS_MODELO mais relevantes à pergunta. Essenciais/
   // forçadas sempre entram; sem sinal lexical → mantém TODAS (não arrisca a assertividade).
   // Custo ZERO — sem chamada de embedding (ver tool-narrow.ts).
-  const maxTools = relaxComposto ? MAX_TOOLS_COMPOSTO : MAX_TOOLS_MODELO;
+  // MULTI-FACETA: pergunta com várias intenções precisa de mais vagas — cada intenção
+  // traz as suas. Teto do composto (18) mesmo sem a chavinha de relax.
+  const facetasSim = (simFacetas ?? []).filter((f) => f.sim?.size);
+  const multiFaceta = facetasSim.length > 1;
+  const maxTools = relaxComposto || multiFaceta ? MAX_TOOLS_COMPOSTO : MAX_TOOLS_MODELO;
+  // DESEMPATE de ambiguidade: quando duas tools quase sinônimas disputam o topo, a
+  // perdedora sai do turno (regra pareada ou prioridade no grupo) — senão as duas
+  // chegam ao modelo e o erro de escolha vira dele. Vai para o trace.
+  const cortesDesempate: CorteDesempate[] = [];
   const manter = selecionarTopK(
-    elegiveisTools.map((e) => ({ key: e.bt.tool.key, name: e.bt.tool.name, description: e.bt.tool.description ?? "", alwaysInclude: e.bt.alwaysInclude })),
+    elegiveisTools.map((e) => ({
+      key: e.bt.tool.key,
+      name: e.bt.tool.name,
+      description: e.bt.tool.description ?? "",
+      alwaysInclude: e.bt.alwaysInclude,
+      prioridade: e.bt.prioridade,
+      grupo: e.bt.grupoAmbiguidade,
+    })),
     question ?? "",
     maxTools,
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
     sim,
     relaxComposto,
+    { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs) },
+    multiFaceta ? facetasSim.map((f) => f.sim) : null,
   );
+  if (cortesDesempate.length) {
+    onPasso?.("integracoes:desempate", {
+      cortes: cortesDesempate.map((c) => `${c.perdedora} ⟵ ${c.vencedora} (${c.via}${c.modo ? `/${c.modo}` : ""})`),
+    });
+  }
+  // DEPENDÊNCIAS: descrição que manda chamar outra ferramenta ANTES (ex.: linha_tempo
+  // exige linha_tempo_fato) traz a citada junto. Sem isto o modelo recebia a ferramenta
+  // sem a chave dela — e a própria descrição o proíbe de inventar o parâmetro.
+  const liteDe = (e: (typeof elegiveisTools)[number]) => ({
+    key: e.bt.tool.key,
+    name: e.bt.tool.name,
+    description: e.bt.tool.description ?? "",
+    alwaysInclude: e.bt.alwaysInclude,
+  });
+  const deps = dependenciasCitadas(
+    elegiveisTools.filter((e) => manter.has(e.bt.tool.key)).map(liteDe),
+    elegiveisTools.map(liteDe),
+  );
+  if (deps.length) {
+    for (const d of deps) manter.add(d.key);
+    onPasso?.("integracoes:dependencias", { puxadas: deps.map((d) => `${d.key} (por ${d.porCausaDe})`) });
+  }
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
+  // Rastreio das facetas: o que CADA intenção da pergunta trouxe. Sem isto, uma
+  // intenção sem ferramenta some sem deixar pista (foi assim que o caso apareceu).
+  if (multiFaceta) {
+    onPasso?.("integracoes:facetas", {
+      total: facetasSim.length,
+      teto: maxTools,
+      facetas: facetasSim.map((f) => {
+        const top = [...f.sim.entries()]
+          .filter(([k]) => manter.has(k))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([k, s]) => `${k} ${s.toFixed(2)}`);
+        return `${f.faceta.slice(0, 60)} → ${top.join(", ") || "(nada)"}`;
+      }),
+    });
+  }
   if (selecionadas.length < elegiveisTools.length) {
     onPasso?.("integracoes:top_k", {
       de: elegiveisTools.length,
       para: selecionadas.length,
-      modo: sim?.size ? "semantico" : "lexico",
+      modo: multiFaceta ? `multifaceta(${facetasSim.length})` : sim?.size ? "semantico" : "lexico",
       relax: !!relaxComposto,
       // Mostra a similaridade de cada tool mantida — visibilidade da precisão no trace.
       mantidas: selecionadas.map((e) => (sim?.size ? `${e.bt.tool.key} ${(sim.get(e.bt.tool.key) ?? 0).toFixed(2)}` : e.bt.tool.key)),
@@ -405,8 +465,15 @@ export async function buildIntegrationTools(
             // é removido do que volta ao modelo.
             const { cleaned, files } = extractDocumentsFromResult(dados);
             if (sink && files.length) sink.push(...files);
-            await registrar(cleaned, true, result.status, files.length, null);
-            return cleaned;
+            // Endpoint montado sobre tela APEX às vezes devolve o valor já renderizado
+            // ('<span class="fa fa-check-circle"></span> Concluida'). O modelo precisa
+            // de "Concluida" — a marcação gasta token e vira palavra no contexto. Depois
+            // da extração de arquivos, para não tocar em documento HTML de verdade.
+            // Credencial que a API devolve sem ninguém pedir (certificado + senha em
+            // /documents/v1/emps) sai ANTES do log e antes do modelo.
+            const seguro = redigirCredenciais(limparMarcacaoHtml(cleaned));
+            await registrar(seguro, true, result.status, files.length, null);
+            return seguro;
           };
           // LOOP: o usuário pediu vários → o servidor itera e AGREGA num só
           // resultado (o modelo faz UMA chamada em vez de N). Sob "próprios" o loop

@@ -8,7 +8,7 @@ import { audit } from "@/lib/auth/audit";
 import type { Json } from "@/lib/database.types";
 import type { IntegResult } from "./actions";
 import { listarPerfis } from "@/lib/integrations/perfis";
-import { syncToolEmbedding } from "@/lib/integrations/tool-catalog";
+import { syncToolEmbedding, syncToolBaseEmbeddings } from "@/lib/integrations/tool-catalog";
 import { invalidateBaseContext } from "@/lib/integrations/resolve";
 
 async function garantirPermissao(): Promise<string | null> {
@@ -79,6 +79,16 @@ const toolSchema = z.object({
   modulos: z
     .array(z.object({ modulo: z.string().trim().min(1), submodulo: z.string().trim().nullish() }))
     .optional(),
+  /**
+   * Desempate de ambiguidade. `prioridade` só compete dentro do mesmo
+   * `grupo_ambiguidade`; `vence_de` são as regras PAREADAS desta tool (ela é a
+   * vencedora). `undefined` = não mexe nas regras.
+   */
+  prioridade: z.number().int().min(-99).max(99).default(0),
+  grupo_ambiguidade: z.string().trim().max(80).nullish(),
+  vence_de: z
+    .array(z.object({ tool_id: z.string().uuid(), modo: z.enum(["empate", "sempre"]).default("empate"), motivo: z.string().trim().max(300).nullish() }))
+    .optional(),
   // Reestrutura: endpoint externo + prompt próprio + campos avançados.
   endpoint_kind: z.enum(["base", "external"]).default("base"),
   external_url: z.string().trim().nullish(),
@@ -129,6 +139,8 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     search_terms: t.search_terms?.trim() || "",
     active: t.active,
     always_include: t.always_include,
+    prioridade: t.prioridade,
+    grupo_ambiguidade: t.grupo_ambiguidade?.trim() || null,
     endpoint_kind: t.endpoint_kind,
     external_url: externa ? t.external_url?.trim() || null : null,
     credential_id: externa ? t.credential_id ?? null : null,
@@ -169,6 +181,14 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
   // derruba o salvamento se o provedor de embedding falhar.
   await syncToolEmbedding(supabase, toolId!, t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint });
 
+  // E o vetor POR BASE (enriquecido com a ontologia do cliente) desta tool — senão
+  // editar a descrição melhoraria o roteamento global e deixaria o da base velho,
+  // que é justamente o que o chat consulta primeiro.
+  for (const b of t.bases ?? []) {
+    const { data: base } = await supabase.from("ai_bases").select("base_code").eq("id", b.id).maybeSingle();
+    if (base?.base_code) await syncToolBaseEmbeddings(supabase, base.base_code, { toolIds: [toolId!], force: true });
+  }
+
   // Acesso por base: reescreve ai_base_tools (enabled + allowlists portal/perfil)
   // a partir do editor de bases. Só quando `bases` foi enviado (o diálogo sempre
   // envia a seleção atual).
@@ -207,12 +227,51 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     }
   }
 
+  // Desempates PAREADOS em que esta tool é a VENCEDORA. Reescreve só o lado dela —
+  // as regras em que ela PERDE pertencem à outra tool e não são tocadas aqui (senão
+  // salvar a tool A apagaria em silêncio a preferência que B declarou sobre ela).
+  if (t.vence_de) {
+    await supabase.from("ai_tool_priority_rules").delete().eq("winner_tool_id", toolId!);
+    const alvos = t.vence_de.filter((r) => r.tool_id !== toolId);
+    if (alvos.length) {
+      const { data: { user } } = await supabase.auth.getUser();
+      const byId = new Map(alvos.map((r) => [r.tool_id, r])); // dedup: última vence
+      const { error } = await supabase.from("ai_tool_priority_rules").insert(
+        [...byId.values()].map((r) => ({
+          winner_tool_id: toolId!,
+          loser_tool_id: r.tool_id,
+          modo: r.modo,
+          motivo: r.motivo?.trim() || null,
+          created_by: user?.id ?? null,
+        })),
+      );
+      // 23514 = o trigger de ciclo (a regra inversa já existe). Erro explicado, não críptico.
+      if (error) {
+        return {
+          ok: false,
+          error:
+            error.code === "23514"
+              ? "Uma dessas ferramentas já está declarada como vencedora sobre esta. Remova a regra inversa antes."
+              : `Tool salva, mas o desempate falhou: ${error.message}`,
+        };
+      }
+    }
+  }
+
   await audit({
     action: t.id ? "integrations.tool.update" : "integrations.tool.create",
     entityType: "ai_tool",
     entityId: toolId!,
     spaceId: null,
-    after: { key: t.key, endpoint_kind: t.endpoint_kind, bases: t.bases?.length, modulos: t.modulos?.length },
+    after: {
+      key: t.key,
+      endpoint_kind: t.endpoint_kind,
+      bases: t.bases?.length,
+      modulos: t.modulos?.length,
+      prioridade: t.prioridade,
+      grupo_ambiguidade: t.grupo_ambiguidade?.trim() || null,
+      vence_de: t.vence_de?.length,
+    },
   });
   invalidateBaseContext();
   revalidatePath("/admin/integracoes");

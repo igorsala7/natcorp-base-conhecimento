@@ -6,6 +6,7 @@ import type { LoopConfig, ToolParam } from "./tools";
 import type { RuntimeTool, RuntimeCredential } from "./executor";
 import { normalizarPanelScope } from "./panel-scope";
 import { invalidateCatalogo } from "./tool-catalog";
+import type { RegraDesempate } from "./tool-narrow";
 
 /**
  * Carrega, por SERVICE-ROLE, o contexto de integração de uma base a partir do
@@ -26,6 +27,10 @@ export type BaseToolContext = {
   modules: { modulo: string; submodulo: string | null }[];
   /** Tool "essencial": entra sempre, ignorando o roteamento por assunto. */
   alwaysInclude: boolean;
+  /** Desempate numérico entre tools do mesmo `grupoAmbiguidade`. 0 = neutro. */
+  prioridade: number;
+  /** Grupo onde a prioridade compete (null = a prioridade não se aplica). */
+  grupoAmbiguidade: string | null;
 };
 export type BaseContext = {
   baseId: string;
@@ -33,6 +38,8 @@ export type BaseContext = {
   tools: BaseToolContext[];
   /** Seleção de tools por assunto ligada para esta base (Opção A). */
   toolRouting: boolean;
+  /** Desempates PAREADOS (catálogo global) — "quando as duas disputam, prefira X". */
+  regrasDesempate: RegraDesempate[];
 };
 
 type EmbeddedRow = {
@@ -62,6 +69,8 @@ type EmbeddedRow = {
     credential_id: string | null;
     system_prompt: string | null;
     always_include: boolean | null;
+    prioridade: number | null;
+    grupo_ambiguidade: string | null;
     panel_scope: unknown;
     exclude_self: boolean | null;
     active: boolean;
@@ -114,7 +123,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, panel_scope, exclude_self, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, prioridade, grupo_ambiguidade, panel_scope, exclude_self, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -174,9 +183,28 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
       perfis: r.perfis ?? [],
       modules: tagsPorTool.get(t.id) ?? [],
       alwaysInclude: t.always_include === true,
+      prioridade: t.prioridade ?? 0,
+      grupoAmbiguidade: t.grupo_ambiguidade?.trim() || null,
     });
   }
-  return { baseId: base.id, name: base.name, tools, toolRouting: base.tool_routing === true };
+
+  // Desempates pareados. Tabela pequena (uma linha por colisão declarada) e o
+  // contexto todo já é cacheado por 60s — lê junto, em chave, não por tool.
+  const regrasDesempate: RegraDesempate[] = [];
+  if (tools.length) {
+    const keyPorId = new Map(tools.map((t) => [t.toolId, t.tool.key]));
+    const { data: regras } = await db
+      .from("ai_tool_priority_rules")
+      .select("winner_tool_id, loser_tool_id, modo");
+    for (const r of regras ?? []) {
+      const vencedora = keyPorId.get(r.winner_tool_id);
+      const perdedora = keyPorId.get(r.loser_tool_id);
+      // Regra cuja dupla não vive nesta base é ruído — nem entra no contexto.
+      if (!vencedora || !perdedora) continue;
+      regrasDesempate.push({ vencedora, perdedora, modo: r.modo === "sempre" ? "sempre" : "empate" });
+    }
+  }
+  return { baseId: base.id, name: base.name, tools, toolRouting: base.tool_routing === true, regrasDesempate };
 }
 
 /** Resolve UM tool de uma base pelo `key` (base_url + credencial + path_template,

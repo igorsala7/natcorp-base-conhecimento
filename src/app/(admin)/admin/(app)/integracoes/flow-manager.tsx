@@ -42,6 +42,7 @@ import type { RunRow } from "./runs-manager";
 import { saveTool } from "./tool-actions";
 import { createBase, updateBase, saveFlowLayout, type IntegResult } from "./actions";
 import { saveAgent, linkAgentTool, unlinkAgentTool } from "./agent-actions";
+import { Select } from "@/components/ui/select";
 
 type NodeKind = "base" | "agent" | "tool" | "endpoint";
 type FlowNodeData = {
@@ -273,10 +274,10 @@ export function FlowManager({
           </Button>
           <label className="flex items-center gap-2 text-sm text-text-muted">
             Base:
-            <select
+            <Select
               value={baseId}
-              onChange={(e) => {
-                setBaseId(e.target.value);
+              onChange={(v) => {
+                setBaseId(v);
                 setSel(null);
               }}
               className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text"
@@ -284,7 +285,7 @@ export function FlowManager({
               {bases.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
-            </select>
+            </Select>
           </label>
         </div>
       </div>
@@ -360,6 +361,7 @@ export function FlowManager({
           bases={bases}
           moduleOptions={moduleOptions}
           credentialOptions={bases.flatMap((b) => b.credentials.map((c) => ({ id: c.id, name: c.name, base: b.name })))}
+          todasTools={tools}
           pending={pending}
           onClose={() => setEditing(null)}
           onSave={(payload) => run(() => saveTool(payload), "Tool salva.")}

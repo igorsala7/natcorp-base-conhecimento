@@ -30,6 +30,7 @@ import { saveTool, deleteTool, duplicateTool, listarPerfisDaBase, setToolFlags, 
 import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
+import { Select } from "@/components/ui/select";
 
 export type EndpointKind = "base" | "external";
 /** Tag de roteamento por assunto: módulo + submódulo (null = módulo inteiro). */
@@ -47,6 +48,11 @@ export type ToolRow = {
   search_terms: string | null;
   active: boolean;
   always_include: boolean;
+  /** Desempate numérico — só compete entre tools do mesmo `grupo_ambiguidade`. */
+  prioridade: number;
+  grupo_ambiguidade: string | null;
+  /** Desempate PAREADO: as ferramentas que ESTA vence quando disputam o mesmo turno. */
+  vence_de: { tool_id: string; modo: "empate" | "sempre"; motivo: string | null }[];
   tags: ModuleTag[];
   endpoint_kind: EndpointKind;
   external_url: string | null;
@@ -339,6 +345,7 @@ export function ToolsManager({
           bases={bases}
           moduleOptions={moduleOptions}
           credentialOptions={credentialOptions}
+          todasTools={tools}
           pending={pending}
           onClose={() => setDialog(null)}
           onSave={(payload) => run(() => saveTool(payload), "Tool salva.", () => setDialog(null))}
@@ -522,12 +529,12 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
         return (
           <label key={p} className="flex flex-col items-center gap-0.5">
             <span className="text-[10px] font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p}</span>
-            <select
+            <Select
               aria-label={`Escopo ${PORTAL_LABEL[p]} de ${tool.name}`}
               title={ESCOPO_OPCOES.find((o) => o.v === v)?.hint}
               disabled={disabled}
               value={v}
-              onChange={(e) => set(p, e.target.value as EscopoPainel)}
+              onChange={(v) => set(p, v as EscopoPainel)}
               className={`rounded border bg-surface px-1 py-0.5 text-xs ${
                 v === "nenhum"
                   ? "border-border text-text-muted"
@@ -539,7 +546,7 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
               {ESCOPO_OPCOES.map((o) => (
                 <option key={o.v} value={o.v}>{o.v === "nenhum" ? "—" : o.v === "proprios" ? "Próprio" : o.v === "equipe" ? "Equipe" : "Todos"}</option>
               ))}
-            </select>
+            </Select>
           </label>
         );
       })}
@@ -788,11 +795,11 @@ function BulkAccessDialog({
     >
       <div className="flex flex-col gap-3">
         <Field label="Base" htmlFor="bulk_base" hint="Portais/empresas/perfis são por base. Só as tools ativas nesta base são alteradas.">
-          <select id="bulk_base" className={controlClass} value={baseId} onChange={(e) => { setBaseId(e.target.value); setSugestoes(null); }}>
+          <Select id="bulk_base" value={baseId} onChange={(v) => { setBaseId(v); setSugestoes(null); }}>
             {bases.map((b) => (
               <option key={b.id} value={b.id}>{b.name} · {b.base_code}</option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         <OpToggle op={op} onChange={setOp} addLabel="Adicionar à allowlist" removeLabel="Remover da allowlist" />
@@ -918,6 +925,7 @@ export function ToolDialog({
   bases,
   moduleOptions,
   credentialOptions,
+  todasTools,
   pending,
   onClose,
   onSave,
@@ -929,6 +937,8 @@ export function ToolDialog({
   bases: BaseRow[];
   moduleOptions: ModuleTag[];
   credentialOptions: CredentialOption[];
+  /** Catálogo inteiro — origem das opções de "vence de" e dos grupos já usados. */
+  todasTools: ToolRow[];
   pending: boolean;
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => void;
@@ -961,6 +971,22 @@ export function ToolDialog({
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
   }, [moduleOptions, tool]);
+  // Desempate de ambiguidade: prioridade (dentro do grupo) + regras pareadas.
+  const [prioridade, setPrioridade] = useState(String(tool?.prioridade ?? 0));
+  const [grupoAmbiguidade, setGrupoAmbiguidade] = useState(tool?.grupo_ambiguidade ?? "");
+  const [venceDe, setVenceDe] = useState<{ tool_id: string; modo: "empate" | "sempre" }[]>(
+    (tool?.vence_de ?? []).map((r) => ({ tool_id: r.tool_id, modo: r.modo })),
+  );
+  /** Grupos já usados no catálogo — reaproveitar em vez de inventar um rótulo novo. */
+  const gruposExistentes = useMemo(
+    () => [...new Set(todasTools.map((t) => t.grupo_ambiguidade?.trim()).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [todasTools],
+  );
+  /** Candidatas a perder: todas menos a própria, ordenadas por nome. */
+  const opcoesVenceDe = useMemo(
+    () => todasTools.filter((t) => t.id !== tool?.id).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+    [todasTools, tool?.id],
+  );
   // Avançado.
   const [advOpen, setAdvOpen] = useState(false);
   const [bodyMode, setBodyMode] = useState(tool?.body_mode ?? "");
@@ -1013,6 +1039,9 @@ export function ToolDialog({
       search_terms: searchTerms,
       active,
       always_include: alwaysInclude,
+      prioridade: Number(prioridade.trim() || 0) || 0,
+      grupo_ambiguidade: grupoAmbiguidade.trim() || null,
+      vence_de: venceDe,
       modulos: [...tags].map(parseTagKey),
       params,
       endpoint_kind: endpointKind,
@@ -1061,23 +1090,41 @@ export function ToolDialog({
           </Field>
         </div>
 
+        {/* Vocabulário: os DOIS campos que decidem se a IA acha esta ferramenta ficam
+            juntos. Os sinônimos moravam lá embaixo, depois do editor de parâmetros —
+            numa tool com muitos params, ninguém achava. */}
         <Field label="Descrição (a IA lê isto para decidir usar)" htmlFor="tool_desc">
           <textarea id="tool_desc" rows={2} className={controlClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Datas de férias de um colaborador num período." />
         </Field>
 
+        <Field
+          label="Sinônimos e exemplos de frases (opcional)"
+          htmlFor="tool_search"
+          hint="Como o usuário PEDE isto no dia a dia — um por linha (ex.: holerite, 'quanto recebi', 'meu contracheque de março'). Não aparece para o usuário: entra no embedding e é o que faz a IA achar a ferramenta certa."
+        >
+          <textarea
+            id="tool_search"
+            className={controlClass}
+            rows={4}
+            value={searchTerms}
+            onChange={(e) => setSearchTerms(e.target.value)}
+            placeholder={"holerite\nquanto recebi no mês passado\nmeu contracheque de março"}
+          />
+        </Field>
+
         <div className="grid grid-cols-[7rem_1fr_9rem] gap-3">
           <Field label="Método" htmlFor="tool_method">
-            <select id="tool_method" className={controlClass} value={method} onChange={(e) => setMethod(e.target.value as HttpMethod)}>
+            <Select id="tool_method" value={method} onChange={(v) => setMethod(v as HttpMethod)}>
               {HTTP_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            </Select>
           </Field>
           <Field label="Caminho (relativo à URL base)" htmlFor="tool_path" hint="Use {nome} para parâmetros de caminho.">
             <input id="tool_path" className={controlClass} value={pathTemplate} onChange={(e) => setPathTemplate(e.target.value)} placeholder="/ferias/{matricula}" />
           </Field>
           <Field label="Autenticação" htmlFor="tool_auth">
-            <select id="tool_auth" className={controlClass} value={authType} onChange={(e) => setAuthType(e.target.value as AuthType)}>
+            <Select id="tool_auth" value={authType} onChange={(v) => setAuthType(v as AuthType)}>
               {AUTH_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-            </select>
+            </Select>
           </Field>
         </div>
 
@@ -1098,12 +1145,12 @@ export function ToolDialog({
                 <input id="tool_ext_url" className={controlClass} value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://api.outroservico.com" />
               </Field>
               <Field label="Credencial (do serviço externo)" htmlFor="tool_ext_cred" hint="Credencial usada por esta tool externa em TODAS as bases.">
-                <select id="tool_ext_cred" className={controlClass} value={credentialId} onChange={(e) => setCredentialId(e.target.value)}>
+                <Select id="tool_ext_cred" value={credentialId} onChange={(v) => setCredentialId(v)}>
                   <option value="">— sem autenticação —</option>
                   {credentialOptions.map((c) => (
                     <option key={c.id} value={c.id}>{c.name} · {c.base}</option>
                   ))}
-                </select>
+                </Select>
               </Field>
             </div>
           )}
@@ -1139,10 +1186,6 @@ export function ToolDialog({
 
         <Field label="Dica de resposta (opcional)" htmlFor="tool_resp" hint="Como a IA deve resumir/interpretar o retorno.">
           <input id="tool_resp" className={controlClass} value={responseHint} onChange={(e) => setResponseHint(e.target.value)} />
-        </Field>
-
-        <Field label="Sinônimos e exemplos (opcional)" htmlFor="tool_search" hint="Termos e perguntas do dia a dia que a IA deve casar com esta tool (ex.: holerite, salário, 'quanto recebi'). Não aparece pro usuário; entra no embedding e melhora a escolha da tool.">
-          <textarea id="tool_search" className={controlClass} rows={3} value={searchTerms} onChange={(e) => setSearchTerms(e.target.value)} />
         </Field>
 
         {/* Acesso por base (shuttle) */}
@@ -1195,6 +1238,113 @@ export function ToolDialog({
           )}
         </div>
 
+        {/* Desempate de ambiguidade — mesmo assunto do bloco acima: o que entra no turno */}
+        <div className="rounded-lg border border-border bg-surface-2/40 p-3">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted">Desempate (ambiguidade)</span>
+          <p className="mb-3 text-xs leading-relaxed text-text-muted">
+            Quando duas ferramentas quase iguais chegam juntas ao modelo, quem erra a escolha é ele. Aqui a
+            perdedora <strong>sai do turno</strong> — e o corte fica registrado no rastreio.{" "}
+            <em>Só vale quando as duas estão disputando o topo da rodada</em>: se nenhuma das duas for a mais
+            aderente à pergunta, o desempate se cala e ambas continuam disponíveis.
+          </p>
+
+          {/* 1) PAREADO — o mais específico, e o que vence o numérico */}
+          <Field
+            label="Esta ferramenta vence de"
+            hint="Declaração explícita, par a par. Use para as colisões que você já conhece."
+          >
+            <div className="flex flex-col gap-2">
+              {venceDe.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {venceDe.map((r) => {
+                    const alvo = opcoesVenceDe.find((t) => t.id === r.tool_id);
+                    return (
+                      <li key={r.tool_id} className="flex items-center gap-2 rounded border border-border bg-surface px-2 py-1">
+                        <span className="min-w-0 flex-1 truncate text-sm text-text" title={alvo?.key}>
+                          {alvo?.name ?? "(ferramenta removida)"}
+                          <span className="ml-1 text-xs text-text-muted">{alvo?.key}</span>
+                        </span>
+                        <Select
+                          className="rounded border border-border bg-surface px-1 py-0.5 text-xs"
+                          aria-label={`Quando aplicar a preferência sobre ${alvo?.name ?? r.tool_id}`}
+                          value={r.modo}
+                          onChange={(v) =>
+                            setVenceDe((prev) =>
+                              prev.map((x) => (x.tool_id === r.tool_id ? { ...x, modo: v as "empate" | "sempre" } : x)),
+                            )
+                          }
+                        >
+                          <option value="empate">só no empate</option>
+                          <option value="sempre">sempre</option>
+                        </Select>
+                        <button
+                          type="button"
+                          className="px-1 text-text-muted hover:text-danger"
+                          aria-label={`Remover a preferência sobre ${alvo?.name ?? r.tool_id}`}
+                          onClick={() => setVenceDe((prev) => prev.filter((x) => x.tool_id !== r.tool_id))}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <Select
+                aria-label="Adicionar ferramenta que esta vence"
+                value=""
+                placeholder="+ adicionar ferramenta…"
+                buscaPlaceholder="Digite o nome ou a chave…"
+                options={opcoesVenceDe
+                  .filter((t) => !venceDe.some((x) => x.tool_id === t.id))
+                  .map((t) => ({ value: t.id, label: t.name, hint: t.key }))}
+                onChange={(id) => {
+                  if (!id) return;
+                  setVenceDe((prev) => (prev.some((x) => x.tool_id === id) ? prev : [...prev, { tool_id: id, modo: "empate" }]));
+                }}
+              />
+              <p className="text-xs text-text-muted">
+                <strong>só no empate</strong> = corta apenas quando as duas disputam o topo (o caso normal).{" "}
+                <strong>sempre</strong> = a outra é redundante e sai toda vez que esta estiver no turno.
+              </p>
+            </div>
+          </Field>
+
+          {/* 2) NUMÉRICO — a rede, para o par que ainda não foi mapeado */}
+          <div className="mt-3 border-t border-border pt-3">
+            <p className="mb-2 text-xs text-text-muted">
+              Ou, sem declarar par a par: ferramentas do <strong>mesmo grupo</strong> competem por prioridade — a
+              de maior número vence o empate. Fora do grupo, o número não tem efeito nenhum.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Grupo de ambiguidade" htmlFor="tool_grupo" hint="Rótulo livre. Vazio = a prioridade não se aplica.">
+                <input
+                  id="tool_grupo"
+                  className={controlClass}
+                  list="grupos_ambiguidade"
+                  value={grupoAmbiguidade}
+                  onChange={(e) => setGrupoAmbiguidade(e.target.value)}
+                  placeholder="ex.: historico_financeiro"
+                />
+                <datalist id="grupos_ambiguidade">
+                  {gruposExistentes.map((g) => <option key={g} value={g} />)}
+                </datalist>
+              </Field>
+              <Field label="Prioridade no grupo" htmlFor="tool_prioridade" hint="Maior vence. 0 = neutro.">
+                <input
+                  id="tool_prioridade"
+                  type="number"
+                  min={-99}
+                  max={99}
+                  className={controlClass}
+                  value={prioridade}
+                  onChange={(e) => setPrioridade(e.target.value)}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+
         {/* Escopo por painel (PO/PG/PC) — controle de acesso a dados de pessoas */}
         <div className="rounded-lg border border-border bg-surface-2/40 p-3">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted">Escopo por painel (PO/PG/PC)</span>
@@ -1206,14 +1356,14 @@ export function ToolDialog({
           <div className="grid grid-cols-3 gap-2">
             {(["PO", "PG", "PC"] as const).map((p) => (
               <Field key={p} label={`${p} · ${PORTAL_LABEL[p]}`} htmlFor={`scope_${p}`}>
-                <select
+                <Select
                   id={`scope_${p}`}
-                  className={controlClass}
+                 
                   value={panelScope[p] ?? "todos"}
-                  onChange={(e) => setPanelScope((s) => ({ ...s, [p]: e.target.value as EscopoPainel }))}
+                  onChange={(v) => setPanelScope((s) => ({ ...s, [p]: v as EscopoPainel }))}
                 >
                   {ESCOPO_OPCOES.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                </select>
+                </Select>
               </Field>
             ))}
           </div>
@@ -1236,13 +1386,13 @@ export function ToolDialog({
                   <input id="tool_bodymode" className={controlClass} value={bodyMode} onChange={(e) => setBodyMode(e.target.value)} placeholder="ex.: wrap:saque" />
                 </Field>
                 <Field label="Guard (servidor)" htmlFor="tool_guard" hint="Checagem no servidor antes de chamar a API.">
-                  <select id="tool_guard" className={controlClass} value={guard} onChange={(e) => setGuard(e.target.value)}>
+                  <Select id="tool_guard" value={guard} onChange={(v) => setGuard(v)}>
                     <option value="">(nenhum)</option>
                     {GUARD_CATALOG.map((g) => (
                       <option key={g.key} value={g.key}>{g.label}</option>
                     ))}
                     {guard && !guardInfo(guard) && <option value={guard}>{guard} (desconhecido)</option>}
-                  </select>
+                  </Select>
                   {guardInfo(guard) && (
                     <p className="mt-1 text-xs leading-snug text-text-muted">{guardInfo(guard)!.description}</p>
                   )}
@@ -1258,11 +1408,11 @@ export function ToolDialog({
                   <input id="tool_cache" type="number" min={0} className={controlClass} value={cacheTtl} onChange={(e) => setCacheTtl(e.target.value)} placeholder="ex.: 3600" />
                 </Field>
                 <Field label="Escopo do cache" htmlFor="tool_cache_scope" hint="empresa/global compartilham entre usuários — só se a saída NÃO depender do usuário.">
-                  <select id="tool_cache_scope" className={controlClass} value={cacheScope} onChange={(e) => setCacheScope(e.target.value)}>
+                  <Select id="tool_cache_scope" value={cacheScope} onChange={(v) => setCacheScope(v)}>
                     <option value="user">Por usuário (padrão)</option>
                     <option value="empresa">Por empresa (compartilha)</option>
                     <option value="global">Global (todos)</option>
-                  </select>
+                  </Select>
                 </Field>
               </div>
               <div className="rounded-lg border border-border bg-surface p-3">
@@ -1273,11 +1423,11 @@ export function ToolDialog({
                 {loopOn && (
                   <div className="mt-2 flex flex-col gap-2">
                     <Field label="Modo do loop" htmlFor="loop_unit">
-                      <select id="loop_unit" className={controlClass} value={loopUnit} onChange={(e) => setLoopUnit(e.target.value as "month" | "values" | "batch")}>
+                      <Select id="loop_unit" value={loopUnit} onChange={(v) => setLoopUnit(v as "month" | "values" | "batch")}>
                         <option value="month">Período (mês a mês) — modelo informa início/fim</option>
                         <option value="values">Lista de valores — 1 chamada por valor (guard por valor)</option>
                         <option value="batch">Lote (batch) — API aceita lista por vírgula; fatia em lotes</option>
-                      </select>
+                      </Select>
                     </Field>
                     <div className="grid grid-cols-2 gap-2">
                       <Field label={loopUnit === "month" ? "Param. mensal (API)" : "Param. a repetir (API)"} htmlFor="loop_param" hint={loopUnit === "values" ? "Ex.: matricula — vira uma LISTA para o modelo." : loopUnit === "batch" ? "Ex.: p_matricula — a API recebe a lista por vírgula, em lotes." : undefined}>
@@ -1350,35 +1500,35 @@ function ParamEditor({
           placeholder="nome do parâmetro"
           aria-label="Nome do parâmetro"
         />
-        <select className={controlClass} value={param.tipo} onChange={(e) => onChange({ tipo: e.target.value as ToolParam["tipo"] })} aria-label="Tipo">
+        <Select value={param.tipo} onChange={(v) => onChange({ tipo: v as ToolParam["tipo"] })} aria-label="Tipo">
           {PARAM_TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
+        </Select>
         <Button size="icon" variant="danger" onClick={onRemove} title="Remover parâmetro">
           <Trash2 />
         </Button>
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <select className={controlClass} value={param.origem} onChange={(e) => onChange({ origem: e.target.value as ToolParam["origem"] })} aria-label="Origem">
+        <Select value={param.origem} onChange={(v) => onChange({ origem: v as ToolParam["origem"] })} aria-label="Origem">
           {PARAM_ORIGENS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select className={controlClass} value={param.local} onChange={(e) => onChange({ local: e.target.value as ToolParam["local"] })} aria-label="Local">
+        </Select>
+        <Select value={param.local} onChange={(v) => onChange({ local: v as ToolParam["local"] })} aria-label="Local">
           {PARAM_LOCAIS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-        </select>
+        </Select>
       </div>
 
       {/* Campos condicionais por origem/tipo */}
       <div className="mt-2 flex flex-col gap-2">
         {param.origem === "identidade" && (
-          <select
-            className={controlClass}
+          <Select
+           
             value={param.campoIdentidade ?? ""}
-            onChange={(e) => onChange({ campoIdentidade: (e.target.value || null) as ToolParam["campoIdentidade"] })}
+            onChange={(v) => onChange({ campoIdentidade: (v || null) as ToolParam["campoIdentidade"] })}
             aria-label="Campo de identidade"
           >
             <option value="">— campo do token —</option>
             {IDENTITY_FIELDS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
+          </Select>
         )}
         {param.origem === "fixo" && (
           <input className={controlClass} value={param.valorFixo ?? ""} onChange={(e) => onChange({ valorFixo: e.target.value })} placeholder="valor fixo" aria-label="Valor fixo" />

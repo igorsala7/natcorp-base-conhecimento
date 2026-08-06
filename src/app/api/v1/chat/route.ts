@@ -29,8 +29,9 @@ import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/c
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildChartTool, buildChartAskTool, buildReportTool, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, visualsDirective, pedeVisualizacao, aceitouOfertaArquivo, type ChartChoice } from "@/lib/chat/report-tools";
-import { matchBaseTools, simTools, type ToolMatch } from "@/lib/integrations/tool-catalog";
+import { matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
+import { dividirFacetas } from "@/lib/integrations/facets";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
@@ -347,14 +348,30 @@ export async function POST(req: NextRequest) {
   // C — similaridade SEMÂNTICA para SELECIONAR o toolset (não só rotear): 1 embedding do
   // turno, com timeout → cai no léxico se o provedor estiver frio. Só quando há p_base e
   // vamos montar tools (evita embed à toa em tutorial/sem base).
-  const simSelecao = track.p_base && !querTutorial ? await simTools(supabase, track.p_base, consultaTools) : null;
+  // MULTI-FACETA: pergunta com várias intenções ("dados, salários, avaliações, últimos
+  // 5 cargos, férias e horas normais de março") vira N consultas — uma por intenção.
+  // Um embedding só borra cada uma: a ferramenta certa de cada faceta desaba no ranking
+  // e o top-K a corta. Pergunta simples devolve 1 faceta e nada muda (nem o custo).
+  const facetas = track.p_base && !querTutorial ? dividirFacetas(consultaTools) : [];
+  const simsFacetas = facetas.length > 1 ? await simToolsMulti(supabase, track.p_base!, facetas) : [];
+  // Faceta 0 = a pergunta INTEIRA (embedding já feito no lote). Se o lote inteiro
+  // falhar (provedor frio), refaz SÓ o embedding da pergunta — sem esta rede, um lote
+  // lento derrubaria o turno todo para o modo léxico, PIOR que antes da mudança.
+  const simSelecao =
+    simsFacetas[0]?.size
+      ? simsFacetas[0]
+      : track.p_base && !querTutorial
+        ? await simTools(supabase, track.p_base, consultaTools)
+        : null;
+  const simFacetasParaTools = facetas.length > 1 ? facetas.map((f, i) => ({ faceta: f, sim: simsFacetas[i] ?? new Map() })) : null;
+  if (facetas.length > 1) passo("facetas", { total: facetas.length, facetas: facetas.slice(1).map((f) => f.slice(0, 70)) });
   // Salvaguarda de COMPOSTO (chavinha TOOL_COMPOSITE_RELAX, DESLIGADA por padrão): em
   // pergunta composta, afrouxa a seleção semântica (piso menor + teto maior) para não
   // perder co-intenções num pedido multi-tool. Os dados dizem que hoje não é preciso —
   // fica "na manga" para ligar se o teste revelar composto perdendo ferramenta.
   const relaxComposto = process.env.TOOL_COMPOSITE_RELAX === "1" && perguntaComposta;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
