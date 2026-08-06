@@ -18,6 +18,16 @@ describe("perfilAtende (trava de agente por perfil)", () => {
   it("comparação é case-insensitive e aparada", () => {
     expect(perfilAtende(" Gestor ", "GESTOR")).toBe(true);
   });
+
+  it("o perfil comparado é o do TOKEN (p_perfil), como o portal manda", () => {
+    // PG manda GESTOR e o agente nati_gestor exige "gestor" → casa.
+    expect(perfilAtende("gestor", "GESTOR")).toBe(true);
+    // PO manda MASTER: o agente de gestor NÃO se aplica pelo perfil (no portal PO
+    // ele entra por outro caminho — o operador é elegível a todos os agentes).
+    expect(perfilAtende("gestor", "MASTER")).toBe(false);
+    // PC manda COLABORADOR.
+    expect(perfilAtende("gestor", "COLABORADOR")).toBe(false);
+  });
 });
 
 describe("acessoFerramenta (allowlist por portal × empresa × perfil)", () => {

@@ -24,7 +24,7 @@ const cred = (id: string, sessionKey?: string): RuntimeCredential => ({
 });
 
 describe("resolveIdentity (login ORDS: validar + enriquecer)", () => {
-  it("valida e injeta CPF + perfil gestor a partir do cadastro", async () => {
+  it("valida, injeta CPF e PRESERVA o perfil do token (gestor de CC não é perfil)", async () => {
     invalidateOAuthToken("r1");
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/token")) return jsonResponse(200, { access_token: "T", expires_in: 3600 });
@@ -40,13 +40,17 @@ describe("resolveIdentity (login ORDS: validar + enriquecer)", () => {
     const res = await resolveIdentity({
       baseUrl: "https://x/apex/rh/natcorp/",
       credential: cred("r1", "SK"),
-      identity: { cod_empresa: "700", matricula: "365785", usuario: "365785" },
+      identity: { cod_empresa: "700", matricula: "365785", usuario: "365785", perfil: "MASTER" },
       fetchImpl: fetchMock,
     });
 
     expect(res.ok).toBe(true);
     expect(res.identity.cpf).toBe("070.386.368-12");
-    expect(res.identity.perfil).toBe("gestor");
+    // O cadastro diz gestor:"SIM" (responde por um centro de custo). Isso NÃO é o
+    // perfil da pessoa — o perfil é o que o portal mandou no token e continua valendo.
+    expect(res.identity.perfil).toBe("MASTER");
+    expect(res.profile?.gestorDeEquipe).toBe(true);
+    expect(res.profile?.perfil).toBe("MASTER");
     expect(res.profile?.nome).toBe("FERNANDO MATTOS TORRES");
     expect(res.profile?.cargo).toBe("ANALISTA");
     // A query do perfil leva a key de sessão e empresa/matrícula.
@@ -55,6 +59,26 @@ describe("resolveIdentity (login ORDS: validar + enriquecer)", () => {
     );
     expect(String(profCall?.[0])).toContain("key=SK");
     expect(String(profCall?.[0])).toContain("matricula=365785");
+  });
+
+  it("sem perfil no token, o login NÃO inventa um", async () => {
+    invalidateOAuthToken("r5");
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/token")) return jsonResponse(200, { access_token: "T", expires_in: 3600 });
+      if (url.includes("/autenticacao")) return jsonResponse(200, [{ status: "OK" }]);
+      if (url.includes("/dados_colab_usuario"))
+        return jsonResponse(200, { items: [{ cpf: "1", gestor: "NAO", nome: "FULANO" }], count: 1 });
+      return jsonResponse(404, {});
+    }) as unknown as typeof fetch;
+
+    const res = await resolveIdentity({
+      baseUrl: "https://x/apex/rh/natcorp/",
+      credential: cred("r5", "SK"),
+      identity: { cod_empresa: "700", matricula: "1", usuario: "1" },
+      fetchImpl: fetchMock,
+    });
+    expect(res.identity.perfil).toBeUndefined();
+    expect(res.profile?.gestorDeEquipe).toBe(false);
   });
 
   it("nega (ok:false) quando o usuário não valida e não busca o cadastro", async () => {

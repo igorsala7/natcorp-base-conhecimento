@@ -149,10 +149,18 @@ export async function buildIntegrationTools(
           profileNote =
             `Usuário identificado: ${res.profile.nome}` +
             (res.profile.cargo ? ` — ${res.profile.cargo}` : "") +
-            (res.profile.perfil ? ` (${res.profile.perfil})` : "") +
+            (res.profile.perfil ? ` (perfil ${res.profile.perfil})` : "") +
+            (res.profile.gestorDeEquipe ? ", gestor de centro de custo" : "") +
             ". ";
         }
-        onPasso?.("identidade", { validado: true, nome: res.profile?.nome ?? null, perfil: res.identity.perfil ?? null });
+        onPasso?.("identidade", {
+          validado: true,
+          nome: res.profile?.nome ?? null,
+          // Perfil do TOKEN — o login não o altera mais. `gestor_equipe` é o campo
+          // `gestor` do cadastro (responde por um centro de custo), que é outra coisa.
+          perfil: res.identity.perfil ?? null,
+          gestor_equipe: res.profile?.gestorDeEquipe ?? false,
+        });
       }
     }
   }
@@ -162,9 +170,10 @@ export async function buildIntegrationTools(
     db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil, is_default").eq("active", true),
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
-  // Trava por PERFIL: um agente que exige um perfil (ex.: "gestor") só entra
-  // quando o perfil resolvido no login confere — nunca vem do modelo. O OPERADOR
-  // (portal PO) é elegível a TODOS os agentes (acesso full).
+  // Trava por PERFIL: um agente que exige um perfil só entra quando o perfil do
+  // TOKEN (p_perfil, mandado pelo portal) confere — nunca vem do modelo, e o login
+  // não o altera. Ser gestor de um centro de custo NÃO muda o perfil da pessoa.
+  // O OPERADOR (portal PO) é elegível a TODOS os agentes (acesso full).
   const elegiveis = operador
     ? (agents ?? [])
     : (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));

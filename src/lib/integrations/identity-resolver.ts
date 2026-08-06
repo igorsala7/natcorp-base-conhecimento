@@ -5,7 +5,13 @@
  * Quando a credencial da base tem `session_key`, o sistema:
  *   1. VALIDA o usuário em `login/v1/autenticacao` (só segue se `status = OK`);
  *   2. ENRIQUECE a identidade com os dados de `login/v1/dados_colab_usuario`
- *      (CPF, cod_candidato, perfil gestor/colaborador, nome, cargo).
+ *      (CPF, cod_candidato, nome, cargo, e se é gestor de equipe).
+ *
+ * O PERFIL do usuário NÃO é derivado daqui. O campo `gestor` do cadastro diz que
+ * a pessoa responde por um centro de custo — é um fato do cadastro, não o perfil
+ * de acesso dela. O perfil é o que o portal manda no token (`p_perfil`: MASTER,
+ * OPERADOR…) e é ele que vale, sempre. Antes o login sobrescrevia MASTER por
+ * "gestor" e o usuário mudava de perfil no meio do turno.
  * Assim o CPF entra como IDENTIDADE (injetado no servidor, nunca pelo modelo) e
  * o `docs_user` (assinatura) funciona sem passar o CPF pela IA.
  *
@@ -16,7 +22,15 @@ import type { Identity } from "./params";
 import type { RuntimeCredential } from "./executor";
 import { getOAuthToken } from "./oauth";
 
-export type ResolvedProfile = { nome?: string; cargo?: string; perfil?: string; email?: string };
+export type ResolvedProfile = {
+  nome?: string;
+  cargo?: string;
+  /** Perfil do TOKEN (p_perfil) — repetido aqui só para exibição/diagnóstico. */
+  perfil?: string;
+  /** Responde por um centro de custo (campo `gestor` do cadastro). NÃO é o perfil. */
+  gestorDeEquipe?: boolean;
+  email?: string;
+};
 export type ResolveResult = {
   ok: boolean;
   identity: Identity;
@@ -120,9 +134,10 @@ export async function resolveIdentity(input: {
     // nas tools com o param P_COD_CANDIDATO (origem=identidade). Pode vir número.
     const codCandidato =
       prof.cod_candidato != null && String(prof.cod_candidato).trim() !== "" ? String(prof.cod_candidato).trim() : undefined;
-    const gestor = String(prof.gestor ?? "").toUpperCase() === "SIM";
-    const perfil = gestor ? "gestor" : "colaborador";
-    const enriched: Identity = { ...identity, perfil, ...(cpf ? { cpf } : {}), ...(codCandidato ? { cod_candidato: codCandidato } : {}) };
+    // `gestor` = responde por um centro de custo. NÃO vira perfil: o perfil é o do
+    // token e permanece intocado (MASTER continua MASTER depois do login).
+    const gestorDeEquipe = String(prof.gestor ?? "").toUpperCase() === "SIM";
+    const enriched: Identity = { ...identity, ...(cpf ? { cpf } : {}), ...(codCandidato ? { cod_candidato: codCandidato } : {}) };
     const email =
       (typeof prof.email_pessoal === "string" && prof.email_pessoal) ||
       (typeof prof.email_funcional === "string" && prof.email_funcional) ||
@@ -130,7 +145,8 @@ export async function resolveIdentity(input: {
     const profile: ResolvedProfile = {
       nome: typeof prof.nome === "string" ? prof.nome : undefined,
       cargo: typeof prof.nome_cargo === "string" ? prof.nome_cargo : undefined,
-      perfil,
+      perfil: identity.perfil,
+      gestorDeEquipe,
       email: email || undefined,
     };
     return store({ ok: true, identity: enriched, profile });
