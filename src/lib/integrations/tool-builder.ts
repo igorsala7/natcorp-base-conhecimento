@@ -13,7 +13,7 @@ import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { injetarDataset, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
-import { selecionarTopK, dependenciasCitadas, type CorteDesempate } from "./tool-narrow";
+import { selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
@@ -108,6 +108,8 @@ export async function buildIntegrationTools(
     onPasso?.("integracoes:analise", { pulado: true, motivo: "operação de tela (persona sem análise-LLM)" });
   }
   const routingAtivo = recorte.length > 0;
+  /** Ferramentas que o recorte cortaria e o nome na pergunta trouxe de volta (trace). */
+  const resgatadasDoRecorte: string[] = [];
 
   // "Login" no servidor: se a credencial da base tem session_key, valida o
   // usuário e enriquece a identidade (CPF, perfil) antes de montar as tools.
@@ -245,7 +247,22 @@ export async function buildIntegrationTools(
     // Recorte por assunto (Opção A): só filtra tools QUE TÊM módulo/submódulo
     // parametrizado. Tool sem tag = sempre consultada (não há assunto para
     // excluir). Essenciais também passam sempre.
-    if (routingAtivo && !bt.alwaysInclude && !sempreIncluir?.includes(bt.tool.key) && bt.modules.length > 0 && !toolNoRecorte(bt.modules, recorte)) continue;
+    // RECORTE por assunto — com RESGATE LEXICAL. O classificador escolhe UM recorte e
+    // uma pergunta com dois assuntos perde o outro: "candidatos … da requisição de
+    // pessoal 57695" virou só GESTÃO DE CANDIDATOS, e requisicoes_req_pessoal (tag
+    // REQUISIÇÕES) sumiu do turno — enquanto o roteador de fonte, que olha o catálogo
+    // inteiro, a apontava como a MELHOR (0.74). Quem é citada pelo nome na pergunta
+    // (2+ termos, para o recorte não virar letra morta) sobrevive ao corte.
+    if (
+      routingAtivo &&
+      !bt.alwaysInclude &&
+      !sempreIncluir?.includes(bt.tool.key) &&
+      bt.modules.length > 0 &&
+      !toolNoRecorte(bt.modules, recorte)
+    ) {
+      if (forcaLexical(bt.tool.name, bt.tool.key, question ?? "") < 2) continue;
+      resgatadasDoRecorte.push(bt.tool.key);
+    }
     // ESCOPO POR PAINEL (PO/PG/PC): "nenhum" tira a tool do painel; "próprios"/"equipe"
     // reescrevem empresa/matrícula para a IDENTIDADE (a IA nem vê esses campos, então não
     // há como pedir os dados de outra pessoa). "próprios" sem matrícula do usuário FALHA
@@ -265,6 +282,10 @@ export async function buildIntegrationTools(
       paramsEscopo: aplicarEscopoParams(bt.tool.params, escopo),
       loopEscopo: loopSobEscopo(bt.tool.loop, bt.tool.params, escopo),
     });
+  }
+
+  if (resgatadasDoRecorte.length) {
+    onPasso?.("integracoes:resgate_recorte", { tools: resgatadasDoRecorte, recorte: recorte.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)) });
   }
 
   // ── 2) TOP-K por relevância LEXICAL (menos tokens + escolha mais precisa) ──────

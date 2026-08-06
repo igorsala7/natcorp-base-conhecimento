@@ -57,6 +57,20 @@ function termos(s: string): string[] {
 }
 
 /**
+ * A pergunta cita o NOME/CHAVE desta ferramenta? Conta os termos significativos em
+ * comum. `minimo` controla a força: 1 basta para RESGATAR do corte semântico (onde o
+ * embedding já opinou); no corte por MÓDULO exigimos 2, senão qualquer tool com
+ * "pessoal" ou "requisição" no nome voltaria e o recorte perderia o sentido.
+ */
+export function forcaLexical(nome: string, chave: string, question: string): number {
+  const qs = new Set(termos(question));
+  const alvo = new Set([...termos(nome), ...termos(chave)]);
+  let n = 0;
+  for (const t of alvo) if (qs.has(t)) n++;
+  return n;
+}
+
+/**
  * Devolve o CONJUNTO de `key`s a manter. `≤ max` tools → mantém todas. Acima disso,
  * mantém as essenciais/forçadas + as `max` melhores por sobreposição de termos.
  * Sem sinal lexical algum → mantém todas (protege a assertividade).
@@ -294,10 +308,7 @@ export function selecionarTopK(
     const topSim = naoForcadas.reduce((m, t) => Math.max(m, simDe(t)), 0);
     if (topSim > 0) {
       const piso = Math.max(relax ? MIN_SEM_RELAX : MIN_SEM, topSim - (relax ? MARGEM_SEM_RELAX : MARGEM_SEM));
-      const lexForte = (t: ToolLite) => {
-        for (const term of new Set(termos(t.name))) if (qs.has(term)) return true;
-        return false;
-      };
+      const lexForte = (t: ToolLite) => forcaLexical(t.name, "", question) >= 1;
       let cand = naoForcadas
         .filter((t) => simDe(t) >= piso || lexForte(t))
         .sort((a, b) => simDe(b) - simDe(a));

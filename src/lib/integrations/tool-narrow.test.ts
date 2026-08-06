@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selecionarTopK, selecionarPorFaceta, aplicarDesempate, dependenciasCitadas, type CorteDesempate, type RegraDesempate, type ToolLite } from "./tool-narrow";
+import { selecionarTopK, selecionarPorFaceta, aplicarDesempate, dependenciasCitadas, forcaLexical, type CorteDesempate, type RegraDesempate, type ToolLite } from "./tool-narrow";
 
 const T = (key: string, name: string, description = "", alwaysInclude = false): ToolLite => ({ key, name, description, alwaysInclude });
 /** Tool com desempate numérico (prioridade + grupo de ambiguidade). */
@@ -365,5 +365,29 @@ describe("selecionarTopK — integração com o desempate", () => {
     const tools = [T("t1", "Alpha"), T("t2", "Bravo")];
     const sim = new Map([["t1", 0.75], ["t2", 0.72]]);
     expect(selecionarTopK(tools, "zzz", 12, undefined, sim)).toEqual(new Set(["t1", "t2"]));
+  });
+});
+
+describe("forcaLexical — resgate do corte por módulo", () => {
+  const PERGUNTA = "Existem candidatos que tem característica pra que possam participar do processo da requisição de pessoal 57695?";
+
+  it("caso real: a tool citada na pergunta tem 2+ termos e sobrevive ao recorte", () => {
+    expect(
+      forcaLexical("Requisições: Requisição de pessoal (vaga/recrutamento)", "requisicoes_req_pessoal", PERGUNTA),
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("as vizinhas do mesmo módulo NÃO são resgatadas (o recorte continua valendo)", () => {
+    expect(forcaLexical("Requisições: Vaga", "requisicoes_req_vaga", PERGUNTA)).toBeLessThan(2);
+    expect(forcaLexical("Requisições: Desligamento", "requisicoes_req_desligamento", PERGUNTA)).toBeLessThan(2);
+    expect(forcaLexical("Seleção: Detalhe de vagas", "selecao_vagas", PERGUNTA)).toBeLessThan(2);
+  });
+
+  it("pergunta sem relação não resgata nada", () => {
+    expect(forcaLexical("Requisições: Requisição de pessoal", "requisicoes_req_pessoal", "quantos dias de férias eu tenho")).toBe(0);
+  });
+
+  it("ignora acento e caixa", () => {
+    expect(forcaLexical("Consultar Férias", "consultar_ferias", "quero CONSULTAR minhas ferias")).toBeGreaterThanOrEqual(2);
   });
 });
