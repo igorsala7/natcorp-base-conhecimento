@@ -510,10 +510,15 @@ function AskAiPanelInner({
                           // Sem URL (fonte de arquivo) a citação não pode ser link:
                           // um <a href=""> recarrega a página ao ser clicado.
                           const Tag = c.url ? "a" : "div";
+                          // `comBase` é OBRIGATÓRIO aqui: a URL vem do servidor como
+                          // caminho do app ("/docs/…") e um <a> cru NÃO recebe o
+                          // basePath do Next (só <Link>/router.push recebem). Sob
+                          // /natcorp/ia isso mandava o leitor para fora do app → 404.
+                          const href = c.url ? comBase(c.url) : null;
                           return (
                             <Tag
                               key={c.n}
-                              {...(c.url ? { href: c.url } : {})}
+                              {...(href ? { href } : {})}
                               className={`flex items-start gap-2 rounded-xl border border-border bg-surface p-2.5 text-sm no-underline shadow-sm ${
                                 c.url ? "transition-colors hover:border-primary" : ""
                               }`}

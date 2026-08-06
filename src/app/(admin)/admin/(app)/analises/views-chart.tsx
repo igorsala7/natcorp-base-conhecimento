@@ -6,6 +6,7 @@ import { eyebrowLabel } from "@/components/ui/field";
 import { controlClass } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
 import { Select } from "@/components/ui/select";
+import { comBase } from "@/lib/base-path";
 
 type Ponto = { day: string; spaceId: string; views: number };
 
@@ -89,7 +90,7 @@ export function ViewsChart({
             ))}
           </Select>
           <a
-            href="/admin/analises/export"
+            href={comBase("/admin/analises/export")}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text-muted transition-colors hover:border-primary hover:text-primary"
             title="Baixar os dados completos em CSV"
           >

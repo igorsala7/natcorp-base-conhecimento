@@ -7,6 +7,7 @@ import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { AcessosList, type Acesso } from "./acessos-list";
+import { comBase } from "@/lib/base-path";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -104,7 +105,7 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
           <p className="mt-1 text-sm text-text-muted">
             Quais documentações, diretórios e artigos cada usuário abriu no portal — registrado quando a
             visita traz os parâmetros de rastreio (<code>p_usuario</code>, <code>p_empresa</code>…).{" "}
-            <a href="/admin/widget" className="font-medium text-primary hover:underline">
+            <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
               Como enviar os parâmetros? →
             </a>
           </p>

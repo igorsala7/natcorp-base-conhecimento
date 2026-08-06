@@ -5,6 +5,7 @@ import { ArrowUpRight, Menu, X } from "lucide-react";
 import { PortalNav } from "@/components/portal/nav";
 import type { PortalTreeNode } from "@/lib/portal/data";
 import type { ThemeLink } from "@/lib/portal/theme";
+import { comBase } from "@/lib/base-path";
 
 /** Botão + drawer de navegação para telas pequenas (< lg). */
 export function PortalMobileNav({
@@ -78,7 +79,8 @@ export function PortalMobileNav({
                   return (
                     <a
                       key={`${l.label}-${l.url}`}
-                      href={l.url}
+                      // Interno precisa do prefixo do app (<a> cru não ganha o basePath).
+                      href={externo ? l.url : comBase(l.url)}
                       {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                       className="flex items-center gap-1 rounded-md px-2 py-2 text-sm text-text-muted transition-colors hover:bg-surface-2 hover:text-text"
                     >

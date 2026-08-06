@@ -343,10 +343,13 @@ export function ChatPanel({
                     {m.citations.map((c) => {
                       // Fonte de arquivo não tem página: vira cartão sem link.
                       const Tag = c.url ? "a" : "div";
+                      // O caminho vem do servidor ("/docs/…") e um <a> cru não ganha
+                      // o basePath do Next — sem `comBase`, sob /natcorp/ia dá 404.
+                      const href = c.url ? comBase(c.url) : null;
                       return (
                       <Tag
                         key={c.n}
-                        {...(c.url ? { href: c.url, target: "_blank", rel: "noreferrer" } : {})}
+                        {...(href ? { href, target: "_blank", rel: "noreferrer" } : {})}
                         className={`flex items-center gap-2 rounded-lg border border-border bg-surface p-2 ${
                           c.url ? "transition-colors hover:border-primary" : ""
                         }`}

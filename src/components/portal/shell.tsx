@@ -16,6 +16,7 @@ import { SocialIcon } from "@/components/portal/social-icons";
 import type { PortalTreeNode } from "@/lib/portal/data";
 import { resolveTheme } from "@/lib/portal/theme";
 import { derivarVarianteEscura, derivarHover } from "@/lib/portal/brand-color";
+import { comBase } from "@/lib/base-path";
 
 type ShellSpace = { id: string; slug: string; name: string; theme?: Record<string, unknown> | null };
 
@@ -50,7 +51,9 @@ function ThemeLinkAnchor({ link, className }: { link: ThemeLink; className: stri
   const externo = /^https?:\/\//.test(link.url);
   return (
     <a
-      href={link.url}
+      // Link INTERNO configurado no tema ("/docs/x") precisa do prefixo do app: um
+      // <a> cru não recebe o basePath do Next, e sob /natcorp/ia cairia fora.
+      href={externo ? link.url : comBase(link.url)}
       className={className}
       {...(externo ? { target: "_blank", rel: "noopener noreferrer" } : {})}
     >

@@ -37,4 +37,18 @@ describe("comBase (app sob /natcorp/ia)", () => {
   it("barra sobrando no prefixo não duplica", () => {
     expect(comBaseDe("/natcorp/ia/")("/api/x")).toBe("/natcorp/ia/api/x");
   });
+
+  /**
+   * Citação do chat: a URL da fonte vem do SERVIDOR como caminho do app
+   * ("/docs/<espaço>/<caminho>#<âncora>"). Um <a> cru NÃO recebe o basePath do
+   * Next — só <Link>/router.push recebem —, então sem `comBase` o leitor saía do
+   * app e tomava 404. A âncora tem de sobreviver ao prefixo.
+   */
+  it("preserva a âncora da citação", () => {
+    expect(c("/docs/global/financeiro/emitir-nf#passo-2")).toBe("/natcorp/ia/docs/global/financeiro/emitir-nf#passo-2");
+  });
+
+  it("link do portal sem âncora", () => {
+    expect(c("/docs/global")).toBe("/natcorp/ia/docs/global");
+  });
 });

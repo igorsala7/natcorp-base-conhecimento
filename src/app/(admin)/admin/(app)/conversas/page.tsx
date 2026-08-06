@@ -7,6 +7,7 @@ import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
+import { comBase } from "@/lib/base-path";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -129,7 +130,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
           <p className="mt-1 text-sm text-text-muted">
             O que os usuários perguntaram ao chatbot e ao portal — com os parâmetros de rastreio
             (base, usuário, portal, empresa, matrícula, perfil) que a conversa carregou.{" "}
-            <a href="/admin/widget" className="font-medium text-primary hover:underline">
+            <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
               Como enviar os parâmetros? →
             </a>
           </p>
