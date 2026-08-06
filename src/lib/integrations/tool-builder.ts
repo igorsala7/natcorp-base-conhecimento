@@ -10,7 +10,8 @@ import { redigirCredenciais } from "./redact-fields";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende, acessoFerramenta } from "./gating";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
-import { injetarDataset, type DatasetRegistry } from "@/lib/chat/datasets";
+import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
+import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
@@ -385,7 +386,11 @@ export async function buildIntegrationTools(
         if (chamadasIntegracao >= MAX_CHAMADAS_INTEGRACAO)
           return { erro: `Já foram feitas ${MAX_CHAMADAS_INTEGRACAO} consultas nesta rodada (provável repetição em loop). Responda com o que já foi coletado; se faltar informação, peça ao usuário para refinar — menos itens por vez ou uma pergunta de cada vez.` };
         chamadasIntegracao++;
-        const _promessa = (async () => injetarDataset(datasets, await (async () => {
+        // Instrumentação: registra o que o MODELO recebeu de fato (amostra × total,
+        // poda de emergência, id do dataset). Nenhum passo do trace media isso — sem
+        // esse número não dá para saber qual perda de contexto é a real.
+        const _promessa = (async () => {
+          const _bruto = await (async () => {
         try {
           if (!bt.baseUrl) return { erro: "Endpoint não configurado para esta base." };
           const credential = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
@@ -524,11 +529,20 @@ export async function buildIntegrationTools(
             if (lista.length === 1) return await runOnce(build(modelArgs, lista[0]!.iso), 0);
             const meses: Array<Record<string, unknown>> = [];
             for (const [i, mes] of lista.entries()) meses.push({ competencia: mes.br, dados: await runOnce(build(modelArgs, mes.iso), i) });
-            return {
-              periodo: `${lista[0]!.br} a ${lista[lista.length - 1]!.br}`,
-              meses,
-              ...(excedeu ? { aviso: `Período longo: limitei aos primeiros ${lista.length} meses. Peça o restante em outra consulta.` } : {}),
-            };
+            const periodo = `${lista[0]!.br} a ${lista[lista.length - 1]!.br}`;
+            const avisoMes = excedeu ? { aviso: `Período longo: limitei aos primeiros ${lista.length} meses. Peça o restante em outra consulta.` } : {};
+            // Achata numa lista só, com a competência como coluna: assim o resultado vira
+            // um dataset consultável de verdade, em vez de `dados` virar JSON truncado.
+            const planoMes = achatarLoop(meses.map((m) => ({ rotulo: String(m.competencia), dados: m.dados })), "Competência");
+            if (planoMes.achatou) {
+              return {
+                periodo,
+                itens: planoMes.itens,
+                ...(planoMes.falhas.length ? { _falhas: planoMes.falhas } : {}),
+                ...avisoMes,
+              };
+            }
+            return { periodo, meses, ...avisoMes };
           }
           // (b) Lista de valores: a API aceita 1 por chamada; o modelo passa vários
           // no `param` e o servidor consulta cada um (ex.: várias matrículas).
@@ -553,9 +567,12 @@ export async function buildIntegrationTools(
             const max = loop.max ?? 20;
             const usados = valores.slice(0, max);
             if (usados.length === 1) return await runOnce({ ...modelArgs, [loop.param]: usados[0]! }, 0);
-            const itens: Array<Record<string, unknown>> = [];
-            for (const [i, v] of usados.entries()) itens.push({ valor: v, dados: await runOnce({ ...modelArgs, [loop.param]: v }, i) });
-            return { itens, ...(valores.length > max ? { aviso: `Muitos valores: consultei os primeiros ${max}.` } : {}) };
+            const brutos: Array<Record<string, unknown>> = [];
+            for (const [i, v] of usados.entries()) brutos.push({ valor: v, dados: await runOnce({ ...modelArgs, [loop.param]: v }, i) });
+            const avisoVal = valores.length > max ? { aviso: `Muitos valores: consultei os primeiros ${max}.` } : {};
+            const plano = achatarLoop(brutos.map((b) => ({ rotulo: String(b.valor), dados: b.dados })), rotuloDoLoop(loop.param));
+            if (plano.achatou) return { itens: plano.itens, ...(plano.falhas.length ? { _falhas: plano.falhas } : {}), ...avisoVal };
+            return { itens: brutos, ...avisoVal };
           }
           // (c) BATCH: a API aceita uma LISTA por vírgula, mas um request com MUITOS itens
           // estoura o limite de tamanho. O modelo passa todos; o servidor FATIA em lotes de
@@ -579,15 +596,26 @@ export async function buildIntegrationTools(
             for (let i = 0; i < valores.length; i += size) lotes.push(valores.slice(i, i + size).join(","));
             const usados = lotes.slice(0, MAX_LOTES);
             if (usados.length === 1) return await runOnce({ ...modelArgs, [loop.param]: usados[0]! }, 0);
-            const itens: Array<Record<string, unknown>> = [];
-            for (const [i, lote] of usados.entries()) itens.push({ valor: lote, dados: await runOnce({ ...modelArgs, [loop.param]: lote }, i) });
-            return { itens, ...(lotes.length > MAX_LOTES ? { aviso: `Muitos itens: enviei os primeiros ${MAX_LOTES * size}. Peça o restante em outra consulta.` } : {}) };
+            const brutosB: Array<Record<string, unknown>> = [];
+            for (const [i, lote] of usados.entries()) brutosB.push({ valor: lote, dados: await runOnce({ ...modelArgs, [loop.param]: lote }, i) });
+            const avisoLote = lotes.length > MAX_LOTES ? { aviso: `Muitos itens: enviei os primeiros ${MAX_LOTES * size}. Peça o restante em outra consulta.` } : {};
+            // No batch o rótulo é o lote inteiro (lista por vírgula) — não vira coluna útil;
+            // achata sem rótulo para o dataset ficar com as colunas REAIS da API.
+            const planoB = achatarLoop(brutosB.map((b) => ({ rotulo: "", dados: b.dados })), "");
+            if (planoB.achatou) {
+              return { itens: planoB.itens.map((l) => { const { "": _x, ...resto } = l as Record<string, unknown>; void _x; return resto; }), ...(planoB.falhas.length ? { _falhas: planoB.falhas } : {}), ...avisoLote };
+            }
+            return { itens: brutosB, ...avisoLote };
           }
           return await runOnce(modelArgs, 0);
         } catch (e) {
           return { erro: e instanceof Error ? e.message : String(e) };
         }
-        })()))();
+        })();
+          const { saida, relato } = injetarDatasetComRelato(datasets, _bruto);
+          if (relato) onPasso?.("tool_result", { tool: bt.tool.key, ...relato });
+          return saida;
+        })();
         // Guarda a PROMESSA (não o resultado) já aqui, ANTES do await: chamadas IDÊNTICAS
         // em PARALELO no mesmo passo (Gemini 3 re-emitindo function calls em rajada)
         // compartilham este resultado em vez de baterem N× na API. O set é síncrono logo

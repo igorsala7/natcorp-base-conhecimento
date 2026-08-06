@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie } from "./datasets";
+import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, injetarDatasetComRelato, explicarColuna, listarDatasets, resolverColunaInfo, textoDatasetsDisponiveis, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie } from "./datasets";
 
 /** Célula guardada (valor com precisão total) do dataset `id`, linha × índice de coluna. */
 const celG = (reg: ReturnType<typeof newRegistry>, id: string, linha: number, colIdx: number) =>
@@ -653,5 +653,111 @@ describe("injetarDataset — resultado vazio (A3)", () => {
     const reg = newRegistry();
     const out = injetarDataset(reg, { items: linhas(3) }) as Record<string, unknown>;
     expect(out._sem_dados).toBeUndefined();
+  });
+});
+
+/**
+ * O relato existe porque NENHUM passo do trace registrava o que o modelo recebeu de
+ * fato: dava para ver a chamada da ferramenta, mas não se ele viu 50 de 4.000 linhas
+ * nem se a poda de emergência disparou. Sem esse número não dá para dizer qual das
+ * perdas de contexto é a real.
+ */
+describe("injetarDatasetComRelato", () => {
+  const linhasN = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i, nome: "n" + i }));
+
+  it("lista pequena: completo, sem amostra", () => {
+    const { relato } = injetarDatasetComRelato(newRegistry(), { items: linhasN(3) });
+    expect(relato).toMatchObject({ total: 3, amostra_enviada: 3, completo: true, poda_agressiva: false });
+    expect(relato!.dataset).toBeTruthy();
+  });
+
+  it("lista grande: o modelo vê 50, o registro guarda tudo", () => {
+    const reg = newRegistry();
+    const { relato } = injetarDatasetComRelato(reg, { items: linhasN(4000) });
+    expect(relato).toMatchObject({ total: 4000, amostra_enviada: 50, completo: false });
+    expect(listarDatasets(reg)[0]!.total).toBe(4000);
+  });
+
+  it("zero registros é sinalizado (o modelo não pode inventar)", () => {
+    const { saida, relato } = injetarDatasetComRelato(newRegistry(), { items: [] });
+    expect(relato!.sem_dados).toBe(true);
+    expect((saida as Record<string, unknown>)._sem_dados).toBe(true);
+  });
+
+  it("poda de emergência AVISA o modelo em vez de cortar em silêncio", () => {
+    // Estoura os 400 KB da rede SEM cair na poda de string (que corta em 20 mil):
+    // 40 campos de 19 mil caracteres ≈ 760 KB.
+    const gordo = Object.fromEntries(Array.from({ length: 40 }, (_, i) => ["campo" + i, "x".repeat(19_000)]));
+    const { saida, relato } = injetarDatasetComRelato(newRegistry(), gordo);
+    expect(relato!.poda_agressiva).toBe(true);
+    const o = saida as Record<string, unknown>;
+    expect(o._poda_emergencia).toBe(true);
+    expect(String(o._aviso_poda)).toContain("CORTADO");
+  });
+
+  it("injetarDataset continua com o mesmo contrato de antes", () => {
+    const out = injetarDataset(newRegistry(), { items: linhasN(3) }) as Record<string, unknown>;
+    expect(out._completo).toBe(true);
+  });
+});
+
+/**
+ * "Salário" casando com Salário Base, Líquido e Família: o código escolhia a
+ * PRIMEIRA em silêncio e devolvia um número errado que ninguém percebia.
+ */
+describe("resolverColunaInfo / explicarColuna", () => {
+  function regAmbiguo() {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Nome", "Salário Base", "Salário Líquido", "Salário Família"], [["Ana", "1", "2", "3"]]);
+    return reg;
+  }
+
+  it("nome exato resolve direto", () => {
+    const reg = regAmbiguo();
+    expect(resolverColunaInfo(reg.list[0]!, "Salário Base")).toMatchObject({ via: "exata", idx: 1 });
+  });
+
+  it("candidato único casa por aproximação", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Nome", "Centro de Custo"], [["Ana", "TI"]]);
+    expect(resolverColunaInfo(reg.list[0]!, "centro")).toMatchObject({ via: "fuzzy", idx: 1 });
+  });
+
+  it("2+ candidatos NÃO escolhem: devolvem ambiguidade", () => {
+    const reg = regAmbiguo();
+    const info = resolverColunaInfo(reg.list[0]!, "Salário");
+    expect(info.idx).toBeNull();
+    expect(info.via).toBe("ambigua");
+  });
+
+  it("a explicação lista os candidatos em vez de dizer 'não existe'", () => {
+    const reg = regAmbiguo();
+    const msg = explicarColuna(reg, "tela1", "Salário");
+    expect(msg).toContain("AMBÍGUO");
+    expect(msg).toContain("Salário Base");
+    expect(msg).toContain("Salário Líquido");
+  });
+
+  it("coluna inventada: diz as reais e sugere a mais próxima", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Nome", "Cargo"], [["Ana", "Analista"]]);
+    const msg = explicarColuna(reg, "tela1", "Cargos");
+    expect(msg).toContain("Cargo");
+    expect(msg).toContain("quis dizer");
+  });
+});
+
+describe("textoDatasetsDisponiveis", () => {
+  it("sem nada carregado, orienta a chamar a ferramenta", () => {
+    expect(textoDatasetsDisponiveis(newRegistry())).toContain("Nenhuma tabela");
+  });
+
+  it("lista id, tamanho e colunas — o que o erro precisa dizer", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Nome", "Cargo"], [["Ana", "Analista"], ["Bia", "Gestora"]]);
+    const t = textoDatasetsDisponiveis(reg);
+    expect(t).toContain("tela1");
+    expect(t).toContain("2 linha");
+    expect(t).toContain("Cargo");
   });
 });

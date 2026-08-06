@@ -28,6 +28,19 @@ const fmt = new Intl.DateTimeFormat("pt-BR", {
 });
 const dataHora = (iso: string) => fmt.format(new Date(iso)).replace(",", "");
 
+/**
+ * Cor da barra lateral do passo. Os passos de DADOS são os que explicam por que uma
+ * resposta veio errada — e uma PERDA (dataset não encontrado, poda de emergência,
+ * teto de passos estourado) precisa saltar aos olhos no meio de dezenas de linhas.
+ */
+function corDoPasso(p: TracePasso): string {
+  const i = p.info ?? {};
+  const perdeu = i.encontrado === false || i.poda_agressiva === true || i.parou_por_teto === true || i.sem_dados === true;
+  if (perdeu) return "border-l-danger bg-danger/5";
+  if (/^(tool_result|dataset|query_tool|visual_)/.test(p.passo)) return "border-l-primary/40";
+  return "border-l-transparent";
+}
+
 /** Cor do "desfecho" para leitura rápida: verde = resposta; âmbar = pergunta/coleta; vermelho = recusa/erro. */
 function corDesfecho(d: string | null): string {
   if (!d) return "bg-surface-2 text-text-muted";
@@ -107,7 +120,7 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
               {aberta && (
                 <ol className="flex flex-col gap-1 border-t border-border bg-surface-2/40 p-4">
                   {(r.passos ?? []).map((p, i) => (
-                    <li key={i} className="flex gap-3 text-sm">
+                    <li key={i} className={`flex gap-3 border-l-2 pl-2 text-sm ${corDoPasso(p)}`}>
                       <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-text-muted">+{p.ms}ms</span>
                       <span className="min-w-0 flex-1">
                         <span className="font-medium text-text">{p.passo}</span>

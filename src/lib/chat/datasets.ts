@@ -58,7 +58,8 @@ function extrairLista(data: unknown): DatasetRow[] | null {
   }
   if (data && typeof data === "object") {
     const o = data as Record<string, unknown>;
-    for (const k of ["items", "itens", "data", "dados", "rows", "registros", "result", "results", "lista"]) {
+    // Mesma lista de `pareceVazio` — eram DUAS cópias, e elas já divergiam.
+    for (const k of CHAVES_LISTA) {
       const v = o[k];
       if (Array.isArray(v)) {
         const rows = v.filter(ehLinha);
@@ -175,14 +176,30 @@ function podaAgressiva(node: unknown, depth: number): unknown {
   return o;
 }
 
-function redeSegurancaFinal(out: unknown): unknown {
+function redeSegurancaFinal(out: unknown): { out: unknown; podou: boolean; bytes: number } {
+  let bytes = 0;
   try {
     const s = JSON.stringify(out);
-    if (!s || s.length <= HARD_MAX_CHARS) return out;
+    bytes = s?.length ?? 0;
+    if (!s || s.length <= HARD_MAX_CHARS) return { out, podou: false, bytes };
   } catch {
-    return out;
+    return { out, podou: false, bytes };
   }
-  return podaAgressiva(out, 0);
+  const podado = podaAgressiva(out, 0);
+  // AVISA o modelo. Antes cortava 400 KB em silêncio total: ele somava/contava sobre
+  // o resto e entregava um número errado sem nenhum sinal de que faltava dado.
+  const aviso = {
+    _poda_emergencia: true,
+    _bytes_original: bytes,
+    _aviso_poda:
+      "O resultado passou de 400 KB e foi CORTADO (listas → 10 itens, textos → 300 caracteres). " +
+      "NÃO conte, some nem conclua a partir deste conteúdo cortado — use `dados_de` com as ferramentas " +
+      "de dados, que enxergam 100% das linhas.",
+  };
+  const comAviso = podado && typeof podado === "object" && !Array.isArray(podado)
+    ? { ...(podado as Record<string, unknown>), ...aviso }
+    : { itens: podado, ...aviso };
+  return { out: comAviso, podou: true, bytes };
 }
 
 /** Injeta o metadado de dataset no resultado devolvido ao modelo. Registra TODAS as linhas
@@ -200,8 +217,31 @@ function pareceVazio(data: unknown): boolean {
   return false;
 }
 
+/**
+ * O que aconteceu com o retorno da tool no caminho até o modelo. Existe porque
+ * nenhum passo do trace registrava isto: dava para ver a CHAMADA da ferramenta, mas
+ * não se o modelo recebeu 50 de 4.000 linhas, se a poda de emergência disparou, nem
+ * qual `_dataset` nasceu. Sem esse número não dá para dizer qual perda é a real.
+ */
+export type RelatoInjecao = {
+  dataset: string | null;
+  total: number;
+  amostra_enviada: number;
+  completo: boolean;
+  sem_dados: boolean;
+  bytes: number;
+  poda_agressiva: boolean;
+};
+
 export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown): unknown {
-  if (!reg || !saida || typeof saida !== "object") return saida;
+  return injetarDatasetComRelato(reg, saida).saida;
+}
+
+export function injetarDatasetComRelato(
+  reg: DatasetRegistry | undefined,
+  saida: unknown,
+): { saida: unknown; relato: RelatoInjecao | null } {
+  if (!reg || !saida || typeof saida !== "object") return { saida, relato: null };
   // 1) Poda listas ANINHADAS grandes (cada `dados` do loop pode ter centenas de linhas).
   const podado = podarProfundo(saida, reg, 0);
   // 2) Topo: registra a lista principal + tag + amostra (comportamento existente).
@@ -227,8 +267,11 @@ export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown)
       }
       if (!feito) out = { ...o, ...tag };
     }
-  } else if (pareceVazio(podado)) {
+  }
+  let semDados = false;
+  if (!meta && pareceVazio(podado)) {
     // A3: consulta retornou ZERO registros → marca explícito para o modelo NÃO inventar.
+    semDados = true;
     const extra = !Array.isArray(podado) && podado && typeof podado === "object" ? (podado as Record<string, unknown>) : {};
     out = {
       ...extra,
@@ -237,7 +280,19 @@ export function injetarDataset(reg: DatasetRegistry | undefined, saida: unknown)
     };
   }
   // 3) Rede de segurança: se AINDA estiver gigante, poda agressiva.
-  return redeSegurancaFinal(out);
+  const rede = redeSegurancaFinal(out);
+  return {
+    saida: rede.out,
+    relato: {
+      dataset: meta?.id ?? null,
+      total: meta?.total ?? 0,
+      amostra_enviada: meta ? Math.min(meta.total, MAX_ITENS_MODELO) : 0,
+      completo: !!meta && meta.total <= MAX_ITENS_MODELO,
+      sem_dados: semDados,
+      bytes: rede.bytes,
+      poda_agressiva: rede.podou,
+    },
+  };
 }
 
 export type TabelaExpandida = { colunas: string[]; linhas: string[][]; total: number; truncado: boolean };
@@ -303,16 +358,87 @@ function norm(s: unknown): string {
   return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+/**
+ * Como a coluna foi resolvida — e o que mais casaria. Serve para dois fins:
+ * instrumentar (quanto do sistema depende de casamento aproximado) e DESAMBIGUAR:
+ * "Salário" casando com Salário Base, Líquido e Família e escolhendo a primeira
+ * produz um número errado que ninguém percebe. Com 2+ candidatos, o chamador
+ * pergunta em vez de chutar.
+ */
+export type ColunaInfo =
+  | { idx: number; nome: string; via: "exata" | "indice" | "fuzzy" }
+  | { idx: null; via: "ambigua"; candidatos: string[] }
+  | { idx: null; via: "ausente"; candidatos: string[] };
+
+export function resolverColunaInfo(ds: Dataset, coluna: string): ColunaInfo {
+  const alvo = norm(coluna);
+  if (!alvo) return { idx: null, via: "ausente", candidatos: [] };
+  const exata = ds.colunas.findIndex((c) => norm(c) === alvo);
+  if (exata >= 0) return { idx: exata, nome: ds.colunas[exata]!, via: "exata" };
+  const m = /^c(\d+)$/i.exec(coluna.trim());
+  if (m) {
+    const i = Number(m[1]);
+    if (i >= 0 && i < ds.colunas.length) return { idx: i, nome: ds.colunas[i]!, via: "indice" };
+  }
+  const cands: number[] = [];
+  ds.colunas.forEach((c, i) => { const n = norm(c); if (n.includes(alvo) || alvo.includes(n)) cands.push(i); });
+  if (cands.length === 1) return { idx: cands[0]!, nome: ds.colunas[cands[0]!]!, via: "fuzzy" };
+  if (cands.length > 1) return { idx: null, via: "ambigua", candidatos: cands.map((i) => ds.colunas[i]!) };
+  return { idx: null, via: "ausente", candidatos: [] };
+}
+
 /** Resolve o nome de coluna informado (ou `cN`) para o índice na tabela. */
 function resolverColuna(ds: Dataset, coluna: string): number | null {
-  const alvo = norm(coluna);
-  if (!alvo) return null;
-  let idx = ds.colunas.findIndex((c) => norm(c) === alvo);
-  if (idx >= 0) return idx;
-  const m = /^c(\d+)$/i.exec(coluna.trim());
-  if (m) { const i = Number(m[1]); if (i >= 0 && i < ds.colunas.length) return i; }
-  idx = ds.colunas.findIndex((c) => { const n = norm(c); return n.includes(alvo) || alvo.includes(n); });
-  return idx >= 0 ? idx : null;
+  const info = resolverColunaInfo(ds, coluna);
+  return info.idx;
+}
+
+/** Ids ATIVOS no registro, com tamanho e colunas — para erros que dizem o que existe. */
+export function listarDatasets(reg: DatasetRegistry): { id: string; total: number; colunas: string[] }[] {
+  return reg.list.map((d) => ({ id: d.id, total: d.rows.length, colunas: d.headers ?? d.colunas }));
+}
+
+/** Frase pronta com os ids disponíveis (teto de 6 × 12 colunas para não estourar token). */
+export function textoDatasetsDisponiveis(reg: DatasetRegistry): string {
+  const itens = listarDatasets(reg);
+  if (!itens.length) return "Nenhuma tabela foi carregada neste turno — chame primeiro a ferramenta de dados.";
+  return itens
+    .slice(0, 6)
+    .map((d) => `${d.id} (${d.total} linha(s): ${d.colunas.slice(0, 12).join(", ")})`)
+    .join(" · ");
+}
+
+/**
+ * Explica por que uma coluna não foi aceita. Distingue os dois casos, que antes se
+ * confundiam num "não existe" só: AUSENTE (o modelo inventou o nome) e AMBÍGUA
+ * ("Salário" casando com Salário Base, Líquido e Família). No ambíguo o código
+ * escolhia a PRIMEIRA em silêncio — e o número saía errado sem ninguém ver.
+ */
+export function explicarColuna(reg: DatasetRegistry, id: string, coluna: string): string {
+  const ds = reg.list.find((d) => d.id === id);
+  const nomes = ds ? (ds.headers ?? ds.colunas) : [];
+  if (!ds) return `A coluna "${coluna}" não pôde ser resolvida: a tabela "${id}" não existe neste turno.`;
+  const info = resolverColunaInfo(ds, coluna);
+  if (info.idx === null && info.via === "ambigua") {
+    return (
+      `"${coluna}" é AMBÍGUO: casa com ${info.candidatos.join(", ")}. ` +
+      "Repita a chamada informando a coluna EXATA — não vou escolher por você para não devolver um número errado."
+    );
+  }
+  const perto = colunaMaisProxima(reg, id, coluna);
+  return (
+    `A coluna "${coluna}" não existe em "${id}". Colunas reais: ${nomes.slice(0, 14).join(", ")}.` +
+    (perto ? ` Você quis dizer "${perto}"?` : "")
+  );
+}
+
+/** Coluna mais parecida com `alvo` num dataset — para sugerir no erro ("você quis dizer…"). */
+export function colunaMaisProxima(reg: DatasetRegistry, id: string, alvo: string): string | null {
+  const ds = reg.list.find((d) => d.id === id);
+  if (!ds) return null;
+  const info = resolverColunaInfo(ds, alvo);
+  if (info.idx !== null) return info.nome;
+  return info.candidatos[0] ?? null;
 }
 
 /** Avalia UMA condição sobre uma célula (texto e número em pt-BR). */

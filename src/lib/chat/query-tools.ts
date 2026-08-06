@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, OPERADORES, OPERACOES_LINHA, type Agregacao, type DatasetRegistry, type Filtro, type Operador, type OperacaoLinha, type Faixa, type MetodoProjecao } from "./datasets";
+import { explicarColuna, textoDatasetsDisponiveis, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, OPERADORES, OPERACOES_LINHA, type Agregacao, type DatasetRegistry, type Filtro, type Operador, type OperacaoLinha, type Faixa, type MetodoProjecao } from "./datasets";
 
 /** Operações de agregação por coluna (mesmas do motor). */
 const OPS_AGREGACAO = ["soma", "media", "mediana", "min", "max", "amplitude", "variancia", "desvio_padrao", "moda", "contar", "distintos"] as const;
@@ -24,6 +24,18 @@ const filtrosSchema = z
  * aplica em todas as linhas, devolve o total EXATO + amostra + o id do
  * subconjunto (`resultado_em`) para exportar exato via `gerar_relatorio`.
  */
+/**
+ * Erro de dataset inexistente que DIZ o que existe. A mensagem antiga ("Confira o
+ * id (ex.: \"tela1\")") ensinava justamente o id posicional que causa a confusão
+ * entre turnos — o modelo o repetia e acertava outro dataset por acidente.
+ */
+function erroDatasetInexistente(datasets: DatasetRegistry, pedido: string): string {
+  return (
+    `Não encontrei a tabela "${pedido}". Disponíveis AGORA: ${textoDatasetsDisponiveis(datasets)}. ` +
+    "Use um destes ids — ou chame de novo a ferramenta de dados para gerar um id novo. NÃO responda por estimativa."
+  );
+}
+
 export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
   return {
     consultar_registros: tool({
@@ -61,9 +73,9 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           (filtros ?? []) as Filtro[],
           combinacao === "OU" ? "OU" : "E",
         );
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
         if (r.colunaNaoEncontrada)
-          return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe. Colunas disponíveis: ${r.colunas.join(", ")}.` };
+          return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           total: r.total,
           resultado_em: r.id,
@@ -97,8 +109,8 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, coluna, operacao, filtros, combinacao }) => {
         const r = agregarDataset(datasets, dados_de, coluna, operacao as Agregacao, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E");
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
-        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe.` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
+        if (r.colunaNaoEncontrada) return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         const numerico = operacao !== "contar" && operacao !== "distintos";
         return {
           operacao: r.operacao,
@@ -133,8 +145,8 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, coluna, filtros, combinacao }) => {
         const r = estatisticasColuna(datasets, dados_de, coluna, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E");
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}".` };
-        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe.` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
+        if (r.colunaNaoEncontrada) return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           coluna: r.coluna,
           linhas: r.linhas,
@@ -170,8 +182,8 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, coluna_grupo, coluna_grupo2, coluna_valor, operacao, filtros, combinacao, limite }) => {
         const r = agruparDataset(datasets, dados_de, coluna_grupo, coluna_valor ?? coluna_grupo, operacao as Agregacao, (filtros ?? []) as Filtro[], combinacao === "OU" ? "OU" : "E", limite ?? 100, coluna_grupo2);
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}".` };
-        if ("colunaNaoEncontrada" in r) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe.` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
+        if ("colunaNaoEncontrada" in r) return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           operacao,
           total_grupos: r.totalGrupos,
@@ -233,9 +245,9 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, coluna_a, operacao, coluna_b, nome_coluna }) => {
         const r = derivarColuna(datasets, dados_de, coluna_a, operacao as OperacaoLinha, coluna_b, nome_coluna);
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
         if (r.colunaNaoEncontrada)
-          return { erro: `"${r.colunaNaoEncontrada}" não é uma coluna nem um número. Colunas: ${r.colunas.join(", ")}.` };
+          return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           dados_de: r.id,
           coluna_criada: r.coluna,
@@ -280,8 +292,8 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, coluna, faixas, nome_coluna }) => {
         const r = classificarColuna(datasets, dados_de, coluna, (faixas ?? []).map((f) => ({ rotulo: f.rotulo, min: f.min ?? null, max: f.max ?? null })) as Faixa[], nome_coluna);
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
-        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe. Colunas: ${r.colunas.join(", ")}.` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
+        if (r.colunaNaoEncontrada) return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           dados_de: r.id, coluna_criada: r.coluna, total: r.total,
           distribuicao: r.distribuicao, sem_valor: r.sem_valor, colunas: r.colunas, amostra: r.amostra,
@@ -309,9 +321,9 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
       }),
       execute: async ({ dados_de, colunas_serie, horizonte, metodo }) => {
         const r = projetarSerie(datasets, dados_de, colunas_serie, horizonte ?? 6, (metodo ?? "auto") as MetodoProjecao);
-        if (!r) return { erro: `Não encontrei a tabela "${dados_de}". Confira o id (ex.: "tela1").` };
+        if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
         if (r.erro) return { erro: r.erro };
-        if (r.colunaNaoEncontrada) return { erro: `A coluna "${r.colunaNaoEncontrada}" não existe. Colunas: ${r.colunas.join(", ")}.` };
+        if (r.colunaNaoEncontrada) return { erro: explicarColuna(datasets, dados_de, r.colunaNaoEncontrada) };
         return {
           dados_de: r.id, metodo: r.metodo, horizonte: r.horizonte, total: r.total,
           projetadas: r.projetadas, serie_incompleta: r.serie_incompleta, base_invalida_composta: r.base_invalida_composta,

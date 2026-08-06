@@ -10,11 +10,24 @@ import type { Database, Json } from "@/lib/database.types";
  */
 export type TracePasso = { ms: number; passo: string; info?: Record<string, unknown> };
 
+/** Tetos do trace. Um turno com muitas chamadas de ferramenta emite um passo POR
+ *  chamada; sem limite, a coluna `passos` (jsonb) cresce sem teto e a tela de logs
+ *  fica pesada. O corte é do registro, nunca do comportamento do chat. */
+const MAX_PASSOS = 200;
+const MAX_INFO_CHARS = 4000;
+
 export class ChatTrace {
   private t0 = Date.now();
   readonly passos: TracePasso[] = [];
   add(passo: string, info?: Record<string, unknown>): void {
-    this.passos.push({ ms: Date.now() - this.t0, passo, info });
+    if (this.passos.length >= MAX_PASSOS) return;
+    let dados = info;
+    try {
+      if (info && JSON.stringify(info).length > MAX_INFO_CHARS) dados = { _truncado: true, passo };
+    } catch {
+      dados = { _truncado: true, passo };
+    }
+    this.passos.push({ ms: Date.now() - this.t0, passo, info: dados });
   }
   get duracaoMs(): number {
     return Date.now() - this.t0;
