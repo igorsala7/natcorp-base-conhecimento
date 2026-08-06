@@ -11,9 +11,12 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        # `:?` aborta NA HORA se estiver vazia/ausente. Sem isso o build vai até o
+        # fim e quebra em "Failed to collect page data" com um erro de Zod dentro
+        # de um chunk do Turbopack — 50s perdidos e a causa escondida.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?falta no .env — a URL do Supabase e embutida no bundle do navegador em tempo de build}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?falta no .env — a chave anon e embutida no bundle do navegador em tempo de build}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     image: natcorp-kb:latest
     env_file: .env
     environment:
@@ -36,9 +39,12 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        # `:?` aborta NA HORA se estiver vazia/ausente. Sem isso o build vai até o
+        # fim e quebra em "Failed to collect page data" com um erro de Zod dentro
+        # de um chunk do Turbopack — 50s perdidos e a causa escondida.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?falta no .env — a URL do Supabase e embutida no bundle do navegador em tempo de build}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?falta no .env — a chave anon e embutida no bundle do navegador em tempo de build}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     image: natcorp-kb:latest
     env_file: .env
     command: ["npm", "run", "worker:prod"]

@@ -47,10 +47,11 @@ As migrations estão numeradas por data, então o `*` já aplica na ordem certa.
 
 ```bash
 > **O `.env` precisa existir ANTES do build.** As `NEXT_PUBLIC_*` são embutidas no
-> bundle do navegador em tempo de build (build args). Se o compose avisar
-> `The "NEXT_PUBLIC_SUPABASE_URL" variable is not set`, ele vai construir uma
-> imagem com string vazia e o app não conecta no Supabase pelo navegador — pare,
-> preencha o `.env` e rode de novo.
+> bundle do navegador em tempo de build. Se faltarem, o compose para na hora com
+> `required variable NEXT_PUBLIC_SUPABASE_URL is missing a value` — preencha e
+> rode de novo. (Sem essa guarda o build ia até o fim e quebrava em
+> `Failed to collect page data for /_not-found` com um erro de Zod, escondendo a
+> causa depois de ~1 minuto.)
 
 docker compose up -d --build
 ```
