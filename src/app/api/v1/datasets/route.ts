@@ -4,6 +4,7 @@ import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { putDatasetRows, readDatasetRows, removeDatasetObject } from "@/lib/widget/dataset-store";
 import type { Database } from "@/lib/database.types";
+import { celulaDataset } from "@/lib/chat/dataset-sanitize";
 
 type DatasetInsert = Database["public"]["Tables"]["widget_datasets"]["Insert"];
 
@@ -61,9 +62,11 @@ export async function POST(req: NextRequest) {
   if (action === "save") {
     // client_key nunca vazio: garante a unicidade por (usuário, relatório+filtro).
     const clientKey = String(p.clientKey ?? "").trim() || crypto.randomUUID();
-    const columns = Array.isArray(p.columns) ? p.columns.map((c) => String(c)).slice(0, 300) : [];
+    // A tela às vezes manda NUL numa célula — o Postgres recusa (22P05) e o dataset
+    // inteiro deixava de salvar, com 500. Limpa na entrada, coluna e linha.
+    const columns = Array.isArray(p.columns) ? p.columns.map((c) => celulaDataset(c)).slice(0, 300) : [];
     const rows = Array.isArray(p.rows)
-      ? (p.rows as unknown[]).slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.map((c) => (c == null ? "" : String(c))) : []))
+      ? (p.rows as unknown[]).slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.map((c) => celulaDataset(c)) : []))
       : [];
     if (!columns.length || !rows.length) return json({ ok: false, erro: "Dataset vazio (sem colunas/linhas)." }, 400);
     // Guarda de tamanho (teto absoluto). Acima do limiar inline, as linhas vão gzip p/ o
