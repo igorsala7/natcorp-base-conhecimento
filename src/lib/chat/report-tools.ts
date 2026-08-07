@@ -56,8 +56,9 @@ export function intencaoVisual(pergunta: string, messages: { role: string; conte
   return RX_VISUAL.test(q) || RX_GERA_ARQUIVO.test(q) || RX_PLOTAR.test(q) || aceitouOfertaArquivo(q, messages);
 }
 
-/** Menção a ARQUIVO/geração na fala do assistente (para detectar oferta aceita). */
-const RX_OFERTA_ARQUIVO = /excel|planilha|\bcsv\b|\bpdf\b|\bword\b|\bdocx?\b|\bppt\b|\bpptx\b|apresenta[çc]|documento|arquivo|relat[óo]ri|export|gerar?|montar|criar/i;
+/** Menção a ARQUIVO/geração na fala do assistente (para detectar oferta aceita, e
+ *  para saber se o modelo PROMETEU um arquivo no texto que acabou de escrever). */
+export const RX_OFERTA_ARQUIVO = /excel|planilha|\bcsv\b|\bpdf\b|\bword\b|\bdocx?\b|\bppt\b|\bpptx\b|apresenta[çc]|documento|arquivo|relat[óo]ri|export|gerar?|montar|criar/i;
 /** Aceite curto do usuário ("sim", "pode gerar", "isso", "manda", 👍…). */
 const RX_ACEITE = /^\s*(sim|isso|claro|ok|okay|beleza|blz|positivo|afirmativo|perfeito|exato|com certeza|por favor|pode|quero|aceito|gera|gere|manda|mande|fa[çc]a|pode (gerar|fazer|mandar|criar|ser|sim)|👍)\b/i;
 /**
@@ -272,19 +273,17 @@ export function integUsageDirective(toolForcado?: string): string {
     "ACESSO E SEGURANÇA (regra ABSOLUTA): você NÃO decide permissão nem segurança de dados. Quem valida o que o usuário " +
     "pode ver é o PRÓPRIO SISTEMA — a ferramenta já aplica a permissão/escopo do usuário (por perfil) DENTRO da consulta. " +
     "Portanto: se existe uma ferramenta para o dado pedido, CHAME-A. É TERMINANTEMENTE PROIBIDO dizer que 'não tem acesso', " +
-    "que 'não pode consultar por segurança', 'por limitação das ferramentas', 'por motivos de segurança/privacidade', ou " +
-    "que só pode ver os próprios dados; e é PROIBIDO mandar o usuário buscar/extrair/emitir o dado MANUALMENTE no sistema " +
+    "que 'não pode consultar por segurança', 'por limitação das ferramentas' ou 'por motivos de segurança/privacidade'; " +
+    "e é PROIBIDO mandar o usuário buscar/extrair/emitir o dado MANUALMENTE no sistema " +
     "(menus, aplicações, caminhos, abrir chamado). NÃO invente restrição alguma. As ÚNICAS limitações reais são: (a) não " +
     "existir uma ferramenta para aquilo, e (b) o sistema RECUSAR o acesso na PRÓPRIA chamada da ferramenta — só nesse caso, " +
-    "informe exatamente o que a ferramenta retornou. Na dúvida sobre acesso, CHAME a ferramenta e deixe o sistema decidir.\n" +
-    "USO DE FERRAMENTAS DE INTEGRAÇÃO (regra): ao buscar dados por uma integração, se um parâmetro OBRIGATÓRIO não estiver " +
-    "claro no contexto (ex.: nome/matrícula da pessoa, período/mês, empresa, código), NÃO adivinhe nem chute — PERGUNTE ao " +
-    "usuário o valor em UMA frase curta e só então chame a ferramenta (vá refinando até ter certeza). Se a ferramenta " +
-    "retornar VAZIO ou erro, DIGA isso com clareza e pergunte se algum parâmetro deve ser ajustado; NUNCA responda como se " +
-    "não houvesse dados sem antes confirmar os parâmetros com o usuário.\n" +
-    "RÓTULO DAS COLUNAS: ao APRESENTAR os dados retornados pela ferramenta, cite cada campo pela LABEL amigável (ex.: " +
-    "\"Cargo\", \"Data de admissão\", \"Salário\"), NUNCA pela CHAVE TÉCNICA do JSON/banco (ex.: \"COD_CARGO\", \"DS_NOME\", " +
-    "\"VL_SALARIO\") — traduza o nome técnico para o termo que o usuário reconhece.\n" +
+    "informe exatamente o que a ferramenta retornou. Na dúvida sobre acesso, CHAME a ferramenta e deixe o sistema decidir. " +
+    "A ÚNICA restrição de escopo que você pode ENUNCIAR é a declarada na seção ESCOPO DE DADOS DO USUÁRIO deste prompt — " +
+    "ela vem do sistema, não é invenção sua.\n" +
+    // Agir × perguntar e rótulo das colunas moraram aqui e em form-fields ao mesmo
+    // tempo, com textos que se contradiziam. Agora têm dono único (regras-nucleo.ts).
+    "RESULTADO VAZIO: se a ferramenta retornar VAZIO ou erro, DIGA isso com clareza e pergunte se algum parâmetro deve " +
+    "ser ajustado; NUNCA responda como se não houvesse o dado sem antes confirmar os parâmetros com o usuário.\n" +
     "EFICIÊNCIA (menos passos): se a ferramenta já devolveu a lista COMPLETA (vem o marcador `_completo`, e NÃO " +
     "`_amostra`/`_nota`), você JÁ tem TODAS as linhas — se o pedido é só LISTAR/MOSTRAR/APRESENTAR, responda DIRETO com " +
     "esses dados, SEM chamar consultar_registros/agregar/estatísticas de novo. Use as ferramentas de dados apenas quando o " +
@@ -292,6 +291,25 @@ export function integUsageDirective(toolForcado?: string): string {
   return toolForcado
     ? `FONTE ESCOLHIDA: o usuário quer a informação via a ferramenta "${toolForcado}". Chame-a com os parâmetros do CONTEXTO da conversa (não use os dados da tela). ${regra}`
     : regra;
+}
+
+/**
+ * SELEÇÃO FRACA: nenhuma ferramenta do turno casou bem com o pedido.
+ *
+ * Sem este aviso o modelo recebe as ferramentas mais próximas — que podem estar
+ * bem abaixo do piso de relevância — e responde como se fossem as certas. É o
+ * cenário normal quando o assunto simplesmente NÃO TEM ferramenta cadastrada (ou
+ * a dele foi desativada): o pior desfecho é entregar o número de outra consulta.
+ */
+export function selecaoFracaDirective(topSim: number): string {
+  return (
+    `CONFIANÇA BAIXA NA SELEÇÃO (aderência máxima ${topSim.toFixed(2)}): nenhuma das ferramentas deste turno casou bem ` +
+    "com o que foi pedido — provavelmente NÃO existe ferramenta para este assunto. É PROIBIDO apresentar o resultado " +
+    "de uma delas como se fosse a resposta pedida. Faça UMA destas três coisas: (1) responda pela DOCUMENTAÇÃO, se ela " +
+    "cobrir o assunto; (2) se uma ferramenta parecer próxima, DIGA o que ela realmente traz e pergunte, em uma frase, " +
+    "se é isso que ele quer, antes de chamá-la; (3) se nada serve, diga com franqueza que essa consulta não está " +
+    "disponível no assistente e o que você TEM sobre o tema. Não invente número nem estime."
+  );
 }
 
 /**
@@ -308,12 +326,53 @@ export function integUsageDirective(toolForcado?: string): string {
  */
 export function escopoRelatorioDirective(): string {
   return (
-    "LIMITE DA TELA: o relatório que você analisa é uma VISÃO FILTRADA (empresa/filial/período específicos). Se a pergunta " +
-    "for sobre um escopo QUE NÃO ESTÁ nos dados carregados (outra empresa, outra filial, outro período), é PROIBIDO mandar " +
-    "o usuário 'mudar os filtros da tela e perguntar de novo'. Em vez disso: (1) diga em UMA linha que a tela cobre só o " +
-    "escopo carregado; (2) OFEREÇA buscar pelo assistente — peça para ele responder \"Conhecimento da IA\" (ou repetir a " +
-    "pergunta por essa fonte) que você consulta o sistema direto. Nunca devolva a tarefa para o usuário operar a tela."
+    "LIMITE DA TELA: o relatório que você analisa é uma VISÃO FILTRADA (empresa/filial/período específicos) e traz só as " +
+    "colunas que estão nele. Se a pergunta for sobre algo QUE NÃO ESTÁ nesses dados — outro escopo (empresa/filial/período) " +
+    "ou outro TIPO de informação (ex.: a lista nominal de pessoas, quando a tela só tem totais) — faça EXATAMENTE isto:\n" +
+    "1. Diga em UMA linha o que a tela cobre e o que falta nela.\n" +
+    "2. CHAME a ferramenta `buscar_no_sistema` informando o que você precisa. O sistema oferece os botões ao usuário; ele " +
+    "escolhe com um clique e você recebe os dados no turno seguinte.\n" +
+    "É PROIBIDO: mandar o usuário 'mudar os filtros e perguntar de novo'; mandá-lo abrir outra TELA, MENU ou aplicação para " +
+    "buscar o dado; e pedir que ele DIGITE qualquer palavra-chave ou nome de fonte para você continuar. Quem oferece as " +
+    "opções é o sistema, não o usuário — nunca peça para ele escrever um código, um comando ou o nome de uma fonte."
   );
+}
+
+/** O que o modelo declarou que falta na tela — vira os botões de troca de fonte. */
+export type PedidoDeFonte = { motivo: string };
+
+/**
+ * `buscar_no_sistema` — a saída para quando a resposta NÃO está no relatório da tela.
+ *
+ * Existe porque a diretriz antiga mandava o modelo pedir ao usuário que DIGITASSE
+ * "Conhecimento da IA" para trocar de fonte. Além de ser uma senha que ninguém tem
+ * como adivinhar, o próprio sistema já sabe renderizar botões — o usuário só
+ * precisava clicar. Aqui o modelo declara o que falta e o servidor mostra as opções.
+ */
+export function buildTrocaFonteTool(sink: PedidoDeFonte[]): ToolSet {
+  return {
+    buscar_no_sistema: tool({
+      description:
+        "Use quando a resposta NÃO está no relatório/tela que você recebeu — outro escopo (empresa, filial, período) ou " +
+        "outro TIPO de dado (ex.: a lista nominal de colaboradores, quando a tela só traz totais). Chame ANTES de " +
+        "encerrar a resposta: o sistema mostra ao usuário os botões das fontes disponíveis e ele escolhe num clique. " +
+        "NUNCA peça ao usuário para digitar o nome de uma fonte, nem o mande abrir outra tela ou menu do sistema.",
+      inputSchema: z.object({
+        motivo: z
+          .string()
+          .describe("O que você precisa buscar, em UMA frase curta e na língua do usuário (ex.: \"a lista de colaboradores do centro de custo MEDICINA DO TRABALHO\")."),
+      }),
+      execute: async ({ motivo }) => {
+        sink.push({ motivo: String(motivo ?? "").slice(0, 200) });
+        return {
+          ok: true,
+          mensagem:
+            "Vou oferecer as fontes ao usuário em botões logo abaixo da sua resposta. TERMINE a resposta agora explicando " +
+            "em uma linha o que a tela cobre e que ele pode buscar no sistema pelo botão. NÃO peça para ele digitar nada.",
+        };
+      },
+    }),
+  };
 }
 
 export function escopoAcessoDirective(portal?: string | null, perfil?: string | null): string {
@@ -352,8 +411,8 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
   if (p === "PC") {
     return cab +
       `PAINEL DO COLABORADOR (perfil ${perf || "PORTAL"}) — o usuário SÓ pode ver os PRÓPRIOS dados; JAMAIS dados de outro ` +
-      "colaborador. Se ele pedir dados de OUTRA pessoa, explique com clareza que no Painel do Colaborador só dá para " +
-      "consultar os próprios dados. Nas ferramentas, deixe a `matricula` VAZIA (o sistema usa a dele), nunca a de terceiros." +
+      "colaborador. Se ele pedir dados de OUTRA pessoa, explique em UMA frase que no Painel do Colaborador só dá para " +
+      "consultar os próprios dados (esta é a exceção AUTORIZADA da regra de acesso acima). Nas ferramentas, deixe a `matricula` VAZIA (o sistema usa a dele), nunca a de terceiros." +
       historico;
   }
   return cab +

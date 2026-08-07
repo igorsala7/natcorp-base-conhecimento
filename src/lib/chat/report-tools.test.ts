@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChartTool, buildReportTool, intencaoVisual, type ArquivoGerado } from "./report-tools";
+import { buildChartTool, buildReportTool, buildTrocaFonteTool, escopoRelatorioDirective, intencaoVisual, type ArquivoGerado } from "./report-tools";
 import { newRegistry, registrarTabelaTela } from "./datasets";
 import type { ChartSpec } from "./chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
@@ -219,5 +219,49 @@ describe("tipo sugerido dentro do arquivo", () => {
     });
     const g = sink[0]!.blocos[0] as { tipo: "grafico"; grafico: { tipo: string } };
     expect(g.grafico.tipo).toBe("linha"); // rótulos de mês → série temporal
+  });
+});
+
+/**
+ * A diretriz antiga mandava o modelo pedir ao usuário que DIGITASSE "Conhecimento da
+ * IA" para trocar de fonte — uma senha que ninguém tem como adivinhar, num sistema
+ * que já sabe renderizar botões. Agora ele declara o que falta e o servidor oferece
+ * as opções num clique.
+ */
+describe("buscar_no_sistema (troca de fonte)", () => {
+  it("registra o motivo na língua do usuário", async () => {
+    const sink: { motivo: string }[] = [];
+    const r = await exec(buildTrocaFonteTool(sink), "buscar_no_sistema", {
+      motivo: "a lista de colaboradores do centro de custo MEDICINA DO TRABALHO",
+    });
+    expect(r.ok).toBe(true);
+    expect(sink).toHaveLength(1);
+    expect(sink[0]!.motivo).toContain("MEDICINA DO TRABALHO");
+  });
+
+  it("a mensagem de volta PROÍBE pedir que o usuário digite algo", async () => {
+    const sink: { motivo: string }[] = [];
+    const r = await exec(buildTrocaFonteTool(sink), "buscar_no_sistema", { motivo: "x" });
+    expect(String(r.mensagem)).toContain("NÃO peça para ele digitar");
+  });
+
+  it("corta motivo gigante", async () => {
+    const sink: { motivo: string }[] = [];
+    await exec(buildTrocaFonteTool(sink), "buscar_no_sistema", { motivo: "x".repeat(500) });
+    expect(sink[0]!.motivo.length).toBe(200);
+  });
+});
+
+describe("escopoRelatorioDirective", () => {
+  it("não pede mais que o usuário digite uma palavra-chave", () => {
+    const d = escopoRelatorioDirective();
+    expect(d).not.toContain("Conhecimento da IA");
+    expect(d).toContain("buscar_no_sistema");
+  });
+
+  it("proíbe explicitamente mandar o usuário para outra tela ou menu", () => {
+    const d = escopoRelatorioDirective();
+    expect(d).toMatch(/TELA, MENU ou aplica/);
+    expect(d).toMatch(/nunca peça para ele escrever/i);
   });
 });
