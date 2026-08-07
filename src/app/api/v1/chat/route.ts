@@ -31,6 +31,7 @@ import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultado
 import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, selecaoFracaDirective, buildTrocaFonteTool, type PedidoDeFonte, RX_GERA_ARQUIVO, RX_OFERTA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
 import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
 import { categorizarTools } from "@/lib/chat/tool-scope";
+import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraRotulosColuna } from "@/lib/chat/regras-nucleo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
@@ -102,6 +103,10 @@ function mensagemErroChat(err: unknown): string {
  *   {type:'done', conversationId:'...'}
  *   {type:'error', message:'...'}
  */
+/** Pedido de análise AMPLA: aí o recorte de colunas não se aplica — vai 100%. */
+const RX_ANALISE_AMPLA =
+  /an[áa]lise (geral|completa|ampla|estrat[ée]gica|profunda|detalhada|global)|vis[ãa]o geral|panorama|diagn[óo]stico|todas as (colunas|informa[çc][õo]es|m[ée]tricas)|tudo (que|o que) (tem|h[áa])|an[áa]lise 360|raio.?x/i;
+
 /**
  * Rótulo do botão de desambiguação na LÍNGUA DO USUÁRIO. `name` é a chave técnica da
  * integração (`historico_financeiro`) — um analista de RH não reconhece isso. A
@@ -719,12 +724,24 @@ export async function POST(req: NextRequest) {
   const inviteTools = querConvite ? buildInviteTool(inviteSpecs) : {};
   // Coleta multi-página concluída? (o widget percorreu as páginas e mandou o
   // conjunto completo em `reportData`.) Registra como dataset + bloco de contexto.
-  const reportBloco = formAssist ? reportDataBlock(reportDataResolved, datasets) : "";
+  // RECORTE DE COLUNAS: um Interactive Report de RH tem 60+ colunas e a prévia manda
+  // 40 linhas × todas elas — milhares de tokens por passo. Aqui passa o contexto do
+  // PEDIDO para mandar só as colunas que importam. O dataset continua com 100% (é
+  // registrado antes da prévia), então as ferramentas de consulta não perdem nada.
+  const recorteColunas: RecorteColunas = {
+    pergunta: consultaTools,
+    formasOntologia: formasOnto,
+    // Análise geral/estratégica/completa → 100% das colunas, sem discussão.
+    // (`modoAnalisePura` não entra: é derivado de `reportBloco`, que depende disto.)
+    pedidoCompleto: compl || enumera || RX_ANALISE_AMPLA.test(question),
+  };
+  const reportBloco = formAssist ? reportDataBlock(reportDataResolved, datasets, recorteColunas) : "";
+  passo("recorte_colunas", { pergunta_completa: recorteColunas.pedidoCompleto, formas_onto: formasOnto.length });
   // A2: anexos TABULARES (CSV/XLS) entram como DATASET consultável — mesma máquina do
   // relatório da tela (registra em `datasets`, statsBlock 100% + query-tools). Independe
   // de formAssist (é arquivo do usuário, não a tela). Um bloco por anexo.
   const anexoTabelaBloco = attach.tabelas
-    .map((t) => reportDataBlock({ nome: `Anexo: ${t.name}`, colunas: t.colunas, linhas: t.linhas, total: t.linhas.length, incompleto: false }, datasets))
+    .map((t) => reportDataBlock({ nome: `Anexo: ${t.name}`, colunas: t.colunas, linhas: t.linhas, total: t.linhas.length, incompleto: false }, datasets, recorteColunas))
     .filter(Boolean)
     .join("\n\n");
   // Multi-fonte (o usuário MARCOU o relatório + ferramentas no gate): cruza AMBOS.
@@ -750,7 +767,7 @@ export async function POST(req: NextRequest) {
   // grafica por `dados_de`, sem redigitar). Pós-coleta usamos SÓ o conjunto completo.
   // fonte="ia" → o usuário pediu conhecimento da IA: NÃO injeta a tabela da tela.
   const { block: tablesBloco, paginado: telaPaginada } = formAssist && !reportBloco && fonteEfetiva !== "ia"
-    ? screenTablesBlock(payload.screenTables, datasets)
+    ? screenTablesBlock(payload.screenTables, datasets, recorteColunas)
     : { block: "", paginado: false };
   const temPaginado = !modoTutorial && !reportBloco && telaPaginada;
   const harvestTools = temPaginado ? buildHarvestTool(uiActions) : {};
