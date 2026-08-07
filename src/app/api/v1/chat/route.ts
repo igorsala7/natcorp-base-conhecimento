@@ -8,7 +8,7 @@ import {
   retrievePublicContext,
   buildContextBlock,
 } from "@/lib/ai/rag";
-import { resolvePersona, resolveRegras } from "@/lib/ai/prompt-cascade";
+import { resolvePersonaDetalhe, resolveRegras } from "@/lib/ai/prompt-cascade";
 import { composeSystemPrompt } from "@/lib/ai/system-prompt";
 import { personaDeRelatorio } from "@/lib/ai/report-profile";
 import {
@@ -20,7 +20,7 @@ import {
   rateLimitOk,
 } from "@/lib/widget/auth";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
-import { ehConversaSocial } from "@/lib/ai/social";
+import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { resolveCategory } from "@/lib/ai/prompts";
@@ -28,8 +28,11 @@ import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
-import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, RX_GERA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
+import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, selecaoFracaDirective, buildTrocaFonteTool, type PedidoDeFonte, RX_GERA_ARQUIVO, RX_OFERTA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
 import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
+import { categorizarTools } from "@/lib/chat/tool-scope";
+import { regraAgirOuPerguntar, regraRotulosColuna } from "@/lib/chat/regras-nucleo";
+import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { dividirFacetas } from "@/lib/integrations/facets";
@@ -99,6 +102,19 @@ function mensagemErroChat(err: unknown): string {
  *   {type:'done', conversationId:'...'}
  *   {type:'error', message:'...'}
  */
+/**
+ * Rótulo do botão de desambiguação na LÍNGUA DO USUÁRIO. `name` é a chave técnica da
+ * integração (`historico_financeiro`) — um analista de RH não reconhece isso. A
+ * descrição já é escrita para humanos; o nome técnico vira sublabel, preservando a
+ * rastreabilidade para quem administra.
+ */
+function rotuloTool(m: { name: string; description?: string | null }): string {
+  const d = String(m.description ?? "").trim();
+  if (!d) return m.name;
+  const curta = d.split(/(?<=[.!?])\s/)[0] ?? d;
+  return curta.length > 70 ? curta.slice(0, 67).trimEnd() + "…" : curta;
+}
+
 export async function POST(req: NextRequest) {
   const origin = req.headers.get("origin");
   const cors = corsHeaders(origin);
@@ -184,14 +200,32 @@ export async function POST(req: NextRequest) {
     .eq("id", key.space_id)
     .maybeSingle();
   const aP = await resolveCategory("assistente");
-  const persona = resolvePersona({
+  const _persona = resolvePersonaDetalhe({
     promptDaChave: key.system_prompt,
     promptDoEspaco: espacoDono?.chat_prompt ?? null,
     personaPadrao: aP.persona_padrao,
+    // `vertical: "rh"` na chave do widget troca a persona de fábrica pela de RH.
+    vertical: (key.config as { vertical?: string } | null)?.vertical ?? null,
   });
+  const persona = _persona.texto;
+  // Falha ALTO: o corte era silencioso e a persona terminava no meio da frase.
+  if (_persona.truncada) {
+    console.warn(`[chat] persona truncada em ${persona.length} chars — o texto configurado é maior que o limite.`);
+    passo("persona", { truncada: true, chars: persona.length });
+  }
   // Turno social (saudação, agradecimento, "tudo bem?") não passa pelo RAG:
   // responde na simpatia, sem contexto nem "não encontrei".
-  const social = ehConversaSocial(question);
+  //
+  // ABERTURA social + PEDIDO real ("obrigado! agora me diz quantos estão de férias")
+  // NÃO é turno social: era engolido inteiro e desligava RAG, glossário e todos os
+  // gates — o agente respondia "de nada!" e ignorava a pergunta. Frequência altíssima
+  // num chat de RH. Aqui a cortesia vira uma nota curta e o pedido segue o fluxo normal.
+  const _sep = separarSocial(question);
+  const social = ehConversaSocial(question) && !_sep.resto;
+  const notaCortesia = _sep.saudacao && _sep.resto
+    ? "O usuário abriu a mensagem com uma cortesia. Retribua em UMA linha curta e responda ao pedido dele normalmente — não trate a mensagem como conversa social."
+    : "";
+  if (_sep.saudacao && _sep.resto) passo("social", { abertura: _sep.saudacao, pedido: _sep.resto.slice(0, 120) });
   // Pedido de passo a passo/guia → busca MAIS trechos (conteúdo completo) e reforça
   // a completude no prompt; perguntas comuns seguem enxutas. Enumeração ("todos os
   // X") também amplia (limite/tokens) e traz a lista inteira dos arquivos.
@@ -241,13 +275,22 @@ export async function POST(req: NextRequest) {
   // é afetada; e o RAG, quando roda, ainda usa a pergunta ORIGINAL + expansão léxica.
   const temTelaAtiva = key.config?.formAssist === true &&
     ((Array.isArray(payload.screenTables) && payload.screenTables.length > 0) || !!payload.emptyReport);
-  const pularRewrite = social || modoRelatorioCedo || baseExclusiva || (temTelaAtiva && !perguntaComposta);
+  // …EXCETO quando a mensagem DEPENDE do turno anterior ("e em abril?", "e do time do
+  // João?"). Com tela ativa (o caso normal num relatório do APEX) a reescrita nunca
+  // rodava, e esses follow-ups chegavam crus ao embedding — que alimenta não só o RAG
+  // mas a SELEÇÃO DE FERRAMENTAS. No 1º turno o custo continua zero.
+  const _msgsUsuario = messages.filter((m) => m.role === "user").length;
+  const _gate = deveReescrever({
+    question, mensagensDoUsuario: _msgsUsuario, social, baseExclusiva,
+    temTelaAtiva, perguntaComposta, modoRelatorioCedo,
+  });
+  const pularRewrite = _gate.pular;
   const consultaRag = pularRewrite
     ? question
     : await interpretarConsulta(key.space_ids, question, messages, pageContextHint(page));
   const _tRewrite = Date.now();
   console.log(`[chat-timing] rewrite=${_tRewrite - _tPrep0}ms (${pularRewrite ? "pulado" : "ok"})`);
-  passo("query_rewrite", { pulado: pularRewrite, consulta: String(consultaRag).slice(0, 120) });
+  passo("query_rewrite", { pulado: pularRewrite, motivo: _gate.motivo, precisa_contexto: _gate.precisaContexto, consulta: String(consultaRag).slice(0, 120) });
   // NB: o RAG (retrievePublicContext + webSources + `sources`) roda MAIS ABAIXO, logo
   // DEPOIS do roteador de fonte — assim, quando a mensagem é roteada DIRETO a uma tool,
   // reduzimos os trechos de documentação (peso morto). Nada entre aqui e lá usa `sources`.
@@ -360,7 +403,13 @@ export async function POST(req: NextRequest) {
   // Seleção de tools (classificador de módulo + narrowing léxico) usa a consulta COM
   // HISTÓRICO (consultaRag resolve follow-ups como "e do João?"), não só a última msg
   // crua — que casava quase sem contexto e escolhia tool errada.
-  const consultaTools = consultaRag?.trim() ? consultaRag : question;
+  // Piso de contexto, custo ZERO: quando a mensagem depende do turno anterior mas a
+  // reescrita foi pulada (ou falhou em silêncio), cola o antecedente no vetor. Sem
+  // isso, "e em abril?" não casa ferramenta nenhuma.
+  const _base = consultaRag?.trim() ? consultaRag : question;
+  const consultaTools = _gate.precisaContexto && pularRewrite
+    ? comAntecedente(_base, [...messages].reverse().find((m) => m.role === "user" && m.content !== question)?.content)
+    : _base;
   // C — similaridade SEMÂNTICA para SELECIONAR o toolset (não só rotear): 1 embedding do
   // turno, com timeout → cai no léxico se o provedor estiver frio. Só quando há p_base e
   // vamos montar tools (evita embed à toa em tutorial/sem base).
@@ -729,6 +778,21 @@ export async function POST(req: NextRequest) {
   // No modo RELATÓRIO cortamos as tools de API (integ.tools) — a resposta sai do
   // relatório. Mantemos gráfico/arquivo (visualTools) e consulta/filtro (queryTools).
   const cortaIntegracao = modoRelatorio || relatorioVazioParaFiltrar;
+  // …MENOS as ESSENCIAIS. Cortar tudo deixava o agente sem a origem canônica de
+  // cadastro: perguntado "quem são os colaboradores desse centro de custo?" num
+  // relatório que só traz totais, ele SABIA a resposta (o código do centro de custo
+  // estava na própria tela) e não tinha com o que buscar. Uma ferramenta marcada como
+  // essencial pelo admin é justamente a que não pode sumir por causa do modo do turno.
+  const integEssenciais: ToolSet = {};
+  for (const k of integ.essenciais ?? []) if (integTools[k]) integEssenciais[k] = integTools[k]!;
+  const integNoTurno: ToolSet = cortaIntegracao ? integEssenciais : integTools;
+  // SAÍDA quando o relatório da tela não tem a resposta. Sem isto o modelo pedia ao
+  // usuário para DIGITAR "Conhecimento da IA" — uma senha que ninguém adivinha — ou o
+  // mandava abrir outra tela. Só existe quando há de fato ferramentas cortadas.
+  const pedidosFonte: PedidoDeFonte[] = [];
+  const trocaFonteTools = cortaIntegracao && Object.keys(integTools).length > Object.keys(integEssenciais).length
+    ? buildTrocaFonteTool(pedidosFonte)
+    : {};
   // Turno de DADOS puro: a pergunta precisa de dados do sistema (tools de integração
   // ATIVAS) e NÃO é operação de tela (coletar/filtrar relatório, tutorial). Aí as tools
   // de TELA (preencher/marcar/clicar/tutorial) são ruído — cortá-las reduz tokens e
@@ -740,14 +804,25 @@ export async function POST(req: NextRequest) {
   const formToolsFinal: ToolSet = modoAnalisePura || turnoDadosPuro
     ? (formTools.destacar_tela ? { destacar_tela: formTools.destacar_tela } : {})
     : formTools;
-  const allTools: ToolSet = { ...(cortaIntegracao ? {} : integTools), ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools };
+  const allTools: ToolSet = { ...integNoTurno, ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools, ...trocaFonteTools };
   const temTools = Object.keys(allTools).length > 0;
+  // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
+  // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem
+  // `!temTools`) viraram código morto. Gráfico e arquivo não substituem documentação.
+  const { temDataTools, temToolsDeConteudo } = categorizarTools({
+    integTools: integNoTurno,
+    harvestTools, queryTools, formTools: formToolsFinal, visualTools, inviteTools,
+    intencaoVisual: intencaoVis,
+  });
   // Turno AGÊNTICO: ferramentas de integração ATIVAS (não cortadas) ou análise composta que
   // TAMBÉM precisa de tool. Esses turnos (loop de chamadas, várias fontes) convergem melhor
   // num modelo FORTE → finalidade "chat_ferramentas" (fallback: Chat). Chat simples segue barato.
   const turnoAgentico = (temIntegTools && !cortaIntegracao) || compostoPorTool;
   passo("ferramentas", {
     tools: Object.keys(allTools),
+    // Sem as duas categorias no trace não dá para medir o efeito em produção.
+    tem_dados: temDataTools,
+    tem_conteudo: temToolsDeConteudo,
     modo_relatorio: modoRelatorio,
     analise_pura: modoAnalisePura,
     relatorio_vazio_filtrar: relatorioVazioParaFiltrar,
@@ -936,6 +1011,9 @@ export async function POST(req: NextRequest) {
     );
     // Aderentes primeiro, PRÉ-MARCADAS (você só confirma). IA vaga/off → top-8 do embedding.
     const toolsAmb = aderentes.size ? poolAmplo.filter((m) => aderentes.has(m.key)) : (matchesCache ?? poolAmplo).slice(0, 8);
+    // Rótulo que o RH entende. `name` é a chave técnica da integração
+    // (`historico_financeiro`) — a descrição é o que o analista reconhece.
+    // Ver `rotuloTool` no topo do arquivo.
     // "OUTRA FONTE": o que o embedding NÃO ofereceu. Uma tool abaixo de 0.45 nunca
     // apareceria — e é justamente aí que o usuário fica sem saída. O catálogo restante
     // vai no PRÓPRIO evento (≈80 × 180 B ≈ 14 KB, só neste frame): uma rota dedicada
@@ -948,7 +1026,7 @@ export async function POST(req: NextRequest) {
     passo("clarify_fonte_inicial", { pool: poolAmplo.length, aderentes: [...aderentes], modo: aderentes.size ? "ia" : "embedding", outros: catalogoOutros.length });
     const opcoesFonte: ClarifyOption[] = [
       { id: "relatorio", label: "📄 Dados desta página (relatório da tela)", relatorio: true, checked: true },
-      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description ?? undefined, tool: { k: m.key, n: m.name, d: m.description ?? "" }, checked: aderentes.has(m.key) })),
+      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: m.name, tool: { k: m.key, n: m.name, d: m.description ?? "" }, checked: aderentes.has(m.key) })),
       ...(catalogoOutros.length
         ? [{ id: "__outro__", label: "➕ Outra fonte — busque na lista ou descreva", sublabel: "Nenhuma das acima serve? Escolha entre todas as ferramentas ou escreva o que precisa.", outro: true }]
         : []),
@@ -1060,7 +1138,7 @@ export async function POST(req: NextRequest) {
         "Isso pode vir do RELATÓRIO desta tela ou de uma FERRAMENTA de dados. De onde quer que eu busque?",
         [
           { id: "relatorio", label: "📄 Dados desta página", scope: { fonte: "relatorio", direto: true } },
-          ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${m.name}`, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
+          ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: m.name, scope: { fonte: "ia", tool: m.key } })),
         ],
         "clarify_fonte",
       );
@@ -1077,14 +1155,16 @@ export async function POST(req: NextRequest) {
   // NÃO pergunta "qual delas?"; deixa o agente rodar com as tools e escolher (ex.: "minha
   // equipe" casa listar_colaboradores_resumo ~0.73 junto de outras ~0.72 do mesmo assunto:
   // perguntar 5 variações da mesma coisa só atrapalha). Pergunta só no sinal fraco.
-  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && baseCode && !pareceComposta(question) && !roteouDireto) {
-    const cand: ToolMatch[] = scopeIn?.tools?.length
-      ? scopeIn.tools.map((t) => ({ key: t.k, name: t.n, description: t.d, sim: 1 }))
-      : (matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool));
+  // `!scopeIn?.tools?.length` e `!scopeIn?.direto`: o usuário JÁ respondeu esta pergunta
+  // marcando as caixas no gate de fonte. Perguntar de novo descartava a escolha — e pior,
+  // as opções daqui são de escolha ÚNICA, então o clique seguinte colapsava 3 fontes em 1.
+  // Um checkbox marcado vale mais que a heurística de `pareceComposta`.
+  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && !scopeIn?.tools?.length && baseCode && !pareceComposta(question) && !roteouDireto) {
+    const cand: ToolMatch[] = matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool);
     if (cand.length > 1) {
       return clarifyResponse(
         "Encontrei mais de uma opção para essa informação. De qual delas você quer que eu busque?",
-        cand.map((m) => ({ id: m.key, label: m.name, sublabel: m.description, scope: { fonte: "ia", tool: m.key } })),
+        cand.map((m) => ({ id: m.key, label: rotuloTool(m), sublabel: m.name, scope: { fonte: "ia", tool: m.key } })),
         "clarify_tool",
       );
     }
@@ -1209,7 +1289,7 @@ export async function POST(req: NextRequest) {
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
   // Com anexo, NÃO recusa: o usuário trouxe o próprio conteúdo para a resposta.
   // Com TOOLS de integração, também não recusa: o modelo pode buscar dados na API.
-  if (sources.length === 0 && !social && attach.ids.length === 0 && !scanBlock && !temTools) {
+  if (sources.length === 0 && !social && attach.ids.length === 0 && !scanBlock && !temToolsDeConteudo) {
     const refusal =
       "Não encontrei exatamente isso na documentação. " +
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
@@ -1234,7 +1314,7 @@ export async function POST(req: NextRequest) {
 
   // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
   // Pulada em turnos sociais — não se "desambigua" um "oi".
-  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock && !temTools) {
+  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock && !temToolsDeConteudo && process.env.CLARIFY_TEMA_OFF !== "1") {
     const dis =
       analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
       analyzeConfidence(ragSources, payload.contextScope ?? null);
@@ -1306,6 +1386,8 @@ export async function POST(req: NextRequest) {
   // não mande o usuário re-filtrar — ofereça buscar pelo assistente.
   const blocoEscopoRel = modoRelatorio && temIntegTools && !continuation ? escopoRelatorioDirective() : "";
   const blocoEscopo = temIntegTools ? escopoAcessoDirective(track.p_portal, track.p_perfil) : "";
+  // Nenhuma ferramenta casou bem: o modelo precisa saber ANTES de usar a menos ruim.
+  const blocoSelecaoFraca = integ.selecaoFraca && !cortaIntegracao ? selecaoFracaDirective(integ.selecaoFraca.topSim) : "";
   // O essencial vai sempre que as ferramentas existirem; os detalhes só quando o
   // usuário demonstrou querer gráfico/arquivo — assim o prompt não engorda por nada.
   const blocoVisuals = temVisual ? visualsCore() + (intencaoVis ? "\n" + visualsExtras() : "") : "";
@@ -1324,12 +1406,21 @@ export async function POST(req: NextRequest) {
   // pedido — ex.: pedir a LISTA DE COLABORADORES num relatório que só traz cargo agregado, sem
   // coluna de nome/matrícula. Lista as colunas e manda CHAMAR a ferramenta quando o relatório
   // não contém o que foi pedido (não força tool p/ o que É respondível pelas colunas).
-  const blocoFonteRelatorio = reportBloco && !cortaIntegracao && temIntegTools && relCols.length
+  // Este bloco existe EXATAMENTE para o caso "a tela não tem essa coluna" — e estava
+  // condicionado a `!cortaIntegracao`, ou seja, sumia justamente no modo relatório,
+  // que é quando ele é necessário. Agora entra sempre que há relatório + ferramenta.
+  const blocoFonteRelatorio = reportBloco && temIntegTools && relCols.length
     ? `FONTE DOS DADOS (relatório da tela × ferramentas do sistema): o relatório "${relNome}" carregado tem SOMENTE estas colunas: ${relCols.join(", ")}. ` +
       `Se a pergunta é respondível com essas colunas (contar/somar/filtrar/agrupar/comparar/rankear por elas), analise o relatório. ` +
-      `Mas se ela pede REGISTROS ou CAMPOS que NÃO estão nessas colunas — por exemplo, uma LISTA DE COLABORADORES/pessoas (nomes, matrículas) quando o relatório só traz dados por cargo, sem coluna de nome/matrícula — NÃO filtre o relatório: CHAME a ferramenta de integração adequada para buscar no sistema e diga que está buscando.`
+      `Mas se ela pede REGISTROS ou CAMPOS que NÃO estão nessas colunas — por exemplo, uma LISTA DE COLABORADORES/pessoas (nomes, matrículas) quando o relatório só traz totais por centro de custo ou por cargo — NÃO filtre o relatório: CHAME a ferramenta adequada e diga que está buscando. ` +
+      `OS VALORES DA TELA SÃO OS PARÂMETROS: o código/nome que está na linha em questão (centro de custo, empresa, filial, cargo, matrícula, competência) é o que você passa para a ferramenta — não peça ao usuário um dado que já está na tela ou que você já citou na sua resposta anterior. ` +
+      `Encadeie sem perguntar: "quem são os colaboradores desse centro de custo?" logo após você mesmo ter apontado o centro de custo = chame a ferramenta de dados do colaborador com aquele centro de custo (e a empresa do contexto).`
     : "";
+  // NÚCLEO: as regras que valem em qualquer turno, com dono único. Vêm primeiro, e
+  // uma vez só — antes moravam duplicadas em 4 lugares e com textos conflitantes.
+  const blocoNucleo = temTools ? [regraAgirOuPerguntar(), regraRotulosColuna()].join("\n") : "";
   const usoFerramentasStr = [
+    blocoNucleo,
     integ.capabilities,
     blocoFormAssist,
     blocoRelatorioVazio,
@@ -1338,6 +1429,7 @@ export async function POST(req: NextRequest) {
     blocoFonteRelatorio,
     blocoEscopoRel,
     blocoEscopo,
+    blocoSelecaoFraca,
     blocoVisuals,
     blocoDatasets,
     blocoInvite,
@@ -1346,6 +1438,7 @@ export async function POST(req: NextRequest) {
     .join("\n\n");
   const contextoStr = [
     notaDataAtual(),
+    notaCortesia,
     diretrizReferente(scopeIn?.referente),
     enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
     blocoRag,
@@ -1406,7 +1499,7 @@ export async function POST(req: NextRequest) {
       usoFerramentas: usoFerramentasStr,
       linguagem: [instrucaoIdioma, linguagemAnalise].filter(Boolean).join("\n"),
       regras: resolveRegras(aP.regras_absolutas),
-      comTools: temTools,
+      comTools: temDataTools,
     },
     contextoStr,
   );
@@ -1480,7 +1573,14 @@ export async function POST(req: NextRequest) {
   const _perguntaComplexa = perguntaComposta || compostoPorTool || pareceComposta(question);
   // Teto de passos do loop agêntico. Pergunta simples (só listar/mostrar) fecha cedo:
   // chamar a tool + responder bastam. Composta/análise recebe mais fôlego.
-  const maxPassos = _temAnaliseTools ? (_perguntaComplexa ? 9 : 5) : (_perguntaComplexa ? 6 : 3);
+  // Piso 6 com ferramentas de dados E de consulta: um turno realista gasta chamar a
+  // API (1) + consultar_registros (2) + agregar_valores (3) + redigir (4) — com 5 não
+  // sobra margem para uma correção de parâmetro, e o turno morre na rede de segurança.
+  const _pisoDados = Object.keys(queryTools).length > 0 && temIntegTools ? 6 : 0;
+  const maxPassos = Math.max(
+    _pisoDados,
+    _temAnaliseTools ? (_perguntaComplexa ? 9 : 5) : (_perguntaComplexa ? 6 : 3),
+  );
   // Modelo por FINALIDADE (configurável em Sistema→IA). (Fix 3) Análise de relatório
   // COMPLEXA (com ferramentas) migra do "report_analysis" (análise de uma tacada) para o
   // "chat_ferramentas" (modelo forte, que CONVERGE melhor no loop de tools); análise
@@ -1540,7 +1640,11 @@ export async function POST(req: NextRequest) {
       // nenhum — normalmente porque o modelo escreveu a resposta e "esqueceu" de chamar
       // a ferramenta. A rede geral abaixo garante TEXTO, nunca o arquivo faltante; esta
       // faz UMA passada com APENAS `gerar_relatorio` e converte a promessa em entrega.
-      if (!req.signal.aborted && !erroGeracao && temVisual && geraArquivo && !outFiles.length && !reportSpecs.length) {
+      // Exige que o modelo tenha PROMETIDO o arquivo no texto: a rede existe para o
+      // caso "escreveu a resposta e esqueceu de chamar a ferramenta". Sem essa
+      // checagem ela dispara em "quero o relatório de férias" — que em RH é a TELA,
+      // não um arquivo — e gasta uma passada inteira à toa.
+      if (!req.signal.aborted && !erroGeracao && temVisual && geraArquivo && RX_OFERTA_ARQUIVO.test(full) && !outFiles.length && !reportSpecs.length) {
         try {
           const resp = await Promise.resolve(result.response).catch(() => null);
           const histMsgs: ModelMessage[] = resp?.messages ?? [];
@@ -1647,6 +1751,29 @@ export async function POST(req: NextRequest) {
       // Escolha de tipo de gráfico → o widget mostra os tipos como BOTÕES.
       for (const ch of chartChoices) {
         controller.enqueue(sse({ type: "chart_choice", spec: ch.spec, recomendado: ch.recomendado, pergunta: ch.pergunta }));
+      }
+      // TROCA DE FONTE: o modelo declarou que a tela não tem a resposta. Em vez de
+      // pedir ao usuário que DIGITE o nome de uma fonte (era o que a diretriz antiga
+      // mandava), o sistema oferece os botões — um clique e a busca acontece.
+      if (pedidosFonte.length) {
+        const motivo = pedidosFonte[0]!.motivo;
+        const opcoes: ClarifyOption[] = [
+          // Específicas primeiro: já nomeiam a consulta na língua do usuário.
+          ...(matchesCache ?? []).slice(0, 3).map((m) => ({
+            id: m.key,
+            label: `🔎 ${rotuloTool(m)}`,
+            sublabel: m.name,
+            scope: { fonte: "ia" as const, tool: m.key, direto: true },
+          })),
+          { id: "__ia__", label: "🧠 Buscar no sistema", sublabel: "Consulto as ferramentas disponíveis para o seu perfil", scope: { fonte: "ia", direto: true } },
+          { id: "__rel__", label: "📄 Ficar só no relatório desta tela", scope: { fonte: "relatorio", direto: true } },
+        ];
+        controller.enqueue(sse({
+          type: "clarify",
+          question: motivo ? `Quer que eu busque ${motivo} no sistema?` : "Quer que eu busque isso no sistema?",
+          options: opcoes,
+        }));
+        passo("troca_fonte", { motivo, opcoes: opcoes.length });
       }
       // Assistente de tela: a IA propôs operar a tela (preencher, marcar, clicar) →
       // o widget executa em ordem, confirmando só o que grava/navega.

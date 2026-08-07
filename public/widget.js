@@ -6195,7 +6195,12 @@
           }
         } catch { }
       } else if (evt.type === "clarify") {
+        // COMPLEMENTAR × SUBSTITUTO: os gates de fonte chegam ANTES de qualquer texto e
+        // são a resposta inteira do turno. Já a troca de fonte ("a tela não tem isso,
+        // quer que eu busque?") chega DEPOIS da resposta — ali os botões acompanham o
+        // texto em vez de descartá-lo. `clarified` só corta o turno quando não há texto.
         clarified = true;
+        _teveEscolha = true;
         if (typing.parentNode) typing.remove();
         avisarMensagem();
         renderClarify(evt.question, evt.options, evt.multiSelect, evt.outros);
@@ -6268,7 +6273,7 @@
     function finish() {
       if (typing.parentNode) typing.remove();
       limparProcStatus(); // resposta vazia sem token → não deixa "Analisando…" preso
-      if (clarified) {
+      if (clarified && !full) {
         done();
         return;
       }
