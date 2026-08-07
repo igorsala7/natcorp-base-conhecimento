@@ -1735,6 +1735,233 @@
     var esc = nv.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     try { return new RegExp("(^|[^0-9a-zà-ú])" + esc + "([^0-9a-zà-ú]|$)", "i").test(ot); } catch { return ot.indexOf(nv) >= 0; }
   }
+  // ══ POPUP LOV do APEX ═══════════════════════════════════════════════════════
+  // Campo "lista de valores" que NÃO se preenche digitando: o input é readonly e o
+  // valor real mora num hidden. É preciso abrir a janela, pesquisar, ESPERAR a lista
+  // voltar e clicar no item. Até aqui isso era pedido ao MODELO em 3 turnos — caro,
+  // lento e fácil de perder o fio no meio. Aqui a sequência inteira vira UMA ação
+  // determinística; o modelo só diz o campo e o valor.
+
+  /** O elemento é um popup LOV do APEX? */
+  function ehPopupLov(el) {
+    try {
+      if (!el) return false;
+      if (typeof el.className === "string" && /(^|\s)(popup_lov|apex-item-popup-lov)(\s|$)/.test(el.className)) return true;
+      return !!(el.closest && el.closest(".apex-item-group--popup-lov, .apex-item-popup-lov"));
+    } catch { return false; }
+  }
+
+  /** Botão da lupa que abre a janela. Sem ele, o próprio input costuma abrir. */
+  function botaoDoLov(el) {
+    try {
+      var doc = el.ownerDocument || document;
+      if (el.id) {
+        var b = doc.getElementById(el.id + "_lov_btn");
+        if (b) return b;
+      }
+      var grupo = el.closest && el.closest(".apex-item-group--popup-lov, .apex-item-group");
+      var alvo = grupo && grupo.querySelector(".a-Button--popupLOV, .a-Button--popupLov, button[id$='_lov_btn']");
+      return alvo || el; // sem botão: clicar no input abre
+    } catch { return el; }
+  }
+
+  /** O dialog aberto DESTE campo (o APEX nomeia o conteúdo com o id do item). */
+  function dialogDoLov(el) {
+    try {
+      var doc = el.ownerDocument || document;
+      var visivel = function (d) { return d && d.getClientRects && d.getClientRects().length > 0; };
+      if (el.id) {
+        var conteudo = doc.querySelector('[id^="PopupLov_"][id$="_' + el.id + '_dlg"], #PopupLov_' + el.id + "_dlg");
+        var d1 = conteudo && conteudo.closest(".ui-dialog");
+        if (visivel(d1)) return d1;
+      }
+      // Sem casar pelo id, vale o dialog de LOV visível mais recente.
+      var todos = Array.prototype.slice.call(doc.querySelectorAll(".ui-dialog-popuplov")).filter(visivel);
+      return todos.length ? todos[todos.length - 1] : null;
+    } catch { return null; }
+  }
+
+  /** Poll simples até `cond()` virar verdade. Resolve com o valor ou null no timeout. */
+  function ateQue(cond, timeout, intervalo) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() {
+        var v = null;
+        try { v = cond(); } catch { v = null; }
+        if (v) return resolve(v);
+        if (Date.now() - t0 > timeout) return resolve(null);
+        setTimeout(tick, intervalo || 120);
+      })();
+    });
+  }
+
+  /** Itens atualmente na lista de resultados do dialog. */
+  function itensDoLov(dlg) {
+    try {
+      return Array.prototype.slice.call(dlg.querySelectorAll("ul.a-IconList li.a-IconList-item, .a-GV-table tbody tr[data-id]"));
+    } catch { return []; }
+  }
+
+  /** "Impressão digital" da lista — é o que diz se a PESQUISA já voltou. */
+  function assinaturaLov(dlg) {
+    var it = itensDoLov(dlg);
+    var ids = it.slice(0, 30).map(function (li) { return li.getAttribute("data-id") || scanTexto(li.textContent).slice(0, 30); });
+    return it.length + "|" + ids.join(",");
+  }
+
+  /** A janela informou "Nenhum resultado encontrado"? */
+  function lovSemResultado(dlg) {
+    try {
+      var m = dlg.querySelector(".a-GV-noDataMsg");
+      return !!(m && m.getClientRects && m.getClientRects().length > 0);
+    } catch { return false; }
+  }
+
+  /**
+   * Casa o item pedido contra a lista, em ORDEM DE PRECISÃO.
+   *
+   * O texto do item vem como "700 - Natcorp Do Brasil" e o código no `data-id`. O
+   * usuário pode dizer o código, o nome inteiro, ou parte dele. Escolher errado aqui
+   * GRAVA dado errado numa tela do sistema — diferente de errar uma leitura. Por isso
+   * a ambiguidade não é resolvida no chute: devolve os candidatos para o modelo
+   * perguntar.
+   */
+  function casarItemLov(itens, valor) {
+    var alvo = scanTexto(valor).toLowerCase();
+    if (!alvo) return { erro: "sem valor" };
+    var norm = function (t) { return scanTexto(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); };
+    var alvoN = norm(valor);
+    var info = itens.map(function (li) {
+      var id = String(li.getAttribute("data-id") || "").toLowerCase();
+      var txt = norm(li.textContent);
+      // "700 - Natcorp Do Brasil" → descrição sem o código.
+      var desc = txt.replace(/^\s*[\w.\-]+\s*[-–]\s*/, "");
+      return { li: li, id: id, txt: txt, desc: desc };
+    });
+    var por = function (f) { return info.filter(f); };
+    // 1) código exato · 2) descrição exata · 3) texto inteiro exato
+    var c = por(function (x) { return x.id && x.id === alvo; });
+    if (c.length === 1) return { li: c[0].li, via: "codigo" };
+    c = por(function (x) { return x.desc === alvoN; });
+    if (c.length === 1) return { li: c[0].li, via: "descricao" };
+    c = por(function (x) { return x.txt === alvoN; });
+    if (c.length === 1) return { li: c[0].li, via: "texto" };
+    // 4) começa com · 5) contém — só valem quando UM item sobra.
+    c = por(function (x) { return x.desc.indexOf(alvoN) === 0; });
+    if (c.length === 1) return { li: c[0].li, via: "prefixo" };
+    var contem = por(function (x) { return x.txt.indexOf(alvoN) >= 0; });
+    if (contem.length === 1) return { li: contem[0].li, via: "contem" };
+    if (contem.length > 1) {
+      return { ambiguo: contem.slice(0, 8).map(function (x) { return scanTexto(x.li.textContent); }) };
+    }
+    return { erro: "nao encontrado" };
+  }
+
+  /**
+   * Preenche um popup LOV de ponta a ponta. Resolve com
+   * `{ ok }` ou `{ ok:false, motivo, candidatos? }` — o motivo volta ao modelo para
+   * ele reagir (perguntar, refinar o termo), em vez de só "não consegui".
+   */
+  function preencherPopupLov(el, valor) {
+    var termo = String(valor == null ? "" : valor).trim();
+    if (!termo) return Promise.resolve({ ok: false, motivo: "valor vazio" });
+    var dlg = null;
+    // Idempotência: já está com o valor pedido → não abre janela nenhuma.
+    try {
+      var atual = scanTexto(el.value || "");
+      var hid = el.id && (el.ownerDocument || document).getElementById(el.id + "_HIDDENVALUE");
+      var codigo = hid ? String(hid.value || "") : "";
+      if (atual && (atual.toLowerCase() === termo.toLowerCase() || codigo === termo)) {
+        return Promise.resolve({ ok: true, jaEstava: true });
+      }
+    } catch { }
+
+    return Promise.resolve()
+      .then(function () {
+        clickElement(botaoDoLov(el));
+        return ateQue(function () { return dialogDoLov(el); }, 6000);
+      })
+      .then(function (d) {
+        if (!d) return { ok: false, motivo: "a janela de busca não abriu" };
+        dlg = d;
+        var busca = dlg.querySelector(".a-PopupLOV-search");
+        if (!busca) return { ok: false, motivo: "não achei o campo de pesquisa da janela" };
+        var antes = assinaturaLov(dlg);
+        // Digita com o setter nativo (o APEX escuta `input`) e dispara a pesquisa.
+        try {
+          var desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+          if (desc && desc.set) desc.set.call(busca, termo); else busca.value = termo;
+          busca.dispatchEvent(new Event("input", { bubbles: true }));
+        } catch { busca.value = termo; }
+        try { busca.focus(); } catch { }
+        var botaoBuscar = dlg.querySelector(".a-PopupLOV-doSearch");
+        if (botaoBuscar) clickElement(botaoBuscar);
+        // Enter também: em algumas versões é o único gatilho.
+        ["keydown", "keyup"].forEach(function (tp) {
+          try { busca.dispatchEvent(new KeyboardEvent(tp, { key: "Enter", keyCode: 13, which: 13, bubbles: true })); } catch { }
+        });
+        // ESPERA A LISTA VOLTAR. Não basta "ter item": a lista JÁ vem preenchida antes
+        // da busca, então selecionar cedo pegaria o resultado velho. O sinal é a
+        // assinatura MUDAR — ou o próprio APEX dizer que não há resultado.
+        return ateQue(function () {
+          return assinaturaLov(dlg) !== antes || lovSemResultado(dlg) ? true : null;
+        }, 8000).then(function (mudou) {
+          // A busca pode legitimamente devolver o MESMO conjunto (termo amplo). Nesse
+          // caso seguimos assim mesmo, depois de dar tempo ao AJAX.
+          if (!mudou) return new Promise(function (r) { setTimeout(r, 400); });
+          return null;
+        });
+      })
+      .then(function (parcial) {
+        if (parcial && parcial.ok === false) return parcial;
+        if (!dlg) return { ok: false, motivo: "a janela de busca não abriu" };
+        if (lovSemResultado(dlg)) {
+          fecharDialogLov(dlg);
+          return { ok: false, motivo: 'a busca por "' + termo + '" não retornou nenhum resultado' };
+        }
+        var itens = itensDoLov(dlg);
+        if (!itens.length) {
+          fecharDialogLov(dlg);
+          return { ok: false, motivo: "a lista de resultados não carregou a tempo" };
+        }
+        var m = casarItemLov(itens, termo);
+        if (m.ambiguo) {
+          fecharDialogLov(dlg);
+          return { ok: false, motivo: "mais de uma opção casa com esse valor", candidatos: m.ambiguo };
+        }
+        if (!m.li) {
+          var amostra = itens.slice(0, 8).map(function (li) { return scanTexto(li.textContent); });
+          fecharDialogLov(dlg);
+          return { ok: false, motivo: 'nenhum item da lista corresponde a "' + termo + '"', candidatos: amostra };
+        }
+        clickElement(m.li);
+        // Confirma que a seleção PEGOU: o dialog fecha e o campo recebe valor. Fechar
+        // sozinho não basta — o usuário pode ter cancelado.
+        return ateQue(function () {
+          var fechado = !dialogDoLov(el);
+          var temValor = !!scanTexto(el.value || "");
+          return fechado && temValor ? true : null;
+        }, 4000).then(function (pegou) {
+          if (pegou) return { ok: true };
+          fecharDialogLov(dialogDoLov(el));
+          return { ok: false, motivo: "cliquei no item mas o campo não recebeu o valor" };
+        });
+      })
+      .catch(function (e) {
+        try { fecharDialogLov(dlg); } catch { }
+        return { ok: false, motivo: "falha inesperada ao operar a janela (" + (e && e.message ? e.message : "erro") + ")" };
+      });
+  }
+
+  /** Fecha a janela — sequência que falha no meio não pode deixar lixo na tela. */
+  function fecharDialogLov(dlg) {
+    try {
+      if (!dlg) return;
+      var x = dlg.querySelector(".ui-dialog-titlebar-close");
+      if (x) x.click();
+    } catch { }
+  }
+
   function fillField(el, valor, valores) {
     // Blindagem: nunca escreve em campo restrito (mesmo se o usuário clicar nele
     // no modo "escolher"). O scan já os oculta; aqui é a garantia técnica.
@@ -1901,20 +2128,41 @@
   // mostra um status compacto e segue a fila.
   function execDireto(a, el) {
     highlightField(el);
-    var ok = a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
-    setTimeout(function () { unhighlightField(el); }, 700);
-    var nome = a.tipo === "fill" ? "Preenchi " : a.tipo === "check" ? (a.marcar ? "Marquei " : "Desmarquei ") : "Cliquei em ";
-    var multi = a.tipo === "fill" && a.valores && a.valores.length;
-    var extra = multi ? " (" + a.valores.length + " itens)"
-      : (a.tipo === "fill" && a.valor ? ": " + (a.valor.length > 60 ? a.valor.slice(0, 60) + "…" : a.valor) : "");
-    if (ok) { registrarExec(a); statusMsg("✅ " + nome + "“" + a.label + "”" + extra, "#15803d"); }
-    else { statusMsg("⚠️ Não consegui " + nome.toLowerCase() + "“" + a.label + "”", "#b45309"); }
-    // Campos em CASCATA: preencher/marcar um campo pode disparar o carregamento
-    // (AJAX) das opções do campo dependente. Se há mais ações na fila, espera o
-    // dependente assentar antes da próxima — senão o filho ainda estaria vazio.
-    var mudouValor = ok && (a.tipo === "fill" || a.tipo === "check");
-    if (mudouValor && _acoes.length > 0) setTimeout(proximaAcao, 550);
-    else proximaAcao();
+    // POPUP LOV é a única ação ASSÍNCRONA: abrir a janela, pesquisar, esperar a lista
+    // voltar e clicar leva segundos. O resto do fluxo continua igual — `terminar`
+    // recebe o resultado venha ele de onde vier.
+    var ehLovFill = a.tipo === "fill" && ehPopupLov(el);
+    var passo = ehLovFill
+      ? preencherPopupLov(el, a.valor)
+      : Promise.resolve({
+          ok: a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el),
+        });
+    if (ehLovFill) statusMsg("🔎 Abrindo a lista de “" + a.label + "”…", "#6b7280");
+
+    passo.then(function (r) {
+      var ok = !!(r && r.ok);
+      setTimeout(function () { unhighlightField(el); }, 700);
+      var nome = a.tipo === "fill" ? "Preenchi " : a.tipo === "check" ? (a.marcar ? "Marquei " : "Desmarquei ") : "Cliquei em ";
+      var multi = a.tipo === "fill" && a.valores && a.valores.length;
+      var extra = multi ? " (" + a.valores.length + " itens)"
+        : (a.tipo === "fill" && a.valor ? ": " + (a.valor.length > 60 ? a.valor.slice(0, 60) + "…" : a.valor) : "");
+      if (ok) { registrarExec(a); statusMsg("✅ " + nome + "“" + a.label + "”" + extra, "#15803d"); }
+      else {
+        // O MOTIVO volta ao modelo (via `_execLabels`), para ele reagir — perguntar
+        // qual das opções, refinar o termo — em vez de só repetir "não consegui".
+        var motivo = r && r.motivo ? " — " + r.motivo : "";
+        var cands = r && r.candidatos && r.candidatos.length ? " Opções: " + r.candidatos.join(" · ") : "";
+        statusMsg("⚠️ Não consegui " + nome.toLowerCase() + "“" + a.label + "”" + motivo, "#b45309");
+        _turnActed = true;
+        _execLabels.push("NÃO conseguiu preencher “" + a.label + "”" + motivo + "." + cands);
+      }
+      // Campos em CASCATA: preencher/marcar um campo pode disparar o carregamento
+      // (AJAX) das opções do campo dependente. Se há mais ações na fila, espera o
+      // dependente assentar antes da próxima — senão o filho ainda estaria vazio.
+      var mudouValor = ok && (a.tipo === "fill" || a.tipo === "check");
+      if (mudouValor && _acoes.length > 0) setTimeout(proximaAcao, ehLovFill ? 900 : 550);
+      else proximaAcao();
+    });
   }
   // ── Filtro do IR: se JÁ existe filtro ativo e a IA vai aplicar uma NOVA busca pela
   // barra de pesquisa, pergunta se limpa o filtro atual antes (evita empilhar filtros).
@@ -2086,7 +2334,10 @@
     }
     if (!el) { statusMsg("⚠️ Não encontrei “" + a.label + "” na tela.", "#b45309"); proximaAcao(); return; }
     if (a.tipo === "check" || ehVisualizacao(a.label, el)) { execDireto(a, el); return; }
-    cardConfirmar(a, el); // clique que grava/navega → confirma
+    // GRAVA ou DESTRÓI (Criar/Salvar/Apply Changes/Excluir…) → modal na página com o
+    // resumo dos dados. O cartão do chat é fácil demais de aceitar no automático.
+    if (RX_COMMIT.test(a.label || "") || (el.type || "").toLowerCase() === "submit") { confirmarGravacao(a, el); return; }
+    cardConfirmar(a, el); // demais cliques que navegam → confirmação simples
   }
   // Fila esvaziada: se a IA agiu, re-varre a tela e pede que ela dê o PRÓXIMO passo
   // (menus/janelas do APEX abrem em etapas), até concluir ou bater o teto.
@@ -2102,6 +2353,154 @@
     // APEX) antes de re-varrer, senão o item recém-revelado ainda não apareceu.
     setTimeout(function () { if (!_loopCancel) ask(undefined, undefined, { continuation: true, loopStep: true }); }, 550);
   }
+  // ══ CONFIRMAÇÃO DE GRAVAÇÃO ═════════════════════════════════════════════════
+  // Criar / Salvar / Apagar / Apply Changes gravam ou destroem dado. Um cartãozinho
+  // no chat, fácil de aceitar no automático, é pouco para isso: aqui vai uma MODAL
+  // sobre a página, com o RESUMO do que será gravado, para o usuário conferir antes.
+  // "Novo"/"Nova" e "Aplicar" sozinhos ficam DE FORA: normalmente navegam (abrem um
+  // formulário em branco) ou aplicam um FILTRO — resumir os dados da tela ali seria
+  // ruído, e o resumo mostraria a tela ANTIGA. "Apply Changes" entra como frase.
+  var RX_COMMIT = new RegExp(
+    "\\b(" +
+      "criar|cria|create|cadastrar|cadastra|incluir|inclui|adicionar|adiciona|inserir|insere|" +
+      "salvar|salva|save|gravar|grava|guardar|" +
+      "apply\\s*changes|aplicar\\s*(altera|mudan)|submeter|submete|submit|enviar|envia|" +
+      "excluir|exclui|apagar|apaga|deletar|deleta|delete|remover|remove|" +
+      "finalizar|finaliza|efetivar|efetiva|confirmar|confirma|processar|processa" +
+    ")\\b", "i");
+
+  /** A ação DESTRÓI dado? Muda o tom e o rótulo do botão da modal. */
+  var RX_DESTRUTIVA = /\b(excluir|exclui|apagar|apaga|deletar|deleta|delete|remover|remove)\b/i;
+
+  /**
+   * RESUMO do que está preenchido na tela AGORA — "Rótulo: valor".
+   *
+   * Reusa o mesmo `scanFields` que já alimenta a IA, então enxerga exatamente os
+   * campos que ela enxerga (inclusive popup LOV, que é readonly). Só campos com
+   * valor: uma lista de 60 linhas vazias não ajuda ninguém a conferir.
+   */
+  function resumoCamposPreenchidos() {
+    try {
+      return (scanFields() || [])
+        .filter(function (f) {
+          if (!f || f.type === "botao") return false;
+          var v = String(f.value == null ? "" : f.value).trim();
+          if (!v) return false;
+          if (f.type === "checkbox" || f.type === "radio") return v !== "false" && v !== "0";
+          return true;
+        })
+        .map(function (f) { return { label: f.label || "(sem rótulo)", valor: String(f.value).slice(0, 200) }; });
+    } catch { return []; }
+  }
+
+  /**
+   * Modal de confirmação com o resumo. `onDecisao(true)` = prosseguir.
+   *
+   * A modal vive no shadow root (como as outras do widget), então o CSS do sistema
+   * não a alcança nem vice-versa, e ela fica acima de qualquer coisa do APEX.
+   */
+  function modalConfirmarGravacao(a, itens, onDecisao) {
+    var destrutiva = RX_DESTRUTIVA.test(a.label || "");
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var acento = destrutiva ? "#b42318" : pc;
+    var m = widgetModal((destrutiva ? "Confirmar exclusão" : "Confirmar antes de gravar"), { wide: true });
+    var decidido = false;
+    function decidir(ok) {
+      if (decidido) return;
+      decidido = true;
+      m.fechar();
+      onDecisao(ok);
+    }
+
+    var intro = document.createElement("div");
+    intro.style.cssText = "font-size:13.5px;color:#333;line-height:1.5;margin-bottom:10px;";
+    intro.textContent = destrutiva
+      ? "Vou clicar em “" + a.label + "”. Esta ação REMOVE dados e normalmente não pode ser desfeita. Confira antes de prosseguir:"
+      : "Vou clicar em “" + a.label + "”. Confira os dados que serão gravados:";
+    m.body.appendChild(intro);
+
+    if (itens.length) {
+      var lista = document.createElement("div");
+      // Região de scroll: um formulário do APEX pode ter dezenas de campos.
+      lista.style.cssText =
+        "max-height:46vh;overflow-y:auto;overscroll-behavior:contain;border:1px solid #e9e6f0;border-radius:12px;" +
+        "background:#faf9fc;padding:4px 0;";
+      itens.forEach(function (it, i) {
+        var linha = document.createElement("div");
+        linha.style.cssText =
+          "display:flex;gap:10px;align-items:baseline;padding:7px 12px;font-size:13px;" +
+          (i ? "border-top:1px solid #efecf5;" : "");
+        var lb = document.createElement("span");
+        lb.style.cssText = "flex:0 0 40%;min-width:0;color:#6b6577;font-weight:600;word-break:break-word;";
+        lb.textContent = it.label;
+        var vl = document.createElement("span");
+        vl.style.cssText = "flex:1;min-width:0;color:#1a1a1f;word-break:break-word;white-space:pre-wrap;";
+        vl.textContent = it.valor;
+        linha.appendChild(lb); linha.appendChild(vl);
+        lista.appendChild(linha);
+      });
+      m.body.appendChild(lista);
+      var cont = document.createElement("div");
+      cont.style.cssText = "font-size:11.5px;color:#8a8496;margin-top:7px;";
+      cont.textContent = itens.length + " campo(s) preenchido(s) na tela.";
+      m.body.appendChild(cont);
+    } else {
+      // Sem campo preenchido não há o que resumir — e o silêncio seria pior: diz isso.
+      var vazio = document.createElement("div");
+      vazio.style.cssText = "font-size:13px;color:#8a8496;border:1px dashed #ddd8e6;border-radius:12px;padding:12px;background:#faf9fc;";
+      vazio.textContent = "Não há campos preenchidos nesta tela para eu resumir. Confira a tela antes de confirmar.";
+      m.body.appendChild(vazio);
+    }
+
+    var acts = document.createElement("div");
+    acts.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;";
+    function botao(txt, primario) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = txt;
+      b.style.cssText =
+        "font-size:13px;font-weight:700;padding:9px 16px;border-radius:11px;cursor:pointer;min-height:40px;" +
+        (primario
+          ? "background:" + acento + ";color:#fff;border:1px solid " + acento + ";"
+          : "background:#fff;color:#555;border:1px solid #ddd8e6;");
+      return b;
+    }
+    var nao = botao("Cancelar", false);
+    var sim = botao(destrutiva ? "Excluir mesmo assim" : "Confirmar e " + (a.label || "gravar"), true);
+    nao.addEventListener("click", function () { decidir(false); });
+    sim.addEventListener("click", function () { decidir(true); });
+    acts.appendChild(nao); acts.appendChild(sim);
+    m.body.appendChild(acts);
+    try { nao.focus(); } catch { } // foco no seguro, não no que grava
+    // Fechar pelo × ou pelo fundo = NÃO prosseguir.
+    m.ov.addEventListener("click", function (e) { if (e.target === m.ov) decidir(false); });
+    var obs = null;
+    try {
+      obs = new MutationObserver(function () {
+        if (!m.ov.isConnected && !decidido) { obs.disconnect(); decidir(false); }
+      });
+      obs.observe((messagesEl.getRootNode && messagesEl.getRootNode()) || document.body, { childList: true });
+    } catch { }
+  }
+
+  /** Ponte entre a fila de ações e a modal — mantém o fluxo do `proximaAcao`. */
+  function confirmarGravacao(a, el) {
+    highlightField(el);
+    modalConfirmarGravacao(a, resumoCamposPreenchidos(), function (ok) {
+      unhighlightField(el);
+      if (!ok) {
+        _loopCancel = true; // cancelar interrompe o loop autônomo
+        statusMsg("Cancelado: “" + a.label + "”", "#6b7280");
+        _execLabels.push("o usuário CANCELOU “" + a.label + "” na confirmação");
+        proximaAcao();
+        return;
+      }
+      var okClique = clickElement(el);
+      if (okClique) { registrarExec(a); statusMsg("✅ Cliquei em “" + a.label + "”", "#15803d"); }
+      else statusMsg("⚠️ Não consegui clicar em “" + a.label + "”", "#b45309");
+      proximaAcao();
+    });
+  }
+
   // Card compacto que se ATUALIZA no lugar (título + valor + ações). Confirma
   // preenchimentos, marcações e cliques que gravam/navegam. Evita poluir o chat.
   function cardConfirmar(a, el) {
@@ -2153,9 +2552,23 @@
     var nao = botao(a.tipo === "fill" ? "Escolher outro campo" : "Cancelar", false);
     sim.addEventListener("click", function () {
       unhighlightField(el);
-      var ok = a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el);
-      if (ok) registrarExec(a);
-      encerrar(ok ? okTxt : falhaTxt, ok ? "#15803d" : "#b45309");
+      // Popup LOV também aqui: o caminho com confirmação usa a MESMA sequência
+      // assíncrona (abrir → pesquisar → esperar → escolher).
+      var passo = a.tipo === "fill" && ehPopupLov(el)
+        ? preencherPopupLov(el, a.valor)
+        : Promise.resolve({
+            ok: a.tipo === "fill" ? fillField(el, a.valor, a.valores) : a.tipo === "check" ? checkOption(el, a.marcar) : clickElement(el),
+          });
+      passo.then(function (r) {
+        var ok = !!(r && r.ok);
+        if (ok) registrarExec(a);
+        else if (r && r.motivo) {
+          _turnActed = true;
+          _execLabels.push("NÃO conseguiu preencher “" + a.label + "” — " + r.motivo +
+            (r.candidatos && r.candidatos.length ? ". Opções: " + r.candidatos.join(" · ") : ""));
+        }
+        encerrar(ok ? okTxt : falhaTxt + (r && r.motivo ? " — " + r.motivo : ""), ok ? "#15803d" : "#b45309");
+      });
     });
     nao.addEventListener("click", function () {
       unhighlightField(el);

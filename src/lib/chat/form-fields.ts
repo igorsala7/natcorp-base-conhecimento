@@ -250,14 +250,15 @@ export function formAssistDirective(flags: FormAssistFlags = {}): string {
     "do campo. Se o valor pedido não couber no tipo do campo, AVISE o usuário em vez de forçar um valor inválido.\n" +
     // ── SITUACIONAL: POPUP LOV (só quando há campo "lista de valores") ───────
     g(flags.temLov,
-      "LISTAS DE VALORES: um SELECT nativo (tipo lista) você preenche direto — preencher_campo casa por CÓDIGO ou por NOME. " +
-      "Já um POPUP LOV (campo do tipo \"lista de valores\", que abre uma JANELA de busca) NÃO se preenche digitando: primeiro " +
-      "CLIQUE para abrir a janela (o campo ou o botão de lupa ao lado), espere ela aparecer, PESQUISE pelo termo do pedido no " +
-      "campo de busca da janela e então SELECIONE (clique) o resultado que faz sentido para o pedido. Faça um passo por vez — " +
-      "o sistema re-varre a tela entre eles e te devolve os resultados carregados. Ao pedirem para preencher um POPUP LOV com " +
-      "um valor, NÃO descreva o procedimento nem espere um segundo pedido: INICIE a sequência JÁ AGORA (clicar_elemento para " +
-      "abrir) e conduza-a até o fim SOZINHO — o loop autônomo te devolve a janela aberta, aí você digita a busca (preencher_campo " +
-      "no campo de pesquisa da janela) e no passo seguinte clica no resultado que atende ao pedido.\n") +
+      "LISTAS DE VALORES: tanto o SELECT nativo quanto o POPUP LOV (campo \"lista de valores\", que abre uma janela de busca) " +
+      "você preenche com UMA chamada de preencher_campo, passando o valor pedido — o CÓDIGO ou o NOME, como o usuário disse. " +
+      "No popup LOV o SISTEMA faz a sequência inteira sozinho: abre a janela, pesquisa o termo, ESPERA a lista voltar e " +
+      "seleciona o item. Você NÃO clica na lupa, NÃO digita no campo de busca da janela e NÃO escolhe o item passo a passo — " +
+      "fazer isso à mão atrapalha a sequência automática. Chame preencher_campo UMA vez, com o campo e o valor.\n" +
+      "Se a resposta vier com NÃO CONSEGUIU, o motivo diz o que fazer: \"mais de uma opção casa\" vem com a lista de opções — " +
+      "mostre-as ao usuário e pergunte qual, em UMA frase; \"nenhum resultado\" ou \"nenhum item corresponde\" significa que o " +
+      "termo não existe naquela lista — mostre as opções que vieram e peça o valor certo. NUNCA repita a mesma chamada " +
+      "esperando resultado diferente, e NUNCA invente um código que não estava na lista.\n") +
     // ── NÚCLEO: identificar o campo ──────────────────────────────────────────
     "IDENTIFICAR O CAMPO: primeiro procure o campo cujo rótulo corresponde ao que o usuário pediu. Se NÃO existir um campo " +
     "para aquilo, use a coluna do relatório (Interactive Report/Grid) — clique no cabeçalho da coluna ou em Ações → Filtro.\n" +
@@ -286,6 +287,11 @@ export function formAssistDirective(flags: FormAssistFlags = {}): string {
     "use apenas os elementos que aparecem em ELEMENTOS DA TELA). Faça só o que o usuário indicou; não aproveite para mexer " +
     "em outros elementos. Ações que GRAVAM, ENVIAM, EXCLUEM ou NAVEGAM pedem a confirmação do usuário antes de executar " +
     "(o sistema cuida disso) — chame a ferramenta direto, sem pedir confirmação em texto.\n" +
+    "GRAVAR/EXCLUIR (Criar, Salvar, Apply Changes, Excluir, Apagar…): o sistema abre uma MODAL na tela com o RESUMO dos " +
+    "campos preenchidos e só clica depois que o usuário confirmar ali. Portanto NÃO pergunte em texto \"posso salvar?\" nem " +
+    "liste os dados na resposta para ele conferir — isso vira confirmação dupla e atrasa. Chame clicar_elemento direto; a " +
+    "modal faz a conferência. Se a resposta disser que o usuário CANCELOU, não insista nem tente de novo: pergunte o que " +
+    "ele quer ajustar.\n" +
     "AUTONOMIA (execute a tarefa INTEIRA sozinho): muitas telas do APEX abrem em ETAPAS — primeiro você clica num botão " +
     "(ex.: \"Ações\"), aí surgem NOVOS itens (ex.: \"Formatar\" → \"Destacar\"), e só então aparece a JANELA com os campos " +
     "(cor, coluna, operador, expressão) e o botão \"Aplicar\". A cada ação que você executa, o sistema REVARRE a tela e te " +
