@@ -29,6 +29,23 @@ export function toolNoRecorte(tags: ModuleTag[], selecionados: ModuleTag[]): boo
   return false;
 }
 
+/**
+ * ALGUMA ferramenta do catálogo cobre o recorte escolhido?
+ *
+ * O vocabulário do classificador é montado só com as tags de tools ATIVAS. Quando um
+ * módulo fica sem nenhuma ativa (aconteceu com 11 combinações ao desativar 36% do
+ * catálogo), ele some do vocabulário e o classificador escolhe o vizinho plausível —
+ * e o recorte passa a cortar exatamente a ferramenta certa. Sem cobertura, o recorte
+ * não tem o que estreitar e deve ser ignorado.
+ *
+ * A pergunta certa é "alguma tool CASOU o recorte", não "sobrou alguma tool": tools sem
+ * tag passam o recorte sempre, então testar lista vazia nunca dispararia.
+ */
+export function recorteTemCobertura(tagsPorTool: ModuleTag[][], recorte: ModuleTag[]): boolean {
+  if (!recorte.length) return true;
+  return tagsPorTool.some((tags) => tags.length > 0 && toolNoRecorte(tags, recorte));
+}
+
 /** Vocabulário compacto: submódulos agrupados por módulo (entra no prompt). */
 export function vocabularioDeModulos(tags: ModuleTag[]): { modulo: string; submodulos: string[] }[] {
   const map = new Map<string, { modulo: string; subs: Set<string> }>();

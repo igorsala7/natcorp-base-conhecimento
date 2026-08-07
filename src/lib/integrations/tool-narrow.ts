@@ -23,6 +23,8 @@ export type ToolLite = {
   name: string;
   description: string;
   alwaysInclude: boolean;
+  /** Sinônimos/exemplos de frase (`ai_tools.search_terms`) — vocabulário do usuário. */
+  searchTerms?: string | null;
   /** Desempate numérico — só vale entre tools do MESMO `grupo`. 0 = neutro. */
   prioridade?: number;
   /** Rótulo que delimita onde a prioridade compete (ai_tools.grupo_ambiguidade). */
@@ -62,9 +64,13 @@ function termos(s: string): string[] {
  * embedding já opinou); no corte por MÓDULO exigimos 2, senão qualquer tool com
  * "pessoal" ou "requisição" no nome voltaria e o recorte perderia o sentido.
  */
-export function forcaLexical(nome: string, chave: string, question: string): number {
+export function forcaLexical(nome: string, chave: string, question: string, sinonimos?: string | null): number {
   const qs = new Set(termos(question));
-  const alvo = new Set([...termos(nome), ...termos(chave)]);
+  // `search_terms` entra aqui porque é EXATAMENTE o vocabulário do usuário. Sem ele,
+  // "me traga o histórico de cargos e salário dela" não resgatava a Linha do Tempo:
+  // o nome dela ("Linha do tempo do colaborador") não divide uma única palavra com a
+  // pergunta, então a tool dependia só do vetor — e perdia para "Histórico financeiro".
+  const alvo = new Set([...termos(nome), ...termos(chave), ...termos(sinonimos ?? "")]);
   let n = 0;
   for (const t of alvo) if (qs.has(t)) n++;
   return n;
@@ -88,6 +94,48 @@ const ANTIFLOOD_N = 3; // nada passou o piso → top-N por sim (NUNCA despeja o 
  * numa pergunta agregada, onde nenhuma das duas é a melhor da vez.
  */
 const FAIXA_DISPUTA = 0.05;
+
+/**
+ * PISO ADAPTATIVO — o `MIN_SEM` deixa de ser piso e vira TETO do piso.
+ *
+ * Por que: o 0.60 foi calibrado com o catálogo cheio. Quando as ferramentas que
+ * ancoravam o topo saem do ar (desativadas, sem embedding, cortadas por escopo), o
+ * `topSim` do turno despenca, o piso absoluto passa a mandar sozinho e NADA passa —
+ * aí o anti-inundação entrega as 3 melhores por similaridade, que podem estar em
+ * 0.5x, como se fossem certas. Foi exatamente o que aconteceu quando 36% do catálogo
+ * foi desativado: "quantos colaboradores ativos" deixou de casar 0.75 e passou a
+ * receber a ferramenta genérica de cadastro.
+ *
+ * O piso multiplicativo é SEMPRE mais apertado que o aditivo para `topSim < 1`
+ * (`topSim·0.92 > topSim − 0.08`), então a banda ENCOLHE proporcionalmente quando
+ * tudo é fraco — o oposto de "passa tudo". Turno saudável não muda em nada:
+ * topSim 0.75 → 0.67 antes e depois.
+ */
+const PISO_FATOR = 0.92;
+/** Afrouxou o piso? Então limite a QUANTIDADE — banda maior não pode virar enxurrada. */
+const MAX_FRACO = 4;
+
+export function pisoAdaptativo(
+  topSim: number,
+  absoluto: number,
+  margem: number,
+): { piso: number; adaptativo: boolean } {
+  if (process.env.TOOL_PISO_ADAPTATIVO === "0") {
+    return { piso: Math.max(absoluto, topSim - margem), adaptativo: false };
+  }
+  const pisoAbs = Math.min(absoluto, topSim * PISO_FATOR);
+  return { piso: Math.max(pisoAbs, topSim - margem), adaptativo: pisoAbs < absoluto };
+}
+
+/** Diagnóstico da seleção semântica — alimenta o trace e a diretriz de baixa confiança. */
+export type InfoSelecao = {
+  topSim: number;
+  piso: number;
+  adaptativo: boolean;
+  /** Nem a melhor ferramenta do turno chegou ao piso absoluto: o assunto pode não ter dono. */
+  fraco: boolean;
+  keys: string[];
+};
 
 // ── Seleção MULTI-FACETA (pergunta com várias intenções) ─────────────────────
 const POR_FACETA = 3; // quantas ferramentas cada faceta garante para si
@@ -118,7 +166,9 @@ export function selecionarPorFaceta(
     const simDe = (t: ToolLite) => sim.get(t.key) ?? 0;
     const topo = candidatas.reduce((m, t) => Math.max(m, simDe(t)), 0);
     if (topo <= 0) continue;
-    const piso = Math.max(MIN_SEM_FACETA, topo - MARGEM_FACETA);
+    // Mesmo piso adaptativo do caminho simples: a erosão do catálogo derruba a
+    // faceta fraca do mesmo jeito, e uma faceta sem candidata é um assunto perdido.
+    const { piso } = pisoAdaptativo(topo, MIN_SEM_FACETA, MARGEM_FACETA);
     rodadas.push(
       candidatas
         .filter((t) => simDe(t) >= piso)
@@ -259,8 +309,14 @@ export function selecionarTopK(
   sim?: Map<string, number> | null,
   /** COMPOSTO (multi-intenção): afrouxa piso/margem p/ não cortar co-intenções. */
   relax = false,
-  /** Desempate de ambiguidade: regras pareadas + callback para o trace. */
-  desempate?: { regras?: RegraDesempate[]; onCorte?: (cortes: CorteDesempate[]) => void },
+  /** Desempate de ambiguidade: regras pareadas + callback para o trace.
+   *  `onSelecao` reporta a QUALIDADE da seleção — sem isso o modelo recebia
+   *  ferramentas a 0.5x sem nenhum sinal de que eram fracas. */
+  desempate?: {
+    regras?: RegraDesempate[];
+    onCorte?: (cortes: CorteDesempate[]) => void;
+    onSelecao?: (info: InfoSelecao) => void;
+  },
   /**
    * MULTI-FACETA: um Map de similaridade POR INTENÇÃO da pergunta (ver facets.ts).
    * Com 2+ facetas, cada uma garante as suas melhores e as essenciais deixam de
@@ -307,18 +363,26 @@ export function selecionarTopK(
     const naoForcadas = tools.filter((t) => !forcada(t));
     const topSim = naoForcadas.reduce((m, t) => Math.max(m, simDe(t)), 0);
     if (topSim > 0) {
-      const piso = Math.max(relax ? MIN_SEM_RELAX : MIN_SEM, topSim - (relax ? MARGEM_SEM_RELAX : MARGEM_SEM));
-      const lexForte = (t: ToolLite) => forcaLexical(t.name, "", question) >= 1;
+      const absoluto = relax ? MIN_SEM_RELAX : MIN_SEM;
+      const { piso, adaptativo } = pisoAdaptativo(topSim, absoluto, relax ? MARGEM_SEM_RELAX : MARGEM_SEM);
+      const lexForte = (t: ToolLite) => forcaLexical(t.name, "", question, t.searchTerms) >= 1;
       let cand = naoForcadas
         .filter((t) => simDe(t) >= piso || lexForte(t))
         .sort((a, b) => simDe(b) - simDe(a));
+      // Piso afrouxado = turno fraco: mais banda, porém quantidade travada.
+      if (adaptativo) cand = cand.slice(0, MAX_FRACO);
       if (!cand.length) cand = naoForcadas.slice().sort((a, b) => simDe(b) - simDe(a)).slice(0, ANTIFLOOD_N);
       // DESEMPATE antes do teto: a vaga que a perdedora libera vai para a próxima
       // melhor, em vez de virar espaço morto.
       cand = desempatar(cand, simDe);
       const keep = new Set<string>();
       for (const t of tools) if (forcada(t)) keep.add(t.key); // essenciais/forçadas: sempre
-      for (const t of cand) { if (keep.size >= max) break; keep.add(t.key); }
+      // As forçadas NÃO consomem a cota — mesma regra do caminho multi-faceta. Elas
+      // são 5 e entram com similaridade de ruído (0.46–0.62); dentro do teto de 12
+      // sobravam 7 vagas para o que a pergunta realmente pede.
+      let n = 0;
+      for (const t of cand) { if (n >= max) break; keep.add(t.key); n++; }
+      desempate?.onSelecao?.({ topSim, piso, adaptativo, fraco: topSim < absoluto, keys: [...keep] });
       return keep;
     }
     // topSim == 0 (tools fora do catálogo semântico) → cai no modo lexical abaixo.

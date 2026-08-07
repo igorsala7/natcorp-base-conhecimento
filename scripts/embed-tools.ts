@@ -28,7 +28,7 @@ async function main() {
   const db = createClient<Database>(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } });
   const todas = process.argv.includes("--all");
 
-  const { data: tools, error } = await db.from("ai_tools").select("id, name, description, embedding, search_terms, response_hint");
+  const { data: tools, error } = await db.from("ai_tools").select("id, key, name, description, embedding, search_terms, response_hint");
   if (error) {
     console.error("Falha ao ler ai_tools:", error.message);
     process.exit(1);
@@ -39,9 +39,14 @@ async function main() {
     console.log("Nada a fazer.");
     return;
   }
+  // Chaves de TODAS as tools: uma frase que cita outra ferramenta é orquestração e
+  // sai do vetor — era o que fazia "recibo de pagamento" vencer "histórico financeiro".
+  const todasChaves = new Set((tools ?? []).map((t) => String(t.key).toLowerCase()));
   let ok = 0;
   for (const t of alvo) {
-    await syncToolEmbedding(db, t.id, t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint });
+    const outras = new Set(todasChaves);
+    outras.delete(String(t.key).toLowerCase());
+    await syncToolEmbedding(db, t.id, t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint, chavesDeOutras: outras });
     ok++;
     process.stdout.write(`\r  ${ok}/${alvo.length}`);
   }

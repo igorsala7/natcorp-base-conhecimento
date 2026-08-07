@@ -15,6 +15,10 @@ export type RuntimeTool = {
   auth_type: AuthType;
   params: ToolParam[];
   response_hint?: string | null;
+  /** Sinônimos e exemplos de frase do usuário (`ai_tools.search_terms`). Alimentam o
+   *  embedding E o resgate LEXICAL — sem eles, uma tool cujo NOME não compartilha
+   *  palavra com a pergunta depende 100% do vetor para sobreviver ao recorte. */
+  search_terms?: string | null;
   /** Envelope do corpo: null/'object'={...}; 'array'=[{...}]; 'wrap:<chave>'={<chave>:[{...}]}. */
   body_mode?: string | null;
   /** Nome de um guard no servidor rodado ANTES da chamada (ver guards.ts). */

@@ -10,11 +10,12 @@ import { redigirCredenciais } from "./redact-fields";
 import { resolveIdentity } from "./identity-resolver";
 import { perfilAtende, acessoFerramenta } from "./gating";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
+import { recorteTemCobertura } from "./module-match";
 import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
-import { selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
+import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
@@ -37,6 +38,15 @@ export type IntegrationBundle = {
   agentPrompt: string;
   /** Nome do agente que virou persona (para diagnóstico/log). `null` se nenhum. */
   agentName?: string | null;
+  /** Chaves marcadas como ESSENCIAIS (`always_include`) — sobrevivem até ao modo
+   *  relatório, onde o resto das integrações é cortado. São a origem canônica de
+   *  cadastro (colaborador, empresa, filial): sem elas, "quem são essas pessoas?"
+   *  vira uma pergunta sem resposta possível. */
+  essenciais?: string[];
+  /** NENHUMA ferramenta do turno casou bem com o pedido (topo abaixo do piso absoluto).
+   *  O assunto pode simplesmente não ter ferramenta — o modelo precisa saber disso em
+   *  vez de apresentar o resultado de uma tool fraca como se fosse a resposta. */
+  selecaoFraca?: { topSim: number; keys: string[] } | null;
 };
 
 /**
@@ -108,7 +118,19 @@ export async function buildIntegrationTools(
     // PERSONA/capacidades ainda são montadas abaixo; as tools são cortadas na rota.
     onPasso?.("integracoes:analise", { pulado: true, motivo: "operação de tela (persona sem análise-LLM)" });
   }
-  const routingAtivo = recorte.length > 0;
+  // RECORTE ÓRFÃO: o vocabulário do classificador vem só das tags de tools ATIVAS, então
+  // quando um módulo fica sem nenhuma tool ativa ele SOME do vocabulário e o classificador
+  // escolhe o vizinho plausível — cujo recorte corta justamente a ferramenta certa. Se
+  // NENHUMA tool do catálogo cobre o recorte escolhido, ele não tem o que estreitar:
+  // ignorar é estritamente melhor que cortar por um assunto que não existe mais.
+  let routingAtivo = recorte.length > 0;
+  if (routingAtivo && !recorteTemCobertura(ctx.tools.map((t) => t.modules), recorte)) {
+    onPasso?.("integracoes:recorte_orfao", {
+      recorte: recorte.map((m) => m.modulo),
+      acao: "ignorado (nenhuma ferramenta ativa neste assunto)",
+    });
+    routingAtivo = false;
+  }
   /** Ferramentas que o recorte cortaria e o nome na pergunta trouxe de volta (trace). */
   const resgatadasDoRecorte: string[] = [];
 
@@ -261,7 +283,7 @@ export async function buildIntegrationTools(
       bt.modules.length > 0 &&
       !toolNoRecorte(bt.modules, recorte)
     ) {
-      if (forcaLexical(bt.tool.name, bt.tool.key, question ?? "") < 2) continue;
+      if (forcaLexical(bt.tool.name, bt.tool.key, question ?? "", bt.tool.search_terms) < 2) continue;
       resgatadasDoRecorte.push(bt.tool.key);
     }
     // ESCOPO POR PAINEL (PO/PG/PC): "nenhum" tira a tool do painel; "próprios"/"equipe"
@@ -303,11 +325,15 @@ export async function buildIntegrationTools(
   // perdedora sai do turno (regra pareada ou prioridade no grupo) — senão as duas
   // chegam ao modelo e o erro de escolha vira dele. Vai para o trace.
   const cortesDesempate: CorteDesempate[] = [];
+  // QUALIDADE da seleção: sem isto o modelo recebia ferramentas a 0.5x sem nenhum
+  // sinal de que eram fracas — e respondia como se fossem as certas.
+  const diag: { selecao: InfoSelecao | null } = { selecao: null };
   const manter = selecionarTopK(
     elegiveisTools.map((e) => ({
       key: e.bt.tool.key,
       name: e.bt.tool.name,
       description: e.bt.tool.description ?? "",
+      searchTerms: e.bt.tool.search_terms ?? null,
       alwaysInclude: e.bt.alwaysInclude,
       prioridade: e.bt.prioridade,
       grupo: e.bt.grupoAmbiguidade,
@@ -317,7 +343,7 @@ export async function buildIntegrationTools(
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
     sim,
     relaxComposto,
-    { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs) },
+    { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs), onSelecao: (i) => { diag.selecao = i; } },
     multiFaceta ? facetasSim.map((f) => f.sim) : null,
   );
   if (cortesDesempate.length) {
@@ -371,7 +397,9 @@ export async function buildIntegrationTools(
   }
 
   // ── 3) BUILD: monta o toolset do AI SDK só das ferramentas selecionadas ────────
+  const essenciais: string[] = [];
   for (const { bt, escopo, paramsEscopo, loopEscopo } of selecionadas) {
+    if (bt.alwaysInclude) essenciais.push(bt.tool.key);
     if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
@@ -666,5 +694,14 @@ export async function buildIntegrationTools(
   const agentPrompt = agentePersona?.system_prompt?.trim() || "";
 
   onPasso?.("integracoes", { resultado: "tools montadas", tools: Object.keys(tools), recorte: recorte.map((m) => m.modulo) });
-  return { tools, capabilities, agentPrompt, agentName: agentePersona?.name ?? null };
+  const _sel = diag.selecao;
+  if (_sel?.fraco) onPasso?.("integracoes:selecao_fraca", { top_sim: Number(_sel.topSim.toFixed(3)), piso: Number(_sel.piso.toFixed(3)), tools: _sel.keys });
+  return {
+    tools,
+    capabilities,
+    agentPrompt,
+    agentName: agentePersona?.name ?? null,
+    essenciais,
+    selecaoFraca: _sel?.fraco ? { topSim: _sel.topSim, keys: _sel.keys } : null,
+  };
 }

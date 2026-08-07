@@ -84,11 +84,52 @@ describe("selecionarTopK — modo SEMÂNTICO (sim)", () => {
     expect(keep.has("cnpj")).toBe(true); // resgatada pelo termo "cnpj" no nome
   });
 
-  it("anti-INUNDAÇÃO: nada acima do piso → só o top-N por sim (não o módulo inteiro)", () => {
+  /**
+   * ANTES: nada passava o piso absoluto (0.60) e o anti-inundação entregava as 3
+   * melhores por ordenação CEGA — inclusive uma a 0.50, longe do topo, como se fosse
+   * relevante. AGORA o piso acompanha a distribuição: topo 0.55 → piso 0.506, então
+   * passam as que estão de fato PERTO do topo (0.55 e 0.52) e não um número fixo.
+   * Foi o que quebrou quando 36% do catálogo saiu do ar e o topo despencou.
+   */
+  it("turno FRACO: passa quem está perto do topo, não um top-N fixo", () => {
     const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie"), T("t4", "Delta"), T("t5", "Echo")];
     const sim = new Map([["t1", 0.55], ["t2", 0.52], ["t3", 0.5], ["t4", 0.48], ["t5", 0.45]]);
     const keep = selecionarTopK(tools, "zzz", 12, undefined, sim);
-    expect(keep).toEqual(new Set(["t1", "t2", "t3"])); // ANTIFLOOD_N = 3
+    expect(keep).toEqual(new Set(["t1", "t2"]));
+  });
+
+  it("turno fraco avisa que é fraco (o modelo precisa saber)", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo")];
+    const sim = new Map([["t1", 0.55], ["t2", 0.52]]);
+    let info: { topSim: number; fraco: boolean; adaptativo: boolean } | null = null;
+    selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onSelecao: (i) => { info = i; } });
+    expect(info).not.toBeNull();
+    expect(info!.fraco).toBe(true);
+    expect(info!.adaptativo).toBe(true);
+  });
+
+  it("turno SAUDÁVEL não muda nada — prova de não-regressão do piso adaptativo", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie")];
+    const sim = new Map([["t1", 0.75], ["t2", 0.68], ["t3", 0.61]]);
+    let info: { fraco: boolean; adaptativo: boolean; piso: number } | null = null;
+    const keep = selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onSelecao: (i) => { info = i; } });
+    // piso = max(min(0.60, 0.69), 0.67) = 0.67 — idêntico ao de antes.
+    expect(info!.piso).toBeCloseTo(0.67, 5);
+    expect(info!.adaptativo).toBe(false);
+    expect(info!.fraco).toBe(false);
+    expect(keep).toEqual(new Set(["t1", "t2"]));
+  });
+
+  it("essenciais NÃO consomem a cota (mesma regra do caminho multi-faceta)", () => {
+    const forcadas = ["e1", "e2", "e3", "e4", "e5"].map((k) => T(k, k.toUpperCase(), "", true));
+    const outras = Array.from({ length: 20 }, (_, i) => T(`t${i}`, `Tool ${i}`));
+    const sim = new Map<string, number>();
+    forcadas.forEach((t) => sim.set(t.key, 0.5));
+    outras.forEach((t, i) => sim.set(t.key, 0.9 - i * 0.005));
+    const keep = selecionarTopK([...forcadas, ...outras], "zzz", 12, undefined, sim);
+    expect(keep.size).toBe(17); // 5 essenciais + 12 vagas reais (antes: 12 no total)
+    for (const t of forcadas) expect(keep.has(t.key)).toBe(true);
+    for (let i = 0; i < 12; i++) expect(keep.has(`t${i}`), `t${i}`).toBe(true);
   });
 
   it("forçadas (alwaysInclude) entram sempre, mesmo com sim baixíssimo", () => {
@@ -389,5 +430,40 @@ describe("forcaLexical — resgate do corte por módulo", () => {
 
   it("ignora acento e caixa", () => {
     expect(forcaLexical("Consultar Férias", "consultar_ferias", "quero CONSULTAR minhas ferias")).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * Caso real: "Me traga o histórico de cargos e salário dela" deveria cair na Linha do
+ * Tempo — e não caía. O nome dela ("Linha do tempo do colaborador") não divide UMA
+ * palavra com a pergunta, então ela dependia só do vetor e perdia para a ferramenta
+ * chamada "Histórico financeiro". Os sinônimos existiam em `search_terms`, mas o
+ * resgate lexical nunca os enxergava — o campo nem era carregado do banco.
+ */
+describe("forcaLexical enxerga os sinônimos", () => {
+  const PERGUNTA = "Me traga o histórico de cargos e salário dela";
+  const SINONIMOS = "histórico de cargos, histórico de salário, evolução salarial, progressão de carreira, mudanças de cargo";
+
+  it("sem sinônimos, o nome sozinho não resgata", () => {
+    expect(forcaLexical("Linha do tempo do colaborador", "linha_tempo", PERGUNTA)).toBeLessThan(2);
+  });
+
+  it("com sinônimos, passa o limiar do recorte (2 termos)", () => {
+    expect(forcaLexical("Linha do tempo do colaborador", "linha_tempo", PERGUNTA, SINONIMOS)).toBeGreaterThanOrEqual(2);
+  });
+
+  it("sinônimo irrelevante não infla o resgate", () => {
+    expect(forcaLexical("Consultar férias", "consultar_ferias", PERGUNTA, "saldo de férias, período aquisitivo")).toBe(0);
+  });
+
+  it("o resgate semântico também usa os sinônimos", () => {
+    const tools: ToolLite[] = [
+      { key: "historico_financeiro", name: "Histórico financeiro", description: "", alwaysInclude: false },
+      { key: "linha_tempo", name: "Linha do tempo do colaborador", description: "", alwaysInclude: false, searchTerms: SINONIMOS },
+    ];
+    // A linha do tempo está BEM abaixo do piso — só o resgate lexical a salva.
+    const sim = new Map([["historico_financeiro", 0.78], ["linha_tempo", 0.42]]);
+    const keep = selecionarTopK(tools, PERGUNTA, 12, undefined, sim);
+    expect(keep.has("linha_tempo")).toBe(true);
   });
 });

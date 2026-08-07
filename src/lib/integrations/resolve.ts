@@ -59,6 +59,8 @@ type EmbeddedRow = {
     auth_type: string;
     params: unknown;
     response_hint: string | null;
+    /** Sinônimos e exemplos de frase — o vocabulário do usuário para esta tool. */
+    search_terms: string | null;
     body_mode: string | null;
     guard: string | null;
     cache_ttl: number | null;
@@ -123,7 +125,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, prioridade, grupo_ambiguidade, panel_scope, exclude_self, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, search_terms, method, path_template, auth_type, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, prioridade, grupo_ambiguidade, panel_scope, exclude_self, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -167,6 +169,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
         auth_type: t.auth_type as AuthType,
         params: (t.params as ToolParam[]) ?? [],
         response_hint: t.response_hint,
+        search_terms: t.search_terms,
         body_mode: t.body_mode,
         guard: t.guard,
         cache_ttl: t.cache_ttl,

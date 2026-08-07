@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { entradasOntologia } from "@/lib/ai/ontology";
 import { selecionarFormasOntologia } from "./ontology-enrich";
+import { toolCatalogText } from "./tool-catalog-text";
 
 type DB = SupabaseClient<Database>;
 
@@ -16,25 +17,7 @@ type DB = SupabaseClient<Database>;
  * fonte do chat (relatório da tela × conhecimento da IA / qual tool).
  */
 
-/** Texto canônico embedado por tool (e reusado para embedar a mensagem do usuário). */
-export function toolCatalogText(
-  name: string,
-  description: string,
-  extra?: { searchTerms?: string | null; responseHint?: string | null },
-): string {
-  // Sinônimos/exemplos (search_terms) e o que a tool RETORNA (response_hint) enriquecem
-  // o embedding — o matching semântico passa a entender o vocabulário do usuário.
-  //
-  // O teto era 2000 e o corte cai no FIM — justamente onde ficam os sinônimos, que
-  // são a parte mais valiosa para o casamento (e a porta de entrada dos conceitos da
-  // ontologia). Uma tool já estourava. 4000 é o mesmo teto do vetor por base e cabe
-  // folgado na janela do modelo de embedding.
-  return [name, description, extra?.searchTerms, extra?.responseHint]
-    .map((s) => String(s ?? "").trim())
-    .filter(Boolean)
-    .join(" — ")
-    .slice(0, 4000);
-}
+export { semOrquestracao, toolCatalogText } from "./tool-catalog-text";
 
 /** Embedding de um texto (tool ou mensagem). Null em erro — nunca derruba o CRUD/chat. */
 export async function embedTexto(texto: string): Promise<number[] | null> {
@@ -67,7 +50,7 @@ export async function syncToolEmbedding(
   toolId: string,
   name: string,
   description: string,
-  extra?: { searchTerms?: string | null; responseHint?: string | null },
+  extra?: { searchTerms?: string | null; responseHint?: string | null; chavesDeOutras?: Set<string> },
 ): Promise<void> {
   const emb = await embedTexto(toolCatalogText(name, description, extra));
   if (!emb) return;
@@ -137,6 +120,14 @@ export async function syncToolBaseEmbeddings(
     .filter((t): t is Row => !!t && t.active)
     .filter((t) => !opts.toolIds?.length || opts.toolIds.includes(t.id));
   if (!tools.length) return zero;
+  // Chaves das OUTRAS ferramentas: o que aparecer numa descrição citando uma delas é
+  // orquestração, não assunto — sai do vetor (ver `semOrquestracao`).
+  const todasChaves = new Set(tools.map((t) => t.key.toLowerCase()));
+  const outrasChaves = (propria: string) => {
+    const s2 = new Set(todasChaves);
+    s2.delete(propria.toLowerCase());
+    return s2;
+  };
 
   const { data: atuais } = await db
     .from("ai_tool_base_embeddings")
@@ -152,7 +143,11 @@ export async function syncToolBaseEmbeddings(
   const entradas = spaceIds.length ? await entradasOntologia(db, spaceIds) : [];
   const textos = new Map<string, string>();
   for (const t of tools) {
-    textos.set(t.id, toolCatalogText(t.name, t.description, { searchTerms: t.search_terms, responseHint: t.response_hint }));
+    textos.set(t.id, toolCatalogText(t.name, t.description, {
+      searchTerms: t.search_terms,
+      responseHint: t.response_hint,
+      chavesDeOutras: outrasChaves(t.key),
+    }));
   }
   const formasPorTool = selecionarFormasOntologia(textos, entradas);
 
