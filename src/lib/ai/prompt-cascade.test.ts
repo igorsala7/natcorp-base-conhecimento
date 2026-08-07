@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildSystemPrompt,
-  withContext,
-  PERSONA_PADRAO,
-  REGRAS_ABSOLUTAS,
-  LIMITE_PERSONA,
-} from "./prompt-cascade";
+import { LIMITE_PERSONA, PERSONA_PADRAO, REGRAS_ABSOLUTAS, aparaPersona, buildSystemPrompt, resolvePersona, withContext } from "./prompt-cascade";
 
 describe("cascata do prompt", () => {
   it("sem personalização usa a persona padrão", () => {
@@ -70,5 +64,53 @@ describe("withContext", () => {
     const p = withContext(buildSystemPrompt({}), "[1] Artigo — trecho");
     expect(p).toContain("CONTEXTO:");
     expect(p.indexOf("REGRAS ABSOLUTAS")).toBeLessThan(p.indexOf("CONTEXTO:"));
+  });
+});
+
+/**
+ * A persona de fábrica se apresentava como "assistente de documentação" para um
+ * analista de folha — e o corte em N caracteres era cego e silencioso: quem escrevia
+ * 3.000 não tinha como saber que metade tinha ido embora no meio da frase.
+ */
+describe("persona de RH e corte por frase", () => {
+  it("vertical rh usa a persona de RH quando ninguém personalizou", () => {
+    const p = resolvePersona({ vertical: "rh" });
+    expect(p).toContain("assistente de RH");
+    expect(p).toContain("COLABORADOR");
+  });
+
+  it("sem vertical, mantém a persona genérica (base não-RH não herda)", () => {
+    expect(resolvePersona({})).toBe(PERSONA_PADRAO);
+  });
+
+  it("personalização do cliente vence a persona de fábrica", () => {
+    expect(resolvePersona({ vertical: "rh", promptDaChave: "Sou o Nati." })).toBe("Sou o Nati.");
+  });
+
+  it("apara na fronteira de frase, não no meio da palavra", () => {
+    // A frase termina em ~85% do limite: cortar ali preserva quase tudo.
+    const txt = "Voce e o assistente de RH e atende analistas, gestores e colaboradores todos os dias." + " x".repeat(500);
+    const { texto, truncada } = aparaPersona(txt, 100);
+    expect(truncada).toBe(true);
+    expect(texto.endsWith(".")).toBe(true);
+  });
+
+  it("fronteira MUITO no começo não vale o corte: mantém o limite cheio", () => {
+    // Só um ponto final aos 24 chars de um limite de 100 — cortar ali jogaria fora
+    // 76% do texto permitido. O guard prefere o corte duro.
+    const { texto } = aparaPersona("Primeira frase curta. " + "x".repeat(5000), 100);
+    expect(texto.length).toBe(100);
+  });
+
+  it("texto dentro do limite não é marcado como truncado", () => {
+    const { texto, truncada } = aparaPersona("Curta.", 100);
+    expect(truncada).toBe(false);
+    expect(texto).toBe("Curta.");
+  });
+
+  it("sem nenhuma pontuação, corta no limite em vez de devolver vazio", () => {
+    const { texto, truncada } = aparaPersona("x".repeat(500), 100);
+    expect(truncada).toBe(true);
+    expect(texto.length).toBe(100);
   });
 });

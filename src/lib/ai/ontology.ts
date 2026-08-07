@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { mesclarPiso, VOCABULARIO_RH } from "./vocabulario-rh";
 import type { Database } from "@/lib/database.types";
 
 type DbClient = SupabaseClient<Database>;
@@ -171,8 +172,15 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: 
       nodeId: t.node_id ?? null,
     };
   });
-  cache.set(chave, { at: Date.now(), data });
-  return data;
+  // PISO de vocabulário de RH: numa base sem ontologia cadastrada, "holerite" e
+  // "espelho de ponto" não casavam com nada. Entra DEPOIS e só onde não conflita —
+  // o termo do cliente sempre vence. Como tudo abaixo (glossário, expansão léxica,
+  // expansão vetorial, `formasExpandidas`) consome esta lista, herdam de graça.
+  const comPiso = mesclarPiso(data, VOCABULARIO_RH, normalizarTermo, (matchNorms, forms) => ({
+    matchNorms, forms, nodeId: null,
+  }));
+  cache.set(chave, { at: Date.now(), data: comPiso });
+  return comPiso;
 }
 
 /** Palavras vazias PT — não ajudam a casar termos do domínio. */

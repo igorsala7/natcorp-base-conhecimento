@@ -29,8 +29,12 @@ const PADROES: RegExp[] = [
   /^((oi+|ola+|opa+|hey|hi+|hello)[^a-z0-9]+)?(bom dia|boa tarde|boa noite)[^a-z0-9]*$/,
   // "tudo bem?", "como vai?", "beleza?" (com saudação opcional antes).
   /^((oi+|ola+|opa+|hey|hi+|hello|bom dia|boa tarde|boa noite)[^a-z0-9]+)?(tudo bem|tudo bom|td bem|td bom|como (voce |vc )?vai|como (voce |vc )?esta|beleza|blz|de boa)[^a-z0-9]*$/,
-  // Agradecimentos (podem ter cauda: "obrigado pela ajuda").
-  /^(muito )?(obrigad[oa]|obg|valeu|vlw|brigad[oa]|agradecid[oa]|thanks|thank you|show|perfeito|otimo|excelente)([^a-z0-9].*)?$/,
+  // Agradecimentos. A cauda é FECHADA de propósito: era `([^a-z0-9].*)?$` — aceitava
+  // QUALQUER coisa depois, então "obrigado! agora me diz quantos estão de férias" e
+  // "perfeito, e o fechamento da folha?" viravam turno social e o pipeline inteiro
+  // desligava (RAG vazio, glossário vazio, todos os gates pulados). Ver `separarSocial`:
+  // agradecimento SEGUIDO de pergunta real não é mais engolido.
+  /^(muito )?(obrigad[oa]|obg|valeu|vlw|brigad[oa]|agradecid[oa]|thanks|thank you|show|perfeito|otimo|excelente)([^a-z0-9]+(pela ajuda|por tudo|por isso|pela informacao|pelas informacoes|mesmo|demais|viu|hein|entao|ai|cara|amigo|gente))?[^a-z0-9]*$/,
   // Despedidas.
   /^(tchau+|ate mais|ate logo|ate breve|falou|flw|abraco|abracos)[^a-z0-9]*$/,
 ];
@@ -63,4 +67,36 @@ export function ehConversaSocial(texto: string): boolean {
   const t = normalizar(texto);
   if (!t || t.length > 80) return false;
   return PADROES.some((re) => re.test(t)) || META.some((re) => re.test(t));
+}
+
+/** Abertura social seguida de pedido real: "obrigado! agora me diz quantos…". */
+const RX_ABERTURA_SOCIAL =
+  /^(muito )?(obrigad[oa]|obg|valeu|vlw|brigad[oa]|agradecid[oa]|thanks|show|perfeito|otimo|excelente|beleza|blz|legal|bacana|massa|entendi|ok|okay|certo|isso|bom dia|boa tarde|boa noite|oi+|ola+|opa+|e ?a[ie]|eae|hey|hi+|hello)\b[^a-z0-9]*/;
+
+/**
+ * Separa uma ABERTURA social do PEDIDO real que vem depois.
+ *
+ * Num chat de RH "obrigado! agora me diz quantos estão de férias" e "perfeito, e o
+ * fechamento da folha?" são altíssima frequência — e eram classificados como turno
+ * social inteiro, o que zerava RAG, glossário e todos os gates: o agente respondia
+ * "de nada!" e ignorava a pergunta.
+ *
+ * Devolve `{ saudacao, resto }`. Havendo `resto` com conteúdo, o turno NÃO é social:
+ * o chamador segue o fluxo normal e só pede uma linha de cortesia antes da resposta.
+ */
+export function separarSocial(texto: string): { saudacao: string; resto: string } {
+  const bruto = String(texto ?? "").trim();
+  if (!bruto) return { saudacao: "", resto: "" };
+  // Mensagem inteiramente social continua inteiramente social.
+  if (ehConversaSocial(bruto)) return { saudacao: bruto, resto: "" };
+  const t = normalizar(bruto);
+  const m = RX_ABERTURA_SOCIAL.exec(t);
+  if (!m) return { saudacao: "", resto: bruto };
+  // Corta no TEXTO ORIGINAL pelo mesmo comprimento: `normalizar` só troca acento por
+  // letra e colapsa espaço, então o deslocamento de índice é desprezível para o corte.
+  const corte = m[0].length;
+  const resto = bruto.slice(corte).trim();
+  // Cauda curta demais não é pedido ("obrigado :)") — trata como social puro.
+  if (resto.replace(/[^a-zà-ú0-9]/gi, "").length < 3) return { saudacao: bruto, resto: "" };
+  return { saudacao: bruto.slice(0, corte).trim(), resto };
 }

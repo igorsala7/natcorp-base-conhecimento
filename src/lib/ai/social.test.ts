@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ehConversaSocial } from "./social";
+import { ehConversaSocial, separarSocial } from "./social";
 
 describe("ehConversaSocial", () => {
   it("reconhece saudações e conversa social", () => {
@@ -67,5 +67,47 @@ describe("ehConversaSocial", () => {
     ]) {
       expect(ehConversaSocial(q), q).toBe(false);
     }
+  });
+});
+
+/**
+ * Regressão de altíssima frequência num chat de RH: a cauda livre da regex de
+ * agradecimento engolia a pergunta real. "obrigado! agora me diz quantos estão de
+ * férias" virava turno social e desligava o pipeline inteiro — RAG vazio, glossário
+ * vazio, todos os gates pulados. O agente respondia "de nada!" e ignorava o pedido.
+ */
+describe("abertura social + pedido real", () => {
+  const engolidas = [
+    "obrigado! agora me diz quantos estão de férias",
+    "perfeito, e o fechamento da folha?",
+    "valeu, e o espelho de ponto do João?",
+    "show, me traz os afastamentos de março",
+    "ok, quantos colaboradores por cargo?",
+    "bom dia, preciso do relatório de horas extras",
+  ];
+  for (const q of engolidas) {
+    it(`NÃO é social: "${q}"`, () => {
+      expect(ehConversaSocial(q), q).toBe(false);
+      const { saudacao, resto } = separarSocial(q);
+      expect(saudacao, q).toBeTruthy();
+      expect(resto.length, q).toBeGreaterThan(3);
+    });
+  }
+
+  const puras = ["obrigado", "obrigado!", "obrigado pela ajuda", "valeu mesmo", "muito obrigada :)", "perfeito", "bom dia", "tudo bem?"];
+  for (const q of puras) {
+    it(`continua social: "${q}"`, () => {
+      expect(ehConversaSocial(q), q).toBe(true);
+      expect(separarSocial(q).resto, q).toBe("");
+    });
+  }
+
+  it("mensagem sem abertura social passa inteira como pedido", () => {
+    const q = "quantos colaboradores estão de férias em março?";
+    expect(separarSocial(q)).toEqual({ saudacao: "", resto: q });
+  });
+
+  it("cauda curta demais não vira pedido", () => {
+    expect(separarSocial("obrigado :)").resto).toBe("");
   });
 });
