@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
+import { podarInfo } from "./trace-limits";
 
 /**
  * Rastreio PASSO A PASSO de um turno de chat: cada decisão do fluxo (classificação,
@@ -15,20 +16,41 @@ export type TracePasso = { ms: number; passo: string; info?: Record<string, unkn
  *  fica pesada. O corte é do registro, nunca do comportamento do chat. */
 const MAX_PASSOS = 200;
 const MAX_INFO_CHARS = 4000;
+/** Vagas guardadas para `addFinal`: o desfecho do turno não pode ser a primeira
+ *  coisa a sumir quando o teto estoura — é ele que explica o resto. */
+const VAGAS_FINAIS = 8;
 
 export class ChatTrace {
   private t0 = Date.now();
+  /** Quantos passos foram recusados pelo teto (vira sentinela no fim). */
+  private descartados = 0;
   readonly passos: TracePasso[] = [];
-  add(passo: string, info?: Record<string, unknown>): void {
-    if (this.passos.length >= MAX_PASSOS) return;
-    let dados = info;
-    try {
-      if (info && JSON.stringify(info).length > MAX_INFO_CHARS) dados = { _truncado: true, passo };
-    } catch {
-      dados = { _truncado: true, passo };
-    }
-    this.passos.push({ ms: Date.now() - this.t0, passo, info: dados });
+
+  private push(passo: string, info: Record<string, unknown> | undefined): void {
+    this.passos.push({ ms: Date.now() - this.t0, passo, info: podarInfo(info, MAX_INFO_CHARS) });
   }
+
+  add(passo: string, info?: Record<string, unknown>): void {
+    if (this.passos.length >= MAX_PASSOS - VAGAS_FINAIS) {
+      this.descartados++;
+      return;
+    }
+    this.push(passo, info);
+  }
+
+  /**
+   * Passo que SEMPRE entra (desfecho, resposta, registro de dataset). Sem isto,
+   * um turno com dezenas de chamadas perdia justamente o fim — e "turno acabou"
+   * ficava indistinguível de "log cortado" na tela.
+   */
+  addFinal(passo: string, info?: Record<string, unknown>): void {
+    if (this.descartados > 0 && !this.passos.some((p) => p.passo === "_teto_passos")) {
+      this.push("_teto_passos", { descartados: this.descartados, teto: MAX_PASSOS });
+    }
+    if (this.passos.length >= MAX_PASSOS) return;
+    this.push(passo, info);
+  }
+
   get duracaoMs(): number {
     return Date.now() - this.t0;
   }

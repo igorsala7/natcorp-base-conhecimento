@@ -38,6 +38,9 @@ import { listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch 
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { dividirFacetas } from "@/lib/integrations/facets";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
+import { passosPublicos } from "@/lib/chat/trace-limits";
+import { instrumentarTools } from "@/lib/chat/tool-trace";
+import { CircuitOpenError } from "@/lib/ai/circuit-breaker";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
 import { listarDatasets, newRegistry, type Filtro } from "@/lib/chat/datasets";
@@ -194,6 +197,25 @@ export async function POST(req: NextRequest) {
   // vira um passo com o tempo relativo — para achar onde a lógica falha.
   const trace = new ChatTrace();
   const passo = (p: string, info?: Record<string, unknown>) => trace.add(p, info);
+  // Passos de DESFECHO: entram mesmo com o trace no teto. Um turno com dezenas de
+  // chamadas perdia justamente o fim, e "o turno acabou aqui" ficava idêntico a
+  // "o log foi cortado aqui".
+  const passoFinal = (p: string, info?: Record<string, unknown>) => trace.addFinal(p, info);
+  /**
+   * Falha do PROVEDOR de IA (chave inválida, crédito esgotado, timeout, circuito
+   * aberto). Só existia no `console.error` do servidor — em produção o turno
+   * aparecia no log como um turno normal, sem nenhuma pista de por que a resposta
+   * veio vazia. É o caso em que quem depura mais precisa do log e menos o tinha.
+   */
+  const registrarErroGeracao = (onde: string, error: unknown) => {
+    const e = error as { name?: unknown; message?: unknown } | null;
+    passoFinal("erro_geracao", {
+      onde,
+      nome: typeof e?.name === "string" ? e.name : undefined,
+      mensagem: String(e?.message ?? error).slice(0, 300),
+      circuito: error instanceof CircuitOpenError,
+    });
+  };
   passo("mensagem", { pergunta: question.slice(0, 300), caracteres: question.length });
   const started = Date.now();
 
@@ -645,7 +667,7 @@ export async function POST(req: NextRequest) {
   // Fecha o rastreio: adiciona o passo final, PERSISTE (página de log, best-effort)
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
   const finalizarTrace = (desfecho: string) => {
-    passo("fim", { desfecho });
+    passoFinal("fim", { desfecho });
     void persistirTrace(
       supabase,
       {
@@ -663,7 +685,12 @@ export async function POST(req: NextRequest) {
       },
       trace,
     );
-    return sse({ type: "trace", passos: trace.passos, ms: trace.duracaoMs, desfecho });
+    // O trace vai para o CONSOLE do navegador do usuário final (widget.js). O cURL não
+    // pode ir junto: carrega o endereço interno da API, os parâmetros e os nomes dos
+    // cabeçalhos, e esta rota é pública — autenticada por uma chave `pk_` que está no
+    // HTML da página host. O passo continua íntegro no banco, para o /admin/logs.
+    const passosSse = process.env.CHAT_TRACE_SSE === "1" ? trace.passos : passosPublicos(trace.passos);
+    return sse({ type: "trace", passos: passosSse, ms: trace.duracaoMs, desfecho });
   };
   // (perguntaComposta já definida no início — mistura relatório com doc/API/regra.)
   const formToolsBase: ToolSet = modoTutorial
@@ -821,7 +848,13 @@ export async function POST(req: NextRequest) {
   const formToolsFinal: ToolSet = modoAnalisePura || turnoDadosPuro
     ? (formTools.destacar_tela ? { destacar_tela: formTools.destacar_tela } : {})
     : formTools;
-  const allTools: ToolSet = { ...integNoTurno, ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools, ...trocaFonteTools };
+  const allToolsCru: ToolSet = { ...integNoTurno, ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools, ...trocaFonteTools };
+  // RASTRO UNIVERSAL: decora o `execute` de TODAS as ferramentas (integração e locais)
+  // com `tool_call`/`tool_fim`. É o que garante nome + parâmetros + desfecho no
+  // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que
+  // registra as recusas silenciosas (guard, teto de chamadas, endpoint ausente), que
+  // hoje só existiam num console.warn do servidor.
+  const allTools: ToolSet = instrumentarTools(allToolsCru, passo);
   const temTools = Object.keys(allTools).length > 0;
   // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
   // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem
@@ -1619,6 +1652,7 @@ export async function POST(req: NextRequest) {
     // pista do motivo. O cliente também trata resposta vazia como erro.
     onError: ({ error }) => {
       erroGeracao = error;
+      registrarErroGeracao("resposta", error);
       console.error("[chat] falha ao gerar resposta:", error);
     },
     model: modeloTurno,
@@ -1667,7 +1701,10 @@ export async function POST(req: NextRequest) {
           const histMsgs: ModelMessage[] = resp?.messages ?? [];
           const forcaArquivo = streamText({
             abortSignal: req.signal,
-            onError: ({ error }) => console.error("[chat] falha ao forçar o arquivo:", error),
+            onError: ({ error }) => {
+              registrarErroGeracao("rede_arquivo", error);
+              console.error("[chat] falha ao forçar o arquivo:", error);
+            },
             model: modeloTurno,
             maxOutputTokens: 2048,
             system: systemPrompt,
@@ -1682,7 +1719,12 @@ export async function POST(req: NextRequest) {
                   "Se realmente não houver dado nenhum para colocar no arquivo, responda em UMA frase o que faltou.",
               },
             ],
-            tools: buildVisualTools({ charts: chartSpecs, chartChoices, reports: reportSpecs, arquivos: outFiles }, datasets, renderArquivo),
+            // Instrumentada como as demais: esta passada extra era 100% invisível no
+            // trace — o arquivo aparecia (ou não) sem nenhum registro de quem o gerou.
+            tools: instrumentarTools(
+              buildVisualTools({ charts: chartSpecs, chartChoices, reports: reportSpecs, arquivos: outFiles }, datasets, renderArquivo),
+              passo,
+            ),
             stopWhen: stepCountIs(2),
           });
           // Consome o stream até o fim: o que importa é a tool-call, não o texto.
@@ -1713,7 +1755,11 @@ export async function POST(req: NextRequest) {
                 "Avise, em uma frase, que a resposta pode estar incompleta porque não foi possível processar 100% dos dados neste turno.";
               const fecho = streamText({
                 abortSignal: req.signal,
-                onError: ({ error }) => { erroGeracao = error; console.error("[chat] falha no fechamento forçado:", error); },
+                onError: ({ error }) => {
+                  erroGeracao = error;
+                  registrarErroGeracao("fechamento", error);
+                  console.error("[chat] falha no fechamento forçado:", error);
+                },
                 model: modeloTurno,
                 maxOutputTokens: 4096,
                 system: systemPrompt,
@@ -1904,11 +1950,11 @@ export async function POST(req: NextRequest) {
       // Fotografia do REGISTRO de datasets no fim do turno: quais ids existiram, com
       // quantas linhas e quais colunas. É o que permite ler no log por que um
       // `dados_de` foi recusado — antes só dava para adivinhar.
-      passo("dataset:registro", {
+      passoFinal("dataset:registro", {
         total: datasets.list.length,
         itens: listarDatasets(datasets).map((d) => ({ id: d.id, linhas: d.total, cols: d.colunas.slice(0, 8) })),
       });
-      passo("resposta", {
+      passoFinal("resposta", {
         caracteres: full.length,
         acoes_tela: uiActions.map((a) => a.tipo),
         graficos: chartSpecs.length,
@@ -1922,7 +1968,10 @@ export async function POST(req: NextRequest) {
         cache_read: cacheRead,
         cache_creation: cacheCreation,
       });
-      controller.enqueue(finalizarTrace("resposta"));
+      // Turno que falhou no provedor e não produziu texto NÃO é "resposta": marcá-lo
+      // assim escondia a falha do filtro por desfecho, que é como se procura o
+      // problema na tela de logs.
+      controller.enqueue(finalizarTrace(erroGeracao && !full.trim() ? "erro_provedor" : "resposta"));
       controller.enqueue(sse({ type: "done", conversationId: convId }));
       controller.close();
       await releaseSlot(lease); // libera o slot da base ao encerrar o stream

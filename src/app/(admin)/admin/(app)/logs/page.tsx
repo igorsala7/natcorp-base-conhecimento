@@ -29,7 +29,9 @@ function proximoDia(iso: string): string {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-focus-ring/40";
+  // `ring-focus-ring` não existe no tema (o token é `ring`) — era um no-op, o campo
+  // ficava sem anel de foco visível.
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring";
 
 function Campo({ label, name, value, type = "text", placeholder }: {
   label: string; name: string; value?: string; type?: string; placeholder?: string;

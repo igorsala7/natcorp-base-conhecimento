@@ -25,6 +25,8 @@ const MAX_TOOLS_COMPOSTO = 18; // COMPOSTO (multi-intenção): teto maior p/ cab
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
+import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
+import { idDaChamada } from "@/lib/chat/tool-trace";
 import { sanitizarBody } from "./run-log-sanitize";
 import { ANTHROPIC_CACHE } from "@/lib/ai/anthropic-cache";
 
@@ -406,14 +408,27 @@ export async function buildIntegrationTools(
       inputSchema: buildModelSchema(paramsEscopo, loopEscopo),
       // Envelopa o retorno: se for uma LISTA, registra o dataset completo e injeta
       // `_dataset` (o relatório usa isso p/ incluir todas as linhas — ver #4).
-      execute: async (args) => {
+      execute: async (args, options) => {
+        // Id da chamada (dado pelo SDK): carimba todos os passos desta execução para
+        // que a tela consiga correlacioná-los mesmo com várias tools em paralelo.
+        const idChamada = idDaChamada(options);
+        const marca = idChamada ? { id: idChamada } : {};
         // Repetição IDÊNTICA no mesmo turno (loop do modelo) → devolve o já obtido, sem
         // rebater na API. Só leituras (GET); escrita nunca é deduplicada.
         const chaveDedup = String(bt.tool.method ?? "GET").toUpperCase() === "GET" ? `${bt.tool.key}:${chaveDeArgs(args)}` : null;
-        if (chaveDedup && dedupTurno.has(chaveDedup)) return dedupTurno.get(chaveDedup);
+        if (chaveDedup && dedupTurno.has(chaveDedup)) {
+          // Sem este passo, dedup e cache ficam indistinguíveis na tela — e o modelo
+          // repetindo a mesma chamada em rajada é justamente a patologia que o log
+          // existe para diagnosticar.
+          onPasso?.("integracoes:dedup", { ...marca, tool: bt.tool.key });
+          return dedupTurno.get(chaveDedup);
+        }
         if (chamadasIntegracao >= MAX_CHAMADAS_INTEGRACAO)
           return { erro: `Já foram feitas ${MAX_CHAMADAS_INTEGRACAO} consultas nesta rodada (provável repetição em loop). Responda com o que já foi coletado; se faltar informação, peça ao usuário para refinar — menos itens por vez ou uma pergunta de cada vez.` };
         chamadasIntegracao++;
+        // Requisições HTTP desta chamada do modelo (o loop faz várias). Viram UM passo
+        // `integracoes:curl` consolidado quando a chamada termina.
+        const chamadasHttp: ChamadaHttp[] = [];
         // Instrumentação: registra o que o MODELO recebeu de fato (amostra × total,
         // poda de emergência, id do dataset). Nenhum passo do trace media isso — sem
         // esse número não dá para saber qual perda de contexto é a real.
@@ -440,7 +455,15 @@ export async function buildIntegrationTools(
                 panelScope: escopo,
                 excludeSelf: bt.tool.exclude_self === true,
               });
-              if (!gp.ok) return { erro: gp.erro };
+              if (!gp.ok) {
+                // Dentro de um LOOP, a recusa de uma iteração era engolida pela agregação
+                // e a chamada inteira saía verde no log. O motivo real só existia num
+                // console.warn do servidor — invisível para quem opera em produção.
+                onPasso?.("integracoes:guard", {
+                  ...marca, tool: bt.tool.key, guard: "escopo_painel", ok: false, erro: gp.erro,
+                });
+                return { erro: gp.erro };
+              }
             }
             if (bt.tool.guard) {
               const g = await runGuard(bt.tool.guard, {
@@ -453,7 +476,12 @@ export async function buildIntegrationTools(
                 toolKey: bt.tool.key,
                 actionLabel: bt.tool.name,
               });
-              if (!g.ok) return { erro: g.erro };
+              if (!g.ok) {
+                onPasso?.("integracoes:guard", {
+                  ...marca, tool: bt.tool.key, guard: bt.tool.guard, ok: false, erro: g.erro,
+                });
+                return { erro: g.erro };
+              }
             }
             const t0 = Date.now();
             const doExec = () =>
@@ -476,18 +504,16 @@ export async function buildIntegrationTools(
             }
             const durationMs = Date.now() - t0;
             // Tool ESCOLHIDA + PARÂMETROS do modelo (redigidos) + cURL da chamada (segredos
-            // redigidos) no trace do admin/logs — permite ver qual tool foi usada, com quais
-            // argumentos, o endpoint atingido, e reproduzir/depurar a chamada.
-            if (result?.request?.curl) {
-              onPasso?.("integracoes:curl", {
-                tool: bt.tool.key,
-                params: sanitizarBody(JSON.stringify(callArgs), paramsEscopo),
-                status: result.status ?? null,
-                ms: durationMs,
-                ...(cachedHit ? { cache: true } : {}),
-                curl: result.request.curl,
-              });
-            }
+            // redigidos) para o trace do admin/logs. ACUMULA em vez de emitir: uma tool com
+            // loop faz até 24 requisições por chamada do modelo, e um passo por requisição
+            // estourava o teto do trace — o passo sai consolidado no fim (consolidarChamadas).
+            chamadasHttp.push({
+              params: sanitizarBody(JSON.stringify(callArgs), paramsEscopo),
+              status: result?.status ?? null,
+              ms: durationMs,
+              cache: cachedHit,
+              curl: result?.request?.curl,
+            });
             const registrar = (saida: unknown, ok: boolean, status: number | null, files: number, error: string | null) =>
               logToolRun({
                 baseCode,
@@ -640,8 +666,12 @@ export async function buildIntegrationTools(
           return { erro: e instanceof Error ? e.message : String(e) };
         }
         })();
+          // Um passo por CHAMADA DO MODELO, não por requisição: o loop mês a mês vira
+          // `{ requisicoes: 12, valores: [...] }` em vez de 12 linhas iguais no log.
+          const infoCurl = consolidarChamadas(bt.tool.key, chamadasHttp);
+          if (infoCurl) onPasso?.("integracoes:curl", { ...marca, ...infoCurl });
           const { saida, relato } = injetarDatasetComRelato(datasets, _bruto);
-          if (relato) onPasso?.("tool_result", { tool: bt.tool.key, ...relato });
+          if (relato) onPasso?.("tool_result", { ...marca, tool: bt.tool.key, ...relato });
           return saida;
         })();
         // Guarda a PROMESSA (não o resultado) já aqui, ANTES do await: chamadas IDÊNTICAS
