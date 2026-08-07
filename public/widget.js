@@ -1,5 +1,13 @@
 (function () {
   "use strict";
+  // Marcador de versão: sem ele não dá para saber se o navegador (ou o proxy) está
+  // servindo um widget.js VELHO em cache — e um bug "que não foi corrigido" costuma
+  // ser só isso. Aparece no console em toda carga e fica em window.__KB_WIDGET__.
+  var KB_WIDGET_BUILD = "2026-08-08.lov-modal";
+  try {
+    window.__KB_WIDGET__ = KB_WIDGET_BUILD;
+    if (window.console && console.log) console.log("[kb-widget] build " + KB_WIDGET_BUILD);
+  } catch { }
   // ==== Bootstrap: descobre a chave e a URL base a partir do próprio <script> ====
   var script =
     document.currentScript ||
@@ -1742,6 +1750,9 @@
   // lento e fácil de perder o fio no meio. Aqui a sequência inteira vira UMA ação
   // determinística; o modelo só diz o campo e o valor.
 
+  /** Rastro no console do navegador — é por onde se descobre ONDE a sequência parou. */
+  function diagLov(msg) { try { if (window.console && console.log) console.log("[kb-widget][lov] " + msg); } catch { } }
+
   /** O elemento é um popup LOV do APEX? */
   function ehPopupLov(el) {
     try {
@@ -1864,6 +1875,7 @@
    */
   function preencherPopupLov(el, valor) {
     var termo = String(valor == null ? "" : valor).trim();
+    diagLov("início — campo " + (el && el.id ? el.id : "?") + ", valor “" + termo + "”");
     if (!termo) return Promise.resolve({ ok: false, motivo: "valor vazio" });
     var dlg = null;
     // Idempotência: já está com o valor pedido → não abre janela nenhuma.
@@ -1879,26 +1891,44 @@
     return Promise.resolve()
       .then(function () {
         clickElement(botaoDoLov(el));
-        return ateQue(function () { return dialogDoLov(el); }, 6000);
+        // Espera a JANELA e o CAMPO DE BUSCA — o dialog do jQuery UI aparece no DOM
+        // antes de o APEX montar o conteúdo, então checar só a janela pegava um
+        // momento em que a barra de pesquisa ainda não existia.
+        return ateQue(function () {
+          var d = dialogDoLov(el);
+          return d && d.querySelector(".a-PopupLOV-search") ? d : null;
+        }, 8000);
       })
       .then(function (d) {
-        if (!d) return { ok: false, motivo: "a janela de busca não abriu" };
+        if (!d) {
+          // Distingue os dois fracassos: sem isso o motivo era sempre "não abriu".
+          var abriu = !!dialogDoLov(el);
+          diagLov(abriu ? "janela abriu mas SEM campo de busca" : "janela não abriu");
+          return { ok: false, motivo: abriu ? "a janela abriu mas não achei o campo de pesquisa dela" : "a janela de busca não abriu" };
+        }
         dlg = d;
         var busca = dlg.querySelector(".a-PopupLOV-search");
-        if (!busca) return { ok: false, motivo: "não achei o campo de pesquisa da janela" };
+        diagLov("janela aberta; pesquisando “" + termo + "”");
         var antes = assinaturaLov(dlg);
         // Digita com o setter nativo (o APEX escuta `input`) e dispara a pesquisa.
+        // Foca ANTES de escrever: alguns handlers do APEX só assinam o campo ativo.
+        try { busca.focus(); busca.click(); } catch { }
         try {
           var desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
           if (desc && desc.set) desc.set.call(busca, termo); else busca.value = termo;
-          busca.dispatchEvent(new Event("input", { bubbles: true }));
         } catch { busca.value = termo; }
-        try { busca.focus(); } catch { }
+        // Três eventos: `input` (padrão), `keyup` (versões que escutam digitação) e
+        // `change` (jQuery). Emitir os três é barato e cobre as variações do tema.
+        ["input", "keyup", "change"].forEach(function (tp) {
+          try { busca.dispatchEvent(new Event(tp, { bubbles: true })); } catch { }
+        });
+        diagLov("busca preenchida com “" + busca.value + "”");
         var botaoBuscar = dlg.querySelector(".a-PopupLOV-doSearch");
-        if (botaoBuscar) clickElement(botaoBuscar);
+        if (botaoBuscar) { clickElement(botaoBuscar); diagLov("cliquei em Pesquisar"); }
+        else diagLov("botão Pesquisar não encontrado — só Enter");
         // Enter também: em algumas versões é o único gatilho.
-        ["keydown", "keyup"].forEach(function (tp) {
-          try { busca.dispatchEvent(new KeyboardEvent(tp, { key: "Enter", keyCode: 13, which: 13, bubbles: true })); } catch { }
+        ["keydown", "keypress", "keyup"].forEach(function (tp) {
+          try { busca.dispatchEvent(new KeyboardEvent(tp, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true })); } catch { }
         });
         // ESPERA A LISTA VOLTAR. Não basta "ter item": a lista JÁ vem preenchida antes
         // da busca, então selecionar cedo pegaria o resultado velho. O sinal é a
@@ -1916,6 +1946,7 @@
         if (parcial && parcial.ok === false) return parcial;
         if (!dlg) return { ok: false, motivo: "a janela de busca não abriu" };
         if (lovSemResultado(dlg)) {
+          diagLov("APEX respondeu: nenhum resultado");
           fecharDialogLov(dlg);
           return { ok: false, motivo: 'a busca por "' + termo + '" não retornou nenhum resultado' };
         }
@@ -1924,6 +1955,7 @@
           fecharDialogLov(dlg);
           return { ok: false, motivo: "a lista de resultados não carregou a tempo" };
         }
+        diagLov(itens.length + " item(ns) na lista após a busca");
         var m = casarItemLov(itens, termo);
         if (m.ambiguo) {
           fecharDialogLov(dlg);
@@ -1942,6 +1974,7 @@
           var temValor = !!scanTexto(el.value || "");
           return fechado && temValor ? true : null;
         }, 4000).then(function (pegou) {
+          diagLov(pegou ? "selecionado com sucesso" : "cliquei no item mas o campo não recebeu valor");
           if (pegou) return { ok: true };
           fecharDialogLov(dialogDoLov(el));
           return { ok: false, motivo: "cliquei no item mas o campo não recebeu o valor" };

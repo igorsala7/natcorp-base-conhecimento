@@ -71,6 +71,17 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // O widget roda DENTRO do sistema do cliente e é atualizado com o deploy.
+        // Sem cabeçalho explícito, navegador e proxy guardam a versão antiga por
+        // tempo indeterminado — e o bug "que não foi corrigido" era só cache velho.
+        // `no-cache` NÃO desliga o cache: obriga a REVALIDAR (304 quando não mudou).
+        source: "/widget.js",
+        headers: [
+          { key: "Cache-Control", value: "public, no-cache, must-revalidate" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+      {
         // Tudo, MENOS o widget e o /embed: ambos rodam DENTRO do site do
         // cliente, então não podem levar frame-ancestors/X-Frame-Options.
         source: "/((?!widget\\.js|embed/).*)",
