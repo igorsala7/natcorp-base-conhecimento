@@ -17,8 +17,9 @@ export type ToolRunLog = {
   stepIndex: number;
   /** Args do modelo (não contêm segredos — só `origem='modelo'`). */
   input: unknown;
-  /** Requisição CRUA (com segredos); é sanitizada aqui antes de gravar. */
-  request?: { method: string; url: string; body?: string } | null;
+  /** Requisição CRUA (com segredos); é sanitizada aqui antes de gravar. `urlSafe`, quando
+   *  vem, já teve redigidos também os segredos do CAMINHO — prefira-a. */
+  request?: { method: string; url: string; urlSafe?: string; body?: string } | null;
   /** Params da tool (para saber o que redigir). */
   params: ToolParam[];
   status?: number | null;
@@ -37,7 +38,9 @@ export async function logToolRun(row: ToolRunLog): Promise<void> {
     const req = row.request
       ? {
           method: row.request.method,
-          url: sanitizarUrl(row.request.url, row.params),
+          // `urlSafe` já passou pela redação por valor (cobre segredo no caminho); a
+          // sanitização por nome fica como rede para quem não fornecer o campo.
+          url: row.request.urlSafe ?? sanitizarUrl(row.request.url, row.params),
           body: sanitizarBody(row.request.body, row.params) ?? null,
         }
       : null;

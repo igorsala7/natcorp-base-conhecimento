@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { executeTool, buildHttpRequest, type RuntimeTool, type RuntimeCredential } from "./executor";
+import { executeTool, buildHttpRequest, curlDeChamada, valoresSensiveis, type RuntimeTool, type RuntimeCredential } from "./executor";
+import type { ToolParam } from "./tools";
 import { resolveParams, buildModelSchema } from "./params";
 import { invalidateOAuthToken } from "./oauth";
 
@@ -208,5 +209,68 @@ describe("executeTool (OAuth + identidade + máscara, fetch mockado)", () => {
     expect(apiHits).toBe(2); // tentou de novo
     expect(tokenHits).toBe(2); // renovou o token
     expect(res.ok).toBe(true);
+  });
+});
+
+// ── cURL do log: redação por PROCEDÊNCIA ─────────────────────────────────────
+// A regex de nome sozinha não bastava: `auth_type='api_key'` aceita nome de
+// cabeçalho livre, e `Ocp-Apim-Subscription-Key` / `X-Access-Key` não casavam
+// nenhum dos termos — a chave saía em claro para o banco, a tela e o stdout.
+describe("curlDeChamada", () => {
+  const param = (nome: string, origem: ToolParam["origem"], local: ToolParam["local"]): ToolParam => ({
+    nome, descricao: "", tipo: "string", origem, obrigatorio: false, local,
+  });
+
+  it("redige TODO cabeçalho vindo do bloco de autenticação, qualquer que seja o nome", () => {
+    const curl = curlDeChamada(
+      "GET",
+      "https://api/rh",
+      { Accept: "application/json", "Ocp-Apim-Subscription-Key": "segredo-azure-123" },
+      undefined,
+      { nomesDeAuth: ["Ocp-Apim-Subscription-Key"] },
+    );
+    expect(curl).not.toContain("segredo-azure-123");
+    expect(curl).toContain("***REDIGIDO***");
+    expect(curl).toContain("Accept: application/json"); // cabeçalho inócuo continua legível
+  });
+
+  it("redige cabeçalho de param declarado como credencial", () => {
+    const curl = curlDeChamada(
+      "GET",
+      "https://api/rh",
+      { "X-Sessao": "valor-secreto-abc" },
+      undefined,
+      { params: [param("X-Sessao", "credencial", "header")] },
+    );
+    expect(curl).not.toContain("valor-secreto-abc");
+  });
+
+  it("mantém a forma reproduzível: verbo, aspas e continuação de linha", () => {
+    const curl = curlDeChamada("POST", "https://api/rh", { "Content-Type": "application/json" }, '{"a":1}');
+    expect(curl.startsWith("curl -X POST 'https://api/rh'")).toBe(true);
+    expect(curl).toContain(" \\\n"); // é isso que faz colar direto no terminal
+    expect(curl).toContain(`--data '{"a":1}'`);
+  });
+
+  it("corta corpo gigante em vez de despejar tudo no log", () => {
+    const curl = curlDeChamada("POST", "https://api/rh", {}, "x".repeat(5000));
+    expect(curl).toContain("…(truncado)");
+    expect(curl.length).toBeLessThan(3000);
+  });
+});
+
+describe("valoresSensiveis", () => {
+  it("colhe os valores de segredo de TODOS os baldes, inclusive o caminho", () => {
+    const params: ToolParam[] = [
+      { nome: "key", descricao: "", tipo: "string", origem: "credencial", obrigatorio: true, local: "path" },
+      { nome: "matricula", descricao: "", tipo: "string", origem: "pessoa", obrigatorio: false, local: "query" },
+    ];
+    const v = valoresSensiveis(params, {
+      path: { key: "SESSAO-abc-123" },
+      query: { matricula: "4471" },
+      header: {},
+      body: {},
+    });
+    expect(v).toEqual(["SESSAO-abc-123"]); // a matrícula NÃO é segredo
   });
 });

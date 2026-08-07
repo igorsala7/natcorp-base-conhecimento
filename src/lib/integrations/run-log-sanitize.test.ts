@@ -68,3 +68,57 @@ describe("previewSaida", () => {
     expect(p.preview.length).toBeLessThan(5000);
   });
 });
+
+// ── Redação por SUBSTRING e por VALOR ────────────────────────────────────────
+// Dois furos reais fechados aqui: (1) o casamento exato deixava passar toda a
+// convenção `p_*` das APIs ORDS quando o segredo era cadastrado como 'fixo' em
+// vez de 'credencial'; (2) a sanitização só varria a query, então um segredo no
+// CAMINHO (`/ords/{key}/rh/...`) saía em claro no cURL e no ai_tool_runs.
+describe("redação de segredos — nome por substring", () => {
+  const p = (nome: string, origem: ToolParam["origem"] = "fixo"): ToolParam => ({
+    nome, descricao: "", tipo: "string", origem, obrigatorio: false, local: "query",
+  });
+
+  it("pega a convenção p_* das APIs ORDS mesmo fora de origem='credencial'", () => {
+    const params = [p("p_session_key"), p("token_acesso"), p("X-Access-Key")];
+    const url = sanitizarUrl("https://api/rh?p_session_key=abc123&token_acesso=xyz789&mes=2026-08", params);
+    expect(url).toContain("p_session_key=***");
+    expect(url).toContain("token_acesso=***");
+    expect(url).toContain("mes=2026-08"); // não mascara o que é de negócio
+  });
+
+  it("NÃO mascara parâmetro de negócio — mascarar demais mata a depuração", () => {
+    const params = [p("matricula"), p("empresa"), p("centro_custo"), p("competencia")];
+    const url = sanitizarUrl("https://api/rh?matricula=4471&empresa=1&centro_custo=97", params);
+    expect(url).toContain("matricula=4471");
+    expect(url).toContain("empresa=1");
+    expect(url).toContain("centro_custo=97");
+  });
+
+  it("mascara campo com cara de segredo no corpo, recursivamente", () => {
+    const body = JSON.stringify({ dados: { p_token: "abc123def", matricula: "4471" } });
+    const r = sanitizarBody(body, []) as { dados: Record<string, unknown> };
+    expect(r.dados.p_token).toBe("***");
+    expect(r.dados.matricula).toBe("4471");
+  });
+});
+
+describe("redação de segredos — por VALOR (cobre o caminho da URL)", () => {
+  it("redige o segredo embutido no PATH, onde não há nome de query para casar", () => {
+    const url = sanitizarUrl("https://api/ords/SESSAO7f3a91b2/rh/v1/emps?mes=2026-08", [], ["SESSAO7f3a91b2"]);
+    expect(url).not.toContain("SESSAO7f3a91b2");
+    expect(url).toContain("***");
+    expect(url).toContain("mes=2026-08");
+  });
+
+  it("também redige o valor percent-encoded", () => {
+    const url = sanitizarUrl("https://api/rh?x=chave%2Fcom%2Fbarra", [], ["chave/com/barra"]);
+    expect(url).not.toContain("chave%2Fcom%2Fbarra");
+  });
+
+  it("ignora valor curto — 'replaceAll' de '1' destruiria a URL inteira", () => {
+    const url = sanitizarUrl("https://api/rh/v1/emps?empresa=1", [], ["1", "v1"]);
+    expect(url).toContain("/rh/v1/emps");
+    expect(url).toContain("empresa=1");
+  });
+});

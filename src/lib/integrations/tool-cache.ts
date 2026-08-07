@@ -23,7 +23,12 @@ export async function getCachedExecMeta(
   fetcher: () => Promise<ExecResult>,
 ): Promise<{ result: ExecResult; cached: boolean }> {
   const hit = cache.get(key);
-  if (hit && hit.exp > Date.now()) return { result: hit.result, cached: true };
+  // No acerto de cache NÃO devolvemos a `request` guardada: ela é a requisição do
+  // turno que POPULOU o cache, com a URL, os parâmetros e o cURL daquele usuário.
+  // Reaproveitá-la faria o log deste turno exibir a chamada de outra pessoa —
+  // sob escopo "empresa"/"global" a chave é compartilhada de propósito. Sem ela o
+  // cartão mostra só `cache`, que é a verdade: não houve requisição agora.
+  if (hit && hit.exp > Date.now()) return { result: { ...hit.result, request: undefined }, cached: true };
   const result = await fetcher();
   if (result.ok) cache.set(key, { exp: Date.now() + ttlSeconds * 1000, result });
   return { result, cached: false };

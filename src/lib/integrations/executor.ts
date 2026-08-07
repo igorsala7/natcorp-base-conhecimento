@@ -3,7 +3,7 @@ import type { LoopConfig, ToolParam } from "./tools";
 import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
-import { sanitizarUrl, sanitizarBody } from "./run-log-sanitize";
+import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 
 /** A tool como o motor precisa dela (subconjunto de ai_tools). */
 export type RuntimeTool = {
@@ -70,8 +70,9 @@ export type ExecResult = {
   status: number;
   data: unknown;
   /** Requisição montada (para o log). `url`/`body` contêm segredos crus — sanitize antes de
-   *  gravar. `curl` já vem com TODOS os segredos redigidos (pronto para exibir/persistir). */
-  request?: { method: string; url: string; body?: string; curl?: string };
+   *  gravar. `curl` e `urlSafe` já vêm com TODOS os segredos redigidos, inclusive os que
+   *  estão no CAMINHO (que a sanitização por nome de query param não alcança). */
+  request?: { method: string; url: string; urlSafe?: string; body?: string; curl?: string };
 };
 
 /** Monta a requisição HTTP a partir dos buckets resolvidos (função pura). */
@@ -129,10 +130,51 @@ export async function authHeaders(
   }
 }
 
-/** Monta o `curl` equivalente à chamada, com valores de segredo REDIGIDOS. Para o
- *  terminal (debug das tools) — nunca imprime token/senha/api-key/cookie em claro. */
-function curlDeChamada(method: string, url: string, headers: Record<string, string>, body?: string): string {
-  const segredo = (k: string) => /authorization|api[-_ ]?key|token|secret|cookie|senha|password|bearer/i.test(k);
+/**
+ * Valores CRUS dos parâmetros sensíveis, para redação por valor na URL.
+ *
+ * A busca por nome não alcança o caminho: `/ords/{key}/rh/v1/...` embute o
+ * segredo no pathname, sem par `chave=valor` para casar. Aqui a redação passa a
+ * ser pelo próprio valor, onde quer que ele apareça.
+ */
+export function valoresSensiveis(params: ToolParam[], buckets: ResolvedBuckets): string[] {
+  const out: string[] = [];
+  const varrer = (mapa: Record<string, unknown>) => {
+    for (const [k, v] of Object.entries(mapa)) {
+      if (typeof v === "string" && v && nomeSensivel(k, params)) out.push(v);
+    }
+  };
+  varrer(buckets.path);
+  varrer(buckets.query);
+  varrer(buckets.header);
+  varrer(buckets.body);
+  return out;
+}
+
+/**
+ * Monta o `curl` equivalente à chamada, com valores de segredo REDIGIDOS.
+ *
+ * A redação é por PROCEDÊNCIA, não por adivinhação de nome: todo cabeçalho que
+ * veio do bloco de autenticação (`nomesDeAuth`) e todo param declarado como
+ * credencial são mascarados, aconteça o que acontecer com a grafia. A regex
+ * continua como reforço para cabeçalhos avulsos.
+ *
+ * Só a regex não bastava: `auth_type='api_key'` aceita nome de cabeçalho livre,
+ * e `Ocp-Apim-Subscription-Key`, `X-Access-Key` ou `X-Auth` não casavam nenhum
+ * dos termos — a chave saía em claro para o console, o banco e a tela.
+ */
+export function curlDeChamada(
+  method: string,
+  url: string,
+  headers: Record<string, string>,
+  body?: string,
+  opts?: { nomesDeAuth?: string[]; params?: ToolParam[] },
+): string {
+  const daAuth = new Set((opts?.nomesDeAuth ?? []).map((n) => n.toLowerCase()));
+  const segredo = (k: string) =>
+    daAuth.has(k.toLowerCase()) ||
+    nomeSensivel(k, opts?.params ?? []) ||
+    /authorization|api[-_ ]?key|token|secret|cookie|senha|password|bearer|auth|chave|credential|subscription|session/i.test(k);
   const linhas = [`curl -X ${method} '${url}'`];
   for (const [k, v] of Object.entries(headers)) linhas.push(`  -H '${k}: ${segredo(k) ? "***REDIGIDO***" : v}'`);
   if (body) linhas.push(`  --data '${body.length > 2000 ? body.slice(0, 2000) + "…(truncado)" : body}'`);
@@ -149,13 +191,22 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const req = buildHttpRequest(input.tool, input.baseUrl, buckets);
 
   const auth = await authHeaders(input.credential, fetchImpl);
-  // cURL com TODOS os segredos redigidos — headers de auth E credenciais na query/corpo
-  // (ex.: `key`=session_key vai na URL). Vai para o terminal E para o trace do admin/logs:
-  // reproduzível para depurar a chamada da tool, sem nunca vazar token/senha/session_key.
-  const urlRedigida = sanitizarUrl(req.url, input.tool.params);
+  // cURL com TODOS os segredos redigidos — headers de auth E credenciais na query, no
+  // CORPO e no CAMINHO (ex.: `key`=session_key pode ir em qualquer um dos três). Vai
+  // para o trace do admin/logs: reproduzível para depurar a chamada da tool, sem nunca
+  // vazar token/senha/session_key. `valoresSensiveis` cobre o path, que não tem nome de
+  // query para a sanitização por nome morder.
+  const urlRedigida = sanitizarUrl(req.url, input.tool.params, valoresSensiveis(input.tool.params, buckets));
   const corpoRedigido = req.body ? JSON.stringify(sanitizarBody(req.body, input.tool.params)) : undefined;
-  const curl = curlDeChamada(req.method, urlRedigida, { ...req.headers, ...auth }, corpoRedigido);
-  console.log(`[tool-curl] ${input.tool.key}\n${curl}`);
+  const curl = curlDeChamada(req.method, urlRedigida, { ...req.headers, ...auth }, corpoRedigido, {
+    nomesDeAuth: Object.keys(auth),
+    params: input.tool.params,
+  });
+  // O stdout vai para o agregador da hospedagem — fora de RLS, sem prazo de guarda e
+  // acessível a mais gente que o /admin/logs. O destino pretendido do cURL é o trace.
+  if (process.env.TOOL_CURL_LOG === "1" || process.env.NODE_ENV !== "production") {
+    console.log(`[tool-curl] ${input.tool.key}\n${curl}`);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15_000);
   try {
@@ -184,7 +235,12 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     } catch {
       /* resposta não-JSON: devolve o texto cru */
     }
-    return { ok: res.ok, status: res.status, data, request: { method: req.method, url: req.url, body: req.body, curl } };
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      request: { method: req.method, url: req.url, urlSafe: urlRedigida, body: req.body, curl },
+    };
   } finally {
     clearTimeout(timer);
   }
