@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { explicarColuna, textoDatasetsDisponiveis, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, OPERADORES, OPERACOES_LINHA, type Agregacao, type DatasetRegistry, type Filtro, type Operador, type OperacaoLinha, type Faixa, type MetodoProjecao } from "./datasets";
+import { avisoColunaEscolhida, explicarColuna, textoDatasetsDisponiveis, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, OPERADORES, OPERACOES_LINHA, type Agregacao, type DatasetRegistry, type Filtro, type Operador, type OperacaoLinha, type Faixa, type MetodoProjecao } from "./datasets";
 
 /** Operações de agregação por coluna (mesmas do motor). */
 const OPS_AGREGACAO = ["soma", "media", "mediana", "min", "max", "amplitude", "variancia", "desvio_padrao", "moda", "contar", "distintos"] as const;
@@ -34,6 +34,12 @@ function erroDatasetInexistente(datasets: DatasetRegistry, pedido: string): stri
     `Não encontrei a tabela "${pedido}". Disponíveis AGORA: ${textoDatasetsDisponiveis(datasets)}. ` +
     "Use um destes ids — ou chame de novo a ferramenta de dados para gerar um id novo. NÃO responda por estimativa."
   );
+}
+
+/** Junta o aviso de coluna escolhida por desempate à nota do resultado. */
+function comAviso(nota: string, ...avisos: (string | null)[]): string {
+  const uteis = avisos.filter(Boolean) as string[];
+  return uteis.length ? nota + " " + uteis.join(" ") : nota;
 }
 
 export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
@@ -81,7 +87,7 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           resultado_em: r.id,
           colunas: r.colunas,
           amostra: r.amostra,
-          nota:
+          nota: comAviso(
             `Filtro aplicado sobre TODOS os registros: ${r.total} correspondência(s). ` +
             (r.total === 0
               ? "Nenhum registro bate — reveja o critério com o usuário; não invente linhas."
@@ -91,6 +97,11 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
                 `este id "${r.id}" (montar_grafico/gerar_relatorio com dados_de="${r.id}") — NUNCA o da tabela da tela ` +
                 `inteira, senão viria com todos os registros. NUNCA mande o usuário baixar/abrir o arquivo para obter a ` +
                 "resposta que ele te pediu."),
+            ...(filtros ?? []).map((f) => avisoColunaEscolhida(datasets, dados_de, f.coluna,
+              f.operador === "maior" || f.operador === "menor" || f.operador === "maior_igual" || f.operador === "menor_igual"
+                ? { tipo: "numerico" as const }
+                : { tipo: "texto" as const, ...(f.valor ? { valor: f.valor } : {}) })),
+          ),
         };
       },
     }),
@@ -119,7 +130,7 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           valor_formatado: r.valor.toLocaleString("pt-BR", { maximumFractionDigits: 4 }),
           linhas_consideradas: r.linhasConsideradas,
           ...(numerico ? { valores_numericos: r.valoresNumericos, ignorados_nao_numericos: r.ignorados } : {}),
-          nota:
+          nota: comAviso(
             `Resultado EXATO sobre ${r.linhasConsideradas} registro(s) — 100% do dataset` +
             (filtros && filtros.length ? " (após o filtro)" : "") +
             ". INFORME este número ao usuário; não recalcule pela amostra." +
@@ -128,6 +139,8 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
               : numerico && r.ignorados
                 ? ` (${r.ignorados} célula(s) não-numérica(s) ignoradas no cálculo.)`
                 : ""),
+            avisoColunaEscolhida(datasets, dados_de, coluna, { tipo: numerico ? "numerico" : "qualquer" }),
+          ),
         };
       },
     }),

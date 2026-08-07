@@ -32,9 +32,14 @@ export function rotuloDoLoop(param: string): string {
   return legivel ? legivel.charAt(0).toUpperCase() + legivel.slice(1) : "Valor";
 }
 
+/** Iteração que não virou linha: motivo + a CARGA podada (antes era descartada). */
+export type NaoAchatada = { rotulo: string; motivo: string; dados?: unknown };
 export type LoopAchatado =
-  | { achatou: true; itens: Record<string, unknown>[]; total: number; falhas: { rotulo: string; motivo: string }[] }
-  | { achatou: false; falhas: { rotulo: string; motivo: string }[] };
+  | { achatou: true; itens: Record<string, unknown>[]; total: number; falhas: NaoAchatada[] }
+  | { achatou: false; falhas: NaoAchatada[] };
+
+/** Quantas iterações não-achatadas preservamos por turno (o resto vira contagem). */
+const MAX_PRESERVADAS = 12;
 
 /** Chaves em que uma API costuma pendurar a lista de registros. */
 const CHAVES_LISTA = ["items", "itens", "data", "dados", "rows", "registros", "result", "results", "lista"];
@@ -63,7 +68,35 @@ export function listaDeRegistros(dados: unknown): Record<string, unknown>[] | nu
   // agregado por iteração ("total do mês"), que senão não viraria dataset nenhum.
   if (typeof o.erro === "string" || o._sem_dados === true) return null;
   const escalares = Object.entries(o).filter(([k, v]) => !k.startsWith("_") && (v == null || typeof v !== "object"));
-  return escalares.length ? [Object.fromEntries(escalares)] : null;
+  if (escalares.length) return [Object.fromEntries(escalares)];
+  // Nem lista, nem escalar no topo — mas sub-objetos de escalares. É o retorno
+  // agregado típico (`{cabecalho:{…}, totais:{…}}`), que antes DESAPARECIA inteiro.
+  // Achata UM nível com chave pontuada: além de preservar, torna consultável.
+  const plano: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k.startsWith("_") || !v || typeof v !== "object" || Array.isArray(v)) continue;
+    for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
+      if (k2.startsWith("_") || (v2 != null && typeof v2 === "object")) continue;
+      if (Object.keys(plano).length >= 80) break;
+      plano[`${k}.${k2}`] = v2;
+    }
+  }
+  return Object.keys(plano).length ? [plano] : null;
+}
+
+/** Poda a carga de uma iteração que não achatou — preserva sem estourar o contexto. */
+function podarCarga(v: unknown, prof = 0): unknown {
+  if (typeof v === "string") return v.length > 500 ? v.slice(0, 500) + "…" : v;
+  if (v == null || typeof v !== "object") return v;
+  if (prof >= 3) return Array.isArray(v) ? `[${v.length} itens omitidos]` : "{…}";
+  if (Array.isArray(v)) {
+    const corte = v.slice(0, 5).map((x) => podarCarga(x, prof + 1));
+    if (v.length > 5) corte.push(`…(+${v.length - 5} itens omitidos)`);
+    return corte;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = podarCarga(x, prof + 1);
+  return out;
 }
 
 /** Motivo da falha, quando a iteração não trouxe registros. */
@@ -87,10 +120,16 @@ function motivoFalha(dados: unknown): string {
  */
 export function achatarLoop(iteracoes: IteracaoLoop[], coluna: string, teto = 20_000): LoopAchatado {
   const itens: Record<string, unknown>[] = [];
-  const falhas: { rotulo: string; motivo: string }[] = [];
+  const falhas: NaoAchatada[] = [];
   for (const it of iteracoes) {
     const linhas = listaDeRegistros(it.dados);
-    if (!linhas) { falhas.push({ rotulo: it.rotulo, motivo: motivoFalha(it.dados) }); continue; }
+    if (!linhas) {
+      // A carga vai junto (podada): antes só sobrava `{rotulo, motivo}` e o conteúdo
+      // da iteração sumia — o modelo nem sabia que existia algo ali.
+      const guardar = falhas.length < MAX_PRESERVADAS && it.dados != null;
+      falhas.push({ rotulo: it.rotulo, motivo: motivoFalha(it.dados), ...(guardar ? { dados: podarCarga(it.dados) } : {}) });
+      continue;
+    }
     // O rótulo vem PRIMEIRO: vira a 1ª coluna do dataset e do arquivo exportado.
     for (const l of linhas) {
       if (itens.length >= teto) break;

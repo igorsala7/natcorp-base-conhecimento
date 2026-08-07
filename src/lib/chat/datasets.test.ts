@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, injetarDatasetComRelato, explicarColuna, listarDatasets, resolverColunaInfo, textoDatasetsDisponiveis, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie } from "./datasets";
+import { avisoDeColuna, newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, injetarDatasetComRelato, explicarColuna, listarDatasets, resolverColunaInfo, textoDatasetsDisponiveis, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie } from "./datasets";
 
 /** Célula guardada (valor com precisão total) do dataset `id`, linha × índice de coluna. */
 const celG = (reg: ReturnType<typeof newRegistry>, id: string, linha: number, colIdx: number) =>
@@ -720,22 +720,67 @@ describe("resolverColunaInfo / explicarColuna", () => {
   it("candidato único casa por aproximação", () => {
     const reg = newRegistry();
     registrarTabelaTela(reg, ["Nome", "Centro de Custo"], [["Ana", "TI"]]);
-    expect(resolverColunaInfo(reg.list[0]!, "centro")).toMatchObject({ via: "fuzzy", idx: 1 });
+    // "Centro de Custo" começa com "centro " → camada de PREFIXO, a mais precisa.
+    expect(resolverColunaInfo(reg.list[0]!, "centro")).toMatchObject({ via: "prefixo", idx: 1 });
   });
 
-  it("2+ candidatos NÃO escolhem: devolvem ambiguidade", () => {
+  /**
+   * Em relatório de RH a ambiguidade é a NORMA ("Salário" casa Base/Líquido/Família).
+   * Devolver erro trava o turno — cada erro consome um passo do orçamento e o turno
+   * morre sem os dados. Escolhe a mais curta (o nome curto é o canônico) e OBRIGA a
+   * resposta a declarar qual usou.
+   */
+  it("2+ candidatos: escolhe a canônica e marca para avisar", () => {
     const reg = regAmbiguo();
-    const info = resolverColunaInfo(reg.list[0]!, "Salário");
+    const info = resolverColunaInfo(reg.list[0]!, "Salário", { tipo: "numerico" });
+    expect(info.idx).not.toBeNull();
+    expect(info.via).toBe("escolhida");
+    expect(avisoDeColuna(info)).toContain("Salário Base");
+    expect(avisoDeColuna(info)).toContain("Salário Líquido");
+  });
+
+  it("prefixo vence o substring: 'Salário' não casa 'Meu Salário'", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Meu Salário", "Salário Base"], [["1", "2"]]);
+    expect(resolverColunaInfo(reg.list[0]!, "Salário")).toMatchObject({ via: "prefixo", idx: 1 });
+  });
+
+  it("token inteiro mata o falso-positivo do substring ('id' × 'Cidade')", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Cidade", "Nome"], [["SP", "Ana"]]);
+    const info = resolverColunaInfo(reg.list[0]!, "id");
+    // "id" não é palavra inteira de "Cidade" — cai no substring como última rede,
+    // com candidato único, em vez de casar por engano numa camada precisa.
+    expect(info.via).not.toBe("token");
+  });
+
+  it("sinal NUMÉRICO escolhe a coluna com números", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Início Férias", "Dias Férias"], [["01/03/2026", "30"], ["05/03/2026", "15"]]);
+    expect(resolverColunaInfo(reg.list[0]!, "Férias", { tipo: "numerico" })).toMatchObject({ via: "sinal", idx: 1 });
+  });
+
+  it("sinal de TEXTO com valor prefere a coluna que contém o valor", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Situação", "Situação Anterior"], [["Férias", "Ativo"], ["Ativo", "Ativo"]]);
+    const info = resolverColunaInfo(reg.list[0]!, "Situacao", { tipo: "texto", valor: "Férias" });
+    expect(info.idx).toBe(0);
+  });
+
+  it("fail-closed: operação numérica sem nenhuma coluna numérica", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Obs Férias", "Nota Férias"], [["x", "y"]]);
+    const info = resolverColunaInfo(reg.list[0]!, "Férias", { tipo: "numerico" });
     expect(info.idx).toBeNull();
     expect(info.via).toBe("ambigua");
   });
 
-  it("a explicação lista os candidatos em vez de dizer 'não existe'", () => {
-    const reg = regAmbiguo();
-    const msg = explicarColuna(reg, "tela1", "Salário");
+  it("a explicação lista os candidatos quando sobra ambiguidade real", () => {
+    const reg = newRegistry();
+    registrarTabelaTela(reg, ["Obs Férias", "Nota Férias"], [["x", "y"]]);
+    const msg = explicarColuna(reg, "tela1", "Férias", { tipo: "numerico" });
     expect(msg).toContain("AMBÍGUO");
-    expect(msg).toContain("Salário Base");
-    expect(msg).toContain("Salário Líquido");
+    expect(msg).toContain("Obs Férias");
   });
 
   it("coluna inventada: diz as reais e sugere a mais próxima", () => {

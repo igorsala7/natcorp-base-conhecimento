@@ -54,7 +54,7 @@ describe("achatarLoop", () => {
       "Competência",
     );
     expect(r.achatou).toBe(true);
-    expect(r.falhas).toEqual([{ rotulo: "02/2026", motivo: "sem permissão" }]);
+    expect(r.falhas).toMatchObject([{ rotulo: "02/2026", motivo: "sem permissão" }]);
   });
 
   it("nenhuma iteração com dados → não achata (o chamador mantém o formato antigo)", () => {
@@ -93,5 +93,38 @@ describe("rotuloDoLoop", () => {
 
   it("param vazio tem um rótulo utilizável", () => {
     expect(rotuloDoLoop("")).toBe("Valor");
+  });
+});
+
+/**
+ * Antes, a iteração que não virava lista ia para `falhas` só com {rotulo, motivo} —
+ * a CARGA era jogada fora e o modelo nem sabia que existia algo ali. E o retorno
+ * agregado com sub-objetos (`{cabecalho:{…}, totais:{…}}`) desaparecia inteiro.
+ */
+describe("preservação da carga", () => {
+  it("agregado com sub-objetos vira linha achatada (era null)", () => {
+    const r = listaDeRegistros({ cabecalho: { competencia: "01/2026" }, totais: { valor: 1200, qtd: 5 } });
+    expect(r).toEqual([{ "cabecalho.competencia": "01/2026", "totais.valor": 1200, "totais.qtd": 5 }]);
+  });
+
+  it("iteração não-achatada preserva os dados, podados", () => {
+    const gordo = { blocos: Array.from({ length: 40 }, (_, i) => ({ i, txt: "x".repeat(900) })) };
+    const r = achatarLoop(
+      [{ rotulo: "01/2026", dados: { items: [{ a: 1 }] } }, { rotulo: "02/2026", dados: gordo }],
+      "Competência",
+    );
+    expect(r.achatou).toBe(true);
+    const f = r.falhas[0]!;
+    expect(f.dados).toBeDefined();
+    // Podado: no máximo 5 itens do array e strings cortadas.
+    expect(JSON.stringify(f.dados).length).toBeLessThan(5000);
+  });
+
+  it("erro da API não carrega payload inútil, mas mantém o motivo", () => {
+    const r = achatarLoop(
+      [{ rotulo: "01/2026", dados: { items: [{ a: 1 }] } }, { rotulo: "02/2026", dados: { erro: "403" } }],
+      "Competência",
+    );
+    expect(r.falhas[0]!.motivo).toBe("403");
   });
 });

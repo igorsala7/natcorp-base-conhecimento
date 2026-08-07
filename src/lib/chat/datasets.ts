@@ -366,31 +366,173 @@ function norm(s: unknown): string {
  * pergunta em vez de chutar.
  */
 export type ColunaInfo =
-  | { idx: number; nome: string; via: "exata" | "indice" | "fuzzy" }
+  | { idx: number; nome: string; via: "exata" | "indice" | "prefixo" | "token" | "fuzzy" | "sinal" | "escolhida"; candidatos?: string[] }
   | { idx: null; via: "ambigua"; candidatos: string[] }
   | { idx: null; via: "ausente"; candidatos: string[] };
 
-export function resolverColunaInfo(ds: Dataset, coluna: string): ColunaInfo {
+/**
+ * O que o motor ESPERA daquela coluna. Serve de desempate quando o nome sozinho não
+ * decide: uma soma quer a coluna numérica, um agrupamento quer a de texto.
+ */
+export type SinalColuna = { tipo: "numerico" | "texto" | "qualquer"; valor?: string };
+
+/** Fração de células que são número pt-BR (amostra do topo — dados já em memória). */
+function fracaoNumerica(ds: Dataset, idx: number): number {
+  const chave = ds.colunas[idx];
+  if (!chave) return 0;
+  let vistas = 0, numericas = 0;
+  for (const row of ds.rows.slice(0, 200)) {
+    const v = String(row[chave] ?? "").trim();
+    if (!v) continue;
+    vistas++;
+    if (Number.isFinite(parseNumBR(v))) numericas++;
+  }
+  return vistas ? numericas / vistas : 0;
+}
+
+/** Alguma célula da coluna contém este texto? Desempata `Situação` × `Situação Férias`. */
+function contemValor(ds: Dataset, idx: number, valor: string): boolean {
+  const chave = ds.colunas[idx];
+  const alvo = norm(valor);
+  if (!chave || !alvo) return false;
+  return ds.rows.slice(0, 200).some((row) => norm(row[chave]).includes(alvo));
+}
+
+/** Tokens significativos do nome, para casar por palavra inteira. */
+function tokensNome(s: string): string[] {
+  return norm(s).split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/**
+ * Resolve o nome de coluna em CAMADAS, da mais precisa para a mais frouxa. A primeira
+ * camada com candidato vence; só há desempate dentro dela.
+ *
+ * O casamento por substring bidirecional sozinho é ruim demais para relatório de RH:
+ * "Férias" casa Início Férias, Fim Férias, Dias Férias e Saldo Férias; "Salário" casa
+ * Base, Líquido e Família. Tratar isso como erro trava o turno (cada erro consome um
+ * passo do orçamento); escolher a primeira em silêncio devolve número errado. As
+ * camadas + o sinal do motor resolvem a maioria; o resto escolhe e AVISA.
+ */
+export function resolverColunaInfo(ds: Dataset, coluna: string, sinal?: SinalColuna): ColunaInfo {
   const alvo = norm(coluna);
   if (!alvo) return { idx: null, via: "ausente", candidatos: [] };
+
+  // 1) Nome exato — resolve "Férias" quando existe a coluna literal `Férias`.
   const exata = ds.colunas.findIndex((c) => norm(c) === alvo);
   if (exata >= 0) return { idx: exata, nome: ds.colunas[exata]!, via: "exata" };
+
+  // 2) Índice cN.
   const m = /^c(\d+)$/i.exec(coluna.trim());
   if (m) {
     const i = Number(m[1]);
     if (i >= 0 && i < ds.colunas.length) return { idx: i, nome: ds.colunas[i]!, via: "indice" };
   }
-  const cands: number[] = [];
-  ds.colunas.forEach((c, i) => { const n = norm(c); if (n.includes(alvo) || alvo.includes(n)) cands.push(i); });
-  if (cands.length === 1) return { idx: cands[0]!, nome: ds.colunas[cands[0]!]!, via: "fuzzy" };
-  if (cands.length > 1) return { idx: null, via: "ambigua", candidatos: cands.map((i) => ds.colunas[i]!) };
+
+  const tokensAlvo = tokensNome(coluna);
+  const idx = ds.colunas.map((_c, i) => i);
+  // 3) Prefixo de palavra inteira: "Salário" → "Salário Base", nunca "Meu Salário".
+  const porPrefixo = idx.filter((i) => norm(ds.colunas[i]).startsWith(alvo + " "));
+  // 4) Contenção por TOKEN: todos os termos do alvo como palavras inteiras da coluna.
+  //    Elimina o falso-positivo do substring ("id" casando "Cidade").
+  const porToken = idx.filter((i) => {
+    const t = new Set(tokensNome(ds.colunas[i] ?? ""));
+    return tokensAlvo.length > 0 && tokensAlvo.every((x) => t.has(x));
+  });
+  // 5) Substring bidirecional — a rede antiga, agora como última camada.
+  const porSubstring = idx.filter((i) => {
+    const n = norm(ds.colunas[i]);
+    return n.includes(alvo) || alvo.includes(n);
+  });
+
+  type ViaCamada = "prefixo" | "token" | "fuzzy";
+  const camada: [number[], ViaCamada][] = [
+    [porPrefixo, "prefixo"],
+    [porToken, "token"],
+    [porSubstring, "fuzzy"],
+  ];
+  for (const [cands, via] of camada) {
+    if (!cands.length) continue;
+    if (cands.length === 1) return { idx: cands[0]!, nome: ds.colunas[cands[0]!]!, via };
+    return desempatarColuna(ds, cands, via, sinal);
+  }
   return { idx: null, via: "ausente", candidatos: [] };
 }
 
+type ViaCamadaExport = "prefixo" | "token" | "fuzzy";
+/** Ambiguidade dentro da camada: usa o sinal do motor; sobrando, escolhe e marca. */
+function desempatarColuna(ds: Dataset, cands: number[], via: ViaCamadaExport, sinal?: SinalColuna): ColunaInfo {
+  const nomes = cands.map((i) => ds.colunas[i]!);
+  let restantes = cands;
+
+  if (sinal?.tipo === "numerico") {
+    const num = restantes.filter((i) => fracaoNumerica(ds, i) >= 0.8);
+    // Nenhuma candidata é numérica numa operação de valor: qualquer escolha erra.
+    if (!num.length) return { idx: null, via: "ambigua", candidatos: nomes };
+    restantes = num;
+  } else if (sinal?.tipo === "texto") {
+    const txt = restantes.filter((i) => fracaoNumerica(ds, i) <= 0.2);
+    if (txt.length) restantes = txt;
+    // Filtro textual com valor: prefere a coluna que REALMENTE contém aquele valor.
+    if (sinal.valor && restantes.length > 1) {
+      const comValor = restantes.filter((i) => contemValor(ds, i, sinal.valor!));
+      if (comValor.length) restantes = comValor;
+    }
+  }
+
+  if (restantes.length === 1) return { idx: restantes[0]!, nome: ds.colunas[restantes[0]!]!, via: "sinal" };
+
+  // Todas identificador numa operação de valor → erra: somar matrícula é sempre errado.
+  if (sinal?.tipo === "numerico" && restantes.every((i) => pareceIdentificador(ds.colunas[i] ?? ""))) {
+    return { idx: null, via: "ambigua", candidatos: nomes };
+  }
+  if (process.env.COLUNA_AMBIGUA_ERRO === "1") return { idx: null, via: "ambigua", candidatos: nomes };
+
+  // Escolha DETERMINÍSTICA: nome mais curto (o curto é o canônico — `Salário` <
+  // `Salário Família`), empate → menor índice. E o chamador é obrigado a declarar.
+  const escolhido = restantes.slice().sort((a, b) => {
+    const na = ds.colunas[a] ?? "", nb = ds.colunas[b] ?? "";
+    return na.length - nb.length || a - b;
+  })[0]!;
+  void via;
+  return { idx: escolhido, nome: ds.colunas[escolhido]!, via: "escolhida", candidatos: nomes };
+}
+
 /** Resolve o nome de coluna informado (ou `cN`) para o índice na tabela. */
-function resolverColuna(ds: Dataset, coluna: string): number | null {
-  const info = resolverColunaInfo(ds, coluna);
-  return info.idx;
+function resolverColuna(ds: Dataset, coluna: string, sinal?: SinalColuna): number | null {
+  return resolverColunaInfo(ds, coluna, sinal).idx;
+}
+
+/** O operador do filtro diz o TIPO esperado da coluna — desempate de graça. */
+function sinalDoOperador(op: Operador, valor?: string): SinalColuna {
+  if (op === "maior" || op === "menor" || op === "maior_igual" || op === "menor_igual") return { tipo: "numerico" };
+  if (op === "contem" || op === "nao_contem" || op === "comeca" || op === "termina" || op === "igual" || op === "diferente") {
+    return { tipo: "texto", ...(valor ? { valor } : {}) };
+  }
+  return { tipo: "qualquer" };
+}
+
+/**
+ * Aviso a anexar à `nota` de um resultado, quando a coluna foi escolhida por
+ * desempate. Recalcula do registro em vez de atravessar 6 tipos de resultado — a
+ * resolução é pura e determinística, então o resultado é o mesmo.
+ */
+export function avisoColunaEscolhida(
+  reg: DatasetRegistry,
+  id: string,
+  coluna: string,
+  sinal?: SinalColuna,
+): string | null {
+  const ds = reg.list.find((d) => d.id === id);
+  if (!ds || !coluna?.trim()) return null;
+  return avisoDeColuna(resolverColunaInfo(ds, coluna, sinal));
+}
+
+/** Aviso pronto quando a escolha foi por desempate — o modelo TEM de repassá-lo. */
+export function avisoDeColuna(info: ColunaInfo): string | null {
+  if (info.idx === null || info.via !== "escolhida" || !info.candidatos?.length) return null;
+  const outras = info.candidatos.filter((c) => c !== info.nome);
+  if (!outras.length) return null;
+  return `Considerei a coluna "${info.nome}" (também casavam: ${outras.join(", ")}). DIGA isso ao usuário e ofereça refazer com outra.`;
 }
 
 /** Ids ATIVOS no registro, com tamanho e colunas — para erros que dizem o que existe. */
@@ -414,11 +556,11 @@ export function textoDatasetsDisponiveis(reg: DatasetRegistry): string {
  * ("Salário" casando com Salário Base, Líquido e Família). No ambíguo o código
  * escolhia a PRIMEIRA em silêncio — e o número saía errado sem ninguém ver.
  */
-export function explicarColuna(reg: DatasetRegistry, id: string, coluna: string): string {
+export function explicarColuna(reg: DatasetRegistry, id: string, coluna: string, sinal?: SinalColuna): string {
   const ds = reg.list.find((d) => d.id === id);
   const nomes = ds ? (ds.headers ?? ds.colunas) : [];
   if (!ds) return `A coluna "${coluna}" não pôde ser resolvida: a tabela "${id}" não existe neste turno.`;
-  const info = resolverColunaInfo(ds, coluna);
+  const info = resolverColunaInfo(ds, coluna, sinal);
   if (info.idx === null && info.via === "ambigua") {
     return (
       `"${coluna}" é AMBÍGUO: casa com ${info.candidatos.join(", ")}. ` +
@@ -481,7 +623,7 @@ export function consultarDataset(
   if (!ds) return null;
   const nomes = ds.colunas;
   const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
-  const conds = filtros.map((f) => ({ f, idx: resolverColuna(ds, f.coluna) }));
+  const conds = filtros.map((f) => ({ f, idx: resolverColuna(ds, f.coluna, sinalDoOperador(f.operador, f.valor)) }));
   const ausente = conds.find((c) => c.idx == null);
   if (ausente) return { id: "", total: 0, colunas: nomes, amostra: [], colunaNaoEncontrada: ausente.f.coluna };
 
@@ -545,7 +687,7 @@ function filtrarLinhas(
 ): { linhas: string[][] } | { colunaNaoEncontrada: string } {
   const nomes = ds.colunas;
   const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
-  const conds = filtros.map((f) => ({ f, idx: resolverColuna(ds, f.coluna) }));
+  const conds = filtros.map((f) => ({ f, idx: resolverColuna(ds, f.coluna, sinalDoOperador(f.operador, f.valor)) }));
   const ausente = conds.find((c) => c.idx == null);
   if (ausente) return { colunaNaoEncontrada: ausente.f.coluna };
   const linhas: string[][] = [];
@@ -613,7 +755,7 @@ export function agregarDataset(
 ): AgregacaoResultado | null {
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
-  const idxCol = resolverColuna(ds, coluna);
+  const idxCol = resolverColuna(ds, coluna, { tipo: OPS_VALOR_ID.has(operacao) ? "numerico" : "qualquer" });
   const base: AgregacaoResultado = { operacao, coluna, valor: 0, linhasConsideradas: 0, valoresNumericos: 0, ignorados: 0 };
   if (idxCol == null) return { ...base, colunaNaoEncontrada: coluna };
   const filt = filtrarLinhas(ds, filtros, modo);
@@ -657,7 +799,7 @@ export function estatisticasColuna(
     coluna, linhas: 0, validos: 0, ignorados: 0, distintos: 0, soma: 0, media: 0, mediana: 0, moda: null,
     min: 0, max: 0, amplitude: 0, variancia: 0, desvio_padrao: 0, p25: 0, p75: 0, p90: 0, p95: 0, p99: 0,
   };
-  const idxCol = resolverColuna(ds, coluna);
+  const idxCol = resolverColuna(ds, coluna, { tipo: "numerico" });
   if (idxCol == null) return { ...vazio, colunaNaoEncontrada: coluna };
   const filt = filtrarLinhas(ds, filtros, modo);
   if ("colunaNaoEncontrada" in filt) return { ...vazio, coluna: ds.colunas[idxCol] ?? coluna, colunaNaoEncontrada: filt.colunaNaoEncontrada };
@@ -695,13 +837,13 @@ export function agruparDataset(
 ): { grupos: GrupoResultado[]; totalGrupos: number } | { colunaNaoEncontrada: string } | null {
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
-  const idxG = resolverColuna(ds, colunaGrupo);
+  const idxG = resolverColuna(ds, colunaGrupo, { tipo: "texto" });
   if (idxG == null) return { colunaNaoEncontrada: colunaGrupo };
   // 2ª coluna de grupo (opcional) → CRUZAMENTO exato numa passada (ex.: por empresa E filial).
-  const idxG2 = colunaGrupo2 && colunaGrupo2.trim() ? resolverColuna(ds, colunaGrupo2) : null;
+  const idxG2 = colunaGrupo2 && colunaGrupo2.trim() ? resolverColuna(ds, colunaGrupo2, { tipo: "texto" }) : null;
   if (colunaGrupo2 && colunaGrupo2.trim() && idxG2 == null) return { colunaNaoEncontrada: colunaGrupo2 };
   const precisaValor = operacao !== "contar";
-  const idxV = precisaValor ? resolverColuna(ds, colunaValor) : idxG;
+  const idxV = precisaValor ? resolverColuna(ds, colunaValor, { tipo: "numerico" }) : idxG;
   if (precisaValor && idxV == null) return { colunaNaoEncontrada: colunaValor };
   const filt = filtrarLinhas(ds, filtros, modo);
   if ("colunaNaoEncontrada" in filt) return { colunaNaoEncontrada: filt.colunaNaoEncontrada };
@@ -812,7 +954,7 @@ export function derivarColuna(
     id: "", coluna: "", operacao, total: ds.rows.length, calculadas: 0,
     vazias_como_zero: 0, base_zero_na: 0, colunas: nomes, amostra: [],
   };
-  const idxA = resolverColuna(ds, colunaA);
+  const idxA = resolverColuna(ds, colunaA, { tipo: "numerico" });
   if (idxA == null) return { ...base, colunaNaoEncontrada: colunaA };
 
   // colunaB: outra coluna, senão um número fixo. Dispensada em percentual_do_total.
@@ -820,7 +962,7 @@ export function derivarColuna(
   let idxB: number | null = null;
   let constB: number | null = null;
   if (precisaB) {
-    idxB = colunaB != null && colunaB.trim() ? resolverColuna(ds, colunaB) : null;
+    idxB = colunaB != null && colunaB.trim() ? resolverColuna(ds, colunaB, { tipo: "numerico" }) : null;
     if (idxB == null) {
       const c = colunaB != null ? parseNumBR(colunaB) : null;
       if (c == null) return { ...base, colunaNaoEncontrada: colunaB ?? "(coluna_b)" };
@@ -912,7 +1054,7 @@ export function classificarColuna(
   const ds = reg.list.find((d) => d.id === datasetId);
   if (!ds) return null;
   const nomes = ds.colunas;
-  const idx = resolverColuna(ds, coluna);
+  const idx = resolverColuna(ds, coluna, { tipo: "numerico" });
   const base: ClassificacaoResultado = { id: "", coluna: "", total: ds.rows.length, distribuicao: [], sem_valor: 0, colunas: nomes, amostra: [] };
   if (idx == null) return { ...base, colunaNaoEncontrada: coluna };
 
@@ -1004,7 +1146,7 @@ export function projetarSerie(
   };
   const serie = colunasSerie.map((c) => c);
   if (serie.length < 2) return { ...base, erro: "A projeção precisa de ao menos 2 colunas de meses (a série histórica)." };
-  const idxs = serie.map((c) => resolverColuna(ds, c));
+  const idxs = serie.map((c) => resolverColuna(ds, c, { tipo: "numerico" }));
   const faltaI = idxs.findIndex((i) => i == null);
   if (faltaI >= 0) return { ...base, colunaNaoEncontrada: serie[faltaI] };
   const idxSerie = idxs as number[];
