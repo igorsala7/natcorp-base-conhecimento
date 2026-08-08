@@ -67,6 +67,10 @@ const toolSchema = z.object({
     .regex(/^[a-z0-9_]+$/, "Chave: só minúsculas, números e _."),
   name: z.string().trim().min(1, "Informe um nome.").max(200),
   description: z.string().trim().min(1, "Descreva o que a API faz (a IA usa isto)."),
+  /** 1-2 frases MOSTRADAS ao usuário nos botões do chat. Vazio = só o título. */
+  descricao_usuario: z.string().trim().max(220, "A descrição para o usuário passa de 220 caracteres.").default(""),
+  /** false = uso interno do agente: some das listagens do chat, segue disponível ao modelo. */
+  selecionavel_no_chat: z.boolean().default(true),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
   path_template: z.string().trim().default(""),
   auth_type: z.enum(["none", "basic", "api_key", "bearer", "oauth2"]),
@@ -131,6 +135,8 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
     key: t.key,
     name: t.name,
     description: t.description,
+    descricao_usuario: t.descricao_usuario,
+    selecionavel_no_chat: t.selecionavel_no_chat,
     method: t.method,
     path_template: t.path_template,
     auth_type: t.auth_type,
@@ -496,7 +502,7 @@ export async function duplicateTool(id: string): Promise<IntegResult> {
   const { data: orig, error: e0 } = await supabase
     .from("ai_tools")
     .select(
-      "key, name, description, method, path_template, auth_type, params, response_hint, always_include, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, cache_scope, loop, panel_scope, exclude_self",
+      "key, name, description, descricao_usuario, selecionavel_no_chat, search_terms, method, path_template, auth_type, params, response_hint, always_include, endpoint_kind, external_url, credential_id, system_prompt, body_mode, guard, cache_ttl, cache_scope, loop, panel_scope, exclude_self",
     )
     .eq("id", id)
     .single();

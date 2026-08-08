@@ -24,6 +24,7 @@
     "embed:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools.ts",
     "embed:tools:base": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools-base.ts",
     "gen:search-terms": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/gen-search-terms.ts",
+    "gen:descricao-usuario": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/gen-descricao-usuario.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",

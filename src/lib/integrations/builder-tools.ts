@@ -91,6 +91,8 @@ export function buildSchemaTools(): ToolSet {
         system_prompt: z.string().optional(),
         response_hint: z.string().optional(),
         search_terms: z.string().optional().describe("Sinônimos e exemplos de pergunta que melhoram o MATCH da IA (não aparece para o usuário; só entra no embedding)."),
+        descricao_usuario: z.string().optional().describe("1-2 frases em linguagem do dia a dia, MOSTRADAS ao usuário nos botões do chat. Sem jargão nem nome de endpoint — é o oposto de `description`, que é escrita para o modelo."),
+        selecionavel_no_chat: z.boolean().optional().describe("false = uso INTERNO do agente: a ferramenta some das listagens de fonte do chat, mas continua disponível para o modelo chamar. Use nas que só servem para encadear (buscar tipos/competências disponíveis antes da consulta real)."),
         params: z.array(paramSchema).optional(),
         baseCodes: z.array(z.string()).optional().describe("Bases (base_code) onde a tool fica ativa. Omitido: mantém (edição) ou todas (nova)."),
         active: z.boolean().optional(),
@@ -108,6 +110,10 @@ export function buildSchemaTools(): ToolSet {
           params: (a.params ?? existing?.params ?? []) as unknown as Json,
           response_hint: a.response_hint ?? existing?.response_hint ?? null,
           search_terms: a.search_terms ?? existing?.search_terms ?? "",
+          // Preservada no upsert: sem esta linha, salvar pelo Construtor apagaria a
+          // descrição de usuário escrita à mão (o objeto `row` é gravado inteiro).
+          descricao_usuario: a.descricao_usuario ?? existing?.descricao_usuario ?? "",
+          selecionavel_no_chat: a.selecionavel_no_chat ?? existing?.selecionavel_no_chat ?? true,
           active: a.active ?? existing?.active ?? true,
           endpoint_kind: a.endpoint_kind ?? (existing?.endpoint_kind as string) ?? "base",
           external_url: a.external_url ?? existing?.external_url ?? null,

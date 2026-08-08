@@ -32,6 +32,11 @@ import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
 import { Select } from "@/components/ui/select";
 
+/** Teto da descrição de usuário. Medido no widget: o sublabel comporta ~52 chars por
+ *  linha no desktop e ~44 no celular, e o gate de fonte chega a listar 10 opções —
+ *  acima disto a lista deixa de caber numa tela e o botão de confirmar sai de vista. */
+const MAX_DESC_USUARIO = 220;
+
 export type EndpointKind = "base" | "external";
 /** Tag de roteamento por assunto: módulo + submódulo (null = módulo inteiro). */
 export type ModuleTag = { modulo: string; submodulo: string | null };
@@ -40,6 +45,10 @@ export type ToolRow = {
   key: string;
   name: string;
   description: string;
+  /** Como a ferramenta é apresentada AO USUÁRIO nos botões do chat (1-2 frases). */
+  descricao_usuario: string | null;
+  /** false = uso interno do agente: some das listagens de fonte do chat. */
+  selecionavel_no_chat: boolean;
   method: HttpMethod;
   path_template: string;
   auth_type: AuthType;
@@ -946,6 +955,8 @@ export function ToolDialog({
   const [key, setKey] = useState(tool?.key ?? "");
   const [name, setName] = useState(tool?.name ?? "");
   const [description, setDescription] = useState(tool?.description ?? "");
+  const [descricaoUsuario, setDescricaoUsuario] = useState(tool?.descricao_usuario ?? "");
+  const [selecionavelNoChat, setSelecionavelNoChat] = useState(tool?.selecionavel_no_chat ?? true);
   const [method, setMethod] = useState<HttpMethod>(tool?.method ?? "GET");
   const [pathTemplate, setPathTemplate] = useState(tool?.path_template ?? "");
   const [authType, setAuthType] = useState<AuthType>(tool?.auth_type ?? "oauth2");
@@ -1032,6 +1043,8 @@ export function ToolDialog({
       key,
       name,
       description,
+      descricao_usuario: descricaoUsuario,
+      selecionavel_no_chat: selecionavelNoChat,
       method,
       path_template: pathTemplate,
       auth_type: authType,
@@ -1090,12 +1103,59 @@ export function ToolDialog({
           </Field>
         </div>
 
-        {/* Vocabulário: os DOIS campos que decidem se a IA acha esta ferramenta ficam
-            juntos. Os sinônimos moravam lá embaixo, depois do editor de parâmetros —
-            numa tool com muitos params, ninguém achava. */}
-        <Field label="Descrição (a IA lê isto para decidir usar)" htmlFor="tool_desc">
+        {/* Vocabulário: os TRÊS textos que descrevem esta ferramenta ficam juntos,
+            porque respondem à mesma pergunta ("o que é isto?") para três leitores
+            diferentes — o modelo, o usuário e o buscador semântico. Quem cadastra
+            escreve os três numa tacada. Os sinônimos moravam lá embaixo, depois do
+            editor de parâmetros — numa tool com muitos params, ninguém achava. */}
+        <Field label="Descrição técnica (a IA lê isto para decidir usar)" htmlFor="tool_desc">
           <textarea id="tool_desc" rows={2} className={controlClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Datas de férias de um colaborador num período." />
         </Field>
+
+        {/* O texto acima é do MODELO: técnico, longo, às vezes citando outra
+            ferramenta. Quando o chat perguntava "de onde eu busco?", o botão saía
+            DELE, cortado em 70 caracteres — medido no catálogo real, 56% terminavam
+            em "…" e o que sobrava era instrução de máquina pela metade. Este campo é
+            o que a pessoa lê. */}
+        <Field
+          label="Descrição para o usuário (aparece no chat)"
+          htmlFor="tool_desc_user"
+          hint="1 ou 2 frases em linguagem do dia a dia, sem jargão nem nome de endpoint. Aparece abaixo do título da ferramenta quando o chat pergunta de onde buscar. Em branco, o botão mostra só o título."
+        >
+          <textarea
+            id="tool_desc_user"
+            rows={2}
+            maxLength={MAX_DESC_USUARIO}
+            className={controlClass}
+            value={descricaoUsuario}
+            onChange={(e) => setDescricaoUsuario(e.target.value)}
+            placeholder="Mostra os períodos de férias já marcados e o saldo de dias de um colaborador."
+          />
+          <p className={`mt-1 text-xs ${descricaoUsuario.length > 160 ? "text-amber-600 dark:text-amber-400" : "text-text-muted"}`}>
+            {descricaoUsuario.length}/{MAX_DESC_USUARIO} caracteres
+            {descricaoUsuario.length > 160 && " — acima de 160 o botão passa de 3 linhas no celular"}
+          </p>
+        </Field>
+
+        {/* Fica colado na descrição do usuário porque os dois respondem à mesma
+            pergunta: COMO esta ferramenta aparece para quem usa o chat. */}
+        <label className="flex items-start gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={selecionavelNoChat}
+            onChange={(e) => setSelecionavelNoChat(e.target.checked)}
+            className="mt-0.5 size-4 accent-[var(--color-primary)]"
+          />
+          <span>
+            Oferecer como opção no chat
+            <span className="mt-0.5 block text-xs text-text-muted">
+              Desmarque para ferramenta de <strong>uso interno do agente</strong> — as que só existem para
+              encadear (buscar os tipos ou as competências disponíveis antes da consulta real). Ela some dos
+              botões de “de onde eu busco?”, mas <strong>continua disponível para a IA chamar</strong>. Para
+              tirar do ar de vez, use Ativa.
+            </span>
+          </span>
+        </label>
 
         <Field
           label="Sinônimos e exemplos de frases (opcional)"
