@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
+  Receipt,
   Bot,
   CheckSquare,
   Code2,
@@ -70,6 +71,7 @@ const GRUPOS = [
       { href: "/admin/conversas", label: "Conversas", icon: MessagesSquare, ready: true },
       { href: "/admin/acessos", label: "Acessos", icon: MousePointerClick, ready: true },
       { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
+      { href: "/admin/faturamento", label: "Faturamento", icon: Receipt, ready: true },
     ],
   },
   {
