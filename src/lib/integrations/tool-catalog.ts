@@ -6,6 +6,7 @@ import type { Database } from "@/lib/database.types";
 import { entradasOntologia } from "@/lib/ai/ontology";
 import { selecionarFormasOntologia } from "./ontology-enrich";
 import { toolCatalogText } from "./tool-catalog-text";
+import { escolherRanking } from "./rank-resgate";
 
 type DB = SupabaseClient<Database>;
 
@@ -188,7 +189,19 @@ export async function syncToolBaseEmbeddings(
   return out;
 }
 
-export type ToolMatch = { key: string; name: string; description: string; sim: number };
+/**
+ * Uma tool candidata. `description` é o texto do MODELO (técnico, longo);
+ * `descricao_usuario` é o que se mostra a quem clica — nunca troque um pelo outro.
+ */
+export type ToolMatch = {
+  key: string;
+  name: string;
+  description: string;
+  descricao_usuario?: string | null;
+  /** false = uso interno do agente: some das listagens do chat, segue disponível ao modelo. */
+  selecionavel_no_chat?: boolean;
+  sim: number;
+};
 
 function parseEmb(v: unknown): number[] | null {
   if (Array.isArray(v)) return v as number[];
@@ -213,11 +226,15 @@ function cosseno(a: number[], b: number[]): number {
   return d / (Math.sqrt(na) * Math.sqrt(nb) || 1);
 }
 
-type ToolRow = { id: string; key: string; name: string; description: string; embedding: unknown; active: boolean };
+type ToolRow = { id: string; key: string; name: string; description: string; descricao_usuario: string | null; selecionavel_no_chat: boolean | null; embedding: unknown; active: boolean };
 type CatalogoItem = {
   key: string;
   name: string;
   description: string;
+  /** Texto para o USUÁRIO (botões de fonte no chat). Fora do embedding, de propósito. */
+  descricao_usuario: string;
+  /** false = não entra nas listagens de fonte (mas continua no roteamento). */
+  selecionavel_no_chat: boolean;
   /** Vetor GLOBAL (nome+descrição+sinônimos digitados). */
   emb: number[];
   /** Vetor da BASE, enriquecido com a ontologia do cliente. Null = ainda não gerado. */
@@ -258,7 +275,7 @@ async function loadCatalogo(db: DB, baseCode: string): Promise<CatalogoItem[]> {
   if (!base) return [];
   const { data: rows } = await db
     .from("ai_base_tools")
-    .select("tool:ai_tools(id, key, name, description, embedding, active)")
+    .select("tool:ai_tools(id, key, name, description, descricao_usuario, selecionavel_no_chat, embedding, active)")
     .eq("base_id", base.id)
     .eq("enabled", true);
   // Vetor ENRIQUECIDO com a ontologia DESTA base tem preferência; o global de
@@ -275,7 +292,7 @@ async function loadCatalogo(db: DB, baseCode: string): Promise<CatalogoItem[]> {
     .flatMap((t): CatalogoItem[] => {
       const emb = parseEmb(t.embedding);
       if (!emb?.length) return [];
-      return [{ key: t.key, name: t.name, description: t.description, emb, embOnto: embBase.get(t.id) ?? null }];
+      return [{ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario ?? "", selecionavel_no_chat: t.selecionavel_no_chat !== false, emb, embOnto: embBase.get(t.id) ?? null }];
     });
   catalogoCache.set(chave, { exp: Date.now() + CATALOGO_TTL, cat });
   return cat;
@@ -294,12 +311,58 @@ export async function listBaseTools(
   db: DB,
   baseCode: string,
   limite = 80,
-): Promise<{ key: string; name: string; description: string | null }[]> {
+): Promise<{ key: string; name: string; description: string | null; descricao_usuario: string }[]> {
   const cat = await loadCatalogo(db, baseCode);
   return cat
-    .map((t) => ({ key: t.key, name: t.name, description: t.description }))
+    // Esta lista é a gaveta "Outra fonte" — o catálogo inteiro para o usuário
+    // escolher à mão. Ferramenta de uso interno do agente é filtrada AQUI, na
+    // origem: é o único consumidor desta função, e escolher um passo
+    // intermediário nunca é o que a pessoa quis.
+    .filter((t) => t.selecionavel_no_chat)
+    .map((t) => ({ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario }))
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
     .slice(0, limite);
+}
+
+/**
+ * Casa a mensagem contra o catálogo com a ontologia como RESGATE, não como distorção.
+ *
+ * ── O defeito que isto conserta, medido ──────────────────────────────────────
+ * A consulta de roteamento era "pergunta + as 6 primeiras formas da ontologia".
+ * Para "Quero meu histórico financeiro do mês de 05/2025", as formas do cliente
+ * incluem "holerite" e "recibo de salario" — que são exatamente os sinônimos
+ * cadastrados de OUTRA ferramenta. Medição real:
+ *
+ *   pergunta crua      → historico_financeiro 0.698 > relatorio_recibo 0.691  ✓
+ *   com a ontologia    → relatorio_recibo 0.796 > historico_financeiro 0.744  ✗
+ *
+ * A expansão deu +0.105 à irmã e +0.046 à certa: ela injeta o vocabulário de uma
+ * ferramenta vizinha dentro da pergunta. E dilui — a frase do usuário vira 1
+ * linha entre 7, perdendo de 6 a 1 para termos que ele não escreveu.
+ *
+ * ── A regra ─────────────────────────────────────────────────────────────────
+ * Ranqueia com a PERGUNTA CRUA. Se ela já acha alguém acima do limiar, é esse o
+ * ranking: as palavras do usuário mandam. Só quando a pergunta crua não acha
+ * nada — o caso para o qual a ontologia existe, o usuário dizendo "holerite"
+ * quando a ferramenta se chama "eventos financeiros" — a expansão entra.
+ *
+ * Aditivo por construção: a ontologia só pode ACRESCENTAR candidatas quando não
+ * havia nenhuma; nunca reordena as que a pergunta já encontrou.
+ */
+export async function casarToolsComResgate(
+  db: DB,
+  baseCode: string,
+  consultaPura: string,
+  consultaComOntologia: string,
+  opts: { limiar?: number; limite?: number } = {},
+): Promise<{ matches: ToolMatch[]; viaOntologia: boolean }> {
+  const pura = await matchBaseTools(db, baseCode, consultaPura, opts);
+  // Sem expansão a fazer (ou a pergunta já achou): poupa o 2º embedding.
+  if (pura.length > 0 || consultaComOntologia === consultaPura) {
+    return escolherRanking(pura, pura);
+  }
+  const expandida = await matchBaseTools(db, baseCode, consultaComOntologia, opts);
+  return escolherRanking(pura, expandida);
 }
 
 /**
@@ -325,7 +388,20 @@ export async function matchBaseTools(
   const limiar = opts.limiar ?? 0.70;
   const limite = opts.limite ?? 5;
   return cat
-    .map((t) => ({ key: t.key, name: t.name, description: t.description, sim: simDaTool(q, t) }))
+    // Ferramenta de USO INTERNO sai ANTES do corte por limite, não depois.
+    //
+    // Este ranking existe para montar a lista de opções e para decidir o
+    // roteamento. Uma dependência (`*_meses`, `linha_tempo_fato`) é semanticamente
+    // parecidíssima com a consulta de verdade — ela vinha alto, ocupava vaga dentro
+    // do `limite`, e a boa opção que estava logo abaixo nem chegava a entrar. Pior:
+    // quando vinha em 1º, era ela que o roteador forçava sozinha, e o usuário
+    // recebia uma lista de competências no lugar da resposta.
+    //
+    // O agente NÃO perde nada com isto: o toolset dele é montado por
+    // `simTools`/`selecionarTopK`, outro caminho, e a dependência continua sendo
+    // puxada junto pelo mecanismo de dependência citada na descrição.
+    .filter((t) => t.selecionavel_no_chat)
+    .map((t) => ({ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario, selecionavel_no_chat: t.selecionavel_no_chat, sim: simDaTool(q, t) }))
     .filter((m) => m.sim >= limiar)
     .sort((a, b) => b.sim - a.sim)
     .slice(0, limite);
@@ -405,17 +481,17 @@ export async function loadToolsByKeys(db: DB, baseCode: string, keys: string[]):
   if (!base) return [];
   const { data: rows } = await db
     .from("ai_base_tools")
-    .select("tool:ai_tools(key, name, description, active)")
+    .select("tool:ai_tools(key, name, description, descricao_usuario, selecionavel_no_chat, active)")
     .eq("base_id", base.id)
     .eq("enabled", true);
   const porChave = new Map(
     (rows ?? [])
-      .map((r) => (r as { tool: { key: string; name: string; description: string; active: boolean } | null }).tool)
-      .filter((t): t is { key: string; name: string; description: string; active: boolean } => !!t && t.active)
+      .map((r) => (r as { tool: { key: string; name: string; description: string; descricao_usuario: string; selecionavel_no_chat: boolean; active: boolean } | null }).tool)
+      .filter((t): t is { key: string; name: string; description: string; descricao_usuario: string; selecionavel_no_chat: boolean; active: boolean } => !!t && t.active)
       .map((t) => [t.key, t]),
   );
   return chaves
     .map((k) => porChave.get(k))
-    .filter((t): t is { key: string; name: string; description: string; active: boolean } => !!t)
-    .map((t) => ({ key: t.key, name: t.name, description: t.description, sim: 1 }));
+    .filter((t): t is { key: string; name: string; description: string; descricao_usuario: string; selecionavel_no_chat: boolean; active: boolean } => !!t)
+    .map((t) => ({ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario, selecionavel_no_chat: t.selecionavel_no_chat, sim: 1 }));
 }
