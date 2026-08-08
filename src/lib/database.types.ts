@@ -881,6 +881,7 @@ export type Database = {
           panel_scope: Json | null
           exclude_self: boolean
           method: string
+          identity_mode: string
           name: string
           params: Json
           path_template: string
@@ -914,6 +915,7 @@ export type Database = {
           panel_scope?: Json | null
           exclude_self?: boolean
           method?: string
+          identity_mode?: string
           name: string
           params?: Json
           path_template?: string
@@ -947,6 +949,7 @@ export type Database = {
           panel_scope?: Json | null
           exclude_self?: boolean
           method?: string
+          identity_mode?: string
           name?: string
           params?: Json
           path_template?: string
@@ -1149,6 +1152,99 @@ export type Database = {
           desfecho?: string | null
           duracao_ms?: number | null
           passos?: Json
+        }
+        Relationships: []
+      }
+      user_connections: {
+        Row: {
+          id: string
+          credential_id: string
+          base_id: string
+          provider: string
+          p_usuario: string
+          account_email: string | null
+          account_name: string | null
+          scopes: string[]
+          access_expires_at: string | null
+          revoked_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          credential_id: string
+          base_id: string
+          provider: string
+          p_usuario: string
+          account_email?: string | null
+          account_name?: string | null
+          scopes?: string[]
+          access_expires_at?: string | null
+          revoked_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          credential_id?: string
+          base_id?: string
+          provider?: string
+          p_usuario?: string
+          account_email?: string | null
+          account_name?: string | null
+          scopes?: string[]
+          access_expires_at?: string | null
+          revoked_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_connection_tokens: {
+        Row: {
+          connection_id: string
+          refresh_enc: string
+          access_enc: string | null
+          updated_at: string
+        }
+        Insert: {
+          connection_id: string
+          refresh_enc?: string
+          access_enc?: string | null
+          updated_at?: string
+        }
+        Update: {
+          connection_id?: string
+          refresh_enc?: string
+          access_enc?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      oauth_states: {
+        Row: {
+          nonce: string
+          credential_id: string
+          p_usuario: string
+          origin: string | null
+          created_at: string
+          used_at: string | null
+        }
+        Insert: {
+          nonce: string
+          credential_id: string
+          p_usuario: string
+          origin?: string | null
+          created_at?: string
+          used_at?: string | null
+        }
+        Update: {
+          nonce?: string
+          credential_id?: string
+          p_usuario?: string
+          origin?: string | null
+          created_at?: string
+          used_at?: string | null
         }
         Relationships: []
       }
