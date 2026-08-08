@@ -14,7 +14,13 @@ next-env.d.ts
 # testes
 /coverage
 
-# ambiente (segredos nunca versionados)
+# ambiente
+# EXCECAO DELIBERADA: .env e .env.local SAO versionados (git add -f) enquanto o
+# sistema nao esta em producao, para migrar de servidor sem remontar a
+# configuracao a mao. As regras abaixo seguem valendo para qualquer .env novo.
+# Antes do lancamento: `git rm --cached .env .env.local` e ROTACIONAR o que
+# passou pelo historico (chave-mestra, chave de servico do Supabase, senha do
+# banco, token do Upstash, PORTAL_COOKIE_SECRET).
 .env
 .env.local
 .env*.local
