@@ -237,6 +237,9 @@ async function logUsage(row: {
   purpose: Purpose;
   input: number;
   output: number;
+  /** Fatias DENTRO de `input` (ver `tokensDe`) — preço diferente do token novo. */
+  cacheRead?: number;
+  cacheWrite?: number;
   meta?: UsageMeta;
 }): Promise<void> {
   try {
@@ -248,6 +251,8 @@ async function logUsage(row: {
       input_tokens: row.input,
       output_tokens: row.output,
       total_tokens: row.input + row.output,
+      cache_read_tokens: row.cacheRead ?? 0,
+      cache_write_tokens: row.cacheWrite ?? 0,
       kind: row.meta?.kind ?? "system",
       p_base: row.meta?.p_base ?? null,
       p_usuario: row.meta?.p_usuario ?? null,
@@ -264,10 +269,27 @@ async function logUsage(row: {
 }
 
 /** No nível da spec V3, o uso vem aninhado; o total não existe pronto. */
-function tokensDe(usage: LanguageModelV3Usage): { input: number; output: number } {
+/**
+ * Quebra do consumo, com a parte de CACHE separada.
+ *
+ * `input` continua sendo o TOTAL de entrada (é assim que o provedor conta), e
+ * `cacheRead`/`cacheWrite` são fatias DENTRO dele — nunca somar por fora, ou o
+ * total dobra. A separação existe porque os três têm preço diferente: entrada
+ * nova 1×, leitura de cache ~0,1×, escrita ~1,25×. Sem ela, faturar pelo total
+ * superestima o custo (medido: ~45% num turno real com o cache quente).
+ */
+function tokensDe(usage: LanguageModelV3Usage): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+} {
+  const inp = usage.inputTokens;
   return {
-    input: usage.inputTokens?.total ?? 0,
+    input: inp?.total ?? 0,
     output: usage.outputTokens?.total ?? 0,
+    cacheRead: inp?.cacheRead ?? 0,
+    cacheWrite: inp?.cacheWrite ?? 0,
   };
 }
 
@@ -278,8 +300,8 @@ function tokensDe(usage: LanguageModelV3Usage): { input: number; output: number 
  */
 function comRegistro(model: ReturnType<typeof instanciar>, cfg: ResolvedAi, purpose: Purpose, meta?: UsageMeta) {
   const registrar = (usage: LanguageModelV3Usage) => {
-    const { input, output } = tokensDe(usage);
-    return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output, meta });
+    const { input, output, cacheRead, cacheWrite } = tokensDe(usage);
+    return logUsage({ provider: cfg.kind, model: cfg.model, purpose, input, output, cacheRead, cacheWrite, meta });
   };
   const cbKey = cfg.kind + ":" + cfg.model; // disjuntor por provedor+modelo
   const middleware: LanguageModelMiddleware = {

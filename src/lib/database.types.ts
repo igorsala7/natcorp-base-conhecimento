@@ -883,6 +883,8 @@ export type Database = {
           path_template: string
           response_hint: string | null
           search_terms: string
+          descricao_usuario: string
+          selecionavel_no_chat: boolean
           system_prompt: string
           updated_at: string
         }
@@ -914,6 +916,8 @@ export type Database = {
           path_template?: string
           response_hint?: string | null
           search_terms?: string
+          descricao_usuario?: string
+          selecionavel_no_chat?: boolean
           system_prompt?: string
           updated_at?: string
         }
@@ -945,6 +949,8 @@ export type Database = {
           path_template?: string
           response_hint?: string | null
           search_terms?: string
+          descricao_usuario?: string
+          selecionavel_no_chat?: boolean
           system_prompt?: string
           updated_at?: string
         }
@@ -1151,6 +1157,8 @@ export type Database = {
           kind: string
           model: string
           output_tokens: number
+          cache_read_tokens: number
+          cache_write_tokens: number
           p_base: string | null
           p_empresa: string | null
           p_matricula: string | null
@@ -1168,6 +1176,8 @@ export type Database = {
           kind?: string
           model: string
           output_tokens?: number
+          cache_read_tokens?: number
+          cache_write_tokens?: number
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
@@ -1185,6 +1195,8 @@ export type Database = {
           kind?: string
           model?: string
           output_tokens?: number
+          cache_read_tokens?: number
+          cache_write_tokens?: number
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
@@ -4535,8 +4547,11 @@ export type Database = {
           provider: string
           model: string
           purpose: string
+          kind: string
           input_tokens: number
           output_tokens: number
+          cache_read_tokens: number
+          cache_write_tokens: number
           total_tokens: number
           calls: number
         }[]
