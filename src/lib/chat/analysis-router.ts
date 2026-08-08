@@ -68,8 +68,22 @@ export async function classificarAnalise(args: {
   question: string;
   columns: string[];
   sampleRows: string[][];
+  /**
+   * Pergunta com a ANÁFORA RESOLVIDA (a reescrita de consulta, ou a pergunta com
+   * o antecedente colado). Quando vem, é ela que o classificador lê.
+   *
+   * Sem isto ele decidia no escuro: "Como você avalia a trajetória DESSE
+   * colaborador?" com uma coluna chamada "COLABORADOR" na tela virava "ler e
+   * classificar 109 registros da coluna" — enquanto o usuário falava da pessoa
+   * discutida nos últimos seis turnos.
+   */
+  perguntaResolvida?: string | null;
 }): Promise<AnaliseDecisao> {
-  const q = (args.question ?? "").trim();
+  const bruta = (args.question ?? "").trim();
+  const resolvida = String(args.perguntaResolvida ?? "").trim();
+  // A resolvida manda quando existe e difere: é a mesma pergunta, com o "desse"
+  // trocado por quem ele é.
+  const q = resolvida && resolvida !== bruta ? resolvida : bruta;
   const cols = (args.columns ?? []).map(String);
   if (q.length < 4 || !cols.length || !args.sampleRows?.length) return A_PURO;
 
@@ -114,6 +128,11 @@ export async function classificarAnalise(args: {
 - "A": dá para responder com CONTAS sobre colunas (contagem/soma/estatística/agrupar/filtrar/comparar). NÃO precisa ler texto livre.
 - "B": exige LER o TEXTO de uma coluna livre e JULGAR/classificar cada linha (ex.: inferir um conceito que NÃO existe como coluna, tipo "risco de reclamação trabalhista" a partir do "motivo").
 - "A_para_B": B, mas dá para pré-filtrar antes (ex.: só as linhas de uma categoria) para ler menos linhas.
+
+REGRA QUE VEM ANTES DE TUDO: se a pergunta é sobre UMA pessoa/item ESPECÍFICO (nome
+próprio, matrícula, "esse colaborador", "ele") em vez de sobre o CONJUNTO das linhas,
+responda "A". Ler a coluna inteira para falar de um indivíduo é resposta errada — e o
+nome de uma coluna coincidir com o assunto ("COLABORADOR") não torna a coluna o alvo.
 
 Se for B/A_para_B: diga "alvo_coluna" (a coluna de texto a ler — use um nome da lista), "criterio" (o que julgar, curto), "rotulos" (2 a 6 classes curtas, ex.: ["alto","medio","baixo","nenhum"]) e, se A_para_B, "pre_filtro" (condições sobre OUTRAS colunas p/ reduzir o universo). Se for A, deixe os demais campos null/[].
 
