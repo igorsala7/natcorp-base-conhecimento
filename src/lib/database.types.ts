@@ -1149,6 +1149,72 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_model_prices: {
+        Row: {
+          id: string
+          provider: string
+          model: string
+          input_usd_mtok: number | null
+          output_usd_mtok: number | null
+          cache_read_mult: number
+          cache_write_mult: number
+          vigente_desde: string
+          confirmado: boolean
+          fonte: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          provider: string
+          model: string
+          input_usd_mtok?: number | null
+          output_usd_mtok?: number | null
+          cache_read_mult?: number
+          cache_write_mult?: number
+          vigente_desde?: string
+          confirmado?: boolean
+          fonte?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: string
+          model?: string
+          input_usd_mtok?: number | null
+          output_usd_mtok?: number | null
+          cache_read_mult?: number
+          cache_write_mult?: number
+          vigente_desde?: string
+          confirmado?: boolean
+          fonte?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      billing_settings: {
+        Row: {
+          id: boolean
+          usd_por_mtok: number
+          base_cobranca: string
+          cobrar_overhead_interno: boolean
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          usd_por_mtok?: number
+          base_cobranca?: string
+          cobrar_overhead_interno?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          usd_por_mtok?: number
+          base_cobranca?: string
+          cobrar_overhead_interno?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_usage: {
         Row: {
           created_at: string
@@ -1159,6 +1225,9 @@ export type Database = {
           output_tokens: number
           cache_read_tokens: number
           cache_write_tokens: number
+          origem: string
+          turn_id: string | null
+          conversation_id: string | null
           p_base: string | null
           p_empresa: string | null
           p_matricula: string | null
@@ -1178,6 +1247,9 @@ export type Database = {
           output_tokens?: number
           cache_read_tokens?: number
           cache_write_tokens?: number
+          origem?: string
+          turn_id?: string | null
+          conversation_id?: string | null
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
@@ -1197,6 +1269,9 @@ export type Database = {
           output_tokens?: number
           cache_read_tokens?: number
           cache_write_tokens?: number
+          origem?: string
+          turn_id?: string | null
+          conversation_id?: string | null
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
@@ -3075,6 +3150,7 @@ export type Database = {
           output_tokens: number | null
           role: string
           tokens: number | null
+          turn_id: string | null
         }
         Insert: {
           attachments?: Json
@@ -3090,6 +3166,7 @@ export type Database = {
           output_tokens?: number | null
           role: string
           tokens?: number | null
+          turn_id?: string | null
         }
         Update: {
           attachments?: Json
@@ -3105,6 +3182,7 @@ export type Database = {
           output_tokens?: number | null
           role?: string
           tokens?: number | null
+          turn_id?: string | null
         }
         Relationships: [
           {
@@ -4530,6 +4608,55 @@ export type Database = {
       whatsapp_has_secret: {
         Args: { p_campo: string }
         Returns: boolean
+      }
+      faturamento_detalhe: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_origens?: string[]
+          pf_cliente?: string | null
+        }
+        Returns: {
+          cliente: string
+          origem: string
+          kind: string
+          provider: string
+          model: string
+          purpose: string
+          chamadas: number
+          entrada_total: number
+          entrada_nova: number
+          cache_read: number
+          cache_write: number
+          saida: number
+          tokens_brutos: number
+          tokens_ponderados: number
+          cache_read_mult: number | null
+          cache_write_mult: number | null
+          preco_confirmado: boolean
+          custo_usd: number | null
+        }[]
+      }
+      faturamento_por_mensagem: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_origens?: string[]
+        }
+        Returns: {
+          turn_id: string
+          conversation_id: string | null
+          cliente: string
+          criado_em: string
+          pergunta: string | null
+          chamadas: number
+          entrada_total: number
+          cache_read: number
+          cache_write: number
+          saida: number
+          tokens_brutos: number
+          tokens_ponderados: number
+        }[]
       }
       ai_usage_report: {
         Args: {
