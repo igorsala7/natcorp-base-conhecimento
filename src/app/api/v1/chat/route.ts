@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { readDatasetRows, putDatasetRows } from "@/lib/widget/dataset-store";
 import { chatModel, languageModel, hasAiKey, resolveAi } from "@/lib/ai/config";
+import { comContextoDeConsumo, type UsageContext } from "@/lib/ai/usage-context";
 import {
   retrievePublicContext,
   buildContextBlock,
@@ -143,7 +144,28 @@ function descricaoTool(m: { descricao_usuario?: string | null }): string | undef
   return d || undefined;
 }
 
+/**
+ * Abre o contexto de CONSUMO do turno e delega.
+ *
+ * Tudo que roda dentro deste escopo — inclusive a reescrita de consulta, o
+ * classificador de módulo, a desambiguação de ferramenta e os embeddings do
+ * RAG, que ficam a três ou quatro chamadas de distância daqui — grava o
+ * consumo já atribuído a este cliente e a este turno. Sem isso, essas chamadas
+ * caíam como consumo de sistema sem dono: 33 de 56 chamadas numa janela real,
+ * 2,6% dos tokens que ninguém pagava.
+ *
+ * `ctxConsumo` é MUTÁVEL de propósito: `turn_id` já existe aqui, mas a
+ * identidade do cliente só é conhecida depois de decodificar o token de
+ * rastreio, e a conversa só depois de garantir a linha em `conversations`. O
+ * AsyncLocalStorage guarda a referência, então preencher os campos mais adiante
+ * vale para todas as chamadas seguintes.
+ */
 export async function POST(req: NextRequest) {
+  const ctxConsumo: UsageContext = { origem: "widget", turnId: crypto.randomUUID() };
+  return comContextoDeConsumo(ctxConsumo, () => handlePost(req, ctxConsumo));
+}
+
+async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const origin = req.headers.get("origin");
   const cors = corsHeaders(origin);
   const json = (body: unknown, status: number) =>
@@ -213,6 +235,21 @@ export async function POST(req: NextRequest) {
   if (!question.trim()) return json({ error: "Mensagem vazia." }, 400);
 
   const supabase = createAdminClient();
+
+  // Identidade de rastreio (decodificada do token) — usada na conversa E para
+  // atribuir o CONSUMO de IA a este cliente.
+  //
+  // Fica AQUI, e não mais adiante junto do resto do preparo, porque a reescrita
+  // da consulta roda antes daquele ponto: com a decodificação tardia, aquela
+  // chamada (e os embeddings do RAG que vêm logo depois) era gravada sem
+  // `p_base` e caía como "(sem cliente)" dentro do consumo cobrável. Medido numa
+  // chamada real depois de instrumentar: `query_rewrite` saía com kind=system e
+  // base nula mesmo com o turno tendo dono.
+  const track = await decodeTrackForSpace(key.space_id, payload.track);
+  // A partir daqui toda chamada de IA do turno sai atribuída a este cliente,
+  // inclusive as que módulos internos disparam sem saber de quem é o turno.
+  ctxConsumo.meta = { kind: "user", ...track };
+
   // RASTREIO do fluxo (console do navegador via SSE + página de log). Cada decisão
   // vira um passo com o tempo relativo — para achar onde a lógica falha.
   const trace = new ChatTrace();
@@ -359,9 +396,6 @@ export async function POST(req: NextRequest) {
     if (!existing) convId = undefined;
     else prevPage = pageContextFields(existing.page);
   }
-  // Identidade de rastreio (decodificada do token) — usada na conversa E para
-  // atribuir o CONSUMO de IA a este usuário (não ao sistema).
-  const track = await decodeTrackForSpace(key.space_id, payload.track);
   // Escopo do usuário (isolamento) — reusado p/ datasets persistidos e fontes salvas.
   const userRef = `${String(track.p_base ?? "").trim()}:${String(track.p_usuario ?? track.p_matricula ?? "").trim()}`;
   // Dataset persistido (F1): o widget mandou só o id → rehidrata as linhas, SEMPRE
@@ -1042,12 +1076,14 @@ export async function POST(req: NextRequest) {
     else if (disclaimerServer) await supabase.from("conversations").update({ disclaimer: disclaimerServer }).eq("id", convId);
   }
   runMeta.conversationId = convId ?? null; // o log de execução usa este id
+  ctxConsumo.conversationId = convId ?? undefined; // e o registro de consumo, o mesmo
   // Pergunta persistida só na 1ª chamada (sem `scope`); o clique num botão de
   // desambiguação re-envia a mesma pergunta e não deve duplicá-la. A continuação do
   // loop autônomo também não é nova pergunta — não reinsere.
   if (!payload.scope && !continuation) {
     await supabase.from("messages").insert({
       conversation_id: convId!,
+      turn_id: ctxConsumo.turnId,
       role: "user",
       content: question,
       attachments: attach.metas as never,
@@ -1474,6 +1510,7 @@ export async function POST(req: NextRequest) {
       "Pode reformular com mais detalhes (o nome da tela ou do assunto ajuda), ou, se preferir, falar com um atendente humano.";
     await supabase.from("messages").insert({
       conversation_id: convId!,
+      turn_id: ctxConsumo.turnId,
       role: "assistant",
       content: refusal,
       latency_ms: Date.now() - started,
@@ -1777,9 +1814,20 @@ export async function POST(req: NextRequest) {
     : turnoAgentico
       ? "chat_ferramentas"
       : null;
+  // Origem e turno vão EXPLÍCITOS aqui (e não herdados do contexto) porque esta
+  // é a única chamada cujo consumo é registrado de dentro do `TransformStream`
+  // do streaming — o ponto onde não dá para garantir que o contexto assíncrono
+  // ainda esteja de pé. É também a maior do turno: perdê-la é perder a fatura.
+  const metaConsumo = {
+    kind: "user" as const,
+    origem: "widget" as const,
+    turnId: ctxConsumo.turnId,
+    conversationId: convId ?? undefined,
+    ...track,
+  };
   const modeloTurno = await (finalidadeTurno
-    ? languageModel(finalidadeTurno, { kind: "user", ...track }, track.p_base ?? "")
-    : chatModel({ kind: "user", ...track }, track.p_base ?? ""));
+    ? languageModel(finalidadeTurno, metaConsumo, track.p_base ?? "")
+    : chatModel(metaConsumo, track.p_base ?? ""));
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
     // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).
@@ -2083,6 +2131,11 @@ export async function POST(req: NextRequest) {
         tokens: totalTokensTurno,
         input_tokens: inputTokensTurno,
         output_tokens: outputTokensTurno,
+        // Vínculo com TODAS as chamadas de IA deste turno em `ai_usage` —
+        // inclusive as internas, que não aparecem nos contadores acima. É por
+        // ele que `faturamento_por_mensagem` responde quanto ESTA mensagem
+        // consumiu de verdade, sem depender de janela de tempo.
+        turn_id: ctxConsumo.turnId,
       });
       // Fotografia do REGISTRO de datasets no fim do turno: quais ids existiram, com
       // quantas linhas e quais colunas. É o que permite ler no log por que um

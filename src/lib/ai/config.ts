@@ -19,13 +19,26 @@ import {
   type Purpose,
 } from "@/lib/ai/catalog";
 import type { TrackingKey } from "@/lib/chat/tracking";
+import { resolverContexto } from "./usage-context";
 
 /**
  * Contexto do consumo: se a chamada veio do SISTEMA (importador, editor, busca…)
  * ou de um USUÁRIO (chat do widget/portal) e, nesse caso, a identidade de
  * rastreio (p_*), para o relatório de Consumo de IA filtrar por usuário.
  */
-export type UsageMeta = { kind?: "system" | "user" } & Partial<Record<TrackingKey, string>>;
+export type UsageMeta = {
+  kind?: "system" | "user";
+  /**
+   * Porta de entrada — decide se é COBRÁVEL (só `widget`). Normalmente vem do
+   * contexto do turno (`usage-context.ts`); a chamada principal do chat passa
+   * explícito de propósito: ela é registrada de dentro do `TransformStream` do
+   * streaming, e se o contexto assíncrono não sobrevivesse até lá o maior
+   * consumo do turno sairia da fatura sem ninguém notar.
+   */
+  origem?: "widget" | "portal" | "admin" | "sistema";
+  turnId?: string;
+  conversationId?: string;
+} & Partial<Record<TrackingKey, string>>;
 
 /**
  * Resolução do provedor de IA por FINALIDADE (chat, embeddings, importação).
@@ -244,6 +257,11 @@ async function logUsage(row: {
 }): Promise<void> {
   try {
     const supabase = createAdminClient();
+    // Identidade + porta de entrada + turno. O `meta` explícito manda no que
+    // define; o resto vem do contexto do turno — é o que faz a reescrita de
+    // consulta e os embeddings de um turno do widget caírem na fatura do
+    // cliente certo em vez de virarem consumo órfão (ver usage-context.ts).
+    const ctx = resolverContexto(row.meta);
     const { error } = await supabase.from("ai_usage").insert({
       provider: row.provider,
       model: row.model,
@@ -253,13 +271,11 @@ async function logUsage(row: {
       total_tokens: row.input + row.output,
       cache_read_tokens: row.cacheRead ?? 0,
       cache_write_tokens: row.cacheWrite ?? 0,
-      kind: row.meta?.kind ?? "system",
-      p_base: row.meta?.p_base ?? null,
-      p_usuario: row.meta?.p_usuario ?? null,
-      p_portal: row.meta?.p_portal ?? null,
-      p_empresa: row.meta?.p_empresa ?? null,
-      p_matricula: row.meta?.p_matricula ?? null,
-      p_perfil: row.meta?.p_perfil ?? null,
+      kind: ctx.kind,
+      origem: ctx.origem,
+      turn_id: ctx.turnId,
+      conversation_id: ctx.conversationId,
+      ...ctx.p,
     });
     if (error) console.error("[ai_usage] falha ao registrar consumo:", error.message);
   } catch (e) {

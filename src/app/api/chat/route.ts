@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { comContextoDeConsumo } from "@/lib/ai/usage-context";
 import {
   retrieveContext,
   buildContextBlock,
@@ -37,7 +38,14 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
  */
 const META_MARK = "\n__META__";
 
+/** Uso INTERNO da equipe: marcado como `admin`, fora de qualquer fatura de
+ *  cliente, mas separado de `sistema` para dar para medir quanto a operação
+ *  consome por conta própria. */
 export async function POST(req: NextRequest) {
+  return comContextoDeConsumo({ origem: "admin" }, () => handlePost(req));
+}
+
+async function handlePost(req: NextRequest) {
   const { spaceId, messages: messagesBrutas, conversationId, promptOverride, scope, contextScope, sim } = (await req.json()) as {
     spaceId: string;
     messages: ChatMessage[];
@@ -211,7 +219,7 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: await chatModel(),
+    model: await chatModel({ origem: "admin" }),
     system: composeSystemPrompt(
       {
         persona,

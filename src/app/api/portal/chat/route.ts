@@ -3,6 +3,7 @@ import { limitarHistorico } from "@/lib/ai/history";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { comContextoDeConsumo } from "@/lib/ai/usage-context";
 import {
   retrievePublicContext,
   buildContextBlock,
@@ -50,7 +51,14 @@ function clientIp(req: NextRequest): string {
  * Mesma origem (sem chave). Escopo: apenas o espaço (respeita o gate de senha).
  * Rate limit por IP. Resposta em SSE: {type:'citations'|'token'|'done'|'error'}.
  */
+/** Escopo de consumo do portal: tudo que rodar aqui dentro — inclusive os
+ *  embeddings da busca e a reescrita da consulta — sai marcado como `portal`,
+ *  que o faturamento não cobra. */
 export async function POST(req: NextRequest) {
+  return comContextoDeConsumo({ origem: "portal" }, () => handlePost(req));
+}
+
+async function handlePost(req: NextRequest) {
   const json = (b: unknown, s: number) => Response.json(b, { status: s });
 
   let payload: {
@@ -305,7 +313,12 @@ export async function POST(req: NextRequest) {
     onError: ({ error }) => {
       console.error("[chat] falha ao gerar resposta:", error);
     },
-    model: await chatModel({ kind: "user", ...track }, track.p_base ?? ""),
+    // `origem: "portal"` marca o consumo como NÃO COBRÁVEL. O portal público de
+    // documentação é cortesia por decisão do produto; antes disto ele só se
+    // distinguia do widget por acidente (o leitor não manda rastreio, então
+    // `p_base` ficava nulo) — critério que quebraria no primeiro widget
+    // chamado sem token de rastreio.
+    model: await chatModel({ kind: "user", origem: "portal", ...track }, track.p_base ?? ""),
     // Teto de saída generoso p/ passo a passo/guia (não cortar a resposta longa).
     maxOutputTokens: completo ? 8192 : 4096,
     system: composeSystemPrompt(

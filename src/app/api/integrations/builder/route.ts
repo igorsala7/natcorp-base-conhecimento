@@ -2,6 +2,7 @@ import { streamText, stepCountIs } from "ai";
 import type { NextRequest } from "next/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
+import { comContextoDeConsumo } from "@/lib/ai/usage-context";
 import { buildSchemaTools, resumoEsquema } from "@/lib/integrations/builder-tools";
 
 export const runtime = "nodejs";
@@ -26,7 +27,14 @@ ESTILO: pt-BR, direto e claro. Ao concluir uma ação, confirme em uma linha o q
  * vínculos conversando com o admin. Só `integrations.manage`. Não-destrutivo (as
  * ferramentas de esquema não apagam nada nem tocam em segredos).
  */
+/** Uso INTERNO da equipe: marcado como `admin`, fora de qualquer fatura de
+ *  cliente, mas separado de `sistema` para dar para medir quanto a operação
+ *  consome por conta própria. */
 export async function POST(req: NextRequest) {
+  return comContextoDeConsumo({ origem: "admin" }, () => handlePost(req));
+}
+
+async function handlePost(req: NextRequest) {
   if (!(await hasPermission("integrations.manage", null))) {
     return Response.json({ error: "Sem permissão para gerenciar integrações." }, { status: 403 });
   }
@@ -38,7 +46,7 @@ export async function POST(req: NextRequest) {
   const resumo = await resumoEsquema();
 
   const result = streamText({
-    model: await chatModel(),
+    model: await chatModel({ origem: "admin" }),
     system: `${SYSTEM}\n\nESQUEMA ATUAL:\n${resumo}`,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     tools: buildSchemaTools(),
