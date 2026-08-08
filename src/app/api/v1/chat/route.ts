@@ -34,11 +34,14 @@ import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraRotulosColuna } from "@/lib/chat/regras-nucleo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
-import { listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
+import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { dividirFacetas } from "@/lib/integrations/facets";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
 import { passosPublicos } from "@/lib/chat/trace-limits";
+import { pedidoComposto } from "@/lib/chat/pedido-composto";
+import { intencaoDocumental } from "@/lib/chat/intencao-documental";
+import { blocoMeusDados } from "@/lib/chat/meus-dados";
 import { instrumentarTools } from "@/lib/chat/tool-trace";
 import { CircuitOpenError } from "@/lib/ai/circuit-breaker";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
@@ -111,16 +114,33 @@ const RX_ANALISE_AMPLA =
   /an[áa]lise (geral|completa|ampla|estrat[ée]gica|profunda|detalhada|global)|vis[ãa]o geral|panorama|diagn[óo]stico|todas as (colunas|informa[çc][õo]es|m[ée]tricas)|tudo (que|o que) (tem|h[áa])|an[áa]lise 360|raio.?x/i;
 
 /**
- * Rótulo do botão de desambiguação na LÍNGUA DO USUÁRIO. `name` é a chave técnica da
- * integração (`historico_financeiro`) — um analista de RH não reconhece isso. A
- * descrição já é escrita para humanos; o nome técnico vira sublabel, preservando a
- * rastreabilidade para quem administra.
+ * TÍTULO do botão de desambiguação: o `name` da ferramenta, que já é escrito para
+ * gente ("Consultar férias", "Histórico financeiro (eventos)") e cabe em uma linha.
+ *
+ * Antes daqui saía a 1ª frase de `description` cortada em 70 caracteres. Medido no
+ * catálogo real: 56% dos rótulos terminavam em "…" e o que sobrava era instrução
+ * dirigida ao MODELO ("Retorna um MENU de opções (título + opções separadas por…").
+ * A hierarquia estava invertida — o texto humano estava no sublabel e o jargão
+ * truncado no título.
  */
-function rotuloTool(m: { name: string; description?: string | null }): string {
-  const d = String(m.description ?? "").trim();
-  if (!d) return m.name;
-  const curta = d.split(/(?<=[.!?])\s/)[0] ?? d;
-  return curta.length > 70 ? curta.slice(0, 67).trimEnd() + "…" : curta;
+function rotuloTool(m: { name: string }): string {
+  return m.name;
+}
+
+/**
+ * DESCRIÇÃO do botão, em 1-2 frases (`ai_tools.descricao_usuario`).
+ *
+ * Sem fallback para `description` de propósito: aquele texto é do modelo, e cair
+ * nele é justamente o que enchia o botão de jargão. Vazio ⇒ o botão fica só com o
+ * título, que já é legível.
+ */
+// Ferramenta de USO INTERNO (`selecionavel_no_chat = false`) já sai no ranking:
+// `matchBaseTools` e `listBaseTools` a descartam ANTES do corte por limite, então
+// tudo que chega aqui é ofertável. Ver o comentário em tool-catalog.ts.
+
+function descricaoTool(m: { descricao_usuario?: string | null }): string | undefined {
+  const d = String(m.descricao_usuario ?? "").trim();
+  return d || undefined;
 }
 
 export async function POST(req: NextRequest) {
@@ -532,7 +552,9 @@ export async function POST(req: NextRequest) {
   // com uma tool e NÃO tem relação com a tela, é uma pergunta de TOOL — não do
   // relatório (era o bug: relatório coletado forçava modo relatório e cortava as tools).
   if (fonteEscolhida !== "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && baseCode && temRelatorioNaTela) {
-    matchesCache = await matchBaseTools(supabase, baseCode, consultaTool, { limiar: LIMIAR_OFERTA });
+    const _casou = await casarToolsComResgate(supabase, baseCode, consultaTools, consultaTool, { limiar: LIMIAR_OFERTA });
+    matchesCache = _casou.matches;
+    if (_casou.viaOntologia) passo("roteador_fonte:resgate_ontologia", { formas: formasOnto.slice(0, 6) });
     relacionaTela = mensagemRelacionaTela(question, payload.screenTables, screenFields, formasOnto);
     const topSim = matchesCache[0]?.sim ?? 0;
     const paginaExplicita = RX_PAGINA_ATUAL.test(question);
@@ -578,6 +600,17 @@ export async function POST(req: NextRequest) {
   const compostoPorTool =
     _precisaComposto &&
     ((matchesCache ?? []).some(_toolDominioNovo) || ((matchesCache ?? [])[0]?.sim ?? 0) >= LIMIAR_COMPOSTO_FORTE);
+  /**
+   * O pedido tem mais de um ASSUNTO? Reúne os três sinais disponíveis, sendo o
+   * primeiro o mais forte: dois módulos reconhecidos pelo classificador (que leu a
+   * pergunta inteira), o casamento com domínios distintos, e a heurística léxica.
+   * Um gate de escolha ÚNICA não pode disparar aqui — ver `pedido-composto.ts`.
+   */
+  const _composto = pedidoComposto({
+    modulos: integ.modulos,
+    compostoPorTool,
+    lexico: perguntaComposta || pareceComposta(question),
+  });
   if (podeRotear) {
     passo("ontologia", { formas: formasOnto.slice(0, 12) });
     passo("roteador_fonte", {
@@ -633,7 +666,34 @@ export async function POST(req: NextRequest) {
   // sugestão de filtro) → RAG=0 (não usa documentação; a ontologia roda à parte). Composta
   // (doc/regra + tool) mantém cheio. modoRelatorioCedo já era reduzido a 3.
   const ragParaTool = (roteouDireto || !!scopeIn?.tool) && !perguntaComposta;
-  const ragLimit = operacaoDeTela ? 0 : ragParaTool ? 2 : modoRelatorioCedo ? 3 : completo ? 18 : 8;
+  // MODO RELATÓRIO sem intenção de documentação → 1 trecho em vez de 3.
+  //
+  // Medido em 156 turnos deste modo: 1.078.130 tokens de documentação enviados
+  // (já × passos) e 93% das respostas sem marca de citação. "Quantos
+  // colaboradores por centro de custo?" e "Gere um gráfico" se respondem com os
+  // dados da tela; o manual só ocupa prompt.
+  //
+  // POR QUE 1 E NÃO 0 — a simulação mandou recuar. Zerar economizaria 99%, mas
+  // 13,5% dos turnos que seriam cortados tinham resposta COM citação real
+  // (verifiquei o marcador: só 1 em 61 é falso positivo). Não consegui separar
+  // "usou a documentação deste turno" de "repetiu a citação do turno anterior",
+  // e sem essa certeza zerar é apostar contra 1 em 7 respostas. Com 1 trecho, a
+  // economia cai para ~2/3 e sobra rede: se o manual importava, algo dele chega.
+  //
+  // Duas proteções adicionais: (1) `modoRelatorioCedo` já exclui
+  // `perguntaComposta`, que captura "regra", "política", "manual", "documento" —
+  // relatório misturado com norma nem chega aqui; (2) a intenção de USO ("como
+  // preencho isso?", "o que esse programa faz?") mantém os 3.
+  const docNoRelatorio = modoRelatorioCedo && intencaoDocumental(question);
+  const ragLimit = operacaoDeTela
+    ? 0
+    : ragParaTool
+      ? 2
+      : modoRelatorioCedo
+        ? (docNoRelatorio ? 3 : 1)
+        : completo
+          ? 18
+          : 8;
   const _tRagStart = Date.now();
   // Modo relatório / roteado a tool: doc é reduzida e de baixo valor semântico → busca
   // LÉXICA (pula o embedding da pergunta, que custa ~15s no pior caso com cache frio).
@@ -659,8 +719,16 @@ export async function POST(req: NextRequest) {
   })();
   const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined });
   const _tRag = Date.now();
-  console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? " (modo_relatorio)" : ""}`);
-  passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, motivo: operacaoDeTela ? "operacao_tela" : ragParaTool ? "roteado_tool" : modoRelatorioCedo ? "modo_relatorio" : "normal", ms: _tRag - _tRagStart });
+  console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? (docNoRelatorio ? " (modo_relatorio_doc)" : " (modo_relatorio_reduzido)") : ""}`);
+  passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, // Motivos DISTINTOS para medir o efeito do corte: `modo_relatorio_cortado` é o
+    // turno que antes carregava 3 trechos e agora não carrega nenhum.
+    motivo: operacaoDeTela
+      ? "operacao_tela"
+      : ragParaTool
+        ? "roteado_tool"
+        : modoRelatorioCedo
+          ? (docNoRelatorio ? "modo_relatorio_doc" : "modo_relatorio_reduzido")
+          : "normal", ms: _tRag - _tRagStart });
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
   const webSources = social || operacaoDeTela ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
@@ -1003,6 +1071,24 @@ export async function POST(req: NextRequest) {
   // relatório" (sem verbo de geração). Nesses pedidos, gera com base nos DADOS DA TELA
   // automaticamente — sem perguntar a fonte.
   const geraArquivo = RX_GERA_ARQUIVO.test(question);
+  /**
+   * PEDIDO DE FORMATO sobre dado que JÁ ESTÁ no turno — não é pergunta nova.
+   *
+   * "Agora gere um PPT e Word" depois de uma análise: o usuário quer o MESMO
+   * assunto noutro formato. Perguntar "de qual ferramenta quer buscar?" ali
+   * ignora todo o histórico e joga fora a análise que acabou de ser feita.
+   *
+   * O que tornava isso pior era a própria reescrita da consulta: ela expandiu
+   * "Agora gere um PPT e Word" para "gerar RELATÓRIO em formato PPT e Word sobre
+   * funcionários afastados", e a palavra "relatório" — inserida por ela — casou
+   * `relatorio_aviso_ferias` a 0.72, fazendo o roteador achar que era pedido de
+   * dados. O gate então perguntou a fonte.
+   *
+   * As duas condições juntas importam: intenção de formato E dataset no turno.
+   * Só a intenção não basta — "me gere um relatório de férias" sem dado nenhum É
+   * um pedido de dados, e ali perguntar a fonte é o certo.
+   */
+  const _pedidoDeFormato = intencaoVis && datasets.list.length > 0;
   // ══ SUJEITO AMBÍGUO (referente por histórico) ═══════════════════════════════════
   // Mensagem SEM sujeito ("dele", "e a matrícula?", "quanto ganham?") + candidatos no
   // contexto (colaboradores/itens LISTADOS antes OU relatório na tela) → confirma
@@ -1055,7 +1141,7 @@ export async function POST(req: NextRequest) {
     // Pool AMPLO (top-20 do embedding) — o top-5 BORRA numa pergunta multi-intenção. Uma
     // IA rápida lê a pergunta + as descrições/sinônimos e escolhe as ADERENTES por FACETA
     // (salário/férias/avaliações/cargos…), descartando genéricas (ponto/apuração/equipe).
-    const poolAmplo = await matchBaseTools(supabase, baseCode, consultaTool, { limiar: 0.45, limite: 20 });
+    const poolAmplo = (await casarToolsComResgate(supabase, baseCode, consultaTools, consultaTool, { limiar: 0.45, limite: 20 })).matches;
     const aderentes = new Set(
       await selecionarToolsAderentes(consultaTools, poolAmplo.map((m) => ({ key: m.key, name: m.name, description: m.description }))),
     );
@@ -1072,11 +1158,14 @@ export async function POST(req: NextRequest) {
     const jaListadas = new Set(toolsAmb.map((m) => m.key));
     const catalogoOutros = (await listBaseTools(supabase, baseCode))
       .filter((t) => !jaListadas.has(t.key))
-      .map((t) => ({ k: t.key, n: t.name, d: (t.description ?? "").slice(0, 140) }));
+      // `d` é o sublabel E o texto que o filtro da gaveta casa. A descrição do
+      // USUÁRIO vai para a tela; a técnica fica só em `b` (busca), invisível — com
+      // 140 chars crus por item o scroller de 172px mostrava menos de 2 resultados.
+      .map((t) => ({ k: t.key, n: t.name, d: t.descricao_usuario || "", b: (t.description ?? "").slice(0, 140) }));
     passo("clarify_fonte_inicial", { pool: poolAmplo.length, aderentes: [...aderentes], modo: aderentes.size ? "ia" : "embedding", outros: catalogoOutros.length });
     const opcoesFonte: ClarifyOption[] = [
       { id: "relatorio", label: "📄 Dados desta página (relatório da tela)", relatorio: true, checked: true },
-      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: m.name, tool: { k: m.key, n: m.name, d: m.description ?? "" }, checked: aderentes.has(m.key) })),
+      ...toolsAmb.map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: descricaoTool(m), tool: { k: m.key, n: m.name, d: descricaoTool(m) ?? "" }, checked: aderentes.has(m.key) })),
       ...(catalogoOutros.length
         ? [{ id: "__outro__", label: "➕ Outra fonte — busque na lista ou descreva", sublabel: "Nenhuma das acima serve? Escolha entre todas as ferramentas ou escreva o que precisa.", outro: true }]
         : []),
@@ -1107,7 +1196,19 @@ export async function POST(req: NextRequest) {
   // GATE FERRAMENTA × FERRAMENTA: roteou FORTE para tool (roteouDireto) mas SEM vencedor
   // claro (empate entre as top candidatas, ver `topDominaClaro`) → em vez de deixar o modelo
   // chamar VÁRIAS parecidas, pergunta QUAL, listando as top 2–3 + "Outro" (o usuário detalha).
-  if (roteouDireto && !topDominaClaro && (matchesCache?.length ?? 0) >= 2 && !scopeIn?.tool && !scopeIn?.direto) {
+  // PEDIDO COM MAIS DE UMA PARTE não entra aqui. "Histórico de férias E histórico de
+  // pagamento" traz candidatas de assuntos DIFERENTES — elas não competem pela mesma
+  // resposta. Perguntar "qual dessas?" em escolha ÚNICA obrigava o usuário a jogar
+  // fora metade do próprio pedido; o agente já tem as duas ferramentas e responde as
+  // duas partes. A mesma guarda já existia no GATE 2 e faltava só aqui.
+  if (_composto && roteouDireto && !topDominaClaro && (matchesCache?.length ?? 0) >= 2) {
+    passo("clarify_tool:pulado", {
+      motivo: "pedido com mais de um assunto — as candidatas não competem pela mesma resposta",
+      modulos: integ.modulos ?? [],
+      candidatas: (matchesCache ?? []).slice(0, 4).map((m) => `${m.key} ${m.sim.toFixed(2)}`),
+    });
+  }
+  if (roteouDireto && !topDominaClaro && !_composto && !_pedidoDeFormato && (matchesCache?.length ?? 0) >= 2 && !scopeIn?.tool && !scopeIn?.direto) {
     const cc = matchesCache ?? [];
     // Item 2 — CAP de 2: a 3ª candidata só aparece se ainda for páreo com a 2ª (menos escolha).
     const candsTool = cc.length >= 3 && cc[1]!.sim - cc[2]!.sim < MARGEM_TOP ? cc.slice(0, 3) : cc.slice(0, 2);
@@ -1115,12 +1216,14 @@ export async function POST(req: NextRequest) {
     const rotulos = await rotulosAmigaveisTools(candsTool.map((m) => ({ key: m.key, name: m.name, description: m.description })));
     const opcoesTool: unknown[] = [
       ...candsTool.map((m, i) => {
-        // Item 1 — o que a pessoa VAI OBTER na frente (rótulo IA → descrição → nome); nome como apoio.
-        const principal = rotulos[i] || m.description || m.name;
+        // Título humano; a descrição vai embaixo. Antes o fallback era
+        // `m.description` CRUA — sem passar por corte nenhum, ela chegava ao botão
+        // com até 698 caracteres de instrução para o modelo.
+        const principal = rotulos[i] || rotuloTool(m);
         return {
           id: m.key,
           label: `📋 ${principal}`,
-          sublabel: principal === m.name ? undefined : m.name,
+          sublabel: descricaoTool(m),
           scope: { fonte: "ia", tool: m.key, direto: true },
         };
       }),
@@ -1182,13 +1285,13 @@ export async function POST(req: NextRequest) {
   // tool(s). Pulado quando o roteador já ASSUMIU o relatório (roteouRelatorioDireto:
   // pergunta explícita da página ou tool fraca) — aí não re-pergunta.
   if (fonteEfetiva === "relatorio" && !roteouRelatorioDireto && !continuation && !social && !scopeIn?.direto && !scopeIn?.tool && baseCode) {
-    const matches = matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool);
+    const matches = matchesCache ?? (await casarToolsComResgate(supabase, baseCode, consultaTools, consultaTool)).matches;
     if (matches.length > 0) {
       return clarifyResponse(
         "Isso pode vir do RELATÓRIO desta tela ou de uma FERRAMENTA de dados. De onde quer que eu busque?",
         [
           { id: "relatorio", label: "📄 Dados desta página", scope: { fonte: "relatorio", direto: true } },
-          ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: m.name, scope: { fonte: "ia", tool: m.key } })),
+          ...matches.slice(0, 3).map((m) => ({ id: m.key, label: `📊 ${rotuloTool(m)}`, sublabel: descricaoTool(m), scope: { fonte: "ia", tool: m.key } })),
         ],
         "clarify_fonte",
       );
@@ -1209,12 +1312,12 @@ export async function POST(req: NextRequest) {
   // marcando as caixas no gate de fonte. Perguntar de novo descartava a escolha — e pior,
   // as opções daqui são de escolha ÚNICA, então o clique seguinte colapsava 3 fontes em 1.
   // Um checkbox marcado vale mais que a heurística de `pareceComposta`.
-  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && !scopeIn?.tools?.length && baseCode && !pareceComposta(question) && !roteouDireto) {
-    const cand: ToolMatch[] = matchesCache ?? await matchBaseTools(supabase, baseCode, consultaTool);
+  if (fonteEfetiva === "ia" && !continuation && !social && !scopeIn?.tool && !scopeIn?.direto && !scopeIn?.tools?.length && baseCode && !_composto && !roteouDireto) {
+    const cand: ToolMatch[] = matchesCache ?? (await casarToolsComResgate(supabase, baseCode, consultaTools, consultaTool)).matches;
     if (cand.length > 1) {
       return clarifyResponse(
         "Encontrei mais de uma opção para essa informação. De qual delas você quer que eu busque?",
-        cand.map((m) => ({ id: m.key, label: rotuloTool(m), sublabel: m.name, scope: { fonte: "ia", tool: m.key } })),
+        cand.map((m) => ({ id: m.key, label: rotuloTool(m), sublabel: descricaoTool(m), scope: { fonte: "ia", tool: m.key } })),
         "clarify_tool",
       );
     }
@@ -1281,9 +1384,35 @@ export async function POST(req: NextRequest) {
     }
 
     // SEM escolha ainda → talvez OFERECER o B (classificador barato; default = segue A).
-    if (!payload.scope) {
-      const dec = await classificarAnalise({ question, columns: colunasB, sampleRows: linhasB.slice(0, 60) });
-      passo("analise_router", { modo: dec.modo, alvo: dec.alvoColuna, confianca: dec.confianca });
+    //
+    // NÃO oferece quando a pergunta DEPENDE DO HISTÓRICO. `classificarAnalise`
+    // recebe só a pergunta e as colunas do relatório — não enxerga a conversa. Com
+    // "Como você avalia a trajetória DESSE colaborador?" e uma coluna chamada
+    // "COLABORADOR" na tela, ele conclui que o alvo é a coluna e propõe ler 109
+    // registros — enquanto o usuário falava do colaborador tratado nos últimos
+    // turnos. A anáfora aponta para a conversa, não para o relatório.
+    //
+    // `precisaContexto` é o mesmo sinal que decide reescrever a consulta:
+    // pergunta curta ou anafórica COM histórico. Na dúvida, seguir o fluxo normal
+    // é mais barato e mais certo do que uma varredura de um minuto na coluna errada.
+    // Pergunta anafórica ("desse colaborador") vai ao classificador com o
+    // ANTECEDENTE RESOLVIDO — `consultaTools` já é a reescrita, ou a pergunta com
+    // o antecedente colado quando a reescrita foi pulada. Só quando nem isso
+    // resolveu (a resolvida saiu igual à crua) o gate é pulado: aí ninguém sabe
+    // de quem se fala, e varrer a coluna é chute caro.
+    const _resolvida = _gate.precisaContexto ? String(consultaTools ?? "").trim() : "";
+    const _semResolver = _gate.precisaContexto && (!_resolvida || _resolvida === question.trim());
+    if (!payload.scope && _semResolver) {
+      passo("analise_router", { pulado: true, motivo: "pergunta depende do histórico e o antecedente não pôde ser resolvido" });
+    }
+    if (!payload.scope && !_semResolver) {
+      const dec = await classificarAnalise({
+        question,
+        perguntaResolvida: _resolvida || null,
+        columns: colunasB,
+        sampleRows: linhasB.slice(0, 60),
+      });
+      passo("analise_router", { modo: dec.modo, alvo: dec.alvoColuna, confianca: dec.confianca, resolvida: !!_resolvida });
       if ((dec.modo === "B" || dec.modo === "A_para_B") && dec.alvoColuna) {
         const sub = filtrarSubconjunto(colunasB, linhasB, dec.preFiltro);
         const est = estimarCustoB({ linhas: sub.linhas.length, avgCharsAlvo: avgCharsColuna(sub.colunas, sub.linhas, dec.alvoColuna) });
@@ -1435,7 +1564,13 @@ export async function POST(req: NextRequest) {
   // Anti-punt: no modo relatório com tools na base, se o escopo pedido não está na tela,
   // não mande o usuário re-filtrar — ofereça buscar pelo assistente.
   const blocoEscopoRel = modoRelatorio && temIntegTools && !continuation ? escopoRelatorioDirective() : "";
-  const blocoEscopo = temIntegTools ? escopoAcessoDirective(track.p_portal, track.p_perfil) : "";
+  const blocoEscopo = temIntegTools
+    ? escopoAcessoDirective(track.p_portal, track.p_perfil, { matricula: track.p_matricula, empresa: track.p_empresa })
+    : "";
+  // Lotação do próprio usuário, já consultada no servidor: responde "qual meu centro
+  // de custo?" sem gastar um passo do laço agêntico. Só com ferramentas ativas — sem
+  // elas é token à toa.
+  const blocoMeus = temIntegTools ? blocoMeusDados(integ.meusDados ?? []) : "";
   // Nenhuma ferramenta casou bem: o modelo precisa saber ANTES de usar a menos ruim.
   const blocoSelecaoFraca = integ.selecaoFraca && !cortaIntegracao ? selecaoFracaDirective(integ.selecaoFraca.topSim) : "";
   // O essencial vai sempre que as ferramentas existirem; os detalhes só quando o
@@ -1479,6 +1614,7 @@ export async function POST(req: NextRequest) {
     blocoFonteRelatorio,
     blocoEscopoRel,
     blocoEscopo,
+    blocoMeus,
     blocoSelecaoFraca,
     blocoVisuals,
     blocoDatasets,
@@ -1594,6 +1730,7 @@ export async function POST(req: NextRequest) {
       entregar: _tok(blocoEntregar),
       integUsage: _tok(blocoIntegUsage),
       escopo: _tok(blocoEscopo),
+      meus_dados: _tok(blocoMeus),
       visuals: _tok(blocoVisuals),
       invite: _tok(blocoInvite),
       rag: _tok(blocoRag),
@@ -1825,7 +1962,7 @@ export async function POST(req: NextRequest) {
           ...(matchesCache ?? []).slice(0, 3).map((m) => ({
             id: m.key,
             label: `🔎 ${rotuloTool(m)}`,
-            sublabel: m.name,
+            sublabel: descricaoTool(m),
             scope: { fonte: "ia" as const, tool: m.key, direto: true },
           })),
           { id: "__ia__", label: "🧠 Buscar no sistema", sublabel: "Consulto as ferramentas disponíveis para o seu perfil", scope: { fonte: "ia", direto: true } },
