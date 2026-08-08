@@ -375,9 +375,37 @@ export function buildTrocaFonteTool(sink: PedidoDeFonte[]): ToolSet {
   };
 }
 
-export function escopoAcessoDirective(portal?: string | null, perfil?: string | null): string {
+export function escopoAcessoDirective(
+  portal?: string | null,
+  perfil?: string | null,
+  /** Identidade do usuário do turno — para ele conseguir preencher "meus dados". */
+  eu?: { matricula?: string | null; empresa?: string | null },
+): string {
   const p = String(portal ?? "").trim().toUpperCase();
   const perf = String(perfil ?? "").trim();
+  /**
+   * QUEM É O USUÁRIO. Sem isto o modelo não tinha como atender "minhas
+   * informações" nas ferramentas cujo parâmetro de matrícula/empresa é
+   * preenchido por ELE (`origem=modelo`): não sabendo o valor, deixava em branco
+   * — e a regra logo abaixo diz que branco traz TODOS. O usuário pedia o próprio
+   * histórico e recebia o de todo mundo.
+   *
+   * Escrito de forma ESTREITA de propósito: vale quando a pessoa fala de si
+   * ("meu", "minha", "eu"), não como filtro padrão — senão um gestor perguntando
+   * "quantos colaboradores tenho" passaria a contar só a si mesmo.
+   */
+  const _mat = String(eu?.matricula ?? "").trim();
+  const _emp = String(eu?.empresa ?? "").trim();
+  const identidade = _mat || _emp
+    ? ` QUEM ESTÁ FALANDO COM VOCÊ: ${[_mat && `matrícula ${_mat}`, _emp && `empresa ${_emp}`].filter(Boolean).join(", ")}. ` +
+      `Isto NÃO é um filtro fixo — é a informação que faltava para você decidir. Quando a ferramenta pedir ` +
+      `matrícula/empresa A VOCÊ, escolha entre TRÊS casos, pelo que o usuário pediu: ` +
+      `(1) pedido sobre a PRÓPRIA pessoa ("meu", "minha", "eu", "comigo") → use os valores acima; ` +
+      `(2) pedido sobre OUTRA pessoa (nome ou matrícula citados) → use a matrícula DELA, nunca a de cima; ` +
+      `(3) pedido AMPLO ("todos", "da empresa", "por centro de custo", uma contagem, um ranking) → deixe o filtro ` +
+      `EM BRANCO para trazer 100% do escopo liberado. Preencher a matrícula dele no caso (3) reduziria a resposta a ` +
+      `uma pessoa só e daria um número errado.`
+    : "";
   const cab =
     "ESCOPO DE DADOS DO USUÁRIO (o SISTEMA já aplica isto dentro das ferramentas — é só para você entender o alcance e " +
     "responder certo; NÃO é uma restrição que VOCÊ impõe): ";
@@ -399,14 +427,14 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
   if (p === "PO") {
     return cab +
       "PAINEL DO OPERADOR — o usuário enxerga TUDO a que tem acesso no sistema. Não há recorte extra além do que o próprio " +
-      "sistema já valida. Atenda normalmente, chamando as ferramentas." + alvoLista + historico;
+      "sistema já valida. Atenda normalmente, chamando as ferramentas." + identidade + alvoLista + historico;
   }
   if (p === "PG") {
     return cab +
       `PAINEL DO GESTOR (perfil ${perf || "GESTOR"}) — o usuário enxerga os dados dos COLABORADORES DA EQUIPE DELE e a ` +
       "ESTRUTURA (empresa/filial/centro de custo) do cadastro dele e dos colaboradores da equipe. Se ele pedir dados de " +
       "alguém FORA da equipe dele, o sistema RECUSA na chamada — aí informe que a pessoa está fora da equipe dele; não " +
-      "invente outra restrição." + alvoLista + historico;
+      "invente outra restrição." + identidade + alvoLista + historico;
   }
   if (p === "PC") {
     return cab +
@@ -417,7 +445,7 @@ export function escopoAcessoDirective(portal?: string | null, perfil?: string | 
   }
   return cab +
     "atenda com base no que o sistema liberar para este usuário; NÃO invente restrições — se algo não puder, é o sistema " +
-    "que recusa na própria chamada da ferramenta." + historico;
+    "que recusa na própria chamada da ferramenta." + identidade + historico;
 }
 
 const reportInput = z.object({

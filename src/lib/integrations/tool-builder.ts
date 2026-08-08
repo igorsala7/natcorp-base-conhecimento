@@ -17,11 +17,17 @@ import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
+import { recortarMeusDados, type MeusDados } from "@/lib/chat/meus-dados";
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
  *  o payload enxuto e a escolha precisa mesmo com módulos gordos. Ver tool-narrow.ts. */
 const MAX_TOOLS_MODELO = 12;
 const MAX_TOOLS_COMPOSTO = 18; // COMPOSTO (multi-intenção): teto maior p/ caber as co-intenções
+/** Ferramenta que devolve a lotação/vínculo do próprio usuário. */
+const TOOL_MEUS_DADOS = "meus_dados";
+/** 15 min: dado cadastral muda raramente, e o custo de errar para menos é uma
+ *  chamada de 50ms. Independe do `cache_ttl` da ferramenta, que serve ao modelo. */
+const TTL_MEUS_DADOS = 900;
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
 import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
@@ -49,6 +55,12 @@ export type IntegrationBundle = {
    *  O assunto pode simplesmente não ter ferramenta — o modelo precisa saber disso em
    *  vez de apresentar o resultado de uma tool fraca como se fosse a resposta. */
   selecaoFraca?: { topSim: number; keys: string[] } | null;
+  /** Assuntos que o classificador reconheceu na pergunta ("FÉRIAS", "PAGAMENTO"…).
+   *  Dois ou mais = pedido com mais de uma parte — ver `pedidoComposto`. */
+  modulos?: string[];
+  /** Lotação/vínculo do PRÓPRIO usuário, já consultados (ver `meus-dados.ts`).
+   *  Poupa um passo do laço agêntico nas perguntas sobre ele mesmo. */
+  meusDados?: MeusDados;
 };
 
 /**
@@ -371,6 +383,35 @@ export async function buildIntegrationTools(
     onPasso?.("integracoes:dependencias", { puxadas: deps.map((d) => `${d.key} (por ${d.porCausaDe})`) });
   }
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
+
+  // ── DADOS DO PRÓPRIO USUÁRIO, buscados sem o modelo ────────────────────────
+  // `meus_dados` não tem um único parâmetro de origem `modelo` — tudo vem da
+  // identidade e da credencial. Então o servidor a resolve sozinho, e o modelo
+  // começa o turno já sabendo a lotação de quem está falando. O que se ganha não
+  // é o tempo da chamada (~50ms): é um PASSO do laço agêntico, que tem teto de 3
+  // a 6 por turno. Passa pelo mesmo cache das demais (escopo por usuário), então
+  // depois da primeira vez custa zero.
+  let meusDados: MeusDados | undefined;
+  const btMeus = elegiveisTools.find((e) => e.bt.tool.key === TOOL_MEUS_DADOS)?.bt;
+  if (btMeus?.baseUrl && ident.matricula) {
+    try {
+      const credMeus = btMeus.credentialId ? await loadCredentialSecret(btMeus.credentialId) : null;
+      const r = await getCachedExecMeta(
+        `${baseCode}:${TOOL_MEUS_DADOS}:${cacheArgsKey({}, ident, "user")}`,
+        TTL_MEUS_DADOS,
+        () => executeTool({ tool: btMeus.tool, baseUrl: btMeus.baseUrl!, credential: credMeus, modelArgs: {}, identity: ident }),
+      );
+      if (r.result.ok) {
+        const recorte = recortarMeusDados(r.result.data);
+        if (recorte.length) meusDados = recorte;
+        onPasso?.("integracoes:meus_dados", { campos: recorte.length, cache: r.cached });
+      }
+    } catch (e) {
+      // Best-effort: sem os dados o turno segue igual a antes (o modelo chama a
+      // ferramenta). Falhar aqui não pode derrubar a montagem do toolset.
+      onPasso?.("integracoes:meus_dados", { erro: e instanceof Error ? e.message.slice(0, 120) : "falhou" });
+    }
+  }
   // Rastreio das facetas: o que CADA intenção da pergunta trouxe. Sem isto, uma
   // intenção sem ferramenta some sem deixar pista (foi assim que o caso apareceu).
   if (multiFaceta) {
@@ -733,5 +774,10 @@ export async function buildIntegrationTools(
     agentName: agentePersona?.name ?? null,
     essenciais,
     selecaoFraca: _sel?.fraco ? { topSim: _sel.topSim, keys: _sel.keys } : null,
+    // Assuntos que o classificador reconheceu. Dois módulos = pedido com duas
+    // partes — o sinal que impede o gate de "qual delas?" de obrigar o usuário a
+    // escolher entre metades do próprio pedido.
+    modulos: recorte.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
+    meusDados,
   };
 }
