@@ -168,7 +168,7 @@ const credSchema = z.object({
   id: z.string().uuid().optional(),
   baseId: z.string().uuid(),
   name: z.string().trim().min(1, "Dê um nome à credencial.").max(120),
-  auth_type: z.enum(["none", "basic", "api_key", "bearer", "oauth2"]),
+  auth_type: z.enum(["none", "basic", "api_key", "bearer", "oauth2", "oauth2_user"]),
   active: z.boolean().default(true),
   /** Blob de segredo por tipo; ausente/vazio no update = manter o atual. */
   secret: z.record(z.string(), z.string()).nullish(),
@@ -185,6 +185,17 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   const bruto = parsed.data.secret ?? {};
   const secret: Record<string, string> = {};
   for (const [k, v] of Object.entries(bruto)) if (v && v.trim()) secret[k] = v.trim();
+
+  // `provider` chega junto do blob porque o formulário renderiza os campos a
+  // partir de CREDENTIAL_FIELDS, mas ele NÃO é segredo: vai para uma coluna, de
+  // onde a tela e a rota de consentimento o leem sem decifrar nada. Sai do blob
+  // aqui para não ser cifrado à toa nem sumir da consulta.
+  const provider = secret.provider?.toLowerCase() ?? null;
+  delete secret.provider;
+  if (auth_type === "oauth2_user" && provider !== "microsoft" && provider !== "google") {
+    return { ok: false, error: "Provedor deve ser `microsoft` ou `google`." };
+  }
+
   const informouSegredo = Object.keys(secret).length > 0;
 
   const supabase = await createClient();
@@ -194,14 +205,14 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   if (credId) {
     const { error } = await supabase
       .from("ai_base_credentials")
-      .update({ name, auth_type, active, updated_at: new Date().toISOString() })
+      .update({ name, auth_type, active, ...(provider ? { provider } : {}), updated_at: new Date().toISOString() })
       .eq("id", credId);
     if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
   } else {
     const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("ai_base_credentials")
-      .insert({ base_id: baseId, name, auth_type, active, created_by: user?.id ?? null })
+      .insert({ base_id: baseId, name, auth_type, active, provider, created_by: user?.id ?? null })
       .select("id")
       .single();
     if (error || !data) {

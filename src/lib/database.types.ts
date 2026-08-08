@@ -505,6 +505,7 @@ export type Database = {
         Row: {
           active: boolean
           auth_type: string
+          provider: string | null
           base_id: string | null
           created_at: string
           created_by: string | null
@@ -515,6 +516,7 @@ export type Database = {
         Insert: {
           active?: boolean
           auth_type: string
+          provider?: string | null
           base_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -525,6 +527,7 @@ export type Database = {
         Update: {
           active?: boolean
           auth_type?: string
+          provider?: string | null
           base_id?: string | null
           created_at?: string
           created_by?: string | null
