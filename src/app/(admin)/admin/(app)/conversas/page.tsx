@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { pickSpace } from "@/lib/content/current-space";
@@ -88,14 +89,30 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   const ids = convs.map((c) => c.id);
 
   // Mensagens de todas as conversas listadas, em ordem cronológica.
+  //
+  // PAGINADO, e não é detalhe: 300 conversas passam de 1000 mensagens, e o
+  // PostgREST corta nesse teto SEM avisar. Como a ordenação é `created_at`
+  // ASCENDENTE, o que sobrevivia ao corte eram as mensagens MAIS ANTIGAS —
+  // enquanto a lista mostra as conversas mais RECENTES primeiro. Resultado
+  // medido: 1745 mensagens no banco, 1000 devolvidas, e as 10 conversas do topo
+  // da tela apareciam TODAS vazias. Mesma armadilha da árvore de nós, mesmo
+  // remédio (ver fetchAllPaged).
+  //
+  // O desempate por `id` é obrigatório: sem uma chave única na ordenação, duas
+  // mensagens com o mesmo `created_at` podem pular ou repetir na fronteira das
+  // fatias.
   let msgs: ConvMsg[] = [];
   if (ids.length) {
-    const { data } = await supabase
-      .from("messages")
-      .select("conversation_id, role, content, citations, feedback, latency_ms, created_at, tokens, input_tokens, output_tokens")
-      .in("conversation_id", ids)
-      .order("created_at", { ascending: true });
-    msgs = (data ?? []) as ConvMsg[];
+    msgs = await fetchAllPaged<ConvMsg>(async (from, to) => {
+      const r = await supabase
+        .from("messages")
+        .select("conversation_id, role, content, citations, feedback, latency_ms, created_at, tokens, input_tokens, output_tokens")
+        .in("conversation_id", ids)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: (r.data ?? []) as ConvMsg[], error: r.error };
+    });
   }
 
   // Agrupa mensagens por conversa.

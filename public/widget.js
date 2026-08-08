@@ -6009,7 +6009,10 @@
           var termo = normFonte(busca.value).trim();
           var base = outros || [];
           var achou = termo
-            ? base.filter(function (t) { return normFonte(t.n + " " + (t.d || "")).indexOf(termo) >= 0; })
+            // Busca em nome + descrição do usuário + descrição TÉCNICA (`t.b`): o texto
+            // técnico é boa matéria de busca (tem os termos da API), só não pode ser
+            // pintado na tela. Casar por ele acha a ferramenta; exibi-lo entupia a lista.
+            ? base.filter(function (t) { return normFonte(t.n + " " + (t.d || "") + " " + (t.b || "")).indexOf(termo) >= 0; })
             : base;
           lista.textContent = "";
           achou.slice(0, 8).forEach(function (t) {

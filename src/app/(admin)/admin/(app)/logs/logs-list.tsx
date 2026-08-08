@@ -120,8 +120,11 @@ const pretty = (v: unknown) => {
  * volumoso e só interessa quando já se escolheu a chamada suspeita, fica atrás
  * do expansor.
  */
-function CartaoFerramenta({ c }: { c: ChamadaFerramenta }) {
-  const [aberto, setAberto] = useState(false);
+function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPorPadrao?: boolean }) {
+  // Aberto por padrão quando há cURL e o turno tem poucas chamadas. O cURL é o
+  // motivo de esta tela existir — escondê-lo atrás de um 2º clique (abrir o turno,
+  // depois abrir o cartão) fazia parecer que ele não estava sendo gravado.
+  const [aberto, setAberto] = useState(!!abrirPorPadrao);
   const falhou = chamadaFalhou(c);
   const verbo = verboDoCurl(c.curl);
   const alvo = alvoDoCurl(c.curl);
@@ -134,10 +137,11 @@ function CartaoFerramenta({ c }: { c: ChamadaFerramenta }) {
     <div
       className={`rounded-lg border ${falhou ? "border-rose-300 bg-rose-500/5 dark:border-rose-900/60" : "border-border bg-surface"}`}
     >
+      <div className="flex items-start gap-1">
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        className="flex w-full items-start gap-2 px-2.5 py-2 text-left"
+        className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2 text-left"
         aria-expanded={aberto}
       >
         <span className="mt-0.5 shrink-0">
@@ -205,6 +209,10 @@ function CartaoFerramenta({ c }: { c: ChamadaFerramenta }) {
           {aberto ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
         </span>
       </button>
+      {/* Fora do <button> acima: botão dentro de botão é HTML inválido. Copiar o
+          comando sem precisar expandir nada é o gesto mais comum aqui. */}
+      {c.curl && <CopyButton text={c.curl} label="cURL" className="mr-2 mt-2 shrink-0" />}
+      </div>
 
       {aberto && (
         <div className="flex flex-col gap-3 border-t border-border px-2.5 py-2.5">
@@ -286,6 +294,10 @@ function PassosDoTurno({ passos }: { passos: TracePasso[] }) {
 
   const chamadas = itens.filter((i): i is Extract<ItemLog, { tipo: "ferramenta" }> => i.tipo === "ferramenta");
   const curls = todosOsCurls(itens);
+  // Poucas chamadas com comando: já abre. Com muitas, abrir tudo viraria um paredão
+  // — aí vale o clique, e o botão "cURL" na linha fechada continua resolvendo.
+  const comCurl = chamadas.filter((i) => i.chamada.curl).length;
+  const abrirTudo = comCurl > 0 && comCurl <= 3;
 
   // Numera ANTES de filtrar: o índice precisa ser da lista completa para servir de
   // chave estável do React quando o recorte muda.
@@ -328,7 +340,7 @@ function PassosDoTurno({ passos }: { passos: TracePasso[] }) {
                   +{item.chamada.ms}ms
                 </span>
                 <span className="min-w-0 flex-1">
-                  <CartaoFerramenta c={item.chamada} />
+                  <CartaoFerramenta c={item.chamada} abrirPorPadrao={abrirTudo && !!item.chamada.curl} />
                 </span>
               </li>
             ) : (
@@ -394,6 +406,7 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
             (i): i is Extract<ItemLog, { tipo: "ferramenta" }> => i.tipo === "ferramenta",
           );
           const chamadas = cartoes.length;
+          const comCurl = cartoes.filter((i) => i.chamada.curl).length;
           const falhas = cartoes.filter((i) => chamadaFalhou(i.chamada)).length;
           return (
             <div key={r.id} className="overflow-hidden rounded-xl border border-border bg-surface shadow-1">
@@ -423,6 +436,9 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
                       <span className="inline-flex items-center gap-1 text-text">
                         <Wrench className="size-3" />
                         {chamadas} chamada(s)
+                        {/* Sem este número, um turno só de ferramentas locais parecia
+                            "o cURL sumiu" — quando na verdade não houve requisição. */}
+                        {comCurl > 0 ? ` · ${comCurl} com cURL` : " · nenhuma faz HTTP"}
                       </span>
                     )}
                     {falhas > 0 && <Badge tone="danger">{falhas} com falha</Badge>}
