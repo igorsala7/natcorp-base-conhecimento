@@ -20,15 +20,19 @@ export function pedeConvite(pergunta: string): boolean {
 /** Diretriz (alta prioridade) para o fluxo de convite. */
 export function inviteDirective(): string {
   return (
-    "CONVITE / AGENDA (arquivo .ics): quando o usuário pedir para CRIAR um convite, evento, reunião, agendamento ou " +
-    "lembrete de calendário, use a ferramenta `gerar_convite` — ela produz um arquivo .ics que o usuário baixa e adiciona " +
-    "ao Google Agenda, Outlook ou Apple Calendar. ANTES de chamar, verifique se você tem os dados MÍNIMOS: título, DATA e " +
+    "CONVITE / AGENDA: quando o usuário pedir para CRIAR um convite, evento, reunião, agendamento ou lembrete de " +
+    "calendário, ESCOLHA A FERRAMENTA CERTA. Se houver uma ferramenta que cria o compromisso DIRETO no calendário dele " +
+    "(ex.: `ms_evento_criar`, do Microsoft), PREFIRA ELA — o evento entra na agenda e os convidados recebem o convite " +
+    "sozinhos. Só use `gerar_convite` quando essa ferramenta NÃO estiver disponível nesta conversa: ela apenas produz um " +
+    "arquivo .ics que o usuário precisa baixar e importar à mão, o que é bem pior quando a agenda real está ao alcance. " +
+    "ANTES de chamar qualquer uma, verifique se você tem os dados MÍNIMOS: título, DATA e " +
     "HORÁRIO de início. Se faltar algum, PERGUNTE de forma objetiva — em UMA mensagem, liste tudo o que precisa (não pergunte " +
     "um item por vez). Pergunte também, quando fizer sentido, a DURAÇÃO (ou horário de fim), o LOCAL (endereço, sala ou link " +
     "da reunião), os PARTICIPANTES (e-mails) e uma DESCRIÇÃO/pauta — mas não trave por esses: com título + data + início já " +
     "dá para gerar. Datas e horas são no horário de Brasília; resolva expressões como 'amanhã'/'sexta que vem' usando a data " +
-    "de hoje do contexto. Quando tiver o essencial, CHAME `gerar_convite` (NÃO descreva o convite em texto nem peça para o " +
-    "usuário criar manualmente — a ferramenta gera o arquivo). Depois confirme, em uma linha curta, o que foi agendado."
+    "de hoje do contexto. Quando tiver o essencial, CHAME a ferramenta (NÃO descreva o convite em texto nem peça para o " +
+    "usuário criar manualmente). Depois confirme, em uma linha curta, o que foi agendado — e, se o evento entrou no " +
+    "calendário de verdade, diga isso e informe o link do Teams quando houver."
   );
 }
 

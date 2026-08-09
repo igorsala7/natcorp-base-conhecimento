@@ -43,8 +43,9 @@ const TOOLS = [
       "'agenda com fulano amanhã às 14h', 'bloqueia minha agenda'. Se houver convidados, eles recebem " +
       "convite por e-mail. Gera link do Microsoft Teams automaticamente quando `online` for true.",
     search_terms:
-      "criar marcar agendar reuniao compromisso evento convite teams bloquear agenda encontro call " +
-      "marca uma reuniao agenda pra mim novo evento",
+      "criar marcar agendar convidar reuniao compromisso evento convite invite call meeting teams " +
+      "bloquear agenda encontro reuniao com link do teams marca uma reuniao agenda pra mim novo evento " +
+      "criar invite criar convite chamar para reuniao",
     method: "POST",
     path_template: "/me/events",
     guard: null,

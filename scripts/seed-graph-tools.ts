@@ -51,9 +51,12 @@ const TOOLS = [
       "quinta', 'estou livre às 15h?', 'próximo compromisso'. Devolve título, horário de início e fim, " +
       "local, organizador, se é reunião online (Teams) e se a pessoa já respondeu ao convite. NÃO é " +
       "escala de trabalho nem férias — para isso use as ferramentas de RH.",
+    // SEM verbos de criação e SEM "convite": esta tool só LÊ. Com eles, ela
+    // vencia `ms_evento_criar` no ranking de "criar um invite" — e o pedido de
+    // criação era atendido por uma consulta.
     search_terms:
-      "agenda calendário compromisso reunião meeting outlook teams horário livre ocupado disponibilidade " +
-      "próxima reunião minha agenda o que tenho hoje amanhã semana convite",
+      "agenda calendário consultar ver mostrar listar compromissos reuniões marcadas outlook " +
+      "horário livre ocupado disponibilidade próxima reunião minha agenda o que tenho hoje amanhã semana",
     method: "GET",
     path_template: "/me/calendarView",
     params: [
