@@ -201,6 +201,10 @@ export async function salvarConexao(input: {
         revoked_at: null,
         updated_at: agora,
       },
+      // Mira a restrição única SIMPLES (migration 20260809140000). O índice
+      // parcial original — `where revoked_at is null` — não podia ser alvo de
+      // ON CONFLICT, e o consentimento morria na gravação depois de todo o
+      // fluxo já ter dado certo.
       { onConflict: "credential_id,p_usuario", ignoreDuplicates: false },
     )
     .select("id")
