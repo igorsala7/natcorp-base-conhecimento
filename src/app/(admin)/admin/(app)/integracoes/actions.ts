@@ -205,6 +205,37 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   if (auth_type === "oauth2_user" && provider !== "microsoft" && provider !== "google") {
     return { ok: false, error: "Escolha o provedor: Microsoft ou Google." };
   }
+  // Os campos avançados apontam para o PROVEDOR. Apontados para nós mesmos, o
+  // servidor faz POST no proprio callback (que so aceita GET) e o consentimento
+  // morre com um "HTTP 405" que nao explica nada. Aconteceu de verdade: e a
+  // confusao natural entre "URL do token" e a URL de callback que se cadastra
+  // no portal do Azure.
+  if (auth_type === "oauth2_user") {
+    const proprio = (() => {
+      try {
+        return new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "").host.toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+    for (const campo of ["token_url", "authorize_url"] as const) {
+      const v = secret[campo];
+      if (!v) continue;
+      let host = "";
+      try {
+        host = new URL(v).host.toLowerCase();
+      } catch {
+        return { ok: false, error: `A ${campo === "token_url" ? "URL do token" : "URL de consentimento"} não é uma URL válida. Deixe em branco para usar o padrão do provedor.` };
+      }
+      if ((proprio && host === proprio) || /\/connect\//.test(v)) {
+        return {
+          ok: false,
+          error:
+            "Esse campo é o endereço DO PROVEDOR, não o seu callback. O callback se cadastra no portal do Azure/Google. Deixe em branco para usar o padrão.",
+        };
+      }
+    }
+  }
   if (auth_type !== "none" && informouSegredo) {
     const faltando = requiredKeys(auth_type).filter((k) => !secret[k]);
     if (faltando.length) {
