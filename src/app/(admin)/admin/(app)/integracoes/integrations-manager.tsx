@@ -34,6 +34,8 @@ export type CredentialRow = {
   auth_type: AuthType;
   active: boolean;
   hasSecret: boolean;
+  /** Campo `meta` (coluna, não blob cifrado) — o único que volta para a tela. */
+  provider: string | null;
 };
 export type NodePos = { x: number; y: number };
 export type BaseRow = {
@@ -483,7 +485,14 @@ function CredentialDialog({
   const [name, setName] = useState(cred?.name ?? "");
   const [authType, setAuthType] = useState<AuthType>(cred?.auth_type ?? "oauth2");
   const [active, setActive] = useState(cred?.active ?? true);
-  const [secret, setSecret] = useState<Record<string, string>>({});
+  // Começa com os campos `meta` já preenchidos. Eles moram em COLUNA, não no
+  // blob cifrado, então são os únicos que podem voltar para a tela — os
+  // segredos nunca voltam, por projeto. Sem isto, editar uma credencial
+  // delegada mostrava o Provedor em branco mesmo com valor gravado, e não
+  // havia como saber o que estava salvo.
+  const [secret, setSecret] = useState<Record<string, string>>(
+    cred?.provider ? { provider: cred.provider } : {},
+  );
 
   const campos = CREDENTIAL_FIELDS[authType];
   // Segredo já existe e o tipo não mudou → pode manter (deixar em branco).
