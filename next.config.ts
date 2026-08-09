@@ -93,12 +93,26 @@ const nextConfig: NextConfig = {
           // qualquer resposta (inclui sitemap.xml, OG image, API). Google e Bing
           // honram este cabeçalho.
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          // Destino dos relatórios (Reporting API v1, usada pelo Chrome). O
+          // Safari/Firefox usam o `report-uri` da própria política, abaixo.
+          { key: "Reporting-Endpoints", value: `csp="${basePath}/api/csp-report"` },
           {
-            // Report-only de propósito nesta primeira volta: o portal usa
-            // dangerouslySetInnerHTML para o JSON-LD e o editor injeta estilo
-            // inline, então uma CSP de bloqueio entra depois de medir o que
-            // ela quebraria. Sem report-uri ainda — o console do navegador é
-            // o consumidor por ora.
+            // AINDA report-only: uma CSP de bloqueio HOJE quebraria o GA4 do
+            // portal (googletagmanager) e TODOS os iframes — YouTube, Vimeo,
+            // Figma, Maps, Loom — porque `frame-src` não está declarado e cai
+            // no `default-src 'self'`.
+            //
+            // A primeira versão disto dizia que o console do navegador seria o
+            // consumidor. Não era: sem destino de relatório, o navegador ignora
+            // a política inteira ("the policy will have no effect") e a medição
+            // nunca aconteceu. Daí o `report-uri`/`report-to`.
+            //
+            // ANTES DE LIGAR O BLOQUEIO, com base no que o log `[csp]` mostrar:
+            //   · frame-src com os provedores de vídeo/embed em uso;
+            //   · script-src/connect-src com os hosts do GA4, se o portal usar.
+            // `frame-ancestors` NÃO entra aqui: é ignorado em report-only (o
+            // navegador reclama), e o X-Frame-Options acima já o garante nestas
+            // mesmas rotas.
             key: "Content-Security-Policy-Report-Only",
             value: [
               "default-src 'self'",
@@ -107,9 +121,10 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self' data:",
               "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-              "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",
+              `report-uri ${basePath}/api/csp-report`,
+              "report-to csp",
             ].join("; "),
           },
         ],
