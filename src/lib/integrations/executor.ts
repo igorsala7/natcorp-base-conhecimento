@@ -35,6 +35,9 @@ export type RuntimeTool = {
   panel_scope?: PanelScopeMap | null;
   /** Nunca traz/mira os PRÓPRIOS dados do usuário (ex.: requisição de desligamento). */
   exclude_self?: boolean | null;
+  /** 'user' = exige o token PESSOAL de quem perguntou (Graph /me/*, Gmail). Sem
+   *  conexão, a tool recusa em vez de responder com a conta de serviço. */
+  identity_mode?: string | null;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */
@@ -190,7 +193,37 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const buckets = resolveParams(input.tool.params, input.modelArgs, input.identity, input.credential?.secret);
   const req = buildHttpRequest(input.tool, input.baseUrl, buckets);
 
-  const auth = await authHeaders(input.credential, fetchImpl);
+  // Tool que fala em nome da PESSOA (Graph /me/*, Gmail): o token da base não
+  // serve. Ele responderia — com a caixa da conta de serviço, apresentada como
+  // se fosse a do usuário. Errar aqui em silêncio é pior que recusar.
+  let auth: Record<string, string>;
+  if (input.tool.identity_mode === "user") {
+    if (!input.credential) {
+      return {
+        ok: false,
+        status: 0,
+        data: { erro: "Esta ação exige uma conta conectada, e nenhuma integração está configurada." },
+      };
+    }
+    // Import DINÂMICO: `user-token` alcança o cliente admin do Supabase, que
+    // valida env na carga do módulo. No topo do arquivo, ele derrubaria os
+    // testes do executor inteiros — que nem exercitam este ramo — com um
+    // ZodError de variável ausente. Aqui, só carrega quando a tool é pessoal.
+    const { tokenDoUsuario } = await import("./user-token");
+    const r = await tokenDoUsuario({
+      credentialId: input.credential.id,
+      pUsuario: String(input.identity.usuario ?? "").trim(),
+    });
+    if (!r.ok) {
+      // `status: 0` distingue "nem chegou a sair" de um erro do provedor, e a
+      // mensagem vai inteira para o modelo — é ela que vira o pedido de conexão
+      // na resposta ao usuário.
+      return { ok: false, status: 0, data: { erro: r.mensagem, motivo: r.motivo } };
+    }
+    auth = { Authorization: `Bearer ${r.token}` };
+  } else {
+    auth = await authHeaders(input.credential, fetchImpl);
+  }
   // cURL com TODOS os segredos redigidos — headers de auth E credenciais na query, no
   // CORPO e no CAMINHO (ex.: `key`=session_key pode ir em qualquer um dos três). Vai
   // para o trace do admin/logs: reproduzível para depurar a chamada da tool, sem nunca
