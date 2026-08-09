@@ -822,7 +822,10 @@ export async function buildIntegrationTools(
       });
       if (r.ok) {
         const { graphFileTools } = await import("./graph-file-tools");
-        const extras = graphFileTools({ gerados: sink ?? [], token: r.token, anexar: anexarArquivo });
+        const extras = graphFileTools({
+          gerados: sink ?? [], token: r.token, anexar: anexarArquivo,
+          identity, baseCode,
+        });
         for (const [k, v] of Object.entries(extras)) tools[k] = v;
         if (Object.keys(extras).length) onPasso?.("integracoes:arquivos_ms", { tools: Object.keys(extras) });
       }

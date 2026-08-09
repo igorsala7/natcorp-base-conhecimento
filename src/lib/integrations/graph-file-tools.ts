@@ -2,6 +2,9 @@ import "server-only";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { enviarParaOneDrive, PASTA } from "./graph-upload";
+import { runGuard } from "./guards";
+import { buildConfirmDeps } from "./confirmations";
+import type { Identity } from "./params";
 import type { OutFile } from "./documents";
 
 /**
@@ -37,7 +40,18 @@ export type CtxArquivos = {
   anexar?: (arq: { filename: string; mimeType: string; bytes: Buffer }) => Promise<string>;
   fetchImpl?: typeof fetch;
   graphBase?: string;
+  /** Identidade e base — só para a CONFIRMAÇÃO do envio de e-mail. */
+  identity?: Identity;
+  baseCode?: string;
 };
+
+/**
+ * Anexo dentro do `sendMail` cabe em ~3 MB. Acima disso o Graph exige criar
+ * rascunho e subir em sessão, que é outro fluxo — e o e-mail com anexo enorme
+ * costuma ser recusado no destino de qualquer forma. Passando daqui, a
+ * ferramenta troca o anexo por um LINK, em vez de falhar.
+ */
+const MAX_ANEXO_EMAIL = 3 * 1024 * 1024;
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -152,6 +166,115 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
           // qual é o problema, e ela é mais útil que "falhou".
           return { erro: e instanceof Error ? e.message : "Não consegui ler este arquivo." };
         }
+      },
+    });
+  }
+
+  // ── ENVIAR E-MAIL COM O ARQUIVO GERADO ────────────────────────────────
+  // Duas estratégias, escolhidas pelo TAMANHO e não pelo modelo: anexo de
+  // verdade quando cabe, link do OneDrive quando não. Deixar o modelo escolher
+  // produziria "não consegui, o arquivo é grande" — que é uma desculpa, não uma
+  // entrega.
+  if (ctx.gerados.length > 0 && ctx.identity && ctx.baseCode) {
+    const nomes = ctx.gerados.map((a) => a.filename);
+    tools.ms_email_enviar_arquivo = tool({
+      description:
+        `Envia um e-mail COM UM ARQUIVO que você gerou nesta conversa — relatório, planilha ou gráfico. ` +
+        `Use quando a pessoa pedir para "mandar por e-mail", "enviar para fulano", "encaminhar o relatório". ` +
+        `Arquivos disponíveis agora: ${nomes.join(", ")}. Se o arquivo for grande demais para anexar, o ` +
+        `sistema salva no OneDrive e manda o link automaticamente — não recuse por tamanho. Para e-mail SEM ` +
+        `arquivo, use a ferramenta de enviar e-mail comum.`,
+      inputSchema: z.object({
+        para: z.string().describe("E-mails dos destinatários, separados por vírgula."),
+        assunto: z.string().describe("Assunto, curto e específico."),
+        corpo: z.string().describe("Texto do e-mail, já redigido e pronto para enviar."),
+        arquivo: z.string().describe(`Nome do arquivo gerado a enviar. Um destes: ${nomes.join(" | ")}`),
+      }),
+      execute: async ({ para, assunto, corpo, arquivo }) => {
+        const alvo =
+          ctx.gerados.find((a) => a.filename === arquivo) ??
+          ctx.gerados.find((a) => a.filename.toLowerCase().includes(String(arquivo).toLowerCase().slice(0, 20)));
+        if (!alvo) {
+          return { erro: `Não há arquivo chamado "${arquivo}" nesta conversa. Gerados: ${nomes.join(", ")}.` };
+        }
+
+        // CONFIRMAÇÃO — mesma do envio sem anexo. Reusa `runGuard` em vez de
+        // reimplementar: dois caminhos de confirmação divergem com o tempo, e é
+        // sempre o menos usado que fica para trás.
+        const g = await runGuard("confirmation_detalhada", {
+          baseUrl: base,
+          baseCode: ctx.baseCode!,
+          credential: null,
+          identity: ctx.identity!,
+          modelArgs: { para, assunto, corpo, arquivo: alvo.filename },
+          confirm: buildConfirmDeps(ctx.baseCode!),
+          toolKey: "ms_email_enviar_arquivo",
+          actionLabel: "enviar e-mail com anexo",
+        });
+        if (!g.ok) return { erro: g.erro };
+
+        const bytes = Buffer.from(alvo.base64, "base64");
+        const destinatarios = String(para)
+          .split(/[;,]/)
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .map((address) => ({ emailAddress: { address } }));
+        if (destinatarios.length === 0) return { erro: "Nenhum destinatário válido." };
+
+        let corpoFinal = corpo;
+        let anexos: unknown[] = [];
+        let via: "anexo" | "link" = "anexo";
+        let link: string | null = null;
+
+        if (bytes.length <= MAX_ANEXO_EMAIL) {
+          anexos = [{
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            name: alvo.filename,
+            contentType: alvo.mimeType,
+            contentBytes: alvo.base64,
+          }];
+        } else {
+          // Grande demais para anexar: sobe e manda o link. O destinatário
+          // recebe algo que funciona, em vez de um erro.
+          via = "link";
+          const up = await enviarParaOneDrive({
+            token: ctx.token, nome: alvo.filename, mimeType: alvo.mimeType,
+            base64: alvo.base64, fetchImpl, graphBase: base,
+          });
+          if (!up.ok) return { erro: `O arquivo é grande demais para anexar e não consegui salvá-lo: ${up.erro}` };
+          link = up.webUrl;
+          corpoFinal = `${corpo}\n\n---\nArquivo: ${up.nome}\n${up.webUrl ?? "(link indisponível)"}`;
+        }
+
+        const res = await fetchImpl(`${base}/me/sendMail`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${ctx.token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: {
+              subject: assunto,
+              body: { contentType: "Text", content: corpoFinal },
+              toRecipients: destinatarios,
+              ...(anexos.length ? { attachments: anexos } : {}),
+            },
+            saveToSentItems: true,
+          }),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+          return { erro: j?.error?.message || `Falha ao enviar (HTTP ${res.status}).` };
+        }
+        return {
+          enviado: true,
+          para: destinatarios.map((d) => d.emailAddress.address),
+          assunto,
+          arquivo: alvo.filename,
+          via,
+          link,
+          nota:
+            via === "link"
+              ? "Diga que o arquivo era grande demais para anexar, então foi enviado o LINK do OneDrive — e que o link ficou salvo lá."
+              : "Confirme para quem foi e que o arquivo seguiu ANEXADO.",
+        };
       },
     });
   }
