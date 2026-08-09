@@ -40,6 +40,10 @@ export class SecretError extends Error {}
  * o operador gere exatamente 32 bytes — a alternativa seria falhar no deploy
  * por um detalhe de formato.
  */
+function derivar(bruta: string): Buffer {
+  return createHash("sha256").update(bruta, "utf8").digest();
+}
+
 function chave(): Buffer {
   const bruta = process.env[NOME_ENV];
   if (!bruta || bruta.length < 16) {
@@ -48,7 +52,38 @@ function chave(): Buffer {
         `Sem ela não é possível ler nem gravar segredos.`,
     );
   }
-  return createHash("sha256").update(bruta, "utf8").digest();
+  return derivar(bruta);
+}
+
+/**
+ * Cifra/decifra com uma chave EXPLÍCITA, em vez da que está no ambiente.
+ *
+ * Existe para a ROTAÇÃO da chave-mestra: re-cifrar exige ler com a chave velha
+ * e gravar com a nova no mesmo processo, e as funções acima só conhecem uma.
+ * Fora da rotação, use `encryptSecret`/`decryptSecret` — passar chave à mão no
+ * código de aplicação é justamente o que se quer evitar.
+ */
+export function encryptWith(plain: string, chaveBruta: string): string {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGO, derivar(chaveBruta), iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return [VERSAO, b64(iv), b64(cipher.getAuthTag()), b64(ct)].join(":");
+}
+
+export function decryptWith(payload: string, chaveBruta: string): string {
+  const bruto = payload ?? "";
+  if (bruto.startsWith(`${PLANO}:`)) return bruto.slice(PLANO.length + 1);
+  const partes = bruto.split(":");
+  if (partes.length !== 4 || partes[0] !== VERSAO) {
+    throw new SecretError("Segredo em formato desconhecido.");
+  }
+  try {
+    const decipher = createDecipheriv(ALGO, derivar(chaveBruta), deB64(partes[1]!));
+    decipher.setAuthTag(deB64(partes[2]!));
+    return Buffer.concat([decipher.update(deB64(partes[3]!)), decipher.final()]).toString("utf8");
+  } catch {
+    throw new SecretError("Não foi possível decifrar: chave errada ou dado corrompido.");
+  }
 }
 
 /**

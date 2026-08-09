@@ -29,7 +29,9 @@
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",
     "test:e2e": "playwright test",
-    "sync:agents": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/sync-agents.ts"
+    "sync:agents": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/sync-agents.ts",
+    "rekey": "tsx --env-file=.env.local scripts/rekey-secrets.ts",
+    "rekey:prod": "tsx --env-file=.env scripts/rekey-secrets.ts"
   },
   "repository": {
     "type": "git",
