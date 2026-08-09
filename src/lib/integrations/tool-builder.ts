@@ -2,6 +2,7 @@ import "server-only";
 import { tool, type ToolSet } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadBaseContext, loadCredentialSecret } from "./resolve";
+import { credenciaisConectadas } from "./connect-store";
 import { buildModelSchema, identityFromTrack, type Identity } from "./params";
 import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
@@ -106,6 +107,36 @@ export async function buildIntegrationTools(
   if (!ctx || ctx.tools.length === 0) {
     onPasso?.("integracoes", { resultado: "sem tools", motivo: "base sem contexto ou sem ferramentas" });
     return { tools: {}, capabilities: "", agentPrompt: "" };
+  }
+
+  // DISPONIBILIDADE DE CONTA PESSOAL (Microsoft/Google).
+  //
+  // Ferramenta com `identity_mode: 'user'` só existe para quem CONECTOU a
+  // conta. Sem o corte aqui, ela seria oferecida ao modelo, escolhida pelo
+  // roteamento e só falharia na execução — ensinando o agente a prometer o que
+  // não entrega, e fazendo o usuário ler "não consegui agora" como defeito em
+  // vez de "falta conectar".
+  //
+  // O corte NÃO cabe no `loadBaseContext`: ele é cacheado por base, e conexão é
+  // por pessoa — filtrar lá vazaria a disponibilidade de um usuário para outro.
+  let precisaConectar: string[] = [];
+  if (ctx.tools.some((t) => t.tool.identity_mode === "user")) {
+    const conectadas = await credenciaisConectadas(ctx.baseId, String(identity.usuario ?? ""));
+    const antes = ctx.tools.length;
+    const semConexao = new Set<string>();
+    ctx.tools = ctx.tools.filter((t) => {
+      if (t.tool.identity_mode !== "user") return true;
+      const ok = !!t.credentialId && conectadas.has(t.credentialId);
+      if (!ok) semConexao.add(t.tool.name);
+      return ok;
+    });
+    if (semConexao.size > 0) {
+      precisaConectar = [...semConexao];
+      onPasso?.("integracoes:conta_nao_conectada", {
+        removidas: precisaConectar.length,
+        de: antes,
+      });
+    }
   }
 
   // ANÁLISE DO PEDIDO (Opção A + gate de dados) — ANTES do login/agentes, para

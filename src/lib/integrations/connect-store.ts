@@ -286,3 +286,29 @@ export async function atualizarTokens(connectionId: string, tokens: Tokens): Pro
     .update({ access_expires_at: new Date(tokens.expiresAt).toISOString() })
     .eq("id", connectionId);
 }
+
+/**
+ * Credenciais em que ESTA pessoa tem conexão ativa nesta base.
+ *
+ * Serve ao corte de disponibilidade: uma ferramenta que exige conta pessoal
+ * não deve nem ser oferecida ao modelo enquanto a conta não estiver conectada.
+ * Oferecer e falhar na execução ensina o agente a prometer o que não entrega —
+ * e o usuário lê "não consegui agora" como defeito, não como "falta conectar".
+ *
+ * Uma consulta indexada por (credential_id, p_usuario); roda uma vez por turno.
+ */
+export async function credenciaisConectadas(
+  baseId: string,
+  pUsuario: string,
+): Promise<Set<string>> {
+  const usuario = pUsuario?.trim();
+  if (!baseId || !usuario) return new Set();
+  const db = createAdminClient();
+  const { data } = await db
+    .from("user_connections")
+    .select("credential_id")
+    .eq("base_id", baseId)
+    .eq("p_usuario", usuario)
+    .is("revoked_at", null);
+  return new Set((data ?? []).map((r) => r.credential_id));
+}
