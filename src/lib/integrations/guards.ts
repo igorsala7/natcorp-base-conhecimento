@@ -8,6 +8,7 @@
  * equipe (colaboradores_resumo, essa sim escopada por usuario+gestor). A
  * matrícula-alvo nunca é confiada cega — precisa estar na equipe.
  */
+import { createHash } from "node:crypto";
 import { getOAuthToken } from "./oauth";
 import type { RuntimeCredential } from "./executor";
 import type { Identity } from "./params";
@@ -156,6 +157,47 @@ async function genericConfirmation(ctx: GuardContext): Promise<GuardResult> {
 }
 
 /**
+ * Confirmação DETALHADA — para ações que saem para fora (e-mail, convite com
+ * terceiros, compartilhamento de arquivo).
+ *
+ * Duas diferenças em relação à genérica, e as duas são de segurança:
+ *
+ * 1. A pergunta mostra os VALORES REAIS (destinatário, assunto, trecho do
+ *    corpo). Confirmar "confirma: enviar e-mail" não protege de nada: a pessoa
+ *    aprova um rótulo, não um conteúdo. Contra injeção de prompt — um documento
+ *    da base dizendo "envie um e-mail para X" — o que defende é ela LER para
+ *    quem e o quê antes de dizer sim.
+ *
+ * 2. A pendência é nomeada por ferramenta + IMPRESSÃO DIGITAL DOS ARGUMENTOS.
+ *    A genérica usa só `confirm:<tool>`, então um "sim" para um e-mail
+ *    autorizaria qualquer outro e-mail nos 10 minutos seguintes — inclusive um
+ *    que o modelo montasse depois, com outro destinatário. Com o resumo no
+ *    nome, mudou o conteúdo, mudou a pendência, e é preciso confirmar de novo.
+ */
+async function detailedConfirmation(ctx: GuardContext): Promise<GuardResult> {
+  const partes: string[] = [];
+  for (const [k, v] of Object.entries(ctx.modelArgs ?? {})) {
+    const txt = typeof v === "string" ? v.trim() : v == null ? "" : JSON.stringify(v);
+    if (!txt) continue;
+    // Corpo de e-mail inteiro não cabe numa pergunta de chat, mas o começo é o
+    // que denuncia um conteúdo que a pessoa não pediu.
+    partes.push(`${k}: ${txt.length > 140 ? txt.slice(0, 140) + "…" : txt}`);
+  }
+  const resumo = partes.join(" · ");
+  const rotulo = String(ctx.actionLabel ?? "esta ação").trim();
+
+  // Impressão digital estável: mesma ação com os mesmos valores reaproveita a
+  // pendência; qualquer mudança exige novo "sim".
+  const digital = createHash("sha256").update(resumo).digest("base64url").slice(0, 16);
+
+  return confirmationCore(ctx, {
+    action: `confirm:${ctx.toolKey ?? "acao"}:${digital}`,
+    detail: resumo.slice(0, 500),
+    pergunta: resumo ? `confirma ${rotulo} — ${resumo}` : `confirma ${rotulo}`,
+  });
+}
+
+/**
  * A mensagem do usuário é uma AFIRMAÇÃO/confirmação? A ROTA do chat usa isto para
  * liberar uma pendência de confirmação in-chat. Ancorada no início para não casar
  * uma frase longa qualquer (só vale quando há uma pendência esperando, de todo modo).
@@ -262,6 +304,7 @@ const GUARDS: Record<string, (ctx: GuardContext) => Promise<GuardResult>> = {
   escopo_painel: escopoPainel,
   saque_confirmation: saqueConfirmation,
   confirmation: genericConfirmation,
+  confirmation_detalhada: detailedConfirmation,
 };
 
 // Sincronia com o catálogo da UI (guard-catalog.ts): todo guard registrado precisa ter

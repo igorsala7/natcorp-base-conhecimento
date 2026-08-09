@@ -38,6 +38,12 @@ export const GUARD_CATALOG: GuardInfo[] = [
     description:
       "Como o de saque, mas reusável em QUALQUER gravação sensível: gera um código, envia por e-mail e exige confirmação antes de executar. O e-mail usa o nome da ferramenta e o código é isolado por ferramenta (um não confirma outro).",
   },
+  {
+    key: "confirmation_detalhada",
+    label: "Confirmação mostrando o conteúdo",
+    description:
+      "Para ações que SAEM PARA FORA (enviar e-mail, convidar terceiros, compartilhar arquivo). Pergunta mostrando os valores reais — destinatário, assunto, trecho do corpo — em vez de um rótulo genérico: contra um documento que tente induzir o agente a agir, o que defende é a pessoa LER para quem e o quê antes de dizer sim. A pendência inclui uma impressão digital dos argumentos, então um 'sim' nunca autoriza um conteúdo diferente.",
+  },
 ];
 
 /** Descrição de um guard pela chave (ou null se desconhecido). */
