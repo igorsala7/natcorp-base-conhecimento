@@ -15,13 +15,18 @@ next-env.d.ts
 /coverage
 
 # ambiente
-# EXCECAO DELIBERADA: .env e .env.local SAO versionados (git add -f) enquanto o
-# sistema nao esta em producao, para migrar de servidor sem remontar a
-# configuracao a mao. As regras abaixo seguem valendo para qualquer .env novo.
-# Antes do lancamento: `git rm --cached .env .env.local` e ROTACIONAR o que
-# passou pelo historico (chave-mestra, chave de servico do Supabase, senha do
-# banco, token do Upstash, PORTAL_COOKIE_SECRET).
-.env
+# EXCECAO DELIBERADA: o `.env` E versionado (git add -f) enquanto o sistema nao
+# esta em producao, para subir outro servidor sem remontar a configuracao a mao.
+#
+# O `.env.local` NAO. Ele e o override POR MAQUINA, e o Next o carrega com
+# precedencia MAIOR que o `.env` em todo ambiente menos `test`. Versiona-lo faz
+# o servidor herdar as variaveis da maquina de quem commitou: ja aconteceu, e a
+# producao passou a servir na raiz do dominio em vez de /natcorp/ia, dando 404
+# em tudo.
+#
+# Antes do lancamento: `git rm --cached .env` e ROTACIONAR o que passou pelo
+# historico (chave-mestra, chave de servico do Supabase, senha do banco, token
+# do Upstash, PORTAL_COOKIE_SECRET).
 .env.local
 .env*.local
 
