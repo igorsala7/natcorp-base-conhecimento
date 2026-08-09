@@ -544,15 +544,31 @@ function CredentialDialog({
             <div className="flex flex-col gap-2.5">
               {campos.map((f) => (
                 <Field key={f.key} label={f.label} htmlFor={`cred_${f.key}`} hint={f.hint} required={f.required && !podeManter}>
-                  <input
-                    id={`cred_${f.key}`}
-                    className={cn(controlClass, f.secret && "font-mono")}
-                    type={f.secret ? "password" : "text"}
-                    autoComplete="off"
-                    value={secret[f.key] ?? ""}
-                    onChange={(e) => setField(f.key, e.target.value)}
-                    placeholder={podeManter ? "•••••• (manter)" : undefined}
-                  />
+                  {f.options ? (
+                    // Valores fixos viram LISTA: digitar "Microsoft" onde o motor
+                    // espera "microsoft" é um erro que só apareceria na hora de
+                    // conectar, longe daqui.
+                    <Select
+                      id={`cred_${f.key}`}
+                      value={secret[f.key] ?? ""}
+                      onChange={(v) => setField(f.key, v)}
+                    >
+                      <option value="">Selecione…</option>
+                      {f.options.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <input
+                      id={`cred_${f.key}`}
+                      className={cn(controlClass, f.secret && "font-mono")}
+                      type={f.secret ? "password" : "text"}
+                      autoComplete="off"
+                      value={secret[f.key] ?? ""}
+                      onChange={(e) => setField(f.key, e.target.value)}
+                      placeholder={podeManter ? "•••••• (manter)" : undefined}
+                    />
+                  )}
                 </Field>
               ))}
             </div>

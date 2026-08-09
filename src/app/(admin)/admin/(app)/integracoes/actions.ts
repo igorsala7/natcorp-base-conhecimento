@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { encryptSecret } from "@/lib/crypto/secrets";
-import { CREDENTIAL_FIELDS, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
+import { CREDENTIAL_FIELDS, metaKeys, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
 import { syncBaseModules } from "@/lib/integrations/module-sync";
 import type { Json } from "@/lib/database.types";
 
@@ -190,13 +190,36 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   // partir de CREDENTIAL_FIELDS, mas ele NÃO é segredo: vai para uma coluna, de
   // onde a tela e a rota de consentimento o leem sem decifrar nada. Sai do blob
   // aqui para não ser cifrado à toa nem sumir da consulta.
-  const provider = secret.provider?.toLowerCase() ?? null;
-  delete secret.provider;
-  if (auth_type === "oauth2_user" && provider !== "microsoft" && provider !== "google") {
-    return { ok: false, error: "Provedor deve ser `microsoft` ou `google`." };
-  }
+  // Campos `meta` vao para COLUNA, nao para o blob cifrado. Saem daqui antes de
+  // qualquer validacao de segredo — sem isso eram cobrados como "faltando" logo
+  // depois de removidos, e a tela pedia para preencher o que ja estava.
+  const provider = secret.provider?.trim().toLowerCase() || null;
+  for (const k of metaKeys(auth_type as AuthType)) delete secret[k];
 
   const informouSegredo = Object.keys(secret).length > 0;
+
+  // ── VALIDAR ANTES DE CRIAR ────────────────────────────────────────────
+  // A ordem importava: os metadados eram gravados primeiro e o segredo depois,
+  // entao qualquer recusa na validacao deixava uma credencial CRIADA E VAZIA na
+  // tela — e o usuario nao tinha como saber que precisava excluir aquilo.
+  if (auth_type === "oauth2_user" && provider !== "microsoft" && provider !== "google") {
+    return { ok: false, error: "Escolha o provedor: Microsoft ou Google." };
+  }
+  if (auth_type !== "none" && informouSegredo) {
+    const faltando = requiredKeys(auth_type).filter((k) => !secret[k]);
+    if (faltando.length) {
+      const rotulos = CREDENTIAL_FIELDS[auth_type as AuthType]
+        .filter((f) => faltando.includes(f.key))
+        .map((f) => f.label)
+        .join(", ");
+      return { ok: false, error: `Preencha: ${rotulos}.` };
+    }
+  }
+  // Credencial NOVA sem segredo nenhum tambem nao passa: seria uma linha inerte
+  // que so falha na primeira chamada, longe daqui.
+  if (!id && auth_type !== "none" && !informouSegredo) {
+    return { ok: false, error: "Preencha as credenciais antes de salvar." };
+  }
 
   const supabase = await createClient();
 
@@ -226,14 +249,7 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   if (auth_type === "none") {
     await supabase.rpc("set_base_credential_secret", { p_credential_id: credId!, p_secret_enc: null as unknown as string });
   } else if (informouSegredo) {
-    const faltando = requiredKeys(auth_type).filter((k) => !secret[k]);
-    if (faltando.length) {
-      const rotulos = CREDENTIAL_FIELDS[auth_type as AuthType]
-        .filter((f) => faltando.includes(f.key))
-        .map((f) => f.label)
-        .join(", ");
-      return { ok: false, error: `Preencha: ${rotulos}.` };
-    }
+    // Ja validado acima, antes de criar a linha.
     const { error } = await supabase.rpc("set_base_credential_secret", {
       p_credential_id: credId!,
       p_secret_enc: encryptSecret(JSON.stringify(secret)),

@@ -25,6 +25,19 @@ export type CredField = {
   /** Campo sensível (senha/segredo): renderizar como `type=password`. */
   secret: boolean;
   hint?: string;
+  /**
+   * Valores fixos → a tela desenha uma LISTA em vez de campo aberto. Digitar
+   * `Microsoft` num campo livre onde o motor espera `microsoft` é um erro que
+   * só aparece na hora de conectar.
+   */
+  options?: readonly { value: string; label: string }[];
+  /**
+   * O campo NÃO faz parte do blob cifrado: vai para uma coluna da credencial.
+   * A ação de salvar o retira do blob e o valida à parte — sem esta marca, ele
+   * seria cobrado como "segredo faltando" depois de já ter sido removido, que
+   * é um erro impossível de entender pela mensagem.
+   */
+  meta?: boolean;
 };
 
 /** Campos de credencial por tipo de auth. token_url e endpoints ficam AQUI (por base). */
@@ -56,7 +69,12 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
       label: "Provedor",
       required: true,
       secret: false,
-      hint: "microsoft ou google. Define os endpoints de consentimento e os escopos padrão.",
+      meta: true,
+      options: [
+        { value: "microsoft", label: "Microsoft 365 / Entra ID" },
+        { value: "google", label: "Google Workspace" },
+      ],
+      hint: "Define os endpoints de consentimento e os escopos padrão.",
     },
     { key: "client_id", label: "Client ID (Application ID)", required: true, secret: false },
     { key: "client_secret", label: "Client Secret (valor, não o ID)", required: true, secret: true },
@@ -99,7 +117,19 @@ export function isAuthType(v: unknown): v is AuthType {
   return typeof v === "string" && v in CREDENTIAL_FIELDS;
 }
 
-/** Chaves obrigatórias de um tipo — usado para validar o blob antes de cifrar. */
+/**
+ * Chaves obrigatórias DO BLOB — usado para validar o segredo antes de cifrar.
+ *
+ * Exclui os campos `meta`, que não moram no blob: eles são retirados antes de
+ * cifrar e validados à parte. Sem essa exclusão, o campo era cobrado como
+ * ausente logo depois de ter sido removido de propósito, e a tela pedia para
+ * preencher algo que já estava preenchido.
+ */
 export function requiredKeys(t: AuthType): string[] {
-  return CREDENTIAL_FIELDS[t].filter((f) => f.required).map((f) => f.key);
+  return CREDENTIAL_FIELDS[t].filter((f) => f.required && !f.meta).map((f) => f.key);
+}
+
+/** Campos que vão para COLUNA, não para o blob cifrado. */
+export function metaKeys(t: AuthType): string[] {
+  return CREDENTIAL_FIELDS[t].filter((f) => f.meta).map((f) => f.key);
 }
