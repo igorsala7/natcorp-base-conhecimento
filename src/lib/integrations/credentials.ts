@@ -77,13 +77,19 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
       hint: "Define os endpoints de consentimento e os escopos padrão.",
     },
     { key: "client_id", label: "Client ID (Application ID)", required: true, secret: false },
-    { key: "client_secret", label: "Client Secret (valor, não o ID)", required: true, secret: true },
+    {
+      key: "client_secret",
+      label: "Client Secret — o VALOR",
+      required: true,
+      secret: true,
+      hint: "O Azure mostra duas colunas: Valor e ID do Segredo. É o VALOR. Se o que você tem parece um GUID (8-4-4-4-12), é o ID e não vai autenticar — gere um segredo novo e copie o Valor na hora, ele só aparece uma vez.",
+    },
     {
       key: "tenant",
       label: "Locatário (só Microsoft)",
       required: false,
       secret: false,
-      hint: "GUID do tenant = registro single-tenant, só entram usuários daquele locatário. `common` = multi-tenant, cada empresa consente. Vazio equivale a `common`.",
+      hint: "DEIXE VAZIO para multitenant (cada empresa consente no próprio Azure). Preencher o GUID trava o acesso a um único locatário.",
     },
     {
       key: "scopes",
@@ -92,14 +98,24 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
       secret: false,
       hint: "Vazio usa o padrão SÓ LEITURA do provedor. Acrescentar escopo de escrita aqui dá ao agente poder de agir em nome da pessoa — faça de propósito.",
     },
+    // Os dois campos abaixo NÃO são a URL de callback. O callback se cadastra no
+    // portal do provedor (Azure → Redirect URI), nunca aqui — confundir os dois
+    // faz a troca do código ser enviada para a nossa própria aplicação em vez
+    // do provedor, e o erro só aparece no fim do consentimento.
     {
       key: "authorize_url",
-      label: "URL de consentimento",
+      label: "URL de consentimento (avançado)",
       required: false,
       secret: false,
-      hint: "Só para nuvem soberana. Vazio usa o endpoint público do provedor.",
+      hint: "DEIXE VAZIO. Só se usa em nuvem soberana. Não é a URL de callback.",
     },
-    { key: "token_url", label: "URL do token", required: false, secret: false, hint: "Idem." },
+    {
+      key: "token_url",
+      label: "URL do token (avançado)",
+      required: false,
+      secret: false,
+      hint: "DEIXE VAZIO. Só se usa em nuvem soberana. Não é a URL de callback.",
+    },
   ],
   bearer: [{ key: "token", label: "Token", required: true, secret: true }],
   api_key: [
