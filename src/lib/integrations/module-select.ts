@@ -19,7 +19,8 @@ export type AnalisePedido = {
 /**
  * ANÁLISE DO PEDIDO (Opção A + gate de dados) — um classificador RÁPIDO (mesma
  * finalidade `query_rewrite`) decide, por mensagem:
- *  1) `precisaDados`: se precisa das ferramentas de DADOS (integração) ou se é só
+ *  1) `precisaDados`: se precisa das ferramentas de integração — para CONSULTAR
+ *     dado ou para EXECUTAR ação (enviar e-mail, marcar reunião) — ou se é só
  *     operação de tela / dúvida de how-to (aí pula as tools → menos tokens/latência).
  *  2) `modulos`: quando precisa, o RECORTE por assunto (só as tags que as tools
  *     realmente usam — vocabulário pequeno, custo constante conforme as APIs crescem).
@@ -54,11 +55,12 @@ export async function analisarPedido(
       }),
       prompt: `Você analisa a mensagem do usuário de um assistente DENTRO de um sistema de RH, em português do Brasil, e decide DUAS coisas.
 
-1) precisaDados (boolean): a resposta EXIGE consultar os DADOS/APIs do sistema (valores reais do usuário: saldo de horas, holerite, cadastro, histórico, etc.)?
+1) precisaDados (boolean): a resposta EXIGE consultar os DADOS/APIs do sistema (valores reais do usuário: saldo de horas, holerite, cadastro, histórico, etc.) OU EXECUTAR uma ação em nome dele?
    - NÃO precisa (false) quando o usuário só quer OPERAR A TELA — clicar botão, preencher/marcar um campo com um valor que ele mesmo deu ou que já está na tela, filtrar/ordenar/destacar um relatório — ou tirar dúvida de COMO fazer (how-to/documentação).
    - PRECISA (true) quando pede um dado/valor do sistema — INCLUSIVE para preencher um campo com esse dado (ex.: "preencha o campo com o MEU salário" → precisa buscar o salário).
    - Gerar RELATÓRIO/PDF/documento, montar GRÁFICO ou EXPORTAR (planilha/CSV) os dados → precisaDados=true (precisa obter os dados e montar a visualização).
    - Selecionar/preencher um campo de ESTRUTURA organizacional (empresa, filial, centro de custo, departamento, cargo) pelo NOME costuma exigir buscar o código na estrutura → precisaDados=true.
+   - EXECUTAR uma AÇÃO em nome do usuário também PRECISA (true): enviar e-mail, criar/alterar/cancelar compromisso ou reunião, responder convite, compartilhar arquivo. A ação é feita por FERRAMENTA — explicar como fazer à mão não atende quem pediu para fazer.
    - Na DÚVIDA, responda true (é mais seguro carregar as ferramentas).
 
 2) modulos: se precisaDados, TODOS os módulos da lista abaixo necessários para responder — use EXATAMENTE os nomes (no máximo ${max}). IMPORTANTE: se a mensagem tem MAIS DE UM assunto (ex.: "férias E cargos", "saldo, faltas E horas", duas ou mais perguntas), retorne UM módulo para CADA assunto — NÃO escolha só o primeiro. Se não precisaDados, vazio. Se precisaDados mas nenhum módulo casar com clareza, deixe vazio (o sistema carrega todas as ferramentas).
