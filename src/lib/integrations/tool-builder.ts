@@ -102,6 +102,14 @@ export async function buildIntegrationTools(
   /** MULTI-FACETA: uma similaridade por INTENÇÃO da pergunta (ver facets.ts). Com 2+,
    *  cada intenção garante as suas ferramentas em vez de sumir no ranking único. */
   simFacetas?: { faceta: string; sim: Map<string, number> }[] | null,
+  /** Registra no turno um arquivo baixado da nuvem, como se tivesse sido anexado
+   *  à mão. Ausente = a ferramenta de anexar não é oferecida.
+   *
+   *  Vai no FIM da lista de propósito: os parâmetros aqui são POSICIONAIS, e
+   *  inserir no meio desloca todos os seguintes — os chamadores passariam
+   *  `sim` onde se espera `anexarArquivo` e o compilador só reclamaria por
+   *  sorte de os tipos não baterem. */
+  anexarArquivo?: (arq: { filename: string; mimeType: string; bytes: Buffer }) => Promise<string>,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -120,8 +128,14 @@ export async function buildIntegrationTools(
   // O corte NÃO cabe no `loadBaseContext`: ele é cacheado por base, e conexão é
   // por pessoa — filtrar lá vazaria a disponibilidade de um usuário para outro.
   let precisaConectar: string[] = [];
+  let credencialPessoal: string | null = null;
   if (ctx.tools.some((t) => t.tool.identity_mode === "user")) {
     const conectadas = await credenciaisConectadas(ctx.baseId, String(identity.usuario ?? ""));
+    // Guardada para as ferramentas de ARQUIVO (bytes), que não passam pelo
+    // executor genérico e precisam resolver o token por conta própria.
+    credencialPessoal = ctx.tools.find(
+      (t) => t.tool.identity_mode === "user" && t.credentialId && conectadas.has(t.credentialId),
+    )?.credentialId ?? null;
     const antes = ctx.tools.length;
     const semConexao = new Set<string>();
     ctx.tools = ctx.tools.filter((t) => {
@@ -794,6 +808,29 @@ export async function buildIntegrationTools(
     .filter((a) => a.system_prompt?.trim() && (links ?? []).some((l) => l.agent_id === a.id && curated.has(l.tool_id)))
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0];
   const agentPrompt = agentePersona?.system_prompt?.trim() || "";
+
+  // ── ARQUIVOS (bytes) ────────────────────────────────────────────────────
+  // Salvar no OneDrive e trazer arquivo da nuvem para o anexo do chat. Não
+  // passam pelo executor genérico: um manda corpo CRU e o outro RECEBE bytes,
+  // e o executor só fala JSON nos dois sentidos. Só entram com conta conectada.
+  if (credencialPessoal) {
+    try {
+      const { tokenDoUsuario } = await import("./user-token");
+      const r = await tokenDoUsuario({
+        credentialId: credencialPessoal,
+        pUsuario: String(identity.usuario ?? ""),
+      });
+      if (r.ok) {
+        const { graphFileTools } = await import("./graph-file-tools");
+        const extras = graphFileTools({ gerados: sink ?? [], token: r.token, anexar: anexarArquivo });
+        for (const [k, v] of Object.entries(extras)) tools[k] = v;
+        if (Object.keys(extras).length) onPasso?.("integracoes:arquivos_ms", { tools: Object.keys(extras) });
+      }
+    } catch (e) {
+      // Nunca derruba o turno: sem estas duas o chat continua inteiro.
+      onPasso?.("integracoes:arquivos_ms", { erro: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   onPasso?.("integracoes", { resultado: "tools montadas", tools: Object.keys(tools), recorte: recorte.map((m) => m.modulo) });
   const _sel = diag.selecao;

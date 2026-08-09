@@ -26,7 +26,7 @@ import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, 
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
-import { loadAttachmentsForTurn, linkAttachments, withImageParts } from "@/lib/chat/attachment-store";
+import { loadAttachmentsForTurn, linkAttachments, withImageParts, receiveAttachment } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, selecaoFracaDirective, buildTrocaFonteTool, type PedidoDeFonte, RX_GERA_ARQUIVO, RX_OFERTA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
@@ -379,6 +379,40 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // DEPOIS do roteador de fonte — assim, quando a mensagem é roteada DIRETO a uma tool,
   // reduzimos os trechos de documentação (peso morto). Nada entre aqui e lá usa `sources`.
   // Anexos deste turno + uploads fixados na "Base de Dados" (texto extraído, como DADO).
+  /**
+   * Traz um arquivo da nuvem para ESTE turno e devolve o TEXTO extraído.
+   *
+   * Passa pela mesma `receiveAttachment` do upload manual, de propósito: é ela
+   * que aplica a allowlist, confere os magic-bytes e extrai o texto. Um caminho
+   * paralelo para arquivo vindo da Microsoft seria um caminho sem essas
+   * checagens — e o conteúdo é igualmente não confiável, porque quem escreveu o
+   * documento no OneDrive não é necessariamente quem está perguntando.
+   *
+   * Devolve o TEXTO, e não apenas "anexado com sucesso", porque o contexto do
+   * turno (`attach`) já foi montado bem antes de qualquer ferramenta rodar.
+   * Registrar o anexo e avisar que deu certo faria o modelo dizer que leu um
+   * arquivo cujo conteúdo ele nunca recebeu. O anexo fica gravado do mesmo
+   * jeito — serve às próximas perguntas da conversa.
+   */
+  const anexarDaNuvem = async (arq: { filename: string; mimeType: string; bytes: Buffer }): Promise<string> => {
+    const r = await receiveAttachment(key.space_id, {
+      name: arq.filename,
+      mime: arq.mimeType,
+      bytes: new Uint8Array(arq.bytes),
+    });
+    if (!r.ok) throw new Error(r.error);
+    const lido = await loadAttachmentsForTurn(key.space_id, [r.attachment.id]);
+    const texto = lido.contextBlock.trim();
+    if (!texto) {
+      return `Arquivo "${r.attachment.name}" foi trazido, mas não tem texto legível (pode ser imagem ou digitalização).`;
+    }
+    // Teto para um arquivo grande não consumir o turno inteiro; o modelo é
+    // avisado do corte para não afirmar que leu o documento completo.
+    const TETO = 40_000;
+    return texto.length > TETO
+      ? `${texto.slice(0, TETO)}\n\n[Conteúdo cortado em ${TETO} caracteres — o arquivo é maior.]`
+      : texto;
+  };
   const attIdsTurno = [...(Array.isArray(payload.attachmentIds) ? payload.attachmentIds.map((x) => String(x)) : []), ...baseAttIds];
   const attach = await loadAttachmentsForTurn(key.space_id, attIdsTurno);
 
@@ -517,7 +551,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // fica "na manga" para ligar se o teste revelar composto perdendo ferramenta.
   const relaxComposto = process.env.TOOL_COMPOSITE_RELAX === "1" && perguntaComposta;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
