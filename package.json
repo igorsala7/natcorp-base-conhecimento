@@ -31,7 +31,9 @@
     "test:e2e": "playwright test",
     "sync:agents": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/sync-agents.ts",
     "rekey": "tsx --env-file=.env.local scripts/rekey-secrets.ts",
-    "rekey:prod": "tsx --env-file=.env scripts/rekey-secrets.ts"
+    "rekey:prod": "tsx --env-file=.env scripts/rekey-secrets.ts",
+    "seed:graph": "tsx --env-file=.env.local scripts/seed-graph-tools.ts",
+    "seed:graph:prod": "tsx --env-file=.env scripts/seed-graph-tools.ts"
   },
   "repository": {
     "type": "git",
