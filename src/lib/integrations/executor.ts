@@ -3,6 +3,7 @@ import type { LoopConfig, ToolParam } from "./tools";
 import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
+import { montarCorpo } from "./body-template";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 
 /** A tool como o motor precisa dela (subconjunto de ai_tools). */
@@ -35,6 +36,8 @@ export type RuntimeTool = {
   panel_scope?: PanelScopeMap | null;
   /** Nunca traz/mira os PRÓPRIOS dados do usuário (ex.: requisição de desligamento). */
   exclude_self?: boolean | null;
+  /** Formato do corpo para APIs aninhadas (ver body-template.ts). NULL = plano. */
+  body_template?: unknown;
   /** 'user' = exige o token PESSOAL de quem perguntou (Graph /me/*, Gmail). Sem
    *  conexão, a tool recusa em vez de responder com a conta de serviço. */
   identity_mode?: string | null;
@@ -101,9 +104,20 @@ export function buildHttpRequest(
   const headers: Record<string, string> = { ...buckets.header };
   const method = tool.method.toUpperCase();
   let body: string | undefined;
-  if (method !== "GET" && method !== "DELETE" && Object.keys(buckets.body).length > 0) {
-    body = JSON.stringify(envelopeBody(tool.body_mode, buckets.body));
-    headers["Content-Type"] = "application/json";
+  if (method !== "GET" && method !== "DELETE") {
+    // Com template, o corpo é o FORMATO declarado pela ferramenta, preenchido
+    // com TODOS os valores resolvidos — não só os marcados como `local: body`.
+    // Um mesmo parâmetro costuma ir ao caminho e ao corpo (o id do evento, por
+    // exemplo), e obrigar a duplicá-lo no cadastro só produziria divergência.
+    const corpo = tool.body_template
+      ? montarCorpo(tool.body_template, { ...buckets.query, ...buckets.path, ...buckets.body })
+      : Object.keys(buckets.body).length > 0
+        ? envelopeBody(tool.body_mode, buckets.body)
+        : null;
+    if (corpo !== null) {
+      body = JSON.stringify(corpo);
+      headers["Content-Type"] = "application/json";
+    }
   }
   return { url: url.toString(), method, headers, body };
 }

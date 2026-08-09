@@ -76,6 +76,7 @@ type EmbeddedRow = {
     panel_scope: unknown;
     exclude_self: boolean | null;
     identity_mode: string | null;
+    body_template: unknown;
     active: boolean;
   } | null;
 };
@@ -126,7 +127,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
   const { data } = await db
     .from("ai_base_tools")
     .select(
-      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, search_terms, method, path_template, auth_type, identity_mode, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, prioridade, grupo_ambiguidade, panel_scope, exclude_self, active)",
+      "base_url, credential_id, enabled, portais, empresas, perfis, tool:ai_tools(id, key, name, description, search_terms, method, path_template, auth_type, identity_mode, body_template, params, response_hint, body_mode, guard, cache_ttl, cache_scope, loop, endpoint_kind, external_url, credential_id, system_prompt, always_include, prioridade, grupo_ambiguidade, panel_scope, exclude_self, active)",
     )
     .eq("base_id", base.id)
     .eq("enabled", true);
@@ -181,6 +182,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
         exclude_self: t.exclude_self === true,
         // 'user' = so roda com o token pessoal de quem perguntou.
         identity_mode: t.identity_mode ?? "service",
+        body_template: t.body_template ?? null,
       },
       baseUrl,
       credentialId,

@@ -882,6 +882,7 @@ export type Database = {
           exclude_self: boolean
           method: string
           identity_mode: string
+          body_template: Json | null
           name: string
           params: Json
           path_template: string
@@ -916,6 +917,7 @@ export type Database = {
           exclude_self?: boolean
           method?: string
           identity_mode?: string
+          body_template?: Json | null
           name: string
           params?: Json
           path_template?: string
@@ -950,6 +952,7 @@ export type Database = {
           exclude_self?: boolean
           method?: string
           identity_mode?: string
+          body_template?: Json | null
           name?: string
           params?: Json
           path_template?: string
