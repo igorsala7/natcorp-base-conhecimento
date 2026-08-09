@@ -35,7 +35,9 @@
     "seed:graph": "tsx --env-file=.env.local scripts/seed-graph-tools.ts",
     "seed:graph:prod": "tsx --env-file=.env scripts/seed-graph-tools.ts",
     "seed:graph:write": "tsx --env-file=.env.local scripts/seed-graph-write.ts",
-    "seed:graph:write:prod": "tsx --env-file=.env scripts/seed-graph-write.ts"
+    "seed:graph:write:prod": "tsx --env-file=.env scripts/seed-graph-write.ts",
+    "seed:graph:modulos": "tsx --env-file=.env.local scripts/seed-graph-modules.ts",
+    "seed:graph:modulos:prod": "tsx --env-file=.env scripts/seed-graph-modules.ts"
   },
   "repository": {
     "type": "git",
