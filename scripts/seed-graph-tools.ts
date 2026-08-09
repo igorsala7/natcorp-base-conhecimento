@@ -107,8 +107,9 @@ const TOOLS = [
     path_template: "/me/drive/recent",
     params: [q("$top", "Quantos arquivos trazer (1 a 25). Padrão 10.", false)],
     response_hint:
-      "Liste como '• Nome do arquivo — modificado em <data>'. Inclua o link quando a pessoa pedir para " +
-      "abrir. Não tente ler o conteúdo do arquivo: esta ferramenta só lista.",
+      "Liste como '• [Nome do arquivo](webUrl) — modificado em <data>', SEMPRE com o nome em link usando o " +
+      "campo `webUrl` — é por ele que a pessoa abre ou baixa o arquivo sem sair da conversa. Nunca cite um " +
+      "arquivo sem o link. Não tente ler o conteúdo: esta ferramenta só lista.",
   },
   {
     key: "ms_arquivo_buscar",
@@ -127,8 +128,9 @@ const TOOLS = [
       q("$top", "Quantos resultados (1 a 25). Padrão 10.", false),
     ],
     response_hint:
-      "Liste os que casarem, com nome e data de modificação. Se nada voltar, diga que não encontrou e " +
-      "sugira outro termo — não devolva lista vazia sem explicação.",
+      "Liste os que casarem como '• [Nome](webUrl) — modificado em <data>', SEMPRE com o nome em link pelo " +
+      "campo `webUrl` — é por ele que a pessoa baixa o arquivo direto da conversa. Se nada voltar, diga que " +
+      "não encontrou e sugira outro termo — não devolva lista vazia sem explicação.",
   },
 ];
 
