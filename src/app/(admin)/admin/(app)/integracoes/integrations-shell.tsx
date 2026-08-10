@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
+import { BaseAccessManager } from "./base-access-manager";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
 import { ProfilesManager, type ProfileRow } from "./profiles-manager";
 import { RunsManager, type RunRow } from "./runs-manager";
@@ -45,10 +46,11 @@ export function IntegrationsShell({
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
-  const [tab, setTab] = useState<"bases" | "apis" | "agentes" | "perfis" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
+  const [tab, setTab] = useState<"bases" | "apis" | "acesso" | "agentes" | "perfis" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
   const abas = [
     ["bases", "Bases / Clientes"],
     ["apis", "APIs / Tools"],
+    ["acesso", "Acesso por base"],
     ["agentes", "Agentes"],
     ["perfis", "Perfis de Análise"],
     ["fluxo", "Fluxo"],
@@ -81,6 +83,8 @@ export function IntegrationsShell({
         <IntegrationsManager bases={bases} spaces={spaces} temChaveMestra={temChaveMestra} />
       ) : tab === "apis" ? (
         <ToolsManager tools={tools} bases={bases} baseTools={baseTools} moduleOptions={moduleOptions} />
+      ) : tab === "acesso" ? (
+        <BaseAccessManager bases={bases} tools={tools} baseTools={baseTools} />
       ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
       ) : tab === "perfis" ? (

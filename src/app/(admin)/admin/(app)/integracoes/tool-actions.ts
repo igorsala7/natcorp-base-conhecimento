@@ -605,3 +605,97 @@ export async function listarPerfisDaBase(
     return { ok: false, error: e instanceof Error ? e.message : "Falha ao buscar perfis." };
   }
 }
+
+// ───────────────── Acesso por BASE: liberar/bloquear tools em lote ───────────
+const acessoBaseSchema = z.object({
+  baseId: z.string().uuid(),
+  ligar: z.array(z.string().uuid()).default([]),
+  desligar: z.array(z.string().uuid()).default([]),
+});
+
+/**
+ * Define, de uma vez, QUAIS tools a base enxerga.
+ *
+ * Existe porque a via anterior era abrir o diálogo de cada tool e mexer no
+ * seletor de bases: com 118 tools, configurar um cliente novo custava 118
+ * diálogos. Aqui a tela manda só o DIFF, e uma base inteira vira duas
+ * instruções.
+ *
+ * Semântica do banco: o runtime lê `ai_base_tools` com `enabled = true`
+ * (resolve.ts), entao LINHA AUSENTE = tool indisponivel. Liberar exige criar
+ * linha; bloquear é `enabled = false`, e não `delete` — apagar levaria junto a
+ * `base_url`, a credencial própria e as allowlists de portal/perfil daquela
+ * tool naquela base, que sao trabalho manual de recuperar.
+ */
+export async function setBaseToolAccess(
+  input: unknown,
+): Promise<IntegResult & { ligadas?: number; desligadas?: number }> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = acessoBaseSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+
+  const { baseId } = parsed.data;
+  const ligar = [...new Set(parsed.data.ligar)];
+  const desligar = [...new Set(parsed.data.desligar)].filter((id) => !ligar.includes(id));
+  if (!ligar.length && !desligar.length) return { ok: true, ligadas: 0, desligadas: 0 };
+
+  const supabase = await createClient();
+  const { data: base } = await supabase.from("ai_bases").select("base_code").eq("id", baseId).maybeSingle();
+  if (!base) return { ok: false, error: "Base não encontrada." };
+
+  // Quais já têm linha: as que têm sofrem UPDATE (preserva configuração), as que
+  // não têm sofrem INSERT.
+  const alvos = [...ligar, ...desligar];
+  const { data: existentes } = await supabase
+    .from("ai_base_tools")
+    .select("tool_id")
+    .eq("base_id", baseId)
+    .in("tool_id", alvos);
+  const comLinha = new Set((existentes ?? []).map((r) => r.tool_id));
+
+  const inserir = ligar.filter((id) => !comLinha.has(id));
+  const atualizarOn = ligar.filter((id) => comLinha.has(id));
+  // Desligar o que não tem linha é no-op: ausência já significa indisponível.
+  const atualizarOff = desligar.filter((id) => comLinha.has(id));
+
+  if (inserir.length) {
+    const { error } = await supabase
+      .from("ai_base_tools")
+      .insert(inserir.map((tool_id) => ({ base_id: baseId, tool_id, enabled: true })));
+    if (error) return { ok: false, error: `Falha ao liberar: ${error.message}` };
+  }
+  for (const [ids, enabled] of [[atualizarOn, true], [atualizarOff, false]] as const) {
+    if (!ids.length) continue;
+    const { error } = await supabase
+      .from("ai_base_tools")
+      .update({ enabled })
+      .eq("base_id", baseId)
+      .in("tool_id", ids);
+    if (error) return { ok: false, error: `Falha ao gravar: ${error.message}` };
+  }
+
+  // Sem isto a mudança demora até 60s para valer (cache de contexto da base) —
+  // tempo suficiente para alguém concluir que "não funcionou" e mexer de novo.
+  invalidateBaseContext(base.base_code);
+  // O vetor de seleção é POR BASE (enriquecido com a ontologia do cliente).
+  // Tool liberada sem vetor não é escolhida pelo roteador: estaria liberada na
+  // tela e invisível no chat, que é o pior dos dois mundos.
+  if (ligar.length) {
+    try {
+      await syncToolBaseEmbeddings(supabase, base.base_code, { toolIds: ligar });
+    } catch (e) {
+      console.error("[acesso-base] embeddings falharam:", e);
+    }
+  }
+
+  await audit({
+    action: "integrations.base.tools",
+    entityType: "ai_base",
+    entityId: baseId,
+    spaceId: null,
+    after: { ligadas: ligar.length, desligadas: atualizarOff.length },
+  });
+  revalidatePath("/admin/integracoes");
+  return { ok: true, ligadas: ligar.length, desligadas: atualizarOff.length };
+}
