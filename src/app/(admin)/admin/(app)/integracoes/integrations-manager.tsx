@@ -368,10 +368,16 @@ export function BaseDialog({
         <Field
           label="Credencial padrão"
           htmlFor="base_cred"
+          // A dica muda com o MOTIVO de o campo estar como está. Antes ela só
+          // descrevia o campo, então uma base sem credencial mostrava um
+          // seletor acinzentado sem dizer por quê — e não dá para distinguir
+          // "falta cadastrar" de "quebrou".
           hint={
-            base
-              ? "Credencial usada pelas tools internas desta base."
-              : "Salve a base e cadastre credenciais; depois escolha a padrão aqui."
+            !base
+              ? "Salve a base e cadastre credenciais; depois escolha a padrão aqui."
+              : credenciais.length === 0
+                ? "Esta base ainda não tem credencial. Feche este diálogo, use “+ Credencial” na linha da base e volte aqui para escolher a padrão."
+                : "Credencial usada pelas tools internas desta base."
           }
         >
           <Select
