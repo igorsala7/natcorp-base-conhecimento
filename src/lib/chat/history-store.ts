@@ -39,7 +39,7 @@ export type ChatHistory = { conversationId: string; messages: HistoryMessage[] }
 type Client = SupabaseClient<Database>;
 /** Colunas de identidade a casar (ex.: `{p_base, p_usuario}` ou `{session_id}`). */
 export type IdentityMatch = Partial<
-  Record<"p_base" | "p_usuario" | "session_id" | "user_ref", string>
+  Record<"p_base" | "p_usuario" | "p_portal" | "session_id" | "user_ref", string>
 >;
 
 const MAX_MESSAGES = 60;
@@ -120,13 +120,26 @@ export async function resolveMedia(supabase: Client, raw: unknown): Promise<Hist
 }
 
 /** Constrói o `match` a partir do rastreio: prioriza a identidade (p_base +
- *  p_usuario, que atravessa dispositivos); sem ela, cai na sessão do navegador. */
+ *  p_usuario, que atravessa dispositivos); sem ela, cai na sessão do navegador.
+ *
+ *  `pPortal` entra por ÚLTIMO na assinatura de propósito: acrescentar parâmetro
+ *  no meio deslocaria silenciosamente os argumentos de quem já chama.
+ *
+ *  Com portal, a retomada é POR PAINEL: quem atende no painel do Gestor e no do
+ *  Operador tem duas conversas, e abrir um não desenterra o assunto do outro.
+ *  Sem portal no rastreio, o comportamento é o de antes — instalação que não
+ *  informa painel não perde nada. */
 export function identityMatch(
   pBase: string | undefined,
   pUsuario: string | undefined,
   sessionId: string | undefined,
+  pPortal?: string | undefined,
 ): IdentityMatch | null {
-  if (pBase && pUsuario) return { p_base: pBase, p_usuario: pUsuario };
+  if (pBase && pUsuario) {
+    return pPortal
+      ? { p_base: pBase, p_usuario: pUsuario, p_portal: pPortal }
+      : { p_base: pBase, p_usuario: pUsuario };
+  }
   if (sessionId) return { session_id: sessionId };
   return null;
 }

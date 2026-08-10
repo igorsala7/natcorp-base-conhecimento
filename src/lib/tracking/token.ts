@@ -46,13 +46,30 @@ function lerChave(chaveB64: string): Buffer {
   return buf;
 }
 
+/**
+ * Resultado DETALHADO da validação.
+ *
+ * A diferença entre "expirou" e "não presta" não é acadêmica: expirado é o
+ * caminho normal de quem ficou com a aba aberta e merece "atualize a página";
+ * inválido é chave errada ou adulteração, e merece outro texto e outro log.
+ * Enquanto os dois viravam o mesmo `null`, a sessão vencida degradava para
+ * anônimo em silêncio e a pessoa só via a IA dizer que não tinha acesso.
+ */
+export type ResultadoRastreio =
+  | { ok: true; campos: TrackFields }
+  | { ok: false; motivo: "expirado" | "invalido" };
+
+const INVALIDO = { ok: false, motivo: "invalido" } as const;
+
 /** Valida o JSON do payload: expira e saneia (chaves p_* conhecidas, ≤200 chars). */
-function lerPayload(json: string): TrackFields | null {
+function lerPayload(json: string): ResultadoRastreio {
   const obj = JSON.parse(json) as unknown;
-  if (!obj || typeof obj !== "object") return null;
+  if (!obj || typeof obj !== "object") return INVALIDO;
   const exp = (obj as { exp?: unknown }).exp;
-  if (typeof exp === "number" && Number.isFinite(exp) && Date.now() / 1000 > exp) return null;
-  return trackingFields(obj);
+  if (typeof exp === "number" && Number.isFinite(exp) && Date.now() / 1000 > exp) {
+    return { ok: false, motivo: "expirado" };
+  }
+  return { ok: true, campos: trackingFields(obj) };
 }
 
 /**
@@ -79,9 +96,9 @@ export function assinarRastreio(chaveB64: string, payload: TrackPayload): string
   return `${PREFIXO_HMAC}.${bytes.toString("base64url")}.${mac.toString("base64url")}`;
 }
 
-function decodeGcm(key: Buffer, body: string): TrackFields | null {
+function decodeGcm(key: Buffer, body: string): ResultadoRastreio {
   const blob = Buffer.from(body, "base64url");
-  if (blob.length < IV_BYTES + TAG_BYTES + 1) return null;
+  if (blob.length < IV_BYTES + TAG_BYTES + 1) return INVALIDO;
   const iv = blob.subarray(0, IV_BYTES);
   const tag = blob.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
   const ct = blob.subarray(IV_BYTES + TAG_BYTES);
@@ -91,15 +108,35 @@ function decodeGcm(key: Buffer, body: string): TrackFields | null {
   return lerPayload(json);
 }
 
-function decodeHmac(key: Buffer, body: string): TrackFields | null {
+function decodeHmac(key: Buffer, body: string): ResultadoRastreio {
   const p = body.split(".");
-  if (p.length !== 2) return null;
+  if (p.length !== 2) return INVALIDO;
   const payload = Buffer.from(p[0]!, "base64url");
   const mac = Buffer.from(p[1]!, "base64url");
-  if (payload.length === 0 || mac.length !== MAC_BYTES) return null;
+  if (payload.length === 0 || mac.length !== MAC_BYTES) return INVALIDO;
   const esperado = createHmac("sha256", key).update(payload).digest();
-  if (!timingSafeEqual(mac, esperado)) return null; // ambos têm 32 bytes
+  if (!timingSafeEqual(mac, esperado)) return INVALIDO; // ambos têm 32 bytes
   return lerPayload(payload.toString("utf8"));
+}
+
+/**
+ * Decifra/valida o token (GCM ou HMAC) dizendo POR QUE recusou. Nunca lança.
+ */
+export function decodificarRastreioDetalhado(chaveB64: string, token: unknown): ResultadoRastreio {
+  if (typeof token !== "string") return INVALIDO;
+  let key: Buffer;
+  try {
+    key = lerChave(chaveB64);
+  } catch {
+    return INVALIDO;
+  }
+  try {
+    if (token.startsWith(`${PREFIXO_HMAC}.`)) return decodeHmac(key, token.slice(PREFIXO_HMAC.length + 1));
+    if (token.startsWith(`${PREFIXO_GCM}.`)) return decodeGcm(key, token.slice(PREFIXO_GCM.length + 1));
+    return INVALIDO;
+  } catch {
+    return INVALIDO;
+  }
 }
 
 /**
@@ -108,18 +145,6 @@ function decodeHmac(key: Buffer, body: string): TrackFields | null {
  * servidor trata `null` como "sem identidade".
  */
 export function decodificarRastreio(chaveB64: string, token: unknown): TrackFields | null {
-  if (typeof token !== "string") return null;
-  let key: Buffer;
-  try {
-    key = lerChave(chaveB64);
-  } catch {
-    return null;
-  }
-  try {
-    if (token.startsWith(`${PREFIXO_HMAC}.`)) return decodeHmac(key, token.slice(PREFIXO_HMAC.length + 1));
-    if (token.startsWith(`${PREFIXO_GCM}.`)) return decodeGcm(key, token.slice(PREFIXO_GCM.length + 1));
-    return null;
-  } catch {
-    return null;
-  }
+  const r = decodificarRastreioDetalhado(chaveB64, token);
+  return r.ok ? r.campos : null;
 }

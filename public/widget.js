@@ -26,7 +26,8 @@
   var API = new URL(script.src).href.replace(/\/widget\.js(\?.*)?$/, "");
   var LS_POS = "kb.widget.pos." + KEY;
   var LS_PANEL = "kb.widget.panelpos." + KEY; // posição própria da JANELA (arrastada pelo cabeçalho)
-  var LS_SID = "kb.widget.sid." + KEY;
+  // LS_SID é declarado ADIANTE, depois de `track`: a chave da sessão depende de
+  // quem está logado e em qual painel, e isso só se sabe lendo o token.
   // Abaixo desta largura o painel vira TELA CHEIA (modo app): sem transparência ao
   // rolar, sem arrastar, sem expandir. É o mesmo 640 que a CSS e o guard do modo
   // expandido já usavam — a constante existe para os três nunca divergirem (a CSS
@@ -65,10 +66,8 @@
     zh: { placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除" },
   };
   function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
-  // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
-  var LS_CLEARED = "kb.widget.cleared." + KEY;
-  // Rascunho do campo de texto (preserva o que foi digitado ao minimizar/recarregar).
-  var LS_DRAFT = "kb.widget.draft." + KEY;
+  // LS_CLEARED e LS_DRAFT também são declarados ADIANTE, junto do LS_SID: os
+  // três guardam estado DA PESSOA, não do navegador.
 
   // Parâmetros de rastreio: de onde/quem veio a conversa. Lidos do atributo
   // data-* do <script> (tem prioridade) ou da querystring da página (p_*).
@@ -89,6 +88,76 @@
     tok = tok ? String(tok).trim() : "";
     return tok ? { token: tok } : null;
   })();
+
+  /**
+   * Payload LEGÍVEL do token, quando ele é do formato assinado (`kbt1h.`).
+   *
+   * Não há segredo aqui: o `kbt1h` é `payloadJSON` em base64 + HMAC, e o token
+   * inteiro já está no HTML da página. A assinatura protege contra ADULTERAÇÃO,
+   * não contra leitura — quem valida é o servidor. Ler no navegador só evita uma
+   * ida ao servidor para descobrir quem está logado e em que painel.
+   *
+   * O formato `kbt1.` (AES-GCM) é opaco de propósito e devolve `null` aqui.
+   */
+  function payloadDoToken() {
+    if (!track || !track.token) return null;
+    var t = String(track.token);
+    if (t.indexOf("kbt1h.") !== 0) return null;
+    try {
+      var b64 = (t.split(".")[1] || "").replace(/-/g, "+").replace(/_/g, "/");
+      var bin = atob(b64);
+      // atob devolve bytes como code units; o JSON pode ter acento (nome do
+      // portal). Sem passar por TextDecoder, "Gestão" chega quebrado e o
+      // JSON.parse falha — derrubando o escopo inteiro por causa de um til.
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var obj = JSON.parse(new TextDecoder().decode(bytes));
+      return obj && typeof obj === "object" ? obj : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Sufixo que ISOLA a sessão do widget por base · usuário · portal · sessão do
+   * painel.
+   *
+   * Sem isto, a chave era só a chave pública: numa estação compartilhada (ponto,
+   * portaria) duas pessoas dividiam a MESMA sessão, e trocar do painel do Gestor
+   * para o do Operador continuava a mesma conversa.
+   *
+   * O `sid` é a sessão do APEX. Incluí-lo faz a sessão do widget nascer e morrer
+   * junto com a do painel, que é a regra do produto — sem nenhuma chamada extra.
+   * Enquanto o processo do APEX não publicar `sid`, o escopo já vale por
+   * base/usuário/portal e o resto continua funcionando.
+   *
+   * Sem token (portal público, instalação sem rastreio) devolve "" — a chave
+   * fica idêntica à de antes, então ninguém perde a conversa em andamento no
+   * deploy.
+   */
+  var ESCOPO_SESSAO = (function () {
+    var p = payloadDoToken();
+    if (!p) return "";
+    var partes = [];
+    ["p_base", "p_usuario", "p_portal", "sid"].forEach(function (k) {
+      var v = p[k];
+      if (typeof v === "string" || typeof v === "number") {
+        v = String(v).trim().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+        if (v) partes.push(v);
+      }
+    });
+    return partes.length ? "." + partes.join(".") : "";
+  })();
+
+  var LS_SID = "kb.widget.sid." + KEY + ESCOPO_SESSAO;
+  // Instante da última limpeza VISUAL da conversa (o histórico anterior não volta).
+  // Escopado junto: sem isso, quem limpasse a conversa esconderia o histórico da
+  // PESSOA SEGUINTE a usar a mesma máquina, que ficaria sem entender por quê.
+  var LS_CLEARED = "kb.widget.cleared." + KEY + ESCOPO_SESSAO;
+  // Rascunho do campo de texto (preserva o que foi digitado ao minimizar/recarregar).
+  // É o mais sensível dos três: um texto começado sobre atestado, salário ou
+  // desligamento reapareceria no campo do próximo usuário do balcão.
+  var LS_DRAFT = "kb.widget.draft." + KEY + ESCOPO_SESSAO;
 
   // Tela atual do usuário (Fase 4): o widget roda na página do produto do
   // cliente, então href/path/título descrevem ONDE a pessoa está. Só DADO —
@@ -5823,6 +5892,9 @@
         } else {
           renderWelcome();
         }
+        // Depois de renderizar: o aviso entra como última mensagem, no lugar
+        // certo da leitura, em vez de abrir a conversa com um erro.
+        if (h && h.sessaoExpirada) sessaoExpirou();
       })
       .catch(function () {
         renderWelcome();
@@ -5888,9 +5960,83 @@
       sendBtn.innerHTML = b ? ICON_STOP : ICON_SEND;
     } catch { }
   }
+  /**
+   * A sessão do PAINEL acabou → a do widget acaba junto (regra do produto).
+   *
+   * Bloqueia o envio e explica o que fazer, mas NÃO limpa a tela: o que já foi
+   * respondido continua legível — é comum a pessoa querer copiar um número antes
+   * de recarregar. E o histórico está no banco, então nada se perde de verdade.
+   *
+   * Antes disto, sessão vencida virava conversa anônima em silêncio: a IA
+   * respondia "não tenho acesso aos seus dados", que se lê como defeito do
+   * produto e não como "faça login de novo".
+   */
+  var _sessaoMorta = false;
+  function sessaoExpirou() {
+    // Pode chegar por dois caminhos (abertura do histórico e envio da pergunta);
+    // sem esta trava, a pessoa veria o mesmo aviso duas vezes.
+    if (_sessaoMorta) return;
+    _sessaoMorta = true;
+    try { setBusyUI(false); } catch (e) { }
+    try {
+      inputEl.disabled = true;
+      inputEl.value = "";
+      inputEl.placeholder = "Sessão expirada";
+      sendBtn.disabled = true;
+      sendBtn.style.opacity = "0.4";
+    } catch (e) { }
+    // O rascunho guardado é de uma sessão que morreu: deixá-lo reapareceria no
+    // campo do próximo login, possivelmente de outra pessoa na mesma máquina.
+    try { localStorage.removeItem(LS_DRAFT); } catch (e) { }
+    try {
+      var el = addMsg("assistant", "");
+      el.innerHTML =
+        "<strong>Sua sessão no painel expirou.</strong><br>" +
+        "Atualize a página para continuar. Sua conversa fica salva.";
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "Atualizar página";
+      b.style.cssText =
+        "margin-top:10px;padding:7px 14px;border-radius:8px;border:0;cursor:pointer;" +
+        "font:inherit;font-weight:600;background:var(--kb-primary,#511C76);color:#fff";
+      // Recarrega a página HOSPEDEIRA: é ela que o APEX renderiza com um token
+      // novo. Um "tentar de novo" só do widget reenviaria o mesmo token vencido.
+      b.addEventListener("click", function () { try { location.reload(); } catch (e) { } });
+      el.appendChild(b);
+    } catch (e) { }
+  }
+
+  // Id DESTA geração. O servidor não cancela mais por conexão fechada (fechar o
+  // painel deixaria a resposta pela metade), então PARAR virou um pedido
+  // explícito — e este id é o que diz qual geração parar.
+  var _runId = null;
+  function novoRunId() {
+    try {
+      if (crypto && crypto.randomUUID) return crypto.randomUUID();
+    } catch (e) { }
+    // Navegador sem randomUUID: o id só precisa não colidir entre abas do mesmo
+    // instante, não ser imprevisível — quem o usa já passou pela chave pública.
+    return "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  }
+
   // Interrompe TUDO que estiver em voo: geração da IA e coleta do Oracle.
   function pararTudo() {
     _parando = true;
+    // AVISA o servidor antes de fechar a conexão: sem isto, ele leria o
+    // fechamento como "a pessoa saiu do painel" e continuaria gerando por até
+    // 10 minutos — o oposto do que o botão promete.
+    try {
+      if (_runId) {
+        var corpo = JSON.stringify({ runId: _runId });
+        // `keepalive` faz a requisição sobreviver ao descarregamento da página.
+        fetch(API + "/api/v1/chat/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+          body: corpo,
+          keepalive: true,
+        }).catch(function () { });
+      }
+    } catch (e) { }
     try { if (_chatAbort) _chatAbort.abort(); } catch { }
     try { if (_coletaXhr && _coletaXhr.abort) _coletaXhr.abort(); } catch { }
     try { if (_coletaAbort) _coletaAbort.abort(); } catch { }
@@ -6481,7 +6627,8 @@
       else if (stopped && !feito) finalizarReveal();
     }
 
-    var body = { messages: history, conversationId: conversationId, sessionId: sessionId };
+    _runId = novoRunId(); // um por pergunta: é o que o botão Parar cancela
+    var body = { messages: history, conversationId: conversationId, sessionId: sessionId, runId: _runId };
     if (scope) body.scope = scope;
     if (contextScope) body.contextScope = contextScope;
     if (track) body.track = track;
@@ -6590,6 +6737,10 @@
       .then(function (res) {
         if (!res.ok) {
           return res.json().then(function (j) {
+            // Sessão do painel vencida: não é "erro do chat", é fim de sessão.
+            // Tratada à parte para virar instrução ("atualize a página") em vez
+            // de uma bolha vermelha que a pessoa tentaria reenviar em looping.
+            if (j && j.code === "sessao_expirada") { sessaoExpirou(); return null; }
             throw new Error(j.error || "Erro " + res.status);
           });
         }

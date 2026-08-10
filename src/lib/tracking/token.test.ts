@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { gerarChaveRastreio, encriptarRastreio, assinarRastreio, decodificarRastreio } from "./token";
+import { gerarChaveRastreio, encriptarRastreio, assinarRastreio, decodificarRastreio, decodificarRastreioDetalhado } from "./token";
 
 describe("token de rastreio (AES-256-GCM)", () => {
   const chave = gerarChaveRastreio();
@@ -97,5 +97,44 @@ describe("token de rastreio ASSINADO (HMAC-SHA256)", () => {
   it("o mesmo decodificador aceita GCM e HMAC", () => {
     expect(decodificarRastreio(chave, encriptarRastreio(chave, { p_usuario: "a" }))).toEqual({ p_usuario: "a" });
     expect(decodificarRastreio(chave, assinarRastreio(chave, { p_usuario: "b" }))).toEqual({ p_usuario: "b" });
+  });
+});
+
+describe("motivo da recusa (expirado × inválido)", () => {
+  const chave = gerarChaveRastreio();
+
+  it("expirado é REPORTADO como expirado, não como inválido", () => {
+    // É a diferença entre "atualize a página" e "a instalação está errada".
+    // Enquanto os dois viravam o mesmo null, a sessão vencida degradava para
+    // anônima em silêncio e a IA dizia "não tenho acesso aos seus dados".
+    const token = assinarRastreio(chave, { p_usuario: "joao", exp: Math.floor(Date.now() / 1000) - 60 });
+    expect(decodificarRastreioDetalhado(chave, token)).toEqual({ ok: false, motivo: "expirado" });
+  });
+
+  it("adulterado é inválido — nunca 'expirado'", () => {
+    // Se adulteração virasse "expirado", o widget mandaria a pessoa recarregar
+    // a página em looping, e o log esconderia a tentativa de forjar identidade.
+    const token = assinarRastreio(chave, { p_usuario: "joao" });
+    const partes = token.split(".");
+    const trocado = [partes[0], Buffer.from('{"p_usuario":"maria"}', "utf8").toString("base64url"), partes[2]].join(".");
+    expect(decodificarRastreioDetalhado(chave, trocado)).toEqual({ ok: false, motivo: "invalido" });
+  });
+
+  it("chave errada é inválido", () => {
+    const token = assinarRastreio(chave, { p_usuario: "joao" });
+    expect(decodificarRastreioDetalhado(gerarChaveRastreio(), token)).toEqual({ ok: false, motivo: "invalido" });
+  });
+
+  it("válido devolve os campos", () => {
+    const token = assinarRastreio(chave, { p_usuario: "joao", p_portal: "operador" });
+    expect(decodificarRastreioDetalhado(chave, token)).toEqual({
+      ok: true,
+      campos: { p_usuario: "joao", p_portal: "operador" },
+    });
+  });
+
+  it("o GCM também distingue expirado", () => {
+    const token = encriptarRastreio(chave, { p_usuario: "joao", exp: Math.floor(Date.now() / 1000) - 1 });
+    expect(decodificarRastreioDetalhado(chave, token)).toEqual({ ok: false, motivo: "expirado" });
   });
 });

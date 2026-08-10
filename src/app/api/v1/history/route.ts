@@ -8,7 +8,7 @@ import {
   extractKey,
   rateLimitOk,
 } from "@/lib/widget/auth";
-import { decodeTrackForSpace } from "@/lib/tracking/resolve";
+import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
 import { fetchLatestHistory, identityMatch } from "@/lib/chat/history-store";
 
 export const runtime = "nodejs";
@@ -54,11 +54,16 @@ export async function POST(req: NextRequest) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
-  const t = await decodeTrackForSpace(key.space_id, payload.track);
+  const { campos: t, motivo } = await decodeTrackDetalhado(key.space_id, payload.track);
+  // A abertura do widget é onde a sessão vencida aparece PRIMEIRO — antes de a
+  // pessoa digitar. Avisar aqui evita que ela escreva uma pergunta inteira para
+  // só então descobrir que precisa atualizar a página.
+  if (motivo === "expirado") return json({ messages: [], sessaoExpirada: true }, 200);
   const match = identityMatch(
     t.p_base,
     t.p_usuario,
     typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+    t.p_portal,
   );
   if (!match) return json({ messages: [] }, 200);
 

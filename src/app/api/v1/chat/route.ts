@@ -23,7 +23,8 @@ import {
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
-import { decodeTrackForSpace } from "@/lib/tracking/resolve";
+import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
+import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } from "@/lib/chat/run-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts, receiveAttachment } from "@/lib/chat/attachment-store";
@@ -175,6 +176,8 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     messages?: ChatMessage[];
     conversationId?: string;
     sessionId?: string;
+    /** Id desta geração, criado pelo widget — é por ele que o Parar cancela. */
+    runId?: string;
     key?: string;
     scope?: ClarifyScope;
     contextScope?: ClarifyScope;
@@ -245,7 +248,37 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // `p_base` e caía como "(sem cliente)" dentro do consumo cobrável. Medido numa
   // chamada real depois de instrumentar: `query_rewrite` saía com kind=system e
   // base nula mesmo com o turno tendo dono.
-  const track = await decodeTrackForSpace(key.space_id, payload.track);
+  // SEPARA "Parar" (o usuário pediu) de "desconectou" (a página morreu). Sem
+  // `runId` — cliente antigo, portal — cai no comportamento de antes: o sinal da
+  // requisição cancela, como sempre cancelou.
+  const runId = runIdValido(payload.runId);
+  const runCtl = runId ? registrarRun(runId) : null;
+  const sinalRun = runCtl ? runCtl.signal : req.signal;
+  if (runId) {
+    // Cliente sumiu: NÃO cancela. Deixa terminar e gravar, com teto de 10 min —
+    // o trabalho de uma resposta quase pronta valia mais que o que se economiza
+    // jogando fora, e uma AÇÃO de escrita pela metade é pior que uma concluída.
+    req.signal.addEventListener("abort", () => clienteSumiu(runId), { once: true });
+  }
+
+  const { campos: track, motivo: motivoRastreio } = await decodeTrackDetalhado(key.space_id, payload.track);
+  // SESSÃO DO PAINEL EXPIRADA → a sessão do widget acaba junto (regra do
+  // produto). Recusa ANTES de gastar qualquer chamada de IA.
+  //
+  // Só `expirado` bloqueia. Sem token (portal público) e sem chave (instalação
+  // ainda sem rastreio) seguem anônimos como sempre — senão este bloco derrubaria
+  // toda instalação que nunca usou rastreio.
+  //
+  // Antes disto o token vencido virava conversa anônima em silêncio: as
+  // ferramentas que dependem de `p_usuario` eram cortadas e a IA respondia "não
+  // tenho acesso", que a pessoa lê como defeito do produto em vez de "faça login
+  // de novo".
+  if (motivoRastreio === "expirado") {
+    return Response.json(
+      { error: "Sua sessão no painel expirou. Atualize a página para continuar.", code: "sessao_expirada" },
+      { status: 401, headers: cors },
+    );
+  }
   // A partir daqui toda chamada de IA do turno sai atribuída a este cliente,
   // inclusive as que módulos internos disparam sem saber de quem é o turno.
   ctxConsumo.meta = { kind: "user", ...track };
@@ -1864,8 +1897,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     : chatModel(metaConsumo, track.p_base ?? ""));
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
-    // `req.signal` dispara → o streamText para de gerar (economiza tokens/tempo).
-    abortSignal: req.signal,
+    // O sinal é o da RUN, não o da requisição: fechar a aba deixou de cancelar
+    // a geração — só o clique em Parar cancela. Ver run-registry.ts.
+    abortSignal: sinalRun,
     // Sem isto a falha do provedor (chave inválida, crédito esgotado, timeout)
     // vira um stream VAZIO: o usuário vê as fontes e nenhuma resposta, sem
     // pista do motivo. O cliente também trata resposta vazia como erro.
@@ -1891,14 +1925,24 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(sse({ type: "citations", citations }));
+      // EMITIR, não enqueue: quando a pessoa fecha o painel o stream é cancelado,
+      // e um `enqueue` num stream morto LANÇA. Como estas chamadas estão
+      // espalhadas até o fim do turno, uma delas derrubava o `start` inteiro
+      // ANTES do insert em `messages` — a resposta terminava de ser gerada e era
+      // jogada fora, que é exatamente o que esta rodada veio consertar.
+      let vivo = true;
+      const emitir = (chunk: Uint8Array) => {
+        if (!vivo) return;
+        try { controller.enqueue(chunk); } catch { vivo = false; }
+      };
+      emitir(sse({ type: "citations", citations }));
       const tema = resolveTheme(ragSources);
-      if (tema) controller.enqueue(sse({ type: "theme", scope: tema.scope, label: tema.label }));
+      if (tema) emitir(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";
       try {
         for await (const delta of result.textStream) {
           full += delta;
-          controller.enqueue(sse({ type: "token", value: delta }));
+          emitir(sse({ type: "token", value: delta }));
         }
       } catch (err) {
         // O textStream às vezes encerra o loop SEM re-lançar o erro do provedor — aqui só
@@ -1914,12 +1958,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // caso "escreveu a resposta e esqueceu de chamar a ferramenta". Sem essa
       // checagem ela dispara em "quero o relatório de férias" — que em RH é a TELA,
       // não um arquivo — e gasta uma passada inteira à toa.
-      if (!req.signal.aborted && !erroGeracao && temVisual && geraArquivo && RX_OFERTA_ARQUIVO.test(full) && !outFiles.length && !reportSpecs.length) {
+      if (!sinalRun.aborted && !erroGeracao && temVisual && geraArquivo && RX_OFERTA_ARQUIVO.test(full) && !outFiles.length && !reportSpecs.length) {
         try {
           const resp = await Promise.resolve(result.response).catch(() => null);
           const histMsgs: ModelMessage[] = resp?.messages ?? [];
           const forcaArquivo = streamText({
-            abortSignal: req.signal,
+            abortSignal: sinalRun,
             onError: ({ error }) => {
               registrarErroGeracao("rede_arquivo", error);
               console.error("[chat] falha ao forçar o arquivo:", error);
@@ -1955,7 +1999,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // usuário com resposta vazia: (a) o loop agêntico esgotou o teto de passos numa
       // CHAMADA DE FERRAMENTA e nunca redigiu; (b) o provedor falhou e o stream só
       // encerrou. Aborto do usuário (botão Parar) NÃO conta como falha.
-      if (!req.signal.aborted && !full.trim()) {
+      if (!sinalRun.aborted && !full.trim()) {
         // (Fix 1) Sem erro do provedor e havia ferramentas → o modelo gastou os passos
         // consultando e não concluiu. Faz UMA passada final SEM ferramentas, obrigando-o a
         // RESPONDER com os dados JÁ obtidos e a DECLARAR a base — a análise pode estar
@@ -1973,7 +2017,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
                 "Se algum recorte pedido (por exemplo, um dos meses ou uma filial) NÃO chegou a ser consultado, diga isso claramente — não estime nem invente. " +
                 "Avise, em uma frase, que a resposta pode estar incompleta porque não foi possível processar 100% dos dados neste turno.";
               const fecho = streamText({
-                abortSignal: req.signal,
+                abortSignal: sinalRun,
                 onError: ({ error }) => {
                   erroGeracao = error;
                   registrarErroGeracao("fechamento", error);
@@ -1991,7 +2035,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
               });
               for await (const delta of fecho.textStream) {
                 full += delta;
-                controller.enqueue(sse({ type: "token", value: delta }));
+                emitir(sse({ type: "token", value: delta }));
               }
               fechoUsage = await Promise.resolve(fecho.totalUsage).catch(() => null);
             }
@@ -2000,7 +2044,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         // (Fix 2) Ainda vazio → mostra o MOTIVO (erro do provedor, ou vazio inexplicado),
         // em vez de deixar o usuário sem resposta e sem pista.
         if (!full.trim()) {
-          controller.enqueue(sse({
+          emitir(sse({
             type: "error",
             message: mensagemErroChat(erroGeracao ?? new Error("A resposta veio vazia. Tente reformular ou refazer a pergunta.")),
           }));
@@ -2019,7 +2063,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       }
       // Arquivos retornados pelas APIs (base64) → link de download no chat.
       for (const f of outFiles) {
-        controller.enqueue(
+        emitir(
           sse({ type: "file", filename: f.filename, mimeType: f.mimeType, dataUrl: `data:${f.mimeType};base64,${f.base64}` }),
         );
       }
@@ -2028,11 +2072,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // spec para virar legenda no card/modal/tabela e ficar salvo junto do gráfico.
       for (const c of chartSpecs) {
         const chartCtx = programaRel || filtrosRel.length ? { ...c, contexto: { programa: programaRel, filtros: filtrosRel } } : c;
-        controller.enqueue(sse({ type: "chart", chart: chartCtx }));
+        emitir(sse({ type: "chart", chart: chartCtx }));
       }
       // Escolha de tipo de gráfico → o widget mostra os tipos como BOTÕES.
       for (const ch of chartChoices) {
-        controller.enqueue(sse({ type: "chart_choice", spec: ch.spec, recomendado: ch.recomendado, pergunta: ch.pergunta }));
+        emitir(sse({ type: "chart_choice", spec: ch.spec, recomendado: ch.recomendado, pergunta: ch.pergunta }));
       }
       // TROCA DE FONTE: o modelo declarou que a tela não tem a resposta. Em vez de
       // pedir ao usuário que DIGITE o nome de uma fonte (era o que a diretriz antiga
@@ -2050,7 +2094,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
           { id: "__ia__", label: "🧠 Buscar no sistema", sublabel: "Consulto as ferramentas disponíveis para o seu perfil", scope: { fonte: "ia", direto: true } },
           { id: "__rel__", label: "📄 Ficar só no relatório desta tela", scope: { fonte: "relatorio", direto: true } },
         ];
-        controller.enqueue(sse({
+        emitir(sse({
           type: "clarify",
           question: motivo ? `Quer que eu busque ${motivo} no sistema?` : "Quer que eu busque isso no sistema?",
           options: opcoes,
@@ -2060,12 +2104,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // Assistente de tela: a IA propôs operar a tela (preencher, marcar, clicar) →
       // o widget executa em ordem, confirmando só o que grava/navega.
       for (const a of uiActions) {
-        if (a.tipo === "fill") controller.enqueue(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor, ...(a.valores ? { valores: a.valores } : {}) }));
-        else if (a.tipo === "check") controller.enqueue(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
-        else if (a.tipo === "click") controller.enqueue(sse({ type: "click", ref: a.ref, label: a.label }));
-        else if (a.tipo === "destacar") controller.enqueue(sse({ type: "destacar", campos: a.campos ?? [], linhas: a.linhas ?? [] }));
-        else if (a.tipo === "tutorial") controller.enqueue(sse({ type: "tutorial", passos: a.passos }));
-        else if (a.tipo === "harvest") controller.enqueue(sse({ type: "harvest" }));
+        if (a.tipo === "fill") emitir(sse({ type: "fill", ref: a.ref, label: a.label, valor: a.valor, ...(a.valores ? { valores: a.valores } : {}) }));
+        else if (a.tipo === "check") emitir(sse({ type: "check", ref: a.ref, label: a.label, marcar: a.marcar }));
+        else if (a.tipo === "click") emitir(sse({ type: "click", ref: a.ref, label: a.label }));
+        else if (a.tipo === "destacar") emitir(sse({ type: "destacar", campos: a.campos ?? [], linhas: a.linhas ?? [] }));
+        else if (a.tipo === "tutorial") emitir(sse({ type: "tutorial", passos: a.passos }));
+        else if (a.tipo === "harvest") emitir(sse({ type: "harvest" }));
       }
       // REDE DE SEGURANÇA da coleta: o relatório é paginado, a ferramenta foi
       // oferecida, mas o modelo DISSE que ia coletar e NÃO chamou coletar_relatorio
@@ -2074,7 +2118,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       const chamouHarvest = uiActions.some((a) => a.tipo === "harvest");
       const intencaoColeta = /\bcolet(ar|ando|arei|o)\b|reunir (os|as|todos|todas)|todas as p[áa]ginas|planilha completa|relat[óo]rio completo|consolidar (os|as|todos)|buscar (todos|todas) os/i.test(full);
       if (temPaginado && !chamouHarvest && intencaoColeta && chartSpecs.length === 0 && reportSpecs.length === 0 && outFiles.length === 0) {
-        controller.enqueue(sse({ type: "harvest" }));
+        emitir(sse({ type: "harvest" }));
       }
       // Persiste a MÍDIA na mensagem para reexibir no histórico: gráfico = spec
       // inline (leve); arquivo = upload no bucket privado `chat-media` (o caminho
@@ -2155,6 +2199,14 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
             `ferramentas_do_modelo=[${Object.keys(allTools).join(", ")}]`,
         );
       } catch (e) { console.error("[chat-agente] log falhou:", e); }
+      // Cortada pelo TETO do órfão: grava o que deu tempo, dizendo por quê. Um
+      // texto que para no meio sem explicação faz a pessoa achar que a IA
+      // travou — e ela reenvia a mesma pergunta, pagando duas vezes.
+      const cortadaPeloTeto = runId ? motivoDaRun(runId) === "teto" : false;
+      if (cortadaPeloTeto) {
+        full = (full.trim() ? full.trimEnd() + "\n\n" : "") +
+          "_(Interrompido: esta resposta continuou sendo gerada depois que você saiu do painel e atingiu o limite de 10 minutos.)_";
+      }
       await supabase.from("messages").insert({
         conversation_id: convId!,
         role: "assistant",
@@ -2195,12 +2247,16 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // Turno que falhou no provedor e não produziu texto NÃO é "resposta": marcá-lo
       // assim escondia a falha do filtro por desfecho, que é como se procura o
       // problema na tela de logs.
-      controller.enqueue(finalizarTrace(erroGeracao && !full.trim() ? "erro_provedor" : "resposta"));
-      controller.enqueue(sse({ type: "done", conversationId: convId }));
-      controller.close();
+      emitir(finalizarTrace(erroGeracao && !full.trim() ? "erro_provedor" : "resposta"));
+      emitir(sse({ type: "done", conversationId: convId }));
+      // Fechar um stream já cancelado também lança.
+      try { controller.close(); } catch { }
+      if (runId) encerrarRun(runId); // já gravou: sai do registro (e mata o teto)
       await releaseSlot(lease); // libera o slot da base ao encerrar o stream
     },
     cancel() {
+      // NÃO chama `encerrarRun`: a geração continua e ainda vai gravar. Quem
+      // encerra é o fim do `start`, ou o teto de 10 minutos.
       void releaseSlot(lease); // cliente desconectou → libera o slot
     },
   });
