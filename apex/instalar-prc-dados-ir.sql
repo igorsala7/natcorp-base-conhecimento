@@ -1,33 +1,27 @@
 --------------------------------------------------------------------------------
 -- Instala o application process PRC_DADOS_IR em TODAS as aplicações do workspace.
+--                                                          [ APEX 19.2 ]
 --
 -- O processo é o que o widget usa para coletar o Interactive Report na sessão
 -- viva do usuário (pkg_ir_dados.prc_responder_ir). Ele precisa existir em cada
 -- aplicação onde o widget roda — application process é por APLICAÇÃO, não por
 -- workspace, e não há herança.
 --
---   Executar como o OWNER do schema de parsing das aplicações, ou como
---   SYS/ADMIN com privilégio no schema APEX.
+-- Executar como o schema APEX_190200, ou como SYS/ADMIN com privilégio nele.
 --
 --------------------------------------------------------------------------------
--- ⚠ LEIA ANTES DE RODAR EM PRODUÇÃO
+-- ⚠ ANTES DE RODAR EM PRODUÇÃO
 --
--- `wwv_flow_api` é a API de IMPORTAÇÃO do APEX. Ela não é documentada nem
--- suportada pela Oracle para uso avulso, e o nome do pacote MUDOU entre versões
--- (a partir do APEX 21 os exports passaram a usar `wwv_flow_imp*`, com
--- `wwv_flow_api` mantido como camada de compatibilidade em várias versões).
+-- `wwv_flow_api` é a API de IMPORTAÇÃO do APEX — não documentada para uso
+-- avulso. Este script reproduz o que um arquivo de export faz: abre o contexto
+-- de importação, cria o componente, fecha. É o mesmo caminho do seu export,
+-- só que em laço.
 --
--- Este script foi escrito a partir do trecho de export que você já usa, então
--- ele assume que `wwv_flow_api.create_flow_process` existe e funciona no seu
--- ambiente — o que o seu próprio arquivo comprova. Ainda assim:
---
---   1. Rode PRIMEIRO com c_simular = true (o padrão). Nada é gravado.
---   2. Rode de verdade em um ambiente de teste antes da produção.
---   3. Tenha export das aplicações antes. Este script GRAVA em metadado do
---      APEX; não existe "desfazer" além de reimportar.
---
--- Confira a sua versão com:
---   select version_no from apex_release;
+--   1. Rode primeiro com c_simular = true (padrão). Nada é gravado.
+--   2. Teste numa cópia. Este script GRAVA em metadado do APEX e não há
+--      "desfazer" além de reimportar — tenha export das aplicações antes.
+--   3. Confirme o release exato: select version_no from apex_release;
+--      Se não for 19.2.0.00.18, ajuste c_release abaixo.
 --------------------------------------------------------------------------------
 
 set serveroutput on size unlimited
@@ -35,15 +29,19 @@ set define off
 
 declare
   -- ── Configuração ────────────────────────────────────────────────────────
-  c_simular      constant boolean       := true;              -- << troque para false para gravar
-  c_workspace    constant varchar2(255) := 'NATCORP';         -- << nome do workspace
+  c_simular      constant boolean       := true;              -- << false para gravar
+  c_workspace    constant varchar2(255) := 'NATCORP';
   c_nome         constant varchar2(255) := 'PRC_DADOS_IR';
   c_corpo        constant varchar2(4000):= 'begin pkg_ir_dados.prc_responder_ir; end;';
   c_seguranca    constant varchar2(255) := 'MUST_NOT_BE_PUBLIC_USER';
   c_sequencia    constant number        := 10;
 
-  -- Aplicações a PULAR (ex.: a própria app de administração do APEX, apps de
-  -- terceiros). Deixe vazio para não pular nenhuma.
+  -- Do cabeçalho do SEU arquivo de export. Se o seu disser outro release,
+  -- troque aqui: o `import_begin` valida e recusa versão incompatível.
+  c_versao_yyyy  constant varchar2(20)  := '2019.10.04';
+  c_release      constant varchar2(20)  := '19.2.0.00.18';
+
+  -- Aplicações a PULAR (ex.: apps de terceiros). Vazio = nenhuma.
   type t_ids is table of number;
   c_pular        constant t_ids := t_ids(/* 100, 4550 */);
 
@@ -66,69 +64,81 @@ begin
     from apex_workspaces
    where upper(workspace) = upper(c_workspace);
 
-  dbms_output.put_line('Workspace ' || c_workspace || ' (' || l_workspace_id || ')');
+  dbms_output.put_line('Workspace ' || c_workspace || ' (' || l_workspace_id || ')  —  APEX ' || c_release);
   dbms_output.put_line(case when c_simular then '*** SIMULAÇÃO — nada será gravado ***'
                             else '*** GRAVANDO ***' end);
   dbms_output.put_line(rpad('-', 78, '-'));
 
   for a in (
-    select application_id, application_name
+    select application_id, application_name, owner
       from apex_applications
-     where workspace = (select workspace from apex_workspaces where workspace_id = l_workspace_id)
+     where workspace_id = l_workspace_id
      order by application_id
   ) loop
     begin
       if deve_pular(a.application_id) then
-        dbms_output.put_line(rpad(a.application_id, 8) || 'PULADA (lista de exceção) — ' || a.application_name);
+        dbms_output.put_line(rpad(a.application_id, 8) || 'PULADA (exceção)  — ' || a.application_name);
         l_pulados := l_pulados + 1;
         goto proxima;
       end if;
 
-      -- IDEMPOTÊNCIA: já existe? Rodar duas vezes não pode criar duplicata —
-      -- dois processos com o mesmo nome fazem o APEX escolher um deles sem
-      -- avisar, e a coleta passa a funcionar de forma intermitente.
+      -- IDEMPOTÊNCIA: rodar duas vezes não pode criar duplicata. Dois processos
+      -- com o mesmo nome fazem o APEX escolher um deles sem avisar, e a coleta
+      -- passa a funcionar de forma intermitente — o pior tipo de defeito.
       select count(*) into l_existe
         from apex_application_processes
        where application_id = a.application_id
          and upper(process_name) = upper(c_nome);
 
       if l_existe > 0 then
-        dbms_output.put_line(rpad(a.application_id, 8) || 'JÁ EXISTE — ' || a.application_name);
+        dbms_output.put_line(rpad(a.application_id, 8) || 'JÁ EXISTE         — ' || a.application_name);
         l_pulados := l_pulados + 1;
         goto proxima;
       end if;
 
       if c_simular then
-        dbms_output.put_line(rpad(a.application_id, 8) || 'criaria    — ' || a.application_name);
+        dbms_output.put_line(rpad(a.application_id, 8) || 'criaria           — ' || a.application_name);
         l_criados := l_criados + 1;
         goto proxima;
       end if;
 
-      -- ── Contexto de importação ──────────────────────────────────────────
-      -- Sem o security group o APEX não sabe em que workspace gravar; sem o
-      -- flow id, grava no lugar errado ou falha. São os dois que o cabeçalho de
-      -- um arquivo de export normalmente estabelece.
-      wwv_flow_api.set_security_group_id(p_security_group_id => l_workspace_id);
-      apex_application_install.set_workspace_id(l_workspace_id);
-      apex_application_install.set_application_id(a.application_id);
-
-      -- ID NOVO por aplicação. Reaproveitar o id do export (655953094735836244)
-      -- em todas colidiria: o identificador é único no workspace inteiro, não
-      -- por aplicação.
-      l_novo_id := wwv_flow_id.next_val;
-
-      wwv_flow_api.create_flow_process(
-         p_id             => l_novo_id
-        ,p_flow_id        => a.application_id
-        ,p_process_sequence => c_sequencia
-        ,p_process_point  => 'ON_DEMAND'
-        ,p_process_type   => 'NATIVE_PLSQL'
-        ,p_process_name   => c_nome
-        ,p_process_sql_clob => c_corpo
-        ,p_security_scheme => c_seguranca
+      -- ── Contexto de importação, por aplicação ───────────────────────────
+      -- É o cabeçalho que todo arquivo de export tem. Ele estabelece workspace,
+      -- aplicação e schema de parsing — sem isso o `create_flow_process` grava
+      -- no lugar errado ou falha.
+      --
+      -- `p_default_id_offset => 0`: os ids vão como os passamos, sem
+      -- deslocamento. É o que queremos, já que geramos um id novo por app.
+      wwv_flow_api.import_begin(
+         p_version_yyyy_mm_dd     => c_versao_yyyy
+        ,p_release                => c_release
+        ,p_default_workspace_id   => l_workspace_id
+        ,p_default_application_id => a.application_id
+        ,p_default_id_offset      => 0
+        ,p_default_owner          => a.owner
       );
 
-      dbms_output.put_line(rpad(a.application_id, 8) || 'CRIADO (id ' || l_novo_id || ') — ' || a.application_name);
+      -- ID NOVO por aplicação. Reaproveitar o id do export
+      -- (655953094735836244) em todas colidiria: o identificador é único no
+      -- WORKSPACE inteiro, não por aplicação.
+      l_novo_id := wwv_flow_id.next_val;
+
+      -- Sem `p_flow_id`: no 19.2 a aplicação-alvo vem do `import_begin` acima,
+      -- e passar o parâmetro (que não existe nesta versão) daria PLS-00306.
+      -- É exatamente o formato do seu arquivo de export.
+      wwv_flow_api.create_flow_process(
+         p_id               => l_novo_id
+        ,p_process_sequence => c_sequencia
+        ,p_process_point    => 'ON_DEMAND'
+        ,p_process_type     => 'NATIVE_PLSQL'
+        ,p_process_name     => c_nome
+        ,p_process_sql_clob => c_corpo
+        ,p_security_scheme  => c_seguranca
+      );
+
+      wwv_flow_api.import_end(p_auto_install_sup_obj => false);
+
+      dbms_output.put_line(rpad(a.application_id, 8) || 'CRIADO (' || l_novo_id || ') — ' || a.application_name);
       l_criados := l_criados + 1;
 
     exception
@@ -136,8 +146,10 @@ begin
         -- Uma aplicação com problema não pode abortar as outras: o desfecho
         -- pior seria metade instalada sem ninguém saber quais.
         l_erros := l_erros + 1;
-        dbms_output.put_line(rpad(a.application_id, 8) || 'ERRO — ' || a.application_name
-          || ' :: ' || substr(sqlerrm, 1, 120));
+        dbms_output.put_line(rpad(a.application_id, 8) || 'ERRO              — ' || a.application_name
+          || ' :: ' || substr(sqlerrm, 1, 110));
+        -- Fecha o contexto para a próxima aplicação não herdar um import aberto.
+        begin wwv_flow_api.import_end(p_auto_install_sup_obj => false); exception when others then null; end;
     end;
     <<proxima>>
     null;
@@ -162,7 +174,7 @@ end;
 /
 
 --------------------------------------------------------------------------------
--- CONFERÊNCIA depois de rodar — quais aplicações ficaram COM e SEM o processo:
+-- CONFERÊNCIA — quais aplicações ficaram COM e SEM o processo:
 --
 --   select a.application_id, a.application_name,
 --          case when p.process_name is null then 'FALTA' else 'ok' end as situacao
@@ -173,14 +185,20 @@ end;
 --    where a.workspace = 'NATCORP'
 --    order by situacao desc, a.application_id;
 --
--- REMOVER de todas (se precisar desfazer):
+-- REMOVER de todas (desfazer):
 --
 --   begin
---     for p in (select application_id, process_id from apex_application_processes
---                where upper(process_name) = 'PRC_DADOS_IR') loop
---       wwv_flow_api.set_security_group_id(
---         (select workspace_id from apex_workspaces where workspace = 'NATCORP'));
---       wwv_flow_api.remove_flow_process(p_id => p.process_id, p_flow_id => p.application_id);
+--     for p in (select ap.application_id, ap.process_id, a.owner
+--                 from apex_application_processes ap
+--                 join apex_applications a on a.application_id = ap.application_id
+--                where upper(ap.process_name) = 'PRC_DADOS_IR'
+--                  and a.workspace = 'NATCORP') loop
+--       wwv_flow_api.import_begin(
+--          p_version_yyyy_mm_dd=>'2019.10.04', p_release=>'19.2.0.00.18'
+--         ,p_default_workspace_id=>(select workspace_id from apex_workspaces where workspace='NATCORP')
+--         ,p_default_application_id=>p.application_id, p_default_id_offset=>0, p_default_owner=>p.owner);
+--       wwv_flow_api.remove_flow_process(p_id => p.process_id);
+--       wwv_flow_api.import_end(p_auto_install_sup_obj => false);
 --     end loop;
 --     commit;
 --   end;
