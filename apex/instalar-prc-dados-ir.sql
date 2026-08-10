@@ -123,11 +123,14 @@ begin
       -- WORKSPACE inteiro, não por aplicação.
       l_novo_id := wwv_flow_id.next_val;
 
-      -- Sem `p_flow_id`: no 19.2 a aplicação-alvo vem do `import_begin` acima,
-      -- e passar o parâmetro (que não existe nesta versão) daria PLS-00306.
-      -- É exatamente o formato do seu arquivo de export.
+      -- `p_flow_id` EXPLÍCITO, confirmado na assinatura desta instalação. O
+      -- arquivo de export o omite porque o `import_begin` já define o padrão —
+      -- mas passar não depende de o contexto ter sido estabelecido certo, e
+      -- num laço sobre dezenas de aplicações essa é a diferença entre gravar
+      -- na app certa e gravar na anterior sem ninguém perceber.
       wwv_flow_api.create_flow_process(
          p_id               => l_novo_id
+        ,p_flow_id          => a.application_id
         ,p_process_sequence => c_sequencia
         ,p_process_point    => 'ON_DEMAND'
         ,p_process_type     => 'NATIVE_PLSQL'
@@ -197,7 +200,7 @@ end;
 --          p_version_yyyy_mm_dd=>'2019.10.04', p_release=>'19.2.0.00.18'
 --         ,p_default_workspace_id=>(select workspace_id from apex_workspaces where workspace='NATCORP')
 --         ,p_default_application_id=>p.application_id, p_default_id_offset=>0, p_default_owner=>p.owner);
---       wwv_flow_api.remove_flow_process(p_id => p.process_id);
+--       wwv_flow_api.remove_flow_process(p_id => p.process_id, p_flow_id => p.application_id);
 --       wwv_flow_api.import_end(p_auto_install_sup_obj => false);
 --     end loop;
 --     commit;
