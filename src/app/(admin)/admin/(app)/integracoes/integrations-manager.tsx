@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, KeyRound, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -16,6 +16,7 @@ import { Select } from "@/components/ui/select";
 import {
   AUTH_TYPES,
   CREDENTIAL_FIELDS,
+  chavesSecretas,
   type AuthType,
 } from "@/lib/integrations/credentials";
 import {
@@ -24,6 +25,7 @@ import {
   deleteBase,
   saveCredential,
   deleteCredential,
+  lerCredencial,
   syncModulesAction,
   type IntegResult,
 } from "./actions";
@@ -491,18 +493,65 @@ function CredentialDialog({
   const [name, setName] = useState(cred?.name ?? "");
   const [authType, setAuthType] = useState<AuthType>(cred?.auth_type ?? "oauth2");
   const [active, setActive] = useState(cred?.active ?? true);
-  // Começa com os campos `meta` já preenchidos. Eles moram em COLUNA, não no
-  // blob cifrado, então são os únicos que podem voltar para a tela — os
-  // segredos nunca voltam, por projeto. Sem isto, editar uma credencial
-  // delegada mostrava o Provedor em branco mesmo com valor gravado, e não
-  // havia como saber o que estava salvo.
+  // Campos `meta` (coluna, não blob) já entram preenchidos; o resto é carregado
+  // do servidor logo abaixo.
   const [secret, setSecret] = useState<Record<string, string>>(
     cred?.provider ? { provider: cred.provider } : {},
   );
+  // Segredos ficam MASCARADOS até alguém pedir para ver — e o pedido é
+  // registrado no log. Ler não é o mesmo que trocar: trocar quebra a
+  // integração, revelar entrega um segredo que funciona fora daqui.
+  const [verSegredo, setVerSegredo] = useState(false);
+  // Já nasce carregando quando há credencial: marcar dentro do efeito
+  // dispararia um render em cascata (e o lint reprova, com razão).
+  const [carregando, setCarregando] = useState(Boolean(cred?.id));
+  const [revelando, setRevelando] = useState(false);
+  const toastCred = useToast();
 
   const campos = CREDENTIAL_FIELDS[authType];
   // Segredo já existe e o tipo não mudou → pode manter (deixar em branco).
   const podeManter = Boolean(cred?.hasSecret && cred.auth_type === authType);
+
+  // CONFIGURAÇÃO de volta para a tela ao abrir para edição.
+  //
+  // Antes nada voltava, e editar obrigava a redigitar até `client_id` e a URL do
+  // token — que nunca foram segredo. Como recadastrar ficava mais fácil que
+  // conferir, o caminho comum virou sobrescrever campo certo por engano.
+  useEffect(() => {
+    if (!cred?.id) return;
+    let vivo = true;
+    void lerCredencial({ credentialId: cred.id, comSegredo: false })
+      .then((r) => {
+        if (!vivo) return;
+        if (!("config" in r)) {
+          // Blob indecifrável (chave-mestra trocada) precisa aparecer: em
+          // silêncio, a pessoa recadastraria por cima de algo recuperável.
+          if (!r.ok) toastCred.error(r.error);
+          return;
+        }
+        setSecret((prev) => ({ ...r.config, ...prev }));
+      })
+      .finally(() => vivo && setCarregando(false));
+    return () => { vivo = false; };
+    // Só na abertura: recarregar a cada tecla sobrescreveria o que está sendo
+    // digitado com o que está gravado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cred?.id]);
+
+  function revelar() {
+    if (!cred?.id) return;
+    setRevelando(true);
+    void lerCredencial({ credentialId: cred.id, comSegredo: true })
+      .then((r) => {
+        if (!("segredo" in r)) {
+          if (!r.ok) toastCred.error(r.error);
+          return;
+        }
+        setSecret((prev) => ({ ...prev, ...r.segredo }));
+        setVerSegredo(true);
+      })
+      .finally(() => setRevelando(false));
+  }
 
   function setField(k: string, v: string) {
     setSecret((prev) => ({ ...prev, [k]: v }));
@@ -556,6 +605,24 @@ function CredentialDialog({
                 Já configurada. Deixe em branco para <strong>manter</strong> a atual; preencha para substituir.
               </p>
             )}
+            {/* Configuração (client_id, URL, scope) volta sozinha ao abrir. Só
+                o que é segredo exige o clique — e o clique fica no log. */}
+            {podeManter && chavesSecretas(authType).length > 0 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={revelando}
+                  onClick={() => (verSegredo ? setVerSegredo(false) : revelar())}
+                >
+                  {verSegredo ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                  {revelando ? "Lendo…" : verSegredo ? "Ocultar segredos" : "Ver segredos salvos"}
+                </Button>
+                <span className="text-xs text-text-muted">
+                  {verSegredo ? "Visível — registrado na auditoria." : "Os demais campos já vieram preenchidos."}
+                </span>
+              </div>
+            )}
             <div className="flex flex-col gap-2.5">
               {campos.map((f) => (
                 <Field key={f.key} label={f.label} htmlFor={`cred_${f.key}`} hint={f.hint} required={f.required && !podeManter}>
@@ -577,11 +644,16 @@ function CredentialDialog({
                     <input
                       id={`cred_${f.key}`}
                       className={cn(controlClass, f.secret && "font-mono")}
-                      type={f.secret ? "password" : "text"}
+                      // Campo sensível só vira texto DEPOIS de revelado. Sem
+                      // isso, quem abre a tela numa reunião compartilha o
+                      // segredo sem perceber.
+                      type={f.secret && !verSegredo ? "password" : "text"}
                       autoComplete="off"
                       value={secret[f.key] ?? ""}
                       onChange={(e) => setField(f.key, e.target.value)}
-                      placeholder={podeManter ? "•••••• (manter)" : undefined}
+                      placeholder={
+                        carregando ? "Carregando…" : podeManter && f.secret ? "•••••• (manter)" : undefined
+                      }
                     />
                   )}
                 </Field>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTH_TYPES, CREDENTIAL_FIELDS, metaKeys, requiredKeys, type AuthType } from "./credentials";
+import { AUTH_TYPES, CREDENTIAL_FIELDS, metaKeys, requiredKeys, type AuthType, separarCampos, chavesSecretas } from "./credentials";
 
 describe("requiredKeys", () => {
   it("NÃO cobra os campos `meta` — eles não moram no blob cifrado", () => {
@@ -61,5 +61,55 @@ describe("catálogo de tipos", () => {
         if (f.secret) expect(f.options).toBeUndefined();
       }
     }
+  });
+});
+
+describe("separarCampos", () => {
+  it("configuração volta para a tela; segredo fica de fora", () => {
+    const { config, segredo } = separarCampos("oauth2", {
+      token_url: "https://x/oauth/token",
+      client_id: "abc",
+      client_secret: "s3cr3t",
+      scope: "read",
+    });
+    expect(config).toEqual({ token_url: "https://x/oauth/token", client_id: "abc", scope: "read" });
+    expect(segredo).toEqual({ client_secret: "s3cr3t" });
+  });
+
+  it("chave DESCONHECIDA cai em segredo", () => {
+    // Campo de um tipo antigo ou renomeado: na dúvida entre expor e esconder,
+    // esconder é o erro barato.
+    const { config, segredo } = separarCampos("oauth2", { campo_de_outra_era: "xyz" });
+    expect(config).toEqual({});
+    expect(segredo).toEqual({ campo_de_outra_era: "xyz" });
+  });
+
+  it("session_key é segredo mesmo sendo opcional", () => {
+    const { segredo } = separarCampos("oauth2", { session_key: "k" });
+    expect(segredo).toEqual({ session_key: "k" });
+  });
+
+  it("ignora valores que não são texto ou número", () => {
+    const { config, segredo } = separarCampos("oauth2", {
+      client_id: "abc",
+      lixo: { a: 1 },
+      nulo: null,
+    });
+    expect(config).toEqual({ client_id: "abc" });
+    expect(segredo).toEqual({});
+  });
+
+  it("blob vazio não quebra", () => {
+    expect(separarCampos("basic", {})).toEqual({ config: {}, segredo: {} });
+  });
+});
+
+describe("chavesSecretas", () => {
+  it("lista só o que a tela deve mascarar", () => {
+    expect(chavesSecretas("oauth2").sort()).toEqual(["client_secret", "session_key"]);
+  });
+
+  it("tipo sem segredo devolve vazio", () => {
+    expect(chavesSecretas("none")).toEqual([]);
   });
 });

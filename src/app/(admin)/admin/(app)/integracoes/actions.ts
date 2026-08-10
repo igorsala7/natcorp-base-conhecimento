@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
-import { encryptSecret } from "@/lib/crypto/secrets";
-import { CREDENTIAL_FIELDS, metaKeys, requiredKeys, type AuthType } from "@/lib/integrations/credentials";
+import { encryptSecret, tryDecryptSecret } from "@/lib/crypto/secrets";
+import { CREDENTIAL_FIELDS, chavesSecretas, metaKeys, requiredKeys, separarCampos, type AuthType } from "@/lib/integrations/credentials";
 import { syncBaseModules } from "@/lib/integrations/module-sync";
 import type { Json } from "@/lib/database.types";
 
@@ -196,6 +197,46 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   const provider = secret.provider?.trim().toLowerCase() || null;
   for (const k of metaKeys(auth_type as AuthType)) delete secret[k];
 
+  // MESCLA COM O QUE JÁ ESTÁ GRAVADO.
+  //
+  // Desde que a tela devolve a configuração preenchida (client_id, URL, scope),
+  // o formulário passou a mandar campos mesmo quando ninguém tocou no segredo.
+  // Sem esta mescla, salvar uma alteração de scope exigiria redigitar o Client
+  // Secret — e quem não o tem mais em mãos ficaria travado, sem conseguir
+  // corrigir sequer um erro de digitação numa URL.
+  //
+  // Campo em branco = MANTER o gravado (a regra de sempre). Campo preenchido
+  // substitui. Só some de verdade quando o tipo de auth muda, porque aí o blob
+  // antigo não descreve mais a mesma coisa.
+  if (id && auth_type !== "none") {
+    const { data: credAtual } = await createAdminClient()
+      .from("ai_base_credentials")
+      .select("auth_type")
+      .eq("id", id)
+      .maybeSingle();
+    if (credAtual?.auth_type === auth_type) {
+      const { data: sec } = await createAdminClient()
+        .from("ai_base_credential_secrets")
+        .select("secret_enc")
+        .eq("credential_id", id)
+        .maybeSingle();
+      const claro = sec?.secret_enc ? tryDecryptSecret(sec.secret_enc) : null;
+      if (claro) {
+        try {
+          const antigo = JSON.parse(claro) as Record<string, unknown>;
+          for (const [k, v] of Object.entries(antigo)) {
+            if (secret[k] === undefined && (typeof v === "string" || typeof v === "number")) {
+              secret[k] = String(v);
+            }
+          }
+        } catch {
+          // Blob corrompido: segue com o que veio da tela em vez de abortar —
+          // gravar por cima é a única saída que a pessoa tem.
+        }
+      }
+    }
+  }
+
   const informouSegredo = Object.keys(secret).length > 0;
 
   // ── VALIDAR ANTES DE CRIAR ────────────────────────────────────────────
@@ -312,4 +353,94 @@ export async function deleteCredential(id: string): Promise<IntegResult> {
   await audit({ action: "integrations.credential.delete", entityType: "ai_base_credential", entityId: id, spaceId: null });
   revalidatePath("/admin/integracoes");
   return { ok: true };
+}
+
+// ───────────── Leitura da credencial já gravada (voltar para a tela) ─────────
+const lerCredSchema = z.object({
+  credentialId: z.string().uuid(),
+  /** `true` traz também os campos marcados como segredo. Fica no log. */
+  comSegredo: z.boolean().default(false),
+});
+
+export type CredencialLida = {
+  ok: true;
+  /** Campos NÃO sensíveis (client_id, URL do token, scope, locatário…). */
+  config: Record<string, string>;
+  /** Só quando pedido explicitamente. Vazio caso contrário. */
+  segredo: Record<string, string>;
+  /** Quais chaves são sensíveis naquele tipo — a tela usa para mascarar. */
+  secretas: string[];
+};
+
+/**
+ * Devolve o que está GRAVADO numa credencial.
+ *
+ * Antes nada voltava: editar obrigava a redigitar tudo, inclusive `client_id` e
+ * URL do token, que nunca foram segredo. O efeito prático era o oposto do
+ * pretendido — como recadastrar era mais fácil que conferir, o caminho comum
+ * passou a ser sobrescrever campos certos por engano.
+ *
+ * O corte segue a marca `secret` de cada campo:
+ *
+ *   • CONFIGURAÇÃO volta sempre. Não é segredo, e escondê-la só atrapalha.
+ *   • SEGREDO volta apenas com `comSegredo`, e cada leitura vira registro no
+ *     log de auditoria — quem viu, qual credencial e quando.
+ *
+ * Exige `integrations.manage`, a mesma permissão que já permite SUBSTITUIR o
+ * segredo. Vale registrar a diferença: substituir só quebra a integração,
+ * enquanto revelar entrega um segredo que funciona fora daqui. Se um dia isso
+ * precisar de papel mais alto, o ponto de mudança é a linha abaixo.
+ */
+export async function lerCredencial(input: unknown): Promise<IntegResult | CredencialLida> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = lerCredSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const { credentialId, comSegredo } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: cred } = await supabase
+    .from("ai_base_credentials")
+    .select("id, name, auth_type, base_id")
+    .eq("id", credentialId)
+    .maybeSingle();
+  if (!cred) return { ok: false, error: "Credencial não encontrada." };
+
+  const tipo = cred.auth_type as AuthType;
+  const secretas = chavesSecretas(tipo);
+  // `ai_base_credential_secrets` é deny-all: só o service-role lê. O portão de
+  // permissão é o `garantirPermissao()` acima, não a RLS desta tabela.
+  const admin = createAdminClient();
+  const { data: sec } = await admin
+    .from("ai_base_credential_secrets")
+    .select("secret_enc")
+    .eq("credential_id", credentialId)
+    .maybeSingle();
+
+  if (!sec?.secret_enc) return { ok: true, config: {}, segredo: {}, secretas };
+
+  const claro = tryDecryptSecret(sec.secret_enc);
+  if (!claro) {
+    // Chave-mestra trocada sem reencriptar: dizer "sem credencial" faria a
+    // pessoa recadastrar por cima de um blob que talvez ainda seja recuperável.
+    return { ok: false, error: "As credenciais existem mas não puderam ser decifradas (a chave-mestra mudou?)." };
+  }
+  let blob: Record<string, unknown>;
+  try {
+    blob = JSON.parse(claro) as Record<string, unknown>;
+  } catch {
+    return { ok: false, error: "As credenciais gravadas estão corrompidas." };
+  }
+
+  const { config, segredo } = separarCampos(tipo, blob);
+  if (!comSegredo) return { ok: true, config, segredo: {}, secretas };
+
+  await audit({
+    action: "integrations.credential.reveal",
+    entityType: "ai_base_credential",
+    entityId: credentialId,
+    spaceId: null,
+    after: { nome: cred.name, campos: Object.keys(segredo) },
+  });
+  return { ok: true, config, segredo, secretas };
 }

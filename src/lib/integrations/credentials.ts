@@ -149,3 +149,35 @@ export function requiredKeys(t: AuthType): string[] {
 export function metaKeys(t: AuthType): string[] {
   return CREDENTIAL_FIELDS[t].filter((f) => f.meta).map((f) => f.key);
 }
+
+/**
+ * Separa o blob decifrado em CONFIGURAÇÃO e SEGREDO.
+ *
+ * O blob guarda os dois misturados: `client_id` e URL do token moram ao lado do
+ * `client_secret`. Como nada voltava para a tela, editar uma credencial obrigava
+ * a redigitar tudo — inclusive o que nunca foi segredo — e a via mais fácil
+ * virava recadastrar, arriscando trocar um campo certo por um errado.
+ *
+ * O corte é a marca `secret` que cada campo já declara. Chave desconhecida (de
+ * um tipo de auth antigo, ou renomeada) cai em `segredo` por precaução: numa
+ * dúvida sobre expor ou esconder, esconder é o erro barato.
+ */
+export function separarCampos(
+  t: AuthType,
+  blob: Record<string, unknown>,
+): { config: Record<string, string>; segredo: Record<string, string> } {
+  const porChave = new Map(CREDENTIAL_FIELDS[t].map((f) => [f.key, f]));
+  const config: Record<string, string> = {};
+  const segredo: Record<string, string> = {};
+  for (const [k, v] of Object.entries(blob ?? {})) {
+    if (typeof v !== "string" && typeof v !== "number") continue;
+    const campo = porChave.get(k);
+    (campo && !campo.secret ? config : segredo)[k] = String(v);
+  }
+  return { config, segredo };
+}
+
+/** Chaves marcadas como segredo naquele tipo — o que a tela mascara. */
+export function chavesSecretas(t: AuthType): string[] {
+  return CREDENTIAL_FIELDS[t].filter((f) => f.secret).map((f) => f.key);
+}
