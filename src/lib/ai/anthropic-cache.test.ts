@@ -132,3 +132,58 @@ describe("marcarCacheDeTools — segundo breakpoint nas essenciais", () => {
     expect(marcadas.length).toBeLessThanOrEqual(2);
   });
 });
+
+describe("IDENTIDADE DE PAYLOAD — a prova de que o modelo le a mesma coisa", () => {
+  /**
+   * Este e o teste que sustenta a afirmacao "invisivel ao modelo". Compara o
+   * payload inteiro antes e depois da marcacao, ignorando SO `providerOptions`
+   * (metadado do provedor, retirado antes de o payload chegar ao modelo).
+   *
+   * Se ele passa, nenhuma mudanca de comportamento e possivel: o modelo recebe
+   * as mesmas ferramentas, na mesma ordem, com a mesma descricao e o mesmo
+   * schema.
+   */
+  const semProviderOptions = (o: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(o).map(([k, v]) => {
+        const { providerOptions: _ignorado, ...resto } = v as Record<string, unknown>;
+        return [k, resto];
+      }),
+    );
+
+  // Uma lista realista: integracoes primeiro (como o tool-builder monta), depois
+  // as locais (form/visual/query) — a ordem exata que a rota produz.
+  const payload = {
+    estrutura_filiais: { description: "Filiais", inputSchema: { type: "object", properties: { emp: { type: "number" } } } },
+    lista_opcoes: { description: "Opções", inputSchema: { type: "object" } },
+    meus_dados: { description: "Meus dados", inputSchema: { type: "object" } },
+    bi_headcount: { description: "Headcount por estrutura", inputSchema: { type: "object", properties: { mes: { type: "string" } } } },
+    ms_email_enviar: { description: "Enviar e-mail", inputSchema: { type: "object", properties: { para: { type: "string" }, assunto: { type: "string" } } } },
+    consultar_registros: { description: "Filtra 100% das linhas", inputSchema: { type: "object" } },
+    montar_grafico: { description: "Gráfico", inputSchema: { type: "object" } },
+  };
+  const essenciais = ["estrutura_filiais", "lista_opcoes", "meus_dados"];
+
+  it("payload IDENTICO fora o providerOptions", () => {
+    const marcado = marcarCacheDeTools(payload, essenciais);
+    expect(semProviderOptions(marcado)).toEqual(payload);
+  });
+
+  it("ordem das chaves IDENTICA — tools e o 1o bloco do payload", () => {
+    // Reordenar invalidaria o cache de tools, system E mensagens de uma vez.
+    expect(Object.keys(marcarCacheDeTools(payload, essenciais))).toEqual(Object.keys(payload));
+  });
+
+  it("marca exatamente 2 pontos: fim das essenciais e fim da lista", () => {
+    const marcadas = Object.entries(marcarCacheDeTools(payload, essenciais))
+      .filter(([, v]) => "providerOptions" in v)
+      .map(([k]) => k);
+    expect(marcadas).toEqual(["meus_dados", "montar_grafico"]);
+  });
+
+  it("a entrada original nao e tocada", () => {
+    const antes = JSON.stringify(payload);
+    marcarCacheDeTools(payload, essenciais);
+    expect(JSON.stringify(payload)).toBe(antes);
+  });
+});
