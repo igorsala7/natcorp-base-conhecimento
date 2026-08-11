@@ -63,7 +63,7 @@ import { confirmarPendencia } from "@/lib/integrations/confirmations";
 import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool-clarify";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
-import { withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { marcarCacheDeTools, withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
 import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
@@ -1023,7 +1023,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que
   // registra as recusas silenciosas (guard, teto de chamadas, endpoint ausente), que
   // hoje só existiam num console.warn do servidor.
-  const allTools: ToolSet = instrumentarTools(allToolsCru, passo);
+  // Breakpoint de cache no FIM da lista completa (antes ficava no meio, na última
+  // tool de integração — ver marcarCacheDeTools). `instrumentarTools` faz
+  // `{...def, execute}` e PRESERVA `providerOptions`, então a ordem das duas
+  // operações é indiferente.
+  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru), passo);
   const temTools = Object.keys(allTools).length > 0;
   // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
   // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem
@@ -1971,7 +1975,14 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
             model: modeloTurno,
             maxOutputTokens: 2048,
             system: systemPrompt,
-            messages: [
+            // Cache do prefixo: esta passada tem `stepCountIs(2)`, então o 2º passo
+            // reaproveita system + histórico do 1º (write 1,25× + read 0,1× < 2× sem cache).
+            //
+            // NÃO reaproveita a chamada PRINCIPAL, e é importante saber por quê: a ordem
+            // do payload é `tools → system → messages`, e qualquer troca nas ferramentas
+            // invalida os três níveis. Aqui vão só as 2 visuais, contra as ~30 da
+            // principal — o prefixo diverge na posição 0.
+            messages: withPrefixCache([
               ...withImageParts(messages, attach.imageParts, attach.fileParts),
               ...histMsgs,
               {
@@ -1981,7 +1992,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
                   "já tem (use `dados_de` quando houver um id disponível). Não escreva a resposta de novo — só a chamada. " +
                   "Se realmente não houver dado nenhum para colocar no arquivo, responda em UMA frase o que faltou.",
               },
-            ],
+            ], true),
             // Instrumentada como as demais: esta passada extra era 100% invisível no
             // trace — o arquivo aparecia (ou não) sem nenhum registro de quem o gerou.
             tools: instrumentarTools(
@@ -2026,6 +2037,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
                 model: modeloTurno,
                 maxOutputTokens: 4096,
                 system: systemPrompt,
+                // SEM cache de propósito. Esta passada roda UMA vez e não manda tools,
+                // enquanto a principal manda ~30 — e como a ordem é `tools → system →
+                // messages`, o prefixo diverge na posição 0. Não há nada para ler, e um
+                // breakpoint aqui seria escrita pura: 1,25× de custo, zero retorno.
                 messages: [
                   ...withImageParts(messages, attach.imageParts, attach.fileParts),
                   ...histMsgs,
@@ -2158,17 +2173,30 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         | null;
       const anthropicMeta = provMeta?.anthropic ?? null;
       const _num = (v: unknown) => (typeof v === "number" ? v : null);
+      // A leitura vem de `usage.inputTokenDetails` (AI SDK v6). A versão anterior lia
+      // `usage.cachedInputTokens` — campo DEPRECADO que o SDK não preenche — e caía num
+      // fallback `providerMetadata.anthropic.cacheReadInputTokens` que **não existe no
+      // caminho de streaming** (lá o provider só expõe `cacheReadInputTokens` dentro de
+      // `iterations[]`). Resultado: este log dizia `cache_read=0` sempre, inclusive quando
+      // o cache estava funcionando — e `ai_usage`, que lê a fonte certa, dizia outra coisa.
+      const detalhes = usage?.inputTokenDetails ?? null;
       const cacheRead =
+        _num(detalhes?.cacheReadTokens) ??
         _num((usage as unknown as { cachedInputTokens?: unknown } | null)?.cachedInputTokens) ??
         _num(anthropicMeta?.cacheReadInputTokens);
-      const cacheCreation = _num(anthropicMeta?.cacheCreationInputTokens);
+      const cacheCreation =
+        _num(detalhes?.cacheWriteTokens) ?? _num(anthropicMeta?.cacheCreationInputTokens);
       // Nº de passos do turno agêntico: `inputTokens` é a SOMA do prefixo (system+tools+
       // histórico) reenviado a CADA passo; com N passos e cache alto, o "envio" infla ~N×
       // mesmo sem prompt inchado. Expor os passos e o ENVIO NOVO (não-cacheado) desfaz a
       // leitura enganosa do total.
       const _steps = (await Promise.resolve(result.steps).catch(() => null)) as unknown[] | null;
       const nPassos = Array.isArray(_steps) ? _steps.length : null;
-      const envioNovo = usage?.inputTokens != null && cacheRead != null ? usage.inputTokens - cacheRead : null;
+      // `noCacheTokens` já É o envio novo — o SDK calcula. Subtrair à mão só serve de
+      // rede quando o provedor não informa o detalhamento.
+      const envioNovo =
+        _num(detalhes?.noCacheTokens) ??
+        (usage?.inputTokens != null && cacheRead != null ? usage.inputTokens - cacheRead : null);
       // DIAGNÓSTICO no console: tipo de agente, perfil, provedor/modelo e TOKENS do turno
       // (envio × resposta) — inclusive quanto pesou o ENVIO das tabelas/regiões da tela.
       try {

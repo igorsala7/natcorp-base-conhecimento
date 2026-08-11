@@ -36,7 +36,6 @@ import { logToolRun } from "./run-log";
 import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
 import { idDaChamada } from "@/lib/chat/tool-trace";
 import { sanitizarBody } from "./run-log-sanitize";
-import { ANTHROPIC_CACHE } from "@/lib/ai/anthropic-cache";
 
 export { identityFromTrack };
 
@@ -801,11 +800,12 @@ export async function buildIntegrationTools(
     return { tools: {}, capabilities: "", agentPrompt: "" };
   }
 
-  // Cache de prompt (Anthropic): um breakpoint na ÚLTIMA ferramenta cacheia todo
-  // o bloco de ferramentas (idêntico entre turnos) — re-chamadas ~10× mais
-  // baratas. Ignorado por OpenAI/Google.
-  const chaves = Object.keys(tools);
-  (tools[chaves[chaves.length - 1]!] as { providerOptions?: unknown }).providerOptions = ANTHROPIC_CACHE;
+  // O breakpoint de cache das ferramentas NÃO fica mais aqui. Ficava na última
+  // ferramenta de INTEGRAÇÃO, mas a rota monta depois dela as de formulário,
+  // visuais, convite, coleta, consulta e troca de fonte — todas ficavam fora do
+  // prefixo cacheado, e é por isso que o modelo do loop lia só 14,2%.
+  // Agora quem marca é `marcarCacheDeTools`, sobre a lista COMPLETA, em
+  // `route.ts` (e nas demais rotas de chat).
 
   // Nota de capacidades para o system prompt (ajuda a rotear documentação × API).
   const especialidades = elegiveis

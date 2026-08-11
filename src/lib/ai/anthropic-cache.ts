@@ -30,3 +30,33 @@ export function withPrefixCache<T>(messages: T[], enabled: boolean): T[] {
   out[out.length - 1] = { ...(out[out.length - 1] as object), providerOptions: ANTHROPIC_CACHE } as T;
   return out;
 }
+
+/**
+ * Marca o breakpoint no fim do bloco de FERRAMENTAS.
+ *
+ * Por que existe: a marcação ficava na última ferramenta de INTEGRAÇÃO
+ * (`tool-builder`), mas a rota monta depois dela as de formulário, visuais,
+ * convite, coleta, consulta e troca de fonte. Tudo isso ficava FORA do prefixo
+ * cacheado — e não é pouco: só as definições de `query-tools` têm ~21 mil
+ * caracteres, `gerar_relatorio` ~1.900 tokens, `montar_grafico` ~1.050.
+ *
+ * Medido em produção: o modelo do loop agêntico lia só **14,2%** do prefixo do
+ * cache. O corte no meio da lista é a explicação.
+ *
+ * INVISÍVEL AO MODELO: `providerOptions` é metadado do provedor, retirado antes
+ * do payload chegar ao modelo. Mesmas ferramentas, mesma ordem, mesmo schema.
+ *
+ * Não muta a entrada — devolve um objeto novo, preservando a ordem das chaves
+ * (a ordem importa: `tools` é o PRIMEIRO bloco do payload, e qualquer troca
+ * invalida também o system e as mensagens).
+ */
+export function marcarCacheDeTools<T>(tools: Record<string, T>): Record<string, T> {
+  const chaves = Object.keys(tools);
+  if (chaves.length === 0) return tools;
+  const ultima = chaves[chaves.length - 1]!;
+  const out: Record<string, T> = {};
+  for (const k of chaves) {
+    out[k] = k === ultima ? ({ ...(tools[k] as object), providerOptions: ANTHROPIC_CACHE } as T) : tools[k]!;
+  }
+  return out;
+}

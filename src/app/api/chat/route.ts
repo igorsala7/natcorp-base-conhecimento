@@ -25,7 +25,7 @@ import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { ehConversaSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
-import { withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { marcarCacheDeTools, withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -139,7 +139,8 @@ async function handlePost(req: NextRequest) {
     (spec) => renderReport(spec, { marca: "Relatório", primariaHex: "#511C76", dataHoje: "Gerado em " + new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) }),
     outFiles,
   );
-  const allTools = { ...integ.tools, ...visualTools, ...(temIntegTools ? buildQueryTool(datasets) : {}) };
+  // Breakpoint de cache no FIM da lista (ver marcarCacheDeTools).
+  const allTools = marcarCacheDeTools({ ...integ.tools, ...visualTools, ...(temIntegTools ? buildQueryTool(datasets) : {}) });
   const temTools = Object.keys(allTools).length > 0;
 
   // Garante a conversa (para persistir histórico). Isola por base de cliente:

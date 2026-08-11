@@ -32,7 +32,7 @@ import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { glossarioCasado } from "@/lib/ai/ontology";
 import type { OutFile } from "@/lib/integrations/documents";
-import { withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { marcarCacheDeTools, withPrefixCache } from "@/lib/ai/anthropic-cache";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao } from "@/lib/ai/answer-style";
 
@@ -183,7 +183,9 @@ async function handlePost(req: NextRequest) {
   // Consulta/filtro server-side sobre listas de ferramentas (evita filtrar pela
   // amostra e reportar/exportar um total errado). Ver datasets.ts.
   const queryTools = temTools ? buildQueryTool(datasets) : {};
-  const allTools = { ...integ.tools, ...visualTools, ...queryTools };
+  // Breakpoint de cache no FIM da lista: as locais (visuais/consulta) entram depois
+  // das de integração, e antes ficavam fora do prefixo cacheado.
+  const allTools = marcarCacheDeTools({ ...integ.tools, ...visualTools, ...queryTools });
   const comTools = Object.keys(allTools).length > 0;
   // Ontologia: glossário do domínio para acertar tools/parâmetros.
   const glossario = social ? "" : await glossarioCasado(supabase, [spaceId], question).catch(() => "");
