@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Pencil, Plus, ShieldAlert, Stethoscope, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
 import { cn } from "@/lib/utils";
+import type { Passo } from "@/lib/integrations/base-health";
 import { Select } from "@/components/ui/select";
 import {
   AUTH_TYPES,
@@ -27,6 +28,7 @@ import {
   deleteCredential,
   lerCredencial,
   syncModulesAction,
+  testarBase,
   type IntegResult,
 } from "./actions";
 
@@ -74,6 +76,25 @@ export function IntegrationsManager({
   const [aberta, setAberta] = useState<Set<string>>(new Set());
   const [baseDialog, setBaseDialog] = useState<{ base?: BaseRow } | null>(null);
   const [credDialog, setCredDialog] = useState<{ baseId: string; cred?: CredentialRow } | null>(null);
+  // Diagnóstico da base. O resultado é uma LISTA de passos, não um "deu certo /
+  // deu errado": o valor está em dizer QUAL peça falta, que é justamente o que
+  // faltava quando a stefanini-dev quebrou num campo de credencial em branco.
+  const [testando, setTestando] = useState<string | null>(null);
+  const [diag, setDiag] = useState<{ base: string; passos: Passo[]; resumo: string; falhou: boolean } | null>(null);
+
+  function testar(b: BaseRow) {
+    setTestando(b.id);
+    void testarBase({ baseId: b.id })
+      .then((r) => {
+        if (!("passos" in r)) {
+          if (!r.ok) toast.error(r.error);
+          return;
+        }
+        setDiag({ base: b.name, passos: r.passos, resumo: r.resumo, falhou: r.falhou });
+      })
+      .finally(() => setTestando(null));
+  }
+
 
   function toggle(id: string) {
     setAberta((prev) => {
@@ -175,6 +196,16 @@ export function IntegrationsManager({
                       </span>
                     </span>
                   </button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={testando === b.id}
+                    onClick={() => testar(b)}
+                    title="Testar a conexão desta base"
+                  >
+                    <Stethoscope />
+                    {testando === b.id ? "Testando…" : "Testar"}
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setBaseDialog({ base: b })} title="Editar base">
                     <Pencil />
                   </Button>
@@ -238,6 +269,42 @@ export function IntegrationsManager({
             );
           })}
         </ul>
+      )}
+
+      {diag && (
+        <Dialog
+          open
+          onClose={() => setDiag(null)}
+          title={`Teste da base ${diag.base}`}
+          description={diag.resumo}
+          footer={<Button onClick={() => setDiag(null)}>Fechar</Button>}
+        >
+          <ul className="flex flex-col gap-2.5">
+            {diag.passos.map((p, i) => (
+              <li key={i} className="flex gap-2.5">
+                {p.estado === "ok" ? (
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-hidden="true" />
+                ) : p.estado === "aviso" ? (
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                ) : (
+                  <XCircle className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+                )}
+                <span className="min-w-0">
+                  <span className="block text-sm text-text">{p.nome}</span>
+                  {p.detalhe && (
+                    <span className="block break-words text-xs text-text-muted">{p.detalhe}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {/* Diz o que o teste NÃO cobre: passar aqui e falhar no chat, sem
+              essa nota, faria o diagnóstico parecer mentiroso. */}
+          <p className="mt-4 border-t border-border pt-3 text-xs text-text-muted">
+            O teste vai até obter o token. Chamar uma ferramenta de verdade exigiria a identidade de um
+            usuário (empresa, matrícula), que não existe aqui — o erro seria de negócio, não de cadastro.
+          </p>
+        </Dialog>
       )}
 
       {baseDialog && (

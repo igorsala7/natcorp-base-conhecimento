@@ -9,6 +9,8 @@ import { audit } from "@/lib/auth/audit";
 import { encryptSecret, tryDecryptSecret } from "@/lib/crypto/secrets";
 import { CREDENTIAL_FIELDS, chavesSecretas, metaKeys, requiredKeys, separarCampos, type AuthType } from "@/lib/integrations/credentials";
 import { syncBaseModules } from "@/lib/integrations/module-sync";
+import { passosDeConfiguracao, resumo, temFalha, type Passo, type ToolDiag } from "@/lib/integrations/base-health";
+import { getOAuthToken, invalidateOAuthToken } from "@/lib/integrations/oauth";
 import type { Json } from "@/lib/database.types";
 
 export type IntegResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -443,4 +445,116 @@ export async function lerCredencial(input: unknown): Promise<IntegResult | Crede
     after: { nome: cred.name, campos: Object.keys(segredo) },
   });
   return { ok: true, config, segredo, secretas };
+}
+
+// ─────────────────────── Teste de saúde da base ─────────────────────────────
+/**
+ * Diagnostica uma base: configuração + uma chamada REAL ao servidor de token.
+ *
+ * Nasceu do caso `stefanini-dev`, que falhava numa ferramenta por um campo
+ * opcional em branco na credencial — três telas longe da mensagem de erro, e
+ * invisível até alguém usar o chat. O teste traz essa descoberta para o momento
+ * do cadastro, que é quando dá para corrigir barato.
+ *
+ * Profundidade: vai até OBTER O TOKEN, e para aí. Chamar uma ferramenta de
+ * verdade exigiria uma identidade (usuário, empresa, matrícula) que o admin não
+ * tem — inventar uma daria um erro de negócio que ninguém sabe interpretar. O
+ * token prova o que este cadastro controla: URL, client id/secret e o estilo de
+ * autenticação. O resto é dado do cliente.
+ */
+export async function testarBase(input: unknown): Promise<
+  IntegResult | { ok: true; passos: Passo[]; resumo: string; falhou: boolean }
+> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+  const parsed = z.object({ baseId: z.string().uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Base inválida." };
+
+  const supabase = await createClient();
+  const { data: base } = await supabase
+    .from("ai_bases")
+    .select("id, base_code, active, base_url, credential_id")
+    .eq("id", parsed.data.baseId)
+    .maybeSingle();
+  if (!base) return { ok: false, error: "Base não encontrada." };
+
+  const { data: cred } = base.credential_id
+    ? await supabase
+        .from("ai_base_credentials")
+        .select("id, name, auth_type, active")
+        .eq("id", base.credential_id)
+        .maybeSingle()
+    : { data: null };
+
+  // Ferramentas HABILITADAS nesta base — é o que decide quais campos de
+  // credencial deixaram de ser opcionais.
+  const { data: vinculos } = await supabase
+    .from("ai_base_tools")
+    .select("tool:ai_tools(key, name, params, active)")
+    .eq("base_id", base.id)
+    .eq("enabled", true);
+  type Emb = { tool: { key: string; name: string; params: unknown; active: boolean } | null };
+  const tools: ToolDiag[] = ((vinculos ?? []) as unknown as Emb[])
+    .map((v) => v.tool)
+    .filter((t): t is NonNullable<Emb["tool"]> => !!t && t.active)
+    .map((t) => ({
+      key: t.key,
+      name: t.name,
+      params: (Array.isArray(t.params) ? t.params : []) as ToolDiag["params"],
+    }));
+
+  // Campos gravados na credencial (só os NOMES entram no diagnóstico).
+  let camposCred: string[] = [];
+  let blob: Record<string, string> | null = null;
+  if (cred) {
+    const { data: sec } = await createAdminClient()
+      .from("ai_base_credential_secrets")
+      .select("secret_enc")
+      .eq("credential_id", cred.id)
+      .maybeSingle();
+    const claro = sec?.secret_enc ? tryDecryptSecret(sec.secret_enc) : null;
+    if (claro) {
+      try {
+        blob = JSON.parse(claro) as Record<string, string>;
+        camposCred = Object.keys(blob).filter((k) => String(blob![k] ?? "").trim() !== "");
+      } catch { /* blob corrompido: cai no passo de campos faltando, que é verdade */ }
+    }
+  }
+
+  const passos = passosDeConfiguracao(base, cred, camposCred, tools);
+
+  // ── Rede: pedir o token de verdade ────────────────────────────────────────
+  // Só quando a configuração permite. Tentar sem credencial daria um erro de
+  // rede que esconde a causa real, que os passos acima já nomearam.
+  if (cred?.auth_type === "oauth2" && blob && !temFalha(passos)) {
+    const inicio = Date.now();
+    try {
+      // `invalidateOAuthToken` antes: sem isso o cache devolveria um token de
+      // minutos atrás e o teste passaria mesmo com a credencial já trocada por
+      // uma errada — o pior resultado possível num diagnóstico.
+      invalidateOAuthToken(cred.id);
+      await getOAuthToken(cred.id, blob);
+      passos.push({
+        nome: "Autenticação (OAuth)",
+        estado: "ok",
+        detalhe: `Token obtido em ${Date.now() - inicio} ms.`,
+      });
+    } catch (e) {
+      passos.push({
+        nome: "Autenticação (OAuth)",
+        estado: "erro",
+        detalhe:
+          `${e instanceof Error ? e.message : String(e)} — confira URL do token, Client ID e Client Secret. ` +
+          `HTTP 401 costuma ser segredo errado; 404, URL errada.`,
+      });
+    }
+  } else if (cred && cred.auth_type !== "oauth2") {
+    passos.push({
+      nome: "Autenticação",
+      estado: "ok",
+      detalhe: `Tipo "${cred.auth_type}" não tem servidor de token para testar daqui.`,
+    });
+  }
+
+  return { ok: true, passos, resumo: resumo(passos), falhou: temFalha(passos) };
 }
