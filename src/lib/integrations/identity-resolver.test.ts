@@ -253,3 +253,34 @@ describe("todas as chamadas viram rastro", () => {
     expect(r.chamadas?.at(-1)?.resposta).toContain("ORA-00942");
   });
 });
+
+describe("login recusado carrega a MENSAGEM", () => {
+  it("a razao do negocio entra no motivo, nao so o status", async () => {
+    // "login_recusado:ERROR" nao e acionavel. "CPF e Telefone nao cadastrados"
+    // e uma tarefa para alguem -- foi o caso real da Stefanini.
+    let n = 0;
+    const f = (async () => {
+      n++;
+      if (n === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: "at" }) } as Response;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify([{ status: "ERROR", message: "CPF e Telefone nao cadastrados.\n" }]),
+      } as Response;
+    }) as unknown as typeof fetch;
+    const mod = await import("./identity-resolver");
+    const r = await mod.resolveIdentity({
+      baseUrl: "https://b",
+      credential: { id: "cm1", secret: { session_key: "chave-de-sessao-longa", client_id: "i", client_secret: "s", token_url: "https://t" } } as never,
+      identity: { cod_empresa: "1", matricula: "57292" },
+      fetchImpl: f,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.motivo).toContain("login_recusado:ERROR");
+      expect(r.motivo).toContain("CPF e Telefone nao cadastrados");
+      // Sem quebra de linha: o motivo vai para uma coluna de log de uma linha.
+      expect(r.motivo).not.toContain("\n");
+    }
+  });
+});

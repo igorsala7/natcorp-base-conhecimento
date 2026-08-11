@@ -186,10 +186,15 @@ export async function resolveIdentity(input: {
       return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}`, chamada: resp.chamada, chamadas });
     }
     if (String(auth.status).toUpperCase() !== "OK") {
+      // A MENSAGEM entra no motivo, não só o status. "login_recusado:ERROR" não
+      // diz nada; "CPF e Telefone não cadastrados" é uma tarefa para alguém.
+      const msg = String((auth as { message?: unknown }).message ?? "").replace(/\s+/g, " ").trim();
       return store({
         ok: false,
         identity,
-        motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}`,
+        motivo:
+          `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}` +
+          (msg ? ` — ${msg.slice(0, 120)}` : ""),
         chamada: resp.chamada,
         chamadas,
       });
