@@ -129,3 +129,46 @@ describe("resolveIdentity (login ORDS: validar + enriquecer)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("motivo carrega o STATUS da falha", () => {
+  const cred = { id: "c1", secret: { session_key: "k", client_id: "i", client_secret: "s", token_url: "https://t/tok" } };
+  const identity = { cod_empresa: "1", matricula: "57292", usuario: "PORTAL" };
+  const tokenOk = { ok: true, status: 200, json: async () => ({ access_token: "at", expires_in: 3600 }) } as Response;
+
+  // Id NOVO a cada chamada: o resolver guarda o resultado em cache por
+  // credencial+matrícula (inclusive as falhas, com TTL curto), então reusar o
+  // mesmo id faria o segundo caso ler a resposta do primeiro.
+  let seq = 0;
+  const resolver = async (loginRes: Partial<Response>) => {
+    let n = 0;
+    const f = (async () => (n++ === 0 ? tokenOk : loginRes)) as unknown as typeof fetch;
+    const mod = await import("./identity-resolver");
+    return mod.resolveIdentity({
+      baseUrl: "https://b",
+      credential: { ...cred, id: `c${++seq}` } as never,
+      identity,
+      fetchImpl: f,
+    });
+  };
+
+  it("555 (handler do cliente quebrado) aparece no motivo", async () => {
+    // O caso real da Stefanini: o PL/SQL do /autenticacao nao compila por
+    // tabela ausente. Sem o status, isso era indistinguivel de "usuario nao
+    // encontrado" — e mandaria procurar o defeito no lugar errado.
+    const r = await resolver({ ok: false, status: 555, json: async () => null } as Response);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toBe("sem_resposta_login:http_555");
+  });
+
+  it("404 (endpoint inexistente) se distingue de 401 (chave recusada)", async () => {
+    const r404 = await resolver({ ok: false, status: 404, json: async () => null } as Response);
+    const r401 = await resolver({ ok: false, status: 401, json: async () => null } as Response);
+    if (!r404.ok) expect(r404.motivo).toBe("sem_resposta_login:http_404");
+    if (!r401.ok) expect(r401.motivo).toBe("sem_resposta_login:http_401");
+  });
+
+  it("200 com lista vazia é 'vazio' — o unico caso normal dos quatro", async () => {
+    const r = await resolver({ ok: true, status: 200, json: async () => ({ items: [] }) } as Response);
+    if (!r.ok) expect(r.motivo).toBe("sem_resposta_login:vazio");
+  });
+});

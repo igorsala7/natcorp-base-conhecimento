@@ -57,14 +57,31 @@ function firstItem(data: unknown): Record<string, unknown> | null {
   return null;
 }
 
-async function postJson(url: string, token: string, body: unknown, fetchImpl: typeof fetch, signal: AbortSignal) {
+/**
+ * POST que PRESERVA O STATUS.
+ *
+ * A versão anterior devolvia `null` para qualquer resposta não-ok, e o motivo
+ * gravado no trace era sempre "sem_resposta_login" — o mesmo rótulo para 404
+ * (endpoint inexistente), 401 (chave recusada) e 555 (erro do ORDS). Custou uma
+ * investigação inteira descobrir que era 555 por PL/SQL que não compila: o
+ * handler referencia uma tabela ausente no schema do cliente.
+ *
+ * Guardar o status transforma esse diagnóstico numa linha do log.
+ */
+async function postJson(
+  url: string,
+  token: string,
+  body: unknown,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal,
+): Promise<{ status: number; data: unknown }> {
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });
-  return res.ok ? ((await res.json().catch(() => null)) as unknown) : null;
+  return { status: res.status, data: res.ok ? ((await res.json().catch(() => null)) as unknown) : null };
 }
 
 /**
@@ -104,16 +121,22 @@ export async function resolveIdentity(input: {
     const token = await getOAuthToken(input.credential.id, input.credential.secret, fetchImpl);
 
     // 1) Validação — só segue com status OK.
-    const auth = firstItem(
-      await postJson(
-        base + AUTH_PATH,
-        token,
-        [{ key: sessionKey, usuario: identity.usuario ?? "", cod_empresa: empresa, matricula }],
-        fetchImpl,
-        controller.signal,
-      ),
+    const resp = await postJson(
+      base + AUTH_PATH,
+      token,
+      [{ key: sessionKey, usuario: identity.usuario ?? "", cod_empresa: empresa, matricula }],
+      fetchImpl,
+      controller.signal,
     );
-    if (!auth) return store({ ok: false, identity, motivo: "sem_resposta_login" });
+    const auth = firstItem(resp.data);
+    if (!auth) {
+      // O STATUS distingue causas com correções completamente diferentes:
+      // 404 = endpoint não existe nesta base; 401/403 = chave recusada;
+      // 5xx = o handler do lado do cliente quebrou; 200 sem item = usuário não
+      // encontrado, que é o único caso "normal" dos quatro.
+      const detalhe = resp.status === 200 ? "vazio" : `http_${resp.status}`;
+      return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}` });
+    }
     if (String(auth.status).toUpperCase() !== "OK") {
       return store({ ok: false, identity, motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}` });
     }
