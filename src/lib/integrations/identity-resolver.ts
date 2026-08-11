@@ -21,6 +21,7 @@
 import type { Identity } from "./params";
 import type { RuntimeCredential } from "./executor";
 import { getOAuthToken } from "./oauth";
+import { montarTrace, type ChamadaTrace } from "./http-trace";
 
 export type ResolvedProfile = {
   nome?: string;
@@ -37,6 +38,15 @@ export type ResolveResult = {
   profile?: ResolvedProfile;
   /** Por que a validação falhou (diagnóstico p/ o trace). Ausente quando ok. */
   motivo?: string;
+  /**
+   * A chamada HTTP como cURL + o que voltou, com segredos redigidos.
+   *
+   * Sem isto, uma falha aqui só dizia "sem_resposta_login" e reproduzir exigia
+   * decifrar a credencial do banco à mão. A causa real da Stefanini
+   * (`ORA-00942`, tabela ausente) vinha no corpo da resposta — que era jogado
+   * fora antes de qualquer um poder ler.
+   */
+  chamada?: ChamadaTrace;
 };
 
 const AUTH_PATH = "/chatbot/login/v1/autenticacao";
@@ -74,14 +84,38 @@ async function postJson(
   body: unknown,
   fetchImpl: typeof fetch,
   signal: AbortSignal,
-): Promise<{ status: number; data: unknown }> {
+  segredos: (string | undefined)[] = [],
+): Promise<{ status: number; data: unknown; chamada: ChamadaTrace }> {
+  const corpo = JSON.stringify(body);
+  const inicio = Date.now();
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: corpo,
     signal,
   });
-  return { status: res.status, data: res.ok ? ((await res.json().catch(() => null)) as unknown) : null };
+
+  // LÊ O CORPO SEMPRE — inclusive no erro. Era exatamente o que faltava: a
+  // causa da falha da Stefanini estava no corpo de um HTTP 555 que a versão
+  // anterior descartava sem olhar.
+  const texto = await res.text().catch(() => "");
+  const chamada = montarTrace(
+    { method: "POST", url, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: corpo },
+    { status: res.status, corpo: texto },
+    Date.now() - inicio,
+    [...segredos, token],
+  );
+
+  let data: unknown = null;
+  if (res.ok) {
+    try {
+      data = JSON.parse(texto) as unknown;
+    } catch {
+      // 200 com corpo que não é JSON: `data` fica nulo e o motivo vira "vazio",
+      // mas a `chamada` mostra o que veio de verdade.
+    }
+  }
+  return { status: res.status, data, chamada };
 }
 
 /**
@@ -127,6 +161,7 @@ export async function resolveIdentity(input: {
       [{ key: sessionKey, usuario: identity.usuario ?? "", cod_empresa: empresa, matricula }],
       fetchImpl,
       controller.signal,
+      [sessionKey],
     );
     const auth = firstItem(resp.data);
     if (!auth) {
@@ -135,10 +170,15 @@ export async function resolveIdentity(input: {
       // 5xx = o handler do lado do cliente quebrou; 200 sem item = usuário não
       // encontrado, que é o único caso "normal" dos quatro.
       const detalhe = resp.status === 200 ? "vazio" : `http_${resp.status}`;
-      return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}` });
+      return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}`, chamada: resp.chamada });
     }
     if (String(auth.status).toUpperCase() !== "OK") {
-      return store({ ok: false, identity, motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}` });
+      return store({
+        ok: false,
+        identity,
+        motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}`,
+        chamada: resp.chamada,
+      });
     }
 
     // 2) Enriquecimento — CPF, perfil, nome, cargo.

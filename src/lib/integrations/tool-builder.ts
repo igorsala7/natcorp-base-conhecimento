@@ -214,7 +214,19 @@ export async function buildIntegrationTools(
       if (!res.ok) {
         // Falha do login do colaborador — antes invisível no trace. Agora registra o
         // MOTIVO (login_recusado / sem_resposta / timeout / erro_rede) para diagnóstico.
-        onPasso?.("identidade", { validado: false, motivo: res.motivo ?? "falha", operador, empresa: identity.cod_empresa });
+        // A CHAMADA vai junto: cURL colável e o corpo da resposta resumido
+        // (o ORA-/PLS- quando é erro de banco do lado do cliente). Sem isso, o
+        // trace dizia só o motivo e reproduzir exigia decifrar a credencial do
+        // banco à mão — foi o que custou a investigação da Stefanini.
+        onPasso?.("identidade", {
+          validado: false,
+          motivo: res.motivo ?? "falha",
+          operador,
+          empresa: identity.cod_empresa,
+          ...(res.chamada
+            ? { http: res.chamada.status, ms: res.chamada.ms, resposta: res.chamada.resposta, curl: res.chamada.curl }
+            : {}),
+        });
         // O OPERADOR (portal PO) tem acesso full que NÃO depende do login do colaborador:
         // segue com a identidade do token (sem enriquecer) em vez de perder todas as tools.
         // Os demais painéis falham FECHADO (sem tools de dados; só documentação).
