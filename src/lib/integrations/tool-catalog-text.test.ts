@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { semOrquestracao } from "./tool-catalog-text";
+import { escolherVetor, semOrquestracao } from "./tool-catalog-text";
 
 /**
  * Caso real: "quero o histórico financeiro detalhado desse período da Ana Silva"
@@ -54,5 +54,30 @@ describe("semOrquestracao", () => {
     // Degenerado, mas possível: aí o vetor fica só com nome + search_terms.
     const d = "Use historico_financeiro. Depois relatorio_recibo_pagamento.";
     expect(semOrquestracao(d, chaves)).toBe("");
+  });
+});
+
+describe("escolherVetor", () => {
+  const g = [0.1, 0.2];
+  const b = [0.3, 0.4];
+
+  it("global tem preferencia quando existe", () => {
+    expect(escolherVetor(g, b)).toBe(g);
+  });
+
+  it("SEM global, usa o vetor por base", () => {
+    // O caso das 10 tools Microsoft: vetor por base nas 3 bases, nenhum global.
+    // Antes eram descartadas do catalogo e nunca chegavam ao modelo.
+    expect(escolherVetor(null, b)).toBe(b);
+    expect(escolherVetor(undefined, b)).toBe(b);
+  });
+
+  it("vetor VAZIO conta como ausente", () => {
+    expect(escolherVetor([], b)).toBe(b);
+    expect(escolherVetor([], [])).toBeNull();
+  });
+
+  it("sem vetor nenhum devolve null — a tool sai do catalogo com razao", () => {
+    expect(escolherVetor(null, null)).toBeNull();
   });
 });

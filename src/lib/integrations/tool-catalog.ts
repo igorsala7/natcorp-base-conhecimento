@@ -4,6 +4,7 @@ import { embeddingModel, embeddingCallOptions, aiTimeout } from "@/lib/ai/config
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { entradasOntologia } from "@/lib/ai/ontology";
+import { escolherVetor } from "./tool-catalog-text";
 import { selecionarFormasOntologia } from "./ontology-enrich";
 import { toolCatalogText } from "./tool-catalog-text";
 import { escolherRanking } from "./rank-resgate";
@@ -290,7 +291,16 @@ async function loadCatalogo(db: DB, baseCode: string): Promise<CatalogoItem[]> {
     .map((r) => (r as { tool: ToolRow | null }).tool)
     .filter((t): t is ToolRow => !!t && t.active)
     .flatMap((t): CatalogoItem[] => {
-      const emb = parseEmb(t.embedding);
+      // O vetor POR BASE serve de entrada quando o global não existe. Antes o
+      // global era pré-requisito (`if (!emb) return []`) e a ferramenta saía do
+      // catálogo ANTES de o vetor por base ser consultado — contradizendo o
+      // comentário acima, que o chama de "fallback".
+      //
+      // Não é hipótese: as 10 ferramentas Microsoft (enviar e-mail, agenda,
+      // criar evento) tinham vetor por base nas 3 bases e nenhum global. Sumiam
+      // do catálogo, ficavam sem similaridade, e o top-K nunca as escolhia — o
+      // sintoma era "os comandos da conta Microsoft não funcionam no chat".
+      const emb = escolherVetor(parseEmb(t.embedding), embBase.get(t.id));
       if (!emb?.length) return [];
       return [{ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario ?? "", selecionavel_no_chat: t.selecionavel_no_chat !== false, emb, embOnto: embBase.get(t.id) ?? null }];
     });

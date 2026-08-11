@@ -57,3 +57,29 @@ export function toolCatalogText(
     .join(" — ")
     .slice(0, 4000);
 }
+
+/**
+ * Qual vetor usar para a ferramenta entrar no catálogo de seleção.
+ *
+ * O vetor POR BASE (enriquecido com a ontologia do cliente) tem preferência; o
+ * GLOBAL é o fallback. A versão anterior tratava o global como PRÉ-REQUISITO —
+ * `if (!global) return []` descartava a ferramenta antes de olhar o da base —,
+ * o que contradizia o próprio comentário do código.
+ *
+ * Não é hipótese: as 10 ferramentas Microsoft (enviar e-mail, ver agenda, criar
+ * evento) tinham vetor por base nas 3 bases e nenhum global. Sumiam do catálogo,
+ * ficavam sem similaridade, e o top-K nunca as escolhia. O sintoma que chegou
+ * foi "os comandos da conta Microsoft não funcionam no chat" — três camadas
+ * longe da causa.
+ *
+ * Devolve `null` quando não há vetor nenhum: aí a ferramenta sai do catálogo com
+ * razão, porque não há como pontuá-la.
+ */
+export function escolherVetor(
+  global: number[] | null | undefined,
+  porBase: number[] | null | undefined,
+): number[] | null {
+  if (global?.length) return global;
+  if (porBase?.length) return porBase;
+  return null;
+}
