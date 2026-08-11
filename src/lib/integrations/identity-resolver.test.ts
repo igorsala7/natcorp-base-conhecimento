@@ -133,7 +133,13 @@ describe("resolveIdentity (login ORDS: validar + enriquecer)", () => {
 describe("motivo carrega o STATUS da falha", () => {
   const cred = { id: "c1", secret: { session_key: "k", client_id: "i", client_secret: "s", token_url: "https://t/tok" } };
   const identity = { cod_empresa: "1", matricula: "57292", usuario: "PORTAL" };
-  const tokenOk = { ok: true, status: 200, json: async () => ({ access_token: "at", expires_in: 3600 }) } as Response;
+  // `text()` alem de `json()`: o rastro do token le o corpo tambem no sucesso.
+  const tokenOk = {
+    ok: true,
+    status: 200,
+    json: async () => ({ access_token: "at", expires_in: 3600 }),
+    text: async () => JSON.stringify({ access_token: "at", expires_in: 3600 }),
+  } as Response;
   // O resolver agora le o CORPO sempre (e onde vinha o ORA- do caso real),
   // entao o mock precisa de `text()` alem de `json()`.
   const resp = (status: number, corpo: string) =>
@@ -188,5 +194,62 @@ describe("motivo carrega o STATUS da falha", () => {
       expect(r.chamada?.curl).not.toContain("session");
       expect(r.chamada?.curl).toContain("Bearer ***");
     }
+  });
+});
+
+describe("todas as chamadas viram rastro", () => {
+  const cred = { id: "cx", secret: { session_key: "chave-de-sessao-longa", client_id: "i", client_secret: "segredo-bem-longo-aqui", token_url: "https://t/tok" } };
+  const identity = { cod_empresa: "1", matricula: "57292", usuario: "PORTAL" };
+
+  it("token + autenticacao + perfil, na ordem", async () => {
+    // Uma falha pode estar em qualquer uma das tres, com correcoes diferentes.
+    // Guardar so a que falhou esconderia que as anteriores passaram.
+    let n = 0;
+    const f = (async () => {
+      n++;
+      if (n === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: "at", expires_in: 3600 }) } as Response;
+      if (n === 2) return { ok: true, status: 200, text: async () => JSON.stringify([{ status: "OK" }]) } as Response;
+      return { ok: true, status: 200, text: async () => JSON.stringify([{ nome: "Fulano", cpf: "123" }]) } as Response;
+    }) as unknown as typeof fetch;
+    const mod = await import("./identity-resolver");
+    const r = await mod.resolveIdentity({ baseUrl: "https://b", credential: cred as never, identity, fetchImpl: f });
+    expect(r.ok).toBe(true);
+    expect(r.chamadas?.map((c) => c.etapa)).toEqual([
+      "oauth/token (body)",
+      "login/autenticacao",
+      "login/dados_colab_usuario",
+    ]);
+  });
+
+  it("o corpo do PERFIL nao vai para o log quando da certo", async () => {
+    // Sao dados pessoais (CPF, cargo, e-mail) e o log e lido por quem
+    // administra, nao por quem tem direito a ve-los.
+    let n = 0;
+    const f = (async () => {
+      n++;
+      if (n === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: "at" }) } as Response;
+      if (n === 2) return { ok: true, status: 200, text: async () => JSON.stringify([{ status: "OK" }]) } as Response;
+      return { ok: true, status: 200, text: async () => JSON.stringify([{ nome: "Fulano", cpf: "99988877766" }]) } as Response;
+    }) as unknown as typeof fetch;
+    const mod = await import("./identity-resolver");
+    const r = await mod.resolveIdentity({ baseUrl: "https://b", credential: { ...cred, id: "cy" } as never, identity, fetchImpl: f });
+    const perfil = r.chamadas?.find((c) => c.etapa === "login/dados_colab_usuario");
+    expect(perfil?.status).toBe(200);
+    expect(perfil?.resposta).toBe("");
+    expect(JSON.stringify(r.chamadas)).not.toContain("99988877766");
+  });
+
+  it("a chave de sessao nunca aparece no curl", async () => {
+    let n = 0;
+    const f = (async () => {
+      n++;
+      if (n === 1) return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: "at" }) } as Response;
+      return { ok: false, status: 555, text: async () => "<pre>ORA-00942</pre>" } as Response;
+    }) as unknown as typeof fetch;
+    const mod = await import("./identity-resolver");
+    const r = await mod.resolveIdentity({ baseUrl: "https://b", credential: { ...cred, id: "cz" } as never, identity, fetchImpl: f });
+    expect(JSON.stringify(r.chamadas)).not.toContain("chave-de-sessao-longa");
+    expect(JSON.stringify(r.chamadas)).not.toContain("segredo-bem-longo-aqui");
+    expect(r.chamadas?.at(-1)?.resposta).toContain("ORA-00942");
   });
 });

@@ -14,6 +14,8 @@
  * tentativa nas próximas renovações.
  */
 
+import { montarTrace, resumirCorpoErro, type ChamadaTrace } from "./http-trace";
+
 type Cached = { token: string; exp: number };
 type Style = "body" | "basic";
 const cache = new Map<string, Cached>();
@@ -44,10 +46,18 @@ function requestToken(
   return fetchImpl(secret.token_url ?? "", { method: "POST", headers, body: body.toString() });
 }
 
+/**
+ * `onTrace` entra por ÚLTIMO na assinatura de propósito: acrescentar parâmetro
+ * no meio deslocaria silenciosamente os argumentos dos seis pontos que já
+ * chamam esta função. Recebe uma entrada por TENTATIVA — inclusive as que
+ * falharam, que são justamente as que interessam num diagnóstico ("tentou body,
+ * levou 401; tentou basic, passou").
+ */
 export async function getOAuthToken(
   credId: string,
   secret: Record<string, string>,
   fetchImpl: typeof fetch = fetch,
+  onTrace?: (t: ChamadaTrace & { etapa: string }) => void,
 ): Promise<string> {
   const hit = cache.get(credId);
   if (hit && hit.exp > Date.now()) return hit.token;
@@ -57,13 +67,37 @@ export async function getOAuthToken(
   const order: Style[] = memo === "basic" ? ["basic", "body"] : ["body", "basic"];
 
   let lastStatus = 0;
+  let lastCorpo = "";
   for (const style of order) {
+    const inicio = Date.now();
     const res = await requestToken(secret, style, fetchImpl);
+    // Lê o corpo SEMPRE: no 401 é ele que diz se o segredo está errado ou se o
+    // servidor recusou o estilo de autenticação — coisas com correções opostas.
+    const texto = onTrace || !res.ok ? await res.text().catch(() => "") : "";
+
+    if (onTrace) {
+      onTrace({
+        etapa: `oauth/token (${style})`,
+        ...montarTrace(
+          {
+            method: "POST",
+            url: secret.token_url ?? "",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: style === "basic" ? "grant_type=client_credentials (credenciais no header Basic)" : "grant_type=client_credentials&client_id=***&client_secret=***",
+          },
+          { status: res.status, corpo: texto },
+          Date.now() - inicio,
+          [secret.client_secret, secret.session_key],
+        ),
+      });
+    }
+
     if (!res.ok) {
       lastStatus = res.status;
+      lastCorpo = texto;
       continue;
     }
-    const json = (await res.json()) as { access_token?: string; expires_in?: number };
+    const json = (texto ? JSON.parse(texto) : await res.json()) as { access_token?: string; expires_in?: number };
     if (!json.access_token) throw new Error("Resposta OAuth sem access_token.");
 
     styleMemo.set(credId, style);
@@ -71,5 +105,8 @@ export async function getOAuthToken(
     cache.set(credId, { token: json.access_token, exp: Date.now() + ttlMs - 60_000 });
     return json.access_token;
   }
-  throw new Error(`Falha ao obter token OAuth (HTTP ${lastStatus}).`);
+  // O corpo entra na mensagem: "HTTP 401" sozinho não distingue segredo errado
+  // de cliente desativado no provedor.
+  const detalhe = resumirCorpoErro(lastCorpo, 200);
+  throw new Error(`Falha ao obter token OAuth (HTTP ${lastStatus})${detalhe ? `: ${detalhe}` : ""}.`);
 }

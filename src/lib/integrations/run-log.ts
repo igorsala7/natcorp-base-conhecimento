@@ -77,3 +77,46 @@ export async function cleanupToolRuns(dias = 30): Promise<number> {
   }
   return data?.length ?? 0;
 }
+
+/**
+ * Registra uma chamada INTERNA (token OAuth, login do colaborador) na mesma
+ * tabela das execuções de ferramenta.
+ *
+ * Elas não são tools, mas falham como tools e precisam ser investigadas como
+ * tools. Antes viviam só no trace do turno, que morre quando a aba fecha —
+ * então uma falha relatada horas depois era irrecuperável. Aqui ganham os
+ * mesmos 30 dias de retenção e a mesma tela.
+ *
+ * `tool_key` leva o prefixo `_` (`_oauth/token`, `_login/autenticacao`) para
+ * distinguir do catálogo real na lista: sem isso, alguém procuraria essas
+ * chaves na aba de ferramentas e não acharia.
+ */
+export async function logChamadaInterna(row: {
+  baseCode: string;
+  conversationId?: string | null;
+  etapa: string;
+  chamada: { curl: string; status: number; ms: number; resposta: string };
+  ok: boolean;
+}): Promise<void> {
+  try {
+    const db = createAdminClient();
+    await db.from("ai_tool_runs").insert({
+      base_code: row.baseCode,
+      conversation_id: row.conversationId ?? null,
+      tool_key: `_${row.etapa}`,
+      step_index: 0,
+      // O cURL vai em `request` porque é o que a aba Execuções já mostra como
+      // "requisição" — nenhuma tela nova para uma informação de mesma natureza.
+      request: { curl: row.chamada.curl } as never,
+      status: row.chamada.status,
+      ok: row.ok,
+      output: (row.chamada.resposta ? { resposta: row.chamada.resposta } : null) as never,
+      files: 0,
+      cached: false,
+      duration_ms: row.chamada.ms,
+      error: row.ok ? null : row.chamada.resposta || `HTTP ${row.chamada.status}`,
+    });
+  } catch (e) {
+    console.error("[ai_tool_runs] falha ao registrar chamada interna:", e instanceof Error ? e.message : e);
+  }
+}

@@ -9,6 +9,7 @@ import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { limparMarcacaoHtml } from "./html-values";
 import { redigirCredenciais } from "./redact-fields";
 import { resolveIdentity } from "./identity-resolver";
+import { logChamadaInterna } from "./run-log";
 import { perfilAtende, acessoFerramenta } from "./gating";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { recorteTemCobertura } from "./module-match";
@@ -211,6 +212,19 @@ export async function buildIntegrationTools(
     const cred = await loadCredentialSecret(primary.credentialId!);
     if (cred?.secret.session_key) {
       const res = await resolveIdentity({ baseUrl: primary.baseUrl!, credential: cred, identity });
+      // PERSISTE as chamadas do resolvedor (token, autenticação, perfil) na aba
+      // Execuções. O trace do turno morre quando a aba fecha; uma falha relatada
+      // horas depois precisa estar em algum lugar. Não bloqueia o turno: gravar
+      // log nunca pode ser motivo de a resposta demorar.
+      for (const ch of res.chamadas ?? []) {
+        void logChamadaInterna({
+          baseCode,
+          conversationId: runMeta?.conversationId ?? null,
+          etapa: ch.etapa,
+          chamada: ch,
+          ok: ch.status >= 200 && ch.status < 300,
+        });
+      }
       if (!res.ok) {
         // Falha do login do colaborador — antes invisível no trace. Agora registra o
         // MOTIVO (login_recusado / sem_resposta / timeout / erro_rede) para diagnóstico.

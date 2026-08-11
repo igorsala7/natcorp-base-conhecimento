@@ -47,6 +47,15 @@ export type ResolveResult = {
    * fora antes de qualquer um poder ler.
    */
   chamada?: ChamadaTrace;
+  /**
+   * TODAS as chamadas do resolvedor, na ordem: token, autenticação e perfil.
+   *
+   * Uma falha aqui pode estar em qualquer uma das três, e as correções são
+   * diferentes — segredo errado, handler quebrado, colaborador inexistente.
+   * Guardar só a que falhou esconderia que as anteriores passaram, que é
+   * metade do diagnóstico.
+   */
+  chamadas?: (ChamadaTrace & { etapa: string })[];
 };
 
 const AUTH_PATH = "/chatbot/login/v1/autenticacao";
@@ -151,8 +160,11 @@ export async function resolveIdentity(input: {
     return result;
   };
 
+  const chamadas: (ChamadaTrace & { etapa: string })[] = [];
   try {
-    const token = await getOAuthToken(input.credential.id, input.credential.secret, fetchImpl);
+    const token = await getOAuthToken(input.credential.id, input.credential.secret, fetchImpl, (t) =>
+      chamadas.push(t),
+    );
 
     // 1) Validação — só segue com status OK.
     const resp = await postJson(
@@ -163,6 +175,7 @@ export async function resolveIdentity(input: {
       controller.signal,
       [sessionKey],
     );
+    chamadas.push({ etapa: "login/autenticacao", ...resp.chamada });
     const auth = firstItem(resp.data);
     if (!auth) {
       // O STATUS distingue causas com correções completamente diferentes:
@@ -170,7 +183,7 @@ export async function resolveIdentity(input: {
       // 5xx = o handler do lado do cliente quebrou; 200 sem item = usuário não
       // encontrado, que é o único caso "normal" dos quatro.
       const detalhe = resp.status === 200 ? "vazio" : `http_${resp.status}`;
-      return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}`, chamada: resp.chamada });
+      return store({ ok: false, identity, motivo: `sem_resposta_login:${detalhe}`, chamada: resp.chamada, chamadas });
     }
     if (String(auth.status).toUpperCase() !== "OK") {
       return store({
@@ -178,19 +191,46 @@ export async function resolveIdentity(input: {
         identity,
         motivo: `login_recusado${auth.status ? `:${String(auth.status).slice(0, 40)}` : ""}`,
         chamada: resp.chamada,
+        chamadas,
       });
     }
 
     // 2) Enriquecimento — CPF, perfil, nome, cargo.
     const q = new URLSearchParams({ key: sessionKey, empresa, matricula });
     if (identity.usuario) q.set("usuario", identity.usuario);
-    const res = await fetchImpl(`${base}${PROFILE_PATH}?${q.toString()}`, {
+    const urlPerfil = `${base}${PROFILE_PATH}?${q.toString()}`;
+    const inicioPerfil = Date.now();
+    const res = await fetchImpl(urlPerfil, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
-    const prof = res.ok ? firstItem(await res.json().catch(() => null)) : null;
-    if (!prof) return store({ ok: true, identity }); // validado, mas sem cadastro extra
+    const textoPerfil = await res.text().catch(() => "");
+    chamadas.push({
+      etapa: "login/dados_colab_usuario",
+      ...montarTrace(
+        { method: "GET", url: urlPerfil, headers: { Authorization: `Bearer ${token}` } },
+        // No SUCESSO o corpo não vai para o log: são dados pessoais do
+        // colaborador (CPF, cargo, e-mail) e o log é lido por quem administra,
+        // não por quem tem direito a vê-los. No erro vai, porque aí o conteúdo
+        // é a mensagem da falha.
+        { status: res.status, corpo: res.ok ? "" : textoPerfil },
+        Date.now() - inicioPerfil,
+        [sessionKey, token],
+      ),
+    });
+
+    let prof: Record<string, unknown> | null = null;
+    if (res.ok) {
+      try {
+        prof = firstItem(JSON.parse(textoPerfil) as unknown);
+      } catch {
+        prof = null;
+      }
+    }
+    // Validado, mas sem cadastro extra: as `chamadas` vão junto para o trace
+    // mostrar que as três etapas correram, e onde o dado parou de vir.
+    if (!prof) return store({ ok: true, identity, chamadas });
 
     const cpf = typeof prof.cpf === "string" ? prof.cpf : undefined;
     // `cod_candidato` do login → identidade da sessão: fixa o "só o próprio dado"
@@ -212,10 +252,17 @@ export async function resolveIdentity(input: {
       gestorDeEquipe,
       email: email || undefined,
     };
-    return store({ ok: true, identity: enriched, profile });
+    return store({ ok: true, identity: enriched, profile, chamadas });
   } catch {
     // Falha de rede/parse: falha fechada (sem tools de dados), mas não quebra o chat.
-    return store({ ok: false, identity, motivo: controller.signal.aborted ? "timeout" : "erro_rede" });
+    // As chamadas já coletadas vão junto: num timeout, saber que o token foi
+    // obtido em 200 ms e que a autenticação é que travou aponta o culpado.
+    return store({
+      ok: false,
+      identity,
+      motivo: controller.signal.aborted ? "timeout" : "erro_rede",
+      chamadas,
+    });
   } finally {
     clearTimeout(timer);
   }
