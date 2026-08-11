@@ -141,7 +141,7 @@ export function resolveParams(
     } else raw = modelArgs[p.nome];
 
     if (raw === undefined || raw === null || raw === "") {
-      if (p.obrigatorio) throw new Error(`Parâmetro obrigatório ausente: ${p.nome}`);
+      if (p.obrigatorio) throw new Error(mensagemParametroAusente(p));
       continue;
     }
 
@@ -167,4 +167,42 @@ export function resolveParams(
   }
 
   return buckets;
+}
+
+/**
+ * Mensagem de parâmetro obrigatório ausente que diz DE ONDE ele deveria vir.
+ *
+ * Antes dizia só o nome ("Parâmetro obrigatório ausente: key"), e o nome do
+ * parâmetro raramente é o nome do campo que falta: `key` vem de `session_key`
+ * da credencial da base. Diagnosticar exigia abrir o cadastro da ferramenta,
+ * ler a origem do parâmetro, descobrir o campo e só então conferir a
+ * credencial — para cada base nova, toda vez.
+ *
+ * A mensagem chega ao log de execução e à resposta da ferramenta, então ela é
+ * o que alguém lê primeiro. Dizer o campo e a tela encurta a investigação
+ * inteira para uma frase.
+ */
+export function mensagemParametroAusente(p: ToolParam): string {
+  const base = `Parâmetro obrigatório ausente: ${p.nome}`;
+  if (p.origem === "credencial") {
+    const campo = p.campoCredencial ? `"${p.campoCredencial}"` : "(campo não definido na ferramenta)";
+    return (
+      `${base}. Ele vem do campo ${campo} da credencial desta base, que está em branco. ` +
+      `Preencha em Integrações › Bases / Clientes › editar a credencial.`
+    );
+  }
+  if (p.origem === "identidade") {
+    const campo = p.campoIdentidade ? `"${p.campoIdentidade}"` : "(campo não definido na ferramenta)";
+    return (
+      `${base}. Ele vem de ${campo} no token de rastreio, que não chegou nesta conversa. ` +
+      `Confira o bloco que gera o token no painel.`
+    );
+  }
+  if (p.origem === "fixo") {
+    return `${base}. É um valor fixo e o cadastro da ferramenta está com ele em branco.`;
+  }
+  if (p.origem === "pessoa") {
+    return `${base}. Nem o pedido informou a matrícula-alvo, nem o token de rastreio trouxe a do usuário.`;
+  }
+  return `${base}. O modelo não informou este parâmetro no pedido.`;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { identityFromTrack, buildModelSchema, resolveParams } from "./params";
+import { identityFromTrack, buildModelSchema, resolveParams, mensagemParametroAusente } from "./params";
 import type { ToolParam } from "./tools";
 
 describe("identityFromTrack", () => {
@@ -101,5 +101,56 @@ describe("buildModelSchema — loop BATCH (API aceita lista por vírgula)", () =
     expect(schema.safeParse({ p_matricula: ["123", "344", "502"] }).success).toBe(true);
     expect(schema.safeParse({ p_matricula: "123" }).success).toBe(false); // leva a IA a mandar a lista
     expect(schema.safeParse({ p_empresa: "700" }).success).toBe(true); // outro param segue string
+  });
+});
+
+describe("mensagemParametroAusente", () => {
+  const p = (extra: Partial<ToolParam>): ToolParam => ({
+    nome: "key",
+    descricao: "",
+    tipo: "string",
+    origem: "modelo",
+    obrigatorio: true,
+    local: "query",
+    ...extra,
+  } as ToolParam);
+
+  it("credencial: nomeia o CAMPO e a tela — o nome do parâmetro não basta", () => {
+    // Caso real: `key` vem de `session_key`. Sem o campo na mensagem, achar a
+    // causa exigia abrir o cadastro da tool para descobrir a origem.
+    const m = mensagemParametroAusente(p({ origem: "credencial", campoCredencial: "session_key" }));
+    expect(m).toContain("key");
+    expect(m).toContain("session_key");
+    expect(m).toMatch(/credencial/i);
+    expect(m).toMatch(/Bases \/ Clientes/);
+  });
+
+  it("identidade: aponta o token de rastreio, não a credencial", () => {
+    const m = mensagemParametroAusente(p({ nome: "empresa", origem: "identidade", campoIdentidade: "cod_empresa" }));
+    expect(m).toContain("cod_empresa");
+    expect(m).toMatch(/token de rastreio/);
+    expect(m).not.toMatch(/credencial/i);
+  });
+
+  it("fixo aponta o cadastro da ferramenta", () => {
+    expect(mensagemParametroAusente(p({ origem: "fixo" }))).toMatch(/cadastro da ferramenta/);
+  });
+
+  it("pessoa explica as DUAS vias que falharam", () => {
+    const m = mensagemParametroAusente(p({ origem: "pessoa" }));
+    expect(m).toMatch(/matrícula-alvo/);
+    expect(m).toMatch(/token de rastreio/);
+  });
+
+  it("modelo: diz que o pedido não trouxe", () => {
+    expect(mensagemParametroAusente(p({ origem: "modelo" }))).toMatch(/não informou/);
+  });
+
+  it("campo da origem não cadastrado não vira 'undefined' na tela", () => {
+    // Ferramenta mal cadastrada: dizer `campo "undefined"` mandaria a pessoa
+    // procurar um campo com esse nome.
+    const m = mensagemParametroAusente(p({ origem: "credencial" }));
+    expect(m).not.toContain("undefined");
+    expect(m).toMatch(/não definido na ferramenta/);
   });
 });
