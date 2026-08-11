@@ -84,3 +84,51 @@ describe("withPrefixCache", () => {
     expect(withPrefixCache([], true)).toEqual([]);
   });
 });
+
+describe("marcarCacheDeTools — segundo breakpoint nas essenciais", () => {
+  const t2 = (d: string) => ({ description: d, inputSchema: {} });
+  const lista = { ess1: t2("E1"), ess2: t2("E2"), outra1: t2("O1"), outra2: t2("O2") };
+
+  it("essenciais como prefixo CONTINUO ganham breakpoint", () => {
+    // Medido no simulador: em 13 perguntas de assuntos diferentes as 5
+    // essenciais saem sempre primeiro e na mesma ordem — dai dar para marcar
+    // sem reordenar nada.
+    const out = marcarCacheDeTools(lista, ["ess1", "ess2"]);
+    expect(out.ess2).toHaveProperty("providerOptions", ANTHROPIC_CACHE);
+    expect(out.outra2).toHaveProperty("providerOptions", ANTHROPIC_CACHE);
+    expect(out.ess1).not.toHaveProperty("providerOptions");
+    expect(out.outra1).not.toHaveProperty("providerOptions");
+  });
+
+  it("essenciais ESPALHADAS: omite o 2o breakpoint em vez de reordenar", () => {
+    // Reordenar invalidaria o cache de tools, system E mensagens de uma vez.
+    const espalhadas = { ess1: t2("E1"), outra1: t2("O1"), ess2: t2("E2") };
+    const marcadas = Object.entries(marcarCacheDeTools(espalhadas, ["ess1", "ess2"]))
+      .filter(([, v]) => "providerOptions" in v).map(([k]) => k);
+    expect(marcadas).toEqual(["ess2"]); // so a ultima da lista
+  });
+
+  it("TODAS essenciais: nao duplica o breakpoint da ultima", () => {
+    const marcadas = Object.values(marcarCacheDeTools({ a: t2("A"), b: t2("B") }, ["a", "b"]))
+      .filter((v) => "providerOptions" in v);
+    expect(marcadas).toHaveLength(1);
+  });
+
+  it("essencial inexistente na lista e ignorada", () => {
+    const out = marcarCacheDeTools(lista, ["ess1", "ess2", "fantasma"]);
+    expect(out.ess2).toHaveProperty("providerOptions", ANTHROPIC_CACHE);
+  });
+
+  it("sem essenciais, mantem 1 breakpoint (compatibilidade)", () => {
+    const marcadas = Object.values(marcarCacheDeTools(lista)).filter((v) => "providerOptions" in v);
+    expect(marcadas).toHaveLength(1);
+  });
+
+  it("no MAXIMO 2 breakpoints — o teto da Anthropic e 4 no total", () => {
+    // 2 aqui + 1 na ultima mensagem = 3. Sobra 1 de folga.
+    const muitas = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`t${i}`, t2(String(i))]));
+    const marcadas = Object.values(marcarCacheDeTools(muitas, ["t0", "t1", "t2"]))
+      .filter((v) => "providerOptions" in v);
+    expect(marcadas.length).toBeLessThanOrEqual(2);
+  });
+});

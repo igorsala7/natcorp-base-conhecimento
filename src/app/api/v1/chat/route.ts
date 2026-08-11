@@ -1027,7 +1027,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // tool de integração — ver marcarCacheDeTools). `instrumentarTools` faz
   // `{...def, execute}` e PRESERVA `providerOptions`, então a ordem das duas
   // operações é indiferente.
-  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru), passo);
+  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru, integ.essenciais), passo);
   const temTools = Object.keys(allTools).length > 0;
   // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
   // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem

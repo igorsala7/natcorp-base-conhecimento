@@ -50,13 +50,40 @@ export function withPrefixCache<T>(messages: T[], enabled: boolean): T[] {
  * (a ordem importa: `tools` é o PRIMEIRO bloco do payload, e qualquer troca
  * invalida também o system e as mensagens).
  */
-export function marcarCacheDeTools<T>(tools: Record<string, T>): Record<string, T> {
+export function marcarCacheDeTools<T>(
+  tools: Record<string, T>,
+  /**
+   * Ferramentas ESSENCIAIS (`always_include`). Quando elas formam um prefixo
+   * CONTÍNUO no começo da lista, ganham um segundo breakpoint logo depois —
+   * é o único pedaço que se repete ENTRE turnos (as demais mudam com a
+   * pergunta, por top-K semântico).
+   *
+   * Medido: as 5 essenciais custam ~2.287 tokens, acima do mínimo cacheável de
+   * 1024. E o simulador mostrou, em 13 perguntas de assuntos diferentes, que
+   * elas sempre saem primeiro e na mesma ordem — por isso dá para marcar sem
+   * reordenar nada.
+   *
+   * Se NÃO forem um prefixo contínuo, o segundo breakpoint é omitido em vez de
+   * a lista ser reordenada: `tools` é o primeiro bloco do payload, e mexer na
+   * ordem invalidaria o cache de tools, de system E de mensagens de uma vez.
+   */
+  essenciais?: readonly string[],
+): Record<string, T> {
   const chaves = Object.keys(tools);
   if (chaves.length === 0) return tools;
-  const ultima = chaves[chaves.length - 1]!;
+
+  const marcar = new Set<string>([chaves[chaves.length - 1]!]);
+
+  const ess = new Set((essenciais ?? []).filter((k) => k in tools));
+  if (ess.size > 0 && ess.size < chaves.length) {
+    // Prefixo contínuo? As `ess.size` primeiras chaves têm de ser exatamente as essenciais.
+    const prefixoContinuo = chaves.slice(0, ess.size).every((k) => ess.has(k));
+    if (prefixoContinuo) marcar.add(chaves[ess.size - 1]!);
+  }
+
   const out: Record<string, T> = {};
   for (const k of chaves) {
-    out[k] = k === ultima ? ({ ...(tools[k] as object), providerOptions: ANTHROPIC_CACHE } as T) : tools[k]!;
+    out[k] = marcar.has(k) ? ({ ...(tools[k] as object), providerOptions: ANTHROPIC_CACHE } as T) : tools[k]!;
   }
   return out;
 }

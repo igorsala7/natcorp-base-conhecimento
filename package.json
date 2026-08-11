@@ -21,6 +21,7 @@
     "seed:natcorp:prod": "tsx scripts/seed-natcorp.ts",
     "worker": "tsx --tsconfig worker/tsconfig.json --env-file=.env.local worker/index.ts",
     "worker:prod": "tsx --tsconfig worker/tsconfig.json worker/index.ts",
+    "simular:selecao": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/simular-selecao.ts",
     "embed:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools.ts",
     "embed:tools:base": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/embed-tools-base.ts",
     "gen:search-terms": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/gen-search-terms.ts",
