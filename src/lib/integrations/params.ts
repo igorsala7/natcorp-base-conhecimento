@@ -37,6 +37,10 @@ export function identityFromTrack(t: TrackFields): Identity {
     perfil: t.p_perfil,
     portal: t.p_portal,
     base: t.p_base,
+    // Painel do Candidato. Já existia como campo de identidade resolvido no
+    // LOGIN (ORDS); agora também chega pelo token, que é a única fonte quando
+    // não há matrícula para o login resolver.
+    cod_candidato: t.p_cod_candidato,
   };
 }
 

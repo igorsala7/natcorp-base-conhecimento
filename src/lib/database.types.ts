@@ -1118,6 +1118,7 @@ export type Database = {
           p_portal: string | null
           p_empresa: string | null
           p_matricula: string | null
+          p_cod_candidato: string | null
           p_perfil: string | null
           pergunta: string | null
           fonte: string | null
@@ -1135,6 +1136,7 @@ export type Database = {
           p_portal?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           pergunta?: string | null
           fonte?: string | null
@@ -1152,6 +1154,7 @@ export type Database = {
           p_portal?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           pergunta?: string | null
           fonte?: string | null
@@ -1342,6 +1345,7 @@ export type Database = {
           p_base: string | null
           p_empresa: string | null
           p_matricula: string | null
+          p_cod_candidato: string | null
           p_perfil: string | null
           p_portal: string | null
           p_usuario: string | null
@@ -1364,6 +1368,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
@@ -1386,6 +1391,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
@@ -2392,6 +2398,7 @@ export type Database = {
           p_base: string | null
           p_empresa: string | null
           p_matricula: string | null
+          p_cod_candidato: string | null
           p_perfil: string | null
           p_portal: string | null
           p_usuario: string | null
@@ -2410,6 +2417,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
@@ -2428,6 +2436,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
@@ -2459,6 +2468,7 @@ export type Database = {
           p_base: string | null
           p_empresa: string | null
           p_matricula: string | null
+          p_cod_candidato: string | null
           p_perfil: string | null
           p_portal: string | null
           p_usuario: string | null
@@ -2475,6 +2485,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
@@ -2491,6 +2502,7 @@ export type Database = {
           p_base?: string | null
           p_empresa?: string | null
           p_matricula?: string | null
+          p_cod_candidato?: string | null
           p_perfil?: string | null
           p_portal?: string | null
           p_usuario?: string | null
