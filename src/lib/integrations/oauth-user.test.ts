@@ -64,6 +64,24 @@ describe("urlDeConsentimento", () => {
     }
   });
 
+  it("silencioso manda prompt=none — e não o consent, que é excludente", () => {
+    // A tentativa silenciosa aproveita a sessão do SSO do anfitrião. Mandar os
+    // dois `prompt` na mesma URL é erro de protocolo e o provedor recusa antes
+    // de olhar qualquer outra coisa.
+    for (const provider of ["microsoft", "google"] as const) {
+      const u = new URL(
+        urlDeConsentimento({ provider, cfg: CFG, redirectUri: "https://x/cb", nonce: "n", silencioso: true }),
+      );
+      expect(u.searchParams.getAll("prompt")).toEqual(["none"]);
+    }
+  });
+
+  it("fora do silencioso, o Google mantém prompt=consent (é o que traz refresh_token)", () => {
+    const u = new URL(urlDeConsentimento({ provider: "google", cfg: CFG, redirectUri: "https://x/cb", nonce: "n" }));
+    expect(u.searchParams.get("prompt")).toBe("consent");
+    expect(u.searchParams.get("access_type")).toBe("offline");
+  });
+
   it("no Google, força access_type=offline e prompt=consent", () => {
     // Sem os dois, uma RECONEXÃO devolve só access_token e a conta quebra uma
     // hora depois — falha que só aparece em produção.

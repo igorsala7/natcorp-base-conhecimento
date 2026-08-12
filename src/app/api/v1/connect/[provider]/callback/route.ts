@@ -7,7 +7,7 @@ import {
   salvarConexao,
 } from "@/lib/integrations/connect-store";
 import { mesmoEmail } from "@/lib/chat/meus-dados";
-import { paginaDeErro, paginaDeSucesso } from "../pagina";
+import { paginaDeErro, paginaDeSucesso, paginaSilencioFalhou } from "../pagina";
 
 export const runtime = "nodejs";
 
@@ -36,6 +36,13 @@ export async function GET(
   const erroProvedor = q.get("error");
   if (erroProvedor) {
     const desc = q.get("error_description") ?? "";
+    // A tentativa SILENCIOSA falhando é o caminho esperado de quem ainda não
+    // conectou: sem sessão no provedor, ou escopos ainda não consentidos.
+    // Tratar como erro encheria o log e faria o widget avisar de um problema
+    // que não existe — o botão de conectar continua ali, que é a resposta.
+    if (["login_required", "interaction_required", "consent_required", "account_selection_required"].includes(erroProvedor)) {
+      return paginaSilencioFalhou();
+    }
     return paginaDeErro(
       erroProvedor === "access_denied"
         ? "Você recusou a autorização. Nada foi conectado."

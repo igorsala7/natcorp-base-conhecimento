@@ -87,6 +87,14 @@ export function urlDeConsentimento(input: {
   nonce: string;
   /** E-mail FUNCIONAL da pessoa (cadastro do RH), quando conhecido. */
   loginHint?: string | null;
+  /**
+   * SILENCIOSO (`prompt=none`): aproveita a sessão que o navegador já tem com o
+   * provedor — a pessoa acabou de entrar no sistema anfitrião por SSO — e volta
+   * sem desenhar nada. Falha (`login_required` / `interaction_required`) quando
+   * não há sessão ou quando os escopos ainda não foram consentidos; aí o fluxo
+   * normal, com a janela visível, é a reserva.
+   */
+  silencioso?: boolean;
 }): string {
   const { provider, cfg, redirectUri, nonce } = input;
   const base = cfg.authorize_url?.trim() || PADRAO[provider].authorize(tenantDe(cfg));
@@ -100,8 +108,13 @@ export function urlDeConsentimento(input: {
   });
   if (provider === "google") {
     q.set("access_type", "offline");
-    q.set("prompt", "consent");
+    // `prompt=consent` e `prompt=none` são mutuamente exclusivos. No silencioso
+    // manda `none`: se o Google não devolver refresh_token, a gravação recusa a
+    // conexão (ver o callback) e a pessoa cai no fluxo visível, que pede
+    // consentimento e traz o refresh.
+    if (!input.silencioso) q.set("prompt", "consent");
   }
+  if (input.silencioso) q.set("prompt", "none");
   // `login_hint` abre a tela do provedor JÁ na conta corporativa da pessoa (o
   // e-mail funcional do cadastro do RH). Num navegador com o e-mail pessoal
   // logado — o caso comum — sem isto a tela oferece a conta errada, e conectar a

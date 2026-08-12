@@ -90,12 +90,21 @@ export async function GET(
     return paginaDeErro(e instanceof Error ? e.message : "Falha ao iniciar o consentimento.");
   }
 
+  // SILENCIOSO: o widget abre esta rota num iframe escondido logo ao carregar,
+  // apostando na sessão que o navegador já tem com o provedor (a pessoa entrou
+  // no sistema anfitrião por SSO). Dá certo → a conta aparece conectada sem
+  // ninguém clicar em nada; dá errado → o iframe morre em silêncio e o botão
+  // continua ali. É otimização de fluxo, não um caminho de permissão distinto:
+  // passa pelas MESMAS validações de chave, rastreio, estado e credencial.
+  const silencioso = url.searchParams.get("silent") === "1";
+
   const destino = urlDeConsentimento({
     provider,
     cfg: cred.cfg,
     redirectUri: redirectUri(provider),
     nonce,
     loginHint: emailEsperado,
+    silencioso,
   });
   return Response.redirect(destino, 302);
 }

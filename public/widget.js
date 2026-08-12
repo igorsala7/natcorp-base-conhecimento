@@ -7127,10 +7127,52 @@
 
   /** Abre o consentimento em POPUP. `window.open` DIRETO no clique — um fetch no
    *  meio faria o navegador tratar a abertura como não solicitada e bloquear. */
-  function abrirConsentimento(provider) {
-    var url = API + "/api/v1/connect/" + encodeURIComponent(provider) + "/start"
+  function urlConsentimento(provider, silencioso) {
+    return API + "/api/v1/connect/" + encodeURIComponent(provider) + "/start"
       + "?key=" + encodeURIComponent(KEY)
-      + "&track=" + encodeURIComponent((track && track.token) || "");
+      + "&track=" + encodeURIComponent((track && track.token) || "")
+      + (silencioso ? "&silent=1" : "");
+  }
+
+  /**
+   * CONEXÃO SILENCIOSA: a pessoa entrou no sistema anfitrião por SSO, então o
+   * navegador já tem sessão com o provedor. Uma tentativa `prompt=none` num
+   * iframe de 0px resolve o consentimento sem clique nenhum — quando os escopos
+   * já foram consentidos (por ela antes, ou pelo administrador para o
+   * diretório inteiro). Quando não dá, o iframe morre calado e o botão continua
+   * ali: nada é anunciado, porque não houve falha nenhuma do ponto de vista de
+   * quem está usando.
+   *
+   * Uma vez por sessão e por provedor. Repetir a cada carregamento de página
+   * seria uma ida à Microsoft por navegação, sem nada de novo a descobrir.
+   */
+  var silencioTentado = {};
+  function tentarConexaoSilenciosa(provider) {
+    if (silencioTentado[provider]) return;
+    silencioTentado[provider] = true;
+    try {
+      if (sessionStorage.getItem("kb.conn.silent." + provider)) return;
+      sessionStorage.setItem("kb.conn.silent." + provider, "1");
+    } catch (e) { }
+    var fr = document.createElement("iframe");
+    fr.setAttribute("aria-hidden", "true");
+    fr.style.cssText = "position:absolute;width:0;height:0;border:0;opacity:0;pointer-events:none";
+    fr.src = urlConsentimento(provider, true);
+    _silentFrame = fr;
+    document.body.appendChild(fr);
+    // Rede lenta ou provedor que decide desenhar tela (o iframe é bloqueado por
+    // X-Frame-Options e nada volta): 20s e desiste, sem deixar iframe pendurado.
+    setTimeout(function () { fecharSilencioso(); }, 20000);
+  }
+  var _silentFrame = null;
+  function fecharSilencioso() {
+    if (!_silentFrame) return;
+    try { _silentFrame.remove(); } catch (e) { }
+    _silentFrame = null;
+  }
+
+  function abrirConsentimento(provider) {
+    var url = urlConsentimento(provider, false);
     var w = 520, h = 680;
     var x = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
     var y = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
@@ -7171,6 +7213,8 @@
         if (promptBar) promptBar.appendChild(b);
       }
       pintarBotaoConta(c);
+      // Não conectada: tenta em silêncio antes de a pessoa precisar clicar.
+      if (!c.conectada) tentarConexaoSilenciosa(c.provider);
     });
   }
 
@@ -7215,8 +7259,20 @@
   // O popup do consentimento avisa quem o abriu (ver `pagina.tsx`). Recarrega o
   // estado para o botão virar "conectado" sem a pessoa precisar recarregar nada.
   window.addEventListener("message", function (ev) {
-    if (ev.data === "kb:conexao:ok") { toastWidget(wt("contaOk")); carregarContas(); }
-    else if (ev.data === "kb:conexao:erro") { carregarContas(); }
+    if (ev.data === "kb:conexao:ok") {
+      // Sucesso vindo da tentativa silenciosa não merece toast: ninguém pediu
+      // nada, e avisar "conta conectada" sobre um clique que não houve confunde
+      // mais do que informa. O botão mudando de estado já conta a história.
+      var silencioso = !!_silentFrame;
+      fecharSilencioso();
+      if (!silencioso) toastWidget(wt("contaOk"));
+      carregarContas();
+    } else if (ev.data === "kb:conexao:silencio") {
+      fecharSilencioso();
+    } else if (ev.data === "kb:conexao:erro") {
+      fecharSilencioso();
+      carregarContas();
+    }
   });
 
   function setupBaseDados() {

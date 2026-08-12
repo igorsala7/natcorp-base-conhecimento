@@ -1,16 +1,18 @@
 /**
- * As duas telas que o popup de consentimento pode terminar mostrando.
+ * As telas que o consentimento pode terminar mostrando.
  *
  * HTML servido direto, sem React nem layout do app: este popup abre num
  * contexto isolado, some em segundos, e carregar o bundle do admin aqui só
  * atrasaria o fechamento.
  *
- * O `postMessage` avisa a janela que abriu (o widget) para ela atualizar o
- * estado sem precisar ficar consultando o servidor. `targetOrigin` fica em
- * `"*"` de propósito e é seguro AQUI: a mensagem não carrega token nem dado
- * pessoal — só "deu certo" ou "deu errado". Restringir exigiria conhecer a
- * origem do host, que varia por cliente, e um alvo errado silenciaria o aviso
- * sem qualquer ganho de segurança.
+ * O `postMessage` avisa quem abriu o fluxo (o widget) para ele atualizar o
+ * estado sem ficar consultando o servidor. Vai para `opener` E `parent`: no
+ * fluxo normal isto roda num popup, e na tentativa SILENCIOSA roda dentro de um
+ * iframe escondido, onde `opener` é nulo. `targetOrigin` fica em `"*"` de
+ * propósito e é seguro AQUI: a mensagem não carrega token nem dado pessoal — só
+ * "deu certo", "deu errado" ou "não deu para fazer em silêncio". Restringir
+ * exigiria conhecer a origem do host, que varia por cliente, e um alvo errado
+ * silenciaria o aviso sem qualquer ganho de segurança.
  */
 
 const CSS = `
@@ -42,6 +44,7 @@ function pagina(icone: string, titulo: string, texto: string, evento: string, fe
 </div>
 <script>
   try { window.opener && window.opener.postMessage(${JSON.stringify(evento)}, "*"); } catch (e) {}
+  try { window.parent && window.parent !== window && window.parent.postMessage(${JSON.stringify(evento)}, "*"); } catch (e) {}
   ${fecharEm === null ? "" : `setTimeout(function () { try { window.close(); } catch (e) {} }, ${fecharEm});`}
 </script>
 </body></html>`;
@@ -67,6 +70,16 @@ export function paginaDeSucesso(conta: string | null): Response {
     "kb:conexao:ok",
     1500,
   );
+}
+
+/**
+ * A tentativa silenciosa não deu (sem sessão no provedor, ou escopos ainda não
+ * consentidos). NÃO é erro: é o caminho normal para quem nunca conectou. Sai
+ * como página mínima, sem texto de falha — ela vive dentro de um iframe de 0px,
+ * e o widget só precisa saber que pode parar de esperar e mostrar o botão.
+ */
+export function paginaSilencioFalhou(): Response {
+  return pagina("", "", "", "kb:conexao:silencio", 200);
 }
 
 export function paginaDeErro(motivo: string): Response {
