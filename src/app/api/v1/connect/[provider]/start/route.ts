@@ -98,13 +98,20 @@ export async function GET(
   // passa pelas MESMAS validações de chave, rastreio, estado e credencial.
   const silencioso = url.searchParams.get("silent") === "1";
 
-  const destino = urlDeConsentimento({
-    provider,
-    cfg: cred.cfg,
-    redirectUri: redirectUri(provider),
-    nonce,
-    loginHint: emailEsperado,
-    silencioso,
-  });
+  let destino: string;
+  try {
+    destino = urlDeConsentimento({
+      provider,
+      cfg: cred.cfg,
+      redirectUri: redirectUri(provider),
+      nonce,
+      loginHint: emailEsperado,
+      silencioso,
+    });
+  } catch (e) {
+    // Configuração do servidor (ver `redirectUri`): a pessoa não tem o que
+    // fazer, mas a frase é o que o administrador precisa ler.
+    return paginaDeErro(e instanceof Error ? e.message : "Falha ao montar o consentimento.");
+  }
   return Response.redirect(destino, 302);
 }

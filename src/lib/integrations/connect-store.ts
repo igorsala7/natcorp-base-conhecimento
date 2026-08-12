@@ -3,6 +3,10 @@ import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, encryptSecret } from "@/lib/crypto/secrets";
 import type { ConfigDelegada, ProviderConnect, Tokens } from "./oauth-user";
+import { redirectUri } from "./redirect-uri";
+
+// Reexportado: as rotas de consentimento importam os dois daqui desde sempre.
+export { redirectUri };
 
 /**
  * Persistência do consentimento delegado.
@@ -143,19 +147,6 @@ export async function credencialPorId(credentialId: string): Promise<CredencialD
   } catch {
     return null;
   }
-}
-
-/**
- * O `redirect_uri`, que precisa bater BYTE A BYTE com o registrado no provedor
- * — divergência devolve `AADSTS50011` e nenhuma pista melhor.
- *
- * Sai de `NEXT_PUBLIC_SITE_URL`, que já inclui o basePath em produção
- * (`https://www.natcorpbr.com.br/natcorp/ia`), e não da URL da requisição: o
- * app está atrás de nginx, e derivar do request traria o host interno.
- */
-export function redirectUri(provider: ProviderConnect): string {
-  const raiz = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/+$/, "");
-  return `${raiz}/api/v1/connect/${provider}/callback`;
 }
 
 /** Cria o nonce do fluxo, amarrado à credencial e à pessoa. */
