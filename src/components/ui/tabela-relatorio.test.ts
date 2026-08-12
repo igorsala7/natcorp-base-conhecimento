@@ -15,6 +15,7 @@ function funcoesDoWidget(): {
   colunaNumerica: (linhas: string[][], j: number) => boolean;
   csvDaTabela: (d: { colunas: string[]; linhas: string[][] }) => string;
   mdtAgregar: (celulas: unknown[], calc: string) => number | null;
+  celulaAbreviada: (v: unknown) => boolean;
 } {
   const src = readFileSync("public/widget.js", "utf8");
   const trecho = (nome: string): string => {
@@ -23,13 +24,15 @@ function funcoesDoWidget(): {
     const fim = src.indexOf("\n  }\n", ini);
     return src.slice(ini, fim + 4);
   };
-  const fonte = ["kbMediana", "celulaNumero", "colunaNumerica", "csvDaTabela", "mdtAgregar"]
+  const fonte = ["kbMediana", "celulaNumero", "celulaAbreviada", "colunaNumerica", "csvDaTabela", "mdtAgregar"]
     .map(trecho)
     .join("\n");
-  return new Function(`${fonte}\nreturn { celulaNumero, colunaNumerica, csvDaTabela, mdtAgregar };`)();
+  return new Function(
+    `${fonte}\nreturn { celulaNumero, celulaAbreviada, colunaNumerica, csvDaTabela, mdtAgregar };`,
+  )();
 }
 
-const { celulaNumero, colunaNumerica, csvDaTabela, mdtAgregar } = funcoesDoWidget();
+const { celulaNumero, celulaAbreviada, colunaNumerica, csvDaTabela, mdtAgregar } = funcoesDoWidget();
 
 describe("celulaNumero — o número como a pessoa LÊ", () => {
   it("entende o formato pt-BR", () => {
@@ -164,5 +167,28 @@ describe("mdtAgregar — o cálculo do gráfico", () => {
     // se a resposta fosse "nenhum", quando a resposta é "não dá para somar".
     expect(mdtAgregar(["Superior Completo", "Médio"], "soma")).toBeNull();
     expect(mdtAgregar([], "media")).toBeNull();
+  });
+});
+
+describe("celulaAbreviada — quando o gráfico avisa que não é exato", () => {
+  // A regra do produto é número batendo centavos. Quando a tabela já veio
+  // arredondada, o montador precisa DIZER isso em vez de mostrar um total que
+  // parece exato — o valor perdido na abreviação não volta.
+  it("reconhece a escala abreviada", () => {
+    expect(celulaAbreviada("R$ 2,3 Mi")).toBe(true);
+    expect(celulaAbreviada("-R$ 614 K")).toBe(true);
+    expect(celulaAbreviada("1,2 bi")).toBe(true);
+  });
+
+  it("valor completo não dispara aviso", () => {
+    expect(celulaAbreviada("R$ 2.300.000,00")).toBe(false);
+    expect(celulaAbreviada("1.240")).toBe(false);
+    expect(celulaAbreviada("-614000")).toBe(false);
+  });
+
+  it("texto sem número não é valor abreviado", () => {
+    expect(celulaAbreviada("Mi")).toBe(false);
+    expect(celulaAbreviada("São Paulo - SP")).toBe(false);
+    expect(celulaAbreviada("")).toBe(false);
   });
 });

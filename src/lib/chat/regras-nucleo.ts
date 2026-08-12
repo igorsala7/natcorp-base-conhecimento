@@ -46,3 +46,27 @@ export function regraRotulosColuna(): string {
     "JSON/banco (\"COD_CARGO\", \"DS_NOME\", \"VL_SALARIO\")."
   );
 }
+
+/**
+ * NÚMERO EXATO — decisão do Igor (12/08/2026): "os números precisam sempre ser
+ * exatos, batendo centavos".
+ *
+ * O modelo condensava valores na tabela ("R$ 2,3 Mi", "-R$ 614 K", "1,2 mil"),
+ * que é bom de LER e péssimo como DADO: aquela tabela é salva em Relatórios
+ * Salvos, baixada em CSV e vira gráfico. O leitor do widget até entende a
+ * escala abreviada, mas 2,3 Mi não é um número — é uma faixa. O que se perde na
+ * abreviação não volta depois, em lugar nenhum.
+ *
+ * A regra separa os dois usos: no texto corrido, arredondar ajuda a entender;
+ * dentro de tabela, o valor é matéria-prima e vai inteiro.
+ */
+export function regraNumerosExatos(): string {
+  return (
+    "NÚMEROS EM TABELA SÃO EXATOS: dentro de uma tabela markdown, escreva o valor COMPLETO, como ele veio da " +
+    "ferramenta/relatório — \"R$ 2.300.000,00\", \"-614.000,00\", \"1.240\". NUNCA abrevie escala (Mi, MM, K, mil, " +
+    "bi) e NUNCA arredonde para 'facilitar': essa tabela é salva como relatório, exportada em CSV e vira gráfico, e o " +
+    "valor abreviado não volta a ser exato depois. No TEXTO ao redor da tabela você PODE resumir (\"cerca de 2,3 " +
+    "milhões\") — ali é leitura, não dado. Não invente casas decimais que a origem não trouxe: exato é igual à fonte, " +
+    "não mais preciso que ela."
+  );
+}

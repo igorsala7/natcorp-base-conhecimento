@@ -5539,6 +5539,20 @@
     return neg ? -n : n;
   }
 
+  /**
+   * A célula veio ABREVIADA ("2,3 Mi", "614 K")?
+   *
+   * O leitor entende a escala e o gráfico desenha — mas 2,3 Mi não é um número,
+   * é uma faixa. Como a regra do produto é número exato batendo centavos, o
+   * montador AVISA quando está desenhando em cima de valor arredondado, em vez
+   * de apresentar um total que parece exato e não é. A causa se conserta no
+   * prompt (regraNumerosExatos); isto aqui é para a tabela que já existe.
+   */
+  function celulaAbreviada(txt) {
+    var t = String(txt == null ? "" : txt).trim();
+    return !!t && /\d/.test(t) && /(mil|mi|mm|m|bi|b|tri|t|k)\.?\s*$/i.test(t);
+  }
+
   /** A coluna tem número na maioria das linhas? (candidata a eixo de valor) */
   function colunaNumerica(linhas, j) {
     var comValor = 0, numericas = 0;
@@ -5793,9 +5807,16 @@
       var vazio = series.every(function (s) {
         return s.valores.every(function (v) { return v == null || v === 0; });
       });
+      // Alguma célula usada no cálculo veio abreviada? Então o total NÃO fecha
+      // no centavo, e quem olha o gráfico precisa saber disso.
+      var abreviado = !contaLinhas && ordem.some(function (j) {
+        return dados.linhas.some(function (l) { return celulaAbreviada(l[j]); });
+      });
       dica.textContent = vazio
         ? "Nenhum número nessa coluna para " + rotuloCalc(calc).toLowerCase() + ". Tente \"Contar linhas\" ou \"Contar diferentes\"."
-        : chaves.length + " categoria(s) · " + dicaDoTipo(selTipo.value);
+        : (abreviado ? "⚠ Valores abreviados na tabela (ex.: 2,3 Mi) — o gráfico usa o valor arredondado, não o exato. " : "")
+          + chaves.length + " categoria(s) · " + dicaDoTipo(selTipo.value);
+      dica.style.color = abreviado && !vazio ? "#b45309" : "";
 
       onDesenhar({
         tipo: selTipo.value,
