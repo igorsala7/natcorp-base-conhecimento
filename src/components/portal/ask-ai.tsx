@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Sparkles, Send, X, Eraser, Paperclip, ThumbsUp, ThumbsDown, FileText, Image as ImageIcon, Mic, Square, Loader2 } from "lucide-react";
 import { useVoiceInput } from "@/components/chat/use-voice";
 import { controlClass } from "@/components/ui/input";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 import { Markdown } from "@/components/ui/markdown";
 import { TypingIndicator } from "@/components/ui/typing-indicator";
 import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
@@ -58,6 +59,12 @@ type AskAiPanelProps = {
   open: boolean;
   onClose: () => void;
   initialQuestion?: string;
+  /**
+   * Perguntas de partida do estado vazio. Vêm do TEMA DO ESPAÇO
+   * (`spaces.theme.ia.sugestoes`) — e não da config da chave de widget, que é
+   * por chave e não existe para o portal. Ver `src/lib/portal/theme.ts`.
+   */
+  sugestoes?: string[];
 };
 
 /**
@@ -78,6 +85,7 @@ function AskAiPanelInner({
   open,
   onClose,
   initialQuestion,
+  sugestoes = [],
 }: AskAiPanelProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -101,6 +109,16 @@ function AskAiPanelInner({
   // quando há identidade (p_base + p_usuario); é a chave por visitante.
   const [track, setTrack] = useState<Record<string, string> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const painelRef = useRef<HTMLDivElement>(null);
+  /** Turno em curso — o botão "Parar" o cancela. */
+  const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Citação clicada: `{ msg, n }`. Abre a sanfona de fontes DAQUELA resposta e
+   * destaca o cartão. Antes, a ligação entre o `[1]` do texto e o cartão era só
+   * visual — numa resposta com seis fontes, conferir a terceira era trabalho
+   * manual de quem lê, com a sanfona ainda por cima fechada.
+   */
+  const [citacaoAtiva, setCitacaoAtiva] = useState<{ msg: number; n: number } | null>(null);
   const askedRef = useRef<string | null>(null);
   // Histórico relido por identidade (3B) — carregado uma vez ao montar.
   const historyLoadedRef = useRef(false);
@@ -213,13 +231,11 @@ function AskAiPanelInner({
     };
   }, [track, spaceSlug]);
 
-  // Fecha com Esc.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Esc, foco preso, foco inicial no campo e devolução ao gatilho — o mesmo
+  // gancho do Dialog (`use-foco-preso.ts`). Antes só o Esc existia: quem
+  // navegava por teclado abria o painel e seguia tabulando pela página ATRÁS
+  // dele, e ao fechar era largado no topo do documento.
+  useFocoPreso(open, painelRef, onClose);
 
   // Pergunta inicial (vinda da busca sem resultado).
   useEffect(() => {
@@ -231,8 +247,18 @@ function AskAiPanelInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialQuestion]);
 
+  /**
+   * Rola para o fim — mas SÓ se a pessoa já estava lá (mesma regra do widget:
+   * 80px de folga). Rolar sempre arranca a leitura de quem subiu para reler um
+   * trecho, que é exatamente o que se faz numa resposta longa enquanto ela
+   * ainda está chegando.
+   */
   function scrollDown() {
-    requestAnimationFrame(() => scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight));
+    const el = scrollRef.current;
+    if (!el) return;
+    const perto = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!perto) return;
+    requestAnimationFrame(() => el.scrollTo(0, el.scrollHeight));
   }
 
   /**
@@ -258,9 +284,14 @@ function AskAiPanelInner({
       setInput("");
     }
     setStreaming(true);
+    // INTERROMPER: uma resposta longa que saiu do rumo obrigava a esperar o fim
+    // ou fechar o painel. O widget já tinha isso ("Parar"); aqui não havia como.
+    const abort = new AbortController();
+    abortRef.current = abort;
     try {
       const res = await fetch(comBase("/api/portal/chat"), {
         method: "POST",
+        signal: abort.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           spaceSlug,
@@ -346,8 +377,13 @@ function AskAiPanelInner({
         }
       }
     } catch (e) {
-      updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
+      // Interrupção pedida pela pessoa não é falha: o texto que já chegou fica
+      // (é o que ela leu), e um "Erro: AbortError" no lugar dele seria mentira.
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       scrollDown();
     }
@@ -369,12 +405,12 @@ function AskAiPanelInner({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label="Perguntar à IA">
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Perguntar à IA">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm motion-safe:animate-[fade_150ms_ease-out]"
         onClick={onClose}
       />
-      <div className="relative flex h-dvh w-full max-w-md flex-col overflow-hidden bg-surface shadow-3 motion-safe:animate-[slidein_200ms_ease-out] sm:m-3 sm:h-[calc(100dvh-1.5rem)] sm:rounded-3xl">
+      <div ref={painelRef} className="relative flex h-dvh w-full max-w-md flex-col overflow-hidden bg-surface shadow-3 motion-safe:animate-[slidein_200ms_ease-out] sm:m-3 sm:h-[calc(100dvh-1.5rem)] sm:rounded-3xl">
         {/* Cabeçalho com gradiente da marca */}
         <div className={`flex items-center gap-3 px-4 py-4 text-white ${GRAD}`}>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/20 shadow-sm">
@@ -405,7 +441,17 @@ function AskAiPanelInner({
           </button>
         </div>
 
-        <div ref={scrollRef} className="slim-scroll flex-1 space-y-4 overflow-auto bg-surface-2/50 p-4">
+        {/* A resposta chega token a token. Sem `aria-live`, quem usa leitor de
+            tela não sabe que há resposta vindo nem que ela terminou — o
+            indicador "pensando" tem `role=status` próprio, mas some no primeiro
+            token, que é justamente quando o conteúdo começa a existir.
+            `polite` (e não `assertive`) para não atropelar a leitura em curso. */}
+        <div
+          ref={scrollRef}
+          aria-live="polite"
+          aria-busy={streaming}
+          className="slim-scroll flex-1 space-y-4 overflow-auto bg-surface-2/50 p-4"
+        >
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
               <span className={`mb-4 flex size-14 items-center justify-center rounded-2xl text-white shadow-2 ${GRAD}`}>
@@ -415,6 +461,23 @@ function AskAiPanelInner({
               <p className="mt-1.5 max-w-[17rem] text-sm leading-relaxed text-text-muted">
                 Faça uma pergunta sobre esta documentação — as respostas citam as fontes.
               </p>
+              {/* Perguntas de partida: caixa vazia é o pior convite — quem não
+                  sabe o que a ferramenta faz não sabe o que perguntar, e fecha.
+                  Somem no primeiro envio (viram histórico). Alvo de 44px. */}
+              {sugestoes.length > 0 && (
+                <div className="mt-6 flex w-full flex-col gap-2">
+                  {sugestoes.slice(0, 6).map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => void ask(q)}
+                      className="min-h-11 rounded-2xl border border-border bg-surface px-3.5 py-2.5 text-left text-sm text-text shadow-1 transition-colors hover:border-primary hover:text-primary"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {messages.map((m, i) =>
@@ -456,7 +519,17 @@ function AskAiPanelInner({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="inline-block max-w-full rounded-2xl rounded-tl-md border border-border bg-surface px-3.5 py-2.5 text-sm shadow-1">
-                    {m.content ? <Markdown content={m.content} /> : <TypingIndicator className="py-0.5" />}
+                    {m.content ? (
+                      <Markdown
+                        content={m.content}
+                        citacao={{
+                          existe: (n) => (m.citations ?? []).some((c) => c.n === n),
+                          onIr: (n) => setCitacaoAtiva({ msg: i, n }),
+                        }}
+                      />
+                    ) : (
+                      <TypingIndicator className="py-0.5" />
+                    )}
                   </div>
                   {m.options && m.options.length > 0 && (
                     <div className="mt-2.5 flex flex-col gap-2">
@@ -499,7 +572,7 @@ function AskAiPanelInner({
                   {m.citations && m.citations.length > 0 && (
                     // Fechada por padrão: no painel estreito do portal a lista de
                     // fontes empurrava a resposta para fora da vista.
-                    <details className="group mt-2.5">
+                    <details className="group mt-2.5" open={citacaoAtiva?.msg === i || undefined}>
                       <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-text-muted shadow-sm transition-colors hover:text-text">
                         <ChevronRight className="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" />
                         Fontes
@@ -515,13 +588,17 @@ function AskAiPanelInner({
                           // basePath do Next (só <Link>/router.push recebem). Sob
                           // /natcorp/ia isso mandava o leitor para fora do app → 404.
                           const href = c.url ? comBase(c.url) : null;
+                          const alvo = citacaoAtiva?.msg === i && citacaoAtiva.n === c.n;
                           return (
                             <Tag
                               key={c.n}
                               {...(href ? { href } : {})}
-                              className={`flex items-start gap-2 rounded-xl border border-border bg-surface p-2.5 text-sm no-underline shadow-sm ${
-                                c.url ? "transition-colors hover:border-primary" : ""
-                              }`}
+                              // `ref` no cartão alvo: abrir a sanfona não basta
+                              // se a fonte 6 estiver fora da vista.
+                              ref={alvo ? ((el: HTMLElement | null) => el?.scrollIntoView({ block: "nearest" })) as never : undefined}
+                              className={`flex items-start gap-2 rounded-xl border p-2.5 text-sm no-underline shadow-sm ${
+                                alvo ? "border-primary bg-primary/5" : "border-border bg-surface"
+                              } ${c.url ? "transition-colors hover:border-primary" : ""}`}
                             >
                               <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
                               <span className="min-w-0">
@@ -669,14 +746,28 @@ function AskAiPanelInner({
               aria-label="Pergunta"
               className={`${controlClass} min-h-11 flex-1 rounded-2xl`}
             />
-            <button
-              type="submit"
-              disabled={streaming || pending.some((p) => !p.att) || (!input.trim() && pending.length === 0)}
-              aria-label="Enviar"
-              className={`flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-1 transition-transform hover:enabled:scale-105 disabled:opacity-40 ${GRAD}`}
-            >
-              <Send className="size-4" />
-            </button>
+            {/* Enquanto responde, o MESMO botão interrompe — o lugar onde a
+                mão já está. Botão separado obrigaria a procurar. */}
+            {streaming ? (
+              <button
+                type="button"
+                onClick={() => abortRef.current?.abort()}
+                aria-label="Parar a resposta"
+                title="Parar"
+                className="flex size-11 shrink-0 items-center justify-center rounded-full bg-text text-surface shadow-1 transition-transform hover:scale-105"
+              >
+                <Square className="size-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={pending.some((p) => !p.att) || (!input.trim() && pending.length === 0)}
+                aria-label="Enviar"
+                className={`flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-1 transition-transform hover:enabled:scale-105 disabled:opacity-40 ${GRAD}`}
+              >
+                <Send className="size-4" />
+              </button>
+            )}
           </div>
         </form>
       </div>

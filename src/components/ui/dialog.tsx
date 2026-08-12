@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useFocoPreso } from "./use-foco-preso";
 
 /**
  * Modal canônico do produto.
@@ -54,7 +55,6 @@ export function Dialog({
   bodyClassName?: string;
 }) {
   const painelRef = useRef<HTMLDivElement>(null);
-  const gatilhoRef = useRef<HTMLElement | null>(null);
   // Largura arrastada (px). null = usa a largura inicial do CSS.
   const [width, setWidth] = useState<number | null>(null);
 
@@ -88,58 +88,9 @@ export function Dialog({
    * (setState → render → nova função) fazia o efeito rodar de novo e devolver o
    * foco ao primeiro campo — impossível escrever uma palavra inteira.
    */
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  // Depende SÓ de `open`: monta o foco preso uma vez por abertura.
-  useEffect(() => {
-    if (!open) return;
-    gatilhoRef.current = document.activeElement as HTMLElement | null;
-
-    const foco = () =>
-      painelRef.current?.querySelectorAll<HTMLElement>(
-        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
-      ) ?? ([] as unknown as NodeListOf<HTMLElement>);
-
-    // Foco no primeiro CAMPO, quando houver — é o que a pessoa veio preencher.
-    // Sem campo, cai no primeiro focável que não seja o "fechar".
-    const campo = painelRef.current?.querySelector<HTMLElement>(
-      'input:not([disabled]),select:not([disabled]),textarea:not([disabled])',
-    );
-    const alvos = foco();
-    (campo ?? alvos[1] ?? alvos[0])?.focus();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const lista = foco();
-      if (lista.length === 0) return;
-      const primeiro = lista[0]!;
-      const ultimo = lista[lista.length - 1]!;
-      if (e.shiftKey && document.activeElement === primeiro) {
-        e.preventDefault();
-        ultimo.focus();
-      } else if (!e.shiftKey && document.activeElement === ultimo) {
-        e.preventDefault();
-        primeiro.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKey, true);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden"; // não rola a página atrás
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      document.body.style.overflow = overflow;
-      gatilhoRef.current?.focus();
-    };
-  }, [open]);
+  // O foco preso mora em `use-foco-preso.ts` — o drawer "Perguntar à IA"
+  // precisa do mesmo comportamento sem a casca deste modal.
+  useFocoPreso(open, painelRef, onClose);
 
   if (!open) return null;
 

@@ -88,9 +88,12 @@ export function SearchTrigger({
 export function PortalAssistant({
   spaceSlug,
   supportUrl,
+  sugestoes,
 }: {
   spaceSlug: string;
   supportUrl?: string;
+  /** Perguntas de partida do assistente (tema do espaço → `ia.sugestoes`). */
+  sugestoes?: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -347,6 +350,7 @@ export function PortalAssistant({
         spaceSlug={spaceSlug}
         open={ask.open}
         initialQuestion={ask.question}
+        sugestoes={sugestoes}
         onClose={() => setAsk({ open: false })}
       />
     </>

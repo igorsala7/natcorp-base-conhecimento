@@ -76,6 +76,7 @@ function paraGravar(t: TemaResolvido) {
       fontSize: t.article.fontSize,
       divider: t.article.divider,
     },
+    ...(t.ia.sugestoes.length > 0 ? { ia: { sugestoes: t.ia.sugestoes } } : {}),
     ...(t.tracking.ga4 ? { tracking: { ga4: t.tracking.ga4 } } : {}),
     ...(t.supportUrl ? { supportUrl: t.supportUrl } : {}),
     ...(t.supportEmail ? { supportEmail: t.supportEmail } : {}),
@@ -797,6 +798,31 @@ export function AppearanceEditor({
               rows={2}
               value={tema.home.supportText}
               onChange={(e) => setHome({ supportText: e.target.value })}
+              className={controlClass}
+            />
+          </Field>
+        </Surface>
+
+        <Surface elevation={1} padding="lg" className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+            Assistente de IA
+          </h2>
+          <Field
+            label="Perguntas sugeridas"
+            htmlFor="ia-sugestoes"
+            hint="Uma por linha, até 6. Aparecem na conversa vazia do assistente do portal — uma caixa de texto vazia não diz a quem chega o que dá para perguntar."
+          >
+            <textarea
+              id="ia-sugestoes"
+              rows={4}
+              value={(tema.ia.sugestoes ?? []).join("\n")}
+              placeholder={"Como solicito minhas férias?\nOnde vejo meu holerite?"}
+              onChange={(e) =>
+                setTema((t) => ({
+                  ...t,
+                  ia: { sugestoes: e.target.value.split("\n").map((q) => q.trim()).filter(Boolean).slice(0, 6) },
+                }))
+              }
               className={controlClass}
             />
           </Field>

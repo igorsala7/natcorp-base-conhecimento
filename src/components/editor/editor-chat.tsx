@@ -201,7 +201,9 @@ export function EditorChat({
         </div>
       </div>
 
-      <div className="flex-1 space-y-2.5 overflow-y-auto p-3">
+      {/* A resposta chega token a token. Sem `aria-live`, quem usa leitor de
+          tela não sabe que há resposta vindo nem que ela terminou. */}
+      <div aria-live="polite" aria-busy={ocupado} className="flex-1 space-y-2.5 overflow-y-auto p-3">
         {msgs.length === 0 && (
           <p className="rounded-lg border border-dashed border-border p-3 text-xs leading-relaxed text-text-muted">
             Peça mudanças (&ldquo;adicione uma seção sobre pré-requisitos&rdquo;, &ldquo;transforme

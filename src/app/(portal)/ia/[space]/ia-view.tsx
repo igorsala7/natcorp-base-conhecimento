@@ -6,7 +6,16 @@ import { Sparkles, BookOpen } from "lucide-react";
 import { AskAiPanel } from "@/components/portal/ask-ai";
 
 /** Página cheia do assistente: intro de marca + o painel de IA aberto por padrão. */
-export function IaView({ spaceSlug, spaceName }: { spaceSlug: string; spaceName: string }) {
+export function IaView({
+  spaceSlug,
+  spaceName,
+  sugestoes,
+}: {
+  spaceSlug: string;
+  spaceName: string;
+  /** Perguntas de partida (tema do espaço → `ia.sugestoes`). */
+  sugestoes?: string[];
+}) {
   const [open, setOpen] = useState(true);
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-5 bg-surface px-6 py-16 text-center">
@@ -34,7 +43,7 @@ export function IaView({ spaceSlug, spaceName }: { spaceSlug: string; spaceName:
           <BookOpen className="size-4" /> Ver documentação
         </Link>
       </div>
-      <AskAiPanel spaceSlug={spaceSlug} open={open} onClose={() => setOpen(false)} />
+      <AskAiPanel spaceSlug={spaceSlug} open={open} sugestoes={sugestoes} onClose={() => setOpen(false)} />
     </main>
   );
 }

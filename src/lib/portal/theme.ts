@@ -218,6 +218,21 @@ export const ThemeSchema = z.object({
       divider: z.enum(["band", "line", "space"]).optional(),
     })
     .optional(),
+  /**
+   * Assistente de IA do portal (o drawer "Perguntar à IA").
+   *
+   * As perguntas de partida moram AQUI, e não na config da chave de widget:
+   * `widget_keys.config.suggestions` é por CHAVE DE WIDGET — o drawer do portal
+   * não tem chave, ele é do espaço da documentação. Amarrar um no outro faria a
+   * tela do portal depender de uma chave que pode nem existir para o espaço.
+   */
+  ia: z
+    .object({
+      /** Perguntas mostradas na conversa vazia. Caixa vazia é o pior convite:
+       *  quem não sabe o que a ferramenta faz não sabe o que perguntar. */
+      sugestoes: z.array(z.string().trim().min(3).max(120)).max(6).optional(),
+    })
+    .optional(),
   /** Integrações de rastreio do portal. Só o Measurement ID do GA4 —
    *  snippet livre de script é vetor de XSS e não entra no tema. */
   tracking: z
@@ -256,6 +271,7 @@ export type TemaResolvido = {
     supportText: string;
     regions: { key: RegiaoKey; on: boolean }[];
   };
+  ia: { sugestoes: string[] };
   article: {
     related: boolean;
     fontSize: "compact" | "normal" | "large";
@@ -339,6 +355,7 @@ export function resolveTheme(raw: unknown): TemaResolvido {
       fontSize: t.article?.fontSize ?? "normal",
       divider: t.article?.divider ?? "band",
     },
+    ia: { sugestoes: (t.ia?.sugestoes ?? []).filter((q) => q.trim()).slice(0, 6) },
     tracking: { ga4: t.tracking?.ga4 ?? null },
     supportUrl: t.supportUrl || null,
     supportEmail: t.supportEmail || null,

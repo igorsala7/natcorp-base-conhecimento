@@ -3786,6 +3786,16 @@
       ".m.a code{background:#f0ebf7;border-radius:5px;padding:1px 5px;font-size:.85em}" +
       ".m.a pre{background:#f4f0fa;border-radius:10px;padding:10px;overflow-x:auto;margin:6px 0}" +
       ".m.a pre code{background:none;padding:0}" +
+      // Citação clicável no corpo da resposta + cartão destacado ao clicar.
+      ".citn{font:inherit;font-size:.75em;font-weight:700;color:var(--pc);background:color-mix(in srgb,var(--pc) 12%,#fff);border:none;border-radius:4px;padding:0 4px;margin:0 2px;cursor:pointer;vertical-align:baseline}" +
+      ".citn:hover{background:color-mix(in srgb,var(--pc) 22%,#fff)}" +
+      ".cite.on{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 6%,#fff)}" +
+      // Tabela: a rolagem horizontal fica NO BLOCO. Na conversa, ela arrastaria
+      // as outras mensagens para fora da tela junto.
+      ".m.a .mdt{overflow-x:auto;margin:8px 0;max-width:100%}" +
+      ".m.a table{border-collapse:collapse;font-size:12.5px;min-width:100%}" +
+      ".m.a th,.m.a td{border-bottom:1px solid #ece3f6;padding:5px 8px;vertical-align:top;white-space:nowrap}" +
+      ".m.a th{font-weight:700;color:var(--pc);background:#faf7fd;position:sticky;top:0}" +
       // Citações (alinhadas sob o balão do assistente: 30 av + 9 gap = 39)
       ".cdet{align-self:stretch;margin:0 0 0 39px}" +
       ".cites{display:flex;flex-direction:column;gap:8px;margin-top:6px}" +
@@ -5359,6 +5369,21 @@
     t = t.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
     return t;
   }
+  // Tabela em markdown — as mesmas regras do renderizador React
+  // (src/components/ui/markdown.tsx). Os dois têm um corpus de casos em comum
+  // (markdown-paridade.test.ts) que falha quando um dialeto anda sem o outro.
+  function ehLinhaTabela(l) { return !!l && /^\s*\|.*\|\s*$/.test(l); }
+  /** Separador `|---|:--:|` — é ele que distingue tabela de texto com canos. */
+  function ehSeparadorTabela(l) { return !!l && /^\s*\|[\s:|-]*-[\s:|-]*\|\s*$/.test(l); }
+  function celulasMd(l) {
+    return String(l).trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(function (c) { return c.trim(); });
+  }
+  function alinhamentosMd(sep) {
+    return celulasMd(sep).map(function (c) {
+      var ini = c.charAt(0) === ":", fim = c.charAt(c.length - 1) === ":";
+      return ini && fim ? "center" : fim ? "right" : "left";
+    });
+  }
   function mdToHtml(src) {
     var lines = String(src == null ? "" : src).replace(/\r\n/g, "\n").split("\n");
     var html = "", i = 0;
@@ -5370,6 +5395,33 @@
         while (i < lines.length && !/^```/.test(lines[i].trim())) { code.push(esc(lines[i])); i++; }
         i++;
         html += "<pre><code>" + code.join("\n") + "</code></pre>";
+        continue;
+      }
+      // TABELA | a | b | + separador |---|. É a ausência que mais dói nas
+      // respostas com dados ("quantos por unidade"): sem ela, a resposta chega
+      // como parede de canos verticais. O `overflow-x` fica no BLOCO (.mdt) —
+      // no contêiner da conversa, uma tabela larga faria a conversa inteira
+      // rolar de lado, levando junto o texto das outras mensagens.
+      //
+      // Cada célula passa por `inlineMd`, que começa com `esc()`: é por aqui que
+      // entra conteúdo de documento de terceiro, e uma célula é o lugar mais
+      // fácil de esquecer de escapar.
+      if (ehLinhaTabela(line) && ehSeparadorTabela(lines[i + 1])) {
+        var cab = celulasMd(line), alin = alinhamentosMd(lines[i + 1]);
+        i += 2;
+        var corpo = [];
+        while (i < lines.length && ehLinhaTabela(lines[i])) { corpo.push(celulasMd(lines[i])); i++; }
+        var ths = cab.map(function (c, j) {
+          return '<th style="text-align:' + alin[j] + '">' + inlineMd(c) + "</th>";
+        }).join("");
+        var trs = corpo.map(function (linhaCels) {
+          // Percorre o CABEÇALHO, não a linha: célula faltando vira vazia e
+          // sobra é descartada — linha torta não desalinha a tabela toda.
+          return "<tr>" + cab.map(function (_, j) {
+            return '<td style="text-align:' + alin[j] + '">' + inlineMd(linhaCels[j] == null ? "" : linhaCels[j]) + "</td>";
+          }).join("") + "</tr>";
+        }).join("");
+        html += '<div class="mdt"><table><thead><tr>' + ths + "</tr></thead><tbody>" + trs + "</tbody></table></div>";
         continue;
       }
       var h = line.match(/^(#{1,6})\s+(.*)$/);
@@ -6996,6 +7048,8 @@
       var temLink = !!c.url;
       var a = document.createElement(temLink ? "a" : "span");
       a.className = temLink ? "cite" : "cite cite-nolink";
+      // O número no cartão é o que o `[n]` do texto procura ao ser clicado.
+      a.setAttribute("data-cite", String(c.n));
       if (temLink) {
         a.href = API + c.url;
         a.target = "_blank";
@@ -7035,7 +7089,66 @@
   // o Histórico de conversas reusar o mesmo bloco de fontes.
   function renderCitations(cites) {
     var det = construirCitacoes(cites);
-    if (det) { messagesEl.appendChild(det); messagesEl.scrollTop = messagesEl.scrollHeight; }
+    if (det) {
+      messagesEl.appendChild(det);
+      // Liga o [n] do texto ao cartão: a ligação era só visual, e conferir a
+      // terceira fonte de seis era trabalho manual de quem lê.
+      ligarCitacoes(det, cites);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  }
+
+  /**
+   * Transforma `[1]` do texto em botão que ABRE a sanfona e DESTACA o cartão.
+   *
+   * Roda sobre os nós de TEXTO do balão (não sobre innerHTML): reescrever o HTML
+   * inteiro aqui desfaria os links e o realce que o markdown já montou. Só vira
+   * botão o número que EXISTE na lista — o modelo às vezes escreve [3] com duas
+   * fontes, e um botão que não leva a lugar nenhum é o mesmo defeito com
+   * afordância de clique.
+   */
+  function ligarCitacoes(det, cites) {
+    var balao = det.previousElementSibling;
+    while (balao && !(balao.classList && balao.classList.contains("m"))) balao = balao.previousElementSibling;
+    if (!balao) return;
+    var existe = {};
+    cites.forEach(function (c) { existe[String(c.n)] = true; });
+
+    var walker = document.createTreeWalker(balao, NodeFilter.SHOW_TEXT, null);
+    var textos = [], n;
+    while ((n = walker.nextNode())) if (/\[\d{1,2}\]/.test(n.nodeValue || "")) textos.push(n);
+
+    textos.forEach(function (no) {
+      var frag = document.createDocumentFragment();
+      var resto = no.nodeValue, m;
+      var re = /\[(\d{1,2})\]/g, ultimo = 0;
+      while ((m = re.exec(resto))) {
+        if (!existe[m[1]]) continue;
+        if (m.index > ultimo) frag.appendChild(document.createTextNode(resto.slice(ultimo, m.index)));
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "citn";
+        b.textContent = m[1];
+        b.title = "Ver a fonte " + m[1];
+        b.setAttribute("data-ir", m[1]);
+        frag.appendChild(b);
+        ultimo = m.index + m[0].length;
+      }
+      if (!frag.childNodes.length) return;
+      if (ultimo < resto.length) frag.appendChild(document.createTextNode(resto.slice(ultimo)));
+      no.parentNode.replaceChild(frag, no);
+    });
+
+    balao.addEventListener("click", function (ev) {
+      var alvo = ev.target && ev.target.closest && ev.target.closest("[data-ir]");
+      if (!alvo) return;
+      det.open = true;
+      var cartao = det.querySelector('[data-cite="' + alvo.getAttribute("data-ir") + '"]');
+      if (!cartao) return;
+      det.querySelectorAll(".cite.on").forEach(function (e) { e.classList.remove("on"); });
+      cartao.classList.add("on");
+      try { cartao.scrollIntoView({ block: "nearest" }); } catch (e) { }
+    });
   }
 
   // ==== Base de Dados (fontes do chat: uploads + relatórios salvos) ====

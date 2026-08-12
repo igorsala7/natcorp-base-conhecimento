@@ -271,7 +271,9 @@ export function ChatPanel({
         </Button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto p-4">
+      {/* A resposta chega token a token. Sem `aria-live`, quem usa leitor de
+          tela não sabe que há resposta vindo nem que ela terminou. */}
+      <div ref={scrollRef} aria-live="polite" aria-busy={streaming} className="flex-1 space-y-4 overflow-auto p-4">
         {messages.length === 0 && (
           <p className="py-8 text-center text-sm text-text-muted">
             Faça uma pergunta sobre a documentação.

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getPortalAccess } from "@/lib/portal/data";
+import { resolveTheme } from "@/lib/portal/theme";
 import { IaView } from "./ia-view";
 
 /**
@@ -17,5 +18,6 @@ export default async function IaPage({ params }: { params: Promise<{ space: stri
   const { space } = await params;
   const access = await getPortalAccess(space);
   if (!access) notFound();
-  return <IaView spaceSlug={access.space.slug} spaceName={access.space.name} />;
+  const tema = resolveTheme(access.space.theme);
+  return <IaView spaceSlug={access.space.slug} spaceName={access.space.name} sugestoes={tema.ia.sugestoes} />;
 }

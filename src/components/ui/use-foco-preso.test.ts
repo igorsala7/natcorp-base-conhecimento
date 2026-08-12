@@ -15,19 +15,23 @@ import { fileURLToPath } from "node:url";
  * Não há jsdom no projeto (ambiente `node`), então o teste é sobre a FONTE.
  * É um guarda grosseiro, mas pega exatamente a regressão que já aconteceu:
  * qualquer valor reativo que mude a cada render voltando para essas deps.
+ *
+ * O efeito saiu do `dialog.tsx` para `use-foco-preso.ts` quando o drawer
+ * "Perguntar à IA" passou a usar a mesma armadilha de foco — o guarda seguiu
+ * junto, e agora protege os dois de uma vez.
  */
-const fonte = readFileSync(fileURLToPath(new URL("./dialog.tsx", import.meta.url)), "utf8");
+const fonte = readFileSync(fileURLToPath(new URL("./use-foco-preso.ts", import.meta.url)), "utf8");
 
-describe("Dialog — foco preso", () => {
+describe("useFocoPreso — foco preso", () => {
   it("o efeito do foco depende SÓ de `open`", () => {
     // Deps de todos os useEffect do arquivo, na ordem em que aparecem.
     const deps = [...fonte.matchAll(/\n\s*\},\s*\[([^\]]*)\]\);/g)].map((m) => m[1]!.trim());
     // O último é o efeito grande (foco + Esc + Tab); o primeiro só sincroniza o ref.
-    expect(deps.at(-1)).toBe("open");
+    expect(deps.at(-1)).toBe("aberto");
   });
 
   it("`onClose` é chamado por ref dentro do efeito, não capturado direto", () => {
-    const efeito = fonte.slice(fonte.indexOf("if (!open) return;"), fonte.lastIndexOf("}, [open]);"));
+    const efeito = fonte.slice(fonte.indexOf("if (!aberto) return;"), fonte.lastIndexOf("}, [aberto]);"));
     expect(efeito).toContain("onCloseRef.current()");
     // Nenhuma chamada direta a `onClose(` no corpo do efeito — seria stale.
     expect(/[^.]\bonClose\(/.test(efeito)).toBe(false);

@@ -327,7 +327,7 @@ gtag('config', '${tema.tracking.ga4}');`}
         </footer>
       )}
 
-      <PortalAssistant spaceSlug={space.slug} supportUrl={supportUrl} />
+      <PortalAssistant spaceSlug={space.slug} supportUrl={supportUrl} sugestoes={tema.ia.sugestoes} />
       {/* Só aparece para quem pode editar — a checagem é no navegador, então o
           HTML entregue é o mesmo para todos e a rota segue anônima. */}
       <EditAffordance spaceId={space.id} nodeId={activeNodeId} />
