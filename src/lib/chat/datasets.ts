@@ -15,10 +15,36 @@ import { parseNumBR } from "./num-br";
 
 export type DatasetRow = Record<string, unknown>;
 export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[]; headers?: string[] };
-export type DatasetRegistry = { list: Dataset[] };
+export type DatasetRegistry = {
+  list: Dataset[];
+  /** Ids EFETIVAMENTE consultados pelas ferramentas de dados neste turno.
+   *
+   *  Existir na lista não é usar: o widget manda as tabelas da tela em todo
+   *  turno, e o chat exibia "Resposta baseada no relatório visível nesta tela"
+   *  sempre que houvesse UMA tabela na página — mesmo quando a resposta veio da
+   *  documentação ou de uma ferramenta de API. O aviso passou a ser uma frase
+   *  automática, e frase automática sobre procedência de dado é pior que
+   *  nenhuma: ensina a desconfiar do que está certo. */
+  usados: Set<string>;
+};
 
 export function newRegistry(): DatasetRegistry {
-  return { list: [] };
+  return { list: [], usados: new Set() };
+}
+
+/** Resolve o id E registra o uso — todo consumo de dataset passa por aqui. */
+function acharDataset(reg: DatasetRegistry, id: string): Dataset | undefined {
+  const ds = reg.list.find((d) => d.id === id);
+  // `usados` pode faltar em registro montado à mão (testes antigos): o uso é
+  // diagnóstico, nunca pode derrubar uma consulta de dados.
+  if (ds) reg.usados?.add(ds.id);
+  return ds;
+}
+
+/** Alguma tabela DA TELA foi de fato consultada neste turno? */
+export function usouDadosDaTela(reg: DatasetRegistry): boolean {
+  for (const id of reg.usados ?? []) if (id.startsWith("tela")) return true;
+  return false;
 }
 
 /**
@@ -309,7 +335,7 @@ export function expandirTabela(
   colunas?: string[],
   max = 50000,
 ): TabelaExpandida | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const keys = campos && campos.length ? campos.map((k) => String(k).trim()) : ds.colunas;
   if (keys.length === 0) return null;
@@ -522,7 +548,7 @@ export function avisoColunaEscolhida(
   coluna: string,
   sinal?: SinalColuna,
 ): string | null {
-  const ds = reg.list.find((d) => d.id === id);
+  const ds = acharDataset(reg, id);
   if (!ds || !coluna?.trim()) return null;
   return avisoDeColuna(resolverColunaInfo(ds, coluna, sinal));
 }
@@ -557,7 +583,7 @@ export function textoDatasetsDisponiveis(reg: DatasetRegistry): string {
  * escolhia a PRIMEIRA em silêncio — e o número saía errado sem ninguém ver.
  */
 export function explicarColuna(reg: DatasetRegistry, id: string, coluna: string, sinal?: SinalColuna): string {
-  const ds = reg.list.find((d) => d.id === id);
+  const ds = acharDataset(reg, id);
   const nomes = ds ? (ds.headers ?? ds.colunas) : [];
   if (!ds) return `A coluna "${coluna}" não pôde ser resolvida: a tabela "${id}" não existe neste turno.`;
   const info = resolverColunaInfo(ds, coluna, sinal);
@@ -576,7 +602,7 @@ export function explicarColuna(reg: DatasetRegistry, id: string, coluna: string,
 
 /** Coluna mais parecida com `alvo` num dataset — para sugerir no erro ("você quis dizer…"). */
 export function colunaMaisProxima(reg: DatasetRegistry, id: string, alvo: string): string | null {
-  const ds = reg.list.find((d) => d.id === id);
+  const ds = acharDataset(reg, id);
   if (!ds) return null;
   const info = resolverColunaInfo(ds, alvo);
   if (info.idx !== null) return info.nome;
@@ -619,7 +645,7 @@ export function consultarDataset(
   modo: "E" | "OU" = "E",
   amostraMax = 50,
 ): ConsultaResultado | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const nomes = ds.colunas;
   const asRow = (r: DatasetRow) => nomes.map((_c, i) => celula(r["c" + i]));
@@ -753,7 +779,7 @@ export function agregarDataset(
   filtros: Filtro[] = [],
   modo: "E" | "OU" = "E",
 ): AgregacaoResultado | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const idxCol = resolverColuna(ds, coluna, { tipo: OPS_VALOR_ID.has(operacao) ? "numerico" : "qualquer" });
   const base: AgregacaoResultado = { operacao, coluna, valor: 0, linhasConsideradas: 0, valoresNumericos: 0, ignorados: 0 };
@@ -793,7 +819,7 @@ export function estatisticasColuna(
   filtros: Filtro[] = [],
   modo: "E" | "OU" = "E",
 ): EstatisticasColuna | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const vazio: EstatisticasColuna = {
     coluna, linhas: 0, validos: 0, ignorados: 0, distintos: 0, soma: 0, media: 0, mediana: 0, moda: null,
@@ -835,7 +861,7 @@ export function agruparDataset(
   limite = 100,
   colunaGrupo2?: string,
 ): { grupos: GrupoResultado[]; totalGrupos: number } | { colunaNaoEncontrada: string } | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const idxG = resolverColuna(ds, colunaGrupo, { tipo: "texto" });
   if (idxG == null) return { colunaNaoEncontrada: colunaGrupo };
@@ -947,7 +973,7 @@ export function derivarColuna(
   nomeColuna?: string,
   amostraMax = 30,
 ): DerivacaoResultado | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const nomes = ds.colunas;
   const base: DerivacaoResultado = {
@@ -1051,7 +1077,7 @@ export function classificarColuna(
   nomeColuna?: string,
   amostraMax = 30,
 ): ClassificacaoResultado | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const nomes = ds.colunas;
   const idx = resolverColuna(ds, coluna, { tipo: "numerico" });
@@ -1136,7 +1162,7 @@ export function projetarSerie(
   metodo: MetodoProjecao = "auto",
   amostraMax = 30,
 ): ProjecaoResultado | null {
-  const ds = reg.list.find((d) => d.id === datasetId);
+  const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
   const nomes = ds.colunas;
   const h = Math.min(Math.max(1, Math.floor(horizonte)), 24);

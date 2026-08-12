@@ -2195,25 +2195,32 @@
   // Disclaimer CONTEXTUAL: reflete a fonte REAL da resposta (relatório da tela × base
   // de dados × cruzamento × campos da tela), em linguagem simples. Retorna null quando
   // não há fonte de tela/base clara (aí não mostra nada).
-  function disclaimerTexto(body) {
-    var bd = body.baseDados;
-    var temFontes = bd && ((bd.relatorioIds && bd.relatorioIds.length) || (bd.attachmentIds && bd.attachmentIds.length));
-    var temTela = !!(body.reportData || (body.screenTables && body.screenTables.length));
-    var temCampos = !!(body.fields && body.fields.length);
-    if (temFontes) {
+  /**
+   * O aviso de procedência, a partir do que o SERVIDOR diz ter usado.
+   *
+   * Antes ele saía do próprio pedido: existir uma tabela na página bastava para
+   * o chat afirmar "Resposta baseada no relatório visível nesta tela", ainda que
+   * a resposta viesse da documentação ou de uma ferramenta de API. Virou frase
+   * automática — e frase automática sobre origem de dado ensina a desconfiar do
+   * que está certo. Agora quem informa é o evento `fonte`, que reflete os
+   * datasets EFETIVAMENTE consultados no turno.
+   *
+   * Sem o evento (servidor antigo), nenhum aviso: não afirmar é melhor que
+   * afirmar por hábito.
+   */
+  function disclaimerTexto(f) {
+    if (!f) return null;
+    if (f.fontesFixadas) {
       var base = "Resposta baseada nos arquivos e relatórios que você escolheu";
-      if (bd.modo === "so_fontes") return base + " (apenas essas fontes).";
-      var trecho = temTela ? " e no relatório desta tela" : (temCampos ? " e nas informações desta tela" : "");
-      if (bd.modo === "exclusiva") return base + trecho + ".";
-      return base + trecho + " e no conhecimento da IA.";
+      if (f.soFontes) return base + " (apenas essas fontes).";
+      return base + (f.tela ? " e no relatório desta tela" : "") + ".";
     }
-    if (body.comparacao) return "Resposta baseada no cruzamento entre esta tela e o relatório salvo, considerando os filtros aplicados.";
-    if (body.reportData) return "Resposta baseada nos dados do relatório desta tela, considerando os filtros aplicados.";
-    if (temTela) return "Resposta baseada no relatório visível nesta tela.";
+    if (f.comparacao) return "Resposta baseada no cruzamento entre esta tela e o relatório salvo, considerando os filtros aplicados.";
+    if (f.tela) return "Resposta baseada no relatório visível nesta tela.";
     return null;
   }
-  function mostrarDisclaimer(body) {
-    var txt = disclaimerTexto(body);
+  function mostrarDisclaimer(f) {
+    var txt = disclaimerTexto(f);
     if (!txt) return;
     var d = document.createElement("div");
     d.style.cssText = "margin:2px 0 8px 40px;max-width:88%;font-size:11.5px;font-style:italic;color:#6b7280;";
@@ -6580,6 +6587,7 @@
     var full = ""; // texto completo já recebido do servidor
     var citations = [];
     var conectarPendente = []; // contas que a IA disse faltar (vira botão no fim)
+    var fonteTurno = null;     // o que o servidor DE FATO usou (evento `fonte`)
     var clarified = false;
     var ehFinalTurno = true; // false em passos intermediários do loop (sem feedback/citações)
     _acoes = []; // ações de tela recebidas NESTE turno (guard de stream vazio)
@@ -6802,6 +6810,9 @@
             console.log("[kb-chat][fluxo] " + (evt.desfecho || "?"), ps);
           }
         } catch { }
+      } else if (evt.type === "fonte") {
+        // Procedência REAL do turno (ver `disclaimerTexto`).
+        fonteTurno = evt;
       } else if (evt.type === "connect") {
         // Conta pessoal pendente: guarda para desenhar o botão DEPOIS da
         // resposta (o evento chega antes do primeiro token; desenhar agora
@@ -6908,7 +6919,7 @@
         agendarReveal();
         // Disclaimer CONTEXTUAL: reflete a fonte real (relatório da tela / base de dados
         // / cruzamento). Só aparece quando há fonte de tela/base — texto coerente c/ ela.
-        mostrarDisclaimer(body);
+        mostrarDisclaimer(fonteTurno);
       } else if (!_acoes.length && !_charts.length && !_teveArquivo && !_teveEscolha && !_teveDestaque && !_coletando && !loopStep) {
         // Stream vazio SEM ação de tela, gráfico, arquivo, botões NEM coleta =
         // a chamada ao provedor falhou. (Se a IA só chamou uma tool visual/de

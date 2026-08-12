@@ -49,7 +49,7 @@ import { instrumentarTools } from "@/lib/chat/tool-trace";
 import { CircuitOpenError } from "@/lib/ai/circuit-breaker";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
-import { listarDatasets, newRegistry, type Filtro } from "@/lib/chat/datasets";
+import { listarDatasets, newRegistry, usouDadosDaTela, type Filtro } from "@/lib/chat/datasets";
 import { classificarAnalise, estimarCustoB, filtrarSubconjunto, avgCharsColuna } from "@/lib/chat/analysis-router";
 import { enqueueSemanticAnalyze } from "@/lib/jobs/boss";
 import { buildQueryTool } from "@/lib/chat/query-tools";
@@ -2310,6 +2310,26 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // assim escondia a falha do filtro por desfecho, que é como se procura o
       // problema na tela de logs.
       emitir(finalizarTrace(erroGeracao && !full.trim() ? "erro_provedor" : "resposta"));
+      // FONTE REAL da resposta, para o aviso do rodapé.
+      //
+      // Antes quem decidia era o widget, olhando o que ELE tinha enviado: uma
+      // tabela qualquer na página e o chat afirmava "Resposta baseada no
+      // relatório visível nesta tela" — mesmo quando a resposta veio da
+      // documentação ou de uma ferramenta de API. Só o servidor sabe o que foi
+      // consultado, e é `datasets.usados` que registra isso: a tabela existir
+      // no turno não é a mesma coisa que ela ter sido lida.
+      emitir(
+        sse({
+          type: "fonte",
+          tela: usouDadosDaTela(datasets) || modoRelatorio,
+          // Só afirma o que dá para afirmar: nos modos restritos a resposta É
+          // das fontes fixadas. No modo aberto o RAG pode ter usado outra coisa,
+          // e aí quem conta a procedência são as citações, não uma frase fixa.
+          fontesFixadas: baseTemFontes && (bd.modo === "exclusiva" || bd.modo === "so_fontes"),
+          soFontes: baseTemFontes && bd.modo === "so_fontes",
+          comparacao: !!payload.comparacao,
+        }),
+      );
       emitir(sse({ type: "done", conversationId: convId }));
       // Fechar um stream já cancelado também lança.
       try { controller.close(); } catch { }
