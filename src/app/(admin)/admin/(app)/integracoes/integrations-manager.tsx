@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Pencil, Plus, ShieldAlert, Stethoscope, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, KeyRound, Pencil, Plus, ShieldAlert, Stethoscope, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -565,14 +565,20 @@ function CredentialDialog({
   const [secret, setSecret] = useState<Record<string, string>>(
     cred?.provider ? { provider: cred.provider } : {},
   );
-  // Segredos ficam MASCARADOS até alguém pedir para ver — e o pedido é
-  // registrado no log. Ler não é o mesmo que trocar: trocar quebra a
-  // integração, revelar entrega um segredo que funciona fora daqui.
-  const [verSegredo, setVerSegredo] = useState(false);
+  // TUDO À VISTA, por decisão do Igor (11/08/2026) para facilitar a conferência
+  // dos dados durante a validação das integrações.
+  //
+  // Antes o segredo vinha mascarado e só aparecia sob clique, com o pedido
+  // gravado na auditoria. O que muda ao abrir mão disso: o valor passa a viajar
+  // no payload da página, ficando visível em devtools, no cache do navegador e
+  // em qualquer tela compartilhada. A auditoria CONTINUA — cada abertura grava
+  // `integrations.credential.reveal`, que é o rastro de quem viu o quê.
+  //
+  // Para voltar a mascarar: `comSegredo: false` no efeito abaixo e
+  // `type={f.secret ? "password" : "text"}` no campo.
   // Já nasce carregando quando há credencial: marcar dentro do efeito
   // dispararia um render em cascata (e o lint reprova, com razão).
   const [carregando, setCarregando] = useState(Boolean(cred?.id));
-  const [revelando, setRevelando] = useState(false);
   const toastCred = useToast();
 
   const campos = CREDENTIAL_FIELDS[authType];
@@ -587,7 +593,7 @@ function CredentialDialog({
   useEffect(() => {
     if (!cred?.id) return;
     let vivo = true;
-    void lerCredencial({ credentialId: cred.id, comSegredo: false })
+    void lerCredencial({ credentialId: cred.id, comSegredo: true })
       .then((r) => {
         if (!vivo) return;
         if (!("config" in r)) {
@@ -596,7 +602,8 @@ function CredentialDialog({
           if (!r.ok) toastCred.error(r.error);
           return;
         }
-        setSecret((prev) => ({ ...r.config, ...prev }));
+        // `prev` por último: o que a pessoa já digitou vence o que veio do banco.
+        setSecret((prev) => ({ ...r.config, ...r.segredo, ...prev }));
       })
       .finally(() => vivo && setCarregando(false));
     return () => { vivo = false; };
@@ -604,21 +611,6 @@ function CredentialDialog({
     // digitado com o que está gravado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cred?.id]);
-
-  function revelar() {
-    if (!cred?.id) return;
-    setRevelando(true);
-    void lerCredencial({ credentialId: cred.id, comSegredo: true })
-      .then((r) => {
-        if (!("segredo" in r)) {
-          if (!r.ok) toastCred.error(r.error);
-          return;
-        }
-        setSecret((prev) => ({ ...prev, ...r.segredo }));
-        setVerSegredo(true);
-      })
-      .finally(() => setRevelando(false));
-  }
 
   function setField(k: string, v: string) {
     setSecret((prev) => ({ ...prev, [k]: v }));
@@ -672,23 +664,13 @@ function CredentialDialog({
                 Já configurada. Deixe em branco para <strong>manter</strong> a atual; preencha para substituir.
               </p>
             )}
-            {/* Configuração (client_id, URL, scope) volta sozinha ao abrir. Só
-                o que é segredo exige o clique — e o clique fica no log. */}
+            {/* Tudo já vem preenchido e à vista, inclusive os segredos. O botão
+                "Ver segredos salvos" deixou de existir — não há mais o que revelar. */}
             {podeManter && chavesSecretas(authType).length > 0 && (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={revelando}
-                  onClick={() => (verSegredo ? setVerSegredo(false) : revelar())}
-                >
-                  {verSegredo ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
-                  {revelando ? "Lendo…" : verSegredo ? "Ocultar segredos" : "Ver segredos salvos"}
-                </Button>
-                <span className="text-xs text-text-muted">
-                  {verSegredo ? "Visível — registrado na auditoria." : "Os demais campos já vieram preenchidos."}
-                </span>
-              </div>
+              <p className="flex items-center gap-1.5 text-xs text-text-muted">
+                <Eye className="size-3.5 shrink-0" aria-hidden="true" />
+                Valores gravados à mostra para conferência — cada abertura fica registrada na auditoria.
+              </p>
             )}
             <div className="flex flex-col gap-2.5">
               {campos.map((f) => (
@@ -714,7 +696,9 @@ function CredentialDialog({
                       // Campo sensível só vira texto DEPOIS de revelado. Sem
                       // isso, quem abre a tela numa reunião compartilha o
                       // segredo sem perceber.
-                      type={f.secret && !verSegredo ? "password" : "text"}
+                      type="text"
+                      // Sem `type=password`: os valores ficam à vista para conferência.
+                      // Ver a nota no topo do componente para voltar a mascarar.
                       autoComplete="off"
                       value={secret[f.key] ?? ""}
                       onChange={(e) => setField(f.key, e.target.value)}

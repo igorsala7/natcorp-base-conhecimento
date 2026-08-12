@@ -385,8 +385,13 @@ export type CredencialLida = {
  * O corte segue a marca `secret` de cada campo:
  *
  *   • CONFIGURAÇÃO volta sempre. Não é segredo, e escondê-la só atrapalha.
- *   • SEGREDO volta apenas com `comSegredo`, e cada leitura vira registro no
- *     log de auditoria — quem viu, qual credencial e quando.
+ *   • SEGREDO volta com `comSegredo`, e cada leitura vira registro no log de
+ *     auditoria — quem viu, qual credencial e quando.
+ *
+ * A TELA hoje pede `comSegredo: true` na abertura (decisão do Igor, 11/08/2026:
+ * tudo à vista para conferir os dados durante a validação das integrações). O
+ * parâmetro continua existindo porque o corte é real e a volta é de uma linha —
+ * ver a nota no topo do `CredentialDialog`.
  *
  * Exige `integrations.manage`, a mesma permissão que já permite SUBSTITUIR o
  * segredo. Vale registrar a diferença: substituir só quebra a integração,
