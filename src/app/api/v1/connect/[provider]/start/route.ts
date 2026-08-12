@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { resolveWidgetKey, extractKey } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
-import { urlDeConsentimento, type ProviderConnect } from "@/lib/integrations/oauth-user";
+import { exigeEmailFuncional, urlDeConsentimento, type ProviderConnect } from "@/lib/integrations/oauth-user";
 import { abrirEstado, credencialDelegada, redirectUri } from "@/lib/integrations/connect-store";
 import { chavePessoal } from "@/lib/integrations/user-key";
 import { emailFuncionalDaPessoa } from "@/lib/integrations/email-funcional";
@@ -61,12 +61,20 @@ export async function GET(
     );
   }
 
-  // QUAL caixa esta pessoa deveria conectar. Sai do cadastro do RH
-  // (`meus_dados.email_funcional`), a mesma fonte que o chat usa — não de nada
-  // que o navegador afirme. Vira `login_hint` na tela do provedor e o alvo da
-  // checagem no callback. `null` (cadastro sem e-mail, ORDS fora) segue o fluxo
-  // sem pré-seleção e sem checagem: não saber nunca vira bloqueio.
-  const emailEsperado = await emailFuncionalDaPessoa(pBase, identityFromTrack(track));
+  // QUAL caixa esta pessoa deveria conectar, pelo cadastro do RH
+  // (`meus_dados.email_funcional`) — não por nada que o navegador afirme.
+  //
+  // Só é buscado quando o administrador declarou que o e-mail do cadastro É a
+  // conta do provedor (o mesmo campo que liga a checagem no callback). Sem essa
+  // declaração o cadastro é apenas um e-mail corporativo qualquer, e sugerir a
+  // conta pelo `login_hint` empurra a pessoa para um endereço que pode não
+  // existir no diretório — foi o que aconteceu em 11/08/2026: a tela abriu num
+  // e-mail de outro locatário e a Microsoft recusou com "Selected user account
+  // does not exist in tenant".
+  const exigeEmail = exigeEmailFuncional(cred.cfg);
+  const emailEsperado = exigeEmail
+    ? await emailFuncionalDaPessoa(pBase, identityFromTrack(track))
+    : null;
 
   let nonce: string;
   try {

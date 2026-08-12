@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { resolveWidgetKey, originAllowed, corsHeaders, clientIp, extractKey, rateLimitOk } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { chavePessoal, NOME_PROVEDOR } from "@/lib/integrations/user-key";
-import { contasDaPessoa, revogarConexao } from "@/lib/integrations/connect-store";
+import { contasDaPessoa, credencialDelegada, revogarConexao } from "@/lib/integrations/connect-store";
+import { exigeEmailFuncional } from "@/lib/integrations/oauth-user";
 import { emailFuncionalDaPessoa } from "@/lib/integrations/email-funcional";
 import { identityFromTrack } from "@/lib/integrations/params";
 
@@ -59,10 +60,21 @@ export async function POST(req: NextRequest) {
     return json({ ok: true, contas: await contasDaPessoa(baseCode, pessoa) }, 200);
   }
 
-  // Qual caixa a pessoa DEVE conectar (cadastro do RH). Buscado só quando há
-  // provedor para mostrar — em base sem integração pessoal seria uma ida à ORDS
-  // por carregamento de widget, sem nada para exibir no fim.
-  const esperado = contas.length ? await emailFuncionalDaPessoa(baseCode, identityFromTrack(track)) : null;
+  // Qual caixa a pessoa DEVE conectar (cadastro do RH) — só quando o
+  // administrador declarou que o e-mail do cadastro É a conta do provedor. Sem
+  // essa declaração, anunciar um endereço no botão manda a pessoa procurar uma
+  // conta que pode nem existir no diretório. De quebra, poupa uma ida à ORDS
+  // por carregamento de widget.
+  const exigeAlguma = (
+    await Promise.all(
+      contas.map(async (c) => {
+        if (c.provider !== "microsoft" && c.provider !== "google") return false;
+        const cred = await credencialDelegada(baseCode, c.provider);
+        return cred ? exigeEmailFuncional(cred.cfg) : false;
+      }),
+    )
+  ).some(Boolean);
+  const esperado = exigeAlguma ? await emailFuncionalDaPessoa(baseCode, identityFromTrack(track)) : null;
 
   return json(
     {
