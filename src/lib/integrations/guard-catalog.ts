@@ -27,6 +27,12 @@ export const GUARD_CATALOG: GuardInfo[] = [
     description: "Só passa se a matrícula pedida estiver na equipe do gestor logado. Bloqueia consultar quem não é da equipe.",
   },
   {
+    key: "processo_do_candidato",
+    label: "Processo seletivo do candidato",
+    description:
+      "Candidato só consulta a requisição de pessoal do processo seletivo DELE (validada contra os candidatos selecionados) — e a resposta sai sem salário, remuneração ou total de remuneração.",
+  },
+  {
     key: "saque_confirmation",
     label: "Confirmação de saque (e-mail)",
     description:

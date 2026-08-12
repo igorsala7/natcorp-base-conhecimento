@@ -86,6 +86,20 @@ export function ehParamCandidato(p: ToolParam): boolean {
 }
 
 /**
+ * Parâmetro que MIRA o PACIENTE de um exame — que, no ASO de recrutamento, é o
+ * próprio candidato (confirmado pelo Igor em 12/08/2026: `cod_paciente` é o
+ * código do candidato).
+ *
+ * Separado de `ehParamCandidato` porque só vale quando quem pergunta É um
+ * candidato: para o RH, "paciente" é qualquer pessoa examinada, e amarrá-lo à
+ * identidade ali quebraria a consulta de exames da equipe.
+ */
+export function ehParamPaciente(p: ToolParam): boolean {
+  const n = String(p.nome ?? "").toLowerCase();
+  return /(^|_)(cod_?)?paciente/.test(n) && semUser(n);
+}
+
+/**
  * Reescreve os parâmetros SÓ em "proprios": empresa, matrícula E cod_candidato passam
  * a vir da IDENTIDADE (o próprio usuário/candidato logado), então a IA nem enxerga
  * esses campos — é isso que fixa o "só o próprio dado" (ex.: um candidato só vê o
@@ -94,9 +108,17 @@ export function ehParamCandidato(p: ToolParam): boolean {
  * validada na equipe pelo guard (forçar a empresa quebraria gestor multi-empresa,
  * espelhando o antigo escopo_pessoa). "todos"/"nenhum" não mexem.
  */
-export function aplicarEscopoParams(params: ToolParam[], scope: EscopoPainel): ToolParam[] {
+export function aplicarEscopoParams(
+  params: ToolParam[],
+  scope: EscopoPainel,
+  candidato = false,
+): ToolParam[] {
   if (scope !== "proprios") return params;
   return params.map((p) => {
+    // Só para candidato: o "paciente" do exame é ele mesmo. Fora daí, paciente
+    // é quem o RH estiver consultando.
+    if (candidato && ehParamPaciente(p) && p.origem !== "identidade")
+      return { ...p, origem: "identidade" as const, campoIdentidade: "cod_candidato" as const };
     if (ehParamEmpresa(p) && p.origem !== "identidade")
       return { ...p, origem: "identidade" as const, campoIdentidade: "cod_empresa" as const };
     if (ehParamMatricula(p) && p.origem !== "identidade")

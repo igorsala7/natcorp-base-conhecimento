@@ -18,6 +18,7 @@ import { recorteTemCobertura } from "./module-match";
 import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
+import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { ehCandidato } from "@/lib/chat/tipo-acesso";
 import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
@@ -69,6 +70,31 @@ export type IntegrationBundle = {
    *  prompt e, no widget, o botão "Conectar conta". */
   precisaConectar?: ContaPendente[];
 };
+
+/**
+ * A PERSONA de quem está falando, sem montar ferramenta nenhuma.
+ *
+ * Usada no atalho "o pedido não precisa de dados": ali o turno é só
+ * documentação, mas o agente ainda precisa saber COM QUEM está falando — para o
+ * candidato, é a persona que impede o assistente de responder como se ele já
+ * fosse funcionário.
+ */
+async function personaDoPublico(
+  candidato: boolean,
+  perfil: string | undefined,
+  operador: boolean,
+): Promise<{ name: string; system_prompt: string | null } | null> {
+  const { data: agents } = await createAdminClient()
+    .from("ai_agents")
+    .select("name, system_prompt, priority, requires_perfil, publico")
+    .eq("active", true);
+  const alvo = candidato ? "candidato" : "colaborador";
+  const elegiveis = (agents ?? [])
+    .filter((a) => (a.publico ?? "colaborador") === alvo || (a.publico ?? "colaborador") === "ambos")
+    .filter((a) => a.system_prompt?.trim())
+    .filter((a) => candidato || operador || perfilAtende(a.requires_perfil, perfil));
+  return elegiveis.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0] ?? null;
+}
 
 /**
  * Monta as tools do AI SDK para uma base: as APIs HABILITADAS que pertencem a um
@@ -181,6 +207,14 @@ export async function buildIntegrationTools(
     }
   }
 
+  // CANDIDATO × COLABORADOR. O painel do candidato manda portal e perfil iguais
+  // aos do colaborador, então esta é a ÚNICA coisa que separa os dois — e ela
+  // decide agente, escopo de dados e login. Ver `tipo-acesso.ts`.
+  const candidato = ehCandidato({ matricula: identity.matricula, codCandidato: identity.cod_candidato });
+  const perfilAcesso = identity.perfil;
+  const portalAcesso = identity.portal;
+  const operador = (portalAcesso ?? "").trim().toUpperCase() === "PO";
+
   // ANÁLISE DO PEDIDO (Opção A + gate de dados) — ANTES do login/agentes, para
   // sair cedo quando é só INTERAÇÃO DE TELA / how-to (não precisa de nada disso →
   // menos tokens e resposta mais rápida). Só classifica quando faz sentido: a base
@@ -195,6 +229,22 @@ export async function buildIntegrationTools(
     });
     if (!analise.precisaDados && !sempreIncluir?.length) {
       onPasso?.("integracoes", { resultado: "sem tools", motivo: "classificador: pedido não precisa de dados (how-to/documentação)" });
+      // A PERSONA sobrevive ao atalho. Sem isto, uma pergunta de documentação
+      // (o caminho mais comum de um candidato) saía sem agente nenhum — e é
+      // justamente a persona que diz ao modelo que quem fala NÃO é funcionário
+      // e que assunto de colaborador não se aplica.
+      // Antes do login: o perfil aqui é o do TOKEN, que é justamente o que a
+      // trava de perfil dos agentes usa.
+      const persona = await personaDoPublico(candidato, perfilAcesso, operador);
+      if (persona) {
+        return {
+          tools: {},
+          capabilities: avisoContaPendente(precisaConectar),
+          agentPrompt: persona.system_prompt ?? "",
+          agentName: persona.name,
+          precisaConectar,
+        };
+      }
       // O aviso de conta sobrevive a esta saída antecipada pelo mesmo motivo da
       // saída de baixo: "manda um e-mail para o fulano" pode ser lido como
       // pedido SEM dados, e é justamente aí que a pessoa precisa do botão.
@@ -213,7 +263,11 @@ export async function buildIntegrationTools(
   // escolhe o vizinho plausível — cujo recorte corta justamente a ferramenta certa. Se
   // NENHUMA tool do catálogo cobre o recorte escolhido, ele não tem o que estreitar:
   // ignorar é estritamente melhor que cortar por um assunto que não existe mais.
-  let routingAtivo = recorte.length > 0;
+  // O recorte por assunto existe para estreitar um catálogo de dezenas de
+  // ferramentas. O do candidato tem meia dúzia, todas liberadas uma a uma — ali
+  // ele só cria buraco: o classificador escolhe um módulo e some com a
+  // ferramenta que o guard manda o agente chamar em seguida.
+  let routingAtivo = recorte.length > 0 && !candidato;
   if (routingAtivo && !recorteTemCobertura(ctx.tools.map((t) => t.modules), recorte)) {
     onPasso?.("integracoes:recorte_orfao", {
       recorte: recorte.map((m) => m.modulo),
@@ -231,13 +285,6 @@ export async function buildIntegrationTools(
   // token (ex.: "MASTER") — não o gestor/colaborador do login (esse só escolhe o
   // AGENTE). O OPERADOR (portal PO) tem acesso full às tools, restrito apenas pela
   // allowlist de perfil. Capturado ANTES do login sobrescrever `ident.perfil`.
-  // CANDIDATO × COLABORADOR. O painel do candidato manda portal e perfil iguais
-  // aos do colaborador, então esta é a ÚNICA coisa que separa os dois — e ela
-  // decide agente, escopo de dados e login. Ver `tipo-acesso.ts`.
-  const candidato = ehCandidato({ matricula: identity.matricula, codCandidato: identity.cod_candidato });
-  const perfilAcesso = identity.perfil;
-  const portalAcesso = identity.portal;
-  const operador = (portalAcesso ?? "").trim().toUpperCase() === "PO";
 
   let ident = identity;
   let profileNote = "";
@@ -440,7 +487,7 @@ export async function buildIntegrationTools(
     elegiveisTools.push({
       bt,
       escopo,
-      paramsEscopo: aplicarEscopoParams(bt.tool.params, escopo),
+      paramsEscopo: aplicarEscopoParams(bt.tool.params, escopo, candidato),
       loopEscopo: loopSobEscopo(bt.tool.loop, bt.tool.params, escopo),
     });
   }
@@ -715,6 +762,12 @@ export async function buildIntegrationTools(
             // "Nunca os próprios dados" (ex.: desligamento): tira as linhas do usuário
             // que a API por acaso devolveu (backstop do guard, que barra pedir a si).
             if (bt.tool.exclude_self) dados = filtrarProprioDosResultados(dados, String(ident.matricula ?? ""));
+            // CANDIDATO na requisição de pessoal: a vaga dele, sem os valores.
+            // A supressão anda junto do guard `processo_do_candidato` porque as
+            // duas metades vêm da mesma regra ("pode ver a requisição do próprio
+            // processo, não a remuneração") — separá-las deixaria a segunda
+            // metade fácil de esquecer ao cadastrar a ferramenta.
+            if (candidato && bt.tool.guard === "processo_do_candidato") dados = semRemuneracao(dados);
             // Arquivos em base64 são extraídos (para o canal entregar) e o base64
             // é removido do que volta ao modelo.
             const { cleaned, files } = extractDocumentsFromResult(dados);

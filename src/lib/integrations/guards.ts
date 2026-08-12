@@ -14,6 +14,7 @@ import type { RuntimeCredential } from "./executor";
 import type { Identity } from "./params";
 import type { EscopoPainel } from "./panel-scope";
 import { GUARD_CATALOG } from "./guard-catalog";
+import { ehCandidato } from "@/lib/chat/tipo-acesso";
 
 export type GuardResult = { ok: true } | { ok: false; erro: string };
 
@@ -93,6 +94,92 @@ async function teamMembership(ctx: GuardContext): Promise<GuardResult> {
   }
   if (!team.has(alvo)) {
     return { ok: false, erro: "Você só pode consultar colaboradores da sua própria equipe." };
+  }
+  return { ok: true };
+}
+
+// Requisições do processo seletivo de um candidato — mesma ideia do cache de
+// equipe: a lista muda pouco e a consulta se repete a cada pergunta.
+const processoCache = new Map<string, { exp: number; requisicoes: Set<string> }>();
+const PROCESSO_TTL = 5 * 60_000;
+
+/** Códigos de requisição/vaga em que ESTE candidato está inscrito. */
+async function fetchProcessosDoCandidato(ctx: GuardContext): Promise<Set<string>> {
+  const cred = ctx.credential!;
+  const cod = String(ctx.identity.cod_candidato ?? "").trim();
+  const cacheKey = `${cred.id}:${cod}`;
+  const hit = processoCache.get(cacheKey);
+  if (hit && hit.exp > Date.now()) return hit.requisicoes;
+
+  const fetchImpl = ctx.fetchImpl ?? fetch;
+  const token = await getOAuthToken(cred.id, cred.secret, fetchImpl);
+  const base = ctx.baseUrl.replace(/\/+$/, "");
+  const q = new URLSearchParams({ key: cred.secret.session_key ?? "", cod_candidato: cod });
+  const res = await fetchImpl(`${base}/chatbot/consultas/v1/candidatos_selecionados?${q.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = res.ok ? ((await res.json().catch(() => null)) as unknown) : null;
+  const items =
+    data && typeof data === "object" && Array.isArray((data as { items?: unknown }).items)
+      ? (data as { items: unknown[] }).items
+      : [];
+  const set = new Set<string>();
+  for (const i of items) {
+    const o = (i ?? {}) as Record<string, unknown>;
+    // O vínculo candidato↔requisição aparece com nomes diferentes conforme o
+    // endpoint (cod_req no filtro, cod_vaga no retorno). Aceita os três em vez
+    // de depender de um só e falhar em silêncio quando a ORDS renomear.
+    for (const campo of ["cod_req", "cod_vaga", "requisicao"]) {
+      const v = String(o[campo] ?? "").trim();
+      if (v) set.add(v);
+    }
+  }
+  processoCache.set(cacheKey, { exp: Date.now() + PROCESSO_TTL, requisicoes: set });
+  return set;
+}
+
+/**
+ * CANDIDATO consultando requisição de pessoal: só a(s) do processo seletivo
+ * DELE.
+ *
+ * A requisição de pessoal não tem campo de candidato — ela descreve a vaga, e
+ * sem esta checagem uma requisição qualquer traria a vaga de outra pessoa (com
+ * cargo, centro de custo e, no cadastro original, remuneração). O vínculo vem
+ * de `candidatos_selecionados`, que é escopado pelo código do candidato.
+ *
+ * Exige a requisição explícita: sem ela a consulta voltaria a lista inteira. A
+ * mensagem de recusa diz ao agente onde achar os códigos, para ele encadear em
+ * vez de repetir a mesma chamada.
+ */
+async function processoDoCandidato(ctx: GuardContext): Promise<GuardResult> {
+  // A ferramenta é a MESMA para o RH e para o candidato — o que muda é quem
+  // pergunta. Quem não é candidato segue pelo escopo normal do painel; sem esta
+  // passagem, marcar o guard na ferramenta a quebraria para operador e gestor,
+  // que não têm código de candidato nenhum.
+  if (!ehCandidato({ matricula: ctx.identity.matricula, codCandidato: ctx.identity.cod_candidato })) {
+    return escopoPainel(ctx);
+  }
+  const cod = String(ctx.identity.cod_candidato ?? "").trim();
+  if (!cod || !ctx.credential) {
+    return { ok: false, erro: "Esta consulta é do processo seletivo do próprio candidato, e não identifiquei seu cadastro." };
+  }
+  const pedida = String(ctx.modelArgs.requisicao ?? ctx.modelArgs.cod_req ?? "").trim();
+  if (!pedida) {
+    return {
+      ok: false,
+      erro:
+        "Informe a requisição. Consulte antes os processos seletivos deste candidato (ferramenta de candidatos " +
+        "selecionados) e use um dos códigos que vierem de lá.",
+    };
+  }
+  let minhas: Set<string>;
+  try {
+    minhas = await fetchProcessosDoCandidato(ctx);
+  } catch {
+    return { ok: false, erro: "Não consegui validar seu processo seletivo agora. Tente novamente em instantes." };
+  }
+  if (!minhas.has(pedida)) {
+    return { ok: false, erro: "Você só pode consultar a requisição do seu próprio processo seletivo." };
   }
   return { ok: true };
 }
@@ -300,6 +387,7 @@ async function escopoPainel(ctx: GuardContext): Promise<GuardResult> {
 
 const GUARDS: Record<string, (ctx: GuardContext) => Promise<GuardResult>> = {
   team_membership: teamMembership,
+  processo_do_candidato: processoDoCandidato,
   escopo_pessoa: escopoPessoa,
   escopo_painel: escopoPainel,
   saque_confirmation: saqueConfirmation,
