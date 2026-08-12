@@ -3790,6 +3790,14 @@
       ".citn{font:inherit;font-size:.75em;font-weight:700;color:var(--pc);background:color-mix(in srgb,var(--pc) 12%,#fff);border:none;border-radius:4px;padding:0 4px;margin:0 2px;cursor:pointer;vertical-align:baseline}" +
       ".citn:hover{background:color-mix(in srgb,var(--pc) 22%,#fff)}" +
       ".cite.on{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 6%,#fff)}" +
+      // Barra de ações da tabela + montador de gráfico.
+      ".mdtbar{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}" +
+      ".mdtg{border:1px solid color-mix(in srgb,var(--pc) 20%,#fff);border-radius:12px;padding:10px;margin:0 0 6px;background:#fcfaff}" +
+      ".mdtg-l{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}" +
+      ".mdtg-r{font-size:11px;font-weight:700;color:#6b6577;text-transform:uppercase;letter-spacing:.02em}" +
+      ".mdtg-s{font-size:12.5px;padding:5px 8px;border-radius:8px;border:1px solid #e2dbef;background:#fff;color:#17171a;max-width:180px}" +
+      ".mdtg-c{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:#17171a;background:#fff;border:1px solid #e2dbef;border-radius:999px;padding:4px 10px;cursor:pointer}" +
+      ".mdtg-d{font-size:11.5px;color:#6b6577}" +
       // Tabela: a rolagem horizontal fica NO BLOCO. Na conversa, ela arrastaria
       // as outras mensagens para fora da tela junto.
       ".m.a .mdt{overflow-x:auto;margin:8px 0;max-width:100%}" +
@@ -5454,6 +5462,235 @@
     return html;
   }
 
+
+  // ==== Tabela do markdown → relatório: salvar, CSV e gráfico ====
+  //
+  // A resposta em markdown vira uma tabela de verdade (mdToHtml). Daí para ela
+  // ser ÚTIL falta pouco, e é sempre a mesma coisa que a pessoa quer em
+  // seguida: guardar, levar para o Excel, ou ver em gráfico. As três ações
+  // reusam o que já existe — `apiSaved` (Relatórios Salvos), `kbBaixar` e
+  // `construirCardGrafico` —, então o gráfico montado aqui é o MESMO card do
+  // chat, com abas, zoom, tabela e exportação.
+
+  /** Lê uma <table> renderizada de volta para { colunas, linhas }. */
+  function lerTabelaDom(tabela) {
+    var colunas = [].slice.call(tabela.querySelectorAll("thead th")).map(function (th) {
+      return (th.textContent || "").trim();
+    });
+    var linhas = [].slice.call(tabela.querySelectorAll("tbody tr")).map(function (tr) {
+      return [].slice.call(tr.querySelectorAll("td")).map(function (td) { return (td.textContent || "").trim(); });
+    });
+    return { colunas: colunas, linhas: linhas };
+  }
+
+  /**
+   * Texto de célula → número, no formato que o usuário LÊ.
+   *
+   * "1.234,56", "R$ 1.200,00", "45%" e "(320)" (negativo contábil) são o que
+   * chega de um relatório em português. `Number()` cru devolve NaN em todos —
+   * e uma coluna inteira de NaN vira um gráfico vazio sem explicação.
+   */
+  function celulaNumero(txt) {
+    var t = String(txt == null ? "" : txt).trim();
+    if (!t) return null;
+    var neg = /^\(.*\)$/.test(t);
+    t = t.replace(/^\(|\)$/g, "").replace(/[R$\s%]/gi, "");
+    // pt-BR: ponto é MILHAR, vírgula é decimal.
+    //   "1.234,56" → tira os pontos, vírgula vira ponto;
+    //   "1.200"    → milhar também (grupos exatos de 3 dígitos) — deixar para o
+    //                `Number()` daria 1,2, e uma coluna inteira de valores mil
+    //                vezes menores desenha um gráfico plausível e ERRADO;
+    //   "1.5"      → aqui o ponto é decimal mesmo (não é grupo de 3).
+    if (t.indexOf(",") >= 0) t = t.replace(/\./g, "").replace(",", ".");
+    else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+    var n = Number(t);
+    if (!isFinite(n) || t === "") return null;
+    return neg ? -n : n;
+  }
+
+  /** A coluna tem número na maioria das linhas? (candidata a eixo de valor) */
+  function colunaNumerica(linhas, j) {
+    var comValor = 0, numericas = 0;
+    linhas.forEach(function (l) {
+      var v = l[j];
+      if (v == null || v === "") return;
+      comValor++;
+      if (celulaNumero(v) != null) numericas++;
+    });
+    // MAIORIA das células preenchidas, não quase todas: relatório real tem
+    // "n/d" no meio, e exigir 70% deixava de fora colunas obviamente numéricas.
+    // Errar aqui custa um clique (marcar/desmarcar), nos dois sentidos.
+    return comValor > 0 && numericas / comValor > 0.5;
+  }
+
+  function csvDaTabela(dados) {
+    function cell(v) { v = String(v == null ? "" : v); return /[";\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    // "sep=;" e BOM: é o que faz o Excel em português abrir nas colunas certas
+    // sem a pessoa passar pelo assistente de importação.
+    return "sep=;\r\n" + [dados.colunas].concat(dados.linhas)
+      .map(function (cols) { return cols.map(cell).join(";"); }).join("\r\n");
+  }
+
+  /** Barra de ações abaixo de cada tabela da resposta. */
+  function ligarTabelas(balao) {
+    [].slice.call(balao.querySelectorAll(".mdt")).forEach(function (wrap) {
+      if (wrap._temBarra) return;
+      var tabela = wrap.querySelector("table");
+      if (!tabela) return;
+      var dados = lerTabelaDom(tabela);
+      if (!dados.colunas.length || !dados.linhas.length) return;
+      wrap._temBarra = true;
+
+      var pc = (cfg && cfg.primaryColor) || "#511C76";
+      var bar = document.createElement("div");
+      bar.className = "mdtbar";
+      var nomeBase = "Relatório";
+
+      // Salvar: só com identidade (Relatórios Salvos é por usuário) — sem ela o
+      // botão prometeria algo que o servidor recusa.
+      if (hasPromptIdentity()) {
+        bar.appendChild(kbChartBtn("💾 Salvar", pc, function () {
+          promptNome("Salvar resultado", nomeBase,
+            dados.linhas.length + " registro(s) · " + dados.colunas.length + " coluna(s)",
+            function (nome) {
+              return apiSaved({
+                action: "save", kind: "report", name: nome, sourceName: nome,
+                columns: dados.colunas, rows: dados.linhas, total: dados.linhas.length,
+              });
+            });
+        }));
+      }
+      bar.appendChild(kbChartBtn("⬇ CSV", pc, function () {
+        kbBaixar(nomeBase + ".csv", "data:text/csv;charset=utf-8," + encodeURIComponent("﻿" + csvDaTabela(dados)));
+      }));
+      var btnG = kbChartBtn("📊 Gráfico", pc, function () { alternarMontador(); });
+      bar.appendChild(btnG);
+
+      var montador = null, cardAtual = null;
+      function alternarMontador() {
+        if (montador) {
+          montador.remove(); montador = null;
+          if (cardAtual) { cardAtual.remove(); cardAtual = null; }
+          btnG.textContent = "📊 Gráfico";
+          return;
+        }
+        btnG.textContent = "✕ Fechar gráfico";
+        montador = montarSeletorGrafico(dados, function (spec) {
+          var novo = construirCardGrafico(spec, { salvar: true }).card;
+          novo.style.margin = "8px 0 0";
+          novo.style.maxWidth = "100%";
+          if (cardAtual) cardAtual.replaceWith(novo); else montador.after(novo);
+          cardAtual = novo;
+        });
+        bar.after(montador);
+      }
+
+      wrap.after(bar);
+    });
+  }
+
+  /**
+   * Seletor de eixos + tipo. O X é a coluna de rótulo; cada coluna de VALOR
+   * marcada vira uma série, na ordem em que foi marcada — que é o que dá o
+   * "y, z, w" pedido: em dispersão/bolha o motor já lê série0=X, série1=Y,
+   * série2=tamanho; nos demais tipos, cada série é uma barra/linha.
+   */
+  function montarSeletorGrafico(dados, onDesenhar) {
+    var pc = (cfg && cfg.primaryColor) || "#511C76";
+    var box = document.createElement("div");
+    box.className = "mdtg";
+
+    var linha1 = document.createElement("div");
+    linha1.className = "mdtg-l";
+    var selTipo = document.createElement("select");
+    selTipo.className = "mdtg-s";
+    CHART_TIPOS.forEach(function (t) {
+      var o = document.createElement("option"); o.value = t[0]; o.textContent = t[1]; selTipo.appendChild(o);
+    });
+    var selX = document.createElement("select");
+    selX.className = "mdtg-s";
+    dados.colunas.forEach(function (c, j) {
+      var o = document.createElement("option"); o.value = String(j); o.textContent = c || ("Coluna " + (j + 1)); selX.appendChild(o);
+    });
+    linha1.appendChild(kbRotulo("Tipo")); linha1.appendChild(selTipo);
+    linha1.appendChild(kbRotulo("Eixo X")); linha1.appendChild(selX);
+    box.appendChild(linha1);
+
+    // Valores: as numéricas vêm marcadas de saída — na maioria das respostas é
+    // exatamente o que a pessoa queria, e ela só ajusta.
+    var numericas = dados.colunas.map(function (_, j) { return colunaNumerica(dados.linhas, j); });
+    var primeiraNaoNumerica = numericas.indexOf(false);
+    selX.value = String(primeiraNaoNumerica >= 0 ? primeiraNaoNumerica : 0);
+
+    var vals = document.createElement("div");
+    vals.className = "mdtg-l";
+    vals.appendChild(kbRotulo("Valores"));
+    var ordem = [];
+    dados.colunas.forEach(function (c, j) {
+      var lab = document.createElement("label");
+      lab.className = "mdtg-c";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = numericas[j];
+      if (cb.checked) ordem.push(j);
+      cb.addEventListener("change", function () {
+        var pos = ordem.indexOf(j);
+        if (cb.checked && pos < 0) ordem.push(j);
+        if (!cb.checked && pos >= 0) ordem.splice(pos, 1);
+        desenhar();
+      });
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(c || ("Coluna " + (j + 1))));
+      vals.appendChild(lab);
+      lab._cb = cb;
+    });
+    box.appendChild(vals);
+
+    var dica = document.createElement("div");
+    dica.className = "mdtg-d";
+    box.appendChild(dica);
+
+    function dicaDoTipo(t) {
+      if (t === "dispersao") return "Dispersão: a 1ª coluna marcada é o X e a 2ª é o Y.";
+      if (t === "bolha") return "Bolha: 1ª = X, 2ª = Y, 3ª = tamanho da bolha.";
+      if (t === "candle") return "Candle: marque na ordem abertura, máxima, mínima e fechamento.";
+      if (t === "pizza" || t === "rosca") return "Pizza/rosca usam a 1ª coluna marcada.";
+      return "Cada coluna marcada vira uma série do gráfico.";
+    }
+
+    function desenhar() {
+      dica.textContent = dicaDoTipo(selTipo.value);
+      if (!ordem.length) { dica.textContent = "Marque ao menos uma coluna de valor."; return; }
+      var jx = Number(selX.value);
+      var spec = {
+        tipo: selTipo.value,
+        titulo: dados.colunas[jx] ? "Por " + dados.colunas[jx] : "Gráfico",
+        categorias: dados.linhas.map(function (l) { return String(l[jx] == null ? "" : l[jx]); }),
+        series: ordem.map(function (j) {
+          return {
+            nome: dados.colunas[j] || ("Coluna " + (j + 1)),
+            valores: dados.linhas.map(function (l) { return celulaNumero(l[j]); }),
+          };
+        }),
+      };
+      onDesenhar(spec);
+    }
+
+    selTipo.addEventListener("change", desenhar);
+    selX.addEventListener("change", desenhar);
+    // Desenha já: abrir o montador e ver um gráfico vale mais que abrir e ver
+    // um formulário — quase sempre a escolha automática já é a certa.
+    setTimeout(desenhar, 0);
+    return box;
+  }
+
+  function kbRotulo(txt) {
+    var s = document.createElement("span");
+    s.className = "mdtg-r";
+    s.textContent = txt;
+    return s;
+  }
+
   // ==== Posição / arrastar / snap ====
   function savedPos() {
     try {
@@ -5979,6 +6216,9 @@
       var el = addMsg(m.role, m.content, m.createdAt);
       if (m.role === "assistant") {
         el.innerHTML = mdToHtml(m.content);
+        // Conversa reaberta pelo Histórico: as tabelas de lá também salvam,
+        // baixam e viram gráfico — a resposta é a mesma, o dia é que é outro.
+        ligarTabelas(el);
         if (m.citations && m.citations.length) renderCitations(m.citations);
         if (m.media && m.media.length) renderMedia(m.media); // gráficos/PDFs persistidos
       } else if (m.attachments && m.attachments.length) {
@@ -6654,6 +6894,10 @@
     function finalizarReveal() {
       // Passos intermediários do loop não mostram citações/feedback (só o resumo final).
       feito = true;
+      // A barra da tabela entra só no FIM: durante a revelação o HTML é
+      // reescrito a cada quadro, e uma barra montada no meio seria descartada
+      // no quadro seguinte (junto com o gráfico que a pessoa tivesse aberto).
+      if (answerEl) ligarTabelas(answerEl);
       if (ehFinalTurno) {
         if (citations.length) renderCitations(citations);
         renderFeedback();
