@@ -21,6 +21,7 @@ import {
   rateLimitOk,
 } from "@/lib/widget/auth";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
+import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
 import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
@@ -566,7 +567,24 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // 5 cargos, férias e horas normais de março") vira N consultas — uma por intenção.
   // Um embedding só borra cada uma: a ferramenta certa de cada faceta desaba no ranking
   // e o top-K a corta. Pergunta simples devolve 1 faceta e nada muda (nem o custo).
-  const facetas = track.p_base && !querTutorial ? dividirFacetas(consultaTools) : [];
+  // A REESCRITA APAGOU A PERGUNTA? Então ela volta como faceta própria.
+  //
+  // `consultaTools` é a consulta reescrita, e é ela que alimenta o classificador
+  // de assunto e o embedding. Quando a reescrita troca o vocabulário INTEIRO
+  // ("Quais são meus compromissos desse mês?" → "Minha linha do tempo", natcorp
+  // 12/08/2026), a pergunta do usuário some da seleção: o classificador foi para
+  // DADOS HISTÓRICOS e a agenda do Microsoft 365 — cadastrada, habilitada, conta
+  // conectada — nunca chegou ao modelo. Com as duas no jogo, o piso por faceta
+  // garante a ferramenta de cada uma. Custa um embedding a mais, e só neste caso.
+  const _reescreveu = !pularRewrite && consultaTools.trim() !== question.trim();
+  const divergiu = _reescreveu && reescritaDivergente(question, consultaTools);
+  const facetas = track.p_base && !querTutorial
+    ? (() => {
+        const fs = dividirFacetas(consultaTools);
+        return divergiu && fs.length ? [...fs, question.trim()] : fs;
+      })()
+    : [];
+  if (divergiu) passo("reescrita_divergente", { original: question.slice(0, 80), reescrita: consultaTools.slice(0, 80) });
   const simsFacetas = facetas.length > 1 ? await simToolsMulti(supabase, track.p_base!, facetas) : [];
   // Faceta 0 = a pergunta INTEIRA (embedding já feito no lote). Se o lote inteiro
   // falhar (provedor frio), refaz SÓ o embedding da pergunta — sem esta rede, um lote
@@ -584,8 +602,13 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // perder co-intenções num pedido multi-tool. Os dados dizem que hoje não é preciso —
   // fica "na manga" para ligar se o teste revelar composto perdendo ferramenta.
   const relaxComposto = process.env.TOOL_COMPOSITE_RELAX === "1" && perguntaComposta;
+  // O classificador de ASSUNTO (e o resgate léxico por nome) recebem as duas
+  // redações quando a reescrita divergiu: são texto, não embedding, então ver a
+  // pergunta original de novo não custa nada e evita que o recorte por módulo
+  // corte justamente a ferramenta do que foi perguntado.
+  const consultaClassificador = divergiu ? `${question.trim()}\n${consultaTools}` : consultaTools;
   const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
   // única pendência que o próprio usuário resolve, e por isso a única que vira
