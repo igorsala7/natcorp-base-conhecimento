@@ -59,6 +59,44 @@ describe("celulaNumero — o número como a pessoa LÊ", () => {
   });
 });
 
+/**
+ * A IA condensa números em tabela ("R$ 2,3 Mi", "-R$ 614 K") — é bom de ler e
+ * era o fim do gráfico: a coluna inteira virava texto e nada era somado.
+ * Valores tirados de um relatório real (Relatório-2.csv, 12/08/2026).
+ */
+describe("celulaNumero — escala abreviada e sinais da IA", () => {
+  it("entende mil, milhão, bilhão", () => {
+    expect(celulaNumero("R$ 2,3 Mi")).toBe(2300000);
+    expect(celulaNumero("R$ 1,7 Mi")).toBe(1700000);
+    expect(celulaNumero("614 K")).toBe(614000);
+    expect(celulaNumero("3 mil")).toBe(3000);
+    expect(celulaNumero("1,2 Bi")).toBe(1200000000);
+  });
+
+  it("negativo com sinal comum e com o menos tipográfico", () => {
+    expect(celulaNumero("-R$ 614 K")).toBe(-614000);
+    expect(celulaNumero("\u2212614 K")).toBe(-614000);
+  });
+
+  it("travessão e vazio continuam sem valor", () => {
+    // "—" é como a IA escreve "não se aplica" na linha de acumulado.
+    expect(celulaNumero("—")).toBeNull();
+    expect(celulaNumero("–")).toBeNull();
+  });
+
+  it("não inventa escala onde não há número", () => {
+    expect(celulaNumero("Mi")).toBeNull();
+    expect(celulaNumero("🟡 Atenção")).toBeNull();
+    expect(celulaNumero("Crítico")).toBeNull();
+  });
+
+  it("a coluna condensada passa a ser numérica", () => {
+    const linhas = [["Junho 2025", "R$ 2,3 Mi"], ["Julho 2025", "R$ 1,7 Mi"], ["Acumulado", "R$ 5,1 Mi"]];
+    expect(colunaNumerica(linhas, 1)).toBe(true);
+    expect(colunaNumerica(linhas, 0)).toBe(false);
+  });
+});
+
 describe("colunaNumerica — que colunas viram eixo de valor", () => {
   const linhas = [
     ["São Paulo", "120", "R$ 1.000,00"],

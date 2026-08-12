@@ -2744,9 +2744,21 @@
   function kbBaixar(nome, href) {
     var a = document.createElement("a");
     a.href = href; a.download = nome; a.rel = "noopener";
+    // O âncora entra no documento do HOST (é lá que o clique de download vale) e
+    // o clique tira o foco de dentro do painel — a conversa pulava para o topo,
+    // perdendo o lugar de quem estava lendo. Guarda e devolve a posição: a do
+    // chat e a da página, porque o pulo pode acontecer nos dois.
+    var topo = messagesEl ? messagesEl.scrollTop : 0;
+    var px = window.pageXOffset, py = window.pageYOffset;
     (document.body || document.documentElement).appendChild(a);
     a.click();
-    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+    function restaurar() {
+      if (messagesEl && messagesEl.scrollTop !== topo) messagesEl.scrollTop = topo;
+      if (window.pageYOffset !== py || window.pageXOffset !== px) window.scrollTo(px, py);
+    }
+    restaurar();
+    requestAnimationFrame(restaurar); // o pulo às vezes só acontece no quadro seguinte
+    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); restaurar(); }, 0);
   }
   function kbFmt(v) {
     var a = Math.abs(v);
@@ -5494,7 +5506,25 @@
     var t = String(txt == null ? "" : txt).trim();
     if (!t) return null;
     var neg = /^\(.*\)$/.test(t);
-    t = t.replace(/^\(|\)$/g, "").replace(/[R$\s%]/gi, "");
+    t = t.replace(/^\(|\)$/g, "");
+    // Sinal de menos "de verdade" (U+2212) e traço longo: a IA usa os dois ao
+    // formatar valores, e `Number()` não conhece nenhum deles.
+    t = t.replace(/[\u2212\u2013\u2014]/g, "-");
+    // ESCALA ABREVIADA. A IA condensa números em tabela ("R$ 2,3 Mi",
+    // "-R$ 614 K") e isso transformava a coluna inteira em texto — o gráfico
+    // não somava nada. O sufixo vira multiplicador; o que se perde é a precisão
+    // que a própria tabela já não tinha.
+    var escala = 1;
+    var suf = t.match(/(mil|mi|mm|m|bi|b|tri|t|k)\.?\s*$/i);
+    if (suf && /\d/.test(t)) {
+      var u = suf[1].toLowerCase();
+      escala = u === "k" || u === "mil" ? 1e3
+        : u === "mi" || u === "mm" || u === "m" ? 1e6
+          : u === "bi" || u === "b" ? 1e9
+            : 1e12; // tri/t
+      t = t.slice(0, suf.index);
+    }
+    t = t.replace(/[R$\s%]/gi, "");
     // pt-BR: ponto é MILHAR, vírgula é decimal.
     //   "1.234,56" → tira os pontos, vírgula vira ponto;
     //   "1.200"    → milhar também (grupos exatos de 3 dígitos) — deixar para o
@@ -5505,6 +5535,7 @@
     else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
     var n = Number(t);
     if (!isFinite(n) || t === "") return null;
+    n = n * escala;
     return neg ? -n : n;
   }
 
