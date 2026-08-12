@@ -1,5 +1,6 @@
 /**
- * ESCOPO DE DADOS POR PAINEL (PO=Operador, PG=Gestor, PC=Colaborador).
+ * ESCOPO DE DADOS POR PAINEL (PO=Operador, PG=Gestor, PC=Colaborador,
+ * PCAND=Candidato).
  *
  * Cada ferramenta pode declarar, por painel, o alcance da consulta:
  *   "todos"    → sem recorte extra (o sistema aplica o acesso já parametrizado)
@@ -17,9 +18,10 @@
 import type { LoopConfig, ToolParam } from "./tools";
 
 export type EscopoPainel = "todos" | "equipe" | "proprios" | "nenhum";
-export type PanelScopeMap = Partial<Record<"PO" | "PG" | "PC", EscopoPainel>>;
+export type Painel = "PO" | "PG" | "PC" | "PCAND";
+export type PanelScopeMap = Partial<Record<Painel, EscopoPainel>>;
 
-const PAINEIS = ["PO", "PG", "PC"] as const;
+const PAINEIS = ["PO", "PG", "PC", "PCAND"] as const;
 const ESCOPOS: readonly EscopoPainel[] = ["todos", "equipe", "proprios", "nenhum"];
 
 /** Sanitiza o JSON gravado em `ai_tools.panel_scope`. Retorna null se vazio/ inválido. */
@@ -35,11 +37,25 @@ export function normalizarPanelScope(v: unknown): PanelScopeMap | null {
 }
 
 /**
- * Escopo efetivo para o painel do usuário. Sem configuração → "todos"
- * (retrocompatível: tools antigas seguem sem recorte extra). Painel
- * DESCONHECIDO → tratado como Colaborador (o mais restritivo) — seguro por padrão.
+ * Escopo efetivo para o painel do usuário.
+ *
+ * Colaborador/gestor/operador: sem configuração → "todos" (retrocompatível —
+ * tools antigas seguem sem recorte extra); painel desconhecido é tratado como
+ * Colaborador, o mais restritivo dos três.
+ *
+ * CANDIDATO é o contrário: silêncio significa NÃO. O painel do candidato manda
+ * o mesmo `p_portal` do colaborador (decisão do produto, 12/08/2026 — o token
+ * só ganhou `p_cod_candidato`), então quem separa os dois é `tipoDeAcesso`. Sem
+ * essa inversão, o catálogo inteiro de RH — cadastrado quando candidato não
+ * existia — passaria a valer para alguém de fora da empresa por omissão. Cada
+ * ferramenta liberada ao candidato é uma decisão explícita no cadastro (PCAND).
  */
-export function escopoDoPainel(ps: PanelScopeMap | null | undefined, portal: string | undefined): EscopoPainel {
+export function escopoDoPainel(
+  ps: PanelScopeMap | null | undefined,
+  portal: string | undefined,
+  candidato = false,
+): EscopoPainel {
+  if (candidato) return ps?.PCAND ?? "nenhum";
   if (!ps) return "todos";
   let p = String(portal ?? "").trim().toUpperCase();
   if (p !== "PO" && p !== "PG" && p !== "PC") p = "PC";

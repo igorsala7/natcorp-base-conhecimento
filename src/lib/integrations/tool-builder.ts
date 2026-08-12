@@ -19,6 +19,7 @@ import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
+import { ehCandidato } from "@/lib/chat/tipo-acesso";
 import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/meus-dados";
@@ -230,6 +231,10 @@ export async function buildIntegrationTools(
   // token (ex.: "MASTER") — não o gestor/colaborador do login (esse só escolhe o
   // AGENTE). O OPERADOR (portal PO) tem acesso full às tools, restrito apenas pela
   // allowlist de perfil. Capturado ANTES do login sobrescrever `ident.perfil`.
+  // CANDIDATO × COLABORADOR. O painel do candidato manda portal e perfil iguais
+  // aos do colaborador, então esta é a ÚNICA coisa que separa os dois — e ela
+  // decide agente, escopo de dados e login. Ver `tipo-acesso.ts`.
+  const candidato = ehCandidato({ matricula: identity.matricula, codCandidato: identity.cod_candidato });
   const perfilAcesso = identity.perfil;
   const portalAcesso = identity.portal;
   const operador = (portalAcesso ?? "").trim().toUpperCase() === "PO";
@@ -237,7 +242,10 @@ export async function buildIntegrationTools(
   let ident = identity;
   let profileNote = "";
   const primary = ctx.tools.find((t) => t.credentialId && t.baseUrl);
-  if (primary && identity.cod_empresa && identity.matricula) {
+  // O login do ORDS valida uma MATRÍCULA. O candidato não tem uma — chamar
+  // ali devolveria "usuário não encontrado" e derrubaria as ferramentas dele
+  // por uma validação que não se aplica ao seu caso.
+  if (primary && identity.cod_empresa && identity.matricula && !candidato) {
     const cred = await loadCredentialSecret(primary.credentialId!);
     if (cred?.secret.session_key) {
       const res = await resolveIdentity({ baseUrl: primary.baseUrl!, credential: cred, identity });
@@ -306,16 +314,24 @@ export async function buildIntegrationTools(
 
   const db = createAdminClient();
   const [{ data: agents }, { data: links }] = await Promise.all([
-    db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil, is_default").eq("active", true),
+    db.from("ai_agents").select("id, key, name, description, system_prompt, priority, requires_perfil, is_default, publico").eq("active", true),
     db.from("ai_agent_tools").select("agent_id, tool_id"),
   ]);
   // Trava por PERFIL: um agente que exige um perfil só entra quando o perfil do
   // TOKEN (p_perfil, mandado pelo portal) confere — nunca vem do modelo, e o login
   // não o altera. Ser gestor de um centro de custo NÃO muda o perfil da pessoa.
   // O OPERADOR (portal PO) é elegível a TODOS os agentes (acesso full).
-  const elegiveis = operador
-    ? (agents ?? [])
-    : (agents ?? []).filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
+  // PÚBLICO primeiro, e sem a exceção do operador: o painel do candidato manda
+  // o mesmo p_perfil do colaborador (podendo até ser MASTER), então deixar o
+  // atalho do operador valer aqui devolveria ao candidato o catálogo inteiro.
+  const doPublico = (agents ?? []).filter((a) =>
+    (a.publico ?? "colaborador") === (candidato ? "candidato" : "colaborador") || (a.publico ?? "colaborador") === "ambos",
+  );
+  const elegiveis = candidato
+    ? doPublico
+    : operador
+      ? doPublico
+      : doPublico.filter((a) => perfilAtende(a.requires_perfil, ident.perfil));
   const elegiveisIds = new Set(elegiveis.map((a) => a.id));
   const curated = new Set((links ?? []).filter((l) => elegiveisIds.has(l.agent_id)).map((l) => l.tool_id));
   // CLAIMED = tools curadas sob ALGUM agente ativo (elegível OU não p/ este usuário). É a
@@ -404,13 +420,21 @@ export async function buildIntegrationTools(
     // reescrevem empresa/matrícula para a IDENTIDADE (a IA nem vê esses campos, então não
     // há como pedir os dados de outra pessoa). "próprios" sem matrícula do usuário FALHA
     // FECHADO — nunca cai para "todos".
-    const escopo = escopoDoPainel(bt.tool.panel_scope, portalAcesso);
+    const escopo = escopoDoPainel(bt.tool.panel_scope, portalAcesso, candidato);
     if (escopo === "nenhum") {
       onPasso?.("integracoes:escopo", { tool: bt.tool.key, painel: portalAcesso ?? "?", resultado: "bloqueada" });
       continue;
     }
-    if (escopo === "proprios" && !String(ident.matricula ?? "").trim()) {
-      onPasso?.("integracoes:escopo", { tool: bt.tool.key, resultado: "bloqueada (sem matrícula para 'próprios')" });
+    // "próprios" precisa de QUEM é o próprio: matrícula para colaborador, código
+    // para candidato. Sem isso a consulta iria sem recorte — falha FECHADO.
+    const chaveDoProprio = candidato ? ident.cod_candidato : ident.matricula;
+    if (escopo === "proprios" && !String(chaveDoProprio ?? "").trim()) {
+      onPasso?.("integracoes:escopo", {
+        tool: bt.tool.key,
+        resultado: candidato
+          ? "bloqueada (sem código de candidato para 'próprios')"
+          : "bloqueada (sem matrícula para 'próprios')",
+      });
       continue;
     }
     elegiveisTools.push({

@@ -88,11 +88,16 @@ type FlagPatch = {
   exclude_self?: boolean;
 };
 
-/** Rótulos e ordem dos painéis (PO/PG/PC) para os seletores de escopo. */
-const PORTAL_LABEL: Record<"PO" | "PG" | "PC", string> = {
+/** Rótulos e ordem dos painéis para os seletores de escopo. */
+const PORTAL_LABEL: Record<"PO" | "PG" | "PC" | "PCAND", string> = {
   PO: PORTAIS.find((p) => p.code === "PO")?.label ?? "Operador",
   PG: PORTAIS.find((p) => p.code === "PG")?.label ?? "Gestor",
   PC: PORTAIS.find((p) => p.code === "PC")?.label ?? "Colaborador",
+  // O candidato não tem portal próprio no token (o painel manda o mesmo p_portal
+  // do colaborador): quem o identifica é a ausência de matrícula com código de
+  // candidato preenchido. Aqui ele é uma COLUNA à parte porque a decisão é
+  // diferente — e, para ele, ausência de configuração significa BLOQUEADA.
+  PCAND: "Candidato",
 };
 const ESCOPO_OPCOES: { v: EscopoPainel; label: string; hint: string }[] = [
   { v: "nenhum", label: "— (bloqueada)", hint: "A ferramenta não aparece para este painel." },
@@ -446,7 +451,7 @@ function ToolsTable({
             <th className={`${th} text-center`} title="Tempo de cache do resultado, em segundos. 0 = sem cache. Escopo (usuário/empresa/global) no editor.">Cache (s)</th>
             <th className={`${th} text-center`}>Módulos</th>
             <th className={`${th} text-center`}>Bases</th>
-            <th className={`${th} text-center`} title="Alcance da consulta por painel: Operador · Gestor · Colaborador">Escopo · PO/PG/PC</th>
+            <th className={`${th} text-center`} title="Alcance da consulta por painel: Operador · Gestor · Colaborador · Candidato (sem configuração = bloqueada)">Escopo · PO/PG/PC/CAND</th>
             <th className={th}></th>
           </tr>
         </thead>
@@ -528,16 +533,20 @@ function ToolsTable({
  */
 function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: boolean; onFlag: (t: ToolRow, patch: FlagPatch) => void }) {
   const cur = tool.panel_scope ?? {};
-  const val = (p: "PO" | "PG" | "PC"): EscopoPainel => cur[p] ?? "todos";
-  const set = (p: "PO" | "PG" | "PC", v: EscopoPainel) =>
-    onFlag(tool, { panel_scope: { PO: val("PO"), PG: val("PG"), PC: val("PC"), [p]: v } });
+  // Candidato falha FECHADO: sem configuração é bloqueada, e é assim que aparece
+  // na tela. Os demais painéis mantêm "todos" como ausência de configuração.
+  const val = (p: "PO" | "PG" | "PC" | "PCAND"): EscopoPainel => cur[p] ?? (p === "PCAND" ? "nenhum" : "todos");
+  const set = (p: "PO" | "PG" | "PC" | "PCAND", v: EscopoPainel) =>
+    onFlag(tool, {
+      panel_scope: { PO: val("PO"), PG: val("PG"), PC: val("PC"), PCAND: val("PCAND"), [p]: v },
+    });
   return (
     <div className="flex items-center justify-center gap-1.5">
-      {(["PO", "PG", "PC"] as const).map((p) => {
+      {(["PO", "PG", "PC", "PCAND"] as const).map((p) => {
         const v = val(p);
         return (
           <label key={p} className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p}</span>
+            <span className="text-[10px] font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p === "PCAND" ? "CAND" : p}</span>
             <Select
               aria-label={`Escopo ${PORTAL_LABEL[p]} de ${tool.name}`}
               title={ESCOPO_OPCOES.find((o) => o.v === v)?.hint}

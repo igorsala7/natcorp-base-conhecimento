@@ -415,6 +415,7 @@ export type Database = {
           priority: number
           provider_id: string | null
           requires_perfil: string | null
+          publico: string
           scope_permission: string | null
           system_prompt: string
           updated_at: string
@@ -433,6 +434,7 @@ export type Database = {
           priority?: number
           provider_id?: string | null
           requires_perfil?: string | null
+          publico?: string
           scope_permission?: string | null
           system_prompt?: string
           updated_at?: string
@@ -451,6 +453,7 @@ export type Database = {
           priority?: number
           provider_id?: string | null
           requires_perfil?: string | null
+          publico?: string
           scope_permission?: string | null
           system_prompt?: string
           updated_at?: string
