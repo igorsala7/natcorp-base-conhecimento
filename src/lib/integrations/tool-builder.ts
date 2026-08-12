@@ -3,6 +3,8 @@ import { tool, type ToolSet } from "ai";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadBaseContext, loadCredentialSecret } from "./resolve";
 import { credenciaisConectadas } from "./connect-store";
+import { chavePessoal } from "./user-key";
+import { avisoContaPendente, type ContaPendente } from "./conta-pendente";
 import { buildModelSchema, identityFromTrack, type Identity } from "./params";
 import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
@@ -19,7 +21,7 @@ import { runGuard } from "./guards";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
-import { recortarMeusDados, type MeusDados } from "@/lib/chat/meus-dados";
+import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/meus-dados";
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
  *  o payload enxuto e a escolha precisa mesmo com módulos gordos. Ver tool-narrow.ts. */
@@ -37,7 +39,7 @@ import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
 import { idDaChamada } from "@/lib/chat/tool-trace";
 import { sanitizarBody } from "./run-log-sanitize";
 
-export { identityFromTrack };
+export { identityFromTrack, avisoContaPendente, type ContaPendente };
 
 export type IntegrationBundle = {
   tools: ToolSet;
@@ -62,6 +64,9 @@ export type IntegrationBundle = {
   /** Lotação/vínculo do PRÓPRIO usuário, já consultados (ver `meus-dados.ts`).
    *  Poupa um passo do laço agêntico nas perguntas sobre ele mesmo. */
   meusDados?: MeusDados;
+  /** Ferramentas de conta pessoal cortadas do turno e por quê. Vira aviso no
+   *  prompt e, no widget, o botão "Conectar conta". */
+  precisaConectar?: ContaPendente[];
 };
 
 /**
@@ -127,28 +132,50 @@ export async function buildIntegrationTools(
   //
   // O corte NÃO cabe no `loadBaseContext`: ele é cacheado por base, e conexão é
   // por pessoa — filtrar lá vazaria a disponibilidade de um usuário para outro.
-  let precisaConectar: string[] = [];
+  //
+  // O que sai daqui NÃO morre no trace: `precisaConectar` vira aviso no prompt
+  // (seção "Uso das Ferramentas") e viaja no bundle até o widget, que oferece o
+  // botão de conectar. Sem isso o modelo respondia "não tenho ferramenta de
+  // e-mail" — verdade sobre o que recebeu, mentira sobre o que o sistema faz.
+  const precisaConectar: ContaPendente[] = [];
   let credencialPessoal: string | null = null;
+  const chavePessoa = chavePessoal({ base: baseCode, empresa: identity.cod_empresa, matricula: identity.matricula });
   if (ctx.tools.some((t) => t.tool.identity_mode === "user")) {
-    const conectadas = await credenciaisConectadas(ctx.baseId, String(identity.usuario ?? ""));
+    const conectadas = chavePessoa
+      ? await credenciaisConectadas(ctx.baseId, chavePessoa)
+      : new Set<string>();
     // Guardada para as ferramentas de ARQUIVO (bytes), que não passam pelo
     // executor genérico e precisam resolver o token por conta própria.
     credencialPessoal = ctx.tools.find(
       (t) => t.tool.identity_mode === "user" && t.credentialId && conectadas.has(t.credentialId),
     )?.credentialId ?? null;
     const antes = ctx.tools.length;
-    const semConexao = new Set<string>();
+    // Duas causas MUITO diferentes para o mesmo sintoma: sem credencial da base
+    // é o admin que tem de agir (o usuário não tem botão que resolva); sem
+    // conexão é a pessoa que resolve em dois cliques. Separar aqui é o que
+    // permite ao chat dizer a coisa certa em cada caso.
+    const pendentes = new Map<string, ContaPendente>();
     ctx.tools = ctx.tools.filter((t) => {
       if (t.tool.identity_mode !== "user") return true;
-      const ok = !!t.credentialId && conectadas.has(t.credentialId);
-      if (!ok) semConexao.add(t.tool.name);
-      return ok;
+      if (t.credentialId && conectadas.has(t.credentialId)) return true;
+      const provider = t.provedorPessoal ?? "microsoft";
+      const motivo: ContaPendente["motivo"] = !t.credentialId
+        ? "sem_credencial"
+        : !chavePessoa
+          ? "sem_identidade"
+          : "sem_conexao";
+      const chave = `${provider}:${motivo}`;
+      const acc = pendentes.get(chave) ?? { provider, motivo, tools: [] };
+      if (!acc.tools.includes(t.tool.name)) acc.tools.push(t.tool.name);
+      pendentes.set(chave, acc);
+      return false;
     });
-    if (semConexao.size > 0) {
-      precisaConectar = [...semConexao];
+    if (pendentes.size > 0) {
+      precisaConectar.push(...pendentes.values());
       onPasso?.("integracoes:conta_nao_conectada", {
-        removidas: precisaConectar.length,
+        removidas: precisaConectar.reduce((n, p) => n + p.tools.length, 0),
         de: antes,
+        pendencias: precisaConectar.map((p) => `${p.provider}: ${p.motivo}`),
       });
     }
   }
@@ -167,7 +194,10 @@ export async function buildIntegrationTools(
     });
     if (!analise.precisaDados && !sempreIncluir?.length) {
       onPasso?.("integracoes", { resultado: "sem tools", motivo: "classificador: pedido não precisa de dados (how-to/documentação)" });
-      return { tools: {}, capabilities: "", agentPrompt: "" };
+      // O aviso de conta sobrevive a esta saída antecipada pelo mesmo motivo da
+      // saída de baixo: "manda um e-mail para o fulano" pode ser lido como
+      // pedido SEM dados, e é justamente aí que a pessoa precisa do botão.
+      return { tools: {}, capabilities: avisoContaPendente(precisaConectar), agentPrompt: "", precisaConectar };
     }
     // "sem dados" MAS há tool(s) FORÇADA(s) (ex.: confirmação in-chat pendente) → não
     // corta tudo: segue sem narrowing (recorte=[]) para a forçada aparecer.
@@ -797,7 +827,10 @@ export async function buildIntegrationTools(
 
   if (Object.keys(tools).length === 0) {
     onPasso?.("integracoes", { resultado: "sem tools", motivo: "nenhuma ferramenta sobrou após os filtros de acesso/recorte" });
-    return { tools: {}, capabilities: "", agentPrompt: "" };
+    // A pendência de conta sobrevive ao "sem tools": quando as ÚNICAS
+    // ferramentas do assunto eram as pessoais, é justamente aqui que o usuário
+    // precisa ouvir que basta conectar.
+    return { tools: {}, capabilities: avisoContaPendente(precisaConectar), agentPrompt: "", precisaConectar };
   }
 
   // O breakpoint de cache das ferramentas NÃO fica mais aqui. Ficava na última
@@ -825,7 +858,11 @@ export async function buildIntegrationTools(
       ? " Quando uma ferramenta retornar um ARQUIVO, ele é entregue ao usuário automaticamente — apenas confirme na resposta, sem descrever bytes."
       : "") +
     (especialidades ? `\nEspecialidades disponíveis:\n${especialidades}` : "") +
-    (promptsFerramentas.length ? `\n\n${promptsFerramentas.join("\n\n")}` : "");
+    (promptsFerramentas.length ? `\n\n${promptsFerramentas.join("\n\n")}` : "") +
+    // Conta pessoal CONECTADA: o agente passa a escrever para terceiros em nome
+    // da pessoa, e aí quem assina e qual é o contato deixam de ser detalhe.
+    (credencialPessoal && meusDados?.length ? `\n\n${blocoAssinatura(meusDados)}` : "") +
+    avisoContaPendente(precisaConectar);
 
   // Persona especializada: o agente ELEGÍVEL de maior prioridade COM prompt e
   // ≥1 tool habilitada. Vira a seção "Especialização". Agentes só de tools
@@ -844,7 +881,7 @@ export async function buildIntegrationTools(
       const { tokenDoUsuario } = await import("./user-token");
       const r = await tokenDoUsuario({
         credentialId: credencialPessoal,
-        pUsuario: String(identity.usuario ?? ""),
+        pessoa: chavePessoa,
       });
       if (r.ok) {
         const { graphFileTools } = await import("./graph-file-tools");
@@ -876,5 +913,6 @@ export async function buildIntegrationTools(
     // escolher entre metades do próprio pedido.
     modulos: recorte.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
     meusDados,
+    precisaConectar,
   };
 }

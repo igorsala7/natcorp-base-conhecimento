@@ -177,6 +177,25 @@ const credSchema = z.object({
   secret: z.record(z.string(), z.string()).nullish(),
 });
 
+/**
+ * Traduz o erro do Postgres para o que a pessoa precisa DECIDIR.
+ *
+ * Só duas restrições únicas alcançam esta tela, e as duas pedem ações
+ * diferentes: nome repetido é renomear; global repetida é escolher QUAL app do
+ * provedor vale para o sistema. "duplicate key value violates unique
+ * constraint" não ajuda em nenhuma das duas.
+ */
+function erroDeGravacao(error: { code?: string; message: string }, isGlobal: boolean): string {
+  if (error.code !== "23505") return `Falha ao salvar: ${error.message}`;
+  if (isGlobal || /global/.test(error.message)) {
+    return (
+      "Já existe outra credencial marcada como 'usar em todas as bases' para este provedor. " +
+      "Desmarque a outra primeiro — só uma pode valer para o sistema inteiro, porque a URL de callback é única."
+    );
+  }
+  return "Já existe uma credencial com esse nome nesta base.";
+}
+
 export async function saveCredential(input: unknown): Promise<IntegResult> {
   const negado = await garantirPermissao();
   if (negado) return { ok: false, error: negado };
@@ -197,6 +216,11 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   // qualquer validacao de segredo — sem isso eram cobrados como "faltando" logo
   // depois de removidos, e a tela pedia para preencher o que ja estava.
   const provider = secret.provider?.trim().toLowerCase() || null;
+  // "Vale para todas as bases": a credencial continua pendurada na base onde
+  // foi criada (senão sumiria da tela), e a marca é que a torna a reserva das
+  // demais. Existe porque a URL de callback do sistema é única — ver a
+  // migration 20260812000000.
+  const isGlobal = String(secret.is_global ?? "").trim() === "1";
   for (const k of metaKeys(auth_type as AuthType)) delete secret[k];
 
   // MESCLA COM O QUE JÁ ESTÁ GRAVADO.
@@ -302,19 +326,19 @@ export async function saveCredential(input: unknown): Promise<IntegResult> {
   if (credId) {
     const { error } = await supabase
       .from("ai_base_credentials")
-      .update({ name, auth_type, active, ...(provider ? { provider } : {}), updated_at: new Date().toISOString() })
+      .update({ name, auth_type, active, is_global: isGlobal, ...(provider ? { provider } : {}), updated_at: new Date().toISOString() })
       .eq("id", credId);
-    if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };
+    if (error) return { ok: false, error: erroDeGravacao(error, isGlobal) };
   } else {
     const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from("ai_base_credentials")
-      .insert({ base_id: baseId, name, auth_type, active, provider, created_by: user?.id ?? null })
+      .insert({ base_id: baseId, name, auth_type, active, provider, is_global: isGlobal, created_by: user?.id ?? null })
       .select("id")
       .single();
     if (error || !data) {
-      if (error?.code === "23505") return { ok: false, error: "Já existe uma credencial com esse nome nesta base." };
-      return { ok: false, error: `Falha ao criar: ${error?.message}` };
+      if (error) return { ok: false, error: erroDeGravacao(error, isGlobal) };
+      return { ok: false, error: "Falha ao criar a credencial." };
     }
     credId = data.id;
   }
@@ -408,10 +432,17 @@ export async function lerCredencial(input: unknown): Promise<IntegResult | Crede
   const supabase = await createClient();
   const { data: cred } = await supabase
     .from("ai_base_credentials")
-    .select("id, name, auth_type, base_id")
+    .select("id, name, auth_type, base_id, provider, is_global")
     .eq("id", credentialId)
     .maybeSingle();
   if (!cred) return { ok: false, error: "Credencial não encontrada." };
+  // Campos `meta` moram em COLUNA, não no blob — voltam junto da configuração
+  // para o formulário abrir com o valor certo. Sem isto, reabrir e salvar
+  // desmarcava "usar em todas as bases" sem ninguém tocar no campo.
+  const meta: Record<string, string> = {
+    ...(cred.provider ? { provider: cred.provider } : {}),
+    is_global: cred.is_global ? "1" : "",
+  };
 
   const tipo = cred.auth_type as AuthType;
   const secretas = chavesSecretas(tipo);
@@ -424,7 +455,7 @@ export async function lerCredencial(input: unknown): Promise<IntegResult | Crede
     .eq("credential_id", credentialId)
     .maybeSingle();
 
-  if (!sec?.secret_enc) return { ok: true, config: {}, segredo: {}, secretas };
+  if (!sec?.secret_enc) return { ok: true, config: meta, segredo: {}, secretas };
 
   const claro = tryDecryptSecret(sec.secret_enc);
   if (!claro) {
@@ -439,7 +470,8 @@ export async function lerCredencial(input: unknown): Promise<IntegResult | Crede
     return { ok: false, error: "As credenciais gravadas estão corrompidas." };
   }
 
-  const { config, segredo } = separarCampos(tipo, blob);
+  const { config: configBlob, segredo } = separarCampos(tipo, blob);
+  const config = { ...configBlob, ...meta };
   if (!comSegredo) return { ok: true, config, segredo: {}, secretas };
 
   await audit({

@@ -3,6 +3,9 @@ import { resolveWidgetKey, extractKey } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { urlDeConsentimento, type ProviderConnect } from "@/lib/integrations/oauth-user";
 import { abrirEstado, credencialDelegada, redirectUri } from "@/lib/integrations/connect-store";
+import { chavePessoal } from "@/lib/integrations/user-key";
+import { emailFuncionalDaPessoa } from "@/lib/integrations/email-funcional";
+import { identityFromTrack } from "@/lib/integrations/params";
 import { paginaDeErro } from "../pagina";
 
 export const runtime = "nodejs";
@@ -37,12 +40,16 @@ export async function GET(
 
   const track = await decodeTrackForSpace(key.space_id, url.searchParams.get("track"));
   const pBase = String(track.p_base ?? "").trim();
-  const pUsuario = String(track.p_usuario ?? track.p_matricula ?? "").trim();
-  if (!pBase || !pUsuario) {
+  // A PESSOA, pela mesma regra do chat (`chavePessoal`). Era `p_usuario ??
+  // p_matricula`: o `??` mandava a conta para 'PORTAL' — usuário da aplicação,
+  // compartilhado por todos os colaboradores — e o chat, que só olhava
+  // `p_usuario`, nem achava a conexão gravada com a matrícula.
+  const pessoa = chavePessoal({ base: pBase, empresa: track.p_empresa, matricula: track.p_matricula });
+  if (!pBase || !pessoa) {
     // Sem identidade não há a quem amarrar a conta — e amarrar a "ninguém"
     // criaria uma conexão que o próximo usuário herdaria.
     return paginaDeErro(
-      "Não foi possível identificar o usuário. O sistema precisa enviar os parâmetros de rastreio para conectar uma conta.",
+      "Não foi possível identificar o usuário. O sistema precisa enviar a empresa e a matrícula nos parâmetros de rastreio para conectar uma conta.",
     );
   }
 
@@ -54,12 +61,22 @@ export async function GET(
     );
   }
 
+  // QUAL caixa esta pessoa deveria conectar. Sai do cadastro do RH
+  // (`meus_dados.email_funcional`), a mesma fonte que o chat usa — não de nada
+  // que o navegador afirme. Vira `login_hint` na tela do provedor e o alvo da
+  // checagem no callback. `null` (cadastro sem e-mail, ORDS fora) segue o fluxo
+  // sem pré-seleção e sem checagem: não saber nunca vira bloqueio.
+  const emailEsperado = await emailFuncionalDaPessoa(pBase, identityFromTrack(track));
+
   let nonce: string;
   try {
     nonce = await abrirEstado({
       credentialId: cred.credentialId,
-      pUsuario,
+      pessoa,
       origin: req.headers.get("origin"),
+      // A base do CLIENTE — a credencial pode ser a global, compartilhada.
+      baseId: cred.baseId,
+      emailEsperado,
     });
   } catch (e) {
     return paginaDeErro(e instanceof Error ? e.message : "Falha ao iniciar o consentimento.");
@@ -70,6 +87,7 @@ export async function GET(
     cfg: cred.cfg,
     redirectUri: redirectUri(provider),
     nonce,
+    loginHint: emailEsperado,
   });
   return Response.redirect(destino, 302);
 }

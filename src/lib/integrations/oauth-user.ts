@@ -31,7 +31,19 @@ export type ConfigDelegada = {
   authorize_url?: string;
   token_url?: string;
   scopes?: string;
+  /**
+   * "1" = a conta conectada TEM de ser a do e-mail funcional do cadastro
+   * (`meus_dados`). Desligado por padrão: nem todo cliente tem SSO com o
+   * provedor, e nesses o e-mail do RH não corresponde a conta nenhuma —
+   * exigir travaria quem não tem como cumprir. Quem liga é o administrador,
+   * na tela de credenciais.
+   */
+  exigir_email_funcional?: string;
 };
+
+/** A checagem do e-mail está ligada nesta credencial? */
+export const exigeEmailFuncional = (cfg: ConfigDelegada): boolean =>
+  String(cfg.exigir_email_funcional ?? "").trim() === "1";
 
 const PADRAO: Record<ProviderConnect, { authorize: (t: string) => string; token: (t: string) => string; scopes: string }> = {
   microsoft: {
@@ -73,6 +85,8 @@ export function urlDeConsentimento(input: {
   cfg: ConfigDelegada;
   redirectUri: string;
   nonce: string;
+  /** E-mail FUNCIONAL da pessoa (cadastro do RH), quando conhecido. */
+  loginHint?: string | null;
 }): string {
   const { provider, cfg, redirectUri, nonce } = input;
   const base = cfg.authorize_url?.trim() || PADRAO[provider].authorize(tenantDe(cfg));
@@ -88,6 +102,14 @@ export function urlDeConsentimento(input: {
     q.set("access_type", "offline");
     q.set("prompt", "consent");
   }
+  // `login_hint` abre a tela do provedor JÁ na conta corporativa da pessoa (o
+  // e-mail funcional do cadastro do RH). Num navegador com o e-mail pessoal
+  // logado — o caso comum — sem isto a tela oferece a conta errada, e conectar a
+  // caixa errada é um erro silencioso: tudo funciona, só que o e-mail sai do
+  // lugar errado. É DICA, não trava: quem precisa trocar de conta ainda troca.
+  // Os dois provedores usam o mesmo nome de parâmetro.
+  const hint = input.loginHint?.trim();
+  if (hint) q.set("login_hint", hint);
   return `${base}?${q.toString()}`;
 }
 

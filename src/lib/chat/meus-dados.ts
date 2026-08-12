@@ -79,7 +79,38 @@ function primeiroItem(payload: unknown): Record<string, unknown> | null {
   return payload as Record<string, unknown>;
 }
 
+/**
+ * Duas caixas postais são a mesma? Caixa alta/baixa e espaços não distinguem
+ * endereço. Vazio NUNCA casa com vazio: quem chama isto decide se BLOQUEIA uma
+ * conexão, e "não sei" precisa cair no ramo de não-sei, não no de tudo-certo.
+ *
+ * Puro e aqui (e não no módulo que fala com a ORDS) para o callback do
+ * consentimento comparar sem arrastar o cliente do banco.
+ */
+export function mesmoEmail(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = (a ?? "").trim().toLowerCase();
+  const nb = (b ?? "").trim().toLowerCase();
+  return !!na && na === nb;
+}
+
 export type MeusDados = { rotulo: string; valor: string }[];
+
+/**
+ * O e-mail FUNCIONAL do cadastro, cru do payload da ferramenta.
+ *
+ * Lê o campo, não o recorte: o rótulo do recorte é texto de prompt e pode mudar
+ * sem aviso, enquanto `email_funcional` é o contrato da ORDS. Quem usa isto —
+ * `login_hint` do consentimento e a checagem da conta conectada — precisa do
+ * valor exato, não do que o modelo lê.
+ */
+export function emailFuncionalDe(payload: unknown): string | null {
+  const item = primeiroItem(payload);
+  const v = item?.email_funcional;
+  if (v === undefined || v === null) return null;
+  const texto = String(v).trim();
+  if (!texto || texto.toLowerCase() === "null" || !texto.includes("@")) return null;
+  return texto;
+}
 
 /**
  * Aplica a allowlist. Campos vazios/nulos somem — "Centro de custo: null" no
@@ -119,5 +150,26 @@ export function blocoMeusDados(dados: MeusDados): string {
     "\nUse para responder direto sobre o cadastro DELE e para preencher empresa/matrícula quando o pedido for sobre " +
     "ele mesmo. NÃO use como filtro em pedido amplo (\"todos\", \"da empresa\", contagens) — ali o filtro fica em " +
     "branco. Para qualquer dado que NÃO esteja nesta lista, use a ferramenta."
+  );
+}
+
+/**
+ * Como o agente assina o que escreve EM NOME da pessoa (e-mail, convite).
+ *
+ * Só entra quando há conta pessoal conectada — é o único caso em que o agente
+ * de fato escreve para terceiros. Diz também o que ele NÃO decide: o remetente
+ * é a caixa conectada, e prometer "responda para tal endereço" quando o e-mail
+ * sai de outro é a forma silenciosa de o destinatário responder para o vazio.
+ */
+export function blocoAssinatura(dados: MeusDados): string {
+  const de = (rotulo: string) => dados.find((d) => d.rotulo === rotulo)?.valor ?? "";
+  const nome = de("Nome social") || de("Nome");
+  const email = de("E-mail funcional");
+  if (!nome && !email) return "";
+  const quem = [nome && `nome: ${nome}`, email && `e-mail funcional: ${email}`].filter(Boolean).join(", ");
+  return (
+    `ESCREVENDO EM NOME DO USUÁRIO (${quem}): assine a mensagem com o nome dele e informe o e-mail funcional ` +
+    "como contato. O envio sai da conta que ELE conectou — não invente outro remetente, não escreva 'enviado por " +
+    "assistente' e não prometa resposta em endereço diferente do que aparece no cabeçalho."
   );
 }

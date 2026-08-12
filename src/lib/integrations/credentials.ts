@@ -103,6 +103,39 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
     // faz a troca do código ser enviada para a nossa própria aplicação em vez
     // do provedor, e o erro só aparece no fim do consentimento.
     {
+      // Um app no provedor serve o sistema inteiro porque a URL de callback é
+      // uma só (sai de NEXT_PUBLIC_SITE_URL, não varia por cliente). Marcar
+      // aqui evita recadastrar o mesmo client_id em cada base — e, pior, evita
+      // a segunda linha apontar para um registro que não tem a URL e nunca
+      // conecta. As bases que tiverem credencial própria continuam usando a
+      // delas: esta é a reserva.
+      key: "is_global",
+      label: "Usar esta credencial em todas as bases",
+      required: false,
+      secret: false,
+      meta: true,
+      options: [
+        { value: "", label: "Não — só nesta base" },
+        { value: "1", label: "Sim — vale para todas as bases sem credencial própria" },
+      ],
+      hint: "O callback registrado no provedor é único para o sistema, então normalmente há um app só. Só pode haver uma global por provedor.",
+    },
+    {
+      // Amarra a caixa conectada ao cadastro do RH. DESLIGADO por padrão: nem
+      // todo cliente tem SSO com o Azure, e nesses o e-mail funcional do
+      // cadastro não corresponde a conta nenhuma do provedor — exigir travaria
+      // gente que não tem como cumprir.
+      key: "exigir_email_funcional",
+      label: "Exigir que a conta seja a do e-mail funcional",
+      required: false,
+      secret: false,
+      options: [
+        { value: "", label: "Não — aceita qualquer conta que a pessoa autorizar" },
+        { value: "1", label: "Sim — recusa conta diferente do cadastro (exige SSO)" },
+      ],
+      hint: "Ligado, o consentimento recusa uma conta diferente do e-mail funcional de `meus_dados`. A pré-seleção da conta na tela do provedor acontece nos dois casos.",
+    },
+    {
       key: "authorize_url",
       label: "URL de consentimento (avançado)",
       required: false,

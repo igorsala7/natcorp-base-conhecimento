@@ -25,11 +25,12 @@ const PEDIR_CONEXAO =
 
 export async function tokenDoUsuario(input: {
   credentialId: string;
-  /** `p_usuario` do token de rastreio — a mesma chave usada no consentimento. */
-  pUsuario: string;
+  /** Chave da PESSOA (`chavePessoal`: empresa:matrícula) — a mesma que o
+   *  consentimento gravou. `null` quando a conversa não identifica ninguém. */
+  pessoa: string | null;
   agora?: number;
 }): Promise<ResultadoToken> {
-  const pUsuario = input.pUsuario?.trim();
+  const pUsuario = input.pessoa?.trim();
   if (!pUsuario) {
     return {
       ok: false,

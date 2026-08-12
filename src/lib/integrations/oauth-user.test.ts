@@ -42,6 +42,28 @@ describe("urlDeConsentimento", () => {
     expect(u.searchParams.get("scope")).toContain("offline_access");
   });
 
+  it("pré-seleciona a conta do cadastro (login_hint) nos dois provedores", () => {
+    // Navegador logado no e-mail pessoal é o caso comum: sem a dica, a tela
+    // oferece a conta errada e conectar a errada é um erro silencioso.
+    for (const provider of ["microsoft", "google"] as const) {
+      const u = new URL(
+        urlDeConsentimento({ provider, cfg: CFG, redirectUri: "https://x/cb", nonce: "n", loginHint: " maria@empresa.com " }),
+      );
+      expect(u.searchParams.get("login_hint")).toBe("maria@empresa.com");
+    }
+  });
+
+  it("sem e-mail conhecido, não manda login_hint vazio", () => {
+    // `login_hint=` em branco faz a Microsoft abrir na tela de erro em vez do
+    // seletor de contas.
+    for (const hint of [null, undefined, "  "]) {
+      const u = new URL(
+        urlDeConsentimento({ provider: "microsoft", cfg: CFG, redirectUri: "https://x/cb", nonce: "n", loginHint: hint }),
+      );
+      expect(u.searchParams.has("login_hint")).toBe(false);
+    }
+  });
+
   it("no Google, força access_type=offline e prompt=consent", () => {
     // Sem os dois, uma RECONEXÃO devolve só access_token e a conta quebra uma
     // hora depois — falha que só aparece em produção.

@@ -506,6 +506,7 @@ export type Database = {
           active: boolean
           auth_type: string
           provider: string | null
+          is_global: boolean
           base_id: string | null
           created_at: string
           created_by: string | null
@@ -517,6 +518,7 @@ export type Database = {
           active?: boolean
           auth_type: string
           provider?: string | null
+          is_global?: boolean
           base_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -528,6 +530,7 @@ export type Database = {
           active?: boolean
           auth_type?: string
           provider?: string | null
+          is_global?: boolean
           base_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -1164,7 +1167,7 @@ export type Database = {
           credential_id: string
           base_id: string
           provider: string
-          p_usuario: string
+          person_key: string
           account_email: string | null
           account_name: string | null
           scopes: string[]
@@ -1178,7 +1181,7 @@ export type Database = {
           credential_id: string
           base_id: string
           provider: string
-          p_usuario: string
+          person_key: string
           account_email?: string | null
           account_name?: string | null
           scopes?: string[]
@@ -1192,7 +1195,7 @@ export type Database = {
           credential_id?: string
           base_id?: string
           provider?: string
-          p_usuario?: string
+          person_key?: string
           account_email?: string | null
           account_name?: string | null
           scopes?: string[]
@@ -1228,26 +1231,32 @@ export type Database = {
         Row: {
           nonce: string
           credential_id: string
-          p_usuario: string
+          person_key: string
           origin: string | null
           created_at: string
           used_at: string | null
+          expected_email: string | null
+          base_id: string | null
         }
         Insert: {
           nonce: string
           credential_id: string
-          p_usuario: string
+          person_key: string
           origin?: string | null
           created_at?: string
           used_at?: string | null
+          expected_email?: string | null
+          base_id?: string | null
         }
         Update: {
           nonce?: string
           credential_id?: string
-          p_usuario?: string
+          person_key?: string
           origin?: string | null
           created_at?: string
           used_at?: string | null
+          expected_email?: string | null
+          base_id?: string | null
         }
         Relationships: []
       }

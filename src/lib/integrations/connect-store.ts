@@ -27,12 +27,54 @@ export type CredencialDelegada = {
 };
 
 /**
- * A credencial delegada de um cliente, resolvida pelo `p_base` do token de
+ * A credencial de conta pessoal que vale para uma base: a DELA, e na falta, a
+ * marcada como global.
+ *
+ * A cascata existe porque a URL de callback do sistema é única
+ * (`NEXT_PUBLIC_SITE_URL`), então só um registro no provedor pode funcionar —
+ * cobrar uma credencial por cliente seria cobrar N apps que só poderiam
+ * registrar a MESMA URL. O isolamento entre clientes não vive aqui: vive na
+ * conexão, amarrada a (credencial, base, pessoa).
+ *
+ * Uma função só, usada pelo consentimento, pelo catálogo de ferramentas e pela
+ * tela do widget. Foi exatamente a divergência entre esses três caminhos que
+ * fez a conta "conectada" continuar aparecendo como não conectada.
+ */
+export async function idCredencialPessoal(
+  baseId: string,
+  provider: string,
+): Promise<string | null> {
+  const db = createAdminClient();
+  const { data: propria } = await db
+    .from("ai_base_credentials")
+    .select("id")
+    .eq("base_id", baseId)
+    .eq("auth_type", "oauth2_user")
+    .eq("provider", provider)
+    .eq("active", true)
+    .maybeSingle();
+  if (propria) return propria.id;
+
+  const { data: global } = await db
+    .from("ai_base_credentials")
+    .select("id")
+    .eq("is_global", true)
+    .eq("auth_type", "oauth2_user")
+    .eq("provider", provider)
+    .eq("active", true)
+    .maybeSingle();
+  return global?.id ?? null;
+}
+
+/**
+ * A credencial delegada para um cliente, resolvida pelo `p_base` do token de
  * rastreio — nunca por algo que venha do navegador.
  *
- * É aqui que mora o isolamento entre clientes: `ai_bases.base_code` é a empresa
- * 1:1, e a credencial pendura em `base_id`. Um `p_base` de outro cliente
- * simplesmente não alcança este registro.
+ * `baseId` é sempre a base DO CLIENTE (resolvida pelo `p_base`), mesmo quando a
+ * credencial usada é a global: é ela que amarra a conexão ao cliente certo. O
+ * isolamento não depende mais de haver um app por cliente no provedor — a URL
+ * de callback é única, então o app é um só — e sim de (credencial, base,
+ * pessoa) na conexão.
  */
 export async function credencialDelegada(
   baseCode: string,
@@ -50,15 +92,9 @@ export async function credencialDelegada(
     .maybeSingle();
   if (!base) return null;
 
-  const { data: cred } = await db
-    .from("ai_base_credentials")
-    .select("id")
-    .eq("base_id", base.id)
-    .eq("auth_type", "oauth2_user")
-    .eq("provider", provider)
-    .eq("active", true)
-    .maybeSingle();
-  if (!cred) return null;
+  const credId = await idCredencialPessoal(base.id, provider);
+  if (!credId) return null;
+  const cred = { id: credId };
 
   const { data: sec } = await db
     .from("ai_base_credential_secrets")
@@ -125,22 +161,37 @@ export function redirectUri(provider: ProviderConnect): string {
 /** Cria o nonce do fluxo, amarrado à credencial e à pessoa. */
 export async function abrirEstado(input: {
   credentialId: string;
-  pUsuario: string;
+  /** Chave da PESSOA (`chavePessoal`: base:empresa:matrícula). */
+  pessoa: string;
   origin: string | null;
+  /** Base do CLIENTE. Com credencial global ela não sai mais da credencial —
+   *  e é ela que a conexão grava (ver a migration 20260812000000). */
+  baseId: string;
+  /** E-mail funcional do cadastro — `null` quando não se sabe (ver a migration
+   *  20260811230000: desconhecido nunca vira bloqueio). */
+  emailEsperado: string | null;
 }): Promise<string> {
   const nonce = randomBytes(32).toString("base64url");
   const db = createAdminClient();
   const { error } = await db.from("oauth_states").insert({
     nonce,
     credential_id: input.credentialId,
-    p_usuario: input.pUsuario,
+    person_key: input.pessoa,
     origin: input.origin,
+    base_id: input.baseId,
+    expected_email: input.emailEsperado,
   });
   if (error) throw new Error(`Falha ao abrir o consentimento: ${error.message}`);
   return nonce;
 }
 
-export type EstadoConsumido = { credentialId: string; pUsuario: string; origin: string | null };
+export type EstadoConsumido = {
+  credentialId: string;
+  pessoa: string;
+  origin: string | null;
+  baseId: string | null;
+  emailEsperado: string | null;
+};
 
 /**
  * Gasta o nonce. Devolve `null` se não existe, já foi usado ou expirou.
@@ -160,10 +211,16 @@ export async function consumirEstado(nonce: string): Promise<EstadoConsumido | n
     .eq("nonce", nonce)
     .is("used_at", null)
     .gte("created_at", limite)
-    .select("credential_id, p_usuario, origin")
+    .select("credential_id, person_key, origin, base_id, expected_email")
     .maybeSingle();
   if (!data) return null;
-  return { credentialId: data.credential_id, pUsuario: data.p_usuario, origin: data.origin };
+  return {
+    credentialId: data.credential_id,
+    pessoa: data.person_key,
+    origin: data.origin,
+    baseId: data.base_id,
+    emailEsperado: data.expected_email,
+  };
 }
 
 /**
@@ -178,7 +235,8 @@ export async function salvarConexao(input: {
   credentialId: string;
   baseId: string;
   provider: ProviderConnect;
-  pUsuario: string;
+  /** Chave da PESSOA (`chavePessoal`: base:empresa:matrícula). */
+  pessoa: string;
   tokens: Tokens;
   email: string | null;
   nome: string | null;
@@ -193,7 +251,7 @@ export async function salvarConexao(input: {
         credential_id: input.credentialId,
         base_id: input.baseId,
         provider: input.provider,
-        p_usuario: input.pUsuario,
+        person_key: input.pessoa,
         account_email: input.email,
         account_name: input.nome,
         scopes: input.tokens.scopes,
@@ -205,7 +263,7 @@ export async function salvarConexao(input: {
       // parcial original — `where revoked_at is null` — não podia ser alvo de
       // ON CONFLICT, e o consentimento morria na gravação depois de todo o
       // fluxo já ter dado certo.
-      { onConflict: "credential_id,p_usuario", ignoreDuplicates: false },
+      { onConflict: "credential_id,person_key", ignoreDuplicates: false },
     )
     .select("id")
     .single();
@@ -234,14 +292,14 @@ export type ConexaoAtiva = {
 /** A conexão ativa de uma pessoa numa credencial, com os tokens decifrados. */
 export async function conexaoAtiva(
   credentialId: string,
-  pUsuario: string,
+  pessoa: string,
 ): Promise<ConexaoAtiva | null> {
   const db = createAdminClient();
   const { data: conn } = await db
     .from("user_connections")
     .select("id, access_expires_at")
     .eq("credential_id", credentialId)
-    .eq("p_usuario", pUsuario)
+    .eq("person_key", pessoa)
     .is("revoked_at", null)
     .maybeSingle();
   if (!conn) return null;
@@ -295,20 +353,112 @@ export async function atualizarTokens(connectionId: string, tokens: Tokens): Pro
  * Oferecer e falhar na execução ensina o agente a prometer o que não entrega —
  * e o usuário lê "não consegui agora" como defeito, não como "falta conectar".
  *
- * Uma consulta indexada por (credential_id, p_usuario); roda uma vez por turno.
+ * Uma consulta indexada por (credential_id, person_key); roda uma vez por turno.
  */
 export async function credenciaisConectadas(
   baseId: string,
-  pUsuario: string,
+  pessoa: string,
 ): Promise<Set<string>> {
-  const usuario = pUsuario?.trim();
+  const usuario = pessoa?.trim();
   if (!baseId || !usuario) return new Set();
   const db = createAdminClient();
   const { data } = await db
     .from("user_connections")
     .select("credential_id")
     .eq("base_id", baseId)
-    .eq("p_usuario", usuario)
+    .eq("person_key", usuario)
     .is("revoked_at", null);
   return new Set((data ?? []).map((r) => r.credential_id));
+}
+
+export type ContaDaPessoa = {
+  credentialId: string;
+  provider: string;
+  conectada: boolean;
+  /** E-mail da conta conectada, quando há uma. */
+  email: string | null;
+};
+
+/**
+ * O que ESTA base oferece de conta pessoal e o que ESTA pessoa já conectou.
+ *
+ * Uma linha por credencial `oauth2_user` cadastrada na base — inclusive as não
+ * conectadas, que são justamente as que viram botão no widget. Sem isto, a
+ * única forma de descobrir que dá para conectar era esbarrar no assunto no
+ * chat e receber um "conecte sua conta" — e antes desta rodada nem isso.
+ */
+export async function contasDaPessoa(
+  baseCode: string,
+  pessoa: string,
+): Promise<ContaDaPessoa[]> {
+  const alvo = baseCode.trim().replace(/([\\%_])/g, "\\$1");
+  const chave = pessoa?.trim();
+  if (!alvo || !chave) return [];
+  const db = createAdminClient();
+
+  const { data: base } = await db
+    .from("ai_bases")
+    .select("id")
+    .ilike("base_code", alvo)
+    .eq("active", true)
+    .maybeSingle();
+  if (!base) return [];
+
+  // As da base MAIS as globais (a mesma cascata de `idCredencialPessoal`), sem
+  // repetir provedor: a da base ganha da global quando as duas existem, que é a
+  // ordem em que a conexão vai ser feita.
+  const { data: creds } = await db
+    .from("ai_base_credentials")
+    .select("id, provider, base_id, is_global")
+    .eq("auth_type", "oauth2_user")
+    .eq("active", true)
+    .or(`base_id.eq.${base.id},is_global.is.true`);
+  const porProvedor = new Map<string, { id: string; provider: string }>();
+  for (const c of creds ?? []) {
+    const p = c.provider ?? "";
+    if (!p) continue;
+    const jaTem = porProvedor.get(p);
+    if (!jaTem || c.base_id === base.id) porProvedor.set(p, { id: c.id, provider: p });
+  }
+  const efetivas = [...porProvedor.values()];
+  if (!efetivas.length) return [];
+
+  const { data: conns } = await db
+    .from("user_connections")
+    .select("credential_id, account_email")
+    .eq("person_key", chave)
+    .in("credential_id", efetivas.map((c) => c.id))
+    .is("revoked_at", null);
+  const porCred = new Map((conns ?? []).map((c) => [c.credential_id, c.account_email]));
+
+  return efetivas.map((c) => ({
+    credentialId: c.id,
+    provider: c.provider,
+    conectada: porCred.has(c.id),
+    email: porCred.get(c.id) ?? null,
+  }));
+}
+
+/**
+ * Desconecta a conta desta pessoa.
+ *
+ * Marca `revoked_at` e APAGA o token — deixar o refresh_token guardado numa
+ * linha revogada seria manter a chave da caixa de e-mail de alguém que pediu
+ * para desconectar. A linha fica, com a trilha de quando e de qual conta era.
+ */
+export async function revogarConexao(credentialId: string, pessoa: string): Promise<void> {
+  const db = createAdminClient();
+  const { data: conn } = await db
+    .from("user_connections")
+    .select("id")
+    .eq("credential_id", credentialId)
+    .eq("person_key", pessoa)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (!conn) return;
+  await db.from("user_connection_tokens").delete().eq("connection_id", conn.id);
+  await db
+    .from("user_connections")
+    .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", conn.id);
 }

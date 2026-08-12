@@ -58,6 +58,7 @@ import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
 import { confirmarPendencia } from "@/lib/integrations/confirmations";
 import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool-clarify";
@@ -586,6 +587,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const integ = track.p_base && !querTutorial
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaTools, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
     : { tools: {}, capabilities: "", agentPrompt: "" };
+  // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
+  // única pendência que o próprio usuário resolve, e por isso a única que vira
+  // botão. (O prompt já recebeu o aviso completo em `integ.capabilities`.)
+  const contasAConectar = (integ.precisaConectar ?? [])
+    .filter((c) => c.motivo === "sem_conexao")
+    .map((c) => ({ provider: c.provider, label: NOME_PROVEDOR[c.provider] ?? c.provider }));
   if (querTutorial) passo("integracoes", { resultado: "sem tools", motivo: "modo tutorial (how-to da tela → só documentação)" });
   else if (!track.p_base) passo("integracoes", { resultado: "sem tools", motivo: "sem p_base no token de rastreio" });
   // Ler DADOS/VALORES da tela (varredura de campos, textos, tabelas, modais) só
@@ -1940,6 +1947,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         try { controller.enqueue(chunk); } catch { vivo = false; }
       };
       emitir(sse({ type: "citations", citations }));
+      // Conta pessoal pendente: o widget mostra "Conectar Microsoft" junto desta
+      // resposta. Só o que o USUÁRIO resolve — falta de credencial é assunto do
+      // administrador, e um botão que não conecta nada seria pior que nenhum.
+      if (contasAConectar.length) emitir(sse({ type: "connect", contas: contasAConectar }));
       const tema = resolveTheme(ragSources);
       if (tema) emitir(sse({ type: "theme", scope: tema.scope, label: tema.label }));
       let full = "";

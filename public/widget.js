@@ -56,14 +56,14 @@
   // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
   // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
   var I18N = {
-    pt: { placeholder: "Escreva ou fale sua pergunta…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar" },
-    en: { placeholder: "Type or speak your question…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear" },
-    es: { placeholder: "Escribe o habla tu pregunta…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar" },
-    fr: { placeholder: "Écrivez ou dites votre question…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer" },
-    de: { placeholder: "Schreiben oder sprechen Sie Ihre Frage…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen" },
-    it: { placeholder: "Scrivi o pronuncia la tua domanda…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella" },
-    ja: { placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア" },
-    zh: { placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除" },
+    pt: { placeholder: "Escreva ou fale sua pergunta…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada." },
+    en: { placeholder: "Type or speak your question…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected." },
+    es: { placeholder: "Escribe o habla tu pregunta…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada." },
+    fr: { placeholder: "Écrivez ou dites votre question…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté." },
+    de: { placeholder: "Schreiben oder sprechen Sie Ihre Frage…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt." },
+    it: { placeholder: "Scrivi o pronuncia la tua domanda…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato." },
+    ja: { placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。" },
+    zh: { placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。" },
   };
   function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
   // LS_CLEARED e LS_DRAFT também são declarados ADIANTE, junto do LS_SID: os
@@ -3810,6 +3810,9 @@
       ".opts button:hover{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 8%,#fff)}" +
       ".opts .ol{display:block;font-size:13px;font-weight:600;color:var(--pc)}" +
       ".opts .os{display:block;font-size:12px;color:#6b6577;margin-top:2px;line-height:1.4}" +
+      // E-mail da conta no botão da barra: uma linha abaixo do rótulo, menor e
+      // sem itálico (é endereço, não ênfase).
+      ".pbtn .pmail{display:block;font-style:normal;font-size:10.5px;opacity:.75;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
       // Multi-seleção: cada fonte é um cartão com caixa de marcação. Alvo de 44px
       // (dedo) e estado marcado destacado pela borda — o `.on` é alternado por JS,
       // não por :has(), para não depender do suporte do navegador.
@@ -6572,6 +6575,7 @@
     var answerEl = null;
     var full = ""; // texto completo já recebido do servidor
     var citations = [];
+    var conectarPendente = []; // contas que a IA disse faltar (vira botão no fim)
     var clarified = false;
     var ehFinalTurno = true; // false em passos intermediários do loop (sem feedback/citações)
     _acoes = []; // ações de tela recebidas NESTE turno (guard de stream vazio)
@@ -6794,6 +6798,11 @@
             console.log("[kb-chat][fluxo] " + (evt.desfecho || "?"), ps);
           }
         } catch { }
+      } else if (evt.type === "connect") {
+        // Conta pessoal pendente: guarda para desenhar o botão DEPOIS da
+        // resposta (o evento chega antes do primeiro token; desenhar agora
+        // colocaria o botão acima do texto que o explica).
+        conectarPendente = Array.isArray(evt.contas) ? evt.contas : [];
       } else if (evt.type === "clarify") {
         // COMPLEMENTAR × SUBSTITUTO: os gates de fonte chegam ANTES de qualquer texto e
         // são a resposta inteira do turno. Já a troca de fonte ("a tela não tem isso,
@@ -6908,6 +6917,9 @@
         );
         if (citations.length) renderCitations(citations);
       }
+      // Botão de conectar DEPOIS do texto: a resposta explica o que falta, o
+      // botão resolve. Invertido, o usuário clica sem saber para quê.
+      if (conectarPendente.length) renderConectar(conectarPendente);
       done();
       if (_tutorial) confirmarTutorial(); // pergunta ANTES de começar o tutorial guiado
       else if (_acoes.length) proximaAcao(); // ações de tela propostas pela IA
@@ -7089,6 +7101,124 @@
     }
   }
 
+  // ==== Conta pessoal (Microsoft/Google) ====
+  //
+  // Ferramentas que agem NO NOME DA PESSOA (mandar e-mail, criar evento, ler o
+  // OneDrive) só existem depois que ela conecta a própria conta. O consentimento
+  // já existia — o que não existia era como CHEGAR até ele: nenhuma tela abria a
+  // rota, e o chat, sem as ferramentas, respondia "não tenho como enviar e-mail".
+  // Daí as duas entradas aqui: o botão fixo na barra (para quem já sabe o que
+  // quer) e o botão que acompanha a resposta quando o assunto aparece.
+  var ICON_PLUG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>';
+  var contasConta = [];      // [{provider,label,conectada,conta}]
+  var contasBtns = {};       // provider → botão da barra (para repintar sem redesenhar)
+
+  async function apiConexoes(payload) {
+    try {
+      var resp = await fetch(API + "/api/v1/connect/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload || {})),
+      });
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+
+  /** Abre o consentimento em POPUP. `window.open` DIRETO no clique — um fetch no
+   *  meio faria o navegador tratar a abertura como não solicitada e bloquear. */
+  function abrirConsentimento(provider) {
+    var url = API + "/api/v1/connect/" + encodeURIComponent(provider) + "/start"
+      + "?key=" + encodeURIComponent(KEY)
+      + "&track=" + encodeURIComponent((track && track.token) || "");
+    var w = 520, h = 680;
+    var x = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+    var y = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+    try {
+      window.open(url, "kbconnect", "width=" + w + ",height=" + h + ",left=" + x + ",top=" + y);
+    } catch (e) {
+      window.open(url, "_blank");
+    }
+  }
+
+  /** Repinta o botão da barra conforme o estado da conta.
+   *  Mostra o E-MAIL: conectado, qual caixa está ligada; desconectado, qual
+   *  deve ser conectada (o funcional do cadastro). Ver a conta antes de clicar
+   *  é o que evita autorizar a pessoal por hábito do navegador. */
+  function pintarBotaoConta(c) {
+    var b = contasBtns[c.provider];
+    if (!b) return;
+    var conta = c.conectada ? c.conta : c.esperado;
+    var txt = c.conectada ? c.label + " ✓" : wt("conectar") + " " + c.label;
+    b.innerHTML = ICON_PLUG + "<span>" + txt + (conta ? '<em class="pmail">' + esc(conta) + "</em>" : "") + "</span>";
+    b.title = c.conectada
+      ? (c.conta ? c.label + ": " + c.conta + " — clique para desconectar" : c.label + " conectado — clique para desconectar")
+      : (c.esperado
+        ? "Conectar " + c.esperado + " (a conta do seu cadastro) para o assistente agir em seu nome"
+        : "Conectar sua conta " + c.label + " para o assistente agir em seu nome");
+  }
+
+  /** Lê o estado no servidor e (re)desenha os botões da barra. */
+  async function carregarContas() {
+    var r = await apiConexoes({ action: "list" });
+    contasConta = (r && r.ok && Array.isArray(r.contas)) ? r.contas : [];
+    contasConta.forEach(function (c) {
+      if (!contasBtns[c.provider]) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "pbtn";
+        b.addEventListener("click", function () { cliqueConta(c.provider); });
+        contasBtns[c.provider] = b;
+        if (promptBar) promptBar.appendChild(b);
+      }
+      pintarBotaoConta(c);
+    });
+  }
+
+  function cliqueConta(provider) {
+    var c = contasConta.filter(function (x) { return x.provider === provider; })[0];
+    if (!c) return;
+    if (!c.conectada) { abrirConsentimento(provider); return; }
+    // Desconectar apaga o token no servidor. Confirmação simples: é reversível
+    // em dois cliques, e uma modal para isto seria cerimônia demais.
+    apiConexoes({ action: "disconnect", provider: provider }).then(function (r) {
+      if (r && r.ok) {
+        contasConta = Array.isArray(r.contas) ? r.contas : contasConta;
+        contasConta.forEach(pintarBotaoConta);
+        toastWidget(wt("contaOff"));
+      } else {
+        toastWidget((r && r.erro) || "Não foi possível desconectar.", true);
+      }
+    });
+  }
+
+  /** Botão de conectar JUNTO da resposta — quando a IA disse que falta a conta. */
+  function renderConectar(contas) {
+    if (!contas || !contas.length) return;
+    var box = document.createElement("div");
+    box.className = "opts";
+    contas.forEach(function (c) {
+      var b = document.createElement("button");
+      b.type = "button";
+      var ol = document.createElement("span"); ol.className = "ol";
+      ol.textContent = wt("conectar") + " " + c.label;
+      var os = document.createElement("span"); os.className = "os";
+      os.textContent = (c.esperado ? "Conecte a conta " + c.esperado + ". " : "")
+        + "Abre a tela da " + c.label + " para você autorizar. Depois é só repetir o pedido.";
+      b.appendChild(ol); b.appendChild(os);
+      b.addEventListener("click", function () { abrirConsentimento(c.provider); });
+      box.appendChild(b);
+    });
+    messagesEl.appendChild(box);
+    try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { }
+  }
+
+  // O popup do consentimento avisa quem o abriu (ver `pagina.tsx`). Recarrega o
+  // estado para o botão virar "conectado" sem a pessoa precisar recarregar nada.
+  window.addEventListener("message", function (ev) {
+    if (ev.data === "kb:conexao:ok") { toastWidget(wt("contaOk")); carregarContas(); }
+    else if (ev.data === "kb:conexao:erro") { carregarContas(); }
+  });
+
   function setupBaseDados() {
     if (!hasPromptIdentity()) return; // precisa de identidade (escopo por usuário)
     promptBar = promptBar || panel.querySelector(".pbar");
@@ -7104,6 +7234,10 @@
     histBtn.innerHTML = ICON_HISTORY + "<span>" + wt("historico") + "</span>";
     histBtn.addEventListener("click", abrirHistorico);
     promptBar.appendChild(histBtn);
+    // Contas pessoais que ESTA base oferece (Microsoft/Google). Assíncrono: a
+    // barra aparece na hora e ganha o botão quando o servidor responde — e não
+    // aparece botão nenhum se o cliente não tem a integração cadastrada.
+    void carregarContas();
     // Idioma do assistente + tradução da tela. Escondidos temporariamente por
     // MOSTRAR_TRADUZIR (ver o topo do arquivo) — nada foi removido.
     if (MOSTRAR_TRADUZIR) {

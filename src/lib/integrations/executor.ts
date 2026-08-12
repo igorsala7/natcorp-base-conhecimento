@@ -5,6 +5,7 @@ import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 import { montarCorpo } from "./body-template";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
+import { chavePessoal } from "./user-key";
 
 /** A tool como o motor precisa dela (subconjunto de ai_tools). */
 export type RuntimeTool = {
@@ -226,7 +227,9 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     const { tokenDoUsuario } = await import("./user-token");
     const r = await tokenDoUsuario({
       credentialId: input.credential.id,
-      pUsuario: String(input.identity.usuario ?? "").trim(),
+      // A pessoa, não o usuário da aplicação: no Painel do Colaborador o
+      // `p_usuario` é 'PORTAL' para todo mundo (ver `user-key.ts`).
+      pessoa: chavePessoal({ base: input.identity.base, empresa: input.identity.cod_empresa, matricula: input.identity.matricula }),
     });
     if (!r.ok) {
       // `status: 0` distingue "nem chegou a sair" de um erro do provedor, e a

@@ -1,11 +1,12 @@
 import type { NextRequest } from "next/server";
-import { lerPerfil, trocarCodigo, type ProviderConnect } from "@/lib/integrations/oauth-user";
+import { exigeEmailFuncional, lerPerfil, trocarCodigo, type ProviderConnect } from "@/lib/integrations/oauth-user";
 import {
   consumirEstado,
   credencialPorId,
   redirectUri,
   salvarConexao,
 } from "@/lib/integrations/connect-store";
+import { mesmoEmail } from "@/lib/chat/meus-dados";
 import { paginaDeErro, paginaDeSucesso } from "../pagina";
 
 export const runtime = "nodejs";
@@ -68,15 +69,42 @@ export async function GET(
       code,
       redirectUri: redirectUri(provider),
     });
-    // Trilha de auditoria do vínculo: o critério é o `p_usuario` do anfitrião
-    // (decisão do produto), mas guardar quem de fato consentiu é o que permite
-    // descobrir depois uma ligação errada.
+    // Trilha de auditoria do vínculo: o critério é a matrícula afirmada pelo
+    // anfitrião (decisão do produto), mas guardar quem de fato consentiu é o
+    // que permite descobrir depois uma ligação errada.
     const perfil = await lerPerfil(provider, tokens.accessToken);
+
+    // A CAIXA TEM DE SER A DA PESSOA — quando o administrador exige isso.
+    //
+    // Qual conta autorizar é escolha de quem está no navegador, e navegador
+    // logado no e-mail pessoal é o caso comum: sem checagem, conectar a caixa
+    // errada é um erro silencioso (o envio funciona, saindo do endereço
+    // errado, e só se descobre pelo destinatário).
+    //
+    // DESLIGADA por padrão (decisão do Igor, 11/08/2026): nem todo cliente tem
+    // SSO com o provedor, e onde não tem, o e-mail funcional do RH não
+    // corresponde a conta nenhuma — exigir travaria quem não tem como cumprir.
+    //
+    // Ligada, recusa SEM gravar nada (conexão meio feita é pior que nenhuma) e
+    // só quando sabemos o alvo: `expected_email` nulo passa direto, porque
+    // bloquear por ignorância deixaria a pessoa sem saída.
+    if (exigeEmailFuncional(cred.cfg) && estado.emailEsperado && !mesmoEmail(perfil.email, estado.emailEsperado)) {
+      return paginaDeErro(
+        `A conta autorizada (${perfil.email ?? "sem e-mail"}) não é a do seu cadastro. ` +
+          `Conecte a conta ${estado.emailEsperado} — na tela da ${provider === "microsoft" ? "Microsoft" : "Google"}, ` +
+          'escolha "Usar outra conta". Se o e-mail do seu cadastro estiver desatualizado, fale com o RH.',
+      );
+    }
+
     await salvarConexao({
       credentialId: cred.credentialId,
-      baseId: cred.baseId,
+      // A base vem do ESTADO, não da credencial: com credencial global, a
+      // `base_id` dela é a da base onde foi cadastrada, não a de quem conectou.
+      // Gravar a errada esconderia a conexão do corte de disponibilidade, que
+      // procura por (base, pessoa).
+      baseId: estado.baseId ?? cred.baseId,
       provider,
-      pUsuario: estado.pUsuario,
+      pessoa: estado.pessoa,
       tokens,
       email: perfil.email,
       nome: perfil.nome,

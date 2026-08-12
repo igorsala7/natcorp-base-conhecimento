@@ -31,6 +31,11 @@ export type BaseToolContext = {
   prioridade: number;
   /** Grupo onde a prioridade compete (null = a prioridade não se aplica). */
   grupoAmbiguidade: string | null;
+  /** Provedor da conta pessoal ('microsoft' | 'google') quando `identity_mode =
+   *  'user'`; `null` nas demais. Sai daqui porque só este módulo sabe traduzir a
+   *  credencial do catálogo em provedor — e o chat precisa do nome para dizer
+   *  QUAL conta falta conectar. */
+  provedorPessoal: string | null;
 };
 export type BaseContext = {
   baseId: string;
@@ -98,14 +103,29 @@ export function invalidateBaseContext(baseCode?: string): void {
   invalidateCatalogo(baseCode);
 }
 
-/** Base ATIVA + suas tools HABILITADAS (com base_url e credencial). Cacheado (TTL). */
+/**
+ * Base ATIVA + suas tools HABILITADAS (com base_url e credencial). Cacheado (TTL).
+ *
+ * Devolve sempre uma CÓPIA da lista de tools. O chamador filtra o catálogo por
+ * PESSOA (conta conectada, painel, perfil, recorte) escrevendo em `ctx.tools` —
+ * e escrever direto no objeto cacheado fazia o corte de um usuário valer para
+ * todos os próximos 60 segundos, de todos os usuários daquela base.
+ *
+ * O sintoma, em 11/08/2026: a primeira pergunta de um turno cortava as 10
+ * ferramentas Microsoft por falta de conta conectada (com trace e aviso, tudo
+ * certo); a pergunta SEGUINTE, 36 segundos depois, já não encontrava ferramenta
+ * pessoal nenhuma no contexto — sem corte, sem aviso, sem botão de conectar. A
+ * ferramenta não tinha sumido do cadastro: tinha sumido do cache.
+ */
 export async function loadBaseContext(baseCode: string): Promise<BaseContext | null> {
   const chave = baseCode.trim().toLowerCase();
   const hit = baseCtxCache.get(chave);
-  if (hit && hit.exp > Date.now()) return hit.ctx;
+  if (hit && hit.exp > Date.now()) return hit.ctx ? { ...hit.ctx, tools: [...hit.ctx.tools] } : null;
   const ctx = await carregarBaseContext(baseCode);
   baseCtxCache.set(chave, { exp: Date.now() + BASE_CTX_TTL, ctx });
-  return ctx;
+  // Cópia também na primeira carga: o objeto que acabou de entrar no cache é o
+  // mesmo que voltaria daqui, e a mutação do chamador o alcançaria igual.
+  return ctx ? { ...ctx, tools: [...ctx.tools] } : null;
 }
 
 async function carregarBaseContext(baseCode: string): Promise<BaseContext | null> {
@@ -134,6 +154,64 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
 
   const rows = (data ?? []) as unknown as EmbeddedRow[];
 
+  // ── CREDENCIAL DA CONTA PESSOAL: sempre a DESTA base ────────────────────
+  //
+  // Ferramentas `identity_mode = 'user'` (Microsoft Graph, Gmail) são de
+  // ENDPOINT EXTERNO, e endpoint externo herda a credencial do CATÁLOGO. Para
+  // OAuth de aplicação isso está certo — o catálogo é global. Para conta
+  // pessoal, não: o catálogo aponta para o registro no Entra de UM cliente, e
+  // todas as bases herdavam esse mesmo id.
+  //
+  // A consequência era silenciosa e permanente. O consentimento
+  // (`/api/v1/connect/*/start`) resolve a credencial pelo `p_base` — a da base
+  // do usuário. A conexão era gravada nessa credencial, e a ferramenta
+  // continuava perguntando pela credencial do catálogo: a conta aparecia como
+  // "não conectada" para sempre, e o consentimento tinha sido dado ao app Azure
+  // de outro cliente.
+  //
+  // Aqui a credencial vem do provedor: descobrimos qual é (pelo cadastro do
+  // catálogo) e trocamos pela credencial `oauth2_user` do MESMO provedor NESTA
+  // base. Sem essa credencial, a tool fica sem credencial — e sai do catálogo
+  // no corte de disponibilidade, que é o resultado honesto: não há como esse
+  // cliente conectar conta nenhuma enquanto o admin não cadastrar o registro
+  // dele. NÃO há reserva para a credencial do catálogo: seria justamente
+  // mandar o usuário de um cliente autenticar no app de outro.
+  const credsPessoaisCatalogo = [
+    ...new Set(
+      rows
+        .filter((r) => r.tool?.identity_mode === "user" && r.tool.credential_id)
+        .map((r) => r.tool!.credential_id as string),
+    ),
+  ];
+  /** provider (catálogo) → credencial oauth2_user desta base. */
+  const credPessoalDaBase = new Map<string, string>();
+  /** credencial do catálogo → provider, para traduzir tool → provider. */
+  const providerDaCredCatalogo = new Map<string, string>();
+  if (credsPessoaisCatalogo.length > 0) {
+    const [{ data: catalogo }, { data: disponiveis }] = await Promise.all([
+      db.from("ai_base_credentials").select("id, provider").in("id", credsPessoaisCatalogo),
+      // A da BASE ou a GLOBAL — a mesma cascata de `idCredencialPessoal` (o
+      // consentimento usa aquela; se as duas divergirem, a conta conecta numa
+      // credencial e a ferramenta pergunta pela outra, que foi o defeito de
+      // 11/08/2026). Global existe porque a URL de callback do sistema é única:
+      // só um registro no provedor pode funcionar.
+      db
+        .from("ai_base_credentials")
+        .select("id, provider, base_id, is_global")
+        .eq("auth_type", "oauth2_user")
+        .eq("active", true)
+        .or(`base_id.eq.${base.id},is_global.is.true`),
+    ]);
+    for (const c of catalogo ?? []) if (c.provider) providerDaCredCatalogo.set(c.id, c.provider);
+    for (const c of disponiveis ?? []) {
+      if (!c.provider) continue;
+      // A própria vence a global quando as duas existem.
+      if (!credPessoalDaBase.has(c.provider) || c.base_id === base.id) {
+        credPessoalDaBase.set(c.provider, c.id);
+      }
+    }
+  }
+
   // Tags de assunto (Opção A): módulos/submódulos que cada tool serve. Carregadas
   // só quando a base usa roteamento por assunto (senão nem consulta).
   const toolIds = rows.map((r) => r.tool?.id).filter((x): x is string => !!x);
@@ -159,7 +237,14 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
     // transição, caso o backfill não as tenha preenchido).
     const externa = t.endpoint_kind === "external";
     const baseUrl = externa ? t.external_url : (base.base_url ?? r.base_url);
-    const credentialId = externa ? t.credential_id : (base.credential_id ?? r.credential_id);
+    // Conta PESSOAL: a credencial é a desta base, pelo provedor (ver acima).
+    const pessoal = t.identity_mode === "user";
+    const provedorPessoal = pessoal ? providerDaCredCatalogo.get(t.credential_id ?? "") ?? null : null;
+    const credentialId = pessoal
+      ? credPessoalDaBase.get(provedorPessoal ?? "") ?? null
+      : externa
+        ? t.credential_id
+        : (base.credential_id ?? r.credential_id);
     tools.push({
       toolId: t.id,
       tool: {
@@ -193,6 +278,7 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
       alwaysInclude: t.always_include === true,
       prioridade: t.prioridade ?? 0,
       grupoAmbiguidade: t.grupo_ambiguidade?.trim() || null,
+      provedorPessoal,
     });
   }
 
