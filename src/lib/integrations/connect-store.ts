@@ -28,6 +28,11 @@ export type CredencialDelegada = {
   baseId: string;
   provider: ProviderConnect;
   cfg: ConfigDelegada;
+  /** A credencial é a CADASTRADA NESTA BASE (e não a global compartilhada).
+   *  Credencial própria significa app do provedor no diretório do cliente — é o
+   *  caso em que o e-mail funcional do RH e a conta do SSO são a mesma coisa, e
+   *  por isso a conferência entre os dois passa a ser obrigatória. */
+  propriaDaBase: boolean;
 };
 
 /**
@@ -47,7 +52,7 @@ export type CredencialDelegada = {
 export async function idCredencialPessoal(
   baseId: string,
   provider: string,
-): Promise<string | null> {
+): Promise<{ id: string; propriaDaBase: boolean } | null> {
   const db = createAdminClient();
   const { data: propria } = await db
     .from("ai_base_credentials")
@@ -57,7 +62,7 @@ export async function idCredencialPessoal(
     .eq("provider", provider)
     .eq("active", true)
     .maybeSingle();
-  if (propria) return propria.id;
+  if (propria) return { id: propria.id, propriaDaBase: true };
 
   const { data: global } = await db
     .from("ai_base_credentials")
@@ -67,7 +72,7 @@ export async function idCredencialPessoal(
     .eq("provider", provider)
     .eq("active", true)
     .maybeSingle();
-  return global?.id ?? null;
+  return global ? { id: global.id, propriaDaBase: false } : null;
 }
 
 /**
@@ -96,9 +101,9 @@ export async function credencialDelegada(
     .maybeSingle();
   if (!base) return null;
 
-  const credId = await idCredencialPessoal(base.id, provider);
-  if (!credId) return null;
-  const cred = { id: credId };
+  const escolhida = await idCredencialPessoal(base.id, provider);
+  if (!escolhida) return null;
+  const cred = { id: escolhida.id };
 
   const { data: sec } = await db
     .from("ai_base_credential_secrets")
@@ -115,7 +120,7 @@ export async function credencialDelegada(
   }
   if (!cfg.client_id || !cfg.client_secret) return null;
 
-  return { credentialId: cred.id, baseId: base.id, provider, cfg };
+  return { credentialId: cred.id, baseId: base.id, provider, cfg, propriaDaBase: escolhida.propriaDaBase };
 }
 
 /**
@@ -143,7 +148,10 @@ export async function credencialPorId(credentialId: string): Promise<CredencialD
   try {
     const cfg = JSON.parse(decryptSecret(sec.secret_enc)) as ConfigDelegada;
     if (!cfg.client_id || !cfg.client_secret) return null;
-    return { credentialId: cred.id, baseId: cred.base_id, provider: cred.provider, cfg };
+    // Pelo id (callback): a decisão de conferir o e-mail já foi tomada no
+    // início do fluxo e viajou no estado, então `propriaDaBase` não é reavaliada
+    // aqui — reavaliar abriria espaço para a política mudar no meio do consentimento.
+    return { credentialId: cred.id, baseId: cred.base_id, provider: cred.provider, cfg, propriaDaBase: false };
   } catch {
     return null;
   }

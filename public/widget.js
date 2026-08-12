@@ -3812,7 +3812,11 @@
       ".opts .os{display:block;font-size:12px;color:#6b6577;margin-top:2px;line-height:1.4}" +
       // E-mail da conta no botão da barra: uma linha abaixo do rótulo, menor e
       // sem itálico (é endereço, não ênfase).
-      ".pbtn .pmail{display:block;font-style:normal;font-size:10.5px;opacity:.75;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+      // Conta conectada: verde ESCURO o bastante para continuar legível em
+      // monitor claro, sem brilho de neon ao lado do roxo da marca. O tom claro
+      // do dark mode não serve aqui — o painel do widget é branco.
+      ".pbtn.on{color:#15803d}" +
+      ".pbtn.on:hover{background:#eaf6ee;color:#166534}" +
       // Multi-seleção: cada fonte é um cartão com caixa de marcação. Alvo de 44px
       // (dedo) e estado marcado destacado pela borda — o `.on` é alternado por JS,
       // não por :has(), para não depender do suporte do navegador.
@@ -7184,20 +7188,20 @@
   }
 
   /** Repinta o botão da barra conforme o estado da conta.
-   *  Mostra o E-MAIL: conectado, qual caixa está ligada; desconectado, qual
-   *  deve ser conectada (o funcional do cadastro). Ver a conta antes de clicar
-   *  é o que evita autorizar a pessoal por hábito do navegador. */
+   *
+   *  O ESTADO é a cor: verde conectado, cinza (o padrão da barra) desconectado.
+   *  O e-mail sai do rótulo — antes de conectar ele não acrescenta nada à
+   *  decisão, e ainda anunciava um endereço na tela de quem estivesse olhando.
+   *  Depois de conectada, a conta continua visível ao passar o mouse. */
   function pintarBotaoConta(c) {
     var b = contasBtns[c.provider];
     if (!b) return;
-    var conta = c.conectada ? c.conta : c.esperado;
+    b.classList.toggle("on", !!c.conectada);
     var txt = c.conectada ? c.label + " ✓" : wt("conectar") + " " + c.label;
-    b.innerHTML = ICON_PLUG + "<span>" + txt + (conta ? '<em class="pmail">' + esc(conta) + "</em>" : "") + "</span>";
+    b.innerHTML = ICON_PLUG + "<span>" + txt + "</span>";
     b.title = c.conectada
       ? (c.conta ? c.label + ": " + c.conta + " — clique para desconectar" : c.label + " conectado — clique para desconectar")
-      : (c.esperado
-        ? "Conectar " + c.esperado + " (a conta do seu cadastro) para o assistente agir em seu nome"
-        : "Conectar sua conta " + c.label + " para o assistente agir em seu nome");
+      : "Conectar sua conta " + c.label + " para o assistente agir em seu nome";
   }
 
   /** Lê o estado no servidor e (re)desenha os botões da barra. */
@@ -7246,8 +7250,7 @@
       var ol = document.createElement("span"); ol.className = "ol";
       ol.textContent = wt("conectar") + " " + c.label;
       var os = document.createElement("span"); os.className = "os";
-      os.textContent = (c.esperado ? "Conecte a conta " + c.esperado + ". " : "")
-        + "Abre a tela da " + c.label + " para você autorizar. Depois é só repetir o pedido.";
+      os.textContent = "Abre a tela da " + c.label + " para você autorizar. Depois é só repetir o pedido.";
       b.appendChild(ol); b.appendChild(os);
       b.addEventListener("click", function () { abrirConsentimento(c.provider); });
       box.appendChild(b);

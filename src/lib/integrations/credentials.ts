@@ -133,7 +133,7 @@ export const CREDENTIAL_FIELDS: Record<AuthType, readonly CredField[]> = {
         { value: "", label: "Não — aceita qualquer conta que a pessoa autorizar" },
         { value: "1", label: "Sim — recusa conta diferente do cadastro (exige SSO)" },
       ],
-      hint: "Ligado, o consentimento recusa uma conta diferente do e-mail funcional de `meus_dados`. A pré-seleção da conta na tela do provedor acontece nos dois casos.",
+      hint: "Vale para a credencial GLOBAL (um app servindo várias bases). Numa credencial cadastrada NA PRÓPRIA BASE a conferência é sempre feita, independente deste campo — ali o app é do diretório do cliente e o e-mail funcional é a conta do SSO.",
     },
     {
       key: "authorize_url",

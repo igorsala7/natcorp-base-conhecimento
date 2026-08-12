@@ -2,8 +2,7 @@ import type { NextRequest } from "next/server";
 import { resolveWidgetKey, originAllowed, corsHeaders, clientIp, extractKey, rateLimitOk } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
 import { chavePessoal, NOME_PROVEDOR } from "@/lib/integrations/user-key";
-import { contasDaPessoa, credencialDelegada, revogarConexao } from "@/lib/integrations/connect-store";
-import { exigeEmailFuncional } from "@/lib/integrations/oauth-user";
+import { contasDaPessoa, revogarConexao } from "@/lib/integrations/connect-store";
 import { emailFuncionalDaPessoa } from "@/lib/integrations/email-funcional";
 import { identityFromTrack } from "@/lib/integrations/params";
 
@@ -60,21 +59,15 @@ export async function POST(req: NextRequest) {
     return json({ ok: true, contas: await contasDaPessoa(baseCode, pessoa) }, 200);
   }
 
-  // Qual caixa a pessoa DEVE conectar (cadastro do RH) — só quando o
-  // administrador declarou que o e-mail do cadastro É a conta do provedor. Sem
-  // essa declaração, anunciar um endereço no botão manda a pessoa procurar uma
-  // conta que pode nem existir no diretório. De quebra, poupa uma ida à ORDS
-  // por carregamento de widget.
-  const exigeAlguma = (
-    await Promise.all(
-      contas.map(async (c) => {
-        if (c.provider !== "microsoft" && c.provider !== "google") return false;
-        const cred = await credencialDelegada(baseCode, c.provider);
-        return cred ? exigeEmailFuncional(cred.cfg) : false;
-      }),
-    )
-  ).some(Boolean);
-  const esperado = exigeAlguma ? await emailFuncionalDaPessoa(baseCode, identityFromTrack(track)) : null;
+  // SEM E-MAIL FUNCIONAL, SEM BOTÃO (decisão do Igor, 12/08/2026). É o cadastro
+  // do RH que identifica a conta a conectar; sem ele, a conexão seria de uma
+  // caixa de e-mail a um cadastro incompleto — e a rota de consentimento recusa
+  // de qualquer forma. Oferecer um botão que só pode falhar é pior que não ter
+  // botão: a pessoa tenta, não entende, e abre chamado.
+  const temEmailFuncional = contas.length
+    ? Boolean(await emailFuncionalDaPessoa(baseCode, identityFromTrack(track)))
+    : false;
+  if (!temEmailFuncional) return json({ ok: true, contas: [] }, 200);
 
   return json(
     {
@@ -86,9 +79,6 @@ export async function POST(req: NextRequest) {
         // Só o e-mail da conta conectada — é o que confirma à pessoa QUAL conta
         // está ligada ali (ela pode ter mais de uma).
         conta: c.email,
-        // O e-mail do cadastro, para o botão dizer QUAL conta conectar antes de
-        // a pessoa abrir a tela do provedor e escolher a errada.
-        esperado,
       })),
     },
     200,

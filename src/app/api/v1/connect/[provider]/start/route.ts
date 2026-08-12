@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { resolveWidgetKey, extractKey } from "@/lib/widget/auth";
 import { decodeTrackForSpace } from "@/lib/tracking/resolve";
-import { exigeEmailFuncional, urlDeConsentimento, type ProviderConnect } from "@/lib/integrations/oauth-user";
+import { deveConferirEmailFuncional, urlDeConsentimento, type ProviderConnect } from "@/lib/integrations/oauth-user";
 import { abrirEstado, credencialDelegada, redirectUri } from "@/lib/integrations/connect-store";
 import { chavePessoal } from "@/lib/integrations/user-key";
 import { emailFuncionalDaPessoa } from "@/lib/integrations/email-funcional";
@@ -64,17 +64,26 @@ export async function GET(
   // QUAL caixa esta pessoa deveria conectar, pelo cadastro do RH
   // (`meus_dados.email_funcional`) — não por nada que o navegador afirme.
   //
-  // Só é buscado quando o administrador declarou que o e-mail do cadastro É a
-  // conta do provedor (o mesmo campo que liga a checagem no callback). Sem essa
-  // declaração o cadastro é apenas um e-mail corporativo qualquer, e sugerir a
-  // conta pelo `login_hint` empurra a pessoa para um endereço que pode não
-  // existir no diretório — foi o que aconteceu em 11/08/2026: a tela abriu num
-  // e-mail de outro locatário e a Microsoft recusou com "Selected user account
-  // does not exist in tenant".
-  const exigeEmail = exigeEmailFuncional(cred.cfg);
-  const emailEsperado = exigeEmail
-    ? await emailFuncionalDaPessoa(pBase, identityFromTrack(track))
-    : null;
+  // SEM e-mail funcional NÃO SE CONECTA (decisão do Igor, 12/08/2026). Uma
+  // conta pessoal amarrada a alguém que o RH não sabe identificar é uma caixa
+  // de e-mail agindo em nome de um cadastro incompleto; e o widget nem oferece
+  // o botão nesse caso, então chegar aqui já é fora do caminho normal.
+  const emailFuncional = await emailFuncionalDaPessoa(pBase, identityFromTrack(track));
+  if (!emailFuncional) {
+    return paginaDeErro(
+      "Seu cadastro não tem e-mail funcional, e é ele que identifica a conta a conectar. " +
+        "Fale com o RH para preencher o e-mail corporativo no seu cadastro e tente de novo.",
+    );
+  }
+
+  // CONFERIR a conta contra o cadastro é obrigatório quando a credencial é a
+  // DESTA base: credencial própria significa app no diretório do cliente, onde
+  // o e-mail funcional e a conta do SSO são a mesma coisa — deixar conectar
+  // outra caixa ali seria aceitar um remetente que o RH não reconhece. Com a
+  // credencial GLOBAL (um app servindo vários clientes) a igualdade não é dada,
+  // e aí vale o que o administrador declarou no cadastro da credencial.
+  const conferir = deveConferirEmailFuncional({ propriaDaBase: cred.propriaDaBase, cfg: cred.cfg });
+  const emailEsperado = conferir ? emailFuncional : null;
 
   let nonce: string;
   try {

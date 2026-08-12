@@ -45,6 +45,23 @@ export type ConfigDelegada = {
 export const exigeEmailFuncional = (cfg: ConfigDelegada): boolean =>
   String(cfg.exigir_email_funcional ?? "").trim() === "1";
 
+/**
+ * A conta que autorizar tem de ser a do e-mail funcional do cadastro?
+ *
+ * Sim, sempre, quando a credencial é a CADASTRADA NA BASE: credencial própria
+ * significa app do provedor dentro do diretório do cliente, onde a conta do SSO
+ * e o e-mail funcional do RH são a mesma coisa. Aceitar outra caixa ali seria
+ * aceitar um remetente que o RH não reconhece — e o parâmetro do administrador
+ * não deveria poder afrouxar isso (decisão do Igor, 12/08/2026).
+ *
+ * Com a credencial GLOBAL — um app servindo vários clientes, inclusive os sem
+ * SSO — a igualdade não é dada, e aí vale o que o administrador declarou.
+ */
+export const deveConferirEmailFuncional = (input: {
+  propriaDaBase: boolean;
+  cfg: ConfigDelegada;
+}): boolean => input.propriaDaBase || exigeEmailFuncional(input.cfg);
+
 const PADRAO: Record<ProviderConnect, { authorize: (t: string) => string; token: (t: string) => string; scopes: string }> = {
   microsoft: {
     authorize: (t) => `https://login.microsoftonline.com/${t}/oauth2/v2.0/authorize`,

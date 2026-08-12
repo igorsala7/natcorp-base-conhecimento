@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  deveConferirEmailFuncional,
   escoposDe,
   lerPerfil,
   precisaRenovar,
@@ -18,6 +19,22 @@ const CFG: ConfigDelegada = {
 
 const respostaOk = (body: unknown, ok = true, status = 200) =>
   vi.fn().mockResolvedValue({ ok, status, json: async () => body } as unknown as Response);
+
+describe("deveConferirEmailFuncional", () => {
+  // Credencial da BASE = app no diretório do cliente: ali a conta do SSO e o
+  // e-mail funcional são a mesma coisa, e o parâmetro do administrador não pode
+  // afrouxar a conferência.
+  it("credencial da própria base confere sempre, mesmo com o campo desligado", () => {
+    expect(deveConferirEmailFuncional({ propriaDaBase: true, cfg: CFG })).toBe(true);
+  });
+
+  it("credencial global só confere quando o administrador liga", () => {
+    expect(deveConferirEmailFuncional({ propriaDaBase: false, cfg: CFG })).toBe(false);
+    expect(
+      deveConferirEmailFuncional({ propriaDaBase: false, cfg: { ...CFG, exigir_email_funcional: "1" } }),
+    ).toBe(true);
+  });
+});
 
 describe("urlDeConsentimento", () => {
   it("usa o tenant configurado — registro single-tenant não aceita /common", () => {
