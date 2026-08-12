@@ -5576,11 +5576,17 @@
         }
         btnG.textContent = "✕ Fechar gráfico";
         montador = montarSeletorGrafico(dados, function (spec) {
-          var novo = construirCardGrafico(spec, { salvar: true }).card;
-          novo.style.margin = "8px 0 0";
-          novo.style.maxWidth = "100%";
-          if (cardAtual) cardAtual.replaceWith(novo); else montador.after(novo);
-          cardAtual = novo;
+          var built = construirCardGrafico(spec, { salvar: true });
+          built.card.style.margin = "8px 0 0";
+          built.card.style.maxWidth = "100%";
+          if (cardAtual) cardAtual.replaceWith(built.card); else montador.after(built.card);
+          cardAtual = built.card;
+          // DESENHA DEPOIS DE ENTRAR NO DOM. O card se desenha sozinho num
+          // requestAnimationFrame, e quem monta o card normalmente já o inseriu
+          // — aqui não: ele nasce solto e só então é encaixado. Fora do
+          // documento o canvas tem largura 0 e o desenho sai vazio; era o
+          // gráfico que "só aparecia depois de fechar e reabrir".
+          requestAnimationFrame(function () { drawChart(built.canvas, spec); });
         });
         bar.after(montador);
       }
@@ -5589,16 +5595,65 @@
     });
   }
 
+  /** Cálculos disponíveis no montador — os mesmos nomes das ferramentas de dados. */
+  var MDT_CALCS = [
+    ["contar", "Contar linhas"],
+    ["distintos", "Contar diferentes"],
+    ["soma", "Somar"],
+    ["media", "Média"],
+    ["mediana", "Mediana"],
+    ["min", "Mínimo"],
+    ["max", "Máximo"],
+  ];
+
+  /** Agrega uma lista de células conforme o cálculo. `null` = não deu número. */
+  function mdtAgregar(celulas, calc) {
+    if (calc === "contar") return celulas.length;
+    if (calc === "distintos") {
+      var vistos = {};
+      var n = 0;
+      celulas.forEach(function (c) {
+        var t = String(c == null ? "" : c).trim();
+        if (!t || vistos[t]) return;
+        vistos[t] = 1; n++;
+      });
+      return n;
+    }
+    var nums = [];
+    celulas.forEach(function (c) { var v = celulaNumero(c); if (v != null) nums.push(v); });
+    if (!nums.length) return null;
+    if (calc === "soma") return nums.reduce(function (a, b) { return a + b; }, 0);
+    if (calc === "media") return Math.round((nums.reduce(function (a, b) { return a + b; }, 0) / nums.length) * 100) / 100;
+    if (calc === "mediana") return kbMediana(nums);
+    if (calc === "min") return Math.min.apply(null, nums);
+    if (calc === "max") return Math.max.apply(null, nums);
+    return null;
+  }
+
   /**
-   * Seletor de eixos + tipo. O X é a coluna de rótulo; cada coluna de VALOR
-   * marcada vira uma série, na ordem em que foi marcada — que é o que dá o
-   * "y, z, w" pedido: em dispersão/bolha o motor já lê série0=X, série1=Y,
-   * série2=tamanho; nos demais tipos, cada série é uma barra/linha.
+   * Seletor de eixos + cálculo + tipo.
+   *
+   * O CÁLCULO é o que faz a tabela virar gráfico no caso comum. Sem ele, só
+   * funcionava a tabela que já vinha pronta — uma categoria por linha e um
+   * número ao lado. Um relatório de candidatos (nome, localização, grau de
+   * instrução, idiomas) não tem número nenhum, e o gráfico saía vazio: com
+   * "Contar linhas", cada coluna dessas vira um gráfico útil na hora.
+   *
+   * Respondendo à pergunta que isto levanta: NÃO, o X não precisa ser texto nem
+   * o Y precisa ser número. `contar`/`distintos` funcionam sobre qualquer
+   * coluna; soma/média/mediana/mín/máx é que exigem número, e aí a dica avisa
+   * quando a coluna escolhida não tem nenhum.
+   *
+   * As linhas são AGRUPADAS pelo valor do X (categorias repetidas viram uma
+   * só). Antes cada linha virava uma categoria — três linhas "São Paulo"
+   * desenhavam três barras iguais, o que ninguém pede num gráfico.
    */
   function montarSeletorGrafico(dados, onDesenhar) {
-    var pc = (cfg && cfg.primaryColor) || "#511C76";
     var box = document.createElement("div");
     box.className = "mdtg";
+
+    var numericas = dados.colunas.map(function (_, j) { return colunaNumerica(dados.linhas, j); });
+    var temNumero = numericas.some(Boolean);
 
     var linha1 = document.createElement("div");
     linha1.className = "mdtg-l";
@@ -5612,13 +5667,21 @@
     dados.colunas.forEach(function (c, j) {
       var o = document.createElement("option"); o.value = String(j); o.textContent = c || ("Coluna " + (j + 1)); selX.appendChild(o);
     });
+    var selCalc = document.createElement("select");
+    selCalc.className = "mdtg-s";
+    MDT_CALCS.forEach(function (c) {
+      var o = document.createElement("option"); o.value = c[0]; o.textContent = c[1]; selCalc.appendChild(o);
+    });
+    // Sem coluna numérica na tabela, somar não leva a lugar nenhum: começa em
+    // "Contar linhas", que é o que dá gráfico de primeira num relatório de texto.
+    selCalc.value = temNumero ? "soma" : "contar";
+
     linha1.appendChild(kbRotulo("Tipo")); linha1.appendChild(selTipo);
     linha1.appendChild(kbRotulo("Eixo X")); linha1.appendChild(selX);
+    linha1.appendChild(kbRotulo("Cálculo")); linha1.appendChild(selCalc);
     box.appendChild(linha1);
 
-    // Valores: as numéricas vêm marcadas de saída — na maioria das respostas é
-    // exatamente o que a pessoa queria, e ela só ajusta.
-    var numericas = dados.colunas.map(function (_, j) { return colunaNumerica(dados.linhas, j); });
+    // X: a primeira coluna de TEXTO é quase sempre o rótulo que a pessoa quer.
     var primeiraNaoNumerica = numericas.indexOf(false);
     selX.value = String(primeiraNaoNumerica >= 0 ? primeiraNaoNumerica : 0);
 
@@ -5626,12 +5689,13 @@
     vals.className = "mdtg-l";
     vals.appendChild(kbRotulo("Valores"));
     var ordem = [];
+    var checks = [];
     dados.colunas.forEach(function (c, j) {
       var lab = document.createElement("label");
       lab.className = "mdtg-c";
       var cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = numericas[j];
+      cb.checked = temNumero && numericas[j];
       if (cb.checked) ordem.push(j);
       cb.addEventListener("change", function () {
         var pos = ordem.indexOf(j);
@@ -5642,7 +5706,7 @@
       lab.appendChild(cb);
       lab.appendChild(document.createTextNode(c || ("Coluna " + (j + 1))));
       vals.appendChild(lab);
-      lab._cb = cb;
+      checks.push({ lab: lab, cb: cb });
     });
     box.appendChild(vals);
 
@@ -5659,25 +5723,65 @@
     }
 
     function desenhar() {
-      dica.textContent = dicaDoTipo(selTipo.value);
-      if (!ordem.length) { dica.textContent = "Marque ao menos uma coluna de valor."; return; }
+      var calc = selCalc.value;
+      var contaLinhas = calc === "contar";
+      // "Contar linhas" não usa coluna de valor — some com a escolha em vez de
+      // deixá-la ali sem efeito, que é pior que não ter.
+      vals.style.display = contaLinhas ? "none" : "";
+      checks.forEach(function (c) { c.lab.style.display = ""; });
+
       var jx = Number(selX.value);
-      var spec = {
-        tipo: selTipo.value,
-        titulo: dados.colunas[jx] ? "Por " + dados.colunas[jx] : "Gráfico",
-        categorias: dados.linhas.map(function (l) { return String(l[jx] == null ? "" : l[jx]); }),
-        series: ordem.map(function (j) {
+      var rotuloX = dados.colunas[jx] || "Categoria";
+
+      // Agrupa por X, na ordem em que cada valor apareceu.
+      var chaves = [], grupos = {};
+      dados.linhas.forEach(function (l) {
+        var k = String(l[jx] == null ? "" : l[jx]).trim() || "(vazio)";
+        if (!grupos[k]) { grupos[k] = []; chaves.push(k); }
+        grupos[k].push(l);
+      });
+
+      var series;
+      if (contaLinhas) {
+        series = [{ nome: "Registros", valores: chaves.map(function (k) { return grupos[k].length; }) }];
+      } else {
+        if (!ordem.length) {
+          dica.textContent = "Marque a coluna que vai ser calculada — ou escolha \"Contar linhas\".";
+          return;
+        }
+        series = ordem.map(function (j) {
           return {
-            nome: dados.colunas[j] || ("Coluna " + (j + 1)),
-            valores: dados.linhas.map(function (l) { return celulaNumero(l[j]); }),
+            nome: (dados.colunas[j] || ("Coluna " + (j + 1))) + " (" + rotuloCalc(calc) + ")",
+            valores: chaves.map(function (k) {
+              return mdtAgregar(grupos[k].map(function (l) { return l[j]; }), calc);
+            }),
           };
-        }),
-      };
-      onDesenhar(spec);
+        });
+      }
+
+      var vazio = series.every(function (s) {
+        return s.valores.every(function (v) { return v == null || v === 0; });
+      });
+      dica.textContent = vazio
+        ? "Nenhum número nessa coluna para " + rotuloCalc(calc).toLowerCase() + ". Tente \"Contar linhas\" ou \"Contar diferentes\"."
+        : chaves.length + " categoria(s) · " + dicaDoTipo(selTipo.value);
+
+      onDesenhar({
+        tipo: selTipo.value,
+        titulo: (contaLinhas ? "Registros por " : rotuloCalc(calc) + " por ") + rotuloX,
+        categorias: chaves,
+        series: series,
+      });
+    }
+
+    function rotuloCalc(c) {
+      for (var i = 0; i < MDT_CALCS.length; i++) if (MDT_CALCS[i][0] === c) return MDT_CALCS[i][1];
+      return c;
     }
 
     selTipo.addEventListener("change", desenhar);
     selX.addEventListener("change", desenhar);
+    selCalc.addEventListener("change", desenhar);
     // Desenha já: abrir o montador e ver um gráfico vale mais que abrir e ver
     // um formulário — quase sempre a escolha automática já é a certa.
     setTimeout(desenhar, 0);

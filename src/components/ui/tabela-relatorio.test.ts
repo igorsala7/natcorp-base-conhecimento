@@ -14,6 +14,7 @@ function funcoesDoWidget(): {
   celulaNumero: (v: unknown) => number | null;
   colunaNumerica: (linhas: string[][], j: number) => boolean;
   csvDaTabela: (d: { colunas: string[]; linhas: string[][] }) => string;
+  mdtAgregar: (celulas: unknown[], calc: string) => number | null;
 } {
   const src = readFileSync("public/widget.js", "utf8");
   const trecho = (nome: string): string => {
@@ -22,11 +23,13 @@ function funcoesDoWidget(): {
     const fim = src.indexOf("\n  }\n", ini);
     return src.slice(ini, fim + 4);
   };
-  const fonte = ["celulaNumero", "colunaNumerica", "csvDaTabela"].map(trecho).join("\n");
-  return new Function(`${fonte}\nreturn { celulaNumero, colunaNumerica, csvDaTabela };`)();
+  const fonte = ["kbMediana", "celulaNumero", "colunaNumerica", "csvDaTabela", "mdtAgregar"]
+    .map(trecho)
+    .join("\n");
+  return new Function(`${fonte}\nreturn { celulaNumero, colunaNumerica, csvDaTabela, mdtAgregar };`)();
 }
 
-const { celulaNumero, colunaNumerica, csvDaTabela } = funcoesDoWidget();
+const { celulaNumero, colunaNumerica, csvDaTabela, mdtAgregar } = funcoesDoWidget();
 
 describe("celulaNumero — o número como a pessoa LÊ", () => {
   it("entende o formato pt-BR", () => {
@@ -94,5 +97,34 @@ describe("csvDaTabela", () => {
 
   it("mantém a ordem das colunas do cabeçalho", () => {
     expect(csvDaTabela(dados).split("\r\n")[1]).toBe("Unidade;Total");
+  });
+});
+
+describe("mdtAgregar — o cálculo do gráfico", () => {
+  const valores = ["1.200", "R$ 300,50", "n/d", "500"];
+
+  it("conta LINHAS, inclusive as sem número", () => {
+    // É o que faz uma tabela só de texto (nome, cidade, idioma) virar gráfico.
+    expect(mdtAgregar(valores, "contar")).toBe(4);
+    expect(mdtAgregar(["São Paulo", "São Paulo"], "contar")).toBe(2);
+  });
+
+  it("conta DIFERENTES, ignorando vazio", () => {
+    expect(mdtAgregar(["SP", "SP", "PR", ""], "distintos")).toBe(2);
+  });
+
+  it("soma, média, mediana, mínimo e máximo pulam o que não é número", () => {
+    expect(mdtAgregar(valores, "soma")).toBe(2000.5);
+    expect(mdtAgregar(valores, "media")).toBe(666.83);
+    expect(mdtAgregar(valores, "mediana")).toBe(500);
+    expect(mdtAgregar(valores, "min")).toBe(300.5);
+    expect(mdtAgregar(valores, "max")).toBe(1200);
+  });
+
+  it("coluna sem número nenhum devolve null — e a dica manda contar", () => {
+    // null (e não 0): zero seria um dado, e desenharia uma barra no chão como
+    // se a resposta fosse "nenhum", quando a resposta é "não dá para somar".
+    expect(mdtAgregar(["Superior Completo", "Médio"], "soma")).toBeNull();
+    expect(mdtAgregar([], "media")).toBeNull();
   });
 });
