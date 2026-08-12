@@ -5,7 +5,7 @@ import { loadBaseContext, loadCredentialSecret } from "./resolve";
 import { credenciaisConectadas } from "./connect-store";
 import { chavePessoal } from "./user-key";
 import { avisoContaPendente, type ContaPendente } from "./conta-pendente";
-import { buildModelSchema, identityFromTrack, type Identity } from "./params";
+import { buildModelSchema, chaveDoModelo, identityFromTrack, type Identity } from "./params";
 import { executeTool, type ExecResult } from "./executor";
 import { extractDocumentsFromResult, type OutFile } from "./documents";
 import { limparMarcacaoHtml } from "./html-values";
@@ -711,8 +711,10 @@ export async function buildIntegrationTools(
           const loop = loopEscopo;
           // (a) Período mês a mês: modelo informa from/to; itera cada mês.
           if (loop?.unit === "month") {
-            const inicio = loop.from ? String(modelArgs[loop.from] ?? "") : "";
-            const fim = loop.to ? String(modelArgs[loop.to] ?? "") : "";
+            // Mesma tradução do schema (`chaveDoModelo`): o modelo respondeu
+            // com a chave saneada, não com o nome que a API usa.
+            const inicio = loop.from ? String(modelArgs[chaveDoModelo(loop.from)] ?? "") : "";
+            const fim = loop.to ? String(modelArgs[chaveDoModelo(loop.to)] ?? "") : "";
             const { lista, excedeu } = expandirMeses(inicio, fim || null, loop.max ?? 24);
             if (lista.length === 0) return { erro: `Preciso do mês (ou período) em ${loop.from}, no formato ISO AAAA-MM.` };
             const build = (a: Record<string, unknown>, iso: string) => {
@@ -742,7 +744,7 @@ export async function buildIntegrationTools(
           // (b) Lista de valores: a API aceita 1 por chamada; o modelo passa vários
           // no `param` e o servidor consulta cada um (ex.: várias matrículas).
           if (loop?.unit === "values") {
-            const raw = modelArgs[loop.param];
+            const raw = modelArgs[chaveDoModelo(loop.param)];
             let valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
               .map((v) => String(v).trim())
               .filter(Boolean);
@@ -773,7 +775,7 @@ export async function buildIntegrationTools(
           // estoura o limite de tamanho. O modelo passa todos; o servidor FATIA em lotes de
           // `max` (junta cada lote com vírgula) e faz UMA chamada por lote, agregando.
           if (loop?.unit === "batch") {
-            const raw = modelArgs[loop.param];
+            const raw = modelArgs[chaveDoModelo(loop.param)];
             const valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
               .flatMap((v) => String(v).split(","))
               .map((v) => v.trim())

@@ -6,6 +6,28 @@ import { applyDateMask } from "./mask";
 /** Identidade confiável, decifrada do token (nunca vinda do modelo). */
 export type Identity = Partial<Record<IdentityField, string>>;
 
+/**
+ * O nome do parâmetro COMO O MODELO O VÊ.
+ *
+ * O cadastro guarda o nome que a API espera, e nem todo nome de API é aceito
+ * como chave de propriedade num schema de ferramenta: a Anthropic exige
+ * `^[a-zA-Z0-9_.-]{1,64}$` e recusa a requisição INTEIRA quando um caractere
+ * escapa — foi o que derrubou o turno em 12/08/2026, quando as ferramentas do
+ * Microsoft Graph (`$top`, `$search`, OData) enfim entraram no catálogo:
+ *
+ *   tools.5.custom.input_schema.properties: Property keys should match pattern
+ *
+ * Renomear no cadastro não serve: `top` não é `$top` para o Graph, e a chamada
+ * sairia sem o parâmetro. Então traduzimos na fronteira — o modelo vê `top`, o
+ * executor manda `$top` — e o cadastro continua descrevendo a API de verdade.
+ */
+export function chaveDoModelo(nome: string): string {
+  const limpo = String(nome ?? "").replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 64);
+  // Sobrou vazio (nome só de símbolos) ou começou por caractere que confunde:
+  // um nome qualquer é melhor que uma requisição recusada.
+  return limpo.replace(/^[._-]+/, "") || "param";
+}
+
 /** Mapeia a identidade decifrada do token (p_*) para os campos do motor. */
 export function identityFromTrack(t: TrackFields): Identity {
   return {
@@ -43,7 +65,7 @@ export function buildModelSchema(
         "logado. O sistema libera conforme o painel: Operador vê qualquer um; Gestor, só a equipe; Colaborador, só a si.";
       // Batching: se a matrícula-alvo TAMBÉM é o parâmetro de loop, a IA passa VÁRIAS numa
       // lista (uma consulta por colaborador, resultados juntados) — em vez de N chamadas.
-      shape[p.nome] =
+      shape[chaveDoModelo(p.nome)] =
         loop?.unit === "values" && p.nome === loop.param
           ? z
               .array(z.string())
@@ -89,15 +111,15 @@ export function buildModelSchema(
               : "Passe UM valor, ou VÁRIOS numa lista se o usuário pedir mais de um — o sistema consulta cada um e junta os resultados."),
         );
     }
-    shape[p.nome] = p.obrigatorio ? campo : campo.optional();
+    shape[chaveDoModelo(p.nome)] = p.obrigatorio ? campo : campo.optional();
   }
   if (loop?.unit === "month") {
-    shape[loop.from!] = z
+    shape[chaveDoModelo(loop.from!)] = z
       .string()
       .describe(
         `Início do período em ISO AAAA-MM. Para um ÚNICO mês, informe só este. Para um intervalo (ex.: o ano todo, ou abril a setembro), informe também ${loop.to}.`,
       );
-    shape[loop.to!] = z
+    shape[chaveDoModelo(loop.to!)] = z
       .string()
       .describe(`Fim do período em ISO AAAA-MM (inclusive). Omita para consultar um único mês (${loop.from}).`)
       .optional();
@@ -136,9 +158,9 @@ export function resolveParams(
     else if (p.origem === "pessoa") {
       // Matrícula-alvo: usa a do MODELO se veio (o guard escopo_pessoa já validou/ajustou
       // pelo painel); senão cai para a IDENTIDADE (consulta do próprio usuário).
-      const alvo = modelArgs[p.nome];
+      const alvo = modelArgs[chaveDoModelo(p.nome)];
       raw = alvo != null && String(alvo).trim() !== "" ? alvo : identity[p.campoIdentidade ?? "matricula"];
-    } else raw = modelArgs[p.nome];
+    } else raw = modelArgs[chaveDoModelo(p.nome)];
 
     if (raw === undefined || raw === null || raw === "") {
       if (p.obrigatorio) throw new Error(mensagemParametroAusente(p));
