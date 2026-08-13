@@ -59,6 +59,7 @@ import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
 import { confirmarPendencia } from "@/lib/integrations/confirmations";
@@ -500,7 +501,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // (identityFromTrack) — o modelo só preenche os parâmetros de consulta.
   const outFiles: OutFile[] = [];
   // Holder lido pelo log de execução no momento da chamada (após a conversa existir).
-  const runMeta: { conversationId: string | null } = { conversationId: convId ?? null };
+  // `cartoes`: listas com AÇÃO declarada (ex.: aprovações pendentes) que o motor
+  // encontrou neste turno. Viram cartão clicável no chat — ver acao-lista.ts.
+  const runMeta: { conversationId: string | null; cartoes: CartaoAcao[] } = {
+    conversationId: convId ?? null,
+    cartoes: [],
+  };
   // Assistente de formulário (por chave): a IA lê os campos da tela e pode PROPOR
   // preencher/operar. Declarado ANTES das tools porque habilita o gate "precisa de
   // dados?" (interação de tela não carrega as ferramentas de dados).
@@ -2123,6 +2129,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         const chartCtx = programaRel || filtrosRel.length ? { ...c, contexto: { programa: programaRel, filtros: filtrosRel } } : c;
         emitir(sse({ type: "chart", chart: chartCtx }));
       }
+      // Lista com ação (aprovações pendentes…) → cartão clicável. Vai DEPOIS do
+      // texto: a resposta explica o que são os itens; o cartão só executa.
+      for (const c of runMeta.cartoes) emitir(sse({ type: "acao", acao: c }));
       // Escolha de tipo de gráfico → o widget mostra os tipos como BOTÕES.
       for (const ch of chartChoices) {
         emitir(sse({ type: "chart_choice", spec: ch.spec, recomendado: ch.recomendado, pergunta: ch.pergunta }));

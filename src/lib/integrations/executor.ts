@@ -42,6 +42,8 @@ export type RuntimeTool = {
   /** 'user' = exige o token PESSOAL de quem perguntou (Graph /me/*, Gmail). Sem
    *  conexão, a tool recusa em vez de responder com a conta de serviço. */
   identity_mode?: string | null;
+  /** Declara que os ITENS devolvidos aceitam uma ação (ver acao-lista.ts). */
+  acao_em_lista?: unknown;
 };
 
 /** Aplica o envelope de corpo exigido pela API (ver `RuntimeTool.body_mode`). */

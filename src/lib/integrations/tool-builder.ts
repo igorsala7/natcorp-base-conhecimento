@@ -17,6 +17,7 @@ import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { recorteTemCobertura } from "./module-match";
 import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
+import { montarCartaoAcao, ehAcaoEmLista, type CartaoAcao } from "./acao-lista";
 import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
@@ -109,8 +110,9 @@ export async function buildIntegrationTools(
   identity: Identity,
   /** Coletor de ARQUIVOS retornados pelas APIs (base64) — o canal os entrega. */
   sink?: OutFile[],
-  /** Metadados do turno para o log de execução (ex.: a conversa). */
-  runMeta?: { conversationId?: string | null },
+  /** Metadados do turno para o log de execução (ex.: a conversa) e coletor dos
+   *  CARTÕES DE AÇÃO (lista clicável — ver acao-lista.ts). */
+  runMeta?: { conversationId?: string | null; cartoes?: CartaoAcao[] },
   /** Pergunta do usuário (Opção A) — habilita a análise do pedido. */
   question?: string,
   /** Assistente de tela (formAssist) ligado — habilita o gate "precisa de dados?". */
@@ -894,6 +896,23 @@ export async function buildIntegrationTools(
           // `{ requisicoes: 12, valores: [...] }` em vez de 12 linhas iguais no log.
           const infoCurl = consolidarChamadas(bt.tool.key, chamadasHttp);
           if (infoCurl) onPasso?.("integracoes:curl", { ...marca, ...infoCurl });
+          // Lista com AÇÃO declarada (ex.: aprovações pendentes) → cartão
+          // clicável, para a pessoa não ter de reler os números na tela e
+          // redigitá-los. O cartão é oferta: quem autoriza é a rota /api/v1/acao,
+          // que revalida cada id com os mesmos guards desta ferramenta.
+          if (runMeta?.cartoes && ehAcaoEmLista(bt.tool.acao_em_lista)) {
+            try {
+              const cartao = montarCartaoAcao(_bruto, bt.tool.acao_em_lista, bt.tool.key);
+              if (cartao) {
+                runMeta.cartoes.push(cartao);
+                onPasso?.("acao_em_lista", { ...marca, tool: bt.tool.key, acao: cartao.tool, itens: cartao.itens.length });
+              }
+            } catch (e) {
+              // Cartão é conveniência: se a declaração estiver torta, a resposta
+              // em texto continua valendo. Nunca derrubar a consulta por causa dele.
+              console.warn(`[acao-lista] ${bt.tool.key}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
           const { saida, relato } = injetarDatasetComRelato(datasets, _bruto);
           if (relato) onPasso?.("tool_result", { ...marca, tool: bt.tool.key, ...relato });
           return saida;

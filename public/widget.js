@@ -3869,6 +3869,18 @@
       // 16px no campo: abaixo disso o iOS Safari dá auto-zoom ao focar.
       ".opts .find{width:100%;box-sizing:border-box;font-size:16px;border:1.5px solid #e6ddf1;border-radius:12px;padding:10px 12px;outline:none;background:#faf8fd;min-height:44px}" +
       ".opts .find:focus{border-color:var(--pc);background:#fff}" +
+      // Cartão de ação: item indisponível fica visível e apagado (a pessoa
+      // precisa saber que existe), e a variante destrutiva não usa a cor da marca.
+      ".opts .actit{font-size:13px;font-weight:600;color:var(--pc);margin-bottom:2px}" +
+      ".opts .opt.off{opacity:.55;cursor:default;padding-left:28px}" +
+      ".opts .acf{display:flex;flex-direction:column;gap:4px;margin-top:2px}" +
+      ".opts .acbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}" +
+      ".opts .acbar .go{flex:1 1 auto;min-height:44px}" +
+      ".opts .acbar .go.danger{border-color:#c05252;color:#a83b3b}" +
+      ".opts .acbar .go.danger:hover{background:#fdf3f3}" +
+      ".opts .acmsg{font-size:12px;color:#6b6577;min-height:0}" +
+      ".opts .acmsg.err,.opts .os.err{color:#a83b3b}" +
+      ".opts .acres{margin-top:6px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--pc) 6%,#fff);display:flex;flex-direction:column;gap:3px}" +
       ".opts .flist{max-height:172px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px}" +
       ".opts .fnone{font-size:12px;color:#6b6577;padding:8px 4px;line-height:1.4}" +
       // Confirmar: botão PRIMÁRIO. Sem isto ele herda `.opts button` e fica idêntico
@@ -4382,6 +4394,19 @@
       });
       return await resp.json().catch(function () { return null; });
     } catch (e) { return null; }
+  }
+  // AÇÃO sobre itens de uma lista (aprovar/reprovar…). Mesma auth das demais; o
+  // servidor revalida CADA id com os guards da ferramenta — o clique é intenção,
+  // não permissão.
+  async function apiAcao(payload) {
+    var resp = await fetch(API + "/api/v1/acao", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+      body: JSON.stringify(Object.assign({ key: KEY, track: track }, payload)),
+    });
+    var j = await resp.json().catch(function () { return null; });
+    if (!resp.ok) throw new Error((j && j.error) || "Não foi possível concluir a ação.");
+    return j;
   }
   // Persiste o CONJUNTO coletado do relatório por id (Fase F1). Mesma auth do saved-reports
   // (o servidor valida a chave + o rastreio e grava no ESCOPO do usuário).
@@ -6567,6 +6592,134 @@
     messagesEl.appendChild(box);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
+  /**
+   * CARTÃO DE AÇÃO — a lista vira clicável.
+   *
+   * Sem ele, agir sobre o que a resposta listou significa ler o número na tela e
+   * redigitá-lo ("aprova a 57463"). É onde se aprova a requisição errada.
+   *
+   * Um item disponível: botões diretos. Vários: checkbox + confirmar. Quem
+   * decide isso é o servidor (cartao.lote), porque é ele que sabe quantos itens
+   * a pessoa PODE processar agora.
+   */
+  function renderAcao(cartao) {
+    if (!cartao || !cartao.itens || !cartao.itens.length) return;
+    var box = document.createElement("div");
+    box.className = "opts";
+    var marcados = {};
+
+    var tit = document.createElement("div");
+    tit.className = "actit";
+    tit.textContent = cartao.titulo;
+    box.appendChild(tit);
+
+    var disponiveis = cartao.itens.filter(function (i) { return i.disponivel; });
+
+    cartao.itens.forEach(function (it) {
+      var row = document.createElement("label");
+      row.className = "opt" + (it.disponivel ? "" : " off");
+      var cb = null;
+      if (cartao.lote && it.disponivel) {
+        cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.addEventListener("change", function () {
+          marcados[it.id] = cb.checked;
+          row.classList.toggle("on", cb.checked);
+        });
+        row.appendChild(cb);
+      }
+      var txt = document.createElement("span");
+      txt.className = "otx";
+      var ol = document.createElement("span"); ol.className = "ol"; ol.textContent = it.titulo;
+      txt.appendChild(ol);
+      // O item indisponível FICA na lista, apagado e com o motivo: some-lo faria a
+      // pessoa achar que a requisição não existe, em vez de que ainda não é a vez dela.
+      var sub = it.detalhe || (it.disponivel ? "" : it.motivo || "Ainda não é sua vez.");
+      if (sub) { var os = document.createElement("span"); os.className = "os"; os.textContent = sub; txt.appendChild(os); }
+      row.appendChild(txt);
+      box.appendChild(row);
+    });
+
+    // Campos da ação (justificativa…). Em lote, um só, e o texto diz para quantos vale.
+    var entradas = {};
+    (cartao.campos || []).forEach(function (c) {
+      var wrap = document.createElement("div");
+      wrap.className = "acf";
+      var lab = document.createElement("span");
+      lab.className = "os";
+      lab.textContent = c.rotulo + (c.obrigatorio ? " *" : "");
+      var inp = document.createElement(c.multilinha ? "textarea" : "input");
+      inp.className = "find";
+      if (c.multilinha) inp.rows = 3;
+      wrap.appendChild(lab); wrap.appendChild(inp);
+      if (c.ajuda) { var aj = document.createElement("span"); aj.className = "os"; aj.textContent = c.ajuda; wrap.appendChild(aj); }
+      box.appendChild(wrap);
+      entradas[c.nome] = inp;
+    });
+
+    var aviso = document.createElement("div");
+    aviso.className = "acmsg";
+    box.appendChild(aviso);
+
+    var barra = document.createElement("div");
+    barra.className = "acbar";
+    cartao.variantes.forEach(function (v) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "go" + (v.estilo === "perigo" ? " danger" : "");
+      b.textContent = v.rotulo;
+      b.addEventListener("click", function () {
+        var ids = cartao.lote
+          ? disponiveis.filter(function (i) { return marcados[i.id]; }).map(function (i) { return i.id; })
+          : disponiveis.map(function (i) { return i.id; });
+        if (!ids.length) { aviso.textContent = "Marque pelo menos um item."; return; }
+        var campos = {}, falta = null;
+        (cartao.campos || []).forEach(function (c) {
+          var val = String(entradas[c.nome].value || "").trim();
+          if (c.obrigatorio && !val) falta = falta || c.rotulo;
+          campos[c.nome] = val;
+        });
+        if (falta) { aviso.textContent = falta + " é obrigatório."; return; }
+
+        aviso.textContent = "";
+        travarEscolha(box, b);
+        b.textContent = v.rotulo + "…";
+        apiAcao({ tool: cartao.tool, origem: cartao.origem, ids: ids, variante: v.valor, campos: campos })
+          .then(function (r) { renderResultadoAcao(box, r, v.rotulo); })
+          .catch(function (e) {
+            var err = document.createElement("div");
+            err.className = "acmsg err";
+            err.textContent = e.message || "Não foi possível concluir a ação.";
+            box.appendChild(err);
+          });
+      });
+      barra.appendChild(b);
+    });
+    box.appendChild(barra);
+    messagesEl.appendChild(box);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  /** Resultado POR ITEM: 4 selecionados, 2 podem falhar — e a pessoa precisa saber quais. */
+  function renderResultadoAcao(box, r, rotulo) {
+    var res = document.createElement("div");
+    res.className = "acres";
+    var cab = document.createElement("div");
+    cab.className = "ol";
+    cab.textContent = r.sucesso === r.total
+      ? rotulo + ": " + r.total + (r.total === 1 ? " item concluído." : " itens concluídos.")
+      : rotulo + ": " + r.sucesso + " de " + r.total + " concluídos.";
+    res.appendChild(cab);
+    (r.resultados || []).forEach(function (x) {
+      if (x.ok) return;   // o que deu certo já está no cabeçalho; o que falhou precisa de nome
+      var l = document.createElement("div");
+      l.className = "os err";
+      l.textContent = "#" + x.id + " — " + (x.mensagem || "não foi possível.");
+      res.appendChild(l);
+    });
+    box.appendChild(res);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
   function normFonte(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
   function renderClarify(question, options, multiSelect, outros) {
     if (question) addMsg("assistant", question);
@@ -7321,6 +7474,12 @@
         if (typing.parentNode) typing.remove();
         avisarMensagem();
         if (evt.chart) renderChart(evt.chart);
+      } else if (evt.type === "acao") {
+        // Lista com ação (aprovações pendentes…) → cartão clicável.
+        if (typing.parentNode) typing.remove();
+        avisarMensagem();
+        _teveEscolha = true;
+        renderAcao(evt.acao);
       } else if (evt.type === "chart_choice") {
         // A IA quer o TIPO do gráfico → mostra os tipos como botões; escolher desenha na hora.
         if (typing.parentNode) typing.remove();

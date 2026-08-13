@@ -888,6 +888,7 @@ export type Database = {
           exclude_self: boolean
           method: string
           identity_mode: string
+          acao_em_lista: Json | null
           body_template: Json | null
           name: string
           params: Json
@@ -923,6 +924,7 @@ export type Database = {
           exclude_self?: boolean
           method?: string
           identity_mode?: string
+          acao_em_lista?: Json | null
           body_template?: Json | null
           name: string
           params?: Json
@@ -958,6 +960,7 @@ export type Database = {
           exclude_self?: boolean
           method?: string
           identity_mode?: string
+          acao_em_lista?: Json | null
           body_template?: Json | null
           name?: string
           params?: Json

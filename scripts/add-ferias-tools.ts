@@ -39,6 +39,7 @@ import { createClient } from "@supabase/supabase-js";
 import { syncToolEmbedding } from "../src/lib/integrations/tool-catalog";
 import type { ToolParam } from "../src/lib/integrations/tools";
 import type { Database, Json } from "../src/lib/database.types";
+import type { AcaoEmLista } from "../src/lib/integrations/acao-lista";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -211,6 +212,7 @@ type NovaTool = {
   system_prompt?: string;
   cache_ttl?: number;
   cache_scope?: "user" | "empresa" | "global";
+  acao_em_lista?: AcaoEmLista;
 };
 
 const TOOLS: NovaTool[] = [
@@ -355,7 +357,40 @@ const TOOLS: NovaTool[] = [
       "o que tenho para aprovar\naprovações pendentes\nférias para aprovar\nsolicitações aguardando aprovação\n" +
       "minha equipe pediu férias\npendências de aprovação de férias\n" +
       "Tenho alguma férias para aprovar?\nO que está esperando minha aprovação?",
-    system_prompt: REGRA_FERIAS,
+    system_prompt:
+      REGRA_FERIAS +
+      "\n· A lista de pendências vira um cartão CLICÁVEL no chat (a pessoa marca e aprova ali). Apresente os " +
+      "itens em texto normal e NÃO peça para ela digitar o número da requisição — ela vai clicar.",
+    // A lista vira cartão clicável: marcar e aprovar ali, em vez de ler o número
+    // na tela e redigitá-lo. O vínculo é declarado — só o que está aqui vira ação.
+    acao_em_lista: {
+      tool: "ferias_aprovar",
+      lista: "itens",
+      chave_item: "cod_solicitacao",
+      param_item: "cod_solicitacao",
+      titulo: "colaborador.nome",
+      detalhe: "periodo.resumo",
+      // Não OFERECE o que o servidor vai recusar. Não é permissão: quem decide é
+      // o Valida_Sequencia, na execução.
+      condicao: { campo: "minha_vez", igual: true },
+      motivo: "motivo_bloqueio",
+      param_variante: "status",
+      variantes: [
+        { valor: "A", rotulo: "Aprovar" },
+        { valor: "R", rotulo: "Reprovar", estilo: "perigo" },
+      ],
+      campos: [
+        {
+          nome: "justificativa",
+          rotulo: "Justificativa",
+          obrigatorio: true,
+          multilinha: true,
+          ajuda: "Vale para todos os itens marcados.",
+        },
+      ],
+      lote: true,
+      titulo_cartao: "Marque o que deseja aprovar ou reprovar",
+    },
   },
   {
     key: "ferias_aprovar",
@@ -438,6 +473,7 @@ async function main() {
           guard: t.guard,
           cache_ttl: t.cache_ttl ?? 0,
           cache_scope: t.cache_scope ?? "user",
+          acao_em_lista: (t.acao_em_lista ?? null) as Json,
           always_include: false,
           active: true,
           updated_at: new Date().toISOString(),
