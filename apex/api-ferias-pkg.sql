@@ -506,6 +506,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   -- mover a data de saída (+1) quando o dia é feriado e proximo_dia = 'S'.
   -- ══════════════════════════════════════════════════════════════════════════
   PROCEDURE le_rascunho(r IN OUT t_rasc) IS
+    pfx VARCHAR2(40);
   BEGIN
     r.cod_empresa          := num_de('cod_empresa');
     r.matricula            := num_de('matricula');
@@ -516,25 +517,39 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     r.desc_adicional1      := num_de('desc_adicional');                  -- dias, não flag
     r.havera_rep           := NVL(apex_json.get_varchar2('havera_rep'), 'N');
 
-    -- A ferramenta do chat manda SEMPRE as três posições (a 3ª é a parcela 4 do
-    -- banco); as vazias chegam como objeto só com `n`.
-    r.dt_saida_parc1       := dt_de ('parcelas[1].dt_saida');
-    r.num_dias_parc1       := num_de('parcelas[1].num_dias');
-    r.dias_abono_pec1      := num_de('parcelas[1].dias_abono_pec');
-    r.opcao_abono_pec1     := NVL(apex_json.get_varchar2('parcelas[1].opcao_abono_pec'),'N');
-    r.opcao_13sal1         := NVL(apex_json.get_varchar2('parcelas[1].opcao_13sal'),'N');
+    /* Parcelas: despacho pelo campo `n`, NUNCA pela posição no array.
 
-    r.dt_saida_parc2       := dt_de ('parcelas[2].dt_saida');
-    r.num_dias_parc2       := num_de('parcelas[2].num_dias');
-    r.dias_abono_pec2      := num_de('parcelas[2].dias_abono_pec');
-    r.opcao_abono_pec2     := NVL(apex_json.get_varchar2('parcelas[2].opcao_abono_pec'),'N');
-    r.opcao_13sal2         := NVL(apex_json.get_varchar2('parcelas[2].opcao_13sal'),'N');
+       O motor de ferramentas do chat REMOVE do corpo as posições que a pessoa
+       não preencheu. Uma solicitação com 1ª e 3ª parcelas chega como um array de
+       DOIS elementos — ler por posição gravaria a terceira parcela no lugar da
+       segunda, sem erro nenhum: datas plausíveis, no campo errado.
 
-    r.dt_saida_parc4       := dt_de ('parcelas[3].dt_saida');
-    r.num_dias_parc4       := num_de('parcelas[3].num_dias');
-    r.dias_abono_pec4      := num_de('parcelas[3].dias_abono_pec');
-    r.opcao_abono_pec4     := NVL(apex_json.get_varchar2('parcelas[3].opcao_abono_pec'),'N');
-    r.opcao_13sal4         := NVL(apex_json.get_varchar2('parcelas[3].opcao_13sal'),'N');
+       `n` 1 e 2 são as parcelas 1 e 2; `n` 3 é a "3ª" da tela, que no banco é a
+       parcela 4 (a 3 é férias coletiva). */
+    FOR i IN 1 .. NVL(apex_json.get_count('parcelas'), 0) LOOP
+      pfx := 'parcelas[' || i || '].';
+      CASE num_de(pfx || 'n')
+        WHEN 1 THEN
+          r.dt_saida_parc1   := dt_de (pfx || 'dt_saida');
+          r.num_dias_parc1   := num_de(pfx || 'num_dias');
+          r.dias_abono_pec1  := num_de(pfx || 'dias_abono_pec');
+          r.opcao_abono_pec1 := NVL(apex_json.get_varchar2(pfx || 'opcao_abono_pec'), 'N');
+          r.opcao_13sal1     := NVL(apex_json.get_varchar2(pfx || 'opcao_13sal'), 'N');
+        WHEN 2 THEN
+          r.dt_saida_parc2   := dt_de (pfx || 'dt_saida');
+          r.num_dias_parc2   := num_de(pfx || 'num_dias');
+          r.dias_abono_pec2  := num_de(pfx || 'dias_abono_pec');
+          r.opcao_abono_pec2 := NVL(apex_json.get_varchar2(pfx || 'opcao_abono_pec'), 'N');
+          r.opcao_13sal2     := NVL(apex_json.get_varchar2(pfx || 'opcao_13sal'), 'N');
+        WHEN 3 THEN
+          r.dt_saida_parc4   := dt_de (pfx || 'dt_saida');
+          r.num_dias_parc4   := num_de(pfx || 'num_dias');
+          r.dias_abono_pec4  := num_de(pfx || 'dias_abono_pec');
+          r.opcao_abono_pec4 := NVL(apex_json.get_varchar2(pfx || 'opcao_abono_pec'), 'N');
+          r.opcao_13sal4     := NVL(apex_json.get_varchar2(pfx || 'opcao_13sal'), 'N');
+        ELSE NULL;  -- posição sem `n` reconhecível: ignora em vez de adivinhar
+      END CASE;
+    END LOOP;
   END le_rascunho;
 
   PROCEDURE carrega_contexto(r IN OUT t_rasc) IS
