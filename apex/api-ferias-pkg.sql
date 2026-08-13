@@ -23,14 +23,27 @@
 --   Pre_Insert · Post_Insert · Valida_Update_Rf · Valida_Sequencia
 --   PRC_INSERE_APROVADOR · PRC_ATUALIZA_REQ · pkg_aprovacao_coletiva.executa
 --
+-- COLUNAS conferidas contra o DDL em vscode-claude/tables/ — o que estava errado
+-- e foi corrigido:
+--   · REQUISICAO_FERIAS **não tem** `filial` (ela vive em INFORMACOES_FUNCIONAIS)
+--   · `sit_requisicao` é VARCHAR2(1): o legado grava '1', '2', '4' como TEXTO
+--   · `opcao_ferias` é NUMBER(3), não texto
+--   · `desc_adicional1` é NUMBER(2) — QUANTIDADE de dias, não flag S/N
+--   · FERIAS **não tem** `dias_direito`: quem calcula é Valida_Dt_Saida_Parc1,
+--     a partir do saldo (jornada reduzida, e /2 quando o período está em dobro)
+--   · CENTRO_DE_CUSTO chama o centro de custo de `cod` — `cod_ccusto` é o nome
+--     dele em INFORMACOES_FUNCIONAIS
+--
 -- A CONFIRMAR (fonte não fornecido — marcado com "⚠ CONFIRMAR" no corpo):
 --   1. pkg_req_ferias.pg78_carrega   — carga de período/saldo em `situacao`
 --   2. pkg_list.fnc_list_opc_prog_ferias e
 --      pkg_list_matricula.fnc_list_numdias — catálogos em `opcoes`
---   3. Lista de colunas do INSERT em REQUISICAO_FERIAS (montada a partir dos
---      itens da página 78 e dos cursores de prc_atualiza_req)
---   4. Parcelas 2 e 4 em `simular`: a parcela 1 está completa e é o gabarito;
+--   3. Parcelas 2 e 4 em `simular`: a parcela 1 está completa e é o gabarito;
 --      Valida_Dt_Saida_Parc2/4 e Valida_Num_Dias_Parc2/4 seguem o mesmo padrão
+--   4. INFORMACOES_FUNCIONAIS × INFORMACOES_FUNCIONAIS_CAD e INF_PESSOAIS ×
+--      INF_PESSOAIS_CAD: o legado usa as duas formas. Aqui ficaram as tabelas
+--      base, que são as que tenho o DDL. Se a variante _CAD filtrar algo
+--      (histórico, situação), trocar.
 --
 -- Este script NÃO foi compilado contra o banco. Trate a primeira compilação
 -- como parte da implementação, não como regressão.
@@ -56,6 +69,13 @@ END PKG_API_FERIAS;
 
 CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
 
+  -- ── Declarações ───────────────────────────────────────────────────────────
+  -- Em corpo de package, TIPO, VARIÁVEL e CONSTANTE têm de vir ANTES de
+  -- qualquer subprograma. Tudo o que é declaração mora neste bloco.
+
+  -- A página de férias é a 78 nos TRÊS painéis (operador, gestor, colaborador).
+  c_pagina_ferias CONSTANT NUMBER := 78;
+
   -- ── Identidade do chamador ────────────────────────────────────────────────
   TYPE t_ident IS RECORD (
     usuario        VARCHAR2(100),   -- usuario_oracle.nm_usuario_oracle
@@ -75,12 +95,20 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
 
   g_msgs t_msgs;
 
-  -- Rascunho da solicitação: os mesmos campos dos itens P78_* da página.
+  /* Rascunho da solicitação: os mesmos campos dos itens P78_* da página.
+     Tipos conferidos contra o DDL (vscode-claude/tables):
+       opcao_ferias    NUMBER(3)  — é código, não texto
+       desc_adicional1 NUMBER(2)  — é QUANTIDADE de dias, não flag S/N
+       filial e dias_direito NÃO são colunas: filial vem de
+       INFORMACOES_FUNCIONAIS e dias_direito é calculado dentro de
+       Valida_Dt_Saida_Parc1 (pdias_direito := psaldo, ajustado por jornada
+       reduzida e dividido por 2 quando o período está em dobro). */
   TYPE t_rasc IS RECORD (
     cod_empresa           NUMBER,
     matricula             NUMBER,
+    dc_matricula          NUMBER,
     filial                NUMBER,
-    opcao_ferias          VARCHAR2(10),
+    opcao_ferias          NUMBER,
     parcelas_opc          NUMBER,
     ind_situacao_periodo  VARCHAR2(1),
     dt_inic_per_ferias    DATE,
@@ -89,9 +117,10 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     saldo                 NUMBER,
     saldo_bruto           NUMBER,
     falta_hora            NUMBER,
+    falta_minuto          NUMBER,
     jornada_reduzida      VARCHAR2(1),
     havera_rep            VARCHAR2(1),
-    desc_adicional1       VARCHAR2(1),
+    desc_adicional1       NUMBER,
     dias_descanso_adic    NUMBER,
     -- parcela 1
     dt_saida_parc1        DATE,
@@ -113,8 +142,16 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     dt_retorno_parc4      DATE,
     num_dias_parc4        NUMBER,
     dias_abono_pec4       NUMBER,
+    tipo_ferias2          VARCHAR2(1),
+    opcao_abono_pec2      VARCHAR2(1),
+    tipo_ferias4          VARCHAR2(1),
+    opcao_abono_pec4      VARCHAR2(1),
     opcao_13sal4          VARCHAR2(1)
   );
+
+  -- Cache alias -> id da aplicação APEX (ver app_id()).
+  TYPE t_apps IS TABLE OF NUMBER INDEX BY VARCHAR2(100);
+  g_apps t_apps;
 
   -- ══════════════════════════════════════════════════════════════════════════
   -- Infra
@@ -150,9 +187,6 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
 
      Instalação que fuja da convenção manda `identidade.p_app_id` e o alias nem
      é consultado. */
-  TYPE t_apps IS TABLE OF NUMBER INDEX BY VARCHAR2(100);
-  g_apps t_apps;
-
   FUNCTION app_id(p t_ident) RETURN NUMBER IS
     l_alias VARCHAR2(100) := UPPER(p.painel || '_' || p.base);
     l_id    NUMBER;
@@ -188,8 +222,6 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
      painéis (operador, gestor e colaborador). Nada aqui renderiza página — a
      sessão existe só para o estado — mas usar a página real deixa a sessão
      idêntica à que a tela cria, inclusive para quem leia v('APP_PAGE_ID'). */
-  c_pagina_ferias CONSTANT NUMBER := 78;
-
   PROCEDURE abre_sessao(p t_ident) IS
   BEGIN
     apex_session.create_session(p_app_id   => app_id(p),
@@ -284,12 +316,14 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
 
     IF p.painel = 'PG' THEN
       -- ⚠ CONFIRMAR: trocar por fnc_list2 quando o fonte estiver disponível.
+      -- O código do centro de custo em CENTRO_DE_CUSTO é a coluna `cod`
+      -- (não `cod_ccusto`, que é o nome dela em INFORMACOES_FUNCIONAIS).
       SELECT COUNT(*) INTO v
-        FROM informacoes_funcionais_cad i
+        FROM informacoes_funcionais i
        WHERE i.cod_empresa = p_cod_empresa
          AND i.matricula   = p_matricula
          AND (i.cod_ccusto, i.cod_empresa) IN
-             (SELECT c.cod_ccusto, c.cod_empresa FROM centro_de_custo c
+             (SELECT c.cod, c.cod_empresa FROM centro_de_custo c
                WHERE (c.cod_emp_gestor = p.empresa_user AND c.matricula_gestor = p.matricula_user)
                   OR (c.cod_emp_suplente = p.empresa_user AND c.matricula_suplente = p.matricula_user));
       IF v = 0 THEN
@@ -324,16 +358,21 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     IF NOT tem_erro THEN
       -- ⚠ CONFIRMAR: na página isto é pkg_req_ferias.pg78_carrega. Sem o fonte,
       -- a leitura abaixo cobre o essencial; trocar pela chamada quando houver.
+      --
+      -- `dias_direito` NÃO é coluna de FERIAS: quem o calcula é
+      -- Valida_Dt_Saida_Parc1, a partir do saldo. Aqui ele nem aparece — antes
+      -- de haver data escolhida, o número honesto é o SALDO.
       BEGIN
-        SELECT i.filial, i.nome
+        SELECT i.filial, p.nome
           INTO l_r.filial, l_nome
-          FROM informacoes_funcionais_cad i
-         WHERE i.cod_empresa = l_emp AND i.matricula = l_mat;
+          FROM informacoes_funcionais i, inf_pessoais p
+         WHERE i.cod_empresa = l_emp AND i.matricula = l_mat
+           AND p.cod_empresa = i.cod_empresa AND p.matricula = i.matricula;
 
         SELECT f.dt_inic_per_ferias, f.dt_fim_per_ferias, f.ind_situacao_periodo,
-               f.dias_direito, f.saldo, NVL(f.saldo,0)
+               f.saldo, f.saldo_bruto
           INTO l_r.dt_inic_per_ferias, l_r.dt_fim_per_ferias, l_r.ind_situacao_periodo,
-               l_r.dias_direito, l_r.saldo, l_r.saldo_bruto
+               l_r.saldo, l_r.saldo_bruto
           FROM ferias f
          WHERE f.cod_empresa = l_emp AND f.matricula = l_mat
            AND f.ind_situacao_periodo IN ('A','P')
@@ -359,7 +398,6 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
         apex_json.write('ind_situacao_periodo', l_r.ind_situacao_periodo);
       apex_json.close_object;
       apex_json.open_object('saldo');
-        apex_json.write('dias_direito', l_r.dias_direito);
         apex_json.write('saldo',        l_r.saldo);
         apex_json.write('saldo_bruto',  l_r.saldo_bruto);
       apex_json.close_object;
@@ -394,7 +432,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     abre_sessao(l_id);
 
     SELECT i.filial INTO l_fil
-      FROM informacoes_funcionais_cad i
+      FROM informacoes_funcionais i
      WHERE i.cod_empresa = l_emp AND i.matricula = l_mat;
 
     apex_json.initialize_clob_output;
@@ -437,11 +475,11 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   BEGIN
     r.cod_empresa          := apex_json.get_number  ('cod_empresa');
     r.matricula            := apex_json.get_number  ('matricula');
-    r.opcao_ferias         := apex_json.get_varchar2('opcao_ferias');
+    r.opcao_ferias         := apex_json.get_number  ('opcao_ferias');   -- NUMBER(3)
     r.dt_inic_per_ferias   := apex_json.get_date    ('dt_inic_per_ferias');
     r.dt_fim_per_ferias    := apex_json.get_date    ('dt_fim_per_ferias');
     r.ind_situacao_periodo := apex_json.get_varchar2('ind_situacao_periodo');
-    r.desc_adicional1      := NVL(apex_json.get_varchar2('desc_adicional'), 'N');
+    r.desc_adicional1      := apex_json.get_number  ('desc_adicional'); -- dias, não flag
     r.havera_rep           := NVL(apex_json.get_varchar2('havera_rep'), 'N');
 
     r.dt_saida_parc1       := apex_json.get_date    ('parcelas[1].dt_saida');
@@ -463,18 +501,23 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
 
   PROCEDURE carrega_contexto(r IN OUT t_rasc) IS
   BEGIN
-    SELECT i.filial INTO r.filial
-      FROM informacoes_funcionais_cad i
+    SELECT i.filial, i.dc_matricula INTO r.filial, r.dc_matricula
+      FROM informacoes_funcionais i
      WHERE i.cod_empresa = r.cod_empresa AND i.matricula = r.matricula;
 
-    SELECT f.dias_direito, f.saldo, NVL(f.saldo,0), f.ind_situacao_periodo
-      INTO r.dias_direito, r.saldo, r.saldo_bruto, r.ind_situacao_periodo
+    SELECT f.saldo, f.saldo_bruto, f.ind_situacao_periodo,
+           NVL(f.falta_hora,0), NVL(f.falta_minuto,0)
+      INTO r.saldo, r.saldo_bruto, r.ind_situacao_periodo,
+           r.falta_hora, r.falta_minuto
       FROM ferias f
      WHERE f.cod_empresa = r.cod_empresa AND f.matricula = r.matricula
        AND f.dt_inic_per_ferias = r.dt_inic_per_ferias
        AND ROWNUM = 1;
 
-    r.falta_hora       := NVL(r.falta_hora, 0);
+    -- dias_direito entra IN OUT em Valida_Dt_Saida_Parc1, que o recalcula a
+    -- partir do saldo (jornada reduzida, período em dobro). Semear com o saldo
+    -- é o que a própria procedure faz na primeira linha.
+    r.dias_direito     := NVL(r.dias_direito, r.saldo);
     r.jornada_reduzida := NVL(r.jornada_reduzida, 'N');
   END carrega_contexto;
 
@@ -721,7 +764,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     l_flg      VARCHAR2(3) := 'S';
     l_msg      VARCHAR2(4000);
     l_sol      NUMBER;
-    l_sit      NUMBER;
+    l_sit      VARCHAR2(1);   -- REQUISICAO_FERIAS.sit_requisicao é VARCHAR2(1)
     l_pend     NUMBER := 0;
   BEGIN
     apex_json.parse(p_json);
@@ -798,29 +841,36 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     guarda('requisicao', l_flg, l_msg);
     IF tem_erro THEN ROLLBACK; GOTO devolve; END IF;
 
-    -- 4. INSERT  ⚠ CONFIRMAR a lista de colunas contra o DDL de REQUISICAO_FERIAS.
+    -- 4. INSERT — colunas conferidas contra o DDL (vscode-claude/tables).
+    --    REQUISICAO_FERIAS NÃO tem `filial` (ela vive em INFORMACOES_FUNCIONAIS
+    --    e só serve de parâmetro para as validações) e `sit_requisicao` é
+    --    VARCHAR2(1) — o legado grava '1', '2', '4' como TEXTO.
     INSERT INTO requisicao_ferias (
-      cod_solicitacao, cod_empresa, matricula, filial,
+      cod_solicitacao, cod_empresa, matricula, dc_matricula,
       sit_requisicao, dt_solicitacao,
       cod_emp_solicitante, matricula_solicitante, usuario,
       ind_situacao_periodo, dt_inic_per_ferias, dt_fim_per_ferias,
-      opcao_ferias,
+      opcao_ferias, saldo, saldo_bruto, falta_hora, falta_minuto,
       dt_saida_parc1, dt_retorno_parc1, num_dias_parc1, dias_abono_pec1,
-      opcao_abono_pec1, opcao_13sal1, tipo_ferias1,
-      dt_saida_parc2, dt_retorno_parc2, num_dias_parc2, dias_abono_pec2, opcao_13sal2,
-      dt_saida_parc4, dt_retorno_parc4, num_dias_parc4, dias_abono_pec4, opcao_13sal4,
-      desc_adicional1, havera_rep, dt_atualizacao
+      opcao_abono_pec1, opcao_13sal1, tipo_ferias1, dt_pagto_parc1,
+      dt_saida_parc2, dt_retorno_parc2, num_dias_parc2, dias_abono_pec2,
+      opcao_abono_pec2, opcao_13sal2, tipo_ferias2,
+      dt_saida_parc4, dt_retorno_parc4, num_dias_parc4, dias_abono_pec4,
+      opcao_abono_pec4, opcao_13sal4, tipo_ferias4,
+      desc_adicional1, dias_descanso_adicional, havera_rep, dt_atualizacao
     ) VALUES (
-      l_sol, l_r.cod_empresa, l_r.matricula, l_r.filial,
-      1, SYSDATE,
+      l_sol, l_r.cod_empresa, l_r.matricula, l_r.dc_matricula,
+      '1', SYSDATE,
       l_id.empresa_user, l_id.matricula_user, SUBSTR(l_id.usuario,1,30),
       l_r.ind_situacao_periodo, l_r.dt_inic_per_ferias, l_r.dt_fim_per_ferias,
-      l_r.opcao_ferias,
+      l_r.opcao_ferias, l_r.saldo, l_r.saldo_bruto, l_r.falta_hora, l_r.falta_minuto,
       l_r.dt_saida_parc1, l_r.dt_retorno_parc1, l_r.num_dias_parc1, l_r.dias_abono_pec1,
-      l_r.opcao_abono_pec1, l_r.opcao_13sal1, l_r.tipo_ferias1,
-      l_r.dt_saida_parc2, l_r.dt_retorno_parc2, l_r.num_dias_parc2, l_r.dias_abono_pec2, l_r.opcao_13sal2,
-      l_r.dt_saida_parc4, l_r.dt_retorno_parc4, l_r.num_dias_parc4, l_r.dias_abono_pec4, l_r.opcao_13sal4,
-      l_r.desc_adicional1, l_r.havera_rep, SYSDATE
+      l_r.opcao_abono_pec1, l_r.opcao_13sal1, l_r.tipo_ferias1, l_r.dt_pagto_parc1,
+      l_r.dt_saida_parc2, l_r.dt_retorno_parc2, l_r.num_dias_parc2, l_r.dias_abono_pec2,
+      l_r.opcao_abono_pec2, l_r.opcao_13sal2, l_r.tipo_ferias2,
+      l_r.dt_saida_parc4, l_r.dt_retorno_parc4, l_r.num_dias_parc4, l_r.dias_abono_pec4,
+      l_r.opcao_abono_pec4, l_r.opcao_13sal4, l_r.tipo_ferias4,
+      l_r.desc_adicional1, l_r.dias_descanso_adic, l_r.havera_rep, SYSDATE
     );
 
     -- 5. Aprovadores.
@@ -863,10 +913,10 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       IF NOT tem_erro THEN
         apex_json.write('cod_solicitacao', l_sol);
         apex_json.write('sit_requisicao',  l_sit);
-        apex_json.write('ja_concluida',    l_sit = 2);
+        apex_json.write('ja_concluida',    l_sit = '2');
         apex_json.open_array('aprovadores');
         FOR a IN (SELECT a.seq_aprov, a.cod_emp_aprov, a.mat_aprov, a.status_aprov, p.nome
-                    FROM aprova_ferias a, inf_pessoais_cad p
+                    FROM aprova_ferias a, inf_pessoais p
                    WHERE a.cod_solicitacao = l_sol
                      AND p.cod_empresa(+) = a.cod_emp_aprov
                      AND p.matricula(+)   = a.mat_aprov
@@ -923,9 +973,9 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
           apex_json.write('cod_solicitacao', r.cod_solicitacao);
           apex_json.write('sit_requisicao',  r.sit_requisicao);
           apex_json.write('situacao_texto',
-            CASE r.sit_requisicao WHEN 1 THEN 'Aberta'    WHEN 2 THEN 'Concluída'
-                                  WHEN 3 THEN 'Cancelada' WHEN 4 THEN 'Reprovada'
-                                  WHEN 5 THEN 'Aprovada'  WHEN 6 THEN 'Suspensa' END);
+            CASE r.sit_requisicao WHEN '1' THEN 'Aberta'    WHEN '2' THEN 'Concluída'
+                                  WHEN '3' THEN 'Cancelada' WHEN '4' THEN 'Reprovada'
+                                  WHEN '5' THEN 'Aprovada'  WHEN '6' THEN 'Suspensa' END);
           apex_json.write('dt_solicitacao',  r.dt_solicitacao);
           apex_json.write('dt_saida_parc1',  r.dt_saida_parc1);
           apex_json.write('dt_retorno_parc1',r.dt_retorno_parc1);
@@ -967,12 +1017,12 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
                p.nome nome_colaborador,
                (SELECT COUNT(*) FROM aprova_ferias x
                  WHERE x.cod_solicitacao = a.cod_solicitacao AND x.status_aprov = 'P') pendentes
-          FROM aprova_ferias a, requisicao_ferias rf, inf_pessoais_cad p
+          FROM aprova_ferias a, requisicao_ferias rf, inf_pessoais p
          WHERE a.cod_solicitacao = rf.cod_solicitacao
            AND p.cod_empresa(+)  = rf.cod_empresa
            AND p.matricula(+)    = rf.matricula
            AND a.status_aprov    = 'P'
-           AND rf.sit_requisicao = 1
+           AND rf.sit_requisicao = '1'
            AND (    -- aprovador direto
                     (a.cod_emp_aprov = l_id.empresa_user AND a.mat_aprov = l_id.matricula_user)
                     -- suplente do centro de custo
@@ -1035,7 +1085,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     l_msg    VARCHAR2(4000);
     l_antes  NUMBER;
     l_depois NUMBER;
-    l_sit    NUMBER;
+    l_sit    VARCHAR2(1);
     l_efeito VARCHAR2(30);
   BEGIN
     apex_json.parse(p_json);
@@ -1084,8 +1134,8 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       -- 6. Responde pelo estado OBSERVADO, nunca pelo pflg_retorno: o
       --    'update aprova_ferias' de req_ferias não olha SQL%ROWCOUNT, então
       --    zero linhas afetadas devolveria 'S' do mesmo jeito.
-      l_efeito := CASE WHEN l_sit = 2 THEN 'concluida'
-                       WHEN l_sit = 4 THEN 'reprovada'
+      l_efeito := CASE WHEN l_sit = '2' THEN 'concluida'
+                       WHEN l_sit = '4' THEN 'reprovada'
                        WHEN l_depois < l_antes THEN 'aguardando_proximo'
                        ELSE 'nenhum_efeito' END;
     END IF;
@@ -1093,11 +1143,11 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.initialize_clob_output;
     apex_json.open_object;
       apex_json.write('ok', NOT tem_erro AND l_efeito <> 'nenhum_efeito');
-      apex_json.write('registrou', l_depois < l_antes OR l_sit IN (2,4));
+      apex_json.write('registrou', l_depois < l_antes OR l_sit IN ('2','4'));
       apex_json.write('efeito', l_efeito);
       apex_json.write('sit_requisicao', l_sit);
       apex_json.write('aprovadores_pendentes', l_depois);
-      IF l_sit = 2 THEN
+      IF l_sit = '2' THEN
         apex_json.write('aviso_folha', 'As férias foram efetivadas na folha.');
       END IF;
       escreve_msgs;
@@ -1122,7 +1172,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     l_emp NUMBER;
     l_flg VARCHAR2(3);
     l_msg VARCHAR2(4000);
-    l_sit NUMBER;
+    l_sit VARCHAR2(1);
   BEGIN
     apex_json.parse(p_json);
     zera_msgs;

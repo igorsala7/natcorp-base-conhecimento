@@ -118,7 +118,7 @@ de cadastro `ACAO_JUDICIAL`.
                    "jornada_reduzida": "N", "falta_hora": "N" },
   "periodo":     { "dt_inic_per_ferias": "2025-03-01", "dt_fim_per_ferias": "2026-02-28",
                    "ind_situacao_periodo": "P" },
-  "saldo":       { "dias_direito": 30, "saldo": 30, "saldo_bruto": 30 },
+  "saldo":       { "saldo": 30, "saldo_bruto": 30 },
   "prazos":      { "dt_limite_req": "2026-12-15", "parcelas_opc": 3 },
   "mensagens": []
 }
@@ -163,7 +163,7 @@ do zero — exatamente como o `AFTER_SUBMIT` da página 78 já faz.
 ```json
 {
   "cod_empresa": 1, "matricula": 12345,
-  "opcao_ferias": "2",
+  "opcao_ferias": 2,
   "dt_inic_per_ferias": "2025-03-01", "dt_fim_per_ferias": "2026-02-28",
   "parcelas": [
     { "n": 1, "dt_saida": "2026-09-01", "num_dias": 20,
@@ -171,7 +171,7 @@ do zero — exatamente como o `AFTER_SUBMIT` da página 78 já faz.
     { "n": 2, "dt_saida": "2026-12-01", "num_dias": 10,
       "dias_abono_pec": 0, "opcao_abono_pec": "N", "opcao_13sal": "S" }
   ],
-  "desc_adicional": "N",
+  "desc_adicional": 0,
   "havera_rep": "N",
   "campo_alterado": "parcelas[0].dt_saida",
   "confirmacoes": []
@@ -201,7 +201,7 @@ quando o dia é feriado e `proximo_dia = 'S'`).
 {
   "ok": true,
   "estado": {
-    "opcao_ferias": "2",
+    "opcao_ferias": 2,
     "parcelas": [
       { "n": 1, "dt_saida": "2026-09-02", "num_dias": 20, "dias_abono_pec": 0,
         "opcao_abono_pec": "N", "opcao_13sal": "N",
