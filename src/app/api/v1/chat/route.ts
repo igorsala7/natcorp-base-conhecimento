@@ -1330,7 +1330,19 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // o pedido precisa de DADOS (montou tools relevantes). Num HOW-TO/documentação ("o que é
   // esse programa e como se usa?") ele devolve zero tools — aí NÃO se oferece ferramenta
   // nenhuma (as que casam por embedding a ~0.57 são ruído da tela), segue para a doc/tutorial.
-  if (temRelatorioNaTela && temIntegTools && !fonteEscolhida && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
+  // CONVERSA JÁ EM ANDAMENTO não reabre a pergunta de fonte.
+  //
+  // O gate existe para o PRIMEIRO turno: há um relatório na tela e não dá para
+  // saber se a pergunta é sobre ele ou sobre o sistema. A partir do segundo, a
+  // fonte já foi decidida — pela escolha anterior ou pela resposta que veio — e
+  // perguntar de novo interrompe quem está no meio de um assunto. Observado numa
+  // solicitação de férias (13/08/2026): a pessoa respondia dentro do fluxo e
+  // recebia de volta uma lista de caixas para marcar.
+  //
+  // No painel do operador quase sempre há relatório na tela, então `temRelatorio`
+  // sozinho nunca fecharia esse caso.
+  const conversaEmAndamento = messages.some((m) => m.role === "assistant");
+  if (temRelatorioNaTela && temIntegTools && !fonteEscolhida && !conversaEmAndamento && !roteouDireto && !roteouRelatorioDireto && relacionaTela && !continuation && !social && !reportBloco && !geraArquivo && !baseExclusiva) {
     // MULTI-FONTE: a pergunta pode precisar do relatório da tela E de UMA OU MAIS
     // ferramentas (pergunta COMPOSTA). Em vez de forçar UMA escolha (irritante e impreciso
     // quando o usuário quer cruzar fontes), oferece MULTI-SELEÇÃO — marque TODAS. O widget
