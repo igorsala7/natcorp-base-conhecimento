@@ -265,9 +265,13 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 15_000);
   try {
+    // Cabeçalhos EFETIVOS da chamada: `req.headers` sozinho não tem o token —
+    // ele entra aqui. A paginação usa este objeto, e não `req.headers`, senão
+    // toda página seguinte à primeira tomava 401.
+    let headersEfetivos: Record<string, string> = { ...req.headers, ...auth };
     let res = await fetchImpl(req.url, {
       method: req.method,
-      headers: { ...req.headers, ...auth },
+      headers: headersEfetivos,
       body: req.body,
       signal: controller.signal,
     });
@@ -275,9 +279,10 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     if (res.status === 401 && input.credential?.auth_type === "oauth2") {
       invalidateOAuthToken(input.credential.id);
       const auth2 = await authHeaders(input.credential, fetchImpl);
+      headersEfetivos = { ...req.headers, ...auth2 };
       res = await fetchImpl(req.url, {
         method: req.method,
-        headers: { ...req.headers, ...auth2 },
+        headers: headersEfetivos,
         body: req.body,
         signal: controller.signal,
       });
@@ -323,7 +328,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
         }
         const r = await fetchImpl(alvo, {
           method: req.method,
-          headers: req.headers,
+          headers: headersEfetivos,
           // Consulta por POST leva os filtros no CORPO: sem reenviá-lo, a página
           // seguinte viria de outra consulta.
           ...(req.method !== "GET" && req.method !== "DELETE" && req.body ? { body: req.body } : {}),
