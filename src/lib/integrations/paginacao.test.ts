@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { juntarPaginas, temMais, ehPaginaOrds } from "./paginacao";
+import { juntarPaginas, temMais, ehPaginaOrds, proximaPagina } from "./paginacao";
 
 /**
  * O ORDS devolve 25 itens por página. Sem seguir `hasMore`, a consulta parecia
@@ -82,5 +82,23 @@ describe("juntarPaginas", () => {
     const r = await juntarPaginas(pagina(4, false), async () => { chamou++; return null; });
     expect(chamou).toBe(0);
     expect(r.items).toHaveLength(4);
+  });
+});
+
+describe("proximaPagina — o caminho que o ORDS publica", () => {
+  it("acha o link rel=next", () => {
+    expect(
+      proximaPagina({ items: [], links: [{ rel: "self", href: "/a" }, { rel: "next", href: "/a?offset=25" }] }),
+    ).toBe("/a?offset=25");
+  });
+
+  it("ignora rel diferente de next, e maiúsculas não atrapalham", () => {
+    expect(proximaPagina({ items: [], links: [{ rel: "prev", href: "/x" }] })).toBeNull();
+    expect(proximaPagina({ items: [], links: [{ rel: "NEXT", href: "/y" }] })).toBe("/y");
+  });
+
+  it("sem links devolve null — aí o offset é montado na mão", () => {
+    expect(proximaPagina({ items: [], hasMore: true })).toBeNull();
+    expect(proximaPagina(null)).toBeNull();
   });
 });

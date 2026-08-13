@@ -4,7 +4,7 @@ import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 import { montarCorpo } from "./body-template";
-import { ehPaginaOrds, juntarPaginas, type PaginaOrds } from "./paginacao";
+import { ehPaginaOrds, juntarPaginas, proximaPagina, type PaginaOrds } from "./paginacao";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 import { chavePessoal } from "./user-key";
 
@@ -294,25 +294,47 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     // PAGINAÇÃO do ORDS: `{ items, hasMore }`. Sem seguir as páginas, a consulta
     // devolvia os 25 primeiros registros e nada dizia que havia mais — e a IA
     // contava, somava e concluía sobre um pedaço, com cara de resposta completa.
-    if (res.ok && req.method === "GET" && ehPaginaOrds(data) && (data as PaginaOrds).hasMore === true) {
+    // Vale para QUALQUER método: um endpoint de consulta pode ser POST (corpo com
+    // filtros) e paginar do mesmo jeito. Restringir a GET deixava justamente
+    // esses de fora — que são os que mais devolvem lista longa.
+    if (res.ok && ehPaginaOrds(data) && (data as PaginaOrds).hasMore === true) {
       const url0 = new URL(req.url);
+      let proxima = proximaPagina(data);
       // PRAZO MAIOR enquanto pagina. Os 15s são o certo para UMA requisição; aqui
       // são N de propósito, e manter o relógio de uma faria o teto voltar pela
       // porta dos fundos — com o agravante de virar "às vezes completo".
       clearTimeout(timer);
       const timerPag = setTimeout(() => controller.abort(), input.timeoutMsPaginado ?? 120_000);
       const junto = await juntarPaginas(data as PaginaOrds, async (offset) => {
-        const u = new URL(url0.toString());
-        u.searchParams.set("offset", String(offset));
-        // PÁGINA GRANDE: o ORDS aceita `limit` e reduz o vaivém em ~20×. Ele
-        // mesmo corta no máximo do módulo, então pedir demais não quebra nada —
-        // e a alternativa é 200 idas de 25 para trazer 5 mil registros.
-        u.searchParams.set("limit", "500");
-        const r = await fetchImpl(u.toString(), { method: "GET", headers: req.headers, signal: controller.signal });
+        // 1º: o `links.next` que o PRÓPRIO ORDS publicou — acerta paginação por
+        // cursor, nome de parâmetro diferente e filtros já embutidos.
+        // 2º: `offset` montado na mão, para endpoint que não publica links.
+        let alvo: string;
+        if (proxima) {
+          alvo = new URL(proxima, url0).toString();
+        } else {
+          const u = new URL(url0.toString());
+          u.searchParams.set("offset", String(offset));
+          // PÁGINA GRANDE: o ORDS aceita `limit` e reduz o vaivém em ~20×. Ele
+          // mesmo corta no máximo do módulo, então pedir demais não quebra nada —
+          // e a alternativa é 200 idas de 25 para trazer 5 mil registros.
+          u.searchParams.set("limit", "500");
+          alvo = u.toString();
+        }
+        const r = await fetchImpl(alvo, {
+          method: req.method,
+          headers: req.headers,
+          // Consulta por POST leva os filtros no CORPO: sem reenviá-lo, a página
+          // seguinte viria de outra consulta.
+          ...(req.method !== "GET" && req.method !== "DELETE" && req.body ? { body: req.body } : {}),
+          signal: controller.signal,
+        });
         if (!r.ok) return null;
         try {
           const j = JSON.parse(await r.text());
-          return ehPaginaOrds(j) ? (j as PaginaOrds) : null;
+          if (!ehPaginaOrds(j)) return null;
+          proxima = proximaPagina(j);
+          return j as PaginaOrds;
         } catch {
           return null;
         }

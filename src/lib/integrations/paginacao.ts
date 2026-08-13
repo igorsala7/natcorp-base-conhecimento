@@ -19,7 +19,24 @@ export type PaginaOrds = {
   limit?: number;
   offset?: number;
   count?: number;
+  /** ORDS publica a próxima página aqui — é o caminho canônico e o mais confiável. */
+  links?: { rel?: string; href?: string }[];
 };
+
+/**
+ * URL da próxima página, quando o próprio ORDS a publica.
+ *
+ * Preferir isto a montar `offset=` na mão: o endpoint pode paginar por cursor,
+ * usar outro nome de parâmetro, ou já vir com filtros que precisam ser
+ * preservados. Seguir o `href` que ele mesmo deu acerta em todos esses casos.
+ */
+export function proximaPagina(d: unknown): string | null {
+  if (!ehPaginaOrds(d)) return null;
+  const l = (d as PaginaOrds).links ?? [];
+  const next = l.find((x) => String(x?.rel ?? "").toLowerCase() === "next");
+  const href = String(next?.href ?? "").trim();
+  return href || null;
+}
 
 /**
  * SEM TETO de páginas ou de itens — decisão do produto (Igor, 13/08/2026), e a
