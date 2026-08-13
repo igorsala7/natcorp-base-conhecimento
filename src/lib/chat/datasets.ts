@@ -146,6 +146,40 @@ export function registrarDataset(reg: DatasetRegistry, data: unknown): { id: str
  *  vários tool-calls acumulados passavam de 1M tokens no Gemini). A análise sobre 100% das
  *  linhas é feita pelas ferramentas de dados (dados_de), não relendo tudo no prompt. */
 const MAX_ITENS_MODELO = 50;
+/**
+ * Teto da amostra em CARACTERES — o que faltava.
+ *
+ * O teto de 50 linhas pressupõe linha estreita. Uma consulta de cadastro
+ * funcional devolve ~200 campos por pessoa: 50 linhas viraram **293 mil bytes**
+ * (~73 mil tokens) e o turno morreu com "prompt is too long: 207798 > 200000"
+ * numa pergunta de listar colaboradores (13/08/2026).
+ *
+ * 60 mil caracteres ≈ 15 mil tokens: cabe com folga ao lado do prompt e ainda
+ * mostra dezenas de linhas quando elas são estreitas. Quando são largas, o
+ * modelo vê MENOS linhas — e é o certo, porque o total exato vem das
+ * ferramentas de dados sobre o dataset, não da amostra.
+ */
+const MAX_CHARS_AMOSTRA = 60_000;
+
+/**
+ * Quantas linhas cabem no orçamento de caracteres.
+ *
+ * Mede a PRIMEIRA linha e divide — em vez de serializar tudo para depois cortar,
+ * que é justamente o trabalho que estoura a memória em resultado grande.
+ * Sempre devolve ao menos 1: uma linha gigante truncada ainda diz ao modelo que
+ * formato ele tem em mãos; zero linha não diz nada.
+ */
+export function linhasQueCabem(linhas: unknown[], maxLinhas = MAX_ITENS_MODELO, maxChars = MAX_CHARS_AMOSTRA): number {
+  if (linhas.length === 0) return 0;
+  let porLinha = 0;
+  try {
+    porLinha = JSON.stringify(linhas[0] ?? {}).length;
+  } catch {
+    porLinha = 0;
+  }
+  if (porLinha <= 0) return Math.min(linhas.length, maxLinhas);
+  return Math.max(1, Math.min(linhas.length, maxLinhas, Math.floor(maxChars / porLinha)));
+}
 /** A partir desta profundidade uma lista é ANINHADA (não a de topo) e é podada aqui — ex.:
  *  loop `{itens:[{valor, dados:{items:[...]}}]}`, onde a lista de topo é pequena (nº de
  *  colaboradores) mas cada `dados` traz centenas de linhas → 1M. Topo (0/1) fica pro
@@ -274,21 +308,34 @@ export function injetarDatasetComRelato(
   const meta = registrarDataset(reg, podado);
   let out: unknown = podado;
   if (meta) {
-    const truncado = meta.total > MAX_ITENS_MODELO;
+    // O corte é por LINHAS *e* por TAMANHO: registro largo (cadastro funcional
+    // tem ~200 campos) estourava o contexto mesmo dentro das 50 linhas.
+    const listaTopo: unknown[] = Array.isArray(podado)
+      ? podado
+      : (() => {
+          const o = podado as Record<string, unknown>;
+          for (const k of CHAVES_LISTA) {
+            const v = o[k];
+            if (Array.isArray(v) && v.some(ehLinha)) return v;
+          }
+          return [];
+        })();
+    const cabem = linhasQueCabem(listaTopo);
+    const truncado = meta.total > cabem;
     const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
     // Truncado → é AMOSTRA (usa ferramentas de dados p/ o total). Completo → o modelo já
     // tem TODAS as linhas: marca `_completo` para ele responder direto sem re-consultar.
-    if (truncado) { tag._amostra = MAX_ITENS_MODELO; tag._nota = notaAmostra(meta.id, meta.total); }
+    if (truncado) { tag._amostra = cabem; tag._nota = notaAmostra(meta.id, meta.total); }
     else tag._completo = true;
     if (Array.isArray(podado)) {
-      out = { ...tag, itens: truncado ? podado.slice(0, MAX_ITENS_MODELO) : podado };
+      out = { ...tag, itens: truncado ? podado.slice(0, cabem) : podado };
     } else {
       const o = podado as Record<string, unknown>;
       let feito = false;
       if (truncado) {
         for (const k of CHAVES_LISTA) {
           const v = o[k];
-          if (Array.isArray(v) && v.some(ehLinha)) { out = { ...o, [k]: v.slice(0, MAX_ITENS_MODELO), ...tag }; feito = true; break; }
+          if (Array.isArray(v) && v.some(ehLinha)) { out = { ...o, [k]: v.slice(0, cabem), ...tag }; feito = true; break; }
         }
       }
       if (!feito) out = { ...o, ...tag };

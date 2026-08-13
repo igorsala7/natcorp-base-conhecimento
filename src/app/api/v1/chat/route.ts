@@ -865,15 +865,26 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // relatório misturado com norma nem chega aqui; (2) a intenção de USO ("como
   // preencho isso?", "o que esse programa faz?") mantém os 3.
   const docNoRelatorio = modoRelatorioCedo && intencaoDocumental(question);
+  // PERGUNTA DE DADO recebe MENOS documentação. Quando o turno montou ferramentas
+  // de integração, a resposta vem da consulta — o manual entra como apoio, não
+  // como corpo. Com 18 trechos ele chegava a 44.572 tokens e, somado à amostra
+  // do resultado, estourou o contexto do modelo numa pergunta de listar
+  // colaboradores (13/08/2026): "prompt is too long: 207798 > 200000".
+  //
+  // Não zera: uma consulta pode precisar da regra por trás de um campo. 4 trechos
+  // mantêm essa rede a ~1/4 do custo.
+  const perguntaDeDado = Object.keys(integ.tools).length > 0;
   const ragLimit = operacaoDeTela
     ? 0
     : ragParaTool
       ? 2
       : modoRelatorioCedo
         ? (docNoRelatorio ? 3 : 1)
-        : completo
-          ? 18
-          : 8;
+        : perguntaDeDado
+          ? (completo ? 6 : 4)
+          : completo
+            ? 18
+            : 8;
   const _tRagStart = Date.now();
   // Modo relatório / roteado a tool: doc é reduzida e de baixo valor semântico → busca
   // LÉXICA (pula o embedding da pergunta, que custa ~15s no pior caso com cache frio).
@@ -914,7 +925,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
           ? (docNoRelatorio ? "modo_relatorio_doc" : "modo_relatorio_reduzido")
           : soRedigir
             ? "confirmacao_executada"
-            : "normal", ms: _tRag - _tRagStart });
+            : perguntaDeDado
+              ? "pergunta_de_dado"
+              : "normal", ms: _tRag - _tRagStart });
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
   const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
