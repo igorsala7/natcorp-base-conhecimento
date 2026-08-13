@@ -4,7 +4,7 @@ import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 import { montarCorpo } from "./body-template";
-import { ehPaginaOrds, juntarPaginas, proximaPagina, temMais, type PaginaOrds } from "./paginacao";
+import { ehPaginaOrds, juntarPaginas, proximaPagina, urlDaProxima, temMais, type PaginaOrds } from "./paginacao";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 import { chavePessoal } from "./user-key";
 
@@ -311,7 +311,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
         // 2º: `offset` montado na mão, para endpoint que não publica links.
         let alvo: string;
         if (proxima) {
-          alvo = new URL(proxima, url0).toString();
+          alvo = urlDaProxima(proxima, url0.toString());
         } else {
           const u = new URL(url0.toString());
           u.searchParams.set("offset", String(offset));

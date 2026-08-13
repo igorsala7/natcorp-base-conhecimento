@@ -39,6 +39,27 @@ export function proximaPagina(d: unknown): string | null {
 }
 
 /**
+ * Junta o `links.next` do ORDS com a ORIGEM da requisição original.
+ *
+ * O ORDS publica o link com o esquema e o host que ELE conhece — e num payload
+ * real (13/08/2026) vinha `http://`, enquanto a chamada saiu por `https://`.
+ * Seguir o href como veio rebaixaria a conexão para texto claro, levando junto a
+ * chave da API (que viaja na query) e o conteúdo, que aqui inclui CPF, título de
+ * eleitor e salário.
+ *
+ * Então do link aproveita-se o CAMINHO e a QUERY — que é a informação de
+ * paginação, a única que ele tem a acrescentar. Esquema, host e porta continuam
+ * sendo os da requisição que nós fizemos.
+ */
+export function urlDaProxima(href: string, original: string): string {
+  const base = new URL(original);
+  const alvo = new URL(href, original);
+  alvo.protocol = base.protocol;
+  alvo.host = base.host;
+  return alvo.toString();
+}
+
+/**
  * SEM TETO de páginas ou de itens — decisão do produto (Igor, 13/08/2026), e a
  * arquitetura a sustenta: o resultado inteiro fica no registro de datasets e só
  * uma AMOSTRA vai ao modelo, então trazer tudo não custa token. Meio resultado é

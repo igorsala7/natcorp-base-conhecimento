@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { juntarPaginas, temMais, ehPaginaOrds, proximaPagina } from "./paginacao";
+import { juntarPaginas, temMais, ehPaginaOrds, proximaPagina, urlDaProxima } from "./paginacao";
 
 /**
  * O ORDS devolve 25 itens por página. Sem seguir `hasMore`, a consulta parecia
@@ -124,5 +124,27 @@ describe("temMais — três sinais, porque o ORDS não usa um só", () => {
   it("sem sinal nenhum não inventa página", () => {
     expect(temMais({ items: [1, 2, 3] })).toBe(false);
     expect(temMais({ dados: [] })).toBe(false);
+  });
+});
+
+describe("urlDaProxima — o link do ORDS não decide o esquema", () => {
+  const ORIG = "https://www.natcorpbr.com.br/apex/rh/natcorp/chatbot/consultas/v1/inf?p_empresa=700&key=SEGREDO";
+
+  it("mantém HTTPS mesmo quando o ORDS publica http", () => {
+    // Real: o `links.next` vinha em http://. Segui-lo rebaixaria a conexão e
+    // mandaria a chave da API e CPF/salário em texto claro.
+    const u = urlDaProxima("http://www.natcorpbr.com.br/apex/rh/natcorp/chatbot/consultas/v1/inf?key=SEGREDO&offset=25", ORIG);
+    expect(u.startsWith("https://")).toBe(true);
+    expect(u).toContain("offset=25");
+  });
+
+  it("mantém o HOST da chamada — link não redireciona para outro domínio", () => {
+    const u = urlDaProxima("https://outro.example.com/x?offset=25", ORIG);
+    expect(new URL(u).host).toBe("www.natcorpbr.com.br");
+    expect(u).toContain("offset=25");
+  });
+
+  it("aceita href relativo", () => {
+    expect(urlDaProxima("/apex/x?offset=50", ORIG)).toBe("https://www.natcorpbr.com.br/apex/x?offset=50");
   });
 });
