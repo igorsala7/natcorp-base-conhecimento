@@ -3713,11 +3713,14 @@
       // Gradiente da marca (--pc primária; --pc2 derivada em JS, com fallback p/ --pc).
       ".grad{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)))}" +
       // Bolha flutuante
-      ".bubble{position:fixed;z-index:2147483647;width:var(--bs,60px);height:var(--bs,60px);border-radius:50%;" +
-      "background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;cursor:grab;" +
-      "box-shadow:0 12px 30px rgba(40,20,80,.38);display:flex;align-items:center;justify-content:center;" +
-      "transition:transform .18s ease,box-shadow .18s ease;touch-action:none}" +
-      ".bubble:hover{transform:scale(1.07);box-shadow:0 16px 40px rgba(40,20,80,.46)}" +
+      // Fundo, borda, raio e sombra saem de variáveis com FALLBACK no valor de
+      // sempre: instalação que nunca abriu a aba de estilo continua idêntica.
+      ".bubble{position:fixed;z-index:2147483647;width:var(--bs,60px);height:var(--bs,60px);border-radius:var(--bub-r,50%);" +
+      "background:var(--bub-bg,linear-gradient(135deg,var(--pc),var(--pc2,var(--pc))));color:#fff;cursor:grab;" +
+      "border:var(--bub-bw,0px) solid var(--bub-bc,transparent);" +
+      "box-shadow:var(--bub-sh,0 12px 30px rgba(40,20,80,.38));display:flex;align-items:center;justify-content:center;" +
+      "transition:transform .18s ease,box-shadow .18s ease;touch-action:none;box-sizing:border-box}" +
+      ".bubble:hover{transform:scale(1.07);box-shadow:var(--bub-shh,0 16px 40px rgba(40,20,80,.46))}" +
       ".bubble:active{cursor:grabbing}" +
       // `pointer-events:none` no conteúdo: o pointerdown/move é SEMPRE da bolha,
       // e a imagem não inicia um drag NATIVO (era o que quebrava o arrastar
@@ -3726,7 +3729,9 @@
       ".bubble svg{width:27px;height:27px}" +
       // Avatar/ícone configurado dentro da bolha: ícone (SVG) centralizado; foto preenche.
       ".bubble .bic{width:30px;height:30px;object-fit:contain}" +
-      ".bubble .bimg{width:100%;height:100%;object-fit:cover;border-radius:50%}" +
+      // `contain` existe para LOGO: `cover` corta as bordas de uma marca que não
+      // é quadrada, e o corte só aparece depois de publicado.
+      ".bubble .bimg{width:100%;height:100%;object-fit:var(--bub-fit,cover);border-radius:var(--bub-r,50%)}" +
       // Painel
       ".panel{position:fixed;z-index:2147483647;width:440px;max-width:calc(100vw - 20px);height:680px;" +
       "max-height:calc(100vh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
@@ -3765,8 +3770,8 @@
       ".hd{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;padding:16px 15px 18px;display:flex;align-items:center;gap:12px;cursor:move;touch-action:none;user-select:none}" +
       ".hd button{cursor:pointer;touch-action:auto}" +
       ".panel.exp .hd{cursor:default}" +
-      ".hd .hav{width:44px;height:44px;border-radius:var(--ash,50%);background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.15)}" +
-      ".hd .hav img{width:100%;height:100%;object-fit:cover}" +
+      ".hd .hav{width:44px;height:44px;border-radius:var(--ash,50%);background:var(--av-bg,rgba(255,255,255,.2));border:var(--av-bw,0px) solid var(--av-bc,transparent);box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.15)}" +
+      ".hd .hav img{width:100%;height:100%;object-fit:var(--av-fit,cover)}" +
       ".hd .hav svg{width:24px;height:24px;color:#fff}" +
       ".hd .ti{flex:1;min-width:0}" +
       ".hd .t{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
@@ -3779,9 +3784,9 @@
       ".msgs::-webkit-scrollbar{width:8px}.msgs::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
       // Linha do assistente (avatar + balão)
       ".arow{display:flex;gap:9px;align-items:flex-start;max-width:92%}" +
-      ".arow .av{width:30px;height:30px;border-radius:var(--ash,50%);flex:none;background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 12px rgba(40,20,80,.28)}" +
+      ".arow .av{width:30px;height:30px;border-radius:var(--ash,50%);flex:none;background:var(--av-bg,linear-gradient(135deg,var(--pc),var(--pc2,var(--pc))));border:var(--av-bw,0px) solid var(--av-bc,transparent);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 12px rgba(40,20,80,.28)}" +
       ".arow .av svg{width:16px;height:16px;color:#fff}" +
-      ".arow .av img{width:100%;height:100%;object-fit:cover}" +
+      ".arow .av img{width:100%;height:100%;object-fit:var(--av-fit,cover)}" +
       // Balões
       ".m{padding:11px 14px;border-radius:18px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}" +
       ".m.u{align-self:flex-end;background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border-bottom-right-radius:6px;max-width:82%;box-shadow:0 8px 20px rgba(60,30,110,.26)}" +
@@ -4059,6 +4064,58 @@
    * escolhido no admin aparecer também na bolha, não só no cabeçalho); sem
    * avatar, o ícone de conversa padrão. Ícone (SVG) = centralizado; foto = preenche.
    */
+  /** Cor válida (#rgb/#rrggbb) ou uma das palavras aceitas. Nada mais entra no CSS. */
+  function corOk(v, extras) {
+    var t = String(v || "").trim();
+    if (!t) return null;
+    if ((extras || []).indexOf(t) >= 0) return t;
+    if (/^#?[0-9a-fA-F]{6}$/.test(t) || /^#?[0-9a-fA-F]{3}$/.test(t)) return t.charAt(0) === "#" ? t : "#" + t;
+    return null;
+  }
+
+  /**
+   * Estilo da BOLHA e do AVATAR (fundo, borda, formato, recorte, sombra).
+   *
+   * Cada propriedade só é escrita quando o admin definiu algo — o CSS já traz o
+   * valor de sempre no fallback do `var()`. Assim uma instalação que nunca abriu
+   * a aba de estilo continua pixel a pixel como estava.
+   *
+   * Os valores são VALIDADOS aqui: `config` vem do banco e é escrito por quem
+   * administra, mas entra num `style` — deixar passar texto livre seria injeção
+   * de CSS de graça.
+   */
+  function aplicarEstilo(wrap, FORMA) {
+    var set = function (nome, valor) { if (valor) wrap.style.setProperty(nome, valor); };
+
+    // ── Bolha ──
+    // "transparent" existe para logo que já tem fundo próprio: sem isso a marca
+    // fica dentro de um círculo roxo que ninguém pediu.
+    set("--bub-bg", corOk(cfg.bubbleBg, ["transparent", "none"]) === "none" ? "transparent" : corOk(cfg.bubbleBg, ["transparent"]));
+    var bw = Math.max(0, Math.min(8, parseInt(cfg.bubbleBorderWidth, 10) || 0));
+    if (bw) {
+      wrap.style.setProperty("--bub-bw", bw + "px");
+      set("--bub-bc", corOk(cfg.bubbleBorderColor) || "#ffffff");
+    }
+    set("--bub-r", FORMA[cfg.bubbleShape]);
+    if (cfg.bubbleFit === "contain") wrap.style.setProperty("--bub-fit", "contain");
+    if (cfg.bubbleShadow === "none") {
+      wrap.style.setProperty("--bub-sh", "none");
+      wrap.style.setProperty("--bub-shh", "none");
+    } else if (cfg.bubbleShadow === "soft") {
+      wrap.style.setProperty("--bub-sh", "0 4px 12px rgba(40,20,80,.20)");
+      wrap.style.setProperty("--bub-shh", "0 6px 16px rgba(40,20,80,.26)");
+    }
+
+    // ── Avatar do bot ──
+    set("--av-bg", corOk(cfg.avatarBg, ["transparent"]));
+    var aw = Math.max(0, Math.min(6, parseInt(cfg.avatarBorderWidth, 10) || 0));
+    if (aw) {
+      wrap.style.setProperty("--av-bw", aw + "px");
+      set("--av-bc", corOk(cfg.avatarBorderColor) || "#ffffff");
+    }
+    if (cfg.avatarFit === "contain") wrap.style.setProperty("--av-fit", "contain");
+  }
+
   function bubbleInner() {
     // Imagem própria da BOLHA; se não houver, cai no avatar do bot; senão, ícone.
     var src = cfg.launcherUrl || cfg.avatarUrl;
@@ -5228,6 +5285,7 @@
     wrap.style.setProperty("--bs", TAM[cfg.bubbleSize] || "60px");
     var FORMA = { circle: "50%", rounded: "30%", square: "18%" };
     wrap.style.setProperty("--ash", FORMA[cfg.avatarShape] || "50%");
+    aplicarEstilo(wrap, FORMA);
 
     bubble = document.createElement("button");
     bubble.className = "bubble";

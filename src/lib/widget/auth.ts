@@ -8,6 +8,22 @@ export type WidgetConfig = {
   title?: string;
   welcome?: string;
   avatarUrl?: string;
+  /**
+   * Estilo da BOLHA e do AVATAR. Tudo opcional: ausente = o visual de sempre
+   * (gradiente da cor primária, círculo, sem borda). Os valores são validados no
+   * `widget.js` antes de virarem CSS — `config` é escrito por quem administra,
+   * mas entra num `style`.
+   */
+  bubbleBg?: string;
+  bubbleBorderWidth?: number;
+  bubbleBorderColor?: string;
+  bubbleShape?: "circle" | "rounded" | "square";
+  bubbleFit?: "cover" | "contain";
+  bubbleShadow?: "padrao" | "soft" | "none";
+  avatarBg?: string;
+  avatarBorderWidth?: number;
+  avatarBorderColor?: string;
+  avatarFit?: "cover" | "contain";
   suggestions?: string[];
   position?: "right" | "left";
   /**

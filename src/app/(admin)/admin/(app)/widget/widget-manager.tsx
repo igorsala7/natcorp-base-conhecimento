@@ -48,6 +48,16 @@ export type WidgetKeyRow = {
     launcherUrl?: string;
     launcherIcon?: string;
     bubbleSize?: "sm" | "md" | "lg";
+    bubbleBg?: string;
+    bubbleBorderWidth?: number;
+    bubbleBorderColor?: string;
+    bubbleShape?: "circle" | "rounded" | "square";
+    bubbleFit?: "cover" | "contain";
+    bubbleShadow?: "padrao" | "soft" | "none";
+    avatarBg?: string;
+    avatarBorderWidth?: number;
+    avatarBorderColor?: string;
+    avatarFit?: "cover" | "contain";
     suggestions?: string[];
     position?: "right" | "left";
     scan?: boolean;
@@ -86,6 +96,16 @@ type Draft = {
   launcherUrl: string;
   launcherIcon: string;
   bubbleSize: "sm" | "md" | "lg";
+  bubbleBg: string;
+  bubbleBorderWidth: number;
+  bubbleBorderColor: string;
+  bubbleShape: "circle" | "rounded" | "square";
+  bubbleFit: "cover" | "contain";
+  bubbleShadow: "padrao" | "soft" | "none";
+  avatarBg: string;
+  avatarBorderWidth: number;
+  avatarBorderColor: string;
+  avatarFit: "cover" | "contain";
   suggestions: string;
   position: "right" | "left";
   scan: boolean;
@@ -114,6 +134,16 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     launcherUrl: c.launcherUrl ?? "",
     launcherIcon: c.launcherIcon ?? "",
     bubbleSize: c.bubbleSize ?? "md",
+    bubbleBg: c.bubbleBg ?? "",
+    bubbleBorderWidth: c.bubbleBorderWidth ?? 0,
+    bubbleBorderColor: c.bubbleBorderColor ?? "#ffffff",
+    bubbleShape: c.bubbleShape ?? "circle",
+    bubbleFit: c.bubbleFit ?? "cover",
+    bubbleShadow: c.bubbleShadow ?? "padrao",
+    avatarBg: c.avatarBg ?? "",
+    avatarBorderWidth: c.avatarBorderWidth ?? 0,
+    avatarBorderColor: c.avatarBorderColor ?? "#ffffff",
+    avatarFit: c.avatarFit ?? "cover",
     suggestions: (c.suggestions ?? []).join("\n"),
     position: c.position ?? "right",
     scan: c.scan !== false, // ausente = ligado (comportamento atual)
@@ -128,6 +158,91 @@ function rowToDraft(k: WidgetKeyRow): Draft {
  * o AVATAR DO BOT — o dono controla os campos via `url`/`icon`/`onChange`.
  * Ambos os caminhos terminam numa URL que o widget.js consome direto.
  */
+/**
+ * Estilo de uma "peça" redonda do widget (a bolha e o avatar do bot).
+ *
+ * Um componente para as duas porque as opções são as MESMAS — e porque a pessoa
+ * que acabou de configurar a bolha já sabe usar o do avatar. Espalhar "cor da
+ * borda da bolha" em um canto e "cor da borda do avatar" em outro obriga a
+ * reaprender o mesmo controle duas vezes.
+ *
+ * O fundo tem três estados de propósito: **automático** (o gradiente da marca),
+ * **transparente** (para logo que já traz o próprio fundo — sem isso a marca fica
+ * dentro de um círculo roxo que ninguém pediu) e uma **cor** escolhida.
+ */
+function EstiloPeca({
+  fundo, borda, corBorda, recorte, onChange, children,
+}: {
+  fundo: string;
+  borda: number;
+  corBorda: string;
+  recorte: "cover" | "contain";
+  onChange: (v: { fundo?: string; borda?: number; corBorda?: string; recorte?: "cover" | "contain" }) => void;
+  children?: React.ReactNode;
+}) {
+  const auto = fundo.trim() === "";
+  const transp = fundo.trim() === "transparent";
+  return (
+    <div className="grid gap-3 rounded-lg border border-border/70 bg-surface-2/40 p-3 sm:grid-cols-2">
+      {children}
+
+      <Field label="Fundo">
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            className="h-9 w-12 rounded border border-border disabled:opacity-40"
+            value={auto || transp ? "#511C76" : fundo}
+            disabled={transp}
+            onChange={(e) => onChange({ fundo: e.target.value })}
+          />
+          <Select
+            value={auto ? "auto" : transp ? "transparent" : "cor"}
+            onChange={(v) => onChange({ fundo: v === "auto" ? "" : v === "transparent" ? "transparent" : "#511C76" })}
+          >
+            <option value="auto">Cor da marca (gradiente)</option>
+            <option value="cor">Cor sólida</option>
+            <option value="transparent">Transparente</option>
+          </Select>
+        </div>
+      </Field>
+
+      <Field label="Borda">
+        <div className="flex items-center gap-2">
+          <Select
+            value={String(borda)}
+            onChange={(v) => onChange({ borda: Number(v) })}
+          >
+            <option value="0">Sem borda</option>
+            <option value="1">1 px</option>
+            <option value="2">2 px</option>
+            <option value="3">3 px</option>
+            <option value="4">4 px</option>
+            <option value="6">6 px</option>
+          </Select>
+          {/* A cor da borda só aparece quando existe borda — um seletor de cor
+              que não pinta nada é um convite a achar que o produto falhou. */}
+          {borda > 0 && (
+            <input
+              type="color"
+              className="h-9 w-12 shrink-0 rounded border border-border"
+              value={corBorda || "#ffffff"}
+              onChange={(e) => onChange({ corBorda: e.target.value })}
+              aria-label="Cor da borda"
+            />
+          )}
+        </div>
+      </Field>
+
+      <Field label="Imagem">
+        <Select value={recorte} onChange={(v) => onChange({ recorte: v as "cover" | "contain" })}>
+          <option value="cover">Preencher (pode cortar as bordas)</option>
+          <option value="contain">Caber inteira (ideal para logo)</option>
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
 function MidiaPicker({
   url,
   icon,
@@ -274,6 +389,16 @@ export function WidgetManager({
       launcherUrl: "",
       launcherIcon: "",
       bubbleSize: "md",
+      bubbleBg: "",
+      bubbleBorderWidth: 0,
+      bubbleBorderColor: "#ffffff",
+      bubbleShape: "circle",
+      bubbleFit: "cover",
+      bubbleShadow: "padrao",
+      avatarBg: "",
+      avatarBorderWidth: 0,
+      avatarBorderColor: "#ffffff",
+      avatarFit: "cover",
       suggestions: "",
       position: "right",
       scan: true,
@@ -312,6 +437,19 @@ export function WidgetManager({
         launcherUrl: draft.launcherUrl || undefined,
         launcherIcon: draft.launcherIcon || undefined,
         bubbleSize: draft.bubbleSize,
+        // `|| undefined` nos campos de estilo: valor vazio/zero NÃO vai para o
+        // banco. Assim a config guarda só o que foi escolhido, e o padrão continua
+        // morando num lugar só (o fallback do CSS).
+        bubbleBg: draft.bubbleBg.trim() || undefined,
+        bubbleBorderWidth: draft.bubbleBorderWidth || undefined,
+        bubbleBorderColor: draft.bubbleBorderWidth ? draft.bubbleBorderColor : undefined,
+        bubbleShape: draft.bubbleShape !== "circle" ? draft.bubbleShape : undefined,
+        bubbleFit: draft.bubbleFit !== "cover" ? draft.bubbleFit : undefined,
+        bubbleShadow: draft.bubbleShadow !== "padrao" ? draft.bubbleShadow : undefined,
+        avatarBg: draft.avatarBg.trim() || undefined,
+        avatarBorderWidth: draft.avatarBorderWidth || undefined,
+        avatarBorderColor: draft.avatarBorderWidth ? draft.avatarBorderColor : undefined,
+        avatarFit: draft.avatarFit !== "cover" ? draft.avatarFit : undefined,
         suggestions: draft.suggestions.split("\n").map((s) => s.trim()).filter(Boolean),
         position: draft.position,
         scan: draft.scan,
@@ -615,18 +753,11 @@ export function WidgetManager({
                 <option value="left">Esquerda</option>
               </Select>
             </Field>
-            <Field label="Tamanho da bolha">
-              <Select
-               
-                value={draft.bubbleSize}
-                onChange={(v) => setDraft({ ...draft, bubbleSize: v as Draft["bubbleSize"] })}
-              >
-                <option value="sm">Pequena</option>
-                <option value="md">Média</option>
-                <option value="lg">Grande</option>
-              </Select>
-            </Field>
-            <Field label="Imagem do widget (bolha flutuante)">
+            {/* BOLHA e AVATAR viram dois blocos fechados. Antes os campos dos dois
+                se intercalavam ("tamanho da bolha", "imagem da bolha", "avatar",
+                "formato do avatar") e não dava para saber o que afetava o quê. */}
+            <p className="pt-2 text-sm font-semibold text-fg">Bolha flutuante</p>
+            <Field label="Imagem da bolha">
               <MidiaPicker
                 url={draft.launcherUrl}
                 icon={draft.launcherIcon}
@@ -634,7 +765,46 @@ export function WidgetManager({
                 onChange={(url, icon) => setDraft({ ...draft, launcherUrl: url, launcherIcon: icon })}
               />
             </Field>
-            <Field label="Avatar do bot (cabeçalho e respostas)">
+            <EstiloPeca
+              fundo={draft.bubbleBg}
+              borda={draft.bubbleBorderWidth}
+              corBorda={draft.bubbleBorderColor}
+              recorte={draft.bubbleFit}
+              onChange={(v) =>
+                setDraft({
+                  ...draft,
+                  ...(v.fundo !== undefined ? { bubbleBg: v.fundo } : {}),
+                  ...(v.borda !== undefined ? { bubbleBorderWidth: v.borda } : {}),
+                  ...(v.corBorda !== undefined ? { bubbleBorderColor: v.corBorda } : {}),
+                  ...(v.recorte !== undefined ? { bubbleFit: v.recorte } : {}),
+                })
+              }
+            >
+              <Field label="Tamanho">
+                <Select value={draft.bubbleSize} onChange={(v) => setDraft({ ...draft, bubbleSize: v as Draft["bubbleSize"] })}>
+                  <option value="sm">Pequena</option>
+                  <option value="md">Média</option>
+                  <option value="lg">Grande</option>
+                </Select>
+              </Field>
+              <Field label="Formato">
+                <Select value={draft.bubbleShape} onChange={(v) => setDraft({ ...draft, bubbleShape: v as Draft["bubbleShape"] })}>
+                  <option value="circle">Círculo</option>
+                  <option value="rounded">Arredondado</option>
+                  <option value="square">Quadrado</option>
+                </Select>
+              </Field>
+              <Field label="Sombra">
+                <Select value={draft.bubbleShadow} onChange={(v) => setDraft({ ...draft, bubbleShadow: v as Draft["bubbleShadow"] })}>
+                  <option value="padrao">Padrão</option>
+                  <option value="soft">Suave</option>
+                  <option value="none">Sem sombra</option>
+                </Select>
+              </Field>
+            </EstiloPeca>
+
+            <p className="pt-2 text-sm font-semibold text-fg">Avatar do bot</p>
+            <Field label="Imagem do avatar (cabeçalho e respostas)">
               <MidiaPicker
                 url={draft.avatarUrl}
                 icon={draft.avatarIcon}
@@ -642,17 +812,29 @@ export function WidgetManager({
                 onChange={(url, icon) => setDraft({ ...draft, avatarUrl: url, avatarIcon: icon })}
               />
             </Field>
-            <Field label="Formato do avatar">
-              <Select
-               
-                value={draft.avatarShape}
-                onChange={(v) => setDraft({ ...draft, avatarShape: v as Draft["avatarShape"] })}
-              >
-                <option value="circle">Círculo</option>
-                <option value="rounded">Arredondado</option>
-                <option value="square">Quadrado</option>
-              </Select>
-            </Field>
+            <EstiloPeca
+              fundo={draft.avatarBg}
+              borda={draft.avatarBorderWidth}
+              corBorda={draft.avatarBorderColor}
+              recorte={draft.avatarFit}
+              onChange={(v) =>
+                setDraft({
+                  ...draft,
+                  ...(v.fundo !== undefined ? { avatarBg: v.fundo } : {}),
+                  ...(v.borda !== undefined ? { avatarBorderWidth: v.borda } : {}),
+                  ...(v.corBorda !== undefined ? { avatarBorderColor: v.corBorda } : {}),
+                  ...(v.recorte !== undefined ? { avatarFit: v.recorte } : {}),
+                })
+              }
+            >
+              <Field label="Formato">
+                <Select value={draft.avatarShape} onChange={(v) => setDraft({ ...draft, avatarShape: v as Draft["avatarShape"] })}>
+                  <option value="circle">Círculo</option>
+                  <option value="rounded">Arredondado</option>
+                  <option value="square">Quadrado</option>
+                </Select>
+              </Field>
+            </EstiloPeca>
             <Field label="Mensagem de boas-vindas">
               <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
             </Field>
