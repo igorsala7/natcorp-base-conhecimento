@@ -264,10 +264,12 @@ export function AppearanceEditor({
             enviando={enviando === "logo"}
             onEnviar={() => {
               setEnviando("logo");
-              escolherEEnviar(spaceId, (url) => {
+              // Cancelar não é falha: `erro` só vem preenchido quando o envio
+              // realmente tentou e não deu. Antes, fechar o seletor acusava erro.
+              escolherEEnviar(spaceId, (url, erro) => {
                 setEnviando(null);
-                if (url) setBrand({ logoUrl: url });
-                else toast.error("Falha no envio da imagem.");
+                if (erro) toast.error(erro);
+                else if (url) setBrand({ logoUrl: url });
               });
             }}
             onLimpar={() => setBrand({ logoUrl: null })}
@@ -279,8 +281,9 @@ export function AppearanceEditor({
             enviando={enviando === "cover"}
             onEnviar={() => {
               setEnviando("cover");
-              escolherEEnviar(spaceId, (url) => {
+              escolherEEnviar(spaceId, (url, erro) => {
                 setEnviando(null);
+                if (erro) toast.error(erro);
                 if (url) {
                   setBrand({ coverUrl: url });
                   // Enviar a imagem sem ligar a região deixaria o usuário
@@ -290,7 +293,7 @@ export function AppearanceEditor({
                       r.key === "cover" ? { ...r, on: true } : r,
                     ),
                   });
-                } else toast.error("Falha no envio da imagem.");
+                }
               });
             }}
             onLimpar={() => setBrand({ coverUrl: null })}

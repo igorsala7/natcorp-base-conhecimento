@@ -143,6 +143,7 @@ function MidiaPicker({
   const svgRef = useRef<SVGSVGElement>(null);
   const [enviando, setEnviando] = useState(false);
   const Icone = icon ? ICONS[icon] : null;
+  const toast = useToast();
 
   // O SVG do ícone escolhido só existe no DOM DEPOIS do render — o data URI é
   // lido daqui, não construído à mão (fica sempre fiel ao catálogo).
@@ -184,9 +185,13 @@ function MidiaPicker({
         disabled={enviando || !spaceId}
         onClick={() => {
           setEnviando(true);
-          escolherEEnviar(spaceId, (u) => {
+          escolherEEnviar(spaceId, (u, erro) => {
             setEnviando(false);
-            if (u) onChange(u, "");
+            // O motivo importa: antes, uma falha de envio devolvia o botão ao
+            // normal e a imagem simplesmente não mudava — sem nada que dissesse
+            // por quê, a pessoa concluía que o produto estava quebrado.
+            if (erro) toast.error(erro);
+            else if (u) onChange(u, "");
           });
         }}
       >
