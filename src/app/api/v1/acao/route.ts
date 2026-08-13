@@ -62,11 +62,14 @@ export async function POST(req: NextRequest) {
   const key = await resolveWidgetKey(extractKey(req, payload.key));
   if (!key) return json({ error: "Chave inválida ou inativa." }, 401);
   if (!originAllowed(key.allowed_origins, origin)) return json({ error: "Origem não autorizada." }, 403);
-  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit))) {
+  const { campos: track, motivo } = await decodeTrackDetalhado(key.space_id, payload.track);
+  // Teto POR PESSOA (ver rateLimitOk): o balde da chave é compartilhado pela
+  // empresa inteira e derrubava todos juntos.
+  const sujeitoLimite = `${String(track.p_base ?? "").trim()}:${String(track.p_usuario ?? track.p_matricula ?? "").trim()}`
+    .replace(/^:|:$/g, "");
+  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit, sujeitoLimite))) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
-
-  const { campos: track, motivo } = await decodeTrackDetalhado(key.space_id, payload.track);
   if (motivo === "expirado") {
     return json({ error: "Sua sessão no painel expirou. Atualize a página para continuar.", code: "sessao_expirada" }, 401);
   }

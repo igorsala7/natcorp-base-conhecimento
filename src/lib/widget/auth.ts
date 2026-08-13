@@ -142,18 +142,47 @@ export function extractKey(req: NextRequest, bodyKey?: unknown): string | null {
  * Consome uma requisição do bucket. Janela de 60s. Aplica DOIS limites
  * (por chave e por IP) — o menor prevalece. Retorna true se permitido.
  */
+/**
+ * Teto por minuto.
+ *
+ * ── Por que o balde deixou de ser a CHAVE ────────────────────────────────────
+ * O balde `k:<chave>` é UM só para todo mundo que usa aquele widget. Com o
+ * padrão de 30/min, trinta requisições da EMPRESA INTEIRA no mesmo minuto
+ * derrubavam todos com "Muitas requisições. Tente em instantes." — e um único
+ * usuário ativo gasta várias por turno (a conversa, o dataset, o relatório
+ * salvo, a ação de lista). Relatado em 13/08/2026.
+ *
+ * Um teto por chave protege contra roubo da chave pública. Mas quando o token de
+ * rastreio identifica QUEM está falando — e ele é cifrado, não forjável —, a
+ * pessoa é o balde certo: limita o abuso individual sem punir o colega ao lado.
+ * O balde por IP continua, e é ele que segura o caso da chave vazada usada em
+ * massa de um mesmo ponto.
+ */
 export async function rateLimitOk(
   keyId: string,
   ip: string,
   max: number,
+  /** Quem está falando (do token de rastreio). Ausente = anônimo, cai no balde da chave. */
+  sujeito?: string | null,
 ): Promise<boolean> {
   const supabase = createAdminClient();
-  const [byKey, byIp] = await Promise.all([
-    supabase.rpc("rate_limit_hit", { p_bucket: `k:${keyId}`, p_max: max, p_window_seconds: 60 }),
+  const quem = String(sujeito ?? "").trim();
+  const [principal, byIp] = await Promise.all([
+    supabase.rpc("rate_limit_hit", {
+      p_bucket: quem ? `u:${keyId}:${quem}` : `k:${keyId}`,
+      p_max: max,
+      p_window_seconds: 60,
+    }),
     // Por IP: teto mais folgado (2×) para não punir NAT corporativo, mas ainda barra abuso.
-    supabase.rpc("rate_limit_hit", { p_bucket: `ip:${ip}`, p_max: max * 2, p_window_seconds: 60 }),
+    // Com usuário identificado o IP é compartilhado pelo escritório inteiro, então
+    // o teto acompanha — senão trocaríamos um gargalo global por um por prédio.
+    supabase.rpc("rate_limit_hit", {
+      p_bucket: `ip:${ip}`,
+      p_max: quem ? max * 20 : max * 2,
+      p_window_seconds: 60,
+    }),
   ]);
-  return (byKey.data ?? true) === true && (byIp.data ?? true) === true;
+  return (principal.data ?? true) === true && (byIp.data ?? true) === true;
 }
 
 /** Gera uma chave pública nova: pk_live_<32 hex>. */

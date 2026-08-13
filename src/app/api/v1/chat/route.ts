@@ -227,7 +227,16 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     return json({ error: "Origem não autorizada." }, 403);
   }
   if (!await hasAiKey()) return json({ error: "IA não configurada no servidor." }, 503);
-  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit))) {
+  // O TETO é POR PESSOA quando sabemos quem é. O balde por chave é um só para a
+  // empresa inteira: com o padrão de 30/min, trinta requisições somadas de todo
+  // mundo derrubavam todos — e um usuário ativo gasta várias por turno.
+  // Decodificar aqui (e não mais abaixo) é o que dá o sujeito a tempo; o custo é
+  // um AES-GCM, contra uma conversa inteira recusada.
+  const trackCedo = await decodeTrackDetalhado(key.space_id, payload.track);
+  const sujeitoLimite = `${String(trackCedo.campos.p_base ?? "").trim()}:${String(
+    trackCedo.campos.p_usuario ?? trackCedo.campos.p_matricula ?? "",
+  ).trim()}`.replace(/^:|:$/g, "");
+  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit, sujeitoLimite))) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
@@ -265,7 +274,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     req.signal.addEventListener("abort", () => clienteSumiu(runId), { once: true });
   }
 
-  const { campos: track, motivo: motivoRastreio } = await decodeTrackDetalhado(key.space_id, payload.track);
+  const { campos: track, motivo: motivoRastreio } = trackCedo;
   // SESSÃO DO PAINEL EXPIRADA → a sessão do widget acaba junto (regra do
   // produto). Recusa ANTES de gastar qualquer chamada de IA.
   //

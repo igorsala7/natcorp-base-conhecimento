@@ -4,6 +4,7 @@ import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 import { montarCorpo } from "./body-template";
+import { ehPaginaOrds, juntarPaginas, type PaginaOrds } from "./paginacao";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 import { chavePessoal } from "./user-key";
 
@@ -287,6 +288,37 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     } catch {
       /* resposta não-JSON: devolve o texto cru */
     }
+
+    // PAGINAÇÃO do ORDS: `{ items, hasMore }`. Sem seguir as páginas, a consulta
+    // devolvia os 25 primeiros registros e nada dizia que havia mais — e a IA
+    // contava, somava e concluía sobre um pedaço, com cara de resposta completa.
+    if (res.ok && req.method === "GET" && ehPaginaOrds(data) && (data as PaginaOrds).hasMore === true) {
+      const url0 = new URL(req.url);
+      const junto = await juntarPaginas(data as PaginaOrds, async (offset) => {
+        const u = new URL(url0.toString());
+        u.searchParams.set("offset", String(offset));
+        const r = await fetchImpl(u.toString(), { method: "GET", headers: req.headers, signal: controller.signal });
+        if (!r.ok) return null;
+        try {
+          const j = JSON.parse(await r.text());
+          return ehPaginaOrds(j) ? (j as PaginaOrds) : null;
+        } catch {
+          return null;
+        }
+      });
+      data = {
+        ...(data as PaginaOrds),
+        items: junto.items,
+        hasMore: false,
+        count: junto.items.length,
+        // O aviso é DADO para a IA, não enfeite: sem ele, "faltam registros"
+        // vira invisível de novo, só que num número maior.
+        ...(junto.truncado
+          ? { _truncado: `Havia mais registros do que o limite desta consulta (${junto.items.length} trazidos). Diga que a lista está incompleta e sugira filtrar.` }
+          : {}),
+      };
+    }
+
     return {
       ok: res.ok,
       status: res.status,
