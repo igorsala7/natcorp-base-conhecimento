@@ -3769,7 +3769,7 @@
       ".hd .hav img{width:100%;height:100%;object-fit:cover}" +
       ".hd .hav svg{width:24px;height:24px;color:#fff}" +
       ".hd .ti{flex:1;min-width:0}" +
-      ".hd .t{font-weight:700;font-size:16px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+      ".hd .t{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".hd .s{font-size:12px;opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".hd button{background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;flex:none}" +
       ".hd button:hover{background:rgba(255,255,255,.32)}" +
