@@ -1140,6 +1140,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     l_depois NUMBER;
     l_sit    VARCHAR2(1);
     l_efeito VARCHAR2(30);
+    l_canceladas PLS_INTEGER := 0;
   BEGIN
     apex_json.parse(p_json);
     zera_msgs;
@@ -1166,25 +1167,65 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       guarda('sequencia', l_flg, l_msg);
     END IF;
 
+    IF NOT tem_erro AND l_status = 'A' THEN
+      /* 3. Cancela a programação ANTERIOR do mesmo período aquisitivo.
+
+         Isto é da página 2973, não do pkg_aprovacao_coletiva: quando
+         FERIAS_PARAMETROS.RECRIAR_REQ_CONCL_FUNC = 'S', aprovar uma requisição
+         de férias CANCELA (sit_requisicao = 3) as outras do mesmo período que
+         ainda estejam a mais de DIAS_ANTES_PAGTO_FERIAS da saída.
+
+         Sem isto, aprovar pelo chat deixaria DUAS programações vivas para o
+         mesmo período aquisitivo — e a tela deixaria uma. Ninguém veria a
+         diferença até a folha. */
+      FOR c IN (
+        SELECT b.cod_solicitacao
+          FROM requisicao_ferias b,
+               consulta_requisicoes cr,
+               ferias_parametros fp
+         WHERE cr.solicitacao   = l_sol
+           AND fp.cod_empresa(+) = cr.cod_empresa
+           AND fp.cod_filial(+)  = cr.filial
+           AND NVL(fp.recriar_req_concl_func, 'N') = 'S'
+           AND b.cod_empresa     = cr.cod_empresa
+           AND b.matricula       = cr.mat_solicitado
+           AND b.cod_solicitacao <> l_sol
+           AND (b.dt_saida_parc1 - TRUNC(SYSDATE)) + 1 >= fp.dias_antes_pagto_ferias
+           AND EXISTS (SELECT 1
+                         FROM requisicao_ferias a
+                        WHERE a.cod_empresa       = b.cod_empresa
+                          AND a.cod_solicitacao   = l_sol
+                          AND a.dt_inic_per_ferias = b.dt_inic_per_ferias
+                          AND a.dt_fim_per_ferias  = b.dt_fim_per_ferias))
+      LOOP
+        UPDATE requisicao_ferias
+           SET sit_requisicao = '3',
+               usuario        = TO_CHAR(l_id.empresa_user) || '/' || TO_CHAR(l_id.matricula_user),
+               dt_atualizacao = SYSDATE
+         WHERE cod_solicitacao = c.cod_solicitacao;
+        l_canceladas := l_canceladas + 1;
+      END LOOP;
+    END IF;
+
     IF NOT tem_erro THEN
-      -- 3. Estado ANTES.
+      -- 4. Estado ANTES.
       SELECT COUNT(*) INTO l_antes
         FROM aprova_ferias WHERE cod_solicitacao = l_sol AND status_aprov = 'P';
 
-      -- 4. O legado. Ele commita por dentro — não há transação para desfazer.
+      -- 5. O legado. Ele commita por dentro — não há transação para desfazer.
       l_flg := 'S'; l_msg := NULL;
       pkg_aprovacao_coletiva.executa(l_sol, l_status, l_id.empresa_user,
                                      l_id.matricula_user, l_id.usuario, l_just,
                                      l_flg, l_msg);
       guarda('aprovacao', l_flg, l_msg);
 
-      -- 5. Estado DEPOIS.
+      -- 6. Estado DEPOIS.
       SELECT COUNT(*) INTO l_depois
         FROM aprova_ferias WHERE cod_solicitacao = l_sol AND status_aprov = 'P';
       SELECT sit_requisicao INTO l_sit
         FROM requisicao_ferias WHERE cod_solicitacao = l_sol;
 
-      -- 6. Responde pelo estado OBSERVADO, nunca pelo pflg_retorno: o
+      -- 7. Responde pelo estado OBSERVADO, nunca pelo pflg_retorno: o
       --    'update aprova_ferias' de req_ferias não olha SQL%ROWCOUNT, então
       --    zero linhas afetadas devolveria 'S' do mesmo jeito.
       l_efeito := CASE WHEN l_sit = '2' THEN 'concluida'
@@ -1202,6 +1243,9 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       apex_json.write('aprovadores_pendentes', l_depois);
       IF l_sit = '2' THEN
         apex_json.write('aviso_folha', 'As férias foram efetivadas na folha.');
+      END IF;
+      IF l_canceladas > 0 THEN
+        apex_json.write('programacoes_canceladas', l_canceladas);
       END IF;
       escreve_msgs;
     apex_json.close_object;

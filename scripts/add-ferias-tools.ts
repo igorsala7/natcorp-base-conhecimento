@@ -349,7 +349,8 @@ const TOOLS: NovaTool[] = [
       "Responda pelo campo `efeito`: concluida = aprovada e efetivada na folha; reprovada; " +
       "aguardando_proximo = registrada, falta outro aprovador. Se vier nenhum_efeito, diga que NÃO foi " +
       "possível registrar e que ela confira se a solicitação ainda está pendente para ela — nunca diga " +
-      "que aprovou.",
+      "que aprovou. Quando vier programacoes_canceladas, avise que a programação anterior do mesmo " +
+      "período foi cancelada — quem aprovou precisa saber disso.",
     search_terms:
       "aprovar férias\nreprovar férias\nnegar pedido de férias\naprovar solicitação de férias da equipe\n" +
       "recusar férias\naprovar requisição\n" +
