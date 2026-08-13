@@ -49,12 +49,14 @@ export type WidgetKeyRow = {
     launcherIcon?: string;
     bubbleSize?: "sm" | "md" | "lg";
     bubbleBg?: string;
+    bubbleBg2?: string;
     bubbleBorderWidth?: number;
     bubbleBorderColor?: string;
     bubbleShape?: "circle" | "rounded" | "square";
     bubbleFit?: "cover" | "contain";
     bubbleShadow?: "padrao" | "soft" | "none";
     avatarBg?: string;
+    avatarBg2?: string;
     avatarBorderWidth?: number;
     avatarBorderColor?: string;
     avatarFit?: "cover" | "contain";
@@ -97,12 +99,14 @@ type Draft = {
   launcherIcon: string;
   bubbleSize: "sm" | "md" | "lg";
   bubbleBg: string;
+  bubbleBg2: string;
   bubbleBorderWidth: number;
   bubbleBorderColor: string;
   bubbleShape: "circle" | "rounded" | "square";
   bubbleFit: "cover" | "contain";
   bubbleShadow: "padrao" | "soft" | "none";
   avatarBg: string;
+  avatarBg2: string;
   avatarBorderWidth: number;
   avatarBorderColor: string;
   avatarFit: "cover" | "contain";
@@ -135,12 +139,14 @@ function rowToDraft(k: WidgetKeyRow): Draft {
     launcherIcon: c.launcherIcon ?? "",
     bubbleSize: c.bubbleSize ?? "md",
     bubbleBg: c.bubbleBg ?? "",
+    bubbleBg2: c.bubbleBg2 ?? "",
     bubbleBorderWidth: c.bubbleBorderWidth ?? 0,
     bubbleBorderColor: c.bubbleBorderColor ?? "#ffffff",
     bubbleShape: c.bubbleShape ?? "circle",
     bubbleFit: c.bubbleFit ?? "cover",
     bubbleShadow: c.bubbleShadow ?? "padrao",
     avatarBg: c.avatarBg ?? "",
+    avatarBg2: c.avatarBg2 ?? "",
     avatarBorderWidth: c.avatarBorderWidth ?? 0,
     avatarBorderColor: c.avatarBorderColor ?? "#ffffff",
     avatarFit: c.avatarFit ?? "cover",
@@ -158,60 +164,114 @@ function rowToDraft(k: WidgetKeyRow): Draft {
  * o AVATAR DO BOT — o dono controla os campos via `url`/`icon`/`onChange`.
  * Ambos os caminhos terminam numa URL que o widget.js consome direto.
  */
+/** Campo de cor: paleta + o CÓDIGO, porque marca se especifica por hex, não por olho. */
+function CampoCor({
+  valor, onChange, rotulo,
+}: {
+  valor: string;
+  onChange: (v: string) => void;
+  rotulo?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="color"
+        className="h-9 w-12 shrink-0 rounded border border-border"
+        value={/^#[0-9a-fA-F]{6}$/.test(valor) ? valor : "#511C76"}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={rotulo ?? "Cor"}
+      />
+      <input
+        className={`${controlClass} min-w-0 flex-1 font-mono text-xs`}
+        value={valor}
+        placeholder="#511C76"
+        spellCheck={false}
+        onChange={(e) => {
+          // Aceita digitar sem "#" — e o normaliza, porque é o formato que o
+          // widget valida antes de virar CSS.
+          const t = e.target.value.trim();
+          onChange(t && !t.startsWith("#") && /^[0-9a-fA-F]{0,6}$/.test(t) ? `#${t}` : t);
+        }}
+      />
+    </div>
+  );
+}
+
 /**
  * Estilo de uma "peça" redonda do widget (a bolha e o avatar do bot).
  *
- * Um componente para as duas porque as opções são as MESMAS — e porque a pessoa
- * que acabou de configurar a bolha já sabe usar o do avatar. Espalhar "cor da
- * borda da bolha" em um canto e "cor da borda do avatar" em outro obriga a
- * reaprender o mesmo controle duas vezes.
+ * Um componente para as duas porque as opções são as MESMAS — e porque quem
+ * acabou de configurar a bolha já sabe usar o do avatar. Espalhar "cor da borda
+ * da bolha" num canto e "cor da borda do avatar" em outro obriga a reaprender o
+ * mesmo controle duas vezes.
  *
- * O fundo tem três estados de propósito: **automático** (o gradiente da marca),
- * **transparente** (para logo que já traz o próprio fundo — sem isso a marca fica
- * dentro de um círculo roxo que ninguém pediu) e uma **cor** escolhida.
+ * O fundo tem quatro estados: **cor da marca** (o gradiente global), **cor
+ * sólida**, **degradê próprio** (cor 1 → cor 2) e **transparente** — este último
+ * para logo que já traz o próprio fundo, que senão fica dentro de um círculo
+ * roxo que ninguém pediu.
  */
 function EstiloPeca({
-  fundo, borda, corBorda, recorte, onChange, children,
+  titulo, fundo, fundo2, borda, corBorda, recorte, onChange, children,
 }: {
+  titulo: string;
   fundo: string;
+  fundo2: string;
   borda: number;
   corBorda: string;
   recorte: "cover" | "contain";
-  onChange: (v: { fundo?: string; borda?: number; corBorda?: string; recorte?: "cover" | "contain" }) => void;
+  onChange: (v: Partial<{ fundo: string; fundo2: string; borda: number; corBorda: string; recorte: "cover" | "contain" }>) => void;
   children?: React.ReactNode;
 }) {
-  const auto = fundo.trim() === "";
   const transp = fundo.trim() === "transparent";
+  const modo = fundo.trim() === "" ? "auto" : transp ? "transparent" : fundo2.trim() ? "degrade" : "cor";
   return (
-    <div className="grid gap-3 rounded-lg border border-border/70 bg-surface-2/40 p-3 sm:grid-cols-2">
-      {children}
+    // `col-span-2`: o pai é uma grade de duas colunas, e sem isto este bloco
+    // disputava célula com os campos soltos — foi o que desconfigurou a tela.
+    <div className="rounded-lg border border-border/70 bg-surface-2/40 p-3 sm:col-span-2">
+      <p className="mb-3 text-sm font-semibold text-fg">{titulo}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {children}
 
-      <Field label="Fundo">
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            className="h-9 w-12 rounded border border-border disabled:opacity-40"
-            value={auto || transp ? "#511C76" : fundo}
-            disabled={transp}
-            onChange={(e) => onChange({ fundo: e.target.value })}
-          />
+        <Field label="Fundo">
           <Select
-            value={auto ? "auto" : transp ? "transparent" : "cor"}
-            onChange={(v) => onChange({ fundo: v === "auto" ? "" : v === "transparent" ? "transparent" : "#511C76" })}
+            value={modo}
+            onChange={(v) =>
+              onChange(
+                v === "auto"
+                  ? { fundo: "", fundo2: "" }
+                  : v === "transparent"
+                    ? { fundo: "transparent", fundo2: "" }
+                    : v === "degrade"
+                      ? { fundo: fundo && !transp ? fundo : "#511C76", fundo2: "#C95788" }
+                      : { fundo: fundo && !transp ? fundo : "#511C76", fundo2: "" },
+              )
+            }
           >
             <option value="auto">Cor da marca (gradiente)</option>
             <option value="cor">Cor sólida</option>
+            <option value="degrade">Degradê próprio</option>
             <option value="transparent">Transparente</option>
           </Select>
-        </div>
-      </Field>
+        </Field>
 
-      <Field label="Borda">
-        <div className="flex items-center gap-2">
-          <Select
-            value={String(borda)}
-            onChange={(v) => onChange({ borda: Number(v) })}
-          >
+        {modo === "cor" && (
+          <Field label="Cor do fundo">
+            <CampoCor valor={fundo} onChange={(v) => onChange({ fundo: v })} rotulo="Cor do fundo" />
+          </Field>
+        )}
+        {modo === "degrade" && (
+          <>
+            <Field label="Degradê — cor 1">
+              <CampoCor valor={fundo} onChange={(v) => onChange({ fundo: v })} rotulo="Cor 1" />
+            </Field>
+            <Field label="Degradê — cor 2">
+              <CampoCor valor={fundo2} onChange={(v) => onChange({ fundo2: v })} rotulo="Cor 2" />
+            </Field>
+          </>
+        )}
+
+        <Field label="Borda">
+          <Select value={String(borda)} onChange={(v) => onChange({ borda: Number(v) })}>
             <option value="0">Sem borda</option>
             <option value="1">1 px</option>
             <option value="2">2 px</option>
@@ -219,26 +279,29 @@ function EstiloPeca({
             <option value="4">4 px</option>
             <option value="6">6 px</option>
           </Select>
-          {/* A cor da borda só aparece quando existe borda — um seletor de cor
-              que não pinta nada é um convite a achar que o produto falhou. */}
-          {borda > 0 && (
-            <input
-              type="color"
-              className="h-9 w-12 shrink-0 rounded border border-border"
-              value={corBorda || "#ffffff"}
-              onChange={(e) => onChange({ corBorda: e.target.value })}
-              aria-label="Cor da borda"
-            />
-          )}
-        </div>
-      </Field>
+        </Field>
+        {/* A cor da borda só aparece quando existe borda: um seletor que não
+            pinta nada é um convite a achar que o produto falhou. */}
+        {borda > 0 && (
+          <Field label="Cor da borda">
+            <CampoCor valor={corBorda} onChange={(v) => onChange({ corBorda: v })} rotulo="Cor da borda" />
+          </Field>
+        )}
 
-      <Field label="Imagem">
-        <Select value={recorte} onChange={(v) => onChange({ recorte: v as "cover" | "contain" })}>
-          <option value="cover">Preencher (pode cortar as bordas)</option>
-          <option value="contain">Caber inteira (ideal para logo)</option>
-        </Select>
-      </Field>
+        <Field label="Imagem">
+          <Select value={recorte} onChange={(v) => onChange({ recorte: v as "cover" | "contain" })}>
+            <option value="cover">Preencher (pode cortar as bordas)</option>
+            <option value="contain">Caber inteira (ideal para logo)</option>
+          </Select>
+          {/* Sem este aviso, quem escolhe uma cor de fundo com "Preencher" conclui
+              que o produto ignorou a escolha — a imagem é que está por cima. */}
+          {recorte === "cover" && modo !== "auto" && (
+            <p className="mt-1 text-xs text-fg-muted">
+              Com “Preencher”, a imagem cobre todo o fundo. A cor só aparece com “Caber inteira” ou sem imagem.
+            </p>
+          )}
+        </Field>
+      </div>
     </div>
   );
 }
@@ -390,12 +453,14 @@ export function WidgetManager({
       launcherIcon: "",
       bubbleSize: "md",
       bubbleBg: "",
+      bubbleBg2: "",
       bubbleBorderWidth: 0,
       bubbleBorderColor: "#ffffff",
       bubbleShape: "circle",
       bubbleFit: "cover",
       bubbleShadow: "padrao",
       avatarBg: "",
+      avatarBg2: "",
       avatarBorderWidth: 0,
       avatarBorderColor: "#ffffff",
       avatarFit: "cover",
@@ -441,12 +506,14 @@ export function WidgetManager({
         // banco. Assim a config guarda só o que foi escolhido, e o padrão continua
         // morando num lugar só (o fallback do CSS).
         bubbleBg: draft.bubbleBg.trim() || undefined,
+        bubbleBg2: draft.bubbleBg2.trim() || undefined,
         bubbleBorderWidth: draft.bubbleBorderWidth || undefined,
         bubbleBorderColor: draft.bubbleBorderWidth ? draft.bubbleBorderColor : undefined,
         bubbleShape: draft.bubbleShape !== "circle" ? draft.bubbleShape : undefined,
         bubbleFit: draft.bubbleFit !== "cover" ? draft.bubbleFit : undefined,
         bubbleShadow: draft.bubbleShadow !== "padrao" ? draft.bubbleShadow : undefined,
         avatarBg: draft.avatarBg.trim() || undefined,
+        avatarBg2: draft.avatarBg2.trim() || undefined,
         avatarBorderWidth: draft.avatarBorderWidth || undefined,
         avatarBorderColor: draft.avatarBorderWidth ? draft.avatarBorderColor : undefined,
         avatarFit: draft.avatarFit !== "cover" ? draft.avatarFit : undefined,
@@ -753,20 +820,10 @@ export function WidgetManager({
                 <option value="left">Esquerda</option>
               </Select>
             </Field>
-            {/* BOLHA e AVATAR viram dois blocos fechados. Antes os campos dos dois
-                se intercalavam ("tamanho da bolha", "imagem da bolha", "avatar",
-                "formato do avatar") e não dava para saber o que afetava o quê. */}
-            <p className="pt-2 text-sm font-semibold text-fg">Bolha flutuante</p>
-            <Field label="Imagem da bolha">
-              <MidiaPicker
-                url={draft.launcherUrl}
-                icon={draft.launcherIcon}
-                spaceId={draft.spaceId}
-                onChange={(url, icon) => setDraft({ ...draft, launcherUrl: url, launcherIcon: icon })}
-              />
-            </Field>
             <EstiloPeca
+              titulo="Bolha flutuante"
               fundo={draft.bubbleBg}
+              fundo2={draft.bubbleBg2}
               borda={draft.bubbleBorderWidth}
               corBorda={draft.bubbleBorderColor}
               recorte={draft.bubbleFit}
@@ -774,12 +831,21 @@ export function WidgetManager({
                 setDraft({
                   ...draft,
                   ...(v.fundo !== undefined ? { bubbleBg: v.fundo } : {}),
+                  ...(v.fundo2 !== undefined ? { bubbleBg2: v.fundo2 } : {}),
                   ...(v.borda !== undefined ? { bubbleBorderWidth: v.borda } : {}),
                   ...(v.corBorda !== undefined ? { bubbleBorderColor: v.corBorda } : {}),
                   ...(v.recorte !== undefined ? { bubbleFit: v.recorte } : {}),
                 })
               }
             >
+              <Field label="Imagem da bolha">
+                <MidiaPicker
+                  url={draft.launcherUrl}
+                  icon={draft.launcherIcon}
+                  spaceId={draft.spaceId}
+                  onChange={(url, icon) => setDraft({ ...draft, launcherUrl: url, launcherIcon: icon })}
+                />
+              </Field>
               <Field label="Tamanho">
                 <Select value={draft.bubbleSize} onChange={(v) => setDraft({ ...draft, bubbleSize: v as Draft["bubbleSize"] })}>
                   <option value="sm">Pequena</option>
@@ -803,17 +869,10 @@ export function WidgetManager({
               </Field>
             </EstiloPeca>
 
-            <p className="pt-2 text-sm font-semibold text-fg">Avatar do bot</p>
-            <Field label="Imagem do avatar (cabeçalho e respostas)">
-              <MidiaPicker
-                url={draft.avatarUrl}
-                icon={draft.avatarIcon}
-                spaceId={draft.spaceId}
-                onChange={(url, icon) => setDraft({ ...draft, avatarUrl: url, avatarIcon: icon })}
-              />
-            </Field>
             <EstiloPeca
+              titulo="Avatar do bot (cabeçalho e respostas)"
               fundo={draft.avatarBg}
+              fundo2={draft.avatarBg2}
               borda={draft.avatarBorderWidth}
               corBorda={draft.avatarBorderColor}
               recorte={draft.avatarFit}
@@ -821,12 +880,21 @@ export function WidgetManager({
                 setDraft({
                   ...draft,
                   ...(v.fundo !== undefined ? { avatarBg: v.fundo } : {}),
+                  ...(v.fundo2 !== undefined ? { avatarBg2: v.fundo2 } : {}),
                   ...(v.borda !== undefined ? { avatarBorderWidth: v.borda } : {}),
                   ...(v.corBorda !== undefined ? { avatarBorderColor: v.corBorda } : {}),
                   ...(v.recorte !== undefined ? { avatarFit: v.recorte } : {}),
                 })
               }
             >
+              <Field label="Imagem do avatar">
+                <MidiaPicker
+                  url={draft.avatarUrl}
+                  icon={draft.avatarIcon}
+                  spaceId={draft.spaceId}
+                  onChange={(url, icon) => setDraft({ ...draft, avatarUrl: url, avatarIcon: icon })}
+                />
+              </Field>
               <Field label="Formato">
                 <Select value={draft.avatarShape} onChange={(v) => setDraft({ ...draft, avatarShape: v as Draft["avatarShape"] })}>
                   <option value="circle">Círculo</option>
@@ -835,6 +903,7 @@ export function WidgetManager({
                 </Select>
               </Field>
             </EstiloPeca>
+
             <Field label="Mensagem de boas-vindas">
               <textarea className={`${controlClass} h-16`} value={draft.welcome} onChange={(e) => setDraft({ ...draft, welcome: e.target.value })} />
             </Field>

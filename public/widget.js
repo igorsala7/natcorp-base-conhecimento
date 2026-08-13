@@ -4087,10 +4087,23 @@
   function aplicarEstilo(wrap, FORMA) {
     var set = function (nome, valor) { if (valor) wrap.style.setProperty(nome, valor); };
 
+    /**
+     * Fundo da peça: cor sólida, degradê próprio (cor 1 → cor 2) ou
+     * transparente. Vazio = herda o gradiente da marca, pelo fallback do CSS.
+     *
+     * "transparent" existe para logo que já tem fundo próprio: sem isso a marca
+     * fica dentro de um círculo roxo que ninguém pediu.
+     */
+    var fundoDe = function (c1, c2) {
+      var a = corOk(c1, ["transparent"]);
+      if (!a) return null;
+      if (a === "transparent") return "transparent";
+      var b = corOk(c2);
+      return b ? "linear-gradient(135deg," + a + "," + b + ")" : a;
+    };
+
     // ── Bolha ──
-    // "transparent" existe para logo que já tem fundo próprio: sem isso a marca
-    // fica dentro de um círculo roxo que ninguém pediu.
-    set("--bub-bg", corOk(cfg.bubbleBg, ["transparent", "none"]) === "none" ? "transparent" : corOk(cfg.bubbleBg, ["transparent"]));
+    set("--bub-bg", fundoDe(cfg.bubbleBg, cfg.bubbleBg2));
     var bw = Math.max(0, Math.min(8, parseInt(cfg.bubbleBorderWidth, 10) || 0));
     if (bw) {
       wrap.style.setProperty("--bub-bw", bw + "px");
@@ -4107,7 +4120,7 @@
     }
 
     // ── Avatar do bot ──
-    set("--av-bg", corOk(cfg.avatarBg, ["transparent"]));
+    set("--av-bg", fundoDe(cfg.avatarBg, cfg.avatarBg2));
     var aw = Math.max(0, Math.min(6, parseInt(cfg.avatarBorderWidth, 10) || 0));
     if (aw) {
       wrap.style.setProperty("--av-bw", aw + "px");

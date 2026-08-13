@@ -15,12 +15,15 @@ export type WidgetConfig = {
    * mas entra num `style`.
    */
   bubbleBg?: string;
+  /** Fim do degradê próprio da peça. Vazio = cor sólida. */
+  bubbleBg2?: string;
   bubbleBorderWidth?: number;
   bubbleBorderColor?: string;
   bubbleShape?: "circle" | "rounded" | "square";
   bubbleFit?: "cover" | "contain";
   bubbleShadow?: "padrao" | "soft" | "none";
   avatarBg?: string;
+  avatarBg2?: string;
   avatarBorderWidth?: number;
   avatarBorderColor?: string;
   avatarFit?: "cover" | "contain";
