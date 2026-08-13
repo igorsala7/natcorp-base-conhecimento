@@ -12,6 +12,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
+import { estiloDaPeca, estiloDaImagem, TAMANHO } from "@/lib/widget/estilo-preview";
 import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Surface } from "@/components/ui/surface";
 import { Select } from "@/components/ui/select";
@@ -198,6 +199,75 @@ function CampoCor({
 }
 
 /**
+ * PRÉVIA da peça, com o CSS calculado pelas mesmas regras do widget
+ * (`estilo-preview.ts`).
+ *
+ * Mostra sobre os DOIS fundos em que a peça de fato aparece. Não é capricho: a
+ * borda branca some sobre o branco e aparece sobre o roxo do cabeçalho — quem
+ * visse só um dos contextos ajustaria para o errado. A bolha vive sobre a página
+ * do cliente (clara); o avatar aparece no cabeçalho (colorido) e nas respostas
+ * (claro).
+ */
+function Previa({
+  tipo, url, fundo, fundo2, borda, corBorda, formato, recorte, sombra, tamanho, primaria, secundaria,
+}: {
+  tipo: "bolha" | "avatar";
+  url: string;
+  fundo: string;
+  fundo2: string;
+  borda: number;
+  corBorda: string;
+  formato: string;
+  recorte: "cover" | "contain";
+  sombra?: "padrao" | "soft" | "none";
+  tamanho: number;
+  primaria: string;
+  secundaria: string;
+}) {
+  const base = { fundo, fundo2, borda, corBorda, formato, recorte, sombra, primaria, secundaria };
+  const peca = (px: number) => (
+    <span style={estiloDaPeca({ ...base, tamanho: px })}>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" style={estiloDaImagem(recorte, formato)} />
+      ) : (
+        <Bot className="size-1/2 text-white/85" />
+      )}
+    </span>
+  );
+
+  const cenario = (rotulo: string, fundoCena: string, conteudo: React.ReactNode) => (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        className="flex min-h-[86px] w-full items-center justify-center rounded-md px-3 py-4"
+        style={{ background: fundoCena }}
+      >
+        {conteudo}
+      </div>
+      <span className="text-[11px] text-fg-muted">{rotulo}</span>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+      {tipo === "bolha"
+        ? cenario("Sobre a página do cliente", "#f4f4f6", peca(tamanho))
+        : cenario("No cabeçalho do widget", `linear-gradient(135deg,${primaria},${primaria})`, peca(44))}
+      {tipo === "bolha"
+        ? cenario("Sobre fundo escuro", "#26212e", peca(tamanho))
+        : cenario(
+            "Ao lado da resposta",
+            "#ffffff",
+            <span className="flex items-center gap-2">
+              {peca(30)}
+              <span className="h-6 w-28 rounded-lg bg-surface-2" aria-hidden />
+            </span>,
+          )}
+    </div>
+  );
+}
+
+/**
  * Estilo de uma "peça" redonda do widget (a bolha e o avatar do bot).
  *
  * Um componente para as duas porque as opções são as MESMAS — e porque quem
@@ -211,7 +281,7 @@ function CampoCor({
  * roxo que ninguém pediu.
  */
 function EstiloPeca({
-  titulo, fundo, fundo2, borda, corBorda, recorte, onChange, children,
+  titulo, fundo, fundo2, borda, corBorda, recorte, previa, onChange, children,
 }: {
   titulo: string;
   fundo: string;
@@ -219,6 +289,8 @@ function EstiloPeca({
   borda: number;
   corBorda: string;
   recorte: "cover" | "contain";
+  /** Prévia ao vivo — vem pronta de fora porque só a tela sabe a cor da marca. */
+  previa?: React.ReactNode;
   onChange: (v: Partial<{ fundo: string; fundo2: string; borda: number; corBorda: string; recorte: "cover" | "contain" }>) => void;
   children?: React.ReactNode;
 }) {
@@ -230,6 +302,7 @@ function EstiloPeca({
     <div className="rounded-lg border border-border/70 bg-surface-2/40 p-3 sm:col-span-2">
       <p className="mb-3 text-sm font-semibold text-fg">{titulo}</p>
       <div className="grid gap-3 sm:grid-cols-2">
+        {previa}
         {children}
 
         <Field label="Fundo">
@@ -827,6 +900,22 @@ export function WidgetManager({
               borda={draft.bubbleBorderWidth}
               corBorda={draft.bubbleBorderColor}
               recorte={draft.bubbleFit}
+              previa={
+                <Previa
+                  tipo="bolha"
+                  url={draft.launcherUrl || draft.avatarUrl}
+                  fundo={draft.bubbleBg}
+                  fundo2={draft.bubbleBg2}
+                  borda={draft.bubbleBorderWidth}
+                  corBorda={draft.bubbleBorderColor}
+                  formato={draft.bubbleShape}
+                  recorte={draft.bubbleFit}
+                  sombra={draft.bubbleShadow}
+                  tamanho={TAMANHO[draft.bubbleSize] ?? 60}
+                  primaria={draft.primaryColor}
+                  secundaria={draft.secondaryColor}
+                />
+              }
               onChange={(v) =>
                 setDraft({
                   ...draft,
@@ -876,6 +965,21 @@ export function WidgetManager({
               borda={draft.avatarBorderWidth}
               corBorda={draft.avatarBorderColor}
               recorte={draft.avatarFit}
+              previa={
+                <Previa
+                  tipo="avatar"
+                  url={draft.avatarUrl}
+                  fundo={draft.avatarBg}
+                  fundo2={draft.avatarBg2}
+                  borda={draft.avatarBorderWidth}
+                  corBorda={draft.avatarBorderColor}
+                  formato={draft.avatarShape}
+                  recorte={draft.avatarFit}
+                  tamanho={44}
+                  primaria={draft.primaryColor}
+                  secundaria={draft.secondaryColor}
+                />
+              }
               onChange={(v) =>
                 setDraft({
                   ...draft,
