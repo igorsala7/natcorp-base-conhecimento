@@ -236,7 +236,17 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const sujeitoLimite = `${String(trackCedo.campos.p_base ?? "").trim()}:${String(
     trackCedo.campos.p_usuario ?? trackCedo.campos.p_matricula ?? "",
   ).trim()}`.replace(/^:|:$/g, "");
-  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit, sujeitoLimite))) {
+  // CONTINUAÇÃO não é mensagem nova. Uma pergunta só vira várias requisições a
+  // este endpoint: o loop autônomo de tela dá até 14 passos, e a coleta de
+  // relatório reabre o turno. Cobrá-las como se fossem perguntas fazia UMA
+  // pergunta consumir metade do teto de 30/min — e o teto foi calibrado para um
+  // produto em que mensagem era uma requisição.
+  //
+  // Elas seguem contadas, num teto próprio e folgado: são disparadas pelo nosso
+  // código e limitadas no cliente, mas cliente não é garantia.
+  const ehContinuacao = payload.continuation === true;
+  const tetoTurno = ehContinuacao ? key.rate_limit * 20 : key.rate_limit;
+  if (!(await rateLimitOk(key.id, clientIp(req), tetoTurno, sujeitoLimite ? `${sujeitoLimite}${ehContinuacao ? ":c" : ""}` : null))) {
     return json({ error: "Muitas requisições. Tente em instantes." }, 429);
   }
 
