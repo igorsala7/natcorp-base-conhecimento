@@ -94,6 +94,8 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   TYPE t_msgs IS TABLE OF t_msg INDEX BY PLS_INTEGER;
 
   g_msgs t_msgs;
+  /** Texto CRU das falhas (SQLERRM inclusive) — vai para o log, nunca para a pessoa. */
+  g_tecnico VARCHAR2(4000);
 
   /* Rascunho da solicitação: os mesmos campos dos itens P78_* da página.
      Tipos conferidos contra o DDL (vscode-claude/tables):
@@ -274,6 +276,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   PROCEDURE zera_msgs IS
   BEGIN
     g_msgs.DELETE;
+    g_tecnico := NULL;
   END zera_msgs;
 
   /* Traduz pflg_retorno/pmsg_retorno do pkg_ferias:
@@ -282,6 +285,12 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   PROCEDURE guarda(p_campo VARCHAR2, p_flg VARCHAR2, p_msg VARCHAR2, p_chave VARCHAR2 DEFAULT NULL) IS
     i PLS_INTEGER := g_msgs.COUNT + 1;
   BEGIN
+    -- O texto CRU sobrevive em g_tecnico e volta no campo `erro_tecnico`. A
+    -- pessoa lê a frase neutra; o log de execução guarda a causa. Sem isto, um
+    -- ORA- desaparecia e o diagnóstico virava adivinhação.
+    IF NVL(p_flg,'S') <> 'S' AND TRIM(p_msg) IS NOT NULL THEN
+      g_tecnico := SUBSTR(NVL(g_tecnico || ' | ', '') || p_campo || ': ' || p_msg, 1, 4000);
+    END IF;
     IF TRIM(p_msg) IS NULL AND NVL(p_flg,'S') = 'S' THEN
       RETURN;
     END IF;
@@ -329,6 +338,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       apex_json.close_object;
     END LOOP;
     apex_json.close_array;
+    IF g_tecnico IS NOT NULL THEN apex_json.write('erro_tecnico', g_tecnico); END IF;
   END escreve_msgs;
 
   /* Escopo por painel — mesma semântica da LOV
@@ -528,6 +538,12 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
        parcela 4 (a 3 é férias coletiva). */
     FOR i IN 1 .. NVL(apex_json.get_count('parcelas'), 0) LOOP
       pfx := 'parcelas[' || i || '].';
+      -- Parcela sem data E sem dias é posição VAZIA, não parcela de zero dia: a
+      -- ferramenta manda as três sempre. Gravar num_dias = 0 faria o ERP
+      -- procurar na parametrização uma divisão "15+15+0", que não existe.
+      IF dt_de(pfx || 'dt_saida') IS NULL AND NVL(num_de(pfx || 'num_dias'), 0) = 0 THEN
+        CONTINUE;
+      END IF;
       CASE num_de(pfx || 'n')
         WHEN 1 THEN
           r.dt_saida_parc1   := dt_de (pfx || 'dt_saida');
@@ -572,6 +588,14 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     -- é o que a própria procedure faz na primeira linha.
     r.dias_direito     := NVL(r.dias_direito, r.saldo);
     r.jornada_reduzida := NVL(r.jornada_reduzida, 'N');
+  EXCEPTION
+    -- Período aquisitivo que não existe é caso de NEGÓCIO (a pessoa mandou uma
+    -- data que não é a dela), não falha técnica. Sem isto virava HTTP 500 e o
+    -- chat dizia "erro no sistema" para algo que ela mesma podia corrigir.
+    WHEN NO_DATA_FOUND THEN
+      guarda('dt_inic_per_ferias', 'N',
+             'Não encontrei este período aquisitivo para o colaborador. ' ||
+             'Confira as datas com a ferramenta de situação.');
   END carrega_contexto;
 
   /* Cadeia da PARCELA 1 — gabarito. Parcelas 2 e 4 repetem o padrão com
@@ -829,8 +853,10 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     carrega_contexto(l_r);
 
     -- 1. Revalida do zero. Nunca confiar no que veio do cliente — é o que o
-    --    AFTER_SUBMIT da página 78 também faz.
-    valida_parc1(l_r);
+    --    AFTER_SUBMIT da página 78 também faz. `IF NOT tem_erro` porque
+    --    carrega_contexto pode ter recusado o período: validar parcela sobre
+    --    contexto vazio produz mensagem de erro que não tem a ver com a causa.
+    IF NOT tem_erro THEN valida_parc1(l_r); END IF;
     IF NOT tem_erro THEN
       pkg_ferias.Valida_Update_Rf(
         pcod_empresa       => l_r.cod_empresa,
@@ -844,7 +870,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
         pjornada_reduzida  => l_r.jornada_reduzida,
         pflg_retorno       => l_flg,
         pmsg_retorno       => l_msg);
-      guarda('requisicao', l_flg, l_msg);
+      guarda('valida_update_rf', l_flg, l_msg);
     END IF;
 
     IF tem_erro THEN
@@ -891,7 +917,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       pflg_retorno          => l_flg,
       pmsg_retorno          => l_msg,
       pparcelas_opc         => NVL(l_r.parcelas_opc, 1));
-    guarda('requisicao', l_flg, l_msg);
+    guarda('pre_insert', l_flg, l_msg);
     IF tem_erro THEN ROLLBACK; GOTO devolve; END IF;
 
     -- 4. INSERT — colunas conferidas contra o DDL (vscode-claude/tables).
@@ -941,7 +967,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     -- 7. Post_Insert e commit único.
     l_flg := 'S'; l_msg := NULL;
     pkg_ferias.Post_Insert(l_r.cod_empresa, l_sol, l_id.usuario, l_flg, l_msg);
-    guarda('requisicao', l_flg, l_msg);
+    guarda('post_insert', l_flg, l_msg);
     IF tem_erro THEN ROLLBACK; GOTO devolve; END IF;
 
     COMMIT;
