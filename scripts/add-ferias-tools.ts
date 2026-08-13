@@ -170,11 +170,32 @@ const T_RASCUNHO = {
   confirmacoes: ["{{*confirmacoes}}"],
 };
 
-/** Regra que vale para toda a família: número e data vêm da ferramenta. */
-const REGRA_VALORES =
-  "NUNCA calcule nem sugira data de retorno, data de pagamento, quantidade de dias ou saldo por conta própria: " +
-  "todos vêm da resposta da ferramenta. Se a ferramenta ALTEROU o que a pessoa pediu (feriado, saldo, " +
-  "parametrização), diga que alterou e por quê. Nunca ofereça uma divisão de dias que não esteja em ferias_opcoes.";
+/**
+ * Regra de condução da família de férias. Vai no `system_prompt` das SETE — o
+ * motor deduplica texto idêntico, então repetir aqui não custa token.
+ *
+ * Cada linha existe por um engano observado, não por precaução:
+ *  · "simular" fazia a pessoa achar que nada valia;
+ *  · "SIMULAÇÃO APROVADA" fazia achar que a REQUISIÇÃO tinha sido aprovada —
+ *    e ela ainda nem tinha ido para o aprovador;
+ *  · estimativa de valor vira expectativa de pagamento, e a API não devolve
+ *    valor nenhum: qualquer número aí seria invenção;
+ *  · Aviso de Férias só existe depois de aprovada/concluída.
+ */
+const REGRA_FERIAS =
+  "FÉRIAS — como conduzir:\n" +
+  "· Números e datas (retorno, pagamento, dias, saldo) vêm SEMPRE da resposta da ferramenta; você nunca " +
+  "calcula. Se a ferramenta ALTEROU o que a pessoa pediu (feriado, saldo, parametrização), diga que " +
+  "alterou e por quê. Nunca ofereça divisão de dias que não esteja em ferias_opcoes.\n" +
+  "· NÃO use as palavras 'simular' ou 'simulação'. Diga VALIDAR / validação: o que a ferramenta faz é " +
+  "conferir os dados contra as regras do sistema.\n" +
+  "· NUNCA escreva 'aprovada', 'aprovado' ou equivalente sobre uma validação. Ao terminar sem erro, o " +
+  "título é 'CONFIRME OS DADOS'. Aprovação é o passo seguinte, depende de outra pessoa, e confundir os " +
+  "dois faz alguém contar com férias que ninguém aprovou.\n" +
+  "· NUNCA estime valores a receber (férias, um terço, abono, 13º). A ferramenta não devolve valor " +
+  "algum — qualquer número seu aqui seria invenção, e vira expectativa de pagamento.\n" +
+  "· Só ofereça emitir o AVISO DE FÉRIAS quando a requisição estiver APROVADA ou CONCLUÍDA. Requisição " +
+  "aberta ou aguardando aprovador não gera aviso.";
 
 type NovaTool = {
   key: string;
@@ -199,7 +220,7 @@ const TOOLS: NovaTool[] = [
     description:
       "Ponto de partida para SOLICITAR férias: devolve o período aquisitivo aberto do colaborador, o saldo de " +
       "dias e os impedimentos que já se sabem de antemão (período em dobro, ação judicial, requisição já " +
-      "existente no mesmo período, aprovadores não parametrizados). Use SEMPRE antes de ferias_simular. " +
+      "existente no mesmo período, aprovadores não parametrizados). Use SEMPRE antes de ferias_validar. " +
       "Não é consulta de férias já programadas — para isso use consultar_ferias.",
     path: `${BASE_PATH}/situacao`,
     params: [...IDENTIDADE, empresaAlvo(), alvo()],
@@ -214,6 +235,12 @@ const TOOLS: NovaTool[] = [
       "quantos dias de férias eu tenho\nsaldo de férias\nperíodo aquisitivo\nposso tirar férias\n" +
       "Quero solicitar minhas férias\nComo faço para pedir férias?\nTenho direito a quantos dias?\n" +
       "Quero programar minhas férias para setembro",
+    system_prompt:
+      REGRA_FERIAS +
+      "\n· ABERTURA: quando a pessoa pedir para solicitar, programar ou tirar férias, chame TAMBÉM " +
+      "ferias_opcoes no MESMO turno e responda de uma vez — período aquisitivo, dias disponíveis e as " +
+      "divisões de parcelamento permitidas. Não devolva só o saldo e pergunte 'como quer dividir?': " +
+      "quem pede férias não sabe quais divisões a empresa aceita, e é a ferramenta que sabe.",
   },
   {
     key: "ferias_opcoes",
@@ -237,16 +264,17 @@ const TOOLS: NovaTool[] = [
       "Posso dividir minhas férias em duas vezes?\nDá para vender 10 dias?\nQuantas parcelas eu posso fazer?",
     cache_ttl: 3600,
     cache_scope: "empresa",
+    system_prompt: REGRA_FERIAS,
   },
   {
-    key: "ferias_simular",
-    name: "Férias: montar e validar a solicitação",
+    key: "ferias_validar",
+    name: "Férias: validar a solicitação",
     description:
       "Monta a solicitação de férias e devolve ela RECALCULADA pelo sistema, com as datas de retorno e de " +
       "pagamento, além dos erros e avisos de cada campo. NÃO grava nada — é a etapa de conferência. Chame de " +
       "novo a cada resposta da pessoa: o sistema pode ajustar o que ela pediu (data que cai em feriado, por " +
       "exemplo). Só ofereça confirmar quando a resposta vier com pronto_para_criar = true.",
-    path: `${BASE_PATH}/simular`,
+    path: `${BASE_PATH}/simular`,  // a rota ORDS mantém o nome; a FERRAMENTA não
     params: [...IDENTIDADE, ...RASCUNHO],
     body_template: T_RASCUNHO,
     guard: "escopo_pessoa",
@@ -259,13 +287,17 @@ const TOOLS: NovaTool[] = [
       "data de retorno das férias\nquando cai o pagamento das férias\nadiantar 13º nas férias\n" +
       "Quero sair de férias no dia 1º de setembro\nSe eu sair dia 10, volto quando?\n" +
       "Quero 20 dias em setembro e 10 em dezembro",
-    system_prompt: REGRA_VALORES,
+    system_prompt:
+      REGRA_FERIAS +
+      "\n· Enquanto houver mensagem de erro, NÃO diga que está tudo certo: mostre o que precisa mudar e " +
+      "peça o novo valor. Só quando pronto_para_criar = true apresente o resumo sob o título " +
+      "'CONFIRME OS DADOS' e pergunte se pode criar a solicitação.",
   },
   {
     key: "ferias_criar",
     name: "Férias: criar a solicitação (grava)",
     description:
-      "CRIA a requisição de férias e dispara o fluxo de aprovação. Só chame depois de ferias_simular ter " +
+      "CRIA a requisição de férias e dispara o fluxo de aprovação. Só chame depois de ferias_validar ter " +
       "voltado pronto_para_criar = true e a pessoa ter confirmado, com os MESMOS valores da simulação. " +
       "Grava no sistema e não tem desfazer pelo chat.",
     path: `${BASE_PATH}/criar`,
@@ -281,7 +313,7 @@ const TOOLS: NovaTool[] = [
       "confirmar solicitação de férias\npode criar minhas férias\npode enviar o pedido de férias\n" +
       "finalizar pedido de férias\nsim, quero solicitar essas férias\n" +
       "Pode confirmar minhas férias\nEnvia esse pedido de férias",
-    system_prompt: REGRA_VALORES,
+    system_prompt: REGRA_FERIAS,
   },
   {
     key: "ferias_minhas",
@@ -302,6 +334,7 @@ const TOOLS: NovaTool[] = [
       "minha solicitação de férias\nstatus do pedido de férias\nminhas férias foram aprovadas\n" +
       "pedido de férias parado\nem quem está minha requisição de férias\nsolicitações de férias pendentes\n" +
       "Minhas férias já foram aprovadas?\nO que aconteceu com meu pedido de férias?",
+    system_prompt: REGRA_FERIAS,
   },
   {
     key: "ferias_aprovacoes",
@@ -322,6 +355,7 @@ const TOOLS: NovaTool[] = [
       "o que tenho para aprovar\naprovações pendentes\nférias para aprovar\nsolicitações aguardando aprovação\n" +
       "minha equipe pediu férias\npendências de aprovação de férias\n" +
       "Tenho alguma férias para aprovar?\nO que está esperando minha aprovação?",
+    system_prompt: REGRA_FERIAS,
   },
   {
     key: "ferias_aprovar",
@@ -355,6 +389,7 @@ const TOOLS: NovaTool[] = [
       "aprovar férias\nreprovar férias\nnegar pedido de férias\naprovar solicitação de férias da equipe\n" +
       "recusar férias\naprovar requisição\n" +
       "Pode aprovar as férias do João\nReprova esse pedido de férias",
+    system_prompt: REGRA_FERIAS,
   },
 ];
 
@@ -451,6 +486,18 @@ async function main() {
       `  ${escreve ? "✎" : "→"} ${t.key.padEnd(20)} ${t.path.padEnd(34)} ` +
         `params=${String(t.params.length).padStart(2)} guard=${t.guard}`,
     );
+  }
+
+  // `ferias_simular` virou `ferias_validar`: a palavra "simular" fazia a pessoa
+  // achar que o que ela acabou de conferir não valia. A chave aparece para o
+  // modelo, então renomear o rótulo sem renomear a chave não adiantaria.
+  const { data: antiga } = await db.from("ai_tools").select("id").eq("key", "ferias_simular").maybeSingle();
+  if (antiga) {
+    await db.from("ai_agent_tools").delete().eq("tool_id", antiga.id);
+    await db.from("ai_base_tools").delete().eq("tool_id", antiga.id);
+    await db.from("ai_tool_modules").delete().eq("tool_id", antiga.id);
+    await db.from("ai_tools").delete().eq("id", antiga.id);
+    console.log("\n  ✂ ferias_simular removida (virou ferias_validar).");
   }
 
   console.log(

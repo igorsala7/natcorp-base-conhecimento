@@ -614,7 +614,11 @@ export async function buildIntegrationTools(
   const essenciais: string[] = [];
   for (const { bt, escopo, paramsEscopo, loopEscopo } of selecionadas) {
     if (bt.alwaysInclude) essenciais.push(bt.tool.key);
-    if (bt.tool.system_prompt?.trim()) promptsFerramentas.push(bt.tool.system_prompt.trim());
+    // Sem repetir: uma FAMÍLIA de ferramentas costuma compartilhar a mesma regra
+    // de condução (as sete de férias, por exemplo). Empilhar a mesma instrução
+    // sete vezes não a reforça — só gasta token e afoga as outras.
+    const sp = bt.tool.system_prompt?.trim();
+    if (sp && !promptsFerramentas.includes(sp)) promptsFerramentas.push(sp);
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
       inputSchema: buildModelSchema(paramsEscopo, loopEscopo),
