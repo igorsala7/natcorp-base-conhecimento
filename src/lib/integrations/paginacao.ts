@@ -56,9 +56,27 @@ export function ehPaginaOrds(d: unknown): d is PaginaOrds {
   return !!d && typeof d === "object" && Array.isArray((d as PaginaOrds).items);
 }
 
-/** A resposta declara que existe mais além do que veio? */
+/**
+ * A resposta indica que existe mais além do que veio?
+ *
+ * TRÊS sinais, porque o ORDS não usa um só. Depender de `hasMore` deixava de
+ * fora quem publica só o `links.next`, e quem não publica nenhum dos dois — o
+ * caso do handler PL/SQL que devolve `{items, limit, offset, count}` e nada
+ * mais.
+ *
+ * O terceiro sinal (página cheia) é heurística, e de propósito: uma página com
+ * exatamente `limit` itens quase sempre tem sequência. O custo de errar é UMA
+ * requisição que volta vazia e encerra o laço; o custo de não tentar é a conta
+ * sair errada com cara de certa.
+ */
 export function temMais(d: unknown): boolean {
-  return ehPaginaOrds(d) && (d as PaginaOrds).hasMore === true;
+  if (!ehPaginaOrds(d)) return false;
+  const p = d as PaginaOrds;
+  if (p.hasMore === true) return true;
+  if (p.hasMore === false) return false; // declarou que acabou: respeita
+  if (proximaPagina(d)) return true;
+  const lim = Number(p.limit ?? 0);
+  return lim > 0 && (p.items?.length ?? 0) >= lim;
 }
 
 /**
@@ -78,7 +96,7 @@ export async function juntarPaginas(
   let paginas = 1;
   let assinaturaAnterior = assinatura(primeira.items ?? []);
 
-  while (atual.hasMore === true) {
+  while (temMais(atual)) {
     // O `offset` da próxima página é quantos itens já temos. Preferir isso a
     // `offset + limit` do payload: se uma página vier menor que o `limit` (o
     // ORDS faz isso na última), somar o limit pularia itens.

@@ -4,7 +4,7 @@ import type { PanelScopeMap } from "./panel-scope";
 import { resolveParams, type Identity, type ResolvedBuckets } from "./params";
 import { getOAuthToken, invalidateOAuthToken } from "./oauth";
 import { montarCorpo } from "./body-template";
-import { ehPaginaOrds, juntarPaginas, proximaPagina, type PaginaOrds } from "./paginacao";
+import { ehPaginaOrds, juntarPaginas, proximaPagina, temMais, type PaginaOrds } from "./paginacao";
 import { sanitizarUrl, sanitizarBody, nomeSensivel } from "./run-log-sanitize";
 import { chavePessoal } from "./user-key";
 
@@ -297,7 +297,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     // Vale para QUALQUER método: um endpoint de consulta pode ser POST (corpo com
     // filtros) e paginar do mesmo jeito. Restringir a GET deixava justamente
     // esses de fora — que são os que mais devolvem lista longa.
-    if (res.ok && ehPaginaOrds(data) && (data as PaginaOrds).hasMore === true) {
+    if (res.ok && temMais(data)) {
       const url0 = new URL(req.url);
       let proxima = proximaPagina(data);
       // PRAZO MAIOR enquanto pagina. Os 15s são o certo para UMA requisição; aqui

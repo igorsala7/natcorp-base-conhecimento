@@ -102,3 +102,27 @@ describe("proximaPagina — o caminho que o ORDS publica", () => {
     expect(proximaPagina(null)).toBeNull();
   });
 });
+
+describe("temMais — três sinais, porque o ORDS não usa um só", () => {
+  it("hasMore explícito manda", () => {
+    expect(temMais({ items: [1], hasMore: true })).toBe(true);
+    // Declarou que acabou: respeita, mesmo com a página cheia.
+    expect(temMais({ items: [1, 2], hasMore: false, limit: 2 })).toBe(false);
+  });
+
+  it("sem hasMore, o links.next basta", () => {
+    expect(temMais({ items: [1], links: [{ rel: "next", href: "/p2" }] })).toBe(true);
+  });
+
+  it("sem hasMore e sem links, página CHEIA indica sequência", () => {
+    // É o handler PL/SQL que devolve só {items, limit, offset, count}. O custo de
+    // errar é uma requisição vazia; o de não tentar é a conta sair errada.
+    expect(temMais({ items: [1, 2, 3], limit: 3 })).toBe(true);
+    expect(temMais({ items: [1, 2], limit: 3 })).toBe(false);
+  });
+
+  it("sem sinal nenhum não inventa página", () => {
+    expect(temMais({ items: [1, 2, 3] })).toBe(false);
+    expect(temMais({ dados: [] })).toBe(false);
+  });
+});
