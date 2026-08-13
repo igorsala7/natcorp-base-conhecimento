@@ -157,6 +157,36 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   -- Infra
   -- ══════════════════════════════════════════════════════════════════════════
 
+  /* Leitura TOLERANTE de número e data.
+
+     Quem chama é o motor de ferramentas do chat, e ele serializa o valor como
+     ele veio do token — `"1"` e `1` são ambos possíveis para a mesma empresa.
+     `apex_json.get_number` estoura no primeiro caso. Ler como texto e converter
+     aceita os dois, e devolve NULL em vez de derrubar a requisição por causa de
+     um par de aspas. */
+  FUNCTION num_de(p_path VARCHAR2) RETURN NUMBER IS
+    v VARCHAR2(200);
+  BEGIN
+    v := TRIM(apex_json.get_varchar2(p_path));
+    IF v IS NULL THEN RETURN NULL; END IF;
+    RETURN TO_NUMBER(REPLACE(v, ',', '.'), '9999999999999.9999',
+                     'NLS_NUMERIC_CHARACTERS=''.,''');
+  EXCEPTION WHEN OTHERS THEN RETURN NULL;
+  END num_de;
+
+  FUNCTION dt_de(p_path VARCHAR2) RETURN DATE IS
+    v VARCHAR2(60);
+  BEGIN
+    v := TRIM(apex_json.get_varchar2(p_path));
+    IF v IS NULL THEN RETURN NULL; END IF;
+    -- ISO primeiro (é o que a máscara da ferramenta produz), depois pt-BR, que
+    -- é o que aparece quando alguém testa a API na mão.
+    BEGIN RETURN TO_DATE(SUBSTR(v, 1, 10), 'YYYY-MM-DD');
+    EXCEPTION WHEN OTHERS THEN RETURN TO_DATE(SUBSTR(v, 1, 10), 'DD/MM/YYYY');
+    END;
+  EXCEPTION WHEN OTHERS THEN RETURN NULL;
+  END dt_de;
+
   /* Lê a identidade do corpo. `p_usuario` NUNCA é literal ('PORTAL'/'CHAT'):
      pkg_aprovacao_coletiva.executa resolve o PERFIL do aprovador por
      usuario_oracle.nm_usuario_oracle, e o nome vai para aprova_ferias.usuario. */
@@ -164,12 +194,12 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     l t_ident;
   BEGIN
     l.usuario        := apex_json.get_varchar2('identidade.p_usuario');
-    l.empresa_user   := apex_json.get_number  ('identidade.p_empresa_user');
-    l.matricula_user := apex_json.get_number  ('identidade.p_matricula_user');
+    l.empresa_user   := num_de('identidade.p_empresa_user');
+    l.matricula_user := num_de('identidade.p_matricula_user');
     l.perfil         := apex_json.get_varchar2('identidade.p_perfil');
     l.painel         := NVL(apex_json.get_varchar2('identidade.p_painel'), 'PC');
     l.base           := apex_json.get_varchar2('identidade.p_base');
-    l.app_id         := apex_json.get_number  ('identidade.p_app_id');
+    l.app_id         := num_de('identidade.p_app_id');
 
     IF l.usuario IS NULL OR l.empresa_user IS NULL OR l.matricula_user IS NULL THEN
       raise_application_error(-20401, 'Identidade incompleta.');
@@ -314,6 +344,10 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
       RETURN;
     END IF;
 
+    -- Empresa em branco = a de quem perguntou. O modelo raramente informa a
+    -- empresa quando pergunta de alguém da própria equipe.
+    p_cod_empresa := NVL(p_cod_empresa, p.empresa_user);
+
     IF p.painel = 'PG' THEN
       -- ⚠ CONFIRMAR: trocar por fnc_list2 quando o fonte estiver disponível.
       -- O código do centro de custo em CENTRO_DE_CUSTO é a coluna `cod`
@@ -347,8 +381,8 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.parse(p_json);
     zera_msgs;
     l_id  := ident;
-    l_emp := apex_json.get_number('cod_empresa');
-    l_mat := apex_json.get_number('matricula');
+    l_emp := num_de('cod_empresa');
+    l_mat := num_de('matricula');
     aplica_escopo(l_id, l_emp, l_mat);
     abre_sessao(l_id);
 
@@ -426,8 +460,8 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.parse(p_json);
     zera_msgs;
     l_id  := ident;
-    l_emp := apex_json.get_number('cod_empresa');
-    l_mat := apex_json.get_number('matricula');
+    l_emp := num_de('cod_empresa');
+    l_mat := num_de('matricula');
     aplica_escopo(l_id, l_emp, l_mat);
     abre_sessao(l_id);
 
@@ -473,29 +507,33 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
   -- ══════════════════════════════════════════════════════════════════════════
   PROCEDURE le_rascunho(r IN OUT t_rasc) IS
   BEGIN
-    r.cod_empresa          := apex_json.get_number  ('cod_empresa');
-    r.matricula            := apex_json.get_number  ('matricula');
-    r.opcao_ferias         := apex_json.get_number  ('opcao_ferias');   -- NUMBER(3)
-    r.dt_inic_per_ferias   := apex_json.get_date    ('dt_inic_per_ferias');
-    r.dt_fim_per_ferias    := apex_json.get_date    ('dt_fim_per_ferias');
+    r.cod_empresa          := num_de('cod_empresa');
+    r.matricula            := num_de('matricula');
+    r.opcao_ferias         := num_de('opcao_ferias');                    -- NUMBER(3)
+    r.dt_inic_per_ferias   := dt_de ('dt_inic_per_ferias');
+    r.dt_fim_per_ferias    := dt_de ('dt_fim_per_ferias');
     r.ind_situacao_periodo := apex_json.get_varchar2('ind_situacao_periodo');
-    r.desc_adicional1      := apex_json.get_number  ('desc_adicional'); -- dias, não flag
+    r.desc_adicional1      := num_de('desc_adicional');                  -- dias, não flag
     r.havera_rep           := NVL(apex_json.get_varchar2('havera_rep'), 'N');
 
-    r.dt_saida_parc1       := apex_json.get_date    ('parcelas[1].dt_saida');
-    r.num_dias_parc1       := apex_json.get_number  ('parcelas[1].num_dias');
-    r.dias_abono_pec1      := apex_json.get_number  ('parcelas[1].dias_abono_pec');
+    -- A ferramenta do chat manda SEMPRE as três posições (a 3ª é a parcela 4 do
+    -- banco); as vazias chegam como objeto só com `n`.
+    r.dt_saida_parc1       := dt_de ('parcelas[1].dt_saida');
+    r.num_dias_parc1       := num_de('parcelas[1].num_dias');
+    r.dias_abono_pec1      := num_de('parcelas[1].dias_abono_pec');
     r.opcao_abono_pec1     := NVL(apex_json.get_varchar2('parcelas[1].opcao_abono_pec'),'N');
     r.opcao_13sal1         := NVL(apex_json.get_varchar2('parcelas[1].opcao_13sal'),'N');
 
-    r.dt_saida_parc2       := apex_json.get_date    ('parcelas[2].dt_saida');
-    r.num_dias_parc2       := apex_json.get_number  ('parcelas[2].num_dias');
-    r.dias_abono_pec2      := apex_json.get_number  ('parcelas[2].dias_abono_pec');
+    r.dt_saida_parc2       := dt_de ('parcelas[2].dt_saida');
+    r.num_dias_parc2       := num_de('parcelas[2].num_dias');
+    r.dias_abono_pec2      := num_de('parcelas[2].dias_abono_pec');
+    r.opcao_abono_pec2     := NVL(apex_json.get_varchar2('parcelas[2].opcao_abono_pec'),'N');
     r.opcao_13sal2         := NVL(apex_json.get_varchar2('parcelas[2].opcao_13sal'),'N');
 
-    r.dt_saida_parc4       := apex_json.get_date    ('parcelas[3].dt_saida');
-    r.num_dias_parc4       := apex_json.get_number  ('parcelas[3].num_dias');
-    r.dias_abono_pec4      := apex_json.get_number  ('parcelas[3].dias_abono_pec');
+    r.dt_saida_parc4       := dt_de ('parcelas[3].dt_saida');
+    r.num_dias_parc4       := num_de('parcelas[3].num_dias');
+    r.dias_abono_pec4      := num_de('parcelas[3].dias_abono_pec');
+    r.opcao_abono_pec4     := NVL(apex_json.get_varchar2('parcelas[3].opcao_abono_pec'),'N');
     r.opcao_13sal4         := NVL(apex_json.get_varchar2('parcelas[3].opcao_13sal'),'N');
   END le_rascunho;
 
@@ -952,8 +990,8 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.parse(p_json);
     zera_msgs;
     l_id  := ident;
-    l_emp := apex_json.get_number('cod_empresa');
-    l_mat := apex_json.get_number('matricula');
+    l_emp := num_de('cod_empresa');
+    l_mat := num_de('matricula');
     aplica_escopo(l_id, l_emp, l_mat);
 
     apex_json.initialize_clob_output;
@@ -1091,7 +1129,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.parse(p_json);
     zera_msgs;
     l_id     := ident;
-    l_sol    := apex_json.get_number  ('cod_solicitacao');
+    l_sol    := num_de('cod_solicitacao');
     l_status := UPPER(apex_json.get_varchar2('status'));
     l_just   := apex_json.get_varchar2('justificativa');
 
@@ -1177,7 +1215,7 @@ CREATE OR REPLACE PACKAGE BODY NATCORP.PKG_API_FERIAS AS
     apex_json.parse(p_json);
     zera_msgs;
     l_id  := ident;
-    l_sol := apex_json.get_number('cod_solicitacao');
+    l_sol := num_de('cod_solicitacao');
     abre_sessao(l_id);
 
     SELECT c.empresa_req INTO l_emp

@@ -15,8 +15,8 @@
 --
 --------------------------------------------------------------------------------
 -- ⚠ ANTES DE RODAR
---   1. Confirme o prefixo: já existe /chatbot/consultas/v1/... em produção.
---      Este módulo usa `chatbot/ferias/v1/` para ficar no mesmo namespace.
+--   1. O caminho publicado é `requisicoes/ferias/v1/` — mesmo namespace das
+--      demais requisições. As tools do chat apontam para ele.
 --   2. `p_privilege_name` está NULL (autenticação pela credencial OAuth do
 --      cliente, como nas demais APIs). Se a instalação usar privilégio
 --      nomeado, preencha nos oito templates.
@@ -34,7 +34,7 @@ BEGIN
 
   ORDS.DEFINE_MODULE(
     p_module_name    => 'ferias.v1',
-    p_base_path      => '/chatbot/ferias/v1/',
+    p_base_path      => '/requisicoes/ferias/v1/',
     p_items_per_page => 0,
     p_status         => 'PUBLISHED',
     p_comments       => 'Solicitação e aprovação de férias pelo Agente de IA. Contrato: docs/ferias-ords-contrato.md');
@@ -184,7 +184,7 @@ begin
 end;]');
 
   COMMIT;
-  dbms_output.put_line('Módulo ferias.v1 publicado em /chatbot/ferias/v1/');
+  dbms_output.put_line('Módulo ferias.v1 publicado em /requisicoes/ferias/v1/');
 END;
 /
 
@@ -204,7 +204,7 @@ END;
 --------------------------------------------------------------------------------
 -- Teste de fumaça — só leitura, não grava nada.
 --------------------------------------------------------------------------------
--- curl -s -X POST https://<host>/ords/natcorp/chatbot/ferias/v1/situacao \
+-- curl -s -X POST https://<host>/apex/rh/natcorp/requisicoes/ferias/v1/situacao \
 --   -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
 --   -d '{"identidade":{"p_usuario":"FULANO","p_empresa_user":1,
 --        "p_matricula_user":12345,"p_perfil":"COLABORADOR","p_painel":"PC",

@@ -16,6 +16,8 @@
     "bootstrap:owner": "tsx --env-file=.env.local scripts/bootstrap-owner.ts",
     "bootstrap:owner:prod": "tsx scripts/bootstrap-owner.ts",
     "seed:natcorp": "tsx --env-file=.env.local scripts/seed-natcorp.ts",
+    "tools:ferias": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/add-ferias-tools.ts",
+    "tools:ferias:prod": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env scripts/add-ferias-tools.ts",
     "tool:consulta-ir": "tsx --env-file=.env.local scripts/add-consulta-ir-tool.ts",
     "tools:estrutura": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/add-estrutura-tools.ts",
     "seed:natcorp:prod": "tsx scripts/seed-natcorp.ts",
