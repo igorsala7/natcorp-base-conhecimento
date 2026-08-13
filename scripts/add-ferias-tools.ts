@@ -196,7 +196,13 @@ const REGRA_FERIAS =
   "· NUNCA estime valores a receber (férias, um terço, abono, 13º). A ferramenta não devolve valor " +
   "algum — qualquer número seu aqui seria invenção, e vira expectativa de pagamento.\n" +
   "· Só ofereça emitir o AVISO DE FÉRIAS quando a requisição estiver APROVADA ou CONCLUÍDA. Requisição " +
-  "aberta ou aguardando aprovador não gera aviso.";
+  "aberta ou aguardando aprovador não gera aviso.\n" +
+  "· DATA SEM ANO ('01/11', 'primeiro de novembro') é sempre a PRÓXIMA ocorrência a partir de HOJE. Férias " +
+  "não se programam para trás: se o ano que você ia usar já passou, use o seguinte.\n" +
+  "· NUNCA troque por conta própria uma data que a pessoa informou. Se ela não servir, DIGA que não serve e " +
+  "por quê, e proponha outra — mas a escolha é dela. Trocar em silêncio faz a pessoa sair num dia que nunca pediu.\n" +
+  "· Você TEM ferramenta para criar e para aprovar requisição de férias. Nunca responda que não tem, nem " +
+  "mande a pessoa preencher a tela do sistema: se a criação falhar, diga o que a ferramenta devolveu.";
 
 type NovaTool = {
   key: string;
@@ -275,7 +281,7 @@ const TOOLS: NovaTool[] = [
       "Monta a solicitação de férias e devolve ela RECALCULADA pelo sistema, com as datas de retorno e de " +
       "pagamento, além dos erros e avisos de cada campo. NÃO grava nada — é a etapa de conferência. Chame de " +
       "novo a cada resposta da pessoa: o sistema pode ajustar o que ela pediu (data que cai em feriado, por " +
-      "exemplo). Só ofereça confirmar quando a resposta vier com pronto_para_criar = true.",
+      "exemplo). Quando vier pronto_para_criar = true e a pessoa confirmar, grave com ferias_criar.",
     path: `${BASE_PATH}/simular`,  // a rota ORDS mantém o nome; a FERRAMENTA não
     params: [...IDENTIDADE, ...RASCUNHO],
     body_template: T_RASCUNHO,
@@ -300,12 +306,17 @@ const TOOLS: NovaTool[] = [
     name: "Férias: criar a solicitação (grava)",
     description:
       "CRIA a requisição de férias e dispara o fluxo de aprovação. Só chame depois de ferias_validar ter " +
-      "voltado pronto_para_criar = true e a pessoa ter confirmado, com os MESMOS valores da simulação. " +
+      "voltado pronto_para_criar = true E a pessoa ter confirmado, com os MESMOS valores validados. " +
       "Grava no sistema e não tem desfazer pelo chat.",
     path: `${BASE_PATH}/criar`,
     params: [...IDENTIDADE, ...RASCUNHO],
     body_template: T_RASCUNHO,
-    guard: "confirmation_detalhada",
+    // Sem `confirmation_detalhada`: a confirmação real é o passo anterior —
+    // ferias_validar mostra os dados JÁ RECALCULADOS pelo sistema sob "CONFIRME
+    // OS DADOS", que é informação melhor que o despejo de argumentos do guard.
+    // Somar as duas fazia a pessoa dizer "sim" quatro vezes para um ato só, e
+    // cada "sim" a mais ensina a dizer sim sem ler.
+    guard: "escopo_pessoa",
     panel_scope: SCOPE_PESSOA,
     response_hint:
       "Informe o número da solicitação. Quando a resposta trouxer ja_concluida = true, diga que a solicitação " +
@@ -315,7 +326,10 @@ const TOOLS: NovaTool[] = [
       "confirmar solicitação de férias\npode criar minhas férias\npode enviar o pedido de férias\n" +
       "finalizar pedido de férias\nsim, quero solicitar essas férias\n" +
       "Pode confirmar minhas férias\nEnvia esse pedido de férias",
-    system_prompt: REGRA_FERIAS,
+    system_prompt:
+      REGRA_FERIAS +
+      "\n· Você já mostrou os dados sob 'CONFIRME OS DADOS' no passo de validação. Recebido o 'pode', CHAME " +
+      "esta ferramenta — não pergunte de novo. Perguntar duas vezes a mesma coisa ensina a confirmar sem ler.",
   },
   {
     key: "ferias_minhas",

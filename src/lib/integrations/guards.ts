@@ -263,7 +263,13 @@ async function genericConfirmation(ctx: GuardContext): Promise<GuardResult> {
  */
 async function detailedConfirmation(ctx: GuardContext): Promise<GuardResult> {
   const partes: string[] = [];
-  for (const [k, v] of Object.entries(ctx.modelArgs ?? {})) {
+  // ORDENADO POR NOME. `Object.entries` devolve a ordem de INSERÇÃO — a ordem em
+  // que o modelo emitiu os argumentos. Numa ferramenta com muitos parâmetros ele
+  // praticamente nunca repete a mesma ordem, e como a impressão digital sai
+  // deste texto, a segunda tentativa da MESMA ação virava uma pendência nova: a
+  // pessoa dizia "sim", o modelo chamava de novo e o guard perguntava outra vez.
+  // Observado numa criação de férias que pediu quatro confirmações seguidas.
+  for (const [k, v] of Object.entries(ctx.modelArgs ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
     const txt = typeof v === "string" ? v.trim() : v == null ? "" : JSON.stringify(v);
     if (!txt) continue;
     // Corpo de e-mail inteiro não cabe numa pergunta de chat, mas o começo é o
