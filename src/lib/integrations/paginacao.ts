@@ -22,16 +22,18 @@ export type PaginaOrds = {
 };
 
 /**
- * Teto de páginas por chamada. Existe porque uma consulta sem filtro numa base
- * grande viraria centenas de idas ao ERP dentro de UM turno de chat — e o custo
- * disso não aparece para quem perguntou.
+ * SEM TETO de páginas ou de itens — decisão do produto (Igor, 13/08/2026), e a
+ * arquitetura a sustenta: o resultado inteiro fica no registro de datasets e só
+ * uma AMOSTRA vai ao modelo, então trazer tudo não custa token. Meio resultado é
+ * pior que resultado nenhum, porque a conta sai errada com cara de certa.
  *
- * Ao bater no teto o resultado NÃO é silencioso: vai `_truncado`, e o prompt
- * manda a IA dizer que a lista está incompleta. Recusar-se a truncar seria
- * derrubar o turno; truncar em silêncio seria mentir.
+ * O que bounda a busca é o TIMEOUT da requisição, que já existe: quando ele
+ * dispara, a página falha, e o acumulado volta marcado como truncado.
+ *
+ * O que sobrou não é limite, é defesa contra servidor que MENTE: um endpoint
+ * que ignore o `offset` e devolva sempre a mesma página com `hasMore: true`
+ * encheria a memória para sempre. Duas páginas idênticas seguidas encerram.
  */
-export const MAX_PAGINAS = 20;
-export const MAX_ITENS = 5000;
 
 export function ehPaginaOrds(d: unknown): d is PaginaOrds {
   return !!d && typeof d === "object" && Array.isArray((d as PaginaOrds).items);
@@ -57,24 +59,37 @@ export async function juntarPaginas(
   const items = [...(primeira.items ?? [])];
   let atual: PaginaOrds = primeira;
   let paginas = 1;
+  let assinaturaAnterior = assinatura(primeira.items ?? []);
 
-  while (atual.hasMore === true && paginas < MAX_PAGINAS && items.length < MAX_ITENS) {
+  while (atual.hasMore === true) {
     // O `offset` da próxima página é quantos itens já temos. Preferir isso a
     // `offset + limit` do payload: se uma página vier menor que o `limit` (o
-    // ORDS faz isso na última), somar o limit puraria itens.
+    // ORDS faz isso na última), somar o limit pularia itens.
     const proxima = await buscar(items.length);
+    // Falha no meio (inclusive por timeout): devolve o acumulado ROTULADO como
+    // incompleto. Metade dos dados dita como metade vale mais que um erro.
     if (!proxima) return { items, paginas, truncado: true };
+
     const novos = proxima.items ?? [];
-    // Página vazia com `hasMore` verdadeiro existe e seria laço infinito.
+    // Página vazia com `hasMore` verdadeiro existe, e seria laço infinito.
     if (novos.length === 0) return { items, paginas, truncado: false };
+
+    // Servidor que ignora o `offset` devolve a MESMA página para sempre. Sem
+    // esta parada, a lista cresceria com duplicatas até a memória acabar — e o
+    // total, que é justamente o que se quer proteger, sairia inflado.
+    const assinaturaAtual = assinatura(novos);
+    if (assinaturaAtual === assinaturaAnterior) return { items, paginas, truncado: true };
+    assinaturaAnterior = assinaturaAtual;
+
     items.push(...novos);
     atual = proxima;
     paginas += 1;
   }
 
-  return {
-    items: items.slice(0, MAX_ITENS),
-    paginas,
-    truncado: atual.hasMore === true || items.length > MAX_ITENS,
-  };
+  return { items, paginas, truncado: false };
+}
+
+/** Identidade barata de uma página, para detectar repetição. */
+function assinatura(itens: unknown[]): string {
+  return `${itens.length}:${JSON.stringify(itens[0] ?? null)}:${JSON.stringify(itens[itens.length - 1] ?? null)}`;
 }

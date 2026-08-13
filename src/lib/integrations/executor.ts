@@ -73,6 +73,8 @@ export type ExecInput = {
   identity: Identity;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** Prazo enquanto SEGUE páginas (são N requisições de propósito). Padrão 120s. */
+  timeoutMsPaginado?: number;
 };
 
 export type ExecResult = {
@@ -294,9 +296,18 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     // contava, somava e concluía sobre um pedaço, com cara de resposta completa.
     if (res.ok && req.method === "GET" && ehPaginaOrds(data) && (data as PaginaOrds).hasMore === true) {
       const url0 = new URL(req.url);
+      // PRAZO MAIOR enquanto pagina. Os 15s são o certo para UMA requisição; aqui
+      // são N de propósito, e manter o relógio de uma faria o teto voltar pela
+      // porta dos fundos — com o agravante de virar "às vezes completo".
+      clearTimeout(timer);
+      const timerPag = setTimeout(() => controller.abort(), input.timeoutMsPaginado ?? 120_000);
       const junto = await juntarPaginas(data as PaginaOrds, async (offset) => {
         const u = new URL(url0.toString());
         u.searchParams.set("offset", String(offset));
+        // PÁGINA GRANDE: o ORDS aceita `limit` e reduz o vaivém em ~20×. Ele
+        // mesmo corta no máximo do módulo, então pedir demais não quebra nada —
+        // e a alternativa é 200 idas de 25 para trazer 5 mil registros.
+        u.searchParams.set("limit", "500");
         const r = await fetchImpl(u.toString(), { method: "GET", headers: req.headers, signal: controller.signal });
         if (!r.ok) return null;
         try {
@@ -306,6 +317,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
           return null;
         }
       });
+      clearTimeout(timerPag);
       data = {
         ...(data as PaginaOrds),
         items: junto.items,
@@ -314,7 +326,7 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
         // O aviso é DADO para a IA, não enfeite: sem ele, "faltam registros"
         // vira invisível de novo, só que num número maior.
         ...(junto.truncado
-          ? { _truncado: `Havia mais registros do que o limite desta consulta (${junto.items.length} trazidos). Diga que a lista está incompleta e sugira filtrar.` }
+          ? { _truncado: `A consulta não conseguiu trazer TODOS os registros (${junto.items.length} obtidos) — o servidor falhou ou demorou demais no meio da leitura. Diga que a lista está incompleta e sugira filtrar para reduzir o volume. NÃO apresente totais como se fossem definitivos.` }
           : {}),
       };
     }

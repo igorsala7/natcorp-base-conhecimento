@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { juntarPaginas, temMais, ehPaginaOrds, MAX_PAGINAS, MAX_ITENS } from "./paginacao";
+import { juntarPaginas, temMais, ehPaginaOrds } from "./paginacao";
 
 /**
  * O ORDS devolve 25 itens por página. Sem seguir `hasMore`, a consulta parecia
@@ -56,17 +56,24 @@ describe("juntarPaginas", () => {
     expect(r.truncado).toBe(true);
   });
 
-  it("para no teto de páginas e AVISA", async () => {
-    // Sem o teto, uma consulta sem filtro viraria centenas de idas ao ERP dentro
-    // de um turno de chat — e o custo não aparece para quem perguntou.
-    const r = await juntarPaginas(pagina(2, true, 0), async () => pagina(2, true, 0));
-    expect(r.paginas).toBe(MAX_PAGINAS);
-    expect(r.truncado).toBe(true);
+  it("NÃO tem teto — traz todas as páginas", async () => {
+    // Meio resultado é pior que resultado nenhum: a conta sai errada com cara de
+    // certa. O que bounda a busca é o timeout da requisição, não um número aqui.
+    let n = 0;
+    const r = await juntarPaginas(pagina(25, true, 0), async (offset) => {
+      n++;
+      return n < 120 ? pagina(25, true, offset) : pagina(3, false, offset);
+    });
+    expect(r.paginas).toBe(121);
+    expect(r.items).toHaveLength(25 + 119 * 25 + 3);
+    expect(r.truncado).toBe(false);
   });
 
-  it("para no teto de itens", async () => {
-    const r = await juntarPaginas(pagina(3000, true, 0), async () => pagina(3000, true, 0));
-    expect(r.items.length).toBeLessThanOrEqual(MAX_ITENS);
+  it("servidor que ignora o offset não vira laço infinito", async () => {
+    // Devolver SEMPRE a mesma página com hasMore=true encheria a memória, e o
+    // total — que é justamente o que se quer proteger — sairia inflado.
+    const r = await juntarPaginas(pagina(25, true, 0), async () => pagina(25, true, 0));
+    expect(r.items).toHaveLength(25);
     expect(r.truncado).toBe(true);
   });
 
