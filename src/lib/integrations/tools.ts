@@ -35,6 +35,16 @@ export type ToolParam = {
   local: ParamLocal;
   /** Formato de saída (datas variam por API): dd/MM/yyyy, MM/yyyy, yyyy-MM-dd… */
   mascara?: string | null;
+  /**
+   * Data que só existe no FUTURO (saída de férias, agendamento). Quando o valor
+   * cai no passado, o servidor avança para a próxima ocorrência do mesmo dia e
+   * mês — ver data-futura.ts.
+   *
+   * Existe porque a pessoa diz "01/10" e o ANO é dedução do modelo, que erra.
+   * Não use em consulta histórica nem em período aquisitivo, que são
+   * legitimamente passados.
+   */
+  futuro?: boolean;
   /** Valores possíveis quando tipo = 'enum'. */
   opcoes?: string[];
   /** Campo do token a injetar quando origem = 'identidade'. */

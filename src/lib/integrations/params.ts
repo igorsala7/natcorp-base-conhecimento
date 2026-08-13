@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { TrackFields } from "@/lib/tracking/resolve";
 import type { IdentityField, LoopConfig, ToolParam } from "./tools";
 import { applyDateMask } from "./mask";
+import { ajustarParaFuturo } from "./data-futura";
 
 /** Identidade confiável, decifrada do token (nunca vinda do modelo). */
 export type Identity = Partial<Record<IdentityField, string>>;
@@ -175,8 +176,11 @@ export function resolveParams(
     if (p.local === "none") continue;
 
     let val: string | number | boolean = raw as string | number | boolean;
-    if (p.tipo === "date" && p.mascara && typeof val === "string") {
-      val = applyDateMask(val, p.mascara);
+    if (p.tipo === "date" && typeof val === "string") {
+      // ANTES da máscara: o ajuste preserva o formato de entrada, e assim vale
+      // tanto para ISO quanto para pt-BR, qualquer que seja a máscara da API.
+      if (p.futuro) val = ajustarParaFuturo(val);
+      if (p.mascara) val = applyDateMask(val, p.mascara);
     }
     // P_BASE e P_PAINEL SEMPRE em MAIÚSCULO (exigência da API ORDS) — normaliza o valor
     // qualquer que seja a origem (identidade/token, fixo ou modelo) antes da requisição.

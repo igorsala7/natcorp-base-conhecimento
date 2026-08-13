@@ -99,6 +99,11 @@ const data = (nome: string, descricao: string): ToolParam => ({
   nome, descricao, tipo: "date", origem: "modelo", obrigatorio: false, local: "body",
   mascara: "yyyy-MM-dd",
 });
+/** Data de SAÍDA: o servidor joga para a próxima ocorrência se cair no passado. */
+const dataFutura = (nome: string, descricao: string): ToolParam => ({
+  ...data(nome, descricao),
+  futuro: true,
+});
 /** Matrícula-alvo: o guard `escopo_pessoa` valida/ajusta conforme o painel. */
 const alvo = (): ToolParam => ({
   nome: "matricula",
@@ -118,7 +123,7 @@ const empresaAlvo = (): ToolParam => ({
 function parcela(n: number): ToolParam[] {
   const ord = n === 1 ? "1ª" : n === 2 ? "2ª" : "3ª";
   return [
-    data(`dt_saida_${n}`, `Data de saída da ${ord} parcela.`),
+    dataFutura(`dt_saida_${n}`, `Data de saída da ${ord} parcela. Se a pessoa não disse o ano, é a PRÓXIMA ocorrência dessa data.`),
     numero(`num_dias_${n}`, `Dias de férias da ${ord} parcela (tem de existir na parametrização — veja ferias_opcoes).`),
     numero(`dias_abono_${n}`, `Dias vendidos (abono pecuniário) na ${ord} parcela. 0 = não vende.`),
     texto(`opcao_13sal_${n}`, `'S' para adiantar a 1ª parcela do 13º nesta parcela, 'N' para não. Só é permitido UMA vez por ano.`),
