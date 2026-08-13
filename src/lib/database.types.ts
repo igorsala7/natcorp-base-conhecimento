@@ -1042,6 +1042,7 @@ export type Database = {
         Row: {
           action: string
           base_code: string
+          args: Json | null
           code_hash: string | null
           confirmed_at: string | null
           created_at: string
@@ -1055,6 +1056,7 @@ export type Database = {
         Insert: {
           action: string
           base_code: string
+          args?: Json | null
           code_hash?: string | null
           confirmed_at?: string | null
           created_at?: string
@@ -1068,6 +1070,7 @@ export type Database = {
         Update: {
           action?: string
           base_code?: string
+          args?: Json | null
           code_hash?: string | null
           confirmed_at?: string | null
           created_at?: string

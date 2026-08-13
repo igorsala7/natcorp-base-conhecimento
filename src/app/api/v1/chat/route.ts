@@ -63,6 +63,7 @@ import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
 import { confirmarPendencia } from "@/lib/integrations/confirmations";
+import { executarConfirmacao, blocoConfirmacaoExecutada, type ResultadoConfirmacao } from "@/lib/chat/confirmacao-direta";
 import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool-clarify";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
@@ -528,15 +529,35 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // CONFIRMAÇÃO IN-CHAT: se o usuário respondeu "sim" e há uma pendência recente, o
   // SISTEMA (não a IA) marca como confirmada e recupera a tool que pediu confirmação,
   // FORÇANDO-a de volta neste turno (a pergunta crua "sim" não a acha pelo classificador).
+  //
+  // E QUEM EXECUTA É O SERVIDOR. A pendência guarda os argumentos que a pessoa
+  // LEU na pergunta; devolver a bola ao modelo para ele reemitir os mesmos 25
+  // parâmetros custava uma chamada inteira (medido: 80 mil tokens para a palavra
+  // "Sim") e ainda abria espaço para os valores mudarem no caminho.
   let confToolKey: string | null = null;
+  let confExecutada: ResultadoConfirmacao | null = null;
   if (String(track.p_base ?? "").trim() && ehAfirmacao(question)) {
     const idc = identityFromTrack(track);
     const subj = `${idc.usuario ?? ""}:${idc.matricula ?? ""}`;
     if (idc.usuario || idc.matricula) {
-      confToolKey = await confirmarPendencia(String(track.p_base).trim(), subj);
-      if (confToolKey) passo("confirmacao", { marcada: true, tool: confToolKey });
+      const pend = await confirmarPendencia(String(track.p_base).trim(), subj);
+      if (pend) {
+        confToolKey = pend.tool;
+        passo("confirmacao", { marcada: true, tool: pend.tool, args: Object.keys(pend.args).length });
+        confExecutada = await executarConfirmacao(
+          String(track.p_base).trim(),
+          pend,
+          idc,
+          String(track.p_portal ?? ""),
+        );
+        // `null` = a ferramenta sumiu do catálogo entre o pedido e o "sim".
+        // Segue pelo caminho normal (modelo decide) em vez de executar às cegas.
+        if (confExecutada) passo("confirmacao_executada", { tool: confExecutada.tool, ok: confExecutada.ok, erro: confExecutada.erro });
+      }
     }
   }
+  /** Turno resolvido no servidor: o modelo só redige. Sem ferramentas, sem RAG. */
+  const soRedigir = !!confExecutada;
   // "OUTRA FONTE": o usuário DESCREVEU em texto livre o que precisa, porque nenhuma
   // opção do gate servia. Casa a descrição contra o catálogo com limiar BAIXO (0.35,
   // contra 0.45 do pool e 0.56 da oferta) de propósito: aqui ele DECLAROU o assunto,
@@ -549,6 +570,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     ? (await matchBaseTools(supabase, _baseParaOutra, outraFonte, { limiar: 0.35, limite: 3 })).map((m) => m.key)
     : [];
   if (outraFonte) passo("outra_fonte", { texto: outraFonte, tools: toolsDaDescricao });
+  // A pessoa MARCOU a fonte no gate de seleção: a escolha é dela, não do top-K.
+  // Mandar outras 25 ferramentas junto é ignorá-la e pagar ~3.000 tokens por isso.
+  const escolheuFonte = (payload.scope?.tools?.length ?? 0) > 0;
   const forcarTools = [
     ...new Set([
       ...(payload.scope?.tools?.map((t) => t.k) ?? []),
@@ -613,8 +637,8 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // pergunta original de novo não custa nada e evita que o recorte por módulo
   // corte justamente a ferramenta do que foi perguntado.
   const consultaClassificador = divergiu ? `${question.trim()}\n${consultaTools}` : consultaTools;
-  const integ = track.p_base && !querTutorial
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
+  const integ = track.p_base && !querTutorial && !soRedigir
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
   // única pendência que o próprio usuário resolve, e por isso a única que vira
@@ -854,7 +878,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     }
     return partes.filter(Boolean).join(" ").slice(0, 400);
   })();
-  const ragSources = social || baseExclusiva || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined });
+  // `soRedigir`: a mensagem é um "sim" e o servidor já executou a ação. Não há
+  // pergunta para responder com documentação — e buscá-la custava 3.268 tokens
+  // por turno, medido na conversa de férias de 13/08/2026 (a linha "Fontes:"
+  // aparecia embaixo de um "Sim", com oito documentos).
+  const ragSources = social || baseExclusiva || soRedigir || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined });
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? (docNoRelatorio ? " (modo_relatorio_doc)" : " (modo_relatorio_reduzido)") : ""}`);
   passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, // Motivos DISTINTOS para medir o efeito do corte: `modo_relatorio_cortado` é o
@@ -865,9 +893,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         ? "roteado_tool"
         : modoRelatorioCedo
           ? (docNoRelatorio ? "modo_relatorio_doc" : "modo_relatorio_reduzido")
-          : "normal", ms: _tRag - _tRagStart });
+          : soRedigir
+            ? "confirmacao_executada"
+            : "normal", ms: _tRag - _tRagStart });
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
-  const webSources = social || operacaoDeTela ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
   // Fecha o rastreio: adiciona o passo final, PERSISTE (página de log, best-effort)
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
@@ -924,7 +954,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // improvisava. Trocar o gate por texto curto (visualsCore) sai mais barato do que
   // parecia: o bloco entrando e saindo do prompt INVALIDAVA o cache de prefixo a cada
   // alternância. Chave de desligamento se algum dia pesar: VISUAL_TOOLS_SEMPRE=0.
-  const temVisual = !modoTutorial && process.env.VISUAL_TOOLS_SEMPRE !== "0";
+  // `soRedigir` desliga junto com o tutorial: num turno em que o servidor JÁ
+  // executou a ação, o modelo só conta o que aconteceu — gráfico e relatório ali
+  // são ~2.950 tokens que ele não tem como usar. Não vale para turno normal: o
+  // gate por texto foi tentado e revertido (ver acima).
+  const temVisual = !modoTutorial && !soRedigir && process.env.VISUAL_TOOLS_SEMPRE !== "0";
   const chartSpecs: ChartSpec[] = [];
   const chartChoices: ChartChoice[] = [];
   const reportSpecs: ReportSpec[] = [];
@@ -1006,7 +1040,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Consulta/filtro server-side: disponível sempre que houver dados tabulares
   // coletados (relatório de todas as páginas, tabela da tela ou lista de tool).
   // Corrige o filtro pela AMOSTRA (contagem/arquivo com N errado) — ver datasets.ts.
-  const temDadosTabulares = !modoTutorial && (!!reportBloco || !!tablesBloco || temIntegTools || !!anexoTabelaBloco);
+  // Idem para as 8 ferramentas de consulta (~5.300 tokens): sem decisão a tomar,
+  // não há o que consultar.
+  const temDadosTabulares = !modoTutorial && !soRedigir && (!!reportBloco || !!tablesBloco || temIntegTools || !!anexoTabelaBloco);
   const queryTools = temDadosTabulares ? buildQueryTool(datasets) : {};
   // Roteador de fonte (2º passo): se o usuário escolheu uma TOOL específica (ou o 1º
   // passo só encontrou uma candidata), força só ela — a IA consulta essa integração
@@ -1844,6 +1880,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       "não dispare uma chamada por mês nem por métrica. Deixe passos de sobra para REDIGIR: não gaste todo o orçamento só consultando. " +
       "Na resposta, diga em quais dados ela se baseia (períodos, agrupamentos e nº de registros considerados).";
   }
+  // AÇÃO JÁ EXECUTADA pelo servidor (confirmação): o modelo não decide nada neste
+  // turno, só conta o que aconteceu. Vai por último para ser a instrução mais forte.
+  if (confExecutada) systemPrompt += `\n\n${blocoConfirmacaoExecutada(confExecutada)}`;
   // "OUTRA FONTE": o texto que o usuário DIGITOU quando nenhuma opção do gate servia.
   // Entra delimitado e rotulado como DADO — conteúdo do usuário nunca é instrução.
   if (outraFonte) {

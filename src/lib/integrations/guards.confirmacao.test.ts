@@ -8,7 +8,7 @@ import { runGuard, type ConfirmDeps, type GuardContext, type PendingRow } from "
  * proteger.
  */
 function deps() {
-  const linhas: (PendingRow & { subject: string; action: string; detail: string })[] = [];
+  const linhas: (PendingRow & { subject: string; action: string; detail: string; args?: Record<string, unknown> })[] = [];
   let seq = 0;
   const d: ConfirmDeps & { linhas: typeof linhas } = {
     linhas,
@@ -17,7 +17,7 @@ function deps() {
     createPending: async (row) => {
       linhas.push({
         id: `p${++seq}`, subject: row.subject, action: row.action, detail: row.detail,
-        expires_at: row.expires_at, used_at: null, confirmed_at: null,
+        args: row.args, expires_at: row.expires_at, used_at: null, confirmed_at: null,
       });
     },
     markUsed: async (id) => {

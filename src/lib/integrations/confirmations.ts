@@ -32,6 +32,7 @@ export function buildConfirmDeps(baseCode: string): ConfirmDeps {
         action: row.action,
         detail: row.detail,
         tool_key: row.toolKey ?? null,
+        args: (row.args ?? {}) as never,
         expires_at: new Date(row.expires_at).toISOString(),
       });
     },
@@ -42,17 +43,25 @@ export function buildConfirmDeps(baseCode: string): ConfirmDeps {
   };
 }
 
+/** O que a pessoa confirmou: qual ferramenta e com quais valores. */
+export type PendenciaConfirmada = { tool: string; args: Record<string, unknown> };
+
 /**
- * Marca como CONFIRMADA a pendência de confirmação MAIS RECENTE do usuário — chamada
- * pela rota do chat quando o usuário responde afirmativamente. O "sim" vem do USUÁRIO
- * (a IA não tem como setar isto). Retorna se marcou alguma pendência.
+ * Marca como CONFIRMADA a pendência MAIS RECENTE do usuário — chamada pela rota do chat
+ * quando ele responde afirmativamente. O "sim" vem do USUÁRIO (a IA não tem como setar
+ * isto).
+ *
+ * Devolve a ferramenta E OS ARGUMENTOS. Os argumentos são o ponto: com eles o servidor
+ * executa o que a pessoa viu, em vez de devolver a bola ao modelo para reemitir 25
+ * parâmetros — que era onde eles mudavam de uma tentativa para outra, e o que fazia o
+ * turno do "sim" custar 80 mil tokens.
  */
-export async function confirmarPendencia(baseCode: string, subject: string): Promise<string | null> {
+export async function confirmarPendencia(baseCode: string, subject: string): Promise<PendenciaConfirmada | null> {
   const db = createAdminClient();
   const nowIso = new Date().toISOString();
   const { data } = await db
     .from("ai_pending_confirmations")
-    .select("id, tool_key")
+    .select("id, tool_key, args")
     .eq("base_code", baseCode)
     .eq("subject", subject)
     .is("used_at", null)
@@ -61,7 +70,10 @@ export async function confirmarPendencia(baseCode: string, subject: string): Pro
     .order("created_at", { ascending: false })
     .limit(1);
   const row = data?.[0];
-  if (!row?.id) return null;
+  if (!row?.id || !row.tool_key) return null;
   await db.from("ai_pending_confirmations").update({ confirmed_at: nowIso }).eq("id", row.id);
-  return row.tool_key ?? null;
+  const args = row.args && typeof row.args === "object" && !Array.isArray(row.args)
+    ? (row.args as Record<string, unknown>)
+    : {};
+  return { tool: row.tool_key, args };
 }

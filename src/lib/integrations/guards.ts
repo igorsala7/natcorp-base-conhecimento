@@ -24,7 +24,16 @@ export type PendingRow = { id: string; expires_at: number; used_at: number | nul
 /** Dependências injetadas do guard de confirmação (testável / server real). */
 export type ConfirmDeps = {
   findPending: (subject: string, action: string) => Promise<PendingRow[]>;
-  createPending: (row: { subject: string; action: string; detail: string; expires_at: number; toolKey?: string }) => Promise<void>;
+  createPending: (row: {
+    subject: string;
+    action: string;
+    detail: string;
+    expires_at: number;
+    toolKey?: string;
+    /** Argumentos EXATOS que a pessoa está confirmando. O servidor executa estes
+     *  quando ela disser sim — o modelo não reemite. */
+    args?: Record<string, unknown>;
+  }) => Promise<void>;
   markUsed: (id: string) => Promise<void>;
   now: () => number;
 };
@@ -209,7 +218,17 @@ async function confirmationCore(
 
   // Ainda não confirmada: cria a pendência (na 1ª vez) e pede o "sim" ao usuário.
   if (abertas.length === 0) {
-    await d.createPending({ subject, action: opts.action, detail: opts.detail, toolKey: ctx.toolKey, expires_at: d.now() + 10 * 60_000 });
+    // `args` é o que torna a confirmação executável pelo SERVIDOR: o que a
+    // pessoa vê na pergunta é o que vai ser gravado, sem o modelo reemitir os
+    // parâmetros — que é onde eles mudavam entre uma tentativa e outra.
+    await d.createPending({
+      subject,
+      action: opts.action,
+      detail: opts.detail,
+      toolKey: ctx.toolKey,
+      args: ctx.modelArgs ?? {},
+      expires_at: d.now() + 10 * 60_000,
+    });
   }
   return {
     ok: false,

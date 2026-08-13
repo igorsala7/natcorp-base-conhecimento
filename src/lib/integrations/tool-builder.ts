@@ -127,6 +127,17 @@ export async function buildIntegrationTools(
   skipAnalise?: boolean,
   /** Keys que NUNCA podem ser cortadas pelo top-K (ex.: a tool forçada pelo escopo do widget). */
   sempreIncluir?: string[],
+  /**
+   * EXCLUSIVO: manda SÓ as de `sempreIncluir` — sem top-K, sem essenciais, sem
+   * dependências.
+   *
+   * `sempreIncluir` sozinho é ADITIVO: protege do corte, mas não corta o resto.
+   * Quando a pessoa MARCOU a fonte no gate de seleção, mandar outras 25
+   * ferramentas junto é ignorar a escolha dela e pagar ~3.000 tokens por isso
+   * (medido em 13/08/2026). Use só quando a escolha foi explícita — nunca em
+   * pergunta aberta, onde tirar alternativas do modelo é tirar a saída dele.
+   */
+  soAsForcadas?: boolean,
   /** C — similaridade SEMÂNTICA da consulta com cada tool (key→sim) neste turno. Quando
    *  presente, o TOP-K seleciona por similaridade (piso relativo) em vez de só léxico. */
   sim?: Map<string, number> | null,
@@ -515,7 +526,11 @@ export async function buildIntegrationTools(
   // QUALIDADE da seleção: sem isto o modelo recebia ferramentas a 0.5x sem nenhum
   // sinal de que eram fracas — e respondia como se fossem as certas.
   const diag: { selecao: InfoSelecao | null } = { selecao: null };
-  const manter = selecionarTopK(
+  // EXCLUSIVO: a escolha já foi feita (pela pessoa, no gate de fontes). O top-K
+  // não tem o que decidir, e rodá-lo só acrescentaria ferramentas que ninguém pediu.
+  const manter = soAsForcadas && sempreIncluir?.length
+    ? new Set(sempreIncluir)
+    : selecionarTopK(
     elegiveisTools.map((e) => ({
       key: e.bt.tool.key,
       name: e.bt.tool.name,
@@ -547,10 +562,14 @@ export async function buildIntegrationTools(
     description: e.bt.tool.description ?? "",
     alwaysInclude: e.bt.alwaysInclude,
   });
-  const deps = dependenciasCitadas(
-    elegiveisTools.filter((e) => manter.has(e.bt.tool.key)).map(liteDe),
-    elegiveisTools.map(liteDe),
-  );
+  // No modo exclusivo nem dependência entra: "só as forçadas" tem de valer até o
+  // fim, senão o corte vaza pelo mesmo caminho que faz o teto de 12 virar 30.
+  const deps = soAsForcadas
+    ? []
+    : dependenciasCitadas(
+        elegiveisTools.filter((e) => manter.has(e.bt.tool.key)).map(liteDe),
+        elegiveisTools.map(liteDe),
+      );
   if (deps.length) {
     for (const d of deps) manter.add(d.key);
     onPasso?.("integracoes:dependencias", { puxadas: deps.map((d) => `${d.key} (por ${d.porCausaDe})`) });
