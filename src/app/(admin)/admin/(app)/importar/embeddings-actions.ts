@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { motivoFila } from "@/lib/jobs/motivo-fila";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
@@ -108,7 +109,7 @@ export async function listSpaceNodes(
 ): Promise<{ id: string; title: string; type: string; depth: number }[]> {
   try {
     await requirePermission("content.view", spaceId);
-  } catch {
+  } catch (e) {
     return [];
   }
   const supabase = await createClient();
@@ -151,7 +152,7 @@ export async function enqueueEmbeddingsJob(input: {
   const { spaceId, nodeId, nodeType } = input;
   try {
     await requirePermission("embeddings.reindex", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
   const scope = !nodeId ? "space" : nodeType === "folder" ? "subtree" : "article";
@@ -168,12 +169,12 @@ export async function enqueueEmbeddingsJob(input: {
 
   try {
     await enqueueEmbeddings(job.id);
-  } catch {
+  } catch (e) {
     await supabase
       .from("embedding_jobs")
       .update({ status: "error", error: "Fila indisponível" })
       .eq("id", job.id);
-    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+    return { ok: false, error: motivoFila(e) };
   }
 
   await audit({
@@ -211,7 +212,7 @@ export async function deleteEmbeddingsOrigin(input: {
   if (!node) return { ok: false, error: "Artigo não encontrado." };
   try {
     await requirePermission("embeddings.reindex", node.space_id);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
 

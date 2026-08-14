@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { motivoFila } from "@/lib/jobs/motivo-fila";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
@@ -17,13 +18,13 @@ type Ok = { ok: true; jobId?: string } | { ok: false; error: string };
 export async function ingestApexJson(spaceId: string, jsonText: string): Promise<Ok> {
   try {
     await requirePermission("ai.configure", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
   let meta: Json;
   try {
     meta = JSON.parse(jsonText) as Json;
-  } catch {
+  } catch (e) {
     return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
   }
   if (!normalizarApexJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
@@ -36,9 +37,9 @@ export async function ingestApexJson(spaceId: string, jsonText: string): Promise
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueApexIngest(job.id);
-  } catch {
+  } catch (e) {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
-    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+    return { ok: false, error: motivoFila(e) };
   }
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
@@ -49,13 +50,13 @@ export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<
   try {
     await requirePermission("content.create", spaceId);
     await requirePermission("ai.configure", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
   }
   let meta: Json;
   try {
     meta = JSON.parse(jsonText) as Json;
-  } catch {
+  } catch (e) {
     return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
   }
   if (!normalizarApexJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
@@ -68,9 +69,9 @@ export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueApexDocs(job.id);
-  } catch {
+  } catch (e) {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
-    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+    return { ok: false, error: motivoFila(e) };
   }
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
@@ -80,13 +81,13 @@ export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<
 export async function ingestDbJson(spaceId: string, jsonText: string): Promise<Ok> {
   try {
     await requirePermission("ai.configure", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
   let meta: Json;
   try {
     meta = JSON.parse(jsonText) as Json;
-  } catch {
+  } catch (e) {
     return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
   }
   if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
@@ -99,9 +100,9 @@ export async function ingestDbJson(spaceId: string, jsonText: string): Promise<O
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueDbIngest(job.id);
-  } catch {
+  } catch (e) {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
-    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+    return { ok: false, error: motivoFila(e) };
   }
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
@@ -112,13 +113,13 @@ export async function gerarDbDocs(spaceId: string, jsonText: string): Promise<Ok
   try {
     await requirePermission("content.create", spaceId);
     await requirePermission("ai.configure", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
   }
   let meta: Json;
   try {
     meta = JSON.parse(jsonText) as Json;
-  } catch {
+  } catch (e) {
     return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
   }
   if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
@@ -131,9 +132,9 @@ export async function gerarDbDocs(spaceId: string, jsonText: string): Promise<Ok
   if (!job) return { ok: false, error: "Falha ao criar o job." };
   try {
     await enqueueDbDocs(job.id);
-  } catch {
+  } catch (e) {
     await admin.from("data_dictionary_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
-    return { ok: false, error: "Fila indisponível — o worker precisa estar rodando (npm run worker)." };
+    return { ok: false, error: motivoFila(e) };
   }
   revalidatePath("/admin/ontologia");
   return { ok: true, jobId: job.id };
@@ -176,7 +177,7 @@ export async function listDataDictionaryColumns(spaceId: string): Promise<DicCol
 export async function dataDictionaryCsv(spaceId: string): Promise<{ ok: true; csv: string } | { ok: false; error: string }> {
   try {
     await requirePermission("content.view", spaceId);
-  } catch {
+  } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
   const supabase = await createClient();

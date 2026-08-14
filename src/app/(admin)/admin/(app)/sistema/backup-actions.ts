@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import { motivoFila } from "@/lib/jobs/motivo-fila";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -16,7 +17,7 @@ import { deleteBackupObjects } from "@/lib/backup/engine";
 
 export type BackupResult = { ok: true; msg?: string; jobId?: string } | { ok: false; error: string };
 
-const FILA_OFF = "Fila indisponível — o worker precisa estar rodando (npm run worker).";
+
 
 /** Dispara um backup manual (banco + arquivos, conforme a configuração). */
 export async function criarBackup(): Promise<BackupResult> {
@@ -32,9 +33,9 @@ export async function criarBackup(): Promise<BackupResult> {
     if (error || !job) return { ok: false, error: error?.message ?? "Falha ao criar o backup." };
     try {
       await enqueueBackup(job.id);
-    } catch {
-      await supabase.from("backup_jobs").update({ status: "error", error: FILA_OFF }).eq("id", job.id);
-      return { ok: false, error: FILA_OFF };
+    } catch (e) {
+      await supabase.from("backup_jobs").update({ status: "error", error: motivoFila(e) }).eq("id", job.id);
+      return { ok: false, error: motivoFila(e) };
     }
     await audit({ action: "space.update", entityType: "backup", entityId: job.id, spaceId: null });
     revalidatePath("/admin/sistema");
@@ -69,9 +70,9 @@ export async function restaurarBackup(sourceBackupId: string): Promise<BackupRes
     if (error || !job) return { ok: false, error: error?.message ?? "Falha ao iniciar a restauração." };
     try {
       await enqueueRestore(job.id);
-    } catch {
-      await supabase.from("backup_jobs").update({ status: "error", error: FILA_OFF }).eq("id", job.id);
-      return { ok: false, error: FILA_OFF };
+    } catch (e) {
+      await supabase.from("backup_jobs").update({ status: "error", error: motivoFila(e) }).eq("id", job.id);
+      return { ok: false, error: motivoFila(e) };
     }
     await audit({ action: "space.update", entityType: "backup_restore", entityId: job.id, spaceId: null });
     revalidatePath("/admin/sistema");
@@ -123,7 +124,7 @@ export async function salvarConfigBackup(input: {
     };
     const { error } = await supabase.from("backup_settings").update(patch).eq("id", true);
     if (error) return { ok: false, error: error.message };
-    try { await enqueueBackupReschedule(); } catch { /* worker off: aplica ao subir */ }
+    try { await enqueueBackupReschedule(); } catch (e) { /* worker off: aplica ao subir */ }
     await audit({ action: "space.update", entityType: "backup_settings", entityId: "backup", spaceId: null });
     revalidatePath("/admin/sistema");
     return { ok: true, msg: "Configurações de backup salvas." };
@@ -157,7 +158,7 @@ export async function importarUpload(incomingPath: string): Promise<BackupResult
       .select("id").single();
     if (error || !job) return { ok: false, error: error?.message ?? "Falha ao registrar o upload." };
     try { await enqueueBackupImport(job.id, incomingPath); }
-    catch { await supabase.from("backup_jobs").update({ status: "error", error: FILA_OFF }).eq("id", job.id); return { ok: false, error: FILA_OFF }; }
+    catch (e) { await supabase.from("backup_jobs").update({ status: "error", error: motivoFila(e) }).eq("id", job.id); return { ok: false, error: motivoFila(e) }; }
     revalidatePath("/admin/sistema");
     return { ok: true, msg: "Backup enviado — importando…", jobId: job.id };
   } catch (e) {
@@ -205,7 +206,7 @@ export async function enviarParaGithub(sourceBackupId: string): Promise<BackupRe
       .select("id").single();
     if (error || !job) return { ok: false, error: error?.message ?? "Falha ao registrar." };
     try { await enqueueGithubSave(job.id, sourceBackupId); }
-    catch { await supabase.from("backup_jobs").update({ status: "error", error: FILA_OFF }).eq("id", job.id); return { ok: false, error: FILA_OFF }; }
+    catch (e) { await supabase.from("backup_jobs").update({ status: "error", error: motivoFila(e) }).eq("id", job.id); return { ok: false, error: motivoFila(e) }; }
     revalidatePath("/admin/sistema");
     return { ok: true, msg: "Enviando ao GitHub…", jobId: job.id };
   } catch (e) {
@@ -224,7 +225,7 @@ export async function importarDoGithub(): Promise<BackupResult> {
       .select("id").single();
     if (error || !job) return { ok: false, error: error?.message ?? "Falha ao registrar." };
     try { await enqueueGithubImport(job.id); }
-    catch { await supabase.from("backup_jobs").update({ status: "error", error: FILA_OFF }).eq("id", job.id); return { ok: false, error: FILA_OFF }; }
+    catch (e) { await supabase.from("backup_jobs").update({ status: "error", error: motivoFila(e) }).eq("id", job.id); return { ok: false, error: motivoFila(e) }; }
     revalidatePath("/admin/sistema");
     return { ok: true, msg: "Importando do GitHub…", jobId: job.id };
   } catch (e) {
