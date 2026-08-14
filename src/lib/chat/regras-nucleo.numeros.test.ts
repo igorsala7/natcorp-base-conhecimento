@@ -56,3 +56,19 @@ describe("regraMatriculaComFonte", () => {
     expect(regraMatriculaComFonte()).toMatch(/respondem certo sobre a PESSOA ERRADA/i);
   });
 });
+
+describe("regraMatriculaComFonte — conferência do titular", () => {
+  it("manda PARAR quando o nome que voltou é outro", () => {
+    // O caso real: anunciou TONY OLIVEIRA, os dados voltaram de SIDNEI CARVALHO,
+    // e ele apresentou Sidnei como se fosse o pedido.
+    const r = regraMatriculaComFonte();
+    expect(r).toMatch(/CONFIRA O TITULAR ANTES DE RESPONDER/i);
+    expect(r).toMatch(/PARE/);
+  });
+
+  it("proíbe expressamente trocar o nome da resposta", () => {
+    // Sem isso o modelo "corrige" a si mesmo adotando quem voltou — que foi
+    // exatamente o que aconteceu.
+    expect(regraMatriculaComFonte()).toMatch(/não troque o nome da resposta/i);
+  });
+});

@@ -95,6 +95,11 @@ export function regraMatriculaComFonte(): string {
     "Quando o pedido citar alguém pelo NOME, PRIMEIRO consulte a ferramenta de cadastro para achar a matrícula " +
     "e só então chame as demais. Se voltar mais de uma pessoa, PERGUNTE qual — não escolha. Se não voltar " +
     "nenhuma, diga que não encontrou; não tente um número parecido. " +
-    "Um número errado aqui não dá erro: as consultas respondem certo sobre a PESSOA ERRADA, e ninguém percebe."
+    "Um número errado aqui não dá erro: as consultas respondem certo sobre a PESSOA ERRADA, e ninguém percebe.\n" +
+    "CONFIRA O TITULAR ANTES DE RESPONDER: o retorno traz o NOME. Se o nome que voltou não for o da pessoa " +
+    "sobre quem você anunciou que ia falar, PARE. Não apresente esses dados, não troque o nome da resposta " +
+    "para o que voltou, e não continue como se nada tivesse acontecido: diga que a matrícula não corresponde, " +
+    "busque a pessoa certa pelo nome e refaça. Trocar o titular no meio da resposta transforma um erro de " +
+    "consulta em informação errada entregue com confiança — e quem lê não tem como saber."
   );
 }
