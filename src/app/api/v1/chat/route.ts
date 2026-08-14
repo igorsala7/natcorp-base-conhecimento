@@ -1877,7 +1877,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     pageChangeNote(prevPage, page),
     pageContextNote(page),
     // "Só estas fontes" (baseSoFontes): IGNORA os dados da tela — responde só das fontes.
-    baseSoFontes ? "" : scanBlock,
+    // A DESCRIÇÃO DA PÁGINA (1.320 tok) sai quando a pergunta vai ser respondida
+    // por consulta ao ERP: ali ela é peso que o modelo não tem como usar. Fica
+    // em operação de tela e tutorial, onde a página É o assunto.
+    baseSoFontes || (perguntaDeDado && !operacaoDeTela && !modoTutorial) ? "" : scanBlock,
     baseSoFontes ? "" : tablesBloco,
     baseSoFontes ? "" : reportBloco,
     blocoCombinar,

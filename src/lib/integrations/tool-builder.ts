@@ -594,6 +594,29 @@ export async function buildIntegrationTools(
     for (const d of deps) manter.add(d.key);
     onPasso?.("integracoes:dependencias", { puxadas: deps.map((d) => `${d.key} (por ${d.porCausaDe})`) });
   }
+  /**
+   * TETO DE VERDADE. Até aqui `MAX_TOOLS_MODELO` só valia dentro do top-K:
+   * essenciais entram fora da cota, o resgate lexical devolve quem o recorte
+   * cortou, e as dependências são somadas DEPOIS. Medido: mediana 11, máximo 27
+   * para um teto de 6.
+   *
+   * Agora o corte é sobre o TOTAL, e a ordem de quem fica é explícita:
+   *   1. forçadas (a pessoa escolheu, ou é a pendência de confirmação)
+   *   2. maior similaridade — já com o bônus de aprendizado aplicado
+   * As essenciais deixam de ser incondicionais: `meus_dados` numa pergunta sobre
+   * outra pessoa é peso morto, e peso morto agora custa vaga.
+   */
+  if (!soAsForcadas && manter.size > maxTools) {
+    const forcadas = new Set(sempreIncluir ?? []);
+    const ordenadas = [...manter].sort((a, b) => {
+      const fa = forcadas.has(a) ? 1 : 0, fb = forcadas.has(b) ? 1 : 0;
+      if (fa !== fb) return fb - fa;
+      return (simFinal?.get(b) ?? 0) - (simFinal?.get(a) ?? 0);
+    });
+    const cortadas = ordenadas.slice(maxTools);
+    for (const k of cortadas) manter.delete(k);
+    onPasso?.("integracoes:teto", { teto: maxTools, cortadas });
+  }
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
 
   // ── DADOS DO PRÓPRIO USUÁRIO, buscados sem o modelo ────────────────────────
