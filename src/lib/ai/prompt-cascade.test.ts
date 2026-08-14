@@ -114,3 +114,46 @@ describe("persona de RH e corte por frase", () => {
     expect(texto.length).toBe(100);
   });
 });
+
+/**
+ * ESCOPO E ESPECIALIDADE (14/08/2026). Duas exigências que puxam para lados
+ * opostos e precisam conviver: o assistente deve OPINAR como especialista em
+ * gestão de pessoas, e ao mesmo tempo NÃO pode responder de memória sobre o
+ * produto nem sobre valor que muda com o tempo.
+ */
+describe("REGRAS_ABSOLUTAS — escopo de assunto", () => {
+  it("autoriza análise e opinião nos assuntos de gestão de pessoas", () => {
+    // Sem isto o assistente vira um índice da documentação — o oposto do pedido.
+    expect(REGRAS_ABSOLUTAS).toMatch(/USE seu conhecimento para analisar/i);
+    expect(REGRAS_ABSOLUTAS).toMatch(/sugerir melhorias/i);
+    expect(REGRAS_ABSOLUTAS).toMatch(/não se limite a repetir a documentação/i);
+  });
+
+  it("cobre os assuntos do negócio", () => {
+    for (const t of ["folha de pagamento", "rescisão", "eSocial", "FGTS", "SESMT", "acordos coletivos", "cargos, salários"]) {
+      expect(REGRAS_ABSOLUTAS).toContain(t);
+    }
+  });
+
+  it("fecha o que está fora do escopo", () => {
+    expect(REGRAS_ABSOLUTAS).toMatch(/FORA DESSES ASSUNTOS, não responda/i);
+  });
+
+  it("continua proibindo conhecimento próprio sobre o PRODUTO", () => {
+    // A autorização de opinar não pode ter afrouxado a regra que impede o
+    // modelo de descrever a tela de outro sistema de RH como se fosse esta.
+    expect(REGRAS_ABSOLUTAS).toMatch(/PROIBIDO inventar fatos ou usar conhecimento geral seu sobre o produto/i);
+  });
+
+  it("tranca VALOR que muda com o tempo", () => {
+    // Alíquota desatualizada dita com segurança vira decisão errada de folha —
+    // e o modelo não sabe que não sabe.
+    expect(REGRAS_ABSOLUTAS).toMatch(/alíquota/i);
+    expect(REGRAS_ABSOLUTAS).toMatch(/NUNCA responda de memória/i);
+    expect(REGRAS_ABSOLUTAS).toMatch(/Conceito é livre/i);
+  });
+
+  it("exige separar fato de leitura na análise", () => {
+    expect(REGRAS_ABSOLUTAS).toMatch(/FATO dos dados do que é sua LEITURA/i);
+  });
+});
