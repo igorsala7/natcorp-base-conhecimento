@@ -196,6 +196,8 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     reportData?: unknown;
     reportDataId?: unknown;
     screenTables?: unknown;
+    /** O que a TELA tem, lido do DOM pelo widget — sem IA. `{relatorio, tabela, campos}`. */
+    telaTem?: unknown;
     // Relatório (IR/IG) presente na tela mas SEM resultados (0 linhas). O widget sinaliza
     // isto para o fluxo "relatório vazio → oferecer filtrar" (regra B). `{ nome }`.
     emptyReport?: unknown;
@@ -685,6 +687,20 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // acontece com o "Assistente de formulário" LIGADO. Desligado, o servidor
   // IGNORA payload.pageContent — o bot não recebe nem retorna valores da tela
   // (só a localização, que é metadado). Gate autoritativo (não confia no cliente).
+  /**
+   * O QUE A TELA TEM, dito por quem a varreu.
+   *
+   * O servidor decidia por CONFIGURAÇÃO — "o assistente de formulário está
+   * ligado" — e montava os blocos de campo e de tela em toda chamada. Só que
+   * existem telas sem relatório, sem tabela e sem campo, e elas pagavam igual.
+   *
+   * Ausente (cliente antigo, portal) = trata como TEM: um widget que ainda não
+   * sabe informar não pode perder recurso por isso.
+   */
+  const oQueTemNaTela = payload.telaTem && typeof payload.telaTem === "object" ? (payload.telaTem as Record<string, unknown>) : null;
+  const telaTemCampos = oQueTemNaTela ? oQueTemNaTela.campos === true : true;
+  const telaTemTabela = oQueTemNaTela ? oQueTemNaTela.tabela === true || oQueTemNaTela.relatorio === true : true;
+
   const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : "";
   const screenFields = formAssist ? parseFields(payload.fields) : [];
   // Loop autônomo do assistente de tela: o widget executou uma ação, re-varreu a
@@ -1078,7 +1094,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Tabelas da tela (estruturadas) → registradas como datasets (o modelo exporta/
   // grafica por `dados_de`, sem redigitar). Pós-coleta usamos SÓ o conjunto completo.
   // fonte="ia" → o usuário pediu conhecimento da IA: NÃO injeta a tabela da tela.
-  const { block: tablesBloco, paginado: telaPaginada } = formAssist && !reportBloco && fonteEfetiva !== "ia"
+  // `telaTemTabela`: o widget diz se há tabela no DOM. Tela sem tabela não paga
+  // o bloco — ligar o assistente é configuração; ter tabela é fato.
+  const { block: tablesBloco, paginado: telaPaginada } = formAssist && telaTemTabela && !reportBloco && fonteEfetiva !== "ia"
     ? screenTablesBlock(payload.screenTables, datasets, recorteColunas)
     : { block: "", paginado: false };
   const temPaginado = !modoTutorial && !reportBloco && telaPaginada;
@@ -1820,7 +1838,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const blocoInvite = querConvite ? inviteDirective() : "";
   const blocoRag = buildContextBlock(sources);
   // Mapa dos campos da tela: fora na análise pura (a IA analisa o relatório, não opera a tela).
-  const blocoFields = baseSoFontes || modoAnalisePura ? "" : fieldsContextBlock(screenFields);
+  // Tela sem campo não paga o bloco de campos — nem quando o assistente de
+  // formulário está ligado, porque ligar é configuração e ter campo é fato.
+  const blocoFields = baseSoFontes || modoAnalisePura || !telaTemCampos ? "" : fieldsContextBlock(screenFields);
   const blocoGloss = glossario
     ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
     : "";

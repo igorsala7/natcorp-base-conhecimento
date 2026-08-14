@@ -976,9 +976,11 @@
       if (textos.length) partes.push("TEXTO DA TELA:\n" + textos.join("\n"));
       var s = partes.join("\n\n");
       if (s.length > SCAN_MAX) s = s.slice(0, SCAN_MAX) + "\n…(truncado)";
-      return { text: s, tables: tabelas };
+      // `campos` sai junto (só a contagem): é o que diz se a tela TEM campos,
+      // sem repetir a lista que já foi para o texto.
+      return { text: s, tables: tabelas, campos: campos.length };
     } catch {
-      return { text: "", tables: [] };
+      return { text: "", tables: [], campos: 0 };
     }
   }
 
@@ -7339,6 +7341,28 @@
       var scan = scanPage();
       if (scan.text) body.pageContent = scan.text;
       if (scan.tables && scan.tables.length) body.screenTables = scan.tables;
+      /**
+       * O QUE ESTA TELA TEM — quatro booleanos, lidos do DOM, sem IA.
+       *
+       * O servidor monta blocos de prompt para relatório, tabelas, campos e
+       * formulário. Hoje ele decide por CONFIGURAÇÃO (o assistente está ligado),
+       * não por PRESENÇA — então uma tela sem relatório paga o bloco de relatório
+       * do mesmo jeito. São ~4,4 mil tokens por chamada, em toda chamada.
+       *
+       * Quem sabe o que tem na página é quem a varreu. Mandar o fato é mais
+       * barato e mais certo que o servidor supor.
+       */
+      var _linhasDe = function (t) {
+        var l = t && (t.linhas || t.rows);
+        return Array.isArray(l) ? l.length : Number(l || 0);
+      };
+      body.telaTem = {
+        tabela: !!(scan.tables && scan.tables.length),
+        // Relatório = tabela com LINHAS de dado, não grade de layout — que é a
+        // diferença entre "esta tela mostra dados" e "esta tela tem um <table>".
+        relatorio: (scan.tables || []).some(function (t) { return _linhasDe(t) > 0; }),
+        campos: (scan.campos || 0) > 0,
+      };
       // B — sinaliza relatório VAZIO: (1) a coleta retornou 0 linhas (_relatorioVazioSinal,
       // sinal confiável) ou (2) heurística de DOM quando NÃO há nenhuma tabela com dados.
       if (_relatorioVazioSinal) { body.emptyReport = _relatorioVazioSinal; }
