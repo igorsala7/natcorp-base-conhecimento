@@ -652,6 +652,7 @@ export type Database = {
           name: string
           perfis_campo: string | null
           perfis_endpoint: string | null
+          widget_paineis: string[] | null
           tool_routing: boolean
           updated_at: string
         }
@@ -667,6 +668,7 @@ export type Database = {
           name: string
           perfis_campo?: string | null
           perfis_endpoint?: string | null
+          widget_paineis?: string[] | null
           tool_routing?: boolean
           updated_at?: string
         }
@@ -682,6 +684,7 @@ export type Database = {
           name?: string
           perfis_campo?: string | null
           perfis_endpoint?: string | null
+          widget_paineis?: string[] | null
           tool_routing?: boolean
           updated_at?: string
         }

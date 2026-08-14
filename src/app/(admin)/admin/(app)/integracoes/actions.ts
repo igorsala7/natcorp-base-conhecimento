@@ -51,6 +51,8 @@ const baseSchema = z.object({
   perfis_endpoint: z.string().trim().nullish(),
   perfis_campo: z.string().trim().nullish(),
   space_ids: z.array(z.string().uuid()).default([]),
+  /** Painéis em que o widget aparece nesta base. `null` = todos (padrão). */
+  widget_paineis: z.array(z.enum(["PO", "PG", "PC"])).nullish(),
 });
 
 /** Sincroniza as documentações do chatbot da base (ordem = position). */
@@ -108,7 +110,7 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const supabase = await createClient();
-  const { id, base_code, name, active, base_url, credential_id, tool_routing, perfis_endpoint, perfis_campo, space_ids } = parsed.data;
+  const { id, base_code, name, active, base_url, credential_id, tool_routing, perfis_endpoint, perfis_campo, space_ids, widget_paineis } = parsed.data;
   const { error } = await supabase
     .from("ai_bases")
     .update({
@@ -120,6 +122,9 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
       tool_routing,
       perfis_endpoint: perfis_endpoint?.trim() || null,
       perfis_campo: perfis_campo?.trim() || null,
+      // `undefined` no formulário = "todos" e vira NULL; lista vazia = nenhum.
+      // Confundir os dois trocaria "todos" por "nenhum" em toda base existente.
+      widget_paineis: widget_paineis ?? null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

@@ -1,5 +1,8 @@
 import type { NextRequest } from "next/server";
 import { hasAiKey } from "@/lib/ai/config";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
+import { widgetLiberado } from "@/lib/widget/disponibilidade";
 import {
   resolveWidgetKey,
   originAllowed,
@@ -25,6 +28,29 @@ export async function GET(req: NextRequest) {
   if (!key) return Response.json({ error: "Chave inválida." }, { status: 401, headers: cors });
   if (!originAllowed(key.allowed_origins, origin)) {
     return Response.json({ error: "Origem não autorizada." }, { status: 403, headers: cors });
+  }
+  // Widget desligado NESTA base + painel → o bootstrap avisa e o widget nem
+  // desenha a bolha. Bloquear só no /chat deixaria a bolha na tela para abrir e
+  // receber uma recusa, o que é pior que não existir.
+  const track = req.nextUrl.searchParams.get("track");
+  let liberado = true;
+  if (track) {
+    const { campos } = await decodeTrackDetalhado(key.space_id, track);
+    const baseCode = String(campos.p_base ?? "").trim();
+    if (baseCode) {
+      const db = createAdminClient();
+      const { data: base } = await db
+        .from("ai_bases")
+        .select("active, widget_paineis")
+        .ilike("base_code", baseCode.replace(/([\\%_])/g, "\\$1"))
+        .maybeSingle();
+      // Base que não existe no catálogo não é motivo para sumir com o widget:
+      // instalação sem integração é um caso legítimo.
+      if (base) liberado = widgetLiberado(base.widget_paineis, campos.p_portal, base.active);
+    }
+  }
+  if (!liberado) {
+    return Response.json({ desativado: true }, { headers: { ...cors, "Cache-Control": "no-store" } });
   }
   return Response.json(
     { config: key.config, aiEnabled: await hasAiKey() },

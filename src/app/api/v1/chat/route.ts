@@ -25,6 +25,7 @@ import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
 import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
+import { widgetLiberado } from "@/lib/widget/disponibilidade";
 import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } from "@/lib/chat/run-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
@@ -296,6 +297,19 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // ferramentas que dependem de `p_usuario` eram cortadas e a IA respondia "não
   // tenho acesso", que a pessoa lê como defeito do produto em vez de "faça login
   // de novo".
+  // WIDGET DESLIGADO nesta base+painel. O bootstrap já evita a bolha; isto aqui
+  // segura a página que ficou aberta desde antes da mudança — e quem chamar a
+  // API por fora.
+  if (String(track.p_base ?? "").trim()) {
+    const { data: baseCfg } = await supabase
+      .from("ai_bases")
+      .select("active, widget_paineis")
+      .ilike("base_code", String(track.p_base).trim().replace(/([\\%_])/g, "\\$1"))
+      .maybeSingle();
+    if (baseCfg && !widgetLiberado(baseCfg.widget_paineis, track.p_portal, baseCfg.active)) {
+      return json({ error: "O assistente não está disponível neste painel.", code: "widget_desativado" }, 403);
+    }
+  }
   if (motivoRastreio === "expirado") {
     return Response.json(
       { error: "Sua sessão no painel expirou. Atualize a página para continuar.", code: "sessao_expirada" },

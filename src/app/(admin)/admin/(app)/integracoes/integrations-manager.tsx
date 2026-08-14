@@ -50,6 +50,7 @@ export type BaseRow = {
   base_url: string | null;
   credential_id: string | null;
   tool_routing: boolean;
+  widget_paineis: string[] | null;
   perfis_endpoint: string | null;
   perfis_campo: string | null;
   flow_layout: Record<string, NodePos> | null;
@@ -356,6 +357,9 @@ export function BaseDialog({
   const [baseUrl, setBaseUrl] = useState(base?.base_url ?? "");
   const [credentialId, setCredentialId] = useState(base?.credential_id ?? "");
   const [toolRouting, setToolRouting] = useState(base?.tool_routing ?? false);
+  // `null` = todos os painéis (padrão e comportamento de sempre). Uma LISTA
+  // recorta; lista vazia desliga o widget nesta base.
+  const [widgetPaineis, setWidgetPaineis] = useState<string[] | null>(base?.widget_paineis ?? null);
   const [perfisEndpoint, setPerfisEndpoint] = useState(base?.perfis_endpoint ?? "");
   const [perfisCampo, setPerfisCampo] = useState(base?.perfis_campo ?? "");
   const [spaceIds, setSpaceIds] = useState<Set<string>>(new Set(base?.spaceIds ?? []));
@@ -402,6 +406,7 @@ export function BaseDialog({
                       base_url: baseUrl,
                       credential_id: credentialId || null,
                       tool_routing: toolRouting,
+                      widget_paineis: widgetPaineis,
                       perfis_endpoint: perfisEndpoint,
                       perfis_campo: perfisCampo,
                       space_ids: [...spaceIds],
@@ -412,6 +417,7 @@ export function BaseDialog({
                       base_url: baseUrl,
                       credential_id: credentialId || null,
                       tool_routing: toolRouting,
+                      widget_paineis: widgetPaineis,
                       perfis_endpoint: perfisEndpoint,
                       perfis_campo: perfisCampo,
                       space_ids: [...spaceIds],
@@ -462,6 +468,46 @@ export function BaseDialog({
             ))}
           </Select>
         </Field>
+
+        {/* Widget por painel — o recorte que a operação usa: "a empresa X ainda
+            não liberou para os colaboradores, mas os gestores já usam". */}
+        <div className="rounded-lg border border-border bg-surface-2/40 p-3">
+          <label className="flex items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={widgetPaineis === null}
+              onChange={(e) => setWidgetPaineis(e.target.checked ? null : ["PO", "PG", "PC"])}
+              className="size-4 accent-[var(--color-primary)]"
+            />
+            Widget em todos os painéis
+          </label>
+          {widgetPaineis !== null && (
+            <div className="mt-2 flex flex-wrap gap-3">
+              {(["PO", "PG", "PC"] as const).map((p) => (
+                <label key={p} className="flex items-center gap-1.5 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    checked={widgetPaineis.includes(p)}
+                    onChange={(e) =>
+                      setWidgetPaineis(
+                        e.target.checked ? [...widgetPaineis, p] : widgetPaineis.filter((x) => x !== p),
+                      )
+                    }
+                    className="size-4 accent-[var(--color-primary)]"
+                  />
+                  {p === "PO" ? "Operador" : p === "PG" ? "Gestor" : "Colaborador"}
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="mt-1.5 text-xs text-text-muted">
+            {widgetPaineis === null
+              ? "O widget aparece nos três painéis desta base."
+              : widgetPaineis.length === 0
+                ? "Nenhum painel marcado — o widget não aparece nesta base."
+                : `O widget aparece só em: ${widgetPaineis.join(", ")}. Nos demais, a bolha nem é desenhada.`}
+          </p>
+        </div>
 
         {/* Roteamento por assunto (Opção A) — economiza tokens */}
         <div className="rounded-lg border border-border bg-surface-2/40 p-3">

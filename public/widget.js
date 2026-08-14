@@ -8477,11 +8477,18 @@
 
   // ==== Init ====
   function init() {
-    fetch(API + "/api/v1/config?key=" + encodeURIComponent(KEY))
+    // O rastreio vai junto: é ele que diz a BASE e o PAINEL, e o servidor
+    // responde se o widget está liberado para essa combinação.
+    var u = API + "/api/v1/config?key=" + encodeURIComponent(KEY);
+    if (track) u += "&track=" + encodeURIComponent(track);
+    fetch(u)
       .then(function (r) {
         return r.ok ? r.json() : null;
       })
       .then(function (data) {
+        // Desligado para esta base/painel: não monta NADA. Sem bolha, sem
+        // atalho de teclado — desenhar para depois recusar seria pior.
+        if (data && data.desativado) return;
         if (data && data.config) {
           for (var k in data.config) {
             if (data.config[k] != null) cfg[k] = data.config[k];
