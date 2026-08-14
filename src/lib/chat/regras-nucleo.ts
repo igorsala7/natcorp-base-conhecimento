@@ -70,3 +70,31 @@ export function regraNumerosExatos(): string {
     "não mais preciso que ela."
   );
 }
+
+/**
+ * MATRÍCULA NÃO SE ADIVINHA.
+ *
+ * Numa conversa sobre "Tony Oliveira" o modelo emitiu `matricula=607305` na
+ * PRIMEIRA chamada, sem nenhuma consulta que ligasse o nome ao número
+ * (14/08/2026). As seis ferramentas seguintes obedeceram e trouxeram, corretas,
+ * a vida funcional de OUTRA pessoa: cargos, salários, avaliações e férias.
+ *
+ * O erro não aparece: a resposta fica bem formada, com dados reais, e o nome
+ * certo no texto. E no painel do operador não há guard que segure — ele enxerga
+ * todo mundo, então uma matrícula inventada que exista devolve dados de verdade.
+ *
+ * Por isso a regra é sobre a ORIGEM do número, não sobre "ter cuidado": ou ele
+ * veio de uma consulta feita NESTE turno, ou da identidade de quem pergunta, ou
+ * a pessoa o digitou. Fora disso, o modelo pergunta.
+ */
+export function regraMatriculaComFonte(): string {
+  return (
+    "MATRÍCULA E CÓDIGO DE PESSOA — de onde o número pode vir: (a) de um resultado de ferramenta DESTE turno; " +
+    "(b) da identidade de quem está perguntando; (c) do que a pessoa digitou. NUNCA de memória, de dedução pelo " +
+    "nome, nem de uma conversa anterior. " +
+    "Quando o pedido citar alguém pelo NOME, PRIMEIRO consulte a ferramenta de cadastro para achar a matrícula " +
+    "e só então chame as demais. Se voltar mais de uma pessoa, PERGUNTE qual — não escolha. Se não voltar " +
+    "nenhuma, diga que não encontrou; não tente um número parecido. " +
+    "Um número errado aqui não dá erro: as consultas respondem certo sobre a PESSOA ERRADA, e ninguém percebe."
+  );
+}

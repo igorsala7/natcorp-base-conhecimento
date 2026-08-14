@@ -36,7 +36,7 @@ import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRel
 import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
 import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
-import { regraAgirOuPerguntar, regraRotulosColuna, regraNumerosExatos } from "@/lib/chat/regras-nucleo";
+import { regraAgirOuPerguntar, regraRotulosColuna, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
@@ -1861,7 +1861,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     : "";
   // NÚCLEO: as regras que valem em qualquer turno, com dono único. Vêm primeiro, e
   // uma vez só — antes moravam duplicadas em 4 lugares e com textos conflitantes.
-  const blocoNucleo = temTools ? [regraAgirOuPerguntar(), regraRotulosColuna(), regraNumerosExatos()].join("\n") : "";
+  const blocoNucleo = temTools ? [regraAgirOuPerguntar(), regraRotulosColuna(), regraNumerosExatos(), regraMatriculaComFonte()].join("\n") : "";
   const usoFerramentasStr = [
     blocoNucleo,
     integ.capabilities,
