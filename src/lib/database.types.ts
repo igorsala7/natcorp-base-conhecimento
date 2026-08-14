@@ -720,6 +720,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_tool_uso: {
+        Row: {
+          id: string
+          base_code: string
+          tool_key: string
+          consulta: string
+          embedding: string
+          ok: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          base_code: string
+          tool_key: string
+          consulta: string
+          embedding: string
+          ok?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          base_code?: string
+          tool_key?: string
+          consulta?: string
+          embedding?: string
+          ok?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
       ai_tool_modules: {
         Row: {
           created_at: string
@@ -4593,6 +4623,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      tool_uso_vizinhos: {
+        Args: { p_base: string; p_embedding: string; p_limite?: number; p_min_sim?: number }
+        Returns: { tool_key: string; peso: number; amostras: number }[]
+      }
       ai_usage_window: { Args: { p_seconds: number }; Returns: Json }
       ai_slot_acquire: { Args: { p_tenant: string; p_max: number; p_ttl_seconds: number }; Returns: string | null }
       ai_slot_release: { Args: { p_id: string }; Returns: undefined }

@@ -8,6 +8,7 @@ import { escolherVetor } from "./tool-catalog-text";
 import { selecionarFormasOntologia } from "./ontology-enrich";
 import { toolCatalogText } from "./tool-catalog-text";
 import { escolherRanking } from "./rank-resgate";
+import type { Vizinho } from "./aprendizado";
 
 type DB = SupabaseClient<Database>;
 
@@ -504,4 +505,50 @@ export async function loadToolsByKeys(db: DB, baseCode: string, keys: string[]):
     .map((k) => porChave.get(k))
     .filter((t): t is { key: string; name: string; description: string; descricao_usuario: string; selecionavel_no_chat: boolean; active: boolean } => !!t)
     .map((t) => ({ key: t.key, name: t.name, description: t.description, descricao_usuario: t.descricao_usuario, selecionavel_no_chat: t.selecionavel_no_chat, sim: 1 }));
+}
+
+/**
+ * Registra que uma ferramenta RESOLVEU uma pergunta — o material do aprendizado.
+ *
+ * Melhor esforço e sem `await` no caminho do turno: se a gravação falhar, a
+ * pessoa não pode nem perceber. Aprendizado é acessório; a resposta é o produto.
+ */
+export async function registrarUsoTool(
+  db: DB,
+  baseCode: string,
+  toolKey: string,
+  consulta: string,
+): Promise<void> {
+  const q = String(consulta ?? "").trim();
+  if (!q) return;
+  const vetor = await embedTexto(q.slice(0, 500));
+  if (!vetor?.length) return;
+  try {
+    await db.from("ai_tool_uso").insert({
+      base_code: baseCode.trim().toLowerCase(),
+      tool_key: toolKey,
+      consulta: q.slice(0, 500),
+      embedding: vetor as unknown as string,
+      ok: true,
+    });
+  } catch {
+    /* silencioso de propósito */
+  }
+}
+
+/** Ferramentas usadas em perguntas parecidas (k-vizinhos sobre o histórico). */
+export async function vizinhosDeUso(db: DB, baseCode: string, consulta: string): Promise<Vizinho[]> {
+  const q = String(consulta ?? "").trim();
+  if (!q) return [];
+  const vetor = await embedTexto(q.slice(0, 500));
+  if (!vetor?.length) return [];
+  try {
+    const { data } = await db.rpc("tool_uso_vizinhos", {
+      p_base: baseCode.trim().toLowerCase(),
+      p_embedding: vetor as unknown as string,
+    });
+    return (data ?? []) as Vizinho[];
+  } catch {
+    return [];
+  }
 }

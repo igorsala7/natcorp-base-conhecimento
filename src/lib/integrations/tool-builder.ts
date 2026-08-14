@@ -18,6 +18,8 @@ import { recorteTemCobertura } from "./module-match";
 import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { montarCartaoAcao, ehAcaoEmLista, type CartaoAcao } from "./acao-lista";
+import { bonusDeUso, aplicarAprendizado } from "./aprendizado";
+import { registrarUsoTool, vizinhosDeUso } from "./tool-catalog";
 import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
@@ -28,7 +30,11 @@ import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/m
 
 /** Teto de ferramentas expostas ao modelo por turno (2º estágio do roteamento). Mantém
  *  o payload enxuto e a escolha precisa mesmo com módulos gordos. Ver tool-narrow.ts. */
-const MAX_TOOLS_MODELO = 12;
+// 12 → 6. O teto sozinho nunca valeu (essenciais, resgate lexical e
+// dependências entram FORA dele, e a mediana era 11 com máximo de 27); o que
+// torna 6 viável é o aprendizado por uso, que reordena as candidatas pela
+// experiência antes do corte — ver aprendizado.ts.
+const MAX_TOOLS_MODELO = 6;
 const MAX_TOOLS_COMPOSTO = 18; // COMPOSTO (multi-intenção): teto maior p/ caber as co-intenções
 /** Ferramenta que devolve a lotação/vínculo do próprio usuário. */
 const TOOL_MEUS_DADOS = "meus_dados";
@@ -528,6 +534,20 @@ export async function buildIntegrationTools(
   const diag: { selecao: InfoSelecao | null } = { selecao: null };
   // EXCLUSIVO: a escolha já foi feita (pela pessoa, no gate de fontes). O top-K
   // não tem o que decidir, e rodá-lo só acrescentaria ferramentas que ninguém pediu.
+  // APRENDIZADO: perguntas parecidas já resolvidas puxam para a ferramenta que
+  // funcionou. Entra ANTES do corte — depois não adiantaria, o corte já teria
+  // acontecido — e só reordena quem sobreviveu aos filtros de acesso e assunto.
+  let simFinal = sim ?? null;
+  if (sim?.size && question?.trim()) {
+    const viz = await vizinhosDeUso(db, baseCode, question);
+    const bonus = bonusDeUso(viz);
+    if (bonus.size) {
+      simFinal = aplicarAprendizado(sim, bonus);
+      onPasso?.("integracoes:aprendizado", {
+        vizinhos: viz.slice(0, 5).map((v) => `${v.tool_key} (${v.amostras}x, ${v.peso.toFixed(2)})`),
+      });
+    }
+  }
   const manter = soAsForcadas && sempreIncluir?.length
     ? new Set(sempreIncluir)
     : selecionarTopK(
@@ -543,7 +563,7 @@ export async function buildIntegrationTools(
     question ?? "",
     maxTools,
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
-    sim,
+    simFinal,
     relaxComposto,
     { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs), onSelecao: (i) => { diag.selecao = i; } },
     multiFaceta ? facetasSim.map((f) => f.sim) : null,
@@ -931,6 +951,13 @@ export async function buildIntegrationTools(
               // em texto continua valendo. Nunca derrubar a consulta por causa dele.
               console.warn(`[acao-lista] ${bt.tool.key}: ${e instanceof Error ? e.message : String(e)}`);
             }
+          }
+          // APRENDIZADO: registra que ESTA ferramenta resolveu ESTA pergunta.
+          // Sem `await` — se a gravação falhar ou demorar, a pessoa não pode nem
+          // perceber. Só uso com efeito, nunca a oferta: a lista oferecida é o
+          // que se quer corrigir, e ensinar com ela seria copiar o erro.
+          if (question?.trim() && !(_bruto as { erro?: unknown })?.erro) {
+            void registrarUsoTool(db, baseCode, bt.tool.key, question);
           }
           const { saida, relato } = injetarDatasetComRelato(datasets, _bruto);
           if (relato) onPasso?.("tool_result", { ...marca, tool: bt.tool.key, ...relato });
