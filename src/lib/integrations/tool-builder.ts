@@ -19,6 +19,7 @@ import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { montarCartaoAcao, ehAcaoEmLista, type CartaoAcao } from "./acao-lista";
 import { bonusDeUso, aplicarAprendizado } from "./aprendizado";
+import { conferirTitular, avisoDivergencia } from "@/lib/chat/titular";
 import { registrarUsoTool, vizinhosDeUso } from "./tool-catalog";
 import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
@@ -974,6 +975,23 @@ export async function buildIntegrationTools(
               // em texto continua valendo. Nunca derrubar a consulta por causa dele.
               console.warn(`[acao-lista] ${bt.tool.key}: ${e instanceof Error ? e.message : String(e)}`);
             }
+          }
+          /**
+           * TITULAR DIVERGENTE — trava de servidor.
+           *
+           * A pergunta nomeou alguém e o retorno é de OUTRA pessoa: a matrícula
+           * está errada. Aconteceu duas vezes em dois dias, e na segunda o
+           * modelo trocou o titular no meio da resposta em vez de parar.
+           *
+           * O aviso vai DENTRO do resultado, junto dos dados — o modelo não tem
+           * como não ler. E não gravamos isso como aprendizado: seria ensinar o
+           * ranqueamento com uma consulta errada.
+           */
+          const divergencia = question?.trim() ? conferirTitular(question, _bruto) : null;
+          if (divergencia) {
+            onPasso?.("titular_divergente", { ...marca, tool: bt.tool.key, pedido: divergencia.pedido, veio: divergencia.veio });
+            const base = _bruto && typeof _bruto === "object" && !Array.isArray(_bruto) ? (_bruto as Record<string, unknown>) : { dados: _bruto };
+            return { ...base, _titular_divergente: avisoDivergencia(divergencia) };
           }
           // APRENDIZADO: registra que ESTA ferramenta resolveu ESTA pergunta.
           // Sem `await` — se a gravação falhar ou demorar, a pessoa não pode nem
