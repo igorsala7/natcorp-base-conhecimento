@@ -15,6 +15,15 @@ export function motivoFila(e: unknown): string {
   if (/SUPABASE_DB_URL|DATABASE_URL|conex[aã]o.*n[aã]o configurada|connection string/i.test(m)) {
     return "A aplicação não tem a URL do banco (SUPABASE_DB_URL). Confira as variáveis de ambiente do contêiner.";
   }
+  // A causa real de 14/08/2026: senha com `#` e `@` numa URL não codificada. O
+  // `#` inicia o fragmento da URI, então o endereço termina ali e o parser
+  // recusa a string inteira — antes de qualquer tentativa de conexão.
+  if (/Invalid URL|ERR_INVALID_URL|invalid connection string/i.test(m)) {
+    return (
+      "A URL do banco (SUPABASE_DB_URL) é inválida. Se a senha tiver @ # ! ou /, " +
+      "codifique-os: @ = %40, # = %23, ! = %21. O # não codificado corta o endereço no meio."
+    );
+  }
   if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|timeout|ETIMEDOUT/i.test(m)) {
     return "A aplicação não conseguiu alcançar o banco. Verifique rede e a URL do contêiner.";
   }
