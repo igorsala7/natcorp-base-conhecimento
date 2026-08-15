@@ -69,6 +69,7 @@ import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
 import { marcarCacheDeTools, withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { pedeAnalise } from "@/lib/chat/intencao-dados";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
 import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
@@ -1010,6 +1011,13 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // NÃO decide mais se as ferramentas existem — só a ÊNFASE no prompt e o orçamento de
   // passos. Ver `temVisual` logo abaixo.
   const intencaoVis = !modoTutorial && intencaoVisual(question, messages);
+  // Dado JÁ presente no payload — tabela da tela, relatório coletado ou anexo
+  // tabular. Lido do payload porque os blocos derivados (`tablesBloco`,
+  // `reportBloco`) só são montados depois, e o gate precisa decidir aqui.
+  const temTabelaNaTela =
+    (Array.isArray(payload.screenTables) && payload.screenTables.length > 0) ||
+    !!reportDataResolved ||
+    attach.tabelas.length > 0;
   // Ferramentas visuais SEMPRE ligadas (salvo tutorial). Antes dependiam de a pergunta
   // casar numa regex — e nenhum follow-up casa ("agora em pizza", "muda para linha",
   // "faz outro com os salários"), então o modelo ficava LITERALMENTE sem a ferramenta e
@@ -1020,7 +1028,14 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // executou a ação, o modelo só conta o que aconteceu — gráfico e relatório ali
   // são ~2.950 tokens que ele não tem como usar. Não vale para turno normal: o
   // gate por texto foi tentado e revertido (ver acima).
-  const temVisual = !modoTutorial && !soRedigir && process.env.VISUAL_TOOLS_SEMPRE !== "0";
+  // …e um SINAL DE DADO. Sem nenhuma linha na mão não há o que plotar nem o que
+  // exportar: no trace de 15/08 gráfico+relatório (~2.950 tok) foram enviados num
+  // turno com `dataset:registro {itens: [], total: 0}`. O gate por texto sozinho já
+  // foi revertido uma vez (follow-up "agora em pizza" não casa em regex nenhuma), e
+  // por isso aqui ele é só UMA das portas: tabela/relatório na tela mantém tudo
+  // ligado, inclusive para o follow-up.
+  const temSinalDeDado = temTabelaNaTela || intencaoVis || pedeAnalise(question);
+  const temVisual = !modoTutorial && !soRedigir && temSinalDeDado && process.env.VISUAL_TOOLS_SEMPRE !== "0";
   const chartSpecs: ChartSpec[] = [];
   const chartChoices: ChartChoice[] = [];
   const reportSpecs: ReportSpec[] = [];
@@ -1106,7 +1121,13 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Corrige o filtro pela AMOSTRA (contagem/arquivo com N errado) — ver datasets.ts.
   // Idem para as 8 ferramentas de consulta (~5.300 tokens): sem decisão a tomar,
   // não há o que consultar.
-  const temDadosTabulares = !modoTutorial && !soRedigir && (!!reportBloco || !!tablesBloco || temIntegTools || !!anexoTabelaBloco);
+  // `temIntegTools` sozinho respondia "pode ser que venha dado", não "veio dado" —
+  // e como quase todo turno tem alguma integração, as 8 de consulta (~5.300 tok)
+  // iam sempre. Agora a integração só abre a porta quando a pergunta pede número.
+  const temDadosTabulares =
+    !modoTutorial && !soRedigir &&
+    (!!reportBloco || !!tablesBloco || !!anexoTabelaBloco ||
+      (temIntegTools && (intencaoVis || pedeAnalise(question))));
   const queryTools = temDadosTabulares ? buildQueryTool(datasets) : {};
   // Roteador de fonte (2º passo): se o usuário escolheu uma TOOL específica (ou o 1º
   // passo só encontrou uma candidata), força só ela — a IA consulta essa integração

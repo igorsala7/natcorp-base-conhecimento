@@ -87,6 +87,20 @@ const MIN_SEM_RELAX = 0.55; // modo COMPOSTO (multi-intenção): afrouxa para pr
 const MARGEM_SEM_RELAX = 0.16; // co-intenções ficam mais espalhadas; não corta as de menor sim.
 const ANTIFLOOD_N = 3; // nada passou o piso → top-N por sim (NUNCA despeja o módulo inteiro)
 /**
+ * …mas só se o topo tiver ALGUMA relação com a pergunta.
+ *
+ * Medido em 15/08/2026: "Ocorreu um erro ao tentar processar as informações"
+ * levou `estrutura_empresas` (0.56), `lista_opcoes` (0.55) e `estrutura_filiais`
+ * (0.55). Nenhuma tem o que responder ali — a frase não é sobre empresa, filial
+ * nem lista de opções. O piso adaptativo baixou junto com o `topSim`, o antiflood
+ * completou com o top-3, e três ferramentas irrelevantes foram ao modelo.
+ *
+ * Abaixo deste valor a resposta certa é NENHUMA ferramenta: a pergunta se resolve
+ * pela documentação. Enviar as três menos ruins custa token e, pior, convida o
+ * modelo a chamar uma delas para "tentar".
+ */
+const MIN_ANTIFLOOD = 0.58;
+/**
  * FAIXA DE DISPUTA do desempate: só desempata quem está a ≤ 0.05 do topo da rodada.
  * Duas tools dentro da faixa estão, por construção, a ≤ 0.05 uma da outra — é a
  * definição operacional de "ambíguas AGORA". Fora da faixa, a semântica já decidiu
@@ -371,7 +385,12 @@ export function selecionarTopK(
         .sort((a, b) => simDe(b) - simDe(a));
       // Piso afrouxado = turno fraco: mais banda, porém quantidade travada.
       if (adaptativo) cand = cand.slice(0, MAX_FRACO);
-      if (!cand.length) cand = naoForcadas.slice().sort((a, b) => simDe(b) - simDe(a)).slice(0, ANTIFLOOD_N);
+      if (!cand.length) {
+        const ordenadas = naoForcadas.slice().sort((a, b) => simDe(b) - simDe(a));
+        // Topo fraco demais → nenhuma. Ver MIN_ANTIFLOOD.
+        const topo = ordenadas[0];
+        cand = topo && simDe(topo) >= MIN_ANTIFLOOD ? ordenadas.slice(0, ANTIFLOOD_N) : [];
+      }
       // DESEMPATE antes do teto: a vaga que a perdedora libera vai para a próxima
       // melhor, em vez de virar espaço morto.
       cand = desempatar(cand, simDe);
