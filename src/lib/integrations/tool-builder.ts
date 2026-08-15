@@ -203,21 +203,41 @@ export async function buildIntegrationTools(
     // conexão é a pessoa que resolve em dois cliques. Separar aqui é o que
     // permite ao chat dizer a coisa certa em cada caso.
     const pendentes = new Map<string, ContaPendente>();
+    /** Cortadas por a BASE não ter a credencial do provedor — sem aviso, só trace. */
+    const semCredencial: string[] = [];
     ctx.tools = ctx.tools.filter((t) => {
       if (t.tool.identity_mode !== "user") return true;
       if (t.credentialId && conectadas.has(t.credentialId)) return true;
       const provider = t.provedorPessoal ?? "microsoft";
-      const motivo: ContaPendente["motivo"] = !t.credentialId
-        ? "sem_credencial"
-        : !chavePessoa
-          ? "sem_identidade"
-          : "sem_conexao";
+      /**
+       * SEM CREDENCIAL DA BASE = a ferramenta simplesmente NÃO EXISTE aqui.
+       *
+       * As bases-cliente foram criadas clonando a lista de ferramentas da
+       * NATCORP, então herdaram as ferramentas Microsoft sem nunca ter uma
+       * aplicação Azure cadastrada. O aviso de pendência então falava de
+       * Microsoft em toda conversa, e o modelo virava isso em "conecte sua
+       * conta" — pedindo ao usuário algo que ele não tem como fazer e que o
+       * administrador nunca pediu.
+       *
+       * Cortar em silêncio é o comportamento certo: sem credencial não há
+       * integração, e uma integração que não existe não se anuncia. Os outros
+       * dois motivos continuam avisando, porque ali a ferramenta EXISTE e
+       * alguém (usuário ou admin) consegue destravá-la.
+       */
+      if (!t.credentialId) {
+        semCredencial.push(t.tool.key);
+        return false;
+      }
+      const motivo: ContaPendente["motivo"] = !chavePessoa ? "sem_identidade" : "sem_conexao";
       const chave = `${provider}:${motivo}`;
       const acc = pendentes.get(chave) ?? { provider, motivo, tools: [] };
       if (!acc.tools.includes(t.tool.name)) acc.tools.push(t.tool.name);
       pendentes.set(chave, acc);
       return false;
     });
+    if (semCredencial.length > 0) {
+      onPasso?.("integracoes:sem_credencial_pessoal", { tools: semCredencial, de: antes });
+    }
     if (pendentes.size > 0) {
       precisaConectar.push(...pendentes.values());
       onPasso?.("integracoes:conta_nao_conectada", {

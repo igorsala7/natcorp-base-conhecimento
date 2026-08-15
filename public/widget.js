@@ -970,7 +970,12 @@
   function scanPage() {
     try {
       var campos = [], textos = [], tabelas = [];
-      scanDoc(document, "", campos, textos, tabelas);
+      // MESMA raiz dos campos (scanFields/tutorial): com modal aberta, varre só a
+      // modal. Aqui estava `document` fixo — então a modal de detalhe da página 2
+      // entregava seus campos, mas o Interactive Report da página de trás entrava
+      // junto como tabela. Com dezenas de linhas de um lado e alguns campos do
+      // outro, o modelo analisava o relatório e ignorava o que estava em foco.
+      scanDoc(raizVarredura(), "", campos, textos, tabelas);
       var partes = [];
       if (campos.length) partes.push("CAMPOS DA TELA:\n" + campos.slice(0, 80).join("\n"));
       if (textos.length) partes.push("TEXTO DA TELA:\n" + textos.join("\n"));
@@ -7362,6 +7367,12 @@
         // diferença entre "esta tela mostra dados" e "esta tela tem um <table>".
         relatorio: (scan.tables || []).some(function (t) { return _linhasDe(t) > 0; }),
         campos: (scan.campos || 0) > 0,
+        // Janela de detalhe aberta. Muda o SIGNIFICADO do que foi varrido: não é a
+        // tela toda, é um registro específico que o usuário abriu — e é dele que a
+        // pergunta trata. Sem isto o servidor não tem como distinguir "poucos
+        // campos porque a tela é simples" de "poucos campos porque estou dentro de
+        // uma modal de detalhe".
+        modal: !!modalAtivo(),
       };
       // B — sinaliza relatório VAZIO: (1) a coleta retornou 0 linhas (_relatorioVazioSinal,
       // sinal confiável) ou (2) heurística de DOM quando NÃO há nenhuma tabela com dados.

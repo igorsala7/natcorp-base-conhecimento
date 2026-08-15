@@ -1832,6 +1832,20 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       })
     : "";
   const blocoEntregar = temDadosTabulares && screenFields.length === 0 ? entregarResultadoDirective() : "";
+  /**
+   * JANELA DE DETALHE ABERTA.
+   *
+   * O widget varre só a modal quando há uma aberta, mas a conversa pode carregar a
+   * tabela do relatório de trás, coletada num turno anterior. Sem esta linha o
+   * modelo tem duas fontes plausíveis e escolhe a que tem mais linhas — foi o que
+   * aconteceu: pediram a análise do registro aberto e ele analisou o Interactive
+   * Report da página de fundo.
+   */
+  const blocoModal = oQueTemNaTela?.modal === true
+    ? "JANELA DE DETALHE ABERTA: o usuário abriu um registro específico e é DELE que a pergunta trata. " +
+      "Os campos desta varredura são os desse registro. Qualquer tabela ou relatório de turnos anteriores " +
+      "é a listagem de FUNDO — não responda por ela sem o usuário pedir explicitamente.\n"
+    : "";
   // B — RELATÓRIO VAZIO: guia a IA a AGIR (preencher + pesquisar), não a instruir o
   // usuário. Vale em continuation (pós-coleta vazia) e mesmo com outras tabelas na tela.
   const blocoRelatorioVazio = relatorioVazioParaFiltrar
@@ -1889,6 +1903,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     blocoFormAssist,
     blocoRelatorioVazio,
     blocoEntregar,
+    blocoModal,
     blocoIntegUsage,
     blocoFonteRelatorio,
     blocoEscopoRel,
@@ -2013,6 +2028,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       capabilities: _tok(integ.capabilities ?? ""),
       formAssist: _tok(blocoFormAssist),
       entregar: _tok(blocoEntregar),
+      modal: _tok(blocoModal),
       integUsage: _tok(blocoIntegUsage),
       escopo: _tok(blocoEscopo),
       meus_dados: _tok(blocoMeus),
