@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/admin/sidebar";
+import { permissoesDo } from "@/lib/auth/permissions";
 import { Topbar } from "@/components/admin/topbar";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -36,13 +37,23 @@ export default async function AppLayout({
     warnIfMfaDisabled("layout do admin");
   }
 
+  // UMA consulta para os nove itens do menu. `permissoesDo` é memoizado por
+
+  // request, então qualquer outra parte deste render pode chamar de novo sem
+
+  // custo. Item que a pessoa nunca usa não aparece — a tela de recusa é que
+
+  // cobre o link colado em conversa.
+
+  const permissoes = await permissoesDo();
+
   return (
     <ToastProvider>
       <ConfirmProvider>
         <LoaderProvider>
           <NavProvider>
             <div className="flex h-dvh overflow-hidden bg-bg text-text">
-              <Sidebar />
+              <Sidebar permissoes={[...permissoes]} />
               <div className="flex flex-1 flex-col overflow-hidden">
                 <Topbar email={user.email ?? ""} />
                 {/* Páginas "de tela cheia" (editor/árvore) marcam o próprio raiz

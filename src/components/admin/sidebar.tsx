@@ -1,286 +1,187 @@
 "use client";
 
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import {
-  BarChart3,
-  Receipt,
-  Bot,
-  CheckSquare,
-  Code2,
-  KeyRound,
-  LayoutDashboard,
-  Library,
-  MessagesSquare,
-  MousePointerClick,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plug,
-  Route,
-  ScrollText,
-  SlidersHorizontal,
-  Trash2,
-  Upload,
-  Users,
-  Wand2,
-} from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Menu, X } from "lucide-react";
+import { MAPA, rotaAtiva, type Rota } from "@/lib/admin/mapa-rotas";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Agrupado pelo OBJETO da ação, não pela ferramenta. As áreas de UMA
- * documentação (conteúdo, aparência, preferências, chatbot, prévia) NÃO têm
- * item próprio: a porta de entrada é "Documentações", que lista cada uma com
- * seus atalhos — dois caminhos no menu para o mesmo destino só disputariam
- * atenção. `also` mantém o item aceso ao navegar para dentro dessas áreas.
+ * A BARRA — nove itens em três blocos, lidos do mapa de rotas.
+ *
+ * Eram 18 itens planos agrupados por ferramenta, numa barra RECOLHIDA por
+ * padrão que abria no hover. O hover-para-abrir parecia economia de espaço e
+ * era o contrário: cobrava um gesto em toda navegação, sumia sozinho depois de
+ * um segundo, e impedia ler de relance qual documentação estava selecionada.
+ * Isso é parte do "não acho nada" — não dá para procurar no que não está lá.
+ *
+ * Agora é EXPANDIDA por padrão e recolher é opt-in, persistido. Com nove itens
+ * cabe tudo à vista, que é o ponto: para quem vive na ferramenta, o menu deve
+ * ser um mapa, não uma gaveta.
+ *
+ * ── O que a barra não faz ───────────────────────────────────────────────────
+ * Ela não decide a documentação atual. Recebe o seletor pronto como slot e o
+ * exibe. Quem resolve o espaço é a PÁGINA (via `?space=` → cookie → primeiro da
+ * lista), e o cookie é gravado a partir do que ela resolveu. Se o chrome virasse
+ * o autor dessa escolha, abrir por link um artigo de outra documentação deixaria
+ * a barra dizendo "NATCORP" enquanto o editor mostra outra coisa.
  */
-const GRUPOS = [
-  {
-    label: null, // Soltos no topo: o retorno (Painel) e a porta de entrada.
-    items: [
-      { href: "/admin", label: "Painel", icon: LayoutDashboard, ready: true },
-      {
-        href: "/admin/documentacoes",
-        label: "Documentações",
-        icon: Library,
-        ready: true,
-        also: [
-          "/admin/conteudo",
-          "/admin/aparencia",
-          "/admin/configuracoes",
-          "/admin/chatbot",
-          "/admin/previa",
-        ],
-      },
-    ],
-  },
-  {
-    label: "Fluxo de conteúdo",
-    items: [
-      { href: "/admin/importar", label: "Importar", icon: Upload, ready: true },
-      { href: "/admin/estudio", label: "Estúdio IA", icon: Wand2, ready: true },
-      { href: "/admin/revisao", label: "Revisão", icon: CheckSquare, ready: true },
-      { href: "/admin/lixeira", label: "Lixeira", icon: Trash2, ready: true },
-    ],
-  },
-  {
-    label: "Canais e análises",
-    items: [
-      { href: "/admin/assistente", label: "Assistente", icon: Bot, ready: true },
-      { href: "/admin/widget", label: "Widget e API", icon: Code2, ready: true },
-      { href: "/admin/conversas", label: "Conversas", icon: MessagesSquare, ready: true },
-      { href: "/admin/acessos", label: "Acessos", icon: MousePointerClick, ready: true },
-      { href: "/admin/analises", label: "Análises", icon: BarChart3, ready: true },
-      { href: "/admin/faturamento", label: "Faturamento", icon: Receipt, ready: true },
-    ],
-  },
-  {
-    label: "Administração",
-    items: [
-      { href: "/admin/usuarios", label: "Usuários", icon: Users, ready: true },
-      { href: "/admin/auditoria", label: "Auditoria", icon: ScrollText, ready: true },
-      { href: "/admin/logs", label: "Logs do chat", icon: Route, ready: true },
-      { href: "/admin/sistema", label: "Sistema", icon: SlidersHorizontal, ready: true },
-      { href: "/admin/integracoes", label: "Integrações", icon: Plug, ready: true },
-      { href: "/admin/chaves-api", label: "Chaves de API", icon: KeyRound, ready: true },
-    ],
-  },
-] as const;
 
-/** `"1"` = fixada aberta. O padrão (ausente ou `"0"`) é recolhida. */
-const KEY = "kb.sidebarPinned";
-/** Carência antes de recolher: dá tempo de sair e voltar sem a barra sumir. */
-const ATRASO_RECOLHER = 1000;
+/** `"1"` = recolhida. A ausência significa expandida — o novo padrão. */
+const KEY = "kb.sidebarRecolhida";
 
-export function Sidebar() {
+export function Sidebar({
+  permissoes,
+  seletor,
+}: {
+  /** Conjunto vindo de `permissoesDo()`. Item que a pessoa nunca usa não aparece. */
+  permissoes: string[];
+  /** O `<SpaceSwitcher>` já montado no servidor. Encabeça a seção DOCUMENTAÇÃO. */
+  seletor?: ReactNode;
+}) {
   const pathname = usePathname();
-  // Fixada pelo usuário no botão — sobrevive à navegação.
-  const [pinned, setPinned] = useState(false);
-  // Aberta temporariamente pelo mouse/teclado — não persiste.
-  const [espiando, setEspiando] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [recolhida, setRecolhida] = useState(false);
+  const [aberturaMobile, setAberturaMobile] = useState(false);
+  const ativa = rotaAtiva(pathname);
+  const pode = new Set(permissoes);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPinned(localStorage.getItem(KEY) === "1");
+    setRecolhida(localStorage.getItem(KEY) === "1");
   }, []);
 
-  // Não deixa um timer pendente disparar depois da desmontagem.
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  // Navegar fecha a gaveta do celular — senão ela cobre a tela recém-aberta.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setAberturaMobile(false), [pathname]);
 
-  function abrir() {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    setEspiando(true);
-  }
-
-  function agendarFechar() {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      setEspiando(false);
-    }, ATRASO_RECOLHER);
-  }
-
-  function toggle() {
-    setPinned((p) => {
-      const next = !p;
-      localStorage.setItem(KEY, next ? "1" : "0");
-      return next;
+  function alternar() {
+    setRecolhida((r) => {
+      localStorage.setItem(KEY, r ? "0" : "1");
+      return !r;
     });
-    setEspiando(false);
   }
 
-  const expandida = pinned || espiando;
-  const collapsed = !expandida;
+  /**
+   * ESCONDER, não desabilitar.
+   *
+   * Um Leitor via 18 itens dos quais 11 levavam a "Sem permissão." Desabilitar
+   * seria o pior dos dois mundos: o menu PARECE grande e É inútil. Para uso
+   * interno e denso, tudo que aparece deve ser usável.
+   *
+   * O custo, que é real: ninguém pede o que não vê. A compensação é a tela de
+   * recusa, que nomeia a permissão e o papel — links continuam sendo colados em
+   * conversa, e é ela que impede o link recebido de virar mistério.
+   */
+  const secoes = MAPA.map((s) => ({ ...s, rotas: s.rotas.filter((r) => pode.has(r.permissao)) })).filter(
+    (s) => s.rotas.length > 0,
+  );
+
+  const conteudo = (
+    <nav aria-label="Navegação do admin" className="flex h-full flex-col gap-1 overflow-y-auto px-3 py-4">
+      {secoes.map((s, i) => (
+        <div key={s.titulo ?? `topo-${i}`} className={i > 0 ? "mt-5" : undefined}>
+          {s.titulo &&
+            (recolhida ? (
+              // Recolhida, o rótulo do grupo vira um traço: some o texto, fica
+              // a separação, que é o que o olho usa para agrupar.
+              <div className="mx-2 mb-2 border-t border-border" role="presentation" />
+            ) : (
+              <p className="mb-1.5 px-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">{s.titulo}</p>
+            ))}
+          {s.titulo === "Documentação" && seletor && !recolhida && <div className="mb-1.5 px-1">{seletor}</div>}
+          <ul className="space-y-0.5">
+            {s.rotas.map((r) => (
+              <li key={r.href}>
+                <ItemMenu rota={r} ativa={ativa?.href === r.href} recolhida={recolhida} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={alternar}
+        aria-label={recolhida ? "Expandir menu" : "Recolher menu"}
+        className="mt-auto justify-start gap-2.5"
+      >
+        {recolhida ? <PanelLeftOpen /> : <PanelLeftClose />}
+        {!recolhida && "Recolher"}
+      </Button>
+    </nav>
+  );
 
   return (
-    // Duas camadas de propósito: este espaçador segura o lugar na largura
-    // RECOLHIDA e a barra flutua por cima ao espiar. Se ela empurrasse o
-    // conteúdo, a página inteira refluiria a cada passada do mouse.
-    <div className={cn("relative hidden shrink-0 md:block", pinned ? "w-60" : "w-16")}>
+    <>
+      {/* Celular: o admin simplesmente NÃO tinha menu abaixo de 768px — a barra
+          era `hidden md:block` e a topbar não tinha hambúrguer. */}
+      <Button
+        variant="secondary"
+        size="icon"
+        onClick={() => setAberturaMobile(true)}
+        aria-label="Abrir menu"
+        aria-expanded={aberturaMobile}
+        className="fixed left-3 top-3 z-40 shadow-1 md:hidden"
+      >
+        <Menu />
+      </Button>
+
+      {aberturaMobile && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setAberturaMobile(false)}
+            role="presentation"
+          />
+          <div className="absolute inset-y-0 left-0 w-64 border-r border-border bg-surface">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAberturaMobile(false)}
+              aria-label="Fechar menu"
+              className="absolute right-2 top-2.5"
+            >
+              <X />
+            </Button>
+            {conteudo}
+          </div>
+        </div>
+      )}
+
       <aside
-        onMouseEnter={abrir}
-        onMouseLeave={agendarFechar}
-        // Teclado também abre: navegação por Tab não gera hover, e sem isto a
-        // barra ficaria inalcançável para quem não usa mouse.
-        onFocusCapture={abrir}
-        onBlurCapture={agendarFechar}
+        data-testid="menu-lateral"
         className={cn(
-          "absolute inset-y-0 left-0 z-30 flex flex-col border-r border-brand-gray-800 bg-brand-gray-950 text-brand-gray-100",
-          "transition-[width] duration-base ease-out motion-reduce:transition-none",
-          expandida ? "w-60" : "w-16",
-          // Só sombra quando flutua sobre o conteúdo; fixada, ela faz parte do
-          // layout e sombra ali seria ruído.
-          !pinned && espiando && "shadow-2",
+          "hidden shrink-0 border-r border-border bg-surface transition-[width] duration-200 md:block",
+          recolhida ? "w-16" : "w-60",
         )}
       >
-        <div
-          className={cn(
-            "flex h-14 items-center border-b border-brand-gray-800/80",
-            collapsed ? "justify-center px-2" : "gap-2.5 px-5",
-          )}
-        >
-          <div
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-brand-purple-500 to-brand-purple-800 text-sm font-bold text-white shadow-1"
-            aria-hidden
-          >
-            N
-          </div>
-          {!collapsed && (
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-sm font-bold text-white">
-                Base de Conhecimento
-              </span>
-              <span className="block text-2xs font-medium uppercase tracking-widest text-brand-gray-500">
-                Studio
-              </span>
-            </span>
-          )}
-        </div>
-
-        <nav className="flex flex-1 flex-col overflow-y-auto p-2.5">
-          {GRUPOS.map((grupo, gi) => (
-            <div key={grupo.label ?? "raiz"} className={gi > 0 ? "mt-5" : undefined}>
-              {grupo.label &&
-                (collapsed ? (
-                  // Recolhida não há espaço para o rótulo: o grupo vira um traço.
-                  <div className="mx-2 mb-2 border-t border-brand-gray-800" aria-hidden="true" />
-                ) : (
-                  <p className="mb-1 px-3 text-2xs font-semibold uppercase tracking-wider text-brand-gray-500">
-                    {grupo.label}
-                  </p>
-                ))}
-              <div className="flex flex-col gap-0.5">
-                {grupo.items.map((item) => {
-                  // `also`: rotas-filhas acessadas de dentro de "Documentações"
-                  // (conteúdo, aparência…) mantêm o item de origem aceso — sem
-                  // isto, navegar pelo hub apagaria o menu inteiro.
-                  const emAlso =
-                    "also" in item && item.also.some((p) => pathname.startsWith(p));
-                  const active =
-                    item.href === "/admin"
-                      ? pathname === "/admin"
-                      : pathname.startsWith(item.href) || emAlso;
-                  const Icon = item.icon;
-                  const base = cn(
-                    "relative flex items-center rounded-md py-2 text-sm transition-colors",
-                    collapsed ? "justify-center px-2" : "gap-3 px-3",
-                  );
-
-                  if (!item.ready) {
-                    return (
-                      <span
-                        key={item.href}
-                        className={cn(base, "cursor-not-allowed text-brand-gray-500 opacity-60")}
-                        title={
-                          collapsed ? `${item.label} — em fase futura` : "Disponível em fase futura"
-                        }
-                      >
-                        <Icon className="size-4 shrink-0" />
-                        {!collapsed && item.label}
-                      </span>
-                    );
-                  }
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      aria-current={active ? "page" : undefined}
-                      title={collapsed ? item.label : undefined}
-                      className={cn(
-                        base,
-                        active
-                          ? "bg-brand-purple-500/15 font-semibold text-brand-purple-300 ring-1 ring-inset ring-brand-purple-500/30"
-                          : "font-medium text-brand-gray-400 hover:bg-white/5 hover:text-brand-gray-100",
-                      )}
-                    >
-                      {/* Barra + peso além do fundo: o estado ativo não pode
-                          depender só da cor. */}
-                      {active && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-brand-purple-400"
-                        />
-                      )}
-                      <Icon className="size-4 shrink-0" />
-                      {!collapsed && item.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        {/* O botão agora FIXA, não "expande": expandir já é o hover. Sem ele,
-            quem usa o menu o tempo todo ficaria refém da barra sumindo. */}
-        <button
-          type="button"
-          onClick={toggle}
-          aria-pressed={pinned}
-          title={pinned ? "Desafixar menu (recolhe sozinho)" : "Fixar menu aberto"}
-          className={cn(
-            "flex items-center border-t border-brand-gray-800/80 p-3 text-xs text-brand-gray-500 transition-colors hover:bg-white/5 hover:text-brand-gray-200",
-            collapsed ? "justify-center" : "gap-2",
-          )}
-        >
-          {pinned ? (
-            <>
-              <PanelLeftClose className="size-4" /> Desafixar
-            </>
-          ) : collapsed ? (
-            <PanelLeftOpen className="size-4" />
-          ) : (
-            <>
-              <PanelLeftOpen className="size-4" /> Fixar aberto
-            </>
-          )}
-        </button>
+        {conteudo}
       </aside>
-    </div>
+    </>
+  );
+}
+
+function ItemMenu({ rota, ativa, recolhida }: { rota: Rota; ativa: boolean; recolhida: boolean }) {
+  const Icone = rota.icone;
+  return (
+    <Link
+      href={rota.href}
+      // `aria-current` é o que um leitor de tela usa para dizer "você está aqui".
+      // Cor sozinha não comunica isso — daí a barra à esquerda junto.
+      aria-current={ativa ? "page" : undefined}
+      title={recolhida ? rota.rotulo : undefined}
+      className={cn(
+        "relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors duration-150",
+        ativa
+          ? "bg-surface-2 font-semibold text-primary before:absolute before:inset-y-1.5 before:-left-1 before:w-0.5 before:rounded-full before:bg-primary"
+          : "text-text-muted hover:bg-surface-2 hover:text-text",
+      )}
+    >
+      {Icone && <Icone className="size-4 shrink-0" aria-hidden="true" />}
+      {!recolhida && <span className="truncate">{rota.rotulo}</span>}
+    </Link>
   );
 }
