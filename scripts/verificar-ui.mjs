@@ -44,7 +44,18 @@ const PADROES = [
   },
   {
     chave: "title-como-tooltip",
-    rx: /\btitle="/g,
+    /**
+     * Só o ATRIBUTO HTML — a tag precisa começar com minúscula.
+     *
+     * A primeira versão contava `\btitle="` cru e pegava junto os componentes
+     * que têm uma prop chamada `title` (`<Dialog title=…>`, `<EmptyState
+     * title=…>`), que são o nome do bloco e não têm nada a ver com tooltip. A
+     * catraca acusou dívida em cima de um uso correto, que é o jeito mais rápido
+     * de a equipe aprender a ignorá-la.
+     *
+     * `[^<>]*?` impede a busca de atravessar para dentro de outra tag.
+     */
+    rx: /<[a-z][a-zA-Z0-9-]*(?:\s[^<>]*?)?\stitle="/gs,
     porque: "Use <Tooltip> + aria-label. O atributo title não aparece em toque e não é confiável em leitor de tela.",
   },
   {
