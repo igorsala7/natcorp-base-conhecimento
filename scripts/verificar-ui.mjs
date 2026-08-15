@@ -20,6 +20,18 @@ const BASELINE = "scripts/ui-baseline.json";
 const GRAVAR = process.argv.includes("--gravar");
 
 /**
+ * A ÚLTIMA REDE não pode depender do que ela existe para socorrer.
+ *
+ * `global-error.tsx` só dispara quando o layout raiz quebrou: nenhum provider
+ * está montado e o `globals.css` pode não ter carregado. Importar `<Button>` ou
+ * referenciar um token ali arriscaria a tela de erro ser a segunda coisa a
+ * quebrar — por isso ela usa botão cru e hex inline, de propósito.
+ *
+ * Exceção estreita e nomeada: um arquivo, não um diretório.
+ */
+const ULTIMA_REDE = (f) => f === "src/app/global-error.tsx";
+
+/**
  * Cada padrão diz o que conta e POR QUE é dívida — a mensagem aparece quando o
  * contador sobe, e é o que impede o próximo a mexer de achar que é frescura.
  */
@@ -27,7 +39,7 @@ const PADROES = [
   {
     chave: "button-cru",
     rx: /<button\b/g,
-    ignora: (f) => f.startsWith("src/components/ui/"),
+    ignora: (f) => f.startsWith("src/components/ui/") || ULTIMA_REDE(f),
     porque: "Use <Button> ou <IconButton>. Botão cru não herda variante, foco, loading nem tamanho de ícone.",
   },
   {
@@ -76,6 +88,7 @@ const PADROES = [
     rx: /["'`]#[0-9a-fA-F]{3,8}["'`]/g,
     // Seletor de cor, e-mail (onde CSS var não funciona) e dataviz têm paleta própria.
     ignora: (f) =>
+      ULTIMA_REDE(f) ||
       /appearance-editor|widget-manager|email-html|email-template|chart-view|flow-view|flow-canvas|mindmap/.test(f),
     porque: "Use um token semântico. Hex em componente é o que impede trocar tema por cliente.",
   },

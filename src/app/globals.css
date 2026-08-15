@@ -619,6 +619,40 @@
 }
 
 /* Alça de arrastar do bloco (6 pontos) — só aparece no hover do bloco. */
+/**
+ * FOCO NO EDITOR DE BLOCOS.
+ *
+ * Os campos dentro de um bloco são WYSIWYG: o `<input>` do título RENDERIZA
+ * como o título, o do botão renderiza como o botão. Por isso eles carregam
+ * `outline-none` — um anel em volta de cada linha editável destruiria a
+ * ilusão de estar editando a página, que é o ponto do editor.
+ *
+ * Mas quem navega por teclado ficava sem saber onde estava. A resposta não é
+ * um anel por campo: é o BLOCO indicar que contém o foco. Uma barra fina à
+ * esquerda, no lugar onde o cursor já espera hierarquia, sem deslocar nada
+ * (`::before` posicionado fora do fluxo — sem borda, que empurraria o texto).
+ *
+ * Fica em `.block-row` porque é o invólucro único dos 37 tipos de bloco —
+ * corrigir aqui vale para todos, inclusive os que ainda serão criados.
+ */
+.block-row {
+  position: relative;
+}
+.block-row:focus-within::before {
+  content: "";
+  position: absolute;
+  inset-block: -2px;
+  inset-inline-start: -10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-focus-ring);
+}
+/* Foco por MOUSE não precisa do trilho — clicar já diz onde se está. Só que
+   :focus-visible não borbulha, então o pai é consultado via :has(). */
+.block-row:focus-within:not(:has(:focus-visible))::before {
+  opacity: 0;
+}
+
 .block-row .block-handle {
   opacity: 0;
   transition: opacity 150ms ease-out;
