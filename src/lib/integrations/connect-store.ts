@@ -64,15 +64,16 @@ export async function idCredencialPessoal(
     .maybeSingle();
   if (propria) return { id: propria.id, propriaDaBase: true };
 
-  const { data: global } = await db
-    .from("ai_base_credentials")
-    .select("id")
-    .eq("is_global", true)
-    .eq("auth_type", "oauth2_user")
-    .eq("provider", provider)
-    .eq("active", true)
-    .maybeSingle();
-  return global ? { id: global.id, propriaDaBase: false } : null;
+  // SEM reserva na credencial global. Ela existia para cobrir bases sem registro
+  // próprio no provedor, mas o efeito era mandar o usuário de um cliente
+  // consentir no app Azure de OUTRO — e, antes disso, fazer o chat oferecer
+  // "conectar a conta" a quem não tem integração nenhuma cadastrada.
+  //
+  // Precisa casar com `resolve.ts`: se o consentimento aceitar a global e a
+  // resolução da ferramenta não, a conta conecta numa credencial e a ferramenta
+  // pergunta pela outra — a conta fica "não conectada" para sempre (defeito de
+  // 11/08/2026). As duas pontas usam a credencial PRÓPRIA da base, só.
+  return null;
 }
 
 /**
@@ -403,15 +404,13 @@ export async function contasDaPessoa(
     .maybeSingle();
   if (!base) return [];
 
-  // As da base MAIS as globais (a mesma cascata de `idCredencialPessoal`), sem
-  // repetir provedor: a da base ganha da global quando as duas existem, que é a
-  // ordem em que a conexão vai ser feita.
+  // Só as da base — a mesma cascata (agora sem global) de `idCredencialPessoal`.
   const { data: creds } = await db
     .from("ai_base_credentials")
     .select("id, provider, base_id, is_global")
     .eq("auth_type", "oauth2_user")
     .eq("active", true)
-    .or(`base_id.eq.${base.id},is_global.is.true`);
+    .eq("base_id", base.id);
   const porProvedor = new Map<string, { id: string; provider: string }>();
   for (const c of creds ?? []) {
     const p = c.provider ?? "";

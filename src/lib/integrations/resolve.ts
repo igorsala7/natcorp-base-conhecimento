@@ -191,17 +191,25 @@ async function carregarBaseContext(baseCode: string): Promise<BaseContext | null
   if (credsPessoaisCatalogo.length > 0) {
     const [{ data: catalogo }, { data: disponiveis }] = await Promise.all([
       db.from("ai_base_credentials").select("id, provider").in("id", credsPessoaisCatalogo),
-      // A da BASE ou a GLOBAL — a mesma cascata de `idCredencialPessoal` (o
-      // consentimento usa aquela; se as duas divergirem, a conta conecta numa
-      // credencial e a ferramenta pergunta pela outra, que foi o defeito de
-      // 11/08/2026). Global existe porque a URL de callback do sistema é única:
-      // só um registro no provedor pode funcionar.
+      // SÓ a da própria base. A cascata incluía `is_global`, e o efeito era o
+      // oposto do pretendido: como existe uma credencial Microsoft marcada como
+      // global (a da NATCORP), TODA base herdava conta pessoal por omissão. As
+      // ferramentas Microsoft então nunca ficavam "sem credencial" — ficavam
+      // "sem conexão", que é a única pendência que vira BOTÃO, e o chat pedia
+      // para conectar a conta em empresas que não têm registro no Entra e nunca
+      // pediram a integração (15/08/2026).
+      //
+      // A justificativa da global era a URL de callback única do sistema. Ela
+      // vale para o registro no provedor, não para QUEM pode usá-lo: herdar por
+      // omissão manda o usuário de um cliente consentir no app Azure de outro.
+      // Agora cada base precisa da sua credencial `oauth2_user` própria — sem
+      // ela, a tool sai do catálogo em silêncio (ver tool-builder).
       db
         .from("ai_base_credentials")
         .select("id, provider, base_id, is_global")
         .eq("auth_type", "oauth2_user")
         .eq("active", true)
-        .or(`base_id.eq.${base.id},is_global.is.true`),
+        .eq("base_id", base.id),
     ]);
     for (const c of catalogo ?? []) if (c.provider) providerDaCredCatalogo.set(c.id, c.provider);
     for (const c of disponiveis ?? []) {
