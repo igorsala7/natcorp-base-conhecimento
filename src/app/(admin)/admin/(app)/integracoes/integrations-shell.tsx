@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { Tabs, useAbaAtual, type Aba } from "@/components/ui/tabs";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { BaseAccessManager } from "./base-access-manager";
@@ -46,38 +45,30 @@ export function IntegrationsShell({
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
 }) {
-  const [tab, setTab] = useState<"bases" | "apis" | "acesso" | "agentes" | "perfis" | "fluxo" | "construtor" | "execucoes" | "whatsapp">("bases");
-  const abas = [
-    ["bases", "Bases / Clientes"],
-    ["apis", "APIs / Tools"],
-    ["acesso", "Acesso por base"],
-    ["agentes", "Agentes"],
-    ["perfis", "Perfis de Análise"],
-    ["fluxo", "Fluxo"],
-    ["construtor", "Construtor IA"],
-    ["execucoes", "Execuções"],
-    ["whatsapp", "WhatsApp"],
-  ] as const;
+  /**
+   * A aba mora na URL, não em `useState`.
+   *
+   * Com estado local, F5 sempre voltava para "Bases / Clientes" — em uma tela de
+   * NOVE abas, onde quem está depurando uma tool passa o dia em "Execuções". O
+   * Voltar do navegador também não desfazia a troca, e não havia como mandar
+   * "abre em Execuções" para um colega.
+   */
+  const abas: Aba[] = [
+    { key: "bases", label: "Bases / Clientes" },
+    { key: "apis", label: "APIs / Tools" },
+    { key: "acesso", label: "Acesso por base" },
+    { key: "agentes", label: "Agentes" },
+    { key: "perfis", label: "Perfis de Análise" },
+    { key: "fluxo", label: "Fluxo" },
+    { key: "construtor", label: "Construtor IA" },
+    { key: "execucoes", label: "Execuções" },
+    { key: "whatsapp", label: "WhatsApp" },
+  ];
+  const tab = useAbaAtual(abas);
 
   return (
     <div className="mt-6">
-      <div className="mb-4 flex gap-1 border-b border-border">
-        {abas.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-              tab === id
-                ? "border-primary text-primary"
-                : "border-transparent text-text-muted hover:text-text",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={abas} className="mb-4" aria-label="Áreas das integrações" />
 
       {tab === "bases" ? (
         <IntegrationsManager bases={bases} spaces={spaces} temChaveMestra={temChaveMestra} />
