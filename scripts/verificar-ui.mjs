@@ -105,7 +105,14 @@ const PADROES = [
   },
 ];
 
-const arquivos = execSync('git ls-files "src/**/*.tsx" "src/**/*.ts"', { encoding: "utf8" })
+// `git ls-files` sozinho só enxerga arquivo RASTREADO — arquivo novo passava
+// batido até ser commitado, e aí a dívida "aparecia" num commit que não a
+// introduziu. `--others` traz os não rastreados; `--exclude-standard` respeita
+// o .gitignore, senão viria node_modules inteiro.
+const arquivos = execSync(
+  'git ls-files --cached --others --exclude-standard "src/**/*.tsx" "src/**/*.ts"',
+  { encoding: "utf8" },
+)
   .split("\n")
   .filter(Boolean);
 

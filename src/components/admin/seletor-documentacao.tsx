@@ -58,7 +58,7 @@ export function SeletorDocumentacao({
     return podeCriar ? (
       <Link
         href="/admin/documentacoes"
-        className="flex w-full items-center gap-2 rounded-md border border-dashed border-border-strong px-2.5 py-2 text-sm text-primary transition-colors hover:bg-surface-2"
+        className="flex w-full items-center gap-2 rounded-md border border-border-strong px-2.5 py-2 text-sm text-primary transition-colors hover:bg-surface-2"
       >
         <Plus className="size-4 shrink-0" aria-hidden="true" />
         Criar a primeira documentação
