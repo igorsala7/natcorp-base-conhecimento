@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -52,17 +53,47 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * Ação em curso. Desabilita, anuncia `aria-busy` e troca o ícone-líder pelo
+   * giro — sem ADICIONAR um segundo ícone, que faria o botão crescer.
+   *
+   * Existe porque a alternativa era o que o produto tinha: 33 `animate-spin`
+   * montados à mão, cada um com seu tamanho e sua posição, e o overlay
+   * bloqueante de tela cheia usado para coisas que cabiam num botão. Feedback
+   * de ação pertence ao controle que a disparou.
+   */
+  loading?: boolean;
+  /** Texto durante a espera. Sem isto, o rótulo permanece — que é o certo para
+   *  botão curto ("Salvar"), mas mente em ação longa ("Publicar" → "Publicando…"). */
+  loadingLabel?: string;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, loading = false, loadingLabel, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
+    // `asChild` delega a marcação ao filho — injetar o spinner ali quebraria o
+    // Slot (que exige um único filho). Nesse modo o loading só desabilita.
+    const conteudo =
+      loading && !asChild ? (
+        <>
+          {/* aria-hidden: quem anuncia a espera é o aria-busy do botão, não o ícone. */}
+          <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          {loadingLabel ?? children}
+        </>
+      ) : (
+        children
+      );
     return (
       <Comp
         ref={ref}
         className={cn(buttonVariants({ variant, size, className }))}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+        data-carregando={loading || undefined}
         {...props}
-      />
+      >
+        {conteudo}
+      </Comp>
     );
   },
 );
