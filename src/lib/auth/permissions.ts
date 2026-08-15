@@ -3,9 +3,6 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { User } from "@supabase/supabase-js";
 
-/** Ponte até os tipos serem regerados. Ver o uso em `permissoesDo`. */
-type RpcSolta = (nome: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
-
 /** Erro de autorização — o servidor recusa, independentemente da UI. */
 export class PermissionError extends Error {
   constructor(public permission: string) {
@@ -71,10 +68,7 @@ export const permissoesDo = cache(async (spaceId: string | null = null): Promise
   } = await supabase.auth.getUser();
   if (!user) return new Set();
 
-  // O cast some quando a migration `20260816120000_permissoes_em_conjunto.sql`
-  // for aplicada e os tipos, regerados (`supabase gen types typescript`). Fica
-  // estreito de propósito — só o nome da função, não o retorno.
-  const { data, error } = await (supabase.rpc as unknown as RpcSolta)("permissions_of", {
+  const { data, error } = await supabase.rpc("permissions_of", {
     p_user_id: user.id,
     p_space_id: spaceId ?? undefined,
   });

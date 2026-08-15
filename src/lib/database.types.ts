@@ -4643,6 +4643,13 @@ export type Database = {
         Args: { p_node_id: string }
         Returns: { user_id: string }[]
       }
+      permissions_of: {
+        Args: {
+          p_space_id?: string
+          p_user_id: string
+        }
+        Returns: string[]
+      }
       has_permission: {
         Args: {
           p_permission_key: string
