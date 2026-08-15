@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ApiKeysManager } from "./api-keys-manager";
 import { TenantLimitsManager } from "./tenant-limits-manager";
 import { ApiDocs } from "./api-docs";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Chaves de API" };
 
@@ -16,10 +17,12 @@ export default async function ChavesApiPage() {
   const pode = await hasPermission("user.manage", null);
   if (!pode) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Chaves de API</h1>
-        <p className="mt-2 text-text-muted">Você não tem permissão para gerenciar chaves de API.</p>
-      </div>
+      <SemPermissao
+        titulo="Chaves de API"
+        oQue="gerenciar chaves de API"
+        permissao="user.manage"
+        papel="Admin técnico"
+      />
     );
   }
 

@@ -8,6 +8,7 @@ import { pickSpace } from "@/lib/content/current-space";
 import { hasAiKey } from "@/lib/ai/config";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { AssistantWorkbench } from "./assistente-workbench";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Assistente" };
 
@@ -25,10 +26,12 @@ export default async function AssistentePage({
   // space.manage — verificado por documentação abaixo.
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Assistente</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Assistente"
+        oQue="configurar o assistente"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
 

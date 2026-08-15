@@ -6,6 +6,7 @@ import { listSpaces } from "@/lib/content/spaces";
 import { ImportarTabs } from "./importar-tabs";
 import type { ImportJobRow } from "./import-manager";
 import { listEmbeddingsReport } from "./embeddings-actions";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Importar" };
 
@@ -20,12 +21,12 @@ export default async function ImportarPage({
   ]);
   if (!canImport && !canEmbed) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Importar</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para importar conteúdo ou gerenciar embeddings.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Importar"
+        oQue="importar documentos"
+        permissao="content.import"
+        papel="Gestor de conteúdo"
+      />
     );
   }
 

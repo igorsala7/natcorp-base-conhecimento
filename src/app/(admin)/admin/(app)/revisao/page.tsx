@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listReviewQueue } from "../conteudo/review-actions";
 import { ReviewQueue } from "./review-queue";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Revisão" };
 
@@ -12,10 +13,12 @@ export default async function RevisaoPage() {
   ]);
   if (!canApprove && !canReject) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Revisão</h1>
-        <p className="mt-2 text-text-muted">Você não tem permissão para revisar conteúdo.</p>
-      </div>
+      <SemPermissao
+        titulo="Revisão"
+        oQue="revisar conteúdo"
+        permissao="review.approve"
+        papel="Revisor"
+      />
     );
   }
   const items = await listReviewQueue();

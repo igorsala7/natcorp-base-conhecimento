@@ -8,6 +8,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { AcessosList, type Acesso } from "./acessos-list";
 import { comBase } from "@/lib/base-path";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -48,10 +49,12 @@ function Campo({ label, name, value, type = "text", placeholder }: {
 export default async function AcessosPage({ searchParams }: { searchParams: Promise<SP> }) {
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Acessos</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Acessos"
+        oQue="ver os acessos ao portal"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
 

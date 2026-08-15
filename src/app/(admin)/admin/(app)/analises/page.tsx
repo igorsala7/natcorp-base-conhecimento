@@ -7,6 +7,7 @@ import { eyebrowLabel } from "@/components/ui/field";
 import { QualityScanButton } from "./quality-scan-button";
 import { ViewsChart } from "./views-chart";
 import type { QualityIssue } from "@/lib/quality/audit-article";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Análises" };
 
@@ -36,10 +37,12 @@ function topBy<T>(rows: T[], key: (r: T) => string, filter?: (r: T) => boolean, 
 export default async function AnalisesPage() {
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Análises</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Análises"
+        oQue="ver as análises"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
   const supabase = await createClient();

@@ -17,6 +17,7 @@ import { InfraPanel, type InfraData } from "./infra-panel";
 import { PROMPT_CATEGORIES } from "@/lib/ai/prompt-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { secretsPresentes } from "./actions";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Sistema" };
 
@@ -33,14 +34,12 @@ export default async function SistemaPage() {
   const podeIntegr = await hasPermission("integrations.manage", null);
   if (!podeIa && !podeIntegr) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Sistema</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para configurar o sistema. Esta área exige um papel{" "}
-          <strong className="font-medium">global</strong> — um papel restrito a uma documentação
-          não alcança configuração geral.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Sistema"
+        oQue="acessar a configuração do sistema"
+        permissao="ai.configure"
+        papel="Admin técnico"
+      />
     );
   }
 

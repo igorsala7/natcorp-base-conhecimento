@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import { AuditFilters } from "./audit-filters";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Auditoria" };
 
@@ -48,10 +49,12 @@ export default async function AuditoriaPage({
 }) {
   if (!(await hasPermission("audit.read"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Auditoria</h1>
-        <p className="mt-2 text-text-muted">Você não tem permissão para ver o log de auditoria.</p>
-      </div>
+      <SemPermissao
+        titulo="Auditoria"
+        oQue="ver o log de auditoria"
+        permissao="audit.read"
+        papel="Admin técnico"
+      />
     );
   }
   const { actor, action, from, to } = await searchParams;

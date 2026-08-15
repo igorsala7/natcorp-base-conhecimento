@@ -12,6 +12,7 @@ import { KbUploadRow } from "./kb-upload-row";
 import type { WidgetKeyRow } from "../widget/widget-manager";
 import type { ApiKeyRow } from "../widget/api-key-manager";
 import { ChatbotTabs } from "./chatbot-tabs";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Chatbot" };
 
@@ -27,12 +28,12 @@ export default async function ChatbotPage({
 }) {
   if (!(await hasPermission("widget.manage"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Chatbot</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para configurar chatbots.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Chatbot"
+        oQue="configurar o chatbot"
+        permissao="widget.manage"
+        papel="Admin técnico"
+      />
     );
   }
 

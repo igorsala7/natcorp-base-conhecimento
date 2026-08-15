@@ -7,6 +7,7 @@ import { mesCorrente } from "@/lib/billing/pricing";
 import { getConfig, getConsumo } from "./actions";
 import { ConfigForm } from "./config-form";
 import { FaturamentoView } from "./faturamento-view";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Faturamento" };
 
@@ -41,10 +42,12 @@ function Campo({
 export default async function FaturamentoPage({ searchParams }: { searchParams: Promise<SP> }) {
   if (!(await hasPermission("ai.configure", null))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Faturamento</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Faturamento"
+        oQue="ver o consumo e o faturamento"
+        permissao="ai.configure"
+        papel="Admin técnico"
+      />
     );
   }
 

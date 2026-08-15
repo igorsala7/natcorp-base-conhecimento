@@ -7,6 +7,7 @@ import type { WidgetKeyRow } from "./widget-manager";
 import type { ApiKeyRow } from "./api-key-manager";
 import { ChatbotTabs } from "../chatbot/chatbot-tabs";
 import { TrackingKeyPanel } from "./tracking-key-panel";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Widget e API" };
 
@@ -18,12 +19,12 @@ export default async function WidgetPage() {
   const canView = await hasPermission("widget.manage");
   if (!canView) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Widget e API</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para gerenciar chaves de widget.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Widget e API"
+        oQue="gerenciar chaves de widget e de API"
+        permissao="widget.manage"
+        papel="Admin técnico"
+      />
     );
   }
 

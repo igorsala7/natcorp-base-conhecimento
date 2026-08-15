@@ -12,6 +12,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { SpacePublicUrl } from "@/components/content/space-public-url";
 import { Tree } from "@/components/content/tree";
 import { ClientTree } from "@/components/content/client-tree";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Conteúdo" };
 
@@ -51,10 +52,12 @@ export default async function ConteudoPage({
 }) {
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Conteúdo</h1>
-        <p className="mt-2 text-text-muted">Sem permissão para ver conteúdo.</p>
-      </div>
+      <SemPermissao
+        titulo="Conteúdo"
+        oQue="ver conteúdo"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
 

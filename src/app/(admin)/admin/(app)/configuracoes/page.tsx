@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import { SpaceSettingsForm } from "./space-settings-form";
 import { TagsManager } from "./tags-manager";
 import { listTags } from "../conteudo/tag-actions";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Configurações" };
 
@@ -28,12 +29,12 @@ export default async function ConfiguracoesPage({
 }) {
   if (!(await hasPermission("space.manage"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para configurar espaços.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Configurações"
+        oQue="alterar as preferências desta documentação"
+        permissao="space.manage"
+        papel="Admin técnico"
+      />
     );
   }
   const spaces = await listSpaces();

@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { env } from "@/lib/env";
 import { DocsHub, type DocResumo } from "./hub";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Documentações" };
 
@@ -15,10 +16,12 @@ export const metadata: Metadata = { title: "Documentações" };
 export default async function DocumentacoesPage() {
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Documentações</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Documentações"
+        oQue="ver as documentações"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
 

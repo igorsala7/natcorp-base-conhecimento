@@ -5,6 +5,7 @@ import { listRoles, currentMaxLevel, type Role } from "@/lib/auth/roles";
 import { UsersManager } from "./users-manager";
 import { RolesGuide } from "./roles-guide";
 import { listAuthors, type AuthorRow } from "./author-actions";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Usuários" };
 
@@ -50,10 +51,12 @@ export default async function UsuariosPage() {
   const canView = await hasPermission("user.view");
   if (!canView) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Usuários</h1>
-        <p className="mt-2 text-text-muted">Você não tem permissão para ver esta área.</p>
-      </div>
+      <SemPermissao
+        titulo="Usuários"
+        oQue="ver os usuários"
+        permissao="user.view"
+        papel="Gestor de conteúdo"
+      />
     );
   }
 

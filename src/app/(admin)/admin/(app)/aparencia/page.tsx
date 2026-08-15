@@ -14,6 +14,7 @@ import { resolveTheme } from "@/lib/portal/theme";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import type { DadosHome } from "@/components/portal/space-home";
 import { AppearanceEditor, type ArtigoDisponivel } from "./appearance-editor";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Aparência" };
 
@@ -29,12 +30,12 @@ export default async function AparenciaPage({
 }) {
   if (!(await hasPermission("space.manage"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Aparência</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para configurar a aparência das documentações.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Aparência"
+        oQue="editar a aparência desta documentação"
+        permissao="space.manage"
+        papel="Admin técnico"
+      />
     );
   }
 

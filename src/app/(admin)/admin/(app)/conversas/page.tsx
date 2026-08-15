@@ -9,6 +9,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
 import { comBase } from "@/lib/base-path";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -52,10 +53,12 @@ function Campo({ label, name, value, type = "text", placeholder }: {
 export default async function ConversasPage({ searchParams }: { searchParams: Promise<SP> }) {
   if (!(await hasPermission("content.view"))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Conversas</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Conversas"
+        oQue="ver as conversas"
+        permissao="content.view"
+        papel="Leitor"
+      />
     );
   }
 

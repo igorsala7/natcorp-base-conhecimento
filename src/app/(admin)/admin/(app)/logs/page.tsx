@@ -3,6 +3,7 @@ import { ScrollText } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { LogsList, type ChatTraceRow } from "./logs-list";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Logs do chat" };
 
@@ -52,10 +53,12 @@ function Campo({ label, name, value, type = "text", placeholder }: {
 export default async function LogsPage({ searchParams }: { searchParams: Promise<SP> }) {
   if (!(await hasPermission("ai.configure", null))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Logs do chat</h1>
-        <p className="mt-2 text-text-muted">Sem permissão.</p>
-      </div>
+      <SemPermissao
+        titulo="Logs do chat"
+        oQue="ver o rastreio do chat"
+        permissao="ai.configure"
+        papel="Admin técnico"
+      />
     );
   }
 

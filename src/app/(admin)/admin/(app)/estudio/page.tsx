@@ -9,6 +9,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { createStudioSession, listStudioSessions } from "./actions";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 
 export const metadata: Metadata = { title: "Estúdio IA" };
 
@@ -29,10 +30,12 @@ export default async function EstudioPage({
 
   if (!(await hasPermission("content.create", atual.id))) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Estúdio IA</h1>
-        <p className="mt-2 text-text-muted">Você não tem permissão para criar conteúdo aqui.</p>
-      </div>
+      <SemPermissao
+        titulo="Estúdio IA"
+        oQue="criar conteúdo com IA aqui"
+        permissao="content.create"
+        papel="Editor"
+      />
     );
   }
 
