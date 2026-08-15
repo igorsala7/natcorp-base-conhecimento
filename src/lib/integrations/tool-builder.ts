@@ -20,6 +20,7 @@ import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datase
 import { montarCartaoAcao, ehAcaoEmLista, type CartaoAcao } from "./acao-lista";
 import { bonusDeUso, aplicarAprendizado } from "./aprendizado";
 import { conferirTitular, avisoDivergencia } from "@/lib/chat/titular";
+import { ehParamDePessoa, temProcedencia, recusaSemProcedencia } from "@/lib/chat/procedencia";
 import { registrarUsoTool, vizinhosDeUso } from "./tool-catalog";
 import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
@@ -696,6 +697,38 @@ export async function buildIntegrationTools(
         const marca = idChamada ? { id: idChamada } : {};
         // Repetição IDÊNTICA no mesmo turno (loop do modelo) → devolve o já obtido, sem
         // rebater na API. Só leituras (GET); escrita nunca é deduplicada.
+        /**
+         * PROCEDÊNCIA DO IDENTIFICADOR — a chamada nem sai.
+         *
+         * O modelo escreveu "Encontrei! TONY OLIVEIRA tem a matrícula 269084" e
+         * consultou seis ferramentas com esse número. Conferido contra a API:
+         * 269084 não existia em campo nenhum de nenhum dos 96 registros. Foi
+         * inventado e narrado como consulta.
+         *
+         * Aqui não se pede honestidade ao modelo: ou o número passou por este
+         * turno (resultado, identidade ou o que a pessoa digitou), ou a chamada
+         * é bloqueada. Um identificador inventado que por acaso EXISTA devolve
+         * dados verdadeiros da pessoa errada — e ninguém percebe.
+         */
+        {
+          const alvos = Object.entries((args ?? {}) as Record<string, unknown>).filter(([k, v]) => ehParamDePessoa(k) && v != null && v !== "");
+          if (alvos.length) {
+            const linhas = (datasets?.list ?? []).flatMap((d) => d.rows as unknown as Record<string, unknown>[]);
+            const fonte = {
+              linhas,
+              identidade: [ident.matricula, ident.cod_empresa, ident.usuario, ident.cpf, ident.cod_candidato],
+              texto: question ?? "",
+            };
+            for (const [k, v] of alvos) {
+              const valores = Array.isArray(v) ? v : [v];
+              const invento = valores.find((x) => !temProcedencia(x, fonte));
+              if (invento !== undefined) {
+                onPasso?.("procedencia_bloqueada", { ...marca, tool: bt.tool.key, param: k, valor: String(invento) });
+                return recusaSemProcedencia(k, invento);
+              }
+            }
+          }
+        }
         const chaveDedup = String(bt.tool.method ?? "GET").toUpperCase() === "GET" ? `${bt.tool.key}:${chaveDeArgs(args)}` : null;
         if (chaveDedup && dedupTurno.has(chaveDedup)) {
           // Sem este passo, dedup e cache ficam indistinguíveis na tela — e o modelo
