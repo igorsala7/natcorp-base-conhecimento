@@ -86,7 +86,7 @@ export default async function AppLayout({
                   {children}
                 </main>
               </div>
-              <CommandPalette />
+              <CommandPalette permissoes={[...permissoes]} />
             </div>
           </NavProvider>
         </LoaderProvider>

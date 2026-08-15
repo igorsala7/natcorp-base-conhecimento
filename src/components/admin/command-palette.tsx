@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, FileText, Search } from "lucide-react";
 import { searchContent, registrarBusca, type SearchHit } from "@/app/(admin)/admin/(app)/search-actions";
+import { buscarDestinos } from "@/lib/admin/busca-destinos";
+import { Button } from "@/components/ui/button";
 import { eyebrowLabel } from "@/components/ui/field";
 
 const RECENT_KEY = "kb.recentSearches";
@@ -21,7 +23,7 @@ function saveRecent(q: string) {
 }
 
 /** Command palette de busca (Cmd/Ctrl+K). Debounce 150ms, teclado, recentes. */
-export function CommandPalette() {
+export function CommandPalette({ permissoes = [] }: { permissoes?: string[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -54,6 +56,13 @@ export function CommandPalette() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) setRecent(loadRecent());
   }, [open]);
+
+  /**
+   * Destinos são LOCAIS — o mapa de rotas está no bundle. Nada de debounce nem
+   * de espera: enquanto o artigo ainda está vindo do banco, "ir para" já
+   * respondeu. É o que faz a paleta poder substituir metade do menu.
+   */
+  const destinos = useMemo(() => buscarDestinos(query, new Set(permissoes)), [query, permissoes]);
 
   // Busca com debounce de 150ms (sincroniza com um sistema externo — a RPC).
   useEffect(() => {
@@ -134,7 +143,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Buscar artigos…"
+            placeholder="Buscar artigos, telas e ações…"
             className="h-12 flex-1 bg-transparent text-sm focus:outline-none"
           />
           <kbd className="rounded border border-border px-1.5 text-xs text-text-muted">
@@ -143,13 +152,42 @@ export function CommandPalette() {
         </div>
 
         <div className="max-h-[50vh] overflow-auto p-2">
+          {/* Destinos primeiro: são instantâneos e cobrem a navegação, que é o
+              trabalho que o menu deixou de fazer ao encolher de 18 para 9. */}
+          {destinos.length > 0 && (
+            <div className="mb-1">
+              <div className={`${eyebrowLabel} px-3 py-1`}>Ir para</div>
+              {destinos.map((d) => {
+                const Icone = d.icone;
+                return (
+                  <Button
+                    key={d.href}
+                    variant="ghost"
+                    onClick={() => {
+                      setOpen(false);
+                      setQuery("");
+                      router.push(d.href);
+                    }}
+                    className="w-full justify-start gap-2.5 px-3 py-2 font-normal"
+                  >
+                    {Icone && <Icone className="shrink-0 text-text-muted" aria-hidden="true" />}
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {d.contexto && <span className="text-text-muted">{d.contexto} › </span>}
+                      {d.rotulo}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+
           {loading && <p className="px-3 py-4 text-sm text-text-muted">Buscando…</p>}
 
           {!loading && error && (
             <p className="px-3 py-4 text-sm text-red-600 dark:text-red-400">{error}</p>
           )}
 
-          {!loading && !error && query.trim().length >= 2 && hits.length === 0 && (
+          {!loading && !error && query.trim().length >= 2 && hits.length === 0 && destinos.length === 0 && (
             <p className="px-3 py-4 text-sm text-text-muted">
               Nada encontrado para “{query}”.
             </p>
