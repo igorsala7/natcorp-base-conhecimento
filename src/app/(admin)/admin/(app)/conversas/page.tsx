@@ -10,6 +10,7 @@ import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { controlClass } from "@/components/ui/input";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -30,8 +31,6 @@ type SP = {
   feedback?: string;
 };
 
-const inputClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-focus-ring/40";
 
 function Campo({ label, name, value, type = "text", placeholder }: {
   label: string; name: string; value?: string; type?: string; placeholder?: string;
@@ -39,7 +38,7 @@ function Campo({ label, name, value, type = "text", placeholder }: {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-text-muted">{label}</span>
-      <input className={inputClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
+      <input className={controlClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
     </label>
   );
 }
@@ -176,7 +175,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
           <Campo label="Até" name="ate" value={sp.ate} type="date" />
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-text-muted">Feedback</span>
-            <select className={inputClass} name="feedback" defaultValue={sp.feedback ?? ""}>
+            <select className={controlClass} name="feedback" defaultValue={sp.feedback ?? ""}>
               <option value="">Todos</option>
               <option value="up">👍 Positivo</option>
               <option value="down">👎 Negativo</option>
@@ -184,7 +183,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
           </label>
           <label className="col-span-2 flex flex-col gap-1 lg:col-span-2">
             <span className="text-xs font-medium text-text-muted">Buscar no texto (pergunta ou resposta)</span>
-            <input className={inputClass} name="q" defaultValue={sp.q} placeholder="Ex.: férias, nota fiscal…" />
+            <input className={controlClass} name="q" defaultValue={sp.q} placeholder="Ex.: férias, nota fiscal…" />
           </label>
           <div className="col-span-2 flex items-end gap-2 lg:col-span-2">
             <button

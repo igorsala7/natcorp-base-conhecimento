@@ -5,9 +5,8 @@ import { Surface } from "@/components/ui/surface";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { salvarConfig, type Config } from "./actions";
+import { controlClass } from "@/components/ui/input";
 
-const inputClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-focus-ring";
 
 /**
  * Regra de cobrança.
@@ -35,7 +34,7 @@ export function ConfigForm({ cfg }: { cfg: Config }) {
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-text-muted">US$ por milhão de tokens</span>
             <input
-              className={`${inputClass} w-40`}
+              className={`${controlClass} w-40`}
               name="usd_por_mtok"
               defaultValue={String(cfg.usdPorMtok)}
               inputMode="decimal"
@@ -43,7 +42,7 @@ export function ConfigForm({ cfg }: { cfg: Config }) {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-text-muted">Base de cobrança</span>
-            <select className={`${inputClass} w-72`} name="base_cobranca" defaultValue={cfg.base}>
+            <select className={`${controlClass} w-72`} name="base_cobranca" defaultValue={cfg.base}>
               <option value="bruto">Bruta — todo token que trafegou</option>
               <option value="ponderado">Ponderada — cache pelo preço real</option>
             </select>

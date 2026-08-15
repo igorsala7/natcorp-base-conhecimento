@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-table";
 import { AuditFilters } from "./audit-filters";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Auditoria" };
 
@@ -81,11 +82,7 @@ export default async function AuditoriaPage({
   const actionOptions = Object.entries(ACTION_LABEL).map(([key, label]) => ({ key, label }));
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Auditoria</h1>
-      <p className="mt-1 text-sm text-text-muted">
-        Ações sensíveis (append-only) — quem fez o quê e quando.
-      </p>
+    <PageShell titulo="Auditoria" descricao={"Ações sensíveis (append-only) — quem fez o quê e quando."} largura="wide">
 
       <div className="mt-4">
         <AuditFilters actors={actorOptions} actions={actionOptions} />
@@ -136,6 +133,6 @@ export default async function AuditoriaPage({
           </tbody>
         </DataTable>
       </div>
-    </div>
+    </PageShell>
   );
 }

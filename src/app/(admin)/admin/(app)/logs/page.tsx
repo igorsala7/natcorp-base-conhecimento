@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { LogsList, type ChatTraceRow } from "./logs-list";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { controlClass } from "@/components/ui/input";
 
 export const metadata: Metadata = { title: "Logs do chat" };
 
@@ -29,10 +30,6 @@ function proximoDia(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-const inputClass =
-  // `ring-focus-ring` não existe no tema (o token é `ring`) — era um no-op, o campo
-  // ficava sem anel de foco visível.
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring";
 
 function Campo({ label, name, value, type = "text", placeholder }: {
   label: string; name: string; value?: string; type?: string; placeholder?: string;
@@ -40,7 +37,7 @@ function Campo({ label, name, value, type = "text", placeholder }: {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-text-muted">{label}</span>
-      <input className={inputClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
+      <input className={controlClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
     </label>
   );
 }

@@ -9,6 +9,7 @@ import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { AcessosList, type Acesso } from "./acessos-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { controlClass } from "@/components/ui/input";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -28,8 +29,6 @@ type SP = {
   q?: string;
 };
 
-const inputClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-focus-ring/40";
 
 function Campo({ label, name, value, type = "text", placeholder }: {
   label: string; name: string; value?: string; type?: string; placeholder?: string;
@@ -37,7 +36,7 @@ function Campo({ label, name, value, type = "text", placeholder }: {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-text-muted">{label}</span>
-      <input className={inputClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
+      <input className={controlClass} name={name} defaultValue={value} type={type} placeholder={placeholder} />
     </label>
   );
 }
@@ -131,7 +130,7 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
           <Campo label="Base" name="base" value={sp.base} />
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-text-muted">Tipo de página</span>
-            <select className={inputClass} name="kind" defaultValue={sp.kind ?? ""}>
+            <select className={controlClass} name="kind" defaultValue={sp.kind ?? ""}>
               <option value="">Todas</option>
               <option value="home">Documentação</option>
               <option value="folder">Diretório</option>
@@ -142,7 +141,7 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
           <Campo label="Até" name="ate" value={sp.ate} type="date" />
           <label className="col-span-2 flex flex-col gap-1 lg:col-span-2">
             <span className="text-xs font-medium text-text-muted">Buscar por título ou caminho</span>
-            <input className={inputClass} name="q" defaultValue={sp.q} placeholder="Ex.: nota fiscal, financeiro…" />
+            <input className={controlClass} name="q" defaultValue={sp.q} placeholder="Ex.: nota fiscal, financeiro…" />
           </label>
           <div className="col-span-2 flex items-end gap-2">
             <button
