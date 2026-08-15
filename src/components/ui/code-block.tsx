@@ -29,7 +29,7 @@ export function CodeBlock({
       {(titulo || acoes) && (
         <div className="mb-1 flex items-center justify-between gap-2">
           {titulo && (
-            <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">{titulo}</span>
+            <span className="text-2xs font-semibold uppercase tracking-wide text-text-muted">{titulo}</span>
           )}
           <span className="flex items-center gap-1">
             {acoes}

@@ -9,7 +9,7 @@ function Codigo({ lang, children }: { lang: string; children: string }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">{lang}</span>
+        <span className="text-2xs font-medium uppercase tracking-wide text-text-muted">{lang}</span>
         <button
           type="button"
           className="text-xs text-primary hover:underline"
@@ -46,7 +46,7 @@ function Tabela({ params }: { params: Param[] }) {
             <tr key={p.nome} className="border-t border-border align-top">
               <td className="whitespace-nowrap px-3 py-2">
                 <code className="text-text">{p.nome}</code>
-                {p.obr && <span className="ml-1 text-[10px] font-semibold uppercase text-primary">obrig.</span>}
+                {p.obr && <span className="ml-1 text-2xs font-semibold uppercase text-primary">obrig.</span>}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-text-muted">{p.tipo}</td>
               <td className="px-3 py-2 text-text-muted">{p.desc}</td>
@@ -62,7 +62,7 @@ function Secao({ metodo, path, titulo, children }: { metodo: string; path: strin
   return (
     <details className="group rounded-xl border border-border bg-surface">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold text-primary">{metodo}</span>
+        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-2xs font-bold text-primary">{metodo}</span>
         <code className="text-sm text-text">{path}</code>
         <span className="text-sm text-text-muted">— {titulo}</span>
         <span className="ml-auto text-text-muted transition-transform group-open:rotate-90">›</span>

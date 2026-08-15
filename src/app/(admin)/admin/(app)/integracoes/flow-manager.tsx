@@ -78,7 +78,7 @@ function FlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       <Icon className={cn("size-4 shrink-0", cfg.badge)} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-text">{data.label}</span>
-        {data.sub && <span className="block truncate font-mono text-[11px] text-text-muted">{data.sub}</span>}
+        {data.sub && <span className="block truncate font-mono text-2xs text-text-muted">{data.sub}</span>}
       </span>
       <Handle type="source" position={Position.Right} className="!size-2 !border-none !bg-border" />
     </div>
@@ -467,13 +467,13 @@ function Inspector({
                     <span className="font-medium text-text">{r.base_code}</span>
                     {r.status != null && <span className="text-text-muted">HTTP {r.status}</span>}
                     <span className="ml-auto inline-flex items-center gap-1 text-text-muted">
-                      <Clock className="size-3" /> {new Date(r.created_at).toLocaleTimeString("pt-BR")}
+                      <Clock className="size-3.5" /> {new Date(r.created_at).toLocaleTimeString("pt-BR")}
                     </span>
                   </div>
                   {r.error && <p className="mt-1 text-brand-pink-700">{r.error}</p>}
                   <details className="mt-1">
                     <summary className="cursor-pointer text-text-muted">entrada / saída</summary>
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] text-text">
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-2xs text-text">
                       {JSON.stringify({ input: r.input, output: r.output }, null, 2)}
                     </pre>
                   </details>

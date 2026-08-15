@@ -219,7 +219,7 @@ export function EditorChat({
                 ? "group relative ml-4 rounded-lg bg-brand-purple-50 px-2.5 py-1.5 text-[0.8125rem] dark:bg-brand-purple-950/40"
                 : m.role === "assistant"
                   ? "mr-4 rounded-lg border border-border px-2.5 py-1.5 text-[0.8125rem]"
-                  : "rounded-md bg-surface-2 px-2.5 py-1 text-[0.6875rem] text-text-muted"
+                  : "rounded-md bg-surface-2 px-2.5 py-1 text-2xs text-text-muted"
             }
           >
             {m.role === "assistant" ? (
@@ -292,7 +292,7 @@ export function EditorChat({
                 );
               })}
             </ul>
-            <p className="mt-1.5 text-[0.6875rem] text-text-muted">
+            <p className="mt-1.5 text-2xs text-text-muted">
               Os artigos nascem vazios, prontos para preencher.
             </p>
             <div className="mt-2.5 flex justify-end gap-2">

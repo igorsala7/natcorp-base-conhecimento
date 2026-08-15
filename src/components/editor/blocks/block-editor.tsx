@@ -1206,7 +1206,7 @@ function BlockEditorInner({
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
-          <span className="text-[11px] text-brand-gray-400">
+          <span className="text-2xs text-brand-gray-400">
             {saveState === "saving"
               ? "Salvando…"
               : saveState === "error"
@@ -1220,11 +1220,11 @@ function BlockEditorInner({
                       : "Rascunho"}
           </span>
           {saveState === "saved" && (
-            <span className="ml-2 text-[11px] font-semibold text-emerald-600">Salvo</span>
+            <span className="ml-2 text-2xs font-semibold text-emerald-600">Salvo</span>
           )}
           {hasDraft && (
             <span
-              className="ml-2 rounded-full bg-brand-pink-50 px-2 py-0.5 text-[11px] font-medium text-brand-pink-700 dark:bg-brand-pink-950/40"
+              className="ml-2 rounded-full bg-brand-pink-50 px-2 py-0.5 text-2xs font-medium text-brand-pink-700 dark:bg-brand-pink-950/40"
               title="A página pública ainda mostra a versão publicada. Publique para aplicar."
             >
               Alterações não publicadas
@@ -1233,11 +1233,11 @@ function BlockEditorInner({
           {publicUrl && (
             <div className="mt-1 flex items-center gap-1 text-xs">
               <a href={publicUrl} target="_blank" rel="noreferrer" title="Abrir a página pública" className="flex max-w-[380px] items-center gap-1 truncate text-text-muted hover:text-primary">
-                <ExternalLink className="size-3 shrink-0" />
+                <ExternalLink className="size-3.5 shrink-0" />
                 <span className="truncate">{publicUrl.replace(/^https?:\/\//, "")}</span>
               </a>
               <button type="button" title="Copiar link público" onClick={() => { navigator.clipboard.writeText(publicUrl); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }} className="rounded p-0.5 text-text-muted hover:bg-surface-2 hover:text-text">
-                {linkCopied ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}
+                {linkCopied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}
               </button>
               {(status !== "published" || !spacePublic) && (
                 <span className="text-brand-pink-700" title={status !== "published" ? "Publique o artigo para o link ficar ativo" : "O espaço não é público"}>
@@ -1251,7 +1251,7 @@ function BlockEditorInner({
                   onClick={() => setEmbedOpen(true)}
                   className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-text-muted hover:bg-surface-2 hover:text-primary"
                 >
-                  <Code2 className="size-3" /> Incorporar
+                  <Code2 className="size-3.5" /> Incorporar
                 </button>
               )}
             </div>
@@ -1316,7 +1316,7 @@ function BlockEditorInner({
             </Button>
             {showAiTexto && (
               <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2">
-                <p className="px-2 pb-1.5 pt-1 text-[11px] leading-snug text-text-muted">
+                <p className="px-2 pb-1.5 pt-1 text-2xs leading-snug text-text-muted">
                   {aiTextoAlvo
                     ? "Age no bloco selecionado."
                     : selectedIds.length > 0
@@ -1324,7 +1324,7 @@ function BlockEditorInner({
                       : "Nada selecionado — age no artigo inteiro."}
                 </p>
                 <div className="px-1 pb-1.5">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                  <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-text-muted">
                     Criatividade
                   </p>
                   <CriatividadeSelect value={criatividade} onChange={setCriatividade} />
@@ -1959,7 +1959,7 @@ function CriatividadeSelect({
           type="button"
           title={c.hint}
           onClick={() => onChange(c.key)}
-          className={`flex-1 rounded-md border px-1.5 py-1 text-[11px] transition-colors ${
+          className={`flex-1 rounded-md border px-1.5 py-1 text-2xs transition-colors ${
             value === c.key
               ? "border-primary bg-brand-purple-50 text-primary dark:bg-brand-purple-950/30"
               : "border-border text-text-muted hover:border-primary/50"

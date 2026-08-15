@@ -165,7 +165,7 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
                     </span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-text-muted">
                       <span className="inline-flex items-center gap-1">
-                        <Clock className="size-3" /> {new Date(r.created_at).toLocaleString("pt-BR")}
+                        <Clock className="size-3.5" /> {new Date(r.created_at).toLocaleString("pt-BR")}
                       </span>
                       {r.duration_ms != null && <span>· {r.duration_ms} ms</span>}
                       {r.usuario && <span>· usuário {r.usuario}</span>}

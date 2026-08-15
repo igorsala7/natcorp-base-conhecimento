@@ -391,12 +391,12 @@ export function OntologyManager({
                       <Badge tone={KIND_TONE[t.kind]}>{KIND_LABEL[t.kind]}</Badge>
                       {t.source === "ia" && (
                         <Badge tone="neutral" className="inline-flex items-center gap-1">
-                          <Sparkles className="size-3" /> IA
+                          <Sparkles className="size-3.5" /> IA
                         </Badge>
                       )}
                       {t.source === "upload" && (
                         <Badge tone="neutral" className="inline-flex items-center gap-1">
-                          <FileText className="size-3" /> Arquivo
+                          <FileText className="size-3.5" /> Arquivo
                         </Badge>
                       )}
                       {t.nodeId && (
@@ -405,7 +405,7 @@ export function OntologyManager({
                           className="inline-flex items-center gap-1"
                           title="Nó responsável — forçado no chat quando o termo é perguntado"
                         >
-                          <Target className="size-3" /> {t.nodeTitle ?? "responsável"}
+                          <Target className="size-3.5" /> {t.nodeTitle ?? "responsável"}
                         </Badge>
                       )}
                     </div>
@@ -427,7 +427,7 @@ export function OntologyManager({
                               aria-label={`Remover sinônimo ${a.alias}`}
                               className="text-text-muted opacity-60 hover:text-brand-pink-700 hover:opacity-100"
                             >
-                              <X className="size-3" />
+                              <X className="size-3.5" />
                             </button>
                           )}
                         </span>

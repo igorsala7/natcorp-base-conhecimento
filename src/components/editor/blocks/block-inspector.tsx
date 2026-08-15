@@ -103,7 +103,7 @@ export function BlockInspector({
               <Fmt title="Marca-texto (⌘⇧H)" icon={Highlighter} onClick={() => onFormat("highlight")} />
               <Fmt title="Link (⌘K)" icon={Link2} onClick={onLink} />
             </div>
-            <p className="text-[11px] text-text-muted">Aplica-se ao trecho de texto selecionado.</p>
+            <p className="text-2xs text-text-muted">Aplica-se ao trecho de texto selecionado.</p>
 
             <div className="pt-1">
               <span className="mb-1.5 block text-xs font-medium text-text-muted">Tamanho da fonte</span>
@@ -207,7 +207,7 @@ function TransformarEm({ block, actions }: { block: Block; actions: EditorAction
 function Grupo({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
+      <h4 className="text-2xs font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
       {children}
     </section>
   );

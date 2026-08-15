@@ -116,7 +116,7 @@ const BlockItem = memo(function BlockItem({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-          <span className="flex items-center gap-1 px-1.5 text-[10px] font-bold uppercase tracking-[0.05em] text-brand-gray-400">
+          <span className="flex items-center gap-1 px-1.5 text-2xs font-bold uppercase tracking-[0.05em] text-brand-gray-400">
             <Meta.icon className="size-3.5" />
             {Meta.label}
           </span>

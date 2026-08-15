@@ -55,7 +55,7 @@ export function LayoutQuestionsForm({
                     </span>
                   ) : (
                     o.exemplo && (
-                      <span className="mt-1.5 block whitespace-pre-wrap rounded bg-surface-2 px-2 py-1.5 text-[0.6875rem] leading-relaxed text-text-muted">
+                      <span className="mt-1.5 block whitespace-pre-wrap rounded bg-surface-2 px-2 py-1.5 text-2xs leading-relaxed text-text-muted">
                         {o.exemplo}
                       </span>
                     )

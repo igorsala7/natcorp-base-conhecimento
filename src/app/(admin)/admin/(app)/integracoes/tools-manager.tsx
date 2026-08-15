@@ -321,7 +321,7 @@ export function ToolsManager({
                   <Badge tone="neutral">{t.method}</Badge>
                   {t.endpoint_kind === "external" && (
                     <Badge tone="info">
-                      <Globe className="size-3" /> Externa
+                      <Globe className="size-3.5" /> Externa
                     </Badge>
                   )}
                   <Badge tone="neutral">{AUTH_LABEL[t.auth_type]}</Badge>
@@ -470,7 +470,7 @@ function ToolsTable({
               <td className={td}>
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium text-text">{t.name}</span>
-                  {t.endpoint_kind === "external" && <Badge tone="info"><Globe className="size-3" /> Ext.</Badge>}
+                  {t.endpoint_kind === "external" && <Badge tone="info"><Globe className="size-3.5" /> Ext.</Badge>}
                 </div>
                 <div className="truncate font-mono text-xs text-text-muted">{t.key}</div>
               </td>
@@ -546,7 +546,7 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
         const v = val(p);
         return (
           <label key={p} className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p === "PCAND" ? "CAND" : p}</span>
+            <span className="text-2xs font-medium text-text-muted" title={PORTAL_LABEL[p]}>{p === "PCAND" ? "CAND" : p}</span>
             <Select
               aria-label={`Escopo ${PORTAL_LABEL[p]} de ${tool.name}`}
               title={ESCOPO_OPCOES.find((o) => o.v === v)?.hint}
@@ -573,7 +573,7 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
         disabled={disabled}
         onClick={() => onFlag(tool, { exclude_self: !tool.exclude_self })}
         title={tool.exclude_self ? "Nunca os próprios dados — ligado (clique p/ desligar)" : "Permitir os próprios dados (clique p/ nunca mostrar os próprios)"}
-        className={`ml-0.5 self-end rounded border px-1 py-0.5 text-[10px] font-medium ${
+        className={`ml-0.5 self-end rounded border px-1 py-0.5 text-2xs font-medium ${
           tool.exclude_self ? "border-[var(--color-accent)] text-[var(--color-accent)]" : "border-border text-text-muted"
         }`}
       >

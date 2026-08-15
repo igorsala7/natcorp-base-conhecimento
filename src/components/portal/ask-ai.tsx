@@ -606,7 +606,7 @@ function AskAiPanelInner({
                                   [{c.n}] {c.title}
                                 </span>
                                 {c.heading_path && (
-                                  <span className="block truncate text-[11px] text-text-muted">
+                                  <span className="block truncate text-2xs text-text-muted">
                                     {c.heading_path}
                                   </span>
                                 )}

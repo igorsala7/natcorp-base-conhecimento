@@ -139,7 +139,7 @@ export function FlowCanvas({ block, onChange, spaceId }: BlockEditProps) {
             <button
               type="button"
               onClick={() => setZoom(1)}
-              className="w-10 text-center text-[11px] text-text-muted hover:text-primary"
+              className="w-10 text-center text-2xs text-text-muted hover:text-primary"
               title="Zoom 100%"
             >
               {Math.round(zoom * 100)}%
@@ -161,7 +161,7 @@ export function FlowCanvas({ block, onChange, spaceId }: BlockEditProps) {
                   data: { ...data, nodes: data.nodes.map((n) => ({ ...n, x: undefined, y: undefined })) },
                 } as Partial<Block>)
               }
-              className="rounded-md border border-border px-2 py-0.5 text-[11px] text-text-muted hover:border-primary hover:text-primary"
+              className="rounded-md border border-border px-2 py-0.5 text-2xs text-text-muted hover:border-primary hover:text-primary"
             >
               Reorganizar
             </button>
@@ -367,7 +367,7 @@ function NodeMenu({
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Bloco</p>
+      <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-text-muted">Bloco</p>
       <Linha label="Tipo">
         <Select
           value={node.type}
@@ -414,7 +414,7 @@ function NodeMenu({
         />
       </Linha>
       <div className="my-2 border-t border-border" />
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Ícone</p>
+      <p className="mb-1 text-2xs font-semibold uppercase tracking-wide text-text-muted">Ícone</p>
       {s.iconImage ? (
         <div className="mb-1.5 flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -485,7 +485,7 @@ function EdgeMenu({
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Linha</p>
+      <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-text-muted">Linha</p>
       <Linha label="Rótulo">
         <input
           value={edge.label ?? ""}

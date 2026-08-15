@@ -31,7 +31,7 @@ function Campo({ label, hint, children }: { label: string; hint?: string; childr
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-text">{label}</span>
       {children}
-      {hint && <span className="text-[11px] text-text-muted">{hint}</span>}
+      {hint && <span className="text-2xs text-text-muted">{hint}</span>}
     </label>
   );
 }
@@ -77,7 +77,7 @@ export function InfraPanel({ infra, temChaveMestra }: { infra: InfraData; temCha
     <section className="mt-8 rounded-xl border border-border bg-surface p-5">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold text-text">Infra / Escala</h2>
-        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${redisAtivo ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"}`}>
+        <span className={`rounded px-1.5 py-0.5 text-2xs font-semibold ${redisAtivo ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"}`}>
           cache: {redisAtivo ? "Redis" : "memória"}
         </span>
       </div>

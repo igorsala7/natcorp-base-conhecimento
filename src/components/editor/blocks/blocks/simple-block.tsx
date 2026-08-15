@@ -15,7 +15,7 @@ export function SpacerBlock({ block }: BlockEditProps) {
   // A altura é escolhida no painel de propriedades.
   return (
     <div className={`flex items-center justify-center rounded border border-dashed border-border ${h}`}>
-      <span className="text-[10px] uppercase tracking-wide text-text-muted/70">Espaçador</span>
+      <span className="text-2xs uppercase tracking-wide text-text-muted/70">Espaçador</span>
     </div>
   );
 }
@@ -61,7 +61,7 @@ export function HeroBlock({ block, onChange }: BlockEditProps) {
         value={b.data.eyebrow}
         onChange={(e) => set({ eyebrow: e.target.value })}
         placeholder="Rótulo (opcional)"
-        className={`block w-full bg-transparent text-[0.6875rem] font-semibold uppercase tracking-[0.08em] outline-none ${dark ? "text-white/70 placeholder:text-white/40" : "text-primary"}`}
+        className={`block w-full bg-transparent text-2xs font-semibold uppercase tracking-[0.08em] outline-none ${dark ? "text-white/70 placeholder:text-white/40" : "text-primary"}`}
       />
       {/* Mesmo tamanho do portal (--l-hero): o título do banner no canvas
           media 30px enquanto a leitura mostrava 16 — o editor mentia. */}

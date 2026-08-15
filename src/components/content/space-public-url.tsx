@@ -51,7 +51,7 @@ export function SpacePublicUrl({
             : `URL do cliente · ${name}`}
         </span>
         <span className={`inline-flex items-center gap-1 ${vis.cls}`} title="Visibilidade do espaço">
-          <VisIcon className="size-3" />
+          <VisIcon className="size-3.5" />
           {vis.label}
         </span>
       </div>
@@ -80,17 +80,17 @@ export function SpacePublicUrl({
         </a>
       </div>
       {visibility !== "public" && (
-        <p className="mt-1.5 text-[11px] text-brand-pink-700">
+        <p className="mt-1.5 text-2xs text-brand-pink-700">
           Este espaço não é público — só ficará acessível após torná-lo público nas configurações.
         </p>
       )}
       {canExport && (
         <a
           href={`/api/admin/export?space=${spaceId}`}
-          className="mt-2 inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text-muted hover:border-primary hover:text-primary"
+          className="mt-2 inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-2xs text-text-muted hover:border-primary hover:text-primary"
           title="Exportar este espaço em Markdown + manifest.json (.zip)"
         >
-          <Download className="size-3" /> Exportar (.zip)
+          <Download className="size-3.5" /> Exportar (.zip)
         </a>
       )}
     </Surface>

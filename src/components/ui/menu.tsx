@@ -195,7 +195,7 @@ export function MenuCheckItem({
           checked ? "border-primary bg-primary text-white" : "border-border-strong",
         )}
       >
-        {checked && <Check className="size-3" strokeWidth={3} />}
+        {checked && <Check className="size-3.5" strokeWidth={3} />}
       </span>
       {dot && <span className={cn("size-1.5 shrink-0 rounded-full", dot)} />}
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -209,7 +209,7 @@ export function MenuSeparator() {
 
 export function MenuLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+    <div className="px-2.5 pb-1 pt-1.5 text-2xs font-semibold uppercase tracking-wide text-text-muted">
       {children}
     </div>
   );

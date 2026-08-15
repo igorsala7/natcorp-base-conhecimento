@@ -85,7 +85,7 @@ export function BlockContextMenu({
       className="fixed z-50 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <p className="px-2 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+      <p className="px-2 pb-1 pt-0.5 text-2xs font-medium uppercase tracking-wide text-text-muted">
         {meta.label}
       </p>
 
@@ -106,8 +106,8 @@ export function BlockContextMenu({
       {transforms.length > 0 && (
         <>
           <Divider />
-          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
-            <Shuffle className="mr-1 inline size-3" /> Transformar em
+          <p className="px-2 py-1 text-2xs font-medium uppercase tracking-wide text-text-muted">
+            <Shuffle className="mr-1 inline size-3.5" /> Transformar em
           </p>
           <div className="mb-1 flex flex-wrap gap-1 px-1">
             {transforms.map((t) => {
@@ -120,7 +120,7 @@ export function BlockContextMenu({
                   onClick={run(() => actions.transform(block.id, t))}
                   className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary"
                 >
-                  <Icon className="size-3" /> {m.label}
+                  <Icon className="size-3.5" /> {m.label}
                 </button>
               );
             })}
@@ -174,7 +174,7 @@ function Item({
     >
       <Icon className="size-4 shrink-0" />
       <span className="flex-1">{label}</span>
-      {hint && <span className="text-[11px] tabular-nums text-text-muted">{hint}</span>}
+      {hint && <span className="text-2xs tabular-nums text-text-muted">{hint}</span>}
     </button>
   );
 }

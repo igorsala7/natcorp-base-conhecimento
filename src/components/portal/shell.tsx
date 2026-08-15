@@ -255,7 +255,7 @@ gtag('config', '${tema.tracking.ga4}');`}
           {toc && toc.length > 0 && (
             <aside className="hidden lg:block">
               <div className="sticky top-20 max-h-[calc(100dvh-5rem)] overflow-y-auto">
-                <p className="mb-2 px-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
+                <p className="mb-2 px-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">
                   Nesta página
                 </p>
                 <Toc items={toc} />
@@ -357,7 +357,7 @@ export function Breadcrumbs({
       </Link>
       {crumbs.map((c) => (
         <span key={c.id} className="flex items-center gap-1.5">
-          <ChevronRight className="size-3 text-brand-gray-300 dark:text-brand-gray-600" />
+          <ChevronRight className="size-3.5 text-brand-gray-300 dark:text-brand-gray-600" />
           <Link
             href={`/docs/${spaceSlug}/${c.slugPath.join("/")}`}
             className="rounded-sm transition-colors hover:text-primary"
@@ -368,7 +368,7 @@ export function Breadcrumbs({
       ))}
       {current && (
         <span className="flex items-center gap-1.5">
-          <ChevronRight className="size-3 text-brand-gray-300 dark:text-brand-gray-600" />
+          <ChevronRight className="size-3.5 text-brand-gray-300 dark:text-brand-gray-600" />
           <span aria-current="page" className="font-semibold text-text">
             {current}
           </span>

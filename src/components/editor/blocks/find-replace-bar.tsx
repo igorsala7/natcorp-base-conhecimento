@@ -66,7 +66,7 @@ export function FindReplaceBar({
               }
             }}
           />
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] tabular-nums text-text-muted">
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-2xs tabular-nums text-text-muted">
             {count ? `${current || "•"}/${count}` : "0"}
           </span>
         </div>

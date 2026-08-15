@@ -33,7 +33,7 @@ function Swatches({
         type="button"
         onClick={() => onPick(undefined)}
         title="Nenhuma"
-        className={`flex size-5 items-center justify-center rounded border bg-surface text-[9px] text-text-muted ${!value ? "ring-2 ring-primary" : "border-border"}`}
+        className={`flex size-5 items-center justify-center rounded border bg-surface text-2xs text-text-muted ${!value ? "ring-2 ring-primary" : "border-border"}`}
       >
         ∅
       </button>
@@ -150,11 +150,11 @@ export function MindMapBlock({ block, onChange }: BlockEditProps) {
 
           <div className="grid gap-2">
             <label className="block">
-              <span className="mb-0.5 block text-[11px] text-text-muted">Rótulo</span>
+              <span className="mb-0.5 block text-2xs text-text-muted">Rótulo</span>
               <input className={ctrl} value={sel.label} onChange={(e) => patchSel({ label: e.target.value })} />
             </label>
             <label className="block">
-              <span className="mb-0.5 block text-[11px] text-text-muted">Link (URL)</span>
+              <span className="mb-0.5 block text-2xs text-text-muted">Link (URL)</span>
               <input
                 className={ctrl}
                 value={sel.link ?? ""}
@@ -165,7 +165,7 @@ export function MindMapBlock({ block, onChange }: BlockEditProps) {
           </div>
 
           <label className="block">
-            <span className="mb-0.5 block text-[11px] text-text-muted">Nota / detalhe (aparece ao passar o mouse)</span>
+            <span className="mb-0.5 block text-2xs text-text-muted">Nota / detalhe (aparece ao passar o mouse)</span>
             <textarea
               className={`${ctrl} resize-y`}
               rows={2}
@@ -177,23 +177,23 @@ export function MindMapBlock({ block, onChange }: BlockEditProps) {
 
           <div className="grid gap-2">
             <div>
-              <span className="mb-0.5 block text-[11px] text-text-muted">Ícone</span>
+              <span className="mb-0.5 block text-2xs text-text-muted">Ícone</span>
               <IconPicker value={sel.icon} onChange={(k) => patchSel({ icon: k })} />
             </div>
             <div className="space-y-1.5">
               <div>
-                <span className="mb-0.5 block text-[11px] text-text-muted">Cor (borda/ícone)</span>
+                <span className="mb-0.5 block text-2xs text-text-muted">Cor (borda/ícone)</span>
                 <Swatches value={sel.color} cores={CORES} onPick={(c) => patchSel({ color: c })} />
               </div>
               <div>
-                <span className="mb-0.5 block text-[11px] text-text-muted">Fundo</span>
+                <span className="mb-0.5 block text-2xs text-text-muted">Fundo</span>
                 <Swatches value={sel.bg} cores={FUNDOS} onPick={(c) => patchSel({ bg: c })} />
               </div>
             </div>
           </div>
     </div>
   ) : (
-    <p className="text-[11px] text-text-muted">Clique num nó para estilizar e detalhar.</p>
+    <p className="text-2xs text-text-muted">Clique num nó para estilizar e detalhar.</p>
   );
 
   return (
@@ -226,7 +226,7 @@ export function MindMapBlock({ block, onChange }: BlockEditProps) {
             className="w-full resize-y rounded-md border border-border bg-surface-2 p-2 font-mono text-xs outline-none focus:ring-1 focus:ring-primary"
             placeholder={"Tema central\n  Ramo A\n    Sub-ramo\n  Ramo B"}
           />
-          <p className="mt-1 text-[11px] text-text-muted">
+          <p className="mt-1 text-2xs text-text-muted">
             1ª linha = tema central; cada indentação (2 espaços) = sub-ramo. <b>Atenção:</b> reorganizar
             por texto redefine ícones, cores e notas.
           </p>

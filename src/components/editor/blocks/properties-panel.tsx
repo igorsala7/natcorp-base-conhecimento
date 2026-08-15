@@ -188,7 +188,7 @@ export function BlockPropertiesForm({
         {/* ── Ícone ────────────────────────────────────────────────────── */}
         <Section title="Ícone da região">
           <IconPicker value={styles.icon} onChange={(icon) => set({ icon })} />
-          <p className="mt-1 text-[11px] text-text-muted">
+          <p className="mt-1 text-2xs text-text-muted">
             Aparece junto do título (destaque, recolhível, card, banner) ou no topo da região.
           </p>
         </Section>
@@ -232,7 +232,7 @@ export function BlockPropertiesForm({
               ))}
             </div>
             {(!styles.width || styles.width === "full") && (
-              <p className="mt-1 text-[11px] text-text-muted">Defina uma largura menor que 100% para posicionar.</p>
+              <p className="mt-1 text-2xs text-text-muted">Defina uma largura menor que 100% para posicionar.</p>
             )}
           </Field>
           <Field label="Altura mínima">
@@ -336,7 +336,7 @@ export function BlockPropertiesForm({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
+      <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
       <div className="space-y-3">{children}</div>
     </section>
   );

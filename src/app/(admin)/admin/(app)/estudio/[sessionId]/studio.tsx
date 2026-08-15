@@ -319,7 +319,7 @@ export function Studio({
           >
             {n.titulo}
             {n.tipo === "article" && !n.doc?.blocks.length && (
-              <span className="ml-1.5 text-[0.6875rem] text-text-muted">(sem corpo)</span>
+              <span className="ml-1.5 text-2xs text-text-muted">(sem corpo)</span>
             )}
           </button>
           <button
@@ -466,7 +466,7 @@ export function Studio({
           </div>
 
           {materiais.length > 0 && (
-            <p className="border-t border-border px-3 py-1.5 text-[0.6875rem] text-text-muted">
+            <p className="border-t border-border px-3 py-1.5 text-2xs text-text-muted">
               Materiais: {materiais.map((m) => m.nome).join(" · ")}
             </p>
           )}

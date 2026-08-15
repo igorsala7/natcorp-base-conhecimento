@@ -89,11 +89,11 @@ export function Field({
 
 /** Label de formulário no padrão da referência: eyebrow em caps discreto. */
 export const eyebrowLabel =
-  "mb-1 block text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+  "mb-1 block text-2xs font-semibold uppercase tracking-[0.05em] text-text-muted";
 
 /** Eyebrow de seção: menor, mais pesado e mais espaçado que o rótulo. */
 export const eyebrow =
-  "text-[10px] font-bold uppercase tracking-[0.1em] text-brand-gray-400";
+  "text-2xs font-bold uppercase tracking-[0.1em] text-brand-gray-400";
 
 /** Ids de `aria-describedby` para ligar o input ao hint/erro do `Field`. */
 export function fieldAria(id: string, opts: { hint?: boolean; error?: boolean }) {

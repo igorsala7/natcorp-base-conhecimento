@@ -274,7 +274,7 @@ function RailList({
                   >
                     <ChevronRight
                       className={cn(
-                        "size-3 transition-transform duration-200 ease-out motion-reduce:transition-none",
+                        "size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none",
                         aberto && "rotate-90",
                       )}
                     />
@@ -308,7 +308,7 @@ function RailList({
                 >
                   <span className="min-w-0 [overflow-wrap:anywhere]">{node.title}</span>
                   {node.type === "link" && (
-                    <ExternalLink className="mt-0.5 size-3 shrink-0 opacity-60" aria-label="Link externo" />
+                    <ExternalLink className="mt-0.5 size-3.5 shrink-0 opacity-60" aria-label="Link externo" />
                   )}
                 </Link>
               </div>

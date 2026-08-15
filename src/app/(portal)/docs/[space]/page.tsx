@@ -92,7 +92,7 @@ export default async function SpaceHome({
           >
             <ArrowLeft className="size-4" /> {space.name}
           </Link>
-          <p className="mt-5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+          <p className="mt-5 text-2xs font-semibold uppercase tracking-[0.08em] text-primary">
             {tag ? "Tag" : "Autor"}
           </p>
           <h1 className="mt-1 text-[length:var(--l-page,var(--text-3xl))] font-semibold leading-tight">

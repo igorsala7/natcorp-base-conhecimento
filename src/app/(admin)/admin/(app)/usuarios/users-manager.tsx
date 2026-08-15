@@ -354,7 +354,7 @@ function UserCard({ user, onOpen }: { user: UserRow; onOpen: () => void }) {
         </span>
         {user.author && (
           <span className="flex items-center gap-1">
-            <UserRound className="size-3" /> {user.author.artigos} art.
+            <UserRound className="size-3.5" /> {user.author.artigos} art.
           </span>
         )}
       </div>
@@ -527,7 +527,7 @@ function UserDrawer({
                       {" "}
                       ·{" "}
                       <span className="inline-flex items-center gap-1 text-text">
-                        <FolderTree className="size-3" />
+                        <FolderTree className="size-3.5" />
                         {m.node_title ?? "diretório"}
                       </span>
                     </>

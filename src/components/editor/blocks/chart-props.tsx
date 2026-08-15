@@ -103,7 +103,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
             </option>
           ))}
         </Select>
-        <p className="mt-1 text-[0.6875rem] text-text-muted">
+        <p className="mt-1 text-2xs text-text-muted">
           Trocar o tipo mantém os dados — teste qual fica melhor.
         </p>
       </Grupo>
@@ -148,7 +148,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
                         title="Remover coluna"
                         className="shrink-0 text-text-muted hover:text-rose-600"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" />
                       </button>
                     </div>
                   </th>
@@ -184,7 +184,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
                       title="Remover linha"
                       className="text-text-muted hover:text-rose-600"
                     >
-                      <Trash2 className="size-3" />
+                      <Trash2 className="size-3.5" />
                     </button>
                   </td>
                 </tr>
@@ -236,7 +236,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
             ))}
         </div>
         {circular && d.series.length > 1 && (
-          <p className="mt-1 text-[0.6875rem] text-text-muted">
+          <p className="mt-1 text-2xs text-text-muted">
             Pizza/rosca usam a primeira série.
           </p>
         )}
@@ -278,7 +278,7 @@ export function ChartProps({ block, actions }: { block: ChartBlock; actions: Edi
 function Grupo({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+      <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-text-muted">
         {title}
       </p>
       {children}

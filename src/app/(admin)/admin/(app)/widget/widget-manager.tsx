@@ -244,7 +244,7 @@ function Previa({
       >
         {conteudo}
       </div>
-      <span className="text-[11px] text-fg-muted">{rotulo}</span>
+      <span className="text-2xs text-fg-muted">{rotulo}</span>
     </div>
   );
 

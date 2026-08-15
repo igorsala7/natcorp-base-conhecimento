@@ -36,7 +36,7 @@ export function ObjectProperties({ block, actions }: { block: Block; actions: Ed
                 setData({ rows: cells, hasHeader, cellColors: undefined });
               }}
             />
-            <p className="mt-1 text-[0.6875rem] text-text-muted">
+            <p className="mt-1 text-2xs text-text-muted">
               Cole do Excel/Sheets ou envie CSV/Excel — as colunas viram a tabela.
             </p>
           </Grupo>
@@ -264,7 +264,7 @@ export function ObjectProperties({ block, actions }: { block: Block; actions: Ed
 function Grupo({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
+      <h4 className="text-2xs font-semibold uppercase tracking-wide text-text-muted">{title}</h4>
       {children}
     </section>
   );

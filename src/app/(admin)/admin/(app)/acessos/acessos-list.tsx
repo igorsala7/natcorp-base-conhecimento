@@ -120,7 +120,7 @@ export function AcessosList({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="text-sm font-medium text-text">{a.title || "(sem título)"}</span>
-                    <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[0.6875rem] font-medium text-text-muted">{k.label}</span>
+                    <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-text-muted">{k.label}</span>
                   </div>
                   {a.path && <p className="truncate font-mono text-xs text-text-muted">/{a.path}</p>}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">{chips}</div>

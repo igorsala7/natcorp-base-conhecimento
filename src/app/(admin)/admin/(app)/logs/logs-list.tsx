@@ -154,7 +154,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-1.5">
             {verbo && (
-              <span className={`rounded px-1 py-0.5 font-mono text-[10px] font-bold ${corVerbo(verbo)}`}>{verbo}</span>
+              <span className={`rounded px-1 py-0.5 font-mono text-2xs font-bold ${corVerbo(verbo)}`}>{verbo}</span>
             )}
             <span className="font-mono text-sm font-medium text-text">{c.tool}</span>
             {c.familia && c.familia !== "integracao" && <Badge tone="neutral">{c.familia}</Badge>}
@@ -171,12 +171,12 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
             {c.guard && <Badge tone="danger">bloqueada</Badge>}
             {c.podado?.length ? <Badge tone="warning">log cortado</Badge> : null}
             {typeof c.duracaoMs === "number" && (
-              <span className="font-mono text-[11px] tabular-nums text-text-muted">{c.duracaoMs} ms</span>
+              <span className="font-mono text-2xs tabular-nums text-text-muted">{c.duracaoMs} ms</span>
             )}
           </span>
 
           {alvo && (
-            <span className="mt-0.5 block truncate font-mono text-[11px] text-text-muted" title={alvo.completo}>
+            <span className="mt-0.5 block truncate font-mono text-2xs text-text-muted" title={alvo.completo}>
               {alvo.curto}
             </span>
           )}
@@ -184,21 +184,21 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
           {visiveis.length > 0 && (
             <span className="mt-1 flex flex-wrap items-center gap-1">
               {visiveis.map(([k, v]) => (
-                <span key={k} className="inline-flex items-center gap-0.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px]">
+                <span key={k} className="inline-flex items-center gap-0.5 rounded bg-surface-2 px-1.5 py-0.5 text-2xs">
                   <span className="text-text-muted">{k}=</span>
                   <span className="font-medium text-text">{v || "—"}</span>
                 </span>
               ))}
-              {resto > 0 && <span className="text-[11px] text-text-muted">+{resto}</span>}
+              {resto > 0 && <span className="text-2xs text-text-muted">+{resto}</span>}
             </span>
           )}
 
           {c.erro && <span className="mt-1 block text-xs text-rose-600 dark:text-rose-300">{c.erro}</span>}
 
           {relato.sem_dados === true ? (
-            <span className="mt-1 block text-[11px] text-text-muted">Nenhum registro retornado.</span>
+            <span className="mt-1 block text-2xs text-text-muted">Nenhum registro retornado.</span>
           ) : relato.dataset ? (
-            <span className="mt-1 block text-[11px] text-text-muted">
+            <span className="mt-1 block text-2xs text-text-muted">
               {String(relato.total ?? "?")} registro(s)
               {relato.amostra_enviada !== undefined && ` · ${String(relato.amostra_enviada)} enviados ao modelo`}
               {` · ${String(relato.dataset)}`}
@@ -231,7 +231,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
 
           {c.guard && (
             <div className="rounded-lg border border-rose-300 bg-rose-500/5 p-2.5 dark:border-rose-900/60">
-              <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+              <p className="text-2xs font-semibold uppercase tracking-wide text-text-muted">
                 Bloqueada pela regra de acesso
               </p>
               <p className="mt-1 text-xs text-text">
@@ -243,7 +243,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
 
           {c.valores && c.valores.length > 0 && (
             <div>
-              <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+              <p className="mb-1 text-2xs font-semibold uppercase tracking-wide text-text-muted">
                 Valores consultados
               </p>
               <p className="font-mono text-xs text-text">{c.valores.join(", ")}</p>
@@ -252,7 +252,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
 
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+              <span className="text-2xs font-semibold uppercase tracking-wide text-text-muted">
                 Parâmetros enviados
               </span>
               <CopyButton text={pretty(c.params)} />
@@ -264,7 +264,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
 
           {c.relato && Object.keys(c.relato).length > 0 && (
             <div>
-              <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+              <p className="mb-1 text-2xs font-semibold uppercase tracking-wide text-text-muted">
                 O que o modelo recebeu
               </p>
               <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-surface-2 p-2.5 text-xs text-text">
@@ -273,7 +273,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
             </div>
           )}
 
-          <p className="text-[11px] text-text-muted">
+          <p className="text-2xs text-text-muted">
             A resposta da API não fica aqui — ela é registrada em{" "}
             <a className="text-primary hover:underline" href="/admin/integracoes">
               Integrações › Execuções
@@ -394,7 +394,7 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
         {rows.map((r) => {
           const aberta = abertas.has(r.id);
           const chips = CHIPS.filter(([k]) => r[k]).map(([k, label]) => (
-            <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-muted">
+            <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-2xs text-text-muted">
               <span className="font-medium">{label}:</span>
               <span className="text-text">{String(r[k])}</span>
             </span>
@@ -421,7 +421,7 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${corDesfecho(r.desfecho)}`}>
+                    <span className={`rounded px-1.5 py-0.5 text-2xs font-semibold ${corDesfecho(r.desfecho)}`}>
                       {r.desfecho ?? "—"}
                     </span>
                     {chips}
@@ -434,7 +434,7 @@ export function LogsList({ rows, limite }: { rows: ChatTraceRow[]; limite: numbe
                     {r.fonte && <span>fonte: {r.fonte}</span>}
                     {chamadas > 0 && (
                       <span className="inline-flex items-center gap-1 text-text">
-                        <Wrench className="size-3" />
+                        <Wrench className="size-3.5" />
                         {chamadas} chamada(s)
                         {/* Sem este número, um turno só de ferramentas locais parecia
                             "o cURL sumiu" — quando na verdade não houve requisição. */}

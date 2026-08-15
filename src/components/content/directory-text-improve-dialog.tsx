@@ -321,7 +321,7 @@ export function DirectoryTextImproveDialog({
 function DiffCol({ ops, side, rotulo }: { ops: DiffOp[]; side: "a" | "b"; rotulo: string }) {
   return (
     <div>
-      <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-wide text-text-muted">{rotulo}</p>
+      <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-text-muted">{rotulo}</p>
       <div className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg p-2.5 text-sm leading-relaxed">
         {ops.map((op, i) => {
           if (op.type === "eq") return <span key={i}>{op.text}</span>;

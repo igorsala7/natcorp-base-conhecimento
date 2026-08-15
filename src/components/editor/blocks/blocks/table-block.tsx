@@ -100,10 +100,10 @@ export function TableBlock({ block, onChange }: BlockEditProps) {
           Cabeçalho
         </label>
         <span className="h-3 w-px bg-border" />
-        <button type="button" onClick={addRow} className="flex items-center gap-1 hover:text-text"><Plus className="size-3" /> linha</button>
-        <button type="button" onClick={delRow} className="flex items-center gap-1 hover:text-text"><Minus className="size-3" /> linha</button>
-        <button type="button" onClick={addCol} className="flex items-center gap-1 hover:text-text"><Plus className="size-3" /> coluna</button>
-        <button type="button" onClick={delCol} className="flex items-center gap-1 hover:text-text"><Minus className="size-3" /> coluna</button>
+        <button type="button" onClick={addRow} className="flex items-center gap-1 hover:text-text"><Plus className="size-3.5" /> linha</button>
+        <button type="button" onClick={delRow} className="flex items-center gap-1 hover:text-text"><Minus className="size-3.5" /> linha</button>
+        <button type="button" onClick={addCol} className="flex items-center gap-1 hover:text-text"><Plus className="size-3.5" /> coluna</button>
+        <button type="button" onClick={delCol} className="flex items-center gap-1 hover:text-text"><Minus className="size-3.5" /> coluna</button>
 
         <span className="h-3 w-px bg-border" />
         <label className="flex items-center gap-1">
@@ -139,7 +139,7 @@ export function TableBlock({ block, onChange }: BlockEditProps) {
             onClick={() => aplicarCor(null)}
             className="flex size-5 items-center justify-center rounded-full border border-border text-text-muted hover:text-text disabled:opacity-40"
           >
-            <Ban className="size-3" />
+            <Ban className="size-3.5" />
           </button>
           {TABLE_COLORS.map((cor) => (
             <button

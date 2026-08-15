@@ -110,6 +110,31 @@ const config: Config = {
         prose: "72ch",
       },
       // Escala de RAIO — antes eram 5 valores soltos espalhados pelo código.
+      /**
+       * TIPOGRAFIA — a fiação que faltava.
+       *
+       * Os tokens `--text-*` existiam em globals.css e NUNCA chegavam ao JSX: a
+       * chave `fontSize` não existia aqui, então `text-4xl` resolvia para o
+       * default do Tailwind. Sem um degrau alcançável, 166 lugares escreveram
+       * `text-[Npx]` à mão — incluindo três grafias para o mesmo tamanho.
+       *
+       * TUPLA, não string: mapear só o tamanho descarta o line-height default e
+       * deixa o `line-height: 1.7` do body vazar para todo `text-xs`/`text-sm` —
+       * regressão silenciosa em mais de mil lugares. Os line-heights abaixo são
+       * exatamente os do Tailwind, de propósito: a única mudança visual desta
+       * fiação é `text-4xl`, que passa a ser fluido.
+       */
+      fontSize: {
+        "2xs": ["var(--text-2xs)", { lineHeight: "0.875rem" }],
+        xs: ["var(--text-xs)", { lineHeight: "1rem" }],
+        sm: ["var(--text-sm)", { lineHeight: "1.25rem" }],
+        base: ["var(--text-base)", { lineHeight: "1.5rem" }],
+        lg: ["var(--text-lg)", { lineHeight: "1.75rem" }],
+        xl: ["var(--text-xl)", { lineHeight: "1.75rem" }],
+        "2xl": ["var(--text-2xl)", { lineHeight: "2rem" }],
+        "3xl": ["var(--text-3xl)", { lineHeight: "2.25rem" }],
+        "4xl": ["var(--text-4xl)", { lineHeight: "1.1" }],
+      },
       borderRadius: {
         sm: "var(--radius-sm)",
         DEFAULT: "var(--radius-md)",

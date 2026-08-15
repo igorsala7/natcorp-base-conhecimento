@@ -127,7 +127,7 @@ function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
           <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-text-muted">
             <span className="truncate">/docs/{d.slug}</span>
             <span className="inline-flex items-center gap-1">
-              <vis.Icon className="size-3" /> {vis.rotulo}
+              <vis.Icon className="size-3.5" /> {vis.rotulo}
             </span>
           </div>
         </div>

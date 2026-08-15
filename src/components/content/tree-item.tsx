@@ -212,7 +212,7 @@ export function TreeItem({
                 : `Despublica em ${new Date(node.unpublish_at!).toLocaleString("pt-BR")}`
             }
           >
-            <CalendarClock aria-label="Publicação agendada" className="size-3" />
+            <CalendarClock aria-label="Publicação agendada" className="size-3.5" />
           </span>
         )}
       </button>

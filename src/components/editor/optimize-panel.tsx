@@ -95,7 +95,7 @@ export function OptimizePanel({
           {(issues ?? []).map((i, idx) => {
             const conteudo = (
               <>
-                <span className="flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+                <span className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-text-muted">
                   <span aria-hidden className={`size-1.5 rounded-full ${COR[i.impacto]}`} />
                   {ROTULO[i.impacto]}
                 </span>
@@ -120,7 +120,7 @@ export function OptimizePanel({
             );
           })}
         </ul>
-        <p className="mt-4 text-[0.6875rem] leading-relaxed text-text-muted">
+        <p className="mt-4 text-2xs leading-relaxed text-text-muted">
           A descrição do artigo é editada em Propriedades (árvore) — botão de lápis. Links
           externos são verificados pelo scan da documentação em Análises.
         </p>

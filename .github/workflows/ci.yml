@@ -26,6 +26,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Catraca de UI: falha se a dívida de componente SUBIR. Não exige zero —
+      # a migração é gradual; o que não pode é regredir enquanto ela anda.
+      - name: Dívida de UI
+        run: npm run verificar:ui
+
       - name: Testes
         run: npm test
 

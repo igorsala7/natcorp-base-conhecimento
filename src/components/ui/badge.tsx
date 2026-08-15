@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Etiqueta de estado. Existiam três escalas diferentes no admin
- * (`text-[10px]`, `text-xs`, `text-sm`) — aqui há uma só.
+ * (`text-2xs`, `text-xs`, `text-sm`) — aqui há uma só.
  *
  * A cor nunca carrega o significado sozinha: o texto do badge sempre diz o
  * estado por extenso ("Rascunho", "Publicado"), então quem não distingue as
@@ -29,7 +29,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.05em] leading-tight",
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-bold uppercase tracking-[0.05em] leading-tight",
         TONES[tone],
         className,
       )}

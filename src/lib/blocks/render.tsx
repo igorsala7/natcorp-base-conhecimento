@@ -218,7 +218,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               )}
             </div>
             {lang && (
-              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500">
+              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-brand-gray-500">
                 {lang}
               </span>
             )}
@@ -487,7 +487,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
           )}
           {eyebrow && (
             <p
-              className={`text-[0.6875rem] font-semibold uppercase tracking-[0.08em] ${
+              className={`text-2xs font-semibold uppercase tracking-[0.08em] ${
                 dark ? "text-white/70" : "text-primary"
               }`}
             >
@@ -589,7 +589,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
                     : "border-border-strong bg-surface"
                 }`}
               >
-                {item.checked && <Check className="size-3" />}
+                {item.checked && <Check className="size-3.5" />}
               </span>
               <span className={item.checked ? "text-text-muted line-through" : ""}>
                 {renderRich(item.text)}
@@ -782,7 +782,7 @@ export function FileCardView({ url, name, size }: { url: string; name: string; s
       >
         <span className="flex size-11 shrink-0 flex-col items-center justify-center rounded-md bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
           <FileDown className="size-4" aria-hidden />
-          <span className="mt-0.5 text-[0.5625rem] font-bold leading-none tracking-wide">
+          <span className="mt-0.5 text-2xs font-bold leading-none tracking-wide">
             {extensaoDoNome(rotulo)}
           </span>
         </span>

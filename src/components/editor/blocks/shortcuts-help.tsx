@@ -61,7 +61,7 @@ export function ShortcutsHelp({ onClose }: { onClose: () => void }) {
               {g.items.map(([keys, desc]) => (
                 <li key={keys} className="flex items-baseline justify-between gap-3 text-sm">
                   <span className="text-text-muted">{desc}</span>
-                  <kbd className="shrink-0 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text">
+                  <kbd className="shrink-0 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text">
                     {keys}
                   </kbd>
                 </li>

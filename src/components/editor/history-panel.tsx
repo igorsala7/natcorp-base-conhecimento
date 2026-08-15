@@ -197,19 +197,19 @@ export function HistoryPanel({
                   <li key={v.id} className="rounded-lg border border-border p-2 text-sm">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium">v{v.version}</span>
-                      {v.protected && <Lock className="size-3 text-primary" aria-label="Protegida" />}
-                      <span className="ml-auto text-[11px] text-text-muted">
+                      {v.protected && <Lock className="size-3.5 text-primary" aria-label="Protegida" />}
+                      <span className="ml-auto text-2xs text-text-muted">
                         {new Date(v.created_at).toLocaleString("pt-BR")}
                       </span>
                     </div>
                     {v.label && <p className="truncate text-xs text-text-muted">{v.label}</p>}
-                    {v.author && <p className="truncate text-[11px] text-text-muted">por {v.author}</p>}
+                    {v.author && <p className="truncate text-2xs text-text-muted">por {v.author}</p>}
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       <button className="rounded px-1.5 py-0.5 text-xs text-primary hover:bg-surface-2" onClick={() => view(v.id)}>Ver</button>
                       <button className="rounded px-1.5 py-0.5 text-xs text-text-muted hover:bg-surface-2" onClick={() => editLabel(v)}>Rótulo</button>
                       {canRestore && (
                         <button className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-text-muted hover:bg-surface-2 hover:text-primary" onClick={() => restore(v)}>
-                          <RotateCcw className="size-3" /> Restaurar
+                          <RotateCcw className="size-3.5" /> Restaurar
                         </button>
                       )}
                     </div>

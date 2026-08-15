@@ -140,10 +140,10 @@ export function MetadataCard({
             </button>
           )}
         </div>
-        <p className="mt-1 flex items-center gap-1 text-[0.6875rem] text-text-muted">
+        <p className="mt-1 flex items-center gap-1 text-2xs text-text-muted">
           {salvo ? (
             <span className="flex items-center gap-1 font-semibold text-emerald-600">
-              <Check className="size-3" /> Salvo
+              <Check className="size-3.5" /> Salvo
             </span>
           ) : slugLocal.trim() !== slug ? (
             "Trocar o slug cria um redirecionamento 301 do endereço antigo."

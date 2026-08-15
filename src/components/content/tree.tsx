@@ -857,7 +857,7 @@ export function Tree({
               title="Filtrar a árvore por estado"
               badge={
                 qtdFiltros > 0 ? (
-                  <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-4 text-white">
+                  <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-primary px-1 text-2xs font-bold leading-4 text-white">
                     {qtdFiltros}
                   </span>
                 ) : undefined
@@ -988,7 +988,7 @@ export function Tree({
                               {realceTitulo(f.node.title)}
                             </span>
                             {caminho && (
-                              <span className="block truncate text-[11px] text-text-muted">{caminho}</span>
+                              <span className="block truncate text-2xs text-text-muted">{caminho}</span>
                             )}
                           </span>
                         </button>
@@ -1014,7 +1014,7 @@ export function Tree({
               >
                 <span className={cn("size-1.5 rounded-full", f.cor)} />
                 {f.rotulo}
-                <X className="size-3" />
+                <X className="size-3.5" />
               </button>
             ))}
             <button

@@ -33,7 +33,7 @@ export function ChecklistBlock({ block, onChange }: BlockEditProps) {
                 : "border-border-strong bg-surface hover:border-primary"
             }`}
           >
-            {item.checked && <Check className="size-3" />}
+            {item.checked && <Check className="size-3.5" />}
           </button>
           <div className={`min-w-0 flex-1 ${item.checked ? "text-text-muted line-through" : ""}`}>
             <RichText

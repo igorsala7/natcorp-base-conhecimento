@@ -50,12 +50,12 @@ export function InlineArticleEditor({
         <span className="text-text-muted">
           {saveState === "saving" && (
             <span className="inline-flex items-center gap-1">
-              <Loader2 className="size-3 animate-spin" /> salvando…
+              <Loader2 className="size-3.5 animate-spin" /> salvando…
             </span>
           )}
           {saveState === "saved" && (
             <span className="inline-flex items-center gap-1">
-              <Check className="size-3" /> {hasDraft ? "salvo como rascunho" : "salvo"}
+              <Check className="size-3.5" /> {hasDraft ? "salvo como rascunho" : "salvo"}
             </span>
           )}
           {saveState === "error" && <span className="text-red-600">{erro}</span>}

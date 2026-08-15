@@ -256,7 +256,7 @@ export function SendToArticleDialog({
                 placeholder="Ex.: Relatórios / 2026"
                 className="w-full rounded-md border border-border bg-surface px-2.5 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
               />
-              <p className="mt-1 text-[0.6875rem] text-text-muted">
+              <p className="mt-1 text-2xs text-text-muted">
                 Separe por “/” para criar sub-pastas.
               </p>
             </div>

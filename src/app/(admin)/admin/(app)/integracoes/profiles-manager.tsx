@@ -125,7 +125,7 @@ export function ProfilesManager({
                     <span className="text-xs text-amber-600">sem módulo vinculado (não será acionado)</span>
                   ) : (
                     p.modulos.map((m) => (
-                      <span key={tagKey(m)} className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-muted">
+                      <span key={tagKey(m)} className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-text-muted">
                         {tagLabel(m)}
                       </span>
                     ))
@@ -299,7 +299,7 @@ function ProfileDialog({
                   title="Remover"
                 >
                   <span className="truncate">{tagLabel(parseTagKey(k))}</span>
-                  <X className="size-3 shrink-0" />
+                  <X className="size-3.5 shrink-0" />
                 </button>
               ))}
             </div>

@@ -121,7 +121,7 @@ export default async function AuditoriaPage({
                         <summary className="cursor-pointer text-xs text-primary">
                           antes/depois
                         </summary>
-                        <pre className="mt-1 max-w-md overflow-x-auto rounded-sm bg-surface-2 p-2 text-[11px] leading-tight text-text">
+                        <pre className="mt-1 max-w-md overflow-x-auto rounded-sm bg-surface-2 p-2 text-2xs leading-tight text-text">
                           {JSON.stringify({ before: e.before, after: e.after }, null, 2)}
                         </pre>
                       </details>

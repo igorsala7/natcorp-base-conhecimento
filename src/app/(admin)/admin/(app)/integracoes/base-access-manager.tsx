@@ -262,7 +262,7 @@ export function BaseAccessManager({ bases, tools, baseTools }: Props) {
                         on ? "border-primary bg-primary text-white" : "border-border",
                       )}
                     >
-                      {on && <Check className="size-3" />}
+                      {on && <Check className="size-3.5" />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-text">

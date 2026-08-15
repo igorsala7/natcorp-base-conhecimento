@@ -225,11 +225,11 @@ export function GlobalFindReplace({
                         <span className="truncate font-medium text-text hover:text-primary hover:underline">
                           {h.title || "(sem título)"}
                         </span>
-                        <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                        <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-2xs font-semibold text-primary">
                           {h.count}
                         </span>
                         {h.hasDraft && (
-                          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600">
+                          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-2xs font-medium text-amber-600">
                             rascunho
                           </span>
                         )}
@@ -238,7 +238,7 @@ export function GlobalFindReplace({
                         <div className="mt-0.5 truncate pl-6 text-xs text-text-muted">{h.path}</div>
                       )}
                       <div className="mt-1 flex items-start gap-1 pl-6 text-xs text-text-muted">
-                        <CornerDownRight className="mt-0.5 size-3 shrink-0" />
+                        <CornerDownRight className="mt-0.5 size-3.5 shrink-0" />
                         <span className="truncate font-mono">
                           {h.snippetBefore}
                           <mark className="rounded bg-amber-200/70 px-0.5 text-text dark:bg-amber-400/30">

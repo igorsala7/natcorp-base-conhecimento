@@ -41,7 +41,7 @@ export function Toc({ items }: { items: TocItem[] }) {
 
   return (
     <nav aria-label="Índice da página" className="text-[0.8125rem]">
-      <div className="mb-2 flex items-center gap-1.5 text-[0.6875rem] font-bold uppercase tracking-wider text-text-muted">
+      <div className="mb-2 flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-text-muted">
         <List className="size-3.5" /> Nesta página
       </div>
       <ul className="border-l border-border">

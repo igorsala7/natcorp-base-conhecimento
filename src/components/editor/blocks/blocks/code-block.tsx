@@ -20,7 +20,7 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
           )}
         </div>
         {b.data.language && (
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-brand-gray-500">
+          <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.1em] text-brand-gray-500">
             {b.data.language}
           </span>
         )}

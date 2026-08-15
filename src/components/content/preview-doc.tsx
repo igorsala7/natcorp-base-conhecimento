@@ -245,7 +245,7 @@ export function PreviewDoc({
                     {depth <= 1 && divider === "band" ? (
                       <div className="rounded-xl bg-brand-purple-50 px-5 py-4 dark:bg-brand-purple-950/30">
                         <div className="flex items-center gap-2">
-                          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+                          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-primary">
                             Seção
                           </p>
                           {selo}
@@ -257,7 +257,7 @@ export function PreviewDoc({
                     ) : (
                       <>
                         <div className="flex items-center gap-2">
-                          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-text-muted">
                             Seção
                           </p>
                           {selo}

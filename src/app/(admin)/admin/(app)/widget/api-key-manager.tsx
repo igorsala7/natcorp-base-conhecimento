@@ -432,7 +432,7 @@ function Bloco({ titulo, codigo }: { titulo: string; codigo: string }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">{titulo}</span>
+        <span className="text-2xs font-semibold uppercase tracking-wide text-text-muted">{titulo}</span>
         <CopyButton text={codigo} />
       </div>
       <pre className="overflow-x-auto rounded-lg border border-brand-gray-800 bg-brand-gray-950 p-3 font-mono text-xs leading-relaxed text-brand-gray-100">

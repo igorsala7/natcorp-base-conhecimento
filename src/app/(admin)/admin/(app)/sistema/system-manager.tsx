@@ -295,7 +295,7 @@ function AbaIA({
                     <Td>
                       {temChave[p.id] ? (
                         <Badge tone="success">
-                          <KeyRound className="size-3" /> gravada
+                          <KeyRound className="size-3.5" /> gravada
                         </Badge>
                       ) : (
                         <Badge tone="neutral">sem chave</Badge>

@@ -181,7 +181,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
 function Grupo({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-muted">
+      <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-text-muted">
         {title}
       </p>
       {children}

@@ -169,7 +169,7 @@ export function SlashMenu({ rect, onSelect, onClose, onSelectChart, snippets = [
           {sub !== "chart" &&
             groups.map((g) => (
             <div key={g.cat.key}>
-              <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              <p className="px-2 pb-0.5 pt-2 text-2xs font-medium uppercase tracking-wide text-text-muted">
                 {g.cat.label}
               </p>
               {g.items.map((b: BlockMeta) => {
@@ -208,7 +208,7 @@ export function SlashMenu({ rect, onSelect, onClose, onSelectChart, snippets = [
                         <Icon className="size-4" />
                       </span>
                       <span className="flex-1">{c.label}</span>
-                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-muted">Em breve</span>
+                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-text-muted">Em breve</span>
                     </div>
                   );
                 })}
@@ -216,7 +216,7 @@ export function SlashMenu({ rect, onSelect, onClose, onSelectChart, snippets = [
           ))}
           {sub !== "chart" && snippetsFiltrados.length > 0 && (
             <div>
-              <p className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              <p className="px-2 pb-0.5 pt-2 text-2xs font-medium uppercase tracking-wide text-text-muted">
                 Snippets (reutilizáveis)
               </p>
               {snippetsFiltrados.map((sn) => {
@@ -232,7 +232,7 @@ export function SlashMenu({ rect, onSelect, onClose, onSelectChart, snippets = [
                       active === i ? "bg-surface-2" : ""
                     }`}
                   >
-                    <span className="flex size-7 items-center justify-center rounded-md border border-dashed border-border text-[10px] font-semibold">
+                    <span className="flex size-7 items-center justify-center rounded-md border border-dashed border-border text-2xs font-semibold">
                       ↺
                     </span>
                     {sn.title}

@@ -26,7 +26,7 @@ export function BlockPalette({
 
   return (
     <div className="space-y-4">
-      <p className="rounded-md border border-brand-purple-100 bg-brand-purple-50/60 px-3 py-2.5 text-[11px] leading-[1.6] text-brand-purple-800 dark:border-brand-purple-900 dark:bg-brand-purple-950/40 dark:text-brand-purple-200">
+      <p className="rounded-md border border-brand-purple-100 bg-brand-purple-50/60 px-3 py-2.5 text-2xs leading-[1.6] text-brand-purple-800 dark:border-brand-purple-900 dark:bg-brand-purple-950/40 dark:text-brand-purple-200">
         <strong>Arraste</strong> um bloco para o artigo ou <strong>clique</strong> para
         adicioná-lo ao final.
       </p>
@@ -47,7 +47,7 @@ export function BlockPalette({
                     <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-muted">
                       {c.label}
                     </span>
-                    <span className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[0.625rem] font-semibold text-text-muted">
+                    <span className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-text-muted">
                       Em breve
                     </span>
                   </div>
@@ -85,7 +85,7 @@ export function BlockPalette({
                 </IconBox>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-semibold">{sn.title}</span>
-                  <span className="block truncate text-[10px] text-brand-gray-400">
+                  <span className="block truncate text-2xs text-brand-gray-400">
                     {sn.key}
                   </span>
                 </span>
@@ -101,7 +101,7 @@ export function BlockPalette({
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-1.5 px-1 text-[0.625rem] font-bold uppercase tracking-widest text-text-muted">
+    <p className="mb-1.5 px-1 text-2xs font-bold uppercase tracking-widest text-text-muted">
       {children}
     </p>
   );
@@ -139,7 +139,7 @@ function PaletteItem({ meta, onAdd }: { meta: BlockMeta; onAdd: (t: BlockType) =
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-semibold">{meta.label}</span>
         {meta.description && (
-          <span className="block truncate text-[10px] text-brand-gray-400">
+          <span className="block truncate text-2xs text-brand-gray-400">
             {meta.description}
           </span>
         )}

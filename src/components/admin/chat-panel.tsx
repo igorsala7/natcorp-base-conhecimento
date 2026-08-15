@@ -386,7 +386,7 @@ export function ChatPanel({
                             [{c.n}] {c.title}
                           </span>
                           {c.heading_path && (
-                            <span className="block truncate text-[11px] text-text-muted">
+                            <span className="block truncate text-2xs text-text-muted">
                               {c.heading_path}
                             </span>
                           )}
@@ -399,7 +399,7 @@ export function ChatPanel({
               )}
               {m.role === "assistant" && m.usage && (m.usage.total ?? 0) > 0 && (
                 <p
-                  className="mt-1.5 text-[11px] tabular-nums text-text-muted"
+                  className="mt-1.5 text-2xs tabular-nums text-text-muted"
                   title="Tokens consumidos neste turno (entrada + saída)"
                 >
                   {fmtNum(m.usage.total ?? 0)} tokens

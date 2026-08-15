@@ -40,8 +40,8 @@ export function BlockMenu({ block, actions }: { block: Block; actions: EditorAct
         >
           {transforms.length > 0 && (
             <>
-              <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
-                <Shuffle className="mr-1 inline size-3" /> Transformar em
+              <p className="px-2 py-1 text-2xs font-medium uppercase tracking-wide text-text-muted">
+                <Shuffle className="mr-1 inline size-3.5" /> Transformar em
               </p>
               <div className="mb-1 flex flex-wrap gap-1 px-1">
                 {transforms.map((t) => {
@@ -57,7 +57,7 @@ export function BlockMenu({ block, actions }: { block: Block; actions: EditorAct
                       }}
                       className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary"
                     >
-                      <Icon className="size-3" /> {meta.label}
+                      <Icon className="size-3.5" /> {meta.label}
                     </button>
                   );
                 })}

@@ -352,7 +352,7 @@ export default async function DocsPage({
                 // Faixa com o fundo suave da marca: título de DIRETÓRIO nunca
                 // se confunde com título de conteúdo.
                 <div className="rounded-xl bg-brand-purple-50 px-5 py-4 dark:bg-brand-purple-950/30">
-                  <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-primary">
+                  <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-primary">
                     Seção
                   </p>
                   {/* Título de seção ~2x o corpo. */}
@@ -362,7 +362,7 @@ export default async function DocsPage({
                 </div>
               ) : (
                 <>
-                  <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-text-muted">
                     Seção
                   </p>
                   <h2
@@ -435,7 +435,7 @@ export default async function DocsPage({
                     <Link
                       key={t.slug}
                       href={`/docs/${spaceSlug}?tag=${t.slug}`}
-                      className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] text-text-muted no-underline transition-colors hover:border-primary hover:text-primary"
+                      className="rounded-full border border-border px-2 py-0.5 text-2xs text-text-muted no-underline transition-colors hover:border-primary hover:text-primary"
                     >
                       {t.name}
                     </Link>
@@ -493,7 +493,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-brand-gray-400">← Anterior</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">← Anterior</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {prevGroup.title}
               </span>
@@ -506,7 +506,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 text-right no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-[0.6875rem] font-bold uppercase tracking-wider text-brand-gray-400">Próximo →</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">Próximo →</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {nextGroup.title}
               </span>

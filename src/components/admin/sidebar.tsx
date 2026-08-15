@@ -174,7 +174,7 @@ export function Sidebar() {
               <span className="block truncate text-sm font-bold text-white">
                 Base de Conhecimento
               </span>
-              <span className="block text-[0.625rem] font-medium uppercase tracking-widest text-brand-gray-500">
+              <span className="block text-2xs font-medium uppercase tracking-widest text-brand-gray-500">
                 Studio
               </span>
             </span>
@@ -189,7 +189,7 @@ export function Sidebar() {
                   // Recolhida não há espaço para o rótulo: o grupo vira um traço.
                   <div className="mx-2 mb-2 border-t border-brand-gray-800" aria-hidden="true" />
                 ) : (
-                  <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-brand-gray-500">
+                  <p className="mb-1 px-3 text-2xs font-semibold uppercase tracking-wider text-brand-gray-500">
                     {grupo.label}
                   </p>
                 ))}

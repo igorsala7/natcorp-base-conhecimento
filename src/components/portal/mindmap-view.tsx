@@ -254,7 +254,7 @@ function Canvas({
                       toggle(n.id, true);
                     }}
                     aria-label={n.collapsed ? "Expandir" : "Retrair"}
-                    className="shrink-0 text-[10px] text-text-muted hover:text-primary"
+                    className="shrink-0 text-2xs text-text-muted hover:text-primary"
                   >
                     {n.collapsed ? "▸" : "▾"}
                   </button>
@@ -278,7 +278,7 @@ function Canvas({
                     title={nd.link}
                     className="shrink-0 text-text-muted hover:text-primary"
                   >
-                    <ExternalLink className="size-3" />
+                    <ExternalLink className="size-3.5" />
                   </a>
                 )}
               </div>

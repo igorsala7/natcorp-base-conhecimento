@@ -289,7 +289,7 @@ export function FolderPanel({
             ] as const
           ).map(([rotulo, n]) => (
             <div key={rotulo} className="rounded-lg border border-border px-3 py-2.5">
-              <dt className="text-[0.6875rem] font-semibold uppercase tracking-wider text-text-muted">
+              <dt className="text-2xs font-semibold uppercase tracking-wider text-text-muted">
                 {rotulo}
               </dt>
               <dd className="mt-0.5 text-xl font-semibold tabular-nums">{n}</dd>

@@ -190,7 +190,7 @@ export default async function AdminHome() {
                   </div>
                   {a.util !== null && (
                     <div className="w-28 shrink-0">
-                      <div className="mb-1 flex justify-between text-[0.625rem] font-semibold text-text-muted">
+                      <div className="mb-1 flex justify-between text-2xs font-semibold text-text-muted">
                         <span>Útil</span>
                         <span>{a.util}%</span>
                       </div>
@@ -247,7 +247,7 @@ export default async function AdminHome() {
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{d.title}</span>
-                      <span className="block text-[0.6875rem] text-amber-700 dark:text-amber-400">
+                      <span className="block text-2xs text-amber-700 dark:text-amber-400">
                         Editado em {new Date(d.updated_at).toLocaleDateString("pt-BR")}
                       </span>
                     </span>

@@ -206,10 +206,10 @@ export function ConversasList({
                         {(totIn > 0 || totOut > 0) && (
                           <>
                             <span className="inline-flex items-center gap-0.5 text-brand-purple-700">
-                              <ArrowUp className="size-3" />{numTok(totIn)}
+                              <ArrowUp className="size-3.5" />{numTok(totIn)}
                             </span>
                             <span className="inline-flex items-center gap-0.5 text-brand-blue-700">
-                              <ArrowDown className="size-3" />{numTok(totOut)}
+                              <ArrowDown className="size-3.5" />{numTok(totOut)}
                             </span>
                           </>
                         )}
@@ -217,10 +217,10 @@ export function ConversasList({
                       </span>
                     )}
                     {votos.up > 0 && (
-                      <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3" />{votos.up}</span>
+                      <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3.5" />{votos.up}</span>
                     )}
                     {votos.down > 0 && (
-                      <span className="inline-flex items-center gap-1 text-rose-600"><ThumbsDown className="size-3" />{votos.down}</span>
+                      <span className="inline-flex items-center gap-1 text-rose-600"><ThumbsDown className="size-3.5" />{votos.down}</span>
                     )}
                     {c.session_id && <span className="font-mono opacity-70">{c.session_id.slice(0, 12)}</span>}
                   </span>
@@ -255,7 +255,7 @@ export function ConversasList({
                         >
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
                             <span
-                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                              className={`rounded px-1.5 py-0.5 text-2xs font-semibold ${
                                 usuario
                                   ? "bg-brand-purple-100 text-brand-purple-700 dark:bg-brand-purple-900/40 dark:text-brand-purple-200"
                                   : "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/40 dark:text-brand-blue-200"
@@ -263,18 +263,18 @@ export function ConversasList({
                             >
                               {usuario ? "Usuário" : "Assistente"}
                             </span>
-                            {m.feedback === 1 && <ThumbsUp className="size-3 text-emerald-600" />}
-                            {m.feedback === -1 && <ThumbsDown className="size-3 text-rose-600" />}
+                            {m.feedback === 1 && <ThumbsUp className="size-3.5 text-emerald-600" />}
+                            {m.feedback === -1 && <ThumbsDown className="size-3.5 text-rose-600" />}
                             <span className="font-mono tabular-nums opacity-80">{dataHoraSeg(m.created_at)}</span>
                             {typeof m.latency_ms === "number" && <span>{m.latency_ms} ms</span>}
                             {entrada != null && (
                               <span className="inline-flex items-center gap-0.5 text-brand-purple-700" title="Tokens de entrada (envio do usuário)">
-                                <ArrowUp className="size-3" />{numTok(entrada)} tok
+                                <ArrowUp className="size-3.5" />{numTok(entrada)} tok
                               </span>
                             )}
                             {saida != null && (
                               <span className="inline-flex items-center gap-0.5 text-brand-blue-700" title="Tokens de saída (resposta do chatbot)">
-                                <ArrowDown className="size-3" />{numTok(saida)} tok
+                                <ArrowDown className="size-3.5" />{numTok(saida)} tok
                               </span>
                             )}
                             {!usuario && saida == null && m.tokens != null && (
