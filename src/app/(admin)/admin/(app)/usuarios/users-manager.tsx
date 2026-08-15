@@ -120,10 +120,10 @@ function AvatarUpload({
   );
 }
 
-function InviteSubmit() {
+function InviteSubmit({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || disabled}>
       {pending ? "Convidando…" : "Convidar"}
     </Button>
   );
@@ -134,12 +134,14 @@ function InviteDialog({
   open,
   onClose,
   roles,
+  spaces,
   actorLevel,
   onDone,
 }: {
   open: boolean;
   onClose: () => void;
   roles: Role[];
+  spaces: SpaceOption[];
   actorLevel: number;
   onDone: (msg: string) => void;
 }) {
@@ -150,6 +152,25 @@ function InviteDialog({
   }, undefined);
   const assignable = roles.filter((r) => r.level < actorLevel);
   const [papelConvite, setPapelConvite] = useState(assignable[0]?.key ?? "");
+  /**
+   * ESCOPO É ESCOLHA, NÃO OMISSÃO.
+   *
+   * O campo não existia: `actions.ts` lia `spaceId` do FormData, o formulário
+   * nunca o enviava, e o membership nascia com `space_id = null` — que significa
+   * TODAS as documentações. Convidar um "Editor" concedia edição no tenant
+   * inteiro, e o diálogo não mencionava escopo em lugar nenhum.
+   *
+   * O bug cortava nos dois sentidos: com `spaceId` nulo, a linha
+   * `requirePermission("user.invite", null)` passava a exigir permissão GLOBAL —
+   * então um Gestor com escopo numa documentação não conseguia convidar nem
+   * para a documentação dele.
+   *
+   * Nasce vazio de propósito. Um padrão aqui seria a mesma omissão com outra
+   * roupa: quem não olha o campo continuaria concedendo o que não pretendia.
+   */
+  const [escopo, setEscopo] = useState("");
+  const papelEscolhido = assignable.find((r) => r.key === papelConvite);
+  const escopoGlobal = escopo === "__todas";
   return (
     <Dialog
       open={open}
@@ -183,11 +204,46 @@ function InviteDialog({
             options={assignable.map((r) => ({ value: r.key, label: r.name, hint: `nível ${r.level}` }))}
           />
         </Field>
+        <Field
+          label="Documentação"
+          htmlFor="invite-space"
+          required
+          hint="Onde esta pessoa vai atuar. Dá para conceder mais acesso depois, no cartão dela."
+        >
+          <input type="hidden" name="spaceId" value={escopoGlobal ? "" : escopo} />
+          <Select
+            id="invite-space"
+            value={escopo}
+            onChange={setEscopo}
+            className="h-10 w-full"
+            aria-label="Documentação do convite"
+            placeholder="Escolha uma documentação"
+            options={[
+              ...spaces.map((sp) => ({ value: sp.id, label: sp.name })),
+              { value: "__todas", label: "Todas as documentações", hint: "acesso amplo" },
+            ]}
+          />
+        </Field>
+
+        {/* O acesso amplo continua possível — só deixa de ser o que acontece
+            quando ninguém olha. Dito por extenso, com o papel no meio da frase,
+            porque "todas as documentações" só assusta quando se sabe o que a
+            pessoa poderá fazer nelas. */}
+        {escopoGlobal && (
+          <p
+            role="alert"
+            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <strong>{papelEscolhido?.name ?? "Este papel"}</strong> em <strong>todas</strong> as documentações —
+            inclusive nas que forem criadas depois.
+          </p>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
-          <InviteSubmit />
+          <InviteSubmit disabled={!escopo} />
         </div>
       </form>
     </Dialog>
@@ -283,6 +339,7 @@ export function UsersManager({
           open={showInvite}
           onClose={() => setShowInvite(false)}
           roles={roles}
+          spaces={spaces}
           actorLevel={actorLevel}
           onDone={(msg) => {
             toast.success(msg);
