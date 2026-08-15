@@ -3789,6 +3789,7 @@ export type Database = {
       search_logs: {
         Row: {
           created_at: string
+          origin: string
           id: string
           query: string
           results_count: number
@@ -3797,6 +3798,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          origin?: string
           id?: string
           query: string
           results_count?: number
@@ -3805,6 +3807,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          origin?: string
           id?: string
           query?: string
           results_count?: number

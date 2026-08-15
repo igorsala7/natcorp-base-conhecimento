@@ -28,7 +28,8 @@ export default async function AdminHome() {
       supabase.from("nodes").select("id", { count: "exact", head: true }).eq("type", "article").eq("status", "published").is("deleted_at", null),
       supabase.from("nodes").select("id", { count: "exact", head: true }).eq("status", "review").is("deleted_at", null),
       supabase.from("conversations").select("id", { count: "exact", head: true }),
-      supabase.from("search_logs").select("id", { count: "exact", head: true }).eq("results_count", 0),
+      // Só o portal: busca do admin é o time procurando, não leitor sem resposta.
+      supabase.from("search_logs").select("id", { count: "exact", head: true }).eq("results_count", 0).eq("origin", "portal"),
       supabase.from("article_views").select("node_id, views"),
       supabase.from("article_feedback").select("node_id, helpful"),
       supabase

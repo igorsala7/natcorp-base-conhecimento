@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, FileText, Search } from "lucide-react";
-import { searchContent, type SearchHit } from "@/app/(admin)/admin/(app)/search-actions";
+import { searchContent, registrarBusca, type SearchHit } from "@/app/(admin)/admin/(app)/search-actions";
 import { eyebrowLabel } from "@/components/ui/field";
 
 const RECENT_KEY = "kb.recentSearches";
@@ -78,12 +78,20 @@ export function CommandPalette() {
 
   const go = useCallback(
     (hit: SearchHit) => {
-      if (query.trim()) saveRecent(query.trim());
+      const q = query.trim();
+      if (q) {
+        saveRecent(q);
+        // O registro acontece AQUI, quando a busca serviu — não a cada tecla.
+        // Antes, digitar "férias" gravava `fé`, `féri`, `féria`, `férias`: três
+        // linhas com zero resultado alimentando a métrica de "lacuna de
+        // documentação" do Painel. O time fabricava buraco de conteúdo digitando.
+        void registrarBusca(q, hits.length, "admin");
+      }
       setOpen(false);
       setQuery("");
       router.push(`/admin/conteudo/${hit.node_id}`);
     },
-    [router, query],
+    [router, query, hits.length],
   );
 
   function onKeyDown(e: React.KeyboardEvent) {

@@ -13,8 +13,11 @@ export type SearchHit = {
 export type SearchResult = { hits: SearchHit[]; error?: string };
 
 /**
- * Busca híbrida (full-text + trigram, fundidos por RRF na RPC). Registra a
- * consulta em search_logs — buscas sem resultado revelam lacunas da doc.
+ * Busca híbrida (full-text + trigram, fundidos por RRF na RPC).
+ *
+ * NÃO registra nada: quem registra é `registrarBusca`, chamado por intenção.
+ * Ver o comentário lá — gravar a cada tecla fazia o próprio time fabricar
+ * "lacunas de documentação" ao digitar.
  */
 export async function searchContent(
   query: string,
@@ -38,12 +41,39 @@ export async function searchContent(
     return { hits: [], error: "A busca falhou. Tente novamente." };
   }
 
-  const hits = (data ?? []) as SearchHit[];
+  return { hits: (data ?? []) as SearchHit[] };
+}
+
+/**
+ * Registra a busca — por INTENÇÃO, não por tecla.
+ *
+ * A busca tem debounce e gravava a cada consulta: digitar "férias" produzia
+ * `fé`, `féri`, `féria`, `férias` — quatro linhas, três com zero resultado. E
+ * `results_count = 0` é justamente o que o Painel conta como "buscas sem
+ * resultado" e Análises como "lacuna de conteúdo". A métrica crescia com o ato
+ * de digitar.
+ *
+ * Agora só é chamado quando a pessoa ABRE um resultado (a busca serviu) ou
+ * insiste numa consulta sem retorno (a busca falhou de verdade). Os dois são
+ * intenção declarada; o resto é a pessoa pensando em voz alta.
+ *
+ * A origem separa quem procurou. O time interno procura de outro jeito —
+ * "flow-canvas", o nome de um cliente — e contar isso junto com "como pedir
+ * férias" mistura duas perguntas diferentes.
+ */
+export async function registrarBusca(
+  query: string,
+  resultados: number,
+  origem: "portal" | "widget" | "admin",
+  spaceId?: string | null,
+): Promise<void> {
+  const q = query.trim();
+  if (q.length < 2) return;
+  const supabase = await createClient();
   await supabase.from("search_logs").insert({
     query: q,
-    results_count: hits.length,
+    results_count: resultados,
     space_id: spaceId ?? null,
+    origin: origem,
   });
-
-  return { hits };
 }

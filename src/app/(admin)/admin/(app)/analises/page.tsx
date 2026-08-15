@@ -54,7 +54,8 @@ export default async function AnalisesPage() {
 
   const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }, { data: views }, { data: quality }, { data: spacesList }] =
     await Promise.all([
-      supabase.from("search_logs").select("query, results_count").order("created_at", { ascending: false }).limit(3000),
+      // Idem: lacuna de documentação é o que o LEITOR não achou.
+      supabase.from("search_logs").select("query, results_count").eq("origin", "portal").order("created_at", { ascending: false }).limit(3000),
       supabase.from("messages").select("role, feedback, latency_ms, content").eq("role", "assistant").order("created_at", { ascending: false }).limit(2000),
       supabase.from("conversations").select("id", { count: "exact", head: true }),
       supabase.from("article_feedback").select("node_id, helpful").order("created_at", { ascending: false }).limit(2000),

@@ -152,7 +152,16 @@ export async function searchPortal(
   const rows = (data ?? []).filter((r): r is typeof r & { node_id: string } => !!r.node_id);
 
   // Loga a busca (alimenta as Análises de lacunas). Best-effort.
+  //
+  // `origin` explícito, apesar de ser o default da coluna: é aqui que a métrica
+  // de lacuna de documentação de fato nasce, e deixar isso implícito convidaria
+  // a próxima origem a esquecer de se declarar.
+  //
+  // Continua gravando por TECLA — a busca dispara a cada 150ms. Diferente do
+  // admin, aqui o ruído não é corrigível só no servidor: exige o cliente avisar
+  // quando o leitor abriu um resultado ou desistiu. Fica para a rodada do portal.
   await db.from("search_logs").insert({
+    origin: "portal",
     query: q,
     results_count: rows.length,
     space_id: space.id,
