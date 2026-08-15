@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/admin/sidebar";
 import { permissoesDo } from "@/lib/auth/permissions";
+import { SeletorDocumentacao } from "@/components/admin/seletor-documentacao";
+import { resolvedSpaceId } from "@/lib/content/current-space";
 import { Topbar } from "@/components/admin/topbar";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -47,13 +49,32 @@ export default async function AppLayout({
 
   const permissoes = await permissoesDo();
 
+  // A lista e o que o COOKIE dizia. A URL (`?space=`) o layout não enxerga — no
+  // App Router `searchParams` não chega aqui —, então quem completa a ordem de
+  // resolução é o próprio seletor, no cliente. Ver o comentário dele.
+  const supabaseEspacos = await createClient();
+  const { data: espacos } = await supabaseEspacos
+    .from("spaces")
+    .select("id, name")
+    .order("name");
+  const espacoDoCookie = await resolvedSpaceId(undefined, espacos ?? []);
+
   return (
     <ToastProvider>
       <ConfirmProvider>
         <LoaderProvider>
           <NavProvider>
             <div className="flex h-dvh overflow-hidden bg-bg text-text">
-              <Sidebar permissoes={[...permissoes]} />
+              <Sidebar
+                permissoes={[...permissoes]}
+                seletor={
+                  <SeletorDocumentacao
+                    espacos={espacos ?? []}
+                    atualDoServidor={espacoDoCookie}
+                    podeCriar={permissoes.has("space.create")}
+                  />
+                }
+              />
               <div className="flex flex-1 flex-col overflow-hidden">
                 <Topbar email={user.email ?? ""} />
                 {/* Páginas "de tela cheia" (editor/árvore) marcam o próprio raiz
