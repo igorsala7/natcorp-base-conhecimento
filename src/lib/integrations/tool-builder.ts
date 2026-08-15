@@ -724,7 +724,8 @@ export async function buildIntegrationTools(
               const invento = valores.find((x) => !temProcedencia(x, fonte));
               if (invento !== undefined) {
                 onPasso?.("procedencia_bloqueada", { ...marca, tool: bt.tool.key, param: k, valor: String(invento) });
-                return recusaSemProcedencia(k, invento);
+                // As ferramentas DO TURNO: a recusa nomeia uma que exista aqui.
+                return recusaSemProcedencia(k, invento, selecionadas.map((e) => e.bt.tool.key));
               }
             }
           }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { temProcedencia, ehParamDePessoa, normalizarId, recusaSemProcedencia } from "./procedencia";
+import { temProcedencia, ehParamDePessoa, normalizarId, recusaSemProcedencia, resolvedoraDeNome } from "./procedencia";
 
 /** O caso real: 269084 não existia em nenhum campo de nenhum dos 96 registros. */
 const fonte = {
@@ -59,11 +59,29 @@ describe("ehParamDePessoa", () => {
 });
 
 describe("recusaSemProcedencia", () => {
-  it("manda buscar pelo nome e proíbe repetir o número", () => {
-    const r = recusaSemProcedencia("matricula", 269084) as Record<string, string>;
+  const TOOLS = ["consultar_ferias", "informacoes_pessoais_funcionais_resumido", "linha_tempo"];
+
+  it("NOMEIA a ferramenta que resolve nome → matrícula", () => {
+    // "Consulte o cadastro" é instrução que o modelo interpreta — e ele já
+    // mostrou o que faz quando interpreta.
+    const r = recusaSemProcedencia("matricula", 269084, TOOLS) as Record<string, string>;
     expect(r._erro).toMatch(/BLOQUEADA/);
     expect(r._erro).toMatch(/Não repita este número/);
-    expect(r._erro).toMatch(/consulte primeiro o cadastro/i);
+    expect(r._erro).toContain("informacoes_pessoais_funcionais_resumido");
+    expect(r._erro).toMatch(/use a MATRÍCULA que vier ali/);
+  });
+
+  it("sem resolvedora no turno, manda PEDIR a matrícula", () => {
+    // Mandar chamar algo que não está no turno seria empurrar para outro erro.
+    const r = recusaSemProcedencia("matricula", 1, ["consultar_ferias"]) as Record<string, string>;
+    expect(r._erro).toMatch(/PEÇA a matrícula/);
+    expect(r._erro).toMatch(/não tente adivinhar/i);
+  });
+
+  it("prefere a versão resumida à completa", () => {
+    expect(resolvedoraDeNome(["informacoes_pessoais_funcionais", "informacoes_pessoais_funcionais_resumido"]))
+      .toBe("informacoes_pessoais_funcionais_resumido");
+    expect(resolvedoraDeNome(["consultar_ferias"])).toBeNull();
   });
 
   it("explica por que o erro é perigoso, não só que é erro", () => {
