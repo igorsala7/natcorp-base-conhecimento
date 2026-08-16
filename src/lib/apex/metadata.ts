@@ -1,3 +1,4 @@
+import { ehDumpDeViews, converterDumpDeViews } from "./dump-views";
 /**
  * Modelo COMUM de metadados de uma aplicação Oracle APEX — alimentado por duas
  * fontes (dicionário via `pkg_apex_meta.f_app_json`, ou parse do export `f*.sql`)
@@ -42,7 +43,15 @@ const o = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ?
 
 /** Normaliza o JSON de `pkg_apex_meta.f_app_json` para o modelo interno. `null` se inválido. */
 export function normalizarApexJson(raw: unknown): ApexAppMeta | null {
-  const r = o(raw);
+  /**
+   * O dump das VIEWS do APEX entra por aqui também.
+   *
+   * Havia dois formatos e este normalizador só entendia um. O outro casava o
+   * array `pages` e lia todos os campos vazios — `id: ""`, `name: null` — e o
+   * job terminava `done` com zero achados, sem erro. Silêncio é o pior desfecho
+   * possível: parecia que a aplicação não tinha conteúdo.
+   */
+  const r = o(ehDumpDeViews(raw) ? converterDumpDeViews(raw) : raw);
   if (r.ok === false) return null;
   const app = o(r.app);
   if (!app.id && !arr(r.pages).length) return null;
