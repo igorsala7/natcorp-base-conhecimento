@@ -74,3 +74,26 @@ describe("dump das views do APEX", () => {
     expect(m.report_columns.map((c) => c.kind).sort()).toEqual(["classic", "ig", "ir", "ir"]);
   });
 });
+
+describe("item de banco passa no portão ehColuna", () => {
+  it("estar em database_items vale mais que o ITEM_SOURCE_TYPE", () => {
+    // O portão de `ingest.ts` exige source_type "…column…". O `page_items` diz
+    // "Always Null" para itens que a view de banco lista com tabela e coluna —
+    // e o portão jogava fora justamente quem trazia a ligação.
+    const m = converterDumpDeViews({
+      application: [{ APPLICATION_ID: 1 }],
+      page_items: [{ PAGE_ID: 4, ITEM_NAME: "P4_TIPO_EVENTO", ITEM_SOURCE_TYPE: "Always Null" }],
+      database_items: [{ PAGE_ID: 4, ITEM_NAME: "P4_TIPO_EVENTO", DB_COLUMN_NAME: "TIPO_EVENTO", DB_TABLE_NAME: "PE_RESULTADO_APURACAO" }],
+    }) as { items: { name: string; source_type: string | null }[] };
+    expect(m.items.find((i) => i.name === "P4_TIPO_EVENTO")?.source_type).toBe("Database Column");
+  });
+
+  it("item sem par no banco mantém o source_type que o APEX declarou", () => {
+    const m = converterDumpDeViews({
+      application: [{ APPLICATION_ID: 1 }],
+      page_items: [{ PAGE_ID: 4, ITEM_NAME: "P4_CALCULADO", ITEM_SOURCE_TYPE: "PL/SQL Expression" }],
+      database_items: [],
+    }) as { items: { name: string; source_type: string | null }[] };
+    expect(m.items[0]?.source_type).toBe("PL/SQL Expression");
+  });
+});

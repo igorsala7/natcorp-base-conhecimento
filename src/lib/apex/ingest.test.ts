@@ -28,6 +28,49 @@ describe("colunasParaResolver", () => {
   });
 });
 
+describe("origem que já diz tabela E coluna", () => {
+  /**
+   * O dump das views traz `DB_TABLE_NAME`+`DB_COLUMN_NAME`, e `dump-views.ts` os
+   * junta em `TABELA.COLUNA`. Sem partir de volta, o job gravava
+   * `db_table: null` e `db_column: "PE_RESULTADO_APURACAO.TIPO_EVENTO"` — a
+   * coluna inteira dentro do campo da coluna. No f200.json real isso era 0 de
+   * 2.481 colunas com tabela; depois do conserto, 1.163.
+   */
+  const comPonto = normalizarApexJson({
+    app: { id: 1, name: "X", alias: "X" },
+    pages: [{ id: 4, name: "Apuração", title: "Apuração" }],
+    regions: [{ page_id: 4, id: 9, name: "Evento", type: "FORM", sql: null }],
+    items: [
+      { page_id: 4, region_id: 9, name: "P4_TIPO", label: "Tipo de Evento", source_type: "Database Column", source: "PE_RESULTADO_APURACAO.TIPO_EVENTO" },
+    ],
+    report_columns: [],
+  })!;
+
+  it("parte TABELA.COLUNA sem precisar da IA", () => {
+    const col = construirLinhasDicionario("sp1", comPonto, new Map()).find((l) => l.kind === "column")!;
+    expect(col).toMatchObject({ db_table: "PE_RESULTADO_APURACAO", db_column: "TIPO_EVENTO", label: "Tipo de Evento" });
+  });
+
+  it("a resolução da IA continua vencendo quando existe", () => {
+    // Quem leu o SQL da região sabe mais que o ponto do alias.
+    const r: ResolucaoColunas = new Map([["9", new Map([["PE_RESULTADO_APURACAO.TIPO_EVENTO", { table: "OUTRA", column: "TIPO" }]])]]);
+    const col = construirLinhasDicionario("sp1", comPonto, r).find((l) => l.kind === "column")!;
+    expect(col).toMatchObject({ db_table: "OUTRA", db_column: "TIPO" });
+  });
+
+  it("alias sem origem fica intacto, e não vira metade vazia", () => {
+    const semOrigem = normalizarApexJson({
+      app: { id: 1, name: "X", alias: "X" },
+      pages: [{ id: 4, name: "P", title: "P" }],
+      regions: [{ page_id: 4, id: 9, name: "R", type: "IR", sql: null }],
+      items: [],
+      report_columns: [{ kind: "ir", page_id: 4, region_id: 9, alias: "MATRICULA", label: "Matrícula" }],
+    })!;
+    const col = construirLinhasDicionario("sp1", semOrigem, new Map()).find((l) => l.kind === "column")!;
+    expect(col).toMatchObject({ db_table: null, db_column: "MATRICULA" });
+  });
+});
+
 describe("construirLinhasDicionario", () => {
   const resolvido: ResolucaoColunas = new Map([
     ["1", new Map([["COD_EMPRESA", { table: "EMPRESAS", column: "COD_EMPRESA" }]])],

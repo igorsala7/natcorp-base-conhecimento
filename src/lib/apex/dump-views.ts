@@ -102,7 +102,11 @@ export function converterDumpDeViews(raw: unknown): Record<string, unknown> {
       // ruído com aparência de informação.
       label: labelPorAlias.get(aliasDoItem(nome)) ?? null,
       display_as: nulo(i.DISPLAY_AS),
-      source_type: nulo(i.ITEM_SOURCE_TYPE),
+      // Estar em `database_items` É a prova de que o item vem de coluna — a view
+      // do APEX só lista os que vêm. O `ITEM_SOURCE_TYPE` do `page_items` diz
+      // outra coisa ("Always Null", "SQL Query…") e reprovava no portão
+      // `ehColuna`, jogando fora justamente os itens que trazem a ligação.
+      source_type: db ? "Database Column" : nulo(i.ITEM_SOURCE_TYPE),
       source: db?.tabela && db?.coluna ? `${db.tabela}.${db.coluna}` : nulo(i.ITEM_SOURCE),
     };
   });
@@ -119,7 +123,7 @@ export function converterDumpDeViews(raw: unknown): Record<string, unknown> {
       name: nome,
       label: labelPorAlias.get(aliasDoItem(nome)) ?? null,
       display_as: nulo(d.DISPLAY_AS),
-      source_type: null,
+      source_type: "Database Column",
       source: nulo(d.DB_TABLE_NAME) && nulo(d.DB_COLUMN_NAME) ? `${txt(d.DB_TABLE_NAME)}.${txt(d.DB_COLUMN_NAME)}` : null,
     });
   }

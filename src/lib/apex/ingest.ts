@@ -6,6 +6,25 @@ type LinhaDic = Database["public"]["Tables"]["data_dictionary"]["Insert"];
 const ehColuna = (st: string | null | undefined) => !!st && /db\s*column|column|coluna/i.test(st);
 
 /**
+ * `TABELA.COLUNA` já vem partido quando a origem diz as duas coisas.
+ *
+ * `database_items` do dump das views traz `DB_TABLE_NAME` e `DB_COLUMN_NAME`
+ * separados, e o `ITEM_SOURCE` do outro formato costuma vir com o ponto. Antes
+ * disto, uma entrada `PE_RESULTADO_APURACAO.TIPO_EVENTO` sem resolução da IA
+ * virava `db_table: null` e `db_column: "PE_RESULTADO_APURACAO.TIPO_EVENTO"` —
+ * a coluna inteira dentro do campo da coluna, inútil para casar com o banco.
+ *
+ * Só parte no ÚLTIMO ponto e só com os dois lados preenchidos: `SCHEMA.TAB.COL`
+ * vira tabela `SCHEMA.TAB`, que é o endereço certo, e um alias com ponto solto
+ * (`.X` ou `X.`) fica intacto em vez de virar metade vazia.
+ */
+const partirTabelaColuna = (entrada: string): { table: string | null; column: string } => {
+  const i = entrada.lastIndexOf(".");
+  if (i <= 0 || i === entrada.length - 1) return { table: null, column: entrada };
+  return { table: entrada.slice(0, i), column: entrada.slice(i + 1) };
+};
+
+/**
  * Por REGIÃO, as colunas/aliases a resolver (de itens DB Column + colunas de
  * relatório) com a(s) label(s). A IA depois mapeia cada `entrada` → tabela.coluna
  * lendo o SQL da região. Determinístico/testável.
@@ -47,8 +66,10 @@ export type ResolucaoColunas = Map<string, Map<string, { table: string | null; c
 export function construirLinhasDicionario(spaceId: string, meta: ApexAppMeta, resolvido: ResolucaoColunas): LinhaDic[] {
   const linhas: LinhaDic[] = [];
   const appId = meta.app.id || null;
+  // A IA vence quando resolveu; senão, o ponto da própria entrada já diz tabela
+  // e coluna. Só sobra `table: null` quando a entrada é um alias sem origem.
   const resolveDe = (regionId: string | null, entrada: string): { table: string | null; column: string | null } =>
-    (regionId && resolvido.get(regionId)?.get(entrada)) || { table: null, column: entrada };
+    (regionId && resolvido.get(regionId)?.get(entrada)) || partirTabelaColuna(entrada);
 
   // Componentes (catálogo — base p/ documentação depois).
   linhas.push({ space_id: spaceId, kind: "apex_app", name: meta.app.name || meta.app.id, label: meta.app.name, source: "apex_dict", app_id: appId });
