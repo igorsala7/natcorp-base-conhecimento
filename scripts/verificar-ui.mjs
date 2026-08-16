@@ -95,6 +95,34 @@ const PADROES = [
     porque: "Use <EmptyState>. A caixa tracejada copiada perde a ação de saída, que é o ponto do estado vazio.",
   },
   {
+    chave: "select-sem-teto",
+    /**
+     * `.eq(...)` sem `.range()`, `.limit()`, `.single()` ou `.maybeSingle()`.
+     *
+     * O PostgREST tem um teto padrão de linhas por resposta e uma consulta sem
+     * paginação simplesmente PARA nele: não dá erro, não avisa, só devolve
+     * menos. Foi assim que a ontologia perdeu 1.240 termos de 2.240 sem que
+     * nada na tela sugerisse problema — e o mesmo teto já tinha mordido a
+     * árvore de conteúdo antes.
+     *
+     * O sintoma é o pior possível: em vez de falhar, o produto fica plausível.
+     *
+     * Restrita às tabelas que de fato CRESCEM. A primeira versão pegava
+     * qualquer `.from(...).eq(...)` e acusou 566 ocorrências — quase todas
+     * legítimas, em tabela que nunca passa de dezenas de linhas. Uma regra que
+     * grita 566 vezes ensina a equipe a ignorar a catraca inteira, e aí as nove
+     * que funcionam morrem junto. Precisão importa mais que cobertura numa
+     * ferramenta que só vale enquanto é levada a sério.
+     *
+     * Lista fechada, revisada contra o banco: são as que já passam de mil linhas
+     * ou vão passar. Tabela nova que crescer entra aqui.
+     */
+    rx: /\.from\("(ontology_terms|ontology_aliases|ontology_translations|chunks|nodes|messages|conversations|search_logs|article_views|audit_log|ai_tool_runs)"\)(?![^;]*\.(range|limit|single|maybeSingle|count)\()[^;]*;/gs,
+    ignora: (f) => f.endsWith(".test.ts") || f.includes("database.types"),
+    porque:
+      "Consulta sem .range() para no teto do PostgREST em silêncio. Use fetchAllPaged onde a tabela cresce.",
+  },
+  {
     chave: "hex-em-componente",
     rx: /["'`]#[0-9a-fA-F]{3,8}["'`]/g,
     // Seletor de cor, e-mail (onde CSS var não funciona) e dataviz têm paleta própria.

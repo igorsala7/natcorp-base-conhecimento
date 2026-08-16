@@ -11,6 +11,7 @@ import { normalizarDbJson } from "@/lib/dbobjects/metadata";
 import { normalizarTermo } from "@/lib/ai/ontology";
 import { idiomaNome } from "@/lib/i18n/languages";
 import type { Json } from "@/lib/database.types";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 type Ok = { ok: true; jobId?: string } | { ok: false; error: string };
 
@@ -188,12 +189,25 @@ export async function dataDictionaryCsv(spaceId: string): Promise<{ ok: true; cs
   const langs = (langsData ?? []).map((r) => r.lang);
   const tradPorNorm = new Map<string, Map<string, string>>(); // term_norm → (lang → termo)
   if (langs.length) {
-    const { data: terms } = await supabase.from("ontology_terms").select("id, term_norm").eq("space_id", spaceId);
-    const normPorId = new Map((terms ?? []).map((t) => [t.id, t.term_norm]));
+    // Paginado: são 2.240 termos no maior espaço, e sem `.range()` o PostgREST
+    // devolvia 1.000. O tradutor então "não encontrava" tradução para 1.240
+    // termos que existiam — e o sintoma seria lacuna de tradução, não erro.
+    const terms = await fetchAllPaged<{ id: string; term_norm: string }>((from, to) =>
+      supabase.from("ontology_terms").select("id, term_norm").eq("space_id", spaceId).range(from, to),
+    );
+    const normPorId = new Map(terms.map((t) => [t.id, t.term_norm]));
     const ids = [...normPorId.keys()];
     for (let i = 0; i < ids.length; i += 200) {
-      const { data } = await supabase.from("ontology_translations").select("term_id, lang, term").in("lang", langs).in("term_id", ids.slice(i, i + 200));
-      for (const r of data ?? []) {
+      // 200 termos × N idiomas passa de 1000 com cinco idiomas.
+      const data = await fetchAllPaged<{ term_id: string; lang: string; term: string }>((from, to) =>
+        supabase
+          .from("ontology_translations")
+          .select("term_id, lang, term")
+          .in("lang", langs)
+          .in("term_id", ids.slice(i, i + 200))
+          .range(from, to),
+      );
+      for (const r of data) {
         const norm = normPorId.get(r.term_id);
         if (!norm) continue;
         let m = tradPorNorm.get(norm);

@@ -14,6 +14,7 @@ import { extrairSourcesXliff, preencherTargetsXliff, buildXliff, linhasParaUnida
 import { traduzirTextosUI } from "@/lib/ai/ui-translate";
 import { extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
 import { syncToolBaseEmbeddings } from "@/lib/integrations/tool-catalog";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 export type OntologyKind = "conceito" | "entidade" | "acao" | "sigla" | "outro";
 
@@ -57,12 +58,34 @@ export async function listOntology(
     return { terms: [], jobs: [] };
   }
   const supabase = await createClient();
-  const [{ data: termos }, { data: jobs }] = await Promise.all([
-    supabase
-      .from("ontology_terms")
-      .select("id, term, kind, description, source, node_id")
-      .eq("space_id", spaceId)
-      .order("term", { ascending: true }),
+  const [termos, { data: jobs }] = await Promise.all([
+    /**
+     * PAGINADO — sem isto a lista parava em 1000.
+     *
+     * O PostgREST tem um teto padrão de linhas por resposta, e uma consulta sem
+     * `.range()` simplesmente para nele: não dá erro, não avisa, só devolve
+     * menos. A "Documentação Natcorp" tem 1.095 termos, então 95 sumiam da tela
+     * — e da varredura que compara o que já existe antes de criar termo novo.
+     *
+     * O sintoma era o oposto do esperado: em vez de a página falhar, ela ficava
+     * plausível. Este projeto já foi mordido pelo mesmo teto na árvore de
+     * conteúdo, e é por isso que `fetchAllPaged` existe.
+     */
+    fetchAllPaged<{
+      id: string;
+      term: string;
+      kind: string | null;
+      description: string | null;
+      source: string;
+      node_id: string | null;
+    }>((from, to) =>
+      supabase
+        .from("ontology_terms")
+        .select("id, term, kind, description, source, node_id")
+        .eq("space_id", spaceId)
+        .order("term", { ascending: true })
+        .range(from, to),
+    ),
     supabase
       .from("ontology_jobs")
       .select("id, space_id, scope, target_id, status, total, done, progress, found, error, created_at")
@@ -71,16 +94,24 @@ export async function listOntology(
       .limit(5),
   ]);
 
-  const ids = (termos ?? []).map((t) => t.id);
+  const ids = termos.map((t) => t.id);
   const aliasPorTermo = new Map<string, OntologyAliasRow[]>();
   // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do PostgREST.
   for (let i = 0; i < ids.length; i += 200) {
-    const { data: aliases } = await supabase
-      .from("ontology_aliases")
-      .select("id, term_id, alias, source")
-      .in("term_id", ids.slice(i, i + 200))
-      .order("alias", { ascending: true });
-    for (const a of aliases ?? []) {
+    // Cada fatia de 200 termos rende ~950 sinônimos (média de 4,7 por termo) —
+    // encosta no mesmo teto de 1000. Sem paginar, um termo perdia sinônimo em
+    // silêncio, que é pior que perder o termo: ele continua na lista parecendo
+    // completo.
+    const aliases = await fetchAllPaged<{ id: string; term_id: string; alias: string; source: string }>(
+      (from, to) =>
+        supabase
+          .from("ontology_aliases")
+          .select("id, term_id, alias, source")
+          .in("term_id", ids.slice(i, i + 200))
+          .order("alias", { ascending: true })
+          .range(from, to),
+    );
+    for (const a of aliases) {
       const lista = aliasPorTermo.get(a.term_id) ?? [];
       lista.push({ id: a.id, alias: a.alias, source: a.source as OntologySource });
       aliasPorTermo.set(a.term_id, lista);
@@ -88,14 +119,14 @@ export async function listOntology(
   }
 
   // Título dos nós responsáveis (para exibir no lugar do UUID).
-  const nodeIds = [...new Set((termos ?? []).map((t) => t.node_id).filter((x): x is string => !!x))];
+  const nodeIds = [...new Set(termos.map((t) => t.node_id).filter((x): x is string => !!x))];
   const nodeTitle = new Map<string, string>();
   if (nodeIds.length) {
     const { data: nodesData } = await supabase.from("nodes").select("id, title").in("id", nodeIds);
     for (const n of nodesData ?? []) nodeTitle.set(n.id, n.title);
   }
 
-  const terms: OntologyTermRow[] = (termos ?? []).map((t) => ({
+  const terms: OntologyTermRow[] = termos.map((t) => ({
     id: t.id,
     term: t.term,
     kind: t.kind as OntologyKind,
