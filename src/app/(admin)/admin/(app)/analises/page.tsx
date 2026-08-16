@@ -8,6 +8,7 @@ import { QualityScanButton } from "./quality-scan-button";
 import { ViewsChart } from "./views-chart";
 import type { QualityIssue } from "@/lib/quality/audit-article";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Análises" };
 
@@ -147,13 +148,12 @@ export default async function AnalisesPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Análises</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          Onde os usuários buscam, o que não encontram e como o assistente está indo.
-        </p>
-      </div>
+    <PageShell
+      titulo="Análises"
+      descricao="Onde os usuários buscam, o que não encontram e como o assistente está indo."
+      largura="wide"
+      className="space-y-8"
+    >
 
       {/* Busca */}
       <section>
@@ -292,7 +292,7 @@ export default async function AnalisesPage() {
           </>
         )}
       </section>
-    </div>
+    </PageShell>
   );
 }
 

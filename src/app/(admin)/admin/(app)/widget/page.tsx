@@ -8,6 +8,7 @@ import type { ApiKeyRow } from "./api-key-manager";
 import { ChatbotTabs } from "../chatbot/chatbot-tabs";
 import { TrackingKeyPanel } from "./tracking-key-panel";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Widget e API" };
 
@@ -66,15 +67,18 @@ export default async function WidgetPage() {
     })) as ApiKeyRow[];
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Widget e API</h1>
-        <p className="mt-1 text-sm text-text-muted">
+    <PageShell
+      titulo="Widget e API"
+      descricao={
+        <>
           Chaves para <strong className="font-medium">embutir o chat</strong> num site (Widget) e para{" "}
-          <strong className="font-medium">acesso programático</strong> aos endpoints REST (API) — de todas as
-          documentações.
-        </p>
-      </div>
+          <strong className="font-medium">acesso programático</strong> aos endpoints REST (API) — de{" "}
+          <strong className="font-medium">todas</strong> as documentações. Para configurar o bot de UMA delas, use
+          Assistente de IA.
+        </>
+      }
+      largura="wide"
+    >
       <ChatbotTabs
         widgetKeys={widgetKeys}
         apiKeys={apiKeys}
@@ -87,6 +91,6 @@ export default async function WidgetPage() {
           siteUrl={env.NEXT_PUBLIC_SITE_URL}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
