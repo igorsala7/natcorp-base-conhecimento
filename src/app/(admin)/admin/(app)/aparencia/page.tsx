@@ -15,6 +15,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import type { DadosHome } from "@/components/portal/space-home";
 import { AppearanceEditor, type ArtigoDisponivel } from "./appearance-editor";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Aparência" };
 
@@ -107,18 +108,15 @@ export default async function AparenciaPage({
   };
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">Aparência</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Marca e layout do portal público desta documentação.
-          </p>
-        </div>
-        <div className="ml-auto">
-          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </div>
-      </div>
+    <PageShell
+      titulo="Aparência do portal"
+      descricao="Marca e layout do portal público desta documentação — o que o leitor vê."
+      /* `full`: a tela é formulário à esquerda e prévia ao vivo à direita.
+         Limitar a medida cortaria a prévia, que é o ponto dela. */
+      largura="full"
+      /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
+      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+    >
 
       <div className="mt-6">
         <AppearanceEditor
@@ -129,6 +127,6 @@ export default async function AparenciaPage({
           artigosDisponiveis={disponiveis}
         />
       </div>
-    </div>
+    </PageShell>
   );
 }

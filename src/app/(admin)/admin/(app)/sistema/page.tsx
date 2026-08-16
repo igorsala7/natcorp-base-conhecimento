@@ -18,6 +18,7 @@ import { PROMPT_CATEGORIES } from "@/lib/ai/prompt-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { secretsPresentes } from "./actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Sistema" };
 
@@ -150,11 +151,15 @@ export default async function SistemaPage() {
   const bases = (basesRows ?? []).map((b) => b.base_code).filter((c): c is string => !!c);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Sistema</h1>
-      <p className="mt-1 max-w-2xl text-sm leading-relaxed text-text-muted">
-        Parametrizações gerais do produto. Vale para todas as documentações.
-      </p>
+    <PageShell
+      titulo="Sistema"
+      /* O subtítulo carrega o ESCOPO porque o nome não carrega: existem três
+         telas de "configuração" no produto — esta (global), Preferências e
+         Aparência (ambas por documentação). Só esta pode manter nome genérico,
+         e só porque diz por extenso o que abrange. */
+      descricao="Parametrizações gerais do produto — provedores de IA, e-mail, chaves e backup. Vale para todas as documentações."
+      largura="wide"
+    >
 
       <SystemManager
         providers={(providers ?? []) as ProviderRow[]}
@@ -180,6 +185,6 @@ export default async function SistemaPage() {
       />
 
       {infraData && <InfraPanel infra={infraData} temChaveMestra={hasEncryptionKey()} />}
-    </div>
+    </PageShell>
   );
 }
