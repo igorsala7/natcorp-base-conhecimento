@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
@@ -16,6 +16,7 @@ import {
   type DicColuna,
 } from "./apex-actions";
 import { createClient } from "@/lib/supabase/client";
+import { useAcompanharJobs } from "./use-acompanhar-jobs";
 
 /**
  * Ingestão de app APEX (Produto 1): cola/sobe o JSON de pkg_apex_meta → extrai o
@@ -29,27 +30,18 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
   const [subindo, setSubindo] = useState(false);
   const supabase = createClient();
   const [cols, setCols] = useState<DicColuna[]>(initialCols);
-  const [jobs, setJobs] = useState<ApexJob[]>([]);
+  /**
+   * Acompanha até o job TERMINAR, e começa sozinho na montagem — recarregar a
+   * página no meio de uma importação de 20 minutos mostrava tela limpa.
+   */
+  const { jobs, acompanhar } = useAcompanharJobs<ApexJob>(
+    () => listApexJobs(spaceId),
+    () => void listDataDictionaryColumns(spaceId).then(setCols),
+  );
   const [pend, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  function iniciarPoll() {
-    if (pollRef.current) return;
-    let ticks = 0;
-    const run = async () => {
-      ticks += 1;
-      const js = await listApexJobs(spaceId);
-      setJobs(js);
-      const ativo = js.some((j) => j.status === "queued" || j.status === "running");
-      if (!ativo) setCols(await listDataDictionaryColumns(spaceId));
-      if ((!ativo && ticks > 1) || ticks > 40) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } }
-    };
-    void run();
-    pollRef.current = setInterval(run, 2500);
-  }
 
   /**
    * O limite de corpo de Server Action (8 MB, ver next.config) não avisa quando
@@ -68,7 +60,7 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
   function processar() {
     start(async () => {
       const r = await ingestApexJson(spaceId, entradaAtual());
-      if (r.ok) { toast.success("Ingestão enfileirada — progresso abaixo."); iniciarPoll(); }
+      if (r.ok) { toast.success("Ingestão enfileirada — progresso abaixo."); acompanhar(); }
       else toast.error(r.error);
     });
   }
@@ -76,7 +68,7 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
   function documentar() {
     start(async () => {
       const r = await gerarDocsApex(spaceId, entradaAtual());
-      if (r.ok) { toast.success("Documentação enfileirada — 2 artigos por página (usuário + técnica) na base."); iniciarPoll(); }
+      if (r.ok) { toast.success("Documentação enfileirada — 2 artigos por página (usuário + técnica) na base."); acompanhar(); }
       else toast.error(r.error);
     });
   }
@@ -136,7 +128,19 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
     }
   }
 
-  const jobsAtivos = jobs.filter((j) => j.status === "queued" || j.status === "running");
+  /**
+   * Em curso + os que falharam. Concluído não é notícia.
+   *
+   * Sem corte por tempo: `listApexJobs` já devolve os seis mais recentes em
+   * ordem decrescente, então um erro nessa lista é recente por construção.
+   * A primeira versão filtrava por `Date.now()` no render — e o lint estava
+   * certo em recusar: função impura no render pode ser reavaliada e dar
+   * resultados diferentes para a mesma árvore. A resposta não era memoizar a
+   * impureza, era não precisar dela.
+   */
+  const jobsAcompanhados = jobs.filter(
+    (j) => j.status === "queued" || j.status === "running" || j.status === "error",
+  );
 
   return (
     <Surface elevation={1} padding="lg" className="space-y-4">
@@ -189,19 +193,40 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
         <span className="text-xs text-text-muted">Precisa do worker rodando (npm run worker).</span>
       </div>
 
-      {jobsAtivos.length > 0 && (
-        <div className="space-y-2">
-          {jobsAtivos.map((j) => (
-            <div key={j.id} className="text-sm">
-              <div className="mb-1 flex justify-between text-text-muted">
-                <span>Ingerindo…</span>
-                <span>{j.progress}%</span>
+      {/* Mostra o que está rodando E o que falhou. Antes, o filtro pegava só
+          queued/running: um job que dava erro sumia da tela, sem explicação —
+          e some justamente quando a pessoa mais precisa saber o que houve. */}
+      {jobsAcompanhados.length > 0 && (
+        <div className="space-y-2" aria-live="polite">
+          {jobsAcompanhados.map((j) => {
+            const erro = j.status === "error";
+            return (
+              <div key={j.id} className="text-sm">
+                <div className="mb-1 flex flex-wrap items-center gap-x-2 text-xs">
+                  <span className={erro ? "font-medium text-rose-700 dark:text-rose-300" : "text-text-muted"}>
+                    {erro ? "Falhou" : j.status === "queued" ? "Na fila…" : "Processando…"}
+                  </span>
+                  {/* done/total diz MAIS que a porcentagem num job longo: "1.200
+                      de 78.000" mostra que anda; "1%" parado parece travado. */}
+                  {!erro && j.total ? (
+                    <span className="tabular-nums text-text-muted">
+                      {j.done?.toLocaleString("pt-BR")} de {j.total.toLocaleString("pt-BR")}
+                    </span>
+                  ) : null}
+                  <span className="ml-auto tabular-nums text-text-muted">{erro ? "" : `${j.progress}%`}</span>
+                </div>
+                {erro ? (
+                  <p className="rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                    {j.error ?? "sem detalhe"}
+                  </p>
+                ) : (
+                  <div className="h-1.5 overflow-hidden rounded-full bg-border">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${j.progress}%` }} />
+                  </div>
+                )}
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-border">
-                <div className="h-full bg-primary transition-all" style={{ width: `${j.progress}%` }} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

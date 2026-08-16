@@ -221,14 +221,32 @@ export async function gerarDbDocs(
   return { ok: true, jobId: job.id };
 }
 
-export type ApexJob = { id: string; kind: string; status: string; progress: number; found: number; error: string | null; result: unknown };
+/**
+ * `total`, `done` e `created_at` faltavam, e eram justamente o que permite
+ * ACOMPANHAR. Sem total/done a tela só mostra a porcentagem — e num job de 78
+ * mil colunas, "1%" parado por um minuto parece travado, enquanto "1.200 de
+ * 78.126" mostra que anda. Sem `created_at` não dá para distinguir a falha de
+ * agora da de ontem.
+ */
+export type ApexJob = {
+  id: string;
+  kind: string;
+  status: string;
+  progress: number;
+  total: number | null;
+  done: number | null;
+  found: number;
+  error: string | null;
+  result: unknown;
+  created_at: string;
+};
 
 /** Jobs de ingestão recentes (progresso). */
 export async function listApexJobs(spaceId: string): Promise<ApexJob[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("data_dictionary_jobs")
-    .select("id, kind, status, progress, found, error, result")
+    .select("id, kind, status, progress, total, done, found, error, result, created_at")
     .eq("space_id", spaceId)
     .order("created_at", { ascending: false })
     .limit(6);

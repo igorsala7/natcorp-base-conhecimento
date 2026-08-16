@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { Database, FileText, FileUp, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
@@ -8,6 +8,7 @@ import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { gerarDbDocs, ingestDbJson, listApexJobs, type ApexJob } from "./apex-actions";
 import { useEntradaGrande, resumoDaEntrada } from "./use-entrada-grande";
+import { useAcompanharJobs } from "./use-acompanhar-jobs";
 
 /**
  * Fase D — objetos de banco (tabelas, views, triggers, procedures, functions, packages).
@@ -20,31 +21,19 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
   const toast = useToast();
   // Arquivo grande vai pelo Storage; pequeno, no corpo. Ver o hook.
   const ent = useEntradaGrande(spaceId, "db");
-  const [jobs, setJobs] = useState<ApexJob[]>([]);
+  // Mesmo hook do APEX: acompanha até terminar, e começa na montagem.
+  const { jobs, acompanhar } = useAcompanharJobs<ApexJob>(() =>
+    listApexJobs(spaceId).then((js) => js.filter((j) => j.kind === "db_objects" || j.kind === "db_docs")),
+  );
   const [pend, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  function iniciarPoll() {
-    if (pollRef.current) return;
-    let ticks = 0;
-    const run = async () => {
-      ticks += 1;
-      const js = await listApexJobs(spaceId);
-      setJobs(js.filter((j) => j.kind === "db_objects" || j.kind === "db_docs"));
-      const ativo = js.some((j) => j.status === "queued" || j.status === "running");
-      if ((!ativo && ticks > 1) || ticks > 60) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } }
-    };
-    void run();
-    pollRef.current = setInterval(run, 2500);
-  }
 
   function processar() {
     start(async () => {
       const r = await ingestDbJson(spaceId, ent.entrada());
-      if (r.ok) { toast.success("Ingestão de objetos enfileirada — colunas entram na planilha acima."); iniciarPoll(); }
+      if (r.ok) { toast.success("Ingestão de objetos enfileirada — colunas entram na planilha acima."); acompanhar(); }
       else toast.error(r.error);
     });
   }
@@ -52,7 +41,7 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
   function documentar() {
     start(async () => {
       const r = await gerarDbDocs(spaceId, ent.entrada());
-      if (r.ok) { toast.success("Documentação técnica enfileirada — um artigo por objeto na base."); iniciarPoll(); }
+      if (r.ok) { toast.success("Documentação técnica enfileirada — um artigo por objeto na base."); acompanhar(); }
       else toast.error(r.error);
     });
   }
