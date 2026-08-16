@@ -21,6 +21,7 @@ import {
   regenerateWidgetKey,
   deleteWidgetKey,
 } from "./actions";
+import { PreviaMontada } from "./previa-montada";
 
 export type WidgetKeyRow = {
   id: string;
@@ -839,6 +840,43 @@ export function WidgetManager({
           </div>
 
           <h3 className={`mb-3 mt-6 ${eyebrowLabel}`}>Aparência</h3>
+
+          {/* A prévia MONTADA, antes dos campos que a alteram.
+              A que existia mostrava a bolha e o avatar isolados sobre fundo
+              escuro — responde "a bolha ficou boa?" e não responde a que
+              importa: como o atendimento vai PARECER para quem abrir. Título,
+              subtítulo, boas-vindas, sugestões, as duas cores e o lado da tela
+              só apareciam depois de salvar, sair do formulário e clicar em
+              "Testar". Três passos para julgar uma cor. */}
+          <PreviaMontada
+            titulo={draft.title}
+            subtitulo={draft.subtitle}
+            boasVindas={draft.welcome}
+            sugestoes={draft.suggestions}
+            primaria={draft.primaryColor}
+            secundaria={draft.secondaryColor}
+            posicao={draft.position}
+            avatar={
+              <Previa
+                tipo="avatar"
+                url={draft.avatarUrl}
+                fundo={draft.avatarBg}
+                fundo2={draft.avatarBg2}
+                borda={draft.avatarBorderWidth}
+                corBorda={draft.avatarBorderColor}
+                formato={draft.avatarShape}
+                recorte={draft.avatarFit}
+                tamanho={30}
+                primaria={draft.primaryColor}
+                secundaria={draft.secondaryColor}
+              />
+            }
+          />
+          <p className="mb-4 mt-1.5 text-2xs text-text-muted">
+            Maquete dos campos configuráveis. O widget de verdade roda em Shadow DOM no site do cliente —
+            para conferir o funcionamento, salve e use <strong>Testar</strong> na lista.
+          </p>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Cor primária">
               <div className="flex items-center gap-2">
