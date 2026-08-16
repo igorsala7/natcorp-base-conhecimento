@@ -52,7 +52,7 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
     <Surface elevation={1} padding="lg" className="space-y-4">
       <div className="flex items-center gap-2">
         <Table2 className="size-5 text-primary" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-text">Tabelas e colunas por CSV</h2>
+        <h2 className="text-sm font-semibold text-text">Tabelas e colunas (CSV ou JSON)</h2>
       </div>
 
       <p className="text-xs leading-relaxed text-text-muted">
@@ -60,7 +60,7 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
         <code>COD</code> na tabela <code>CENTRO_DE_CUSTO</code> se chama &ldquo;Código&rdquo;. Colunas de{" "}
         <strong>label</strong>, <strong>descrição</strong> e <strong>tipo</strong> entram se existirem. Os
         cabeçalhos podem estar em português ou como saem do SQL Developer (<code>TABLE_NAME</code>,{" "}
-        <code>COLUMN_NAME</code>, <code>COMMENTS</code>).
+        <code>COLUMN_NAME</code>, <code>COMMENTS</code>). Aceita CSV e também um JSON com a mesma relação — o formato é detectado pelo conteúdo.
       </p>
 
       <textarea
@@ -69,7 +69,7 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
         value={ent.texto}
         onChange={(e) => ent.setTexto(e.target.value)}
       />
-      <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv" className="hidden" onChange={(e) => void ent.aoEscolherArquivo(e)} />
+      <input ref={fileRef} type="file" accept=".csv,.tsv,.json,text/csv,application/json" className="hidden" onChange={(e) => void ent.aoEscolherArquivo(e)} />
 
       {(() => {
         const r = resumoDaEntrada(ent);

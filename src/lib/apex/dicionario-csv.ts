@@ -71,6 +71,90 @@ function acharColuna(cabecalho: string[], campo: keyof LinhaDicionario): number 
   return -1;
 }
 
+/**
+ * O MESMO DICIONÁRIO EM JSON.
+ *
+ * O arquivo real do Igor (`all_tab_columns.json`, 78.128 linhas) é um array de
+ * `{TABLE_NAME, COLUMN_NAME, DATA_TYPE}` — exatamente o conteúdo do CSV, só que
+ * em JSON. Ele foi parar na ingestão de BANCO, que espera o envelope do
+ * `pkg_db_meta`, e recebeu "Metadado de banco inválido" — uma resposta correta
+ * sobre a pergunta errada.
+ *
+ * Exigir conversão para CSV seria trabalho manual para um problema de formato
+ * que o código resolve em vinte linhas. Os mesmos sinônimos de cabeçalho valem:
+ * a chave do objeto faz o papel da coluna.
+ */
+export function lerDicionarioJson(texto: string): ResultadoCsv {
+  let dados: unknown;
+  try {
+    dados = JSON.parse(texto);
+  } catch {
+    return { linhas: [], ignoradas: [], descartadas: 0 };
+  }
+  // Aceita o array cru e também `{ items: [...] }` / `{ rows: [...] }`, que é
+  // como muita exportação embrulha o resultado.
+  const lista = Array.isArray(dados)
+    ? dados
+    : ["items", "rows", "data", "columns"]
+        .map((k) => (dados as Record<string, unknown>)?.[k])
+        .find(Array.isArray);
+  if (!Array.isArray(lista) || lista.length === 0) return { linhas: [], ignoradas: [], descartadas: 0 };
+
+  const chaves = Object.keys((lista[0] ?? {}) as object);
+  if (chaves.length === 0) return { linhas: [], ignoradas: [], descartadas: 0 };
+
+  // Reusa a resolução de cabeçalho do CSV — mesmo vocabulário, mesma ordem de
+  // precedência. Duas tabelas de sinônimos divergiriam na primeira mudança.
+  const idx = {
+    tabela: acharColuna(chaves, "tabela"),
+    coluna: acharColuna(chaves, "coluna"),
+    label: acharColuna(chaves, "label"),
+    descricao: acharColuna(chaves, "descricao"),
+    tipo: acharColuna(chaves, "tipo"),
+  };
+  if (idx.tabela < 0 || idx.coluna < 0) return { linhas: [], ignoradas: chaves, descartadas: 0 };
+
+  const usadas = new Set(Object.values(idx).filter((i) => i >= 0));
+  const ignoradas = chaves.filter((_, i) => !usadas.has(i));
+
+  const out: LinhaDicionario[] = [];
+  let descartadas = 0;
+  const vistos = new Set<string>();
+
+  for (const bruto of lista) {
+    const o = (bruto ?? {}) as Record<string, unknown>;
+    const pega = (i: number) => (i >= 0 ? String(o[chaves[i]!] ?? "").trim() : "");
+    const tabela = pega(idx.tabela).toUpperCase();
+    const coluna = pega(idx.coluna).toUpperCase();
+    if (!tabela || !coluna) {
+      descartadas++;
+      continue;
+    }
+    const id = `${tabela}.${coluna}`;
+    if (vistos.has(id)) continue;
+    vistos.add(id);
+    out.push({
+      tabela,
+      coluna,
+      label: pega(idx.label) || null,
+      descricao: pega(idx.descricao) || null,
+      tipo: pega(idx.tipo) || null,
+    });
+  }
+  return { linhas: out, ignoradas, descartadas };
+}
+
+/**
+ * Despacha pelo CONTEÚDO, não pela extensão.
+ *
+ * Quem exporta não controla a extensão do que baixa, e um `.txt` com JSON
+ * dentro é comum. O primeiro caractere não-branco decide.
+ */
+export function lerDicionario(texto: string): ResultadoCsv {
+  const t = texto.trimStart();
+  return t.startsWith("[") || t.startsWith("{") ? lerDicionarioJson(texto) : lerDicionarioCsv(texto);
+}
+
 export function lerDicionarioCsv(texto: string): ResultadoCsv {
   // `""` como extensão: quem cola no textarea não tem arquivo, e a detecção
   // por conteúdo cobre vírgula, ponto e vírgula e tabulação.

@@ -3,14 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { lerDicionarioCsv } from "@/lib/apex/dicionario-csv";
+import { lerDicionario } from "@/lib/apex/dicionario-csv";
 
 export type ResultadoImportCsv =
   | { ok: true; gravadas: number; ignoradas: string[]; descartadas: number }
   | { ok: false; error: string };
 
-/** A mesma origem para tudo que veio de CSV — é por ela que a substituição apaga. */
-const ORIGEM = "csv_dict";
+/**
+ * `db_ddl` — dicionário derivado da estrutura do banco.
+ *
+ * O CHECK de `source` aceita quatro valores, e `csv_dict` não é um deles: eu
+ * inventei o nome sem olhar a restrição, e a primeira linha era recusada. Entre
+ * os que existem, `db_ddl` é o certo — um dump de `all_tab_columns` É a DDL, não
+ * importa se chegou como CSV, JSON ou colado à mão.
+ *
+ * É por esta origem que a reimportação apaga o lote anterior. O que veio do APEX
+ * (`apex_dict`) e o que alguém escreveu à mão (`manual`) não são tocados.
+ */
+const ORIGEM = "db_ddl";
 
 /**
  * IMPORTA UM DICIONÁRIO DE TABELAS E COLUNAS EM CSV.
@@ -67,7 +77,7 @@ export async function importarDicionarioCsv(
     texto = entrada.jsonText ?? "";
   }
 
-  const { linhas, ignoradas, descartadas } = lerDicionarioCsv(texto);
+  const { linhas, ignoradas, descartadas } = lerDicionario(texto);
   if (linhas.length === 0) {
     return {
       ok: false,
@@ -83,7 +93,9 @@ export async function importarDicionarioCsv(
 
   const registros = linhas.map((l) => ({
     space_id: spaceId,
-    kind: "db_column",
+    // `column` é o valor que o CHECK do banco aceita — eu tinha escrito
+    // "db_column", que não existe na lista e derrubava a primeira linha.
+    kind: "column",
     // `name` é o endereço completo: é o que aparece quando alguém procura a
     // coluna sem lembrar a tabela.
     name: `${l.tabela}.${l.coluna}`,

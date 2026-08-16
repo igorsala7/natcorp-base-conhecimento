@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lerDicionarioCsv } from "./dicionario-csv";
+import { lerDicionarioCsv, lerDicionario } from "./dicionario-csv";
 
 describe("dicionário por CSV", () => {
   it("lê o caso que motivou a funcionalidade", () => {
@@ -72,5 +72,41 @@ describe("dicionário por CSV", () => {
   it("arquivo só com cabeçalho não quebra", () => {
     expect(lerDicionarioCsv("tabela,coluna").linhas).toEqual([]);
     expect(lerDicionarioCsv("").linhas).toEqual([]);
+  });
+
+  it("aceita JSON com a MESMA forma do CSV", () => {
+    // O arquivo real (`all_tab_columns.json`, 78 mil linhas) é um array de
+    // {TABLE_NAME, COLUMN_NAME, DATA_TYPE} — o conteúdo do CSV em outro
+    // formato. Ele caía na ingestão de BANCO e recebia "Metadado inválido":
+    // resposta correta sobre a pergunta errada.
+    const r = lerDicionario('[{"TABLE_NAME":"CENTRO_DE_CUSTO","COLUMN_NAME":"COD","DATA_TYPE":"NUMBER"}]');
+    expect(r.linhas[0]).toEqual({
+      tabela: "CENTRO_DE_CUSTO",
+      coluna: "COD",
+      label: null,
+      descricao: null,
+      tipo: "NUMBER",
+    });
+  });
+
+  it("CSV e JSON com o mesmo conteúdo dão o MESMO resultado", () => {
+    const csv = lerDicionario("TABLE_NAME;COLUMN_NAME;DATA_TYPE\nFILIAIS;COD_FILIAL;NUMBER");
+    const json = lerDicionario('[{"TABLE_NAME":"FILIAIS","COLUMN_NAME":"COD_FILIAL","DATA_TYPE":"NUMBER"}]');
+    expect(json.linhas).toEqual(csv.linhas);
+  });
+
+  it("despacha pelo CONTEÚDO, não pela extensão", () => {
+    // Quem exporta não controla a extensão do que baixa.
+    expect(lerDicionario('  [{"tabela":"T","coluna":"C"}]').linhas).toHaveLength(1);
+    expect(lerDicionario("tabela,coluna\nT,C").linhas).toHaveLength(1);
+  });
+
+  it("JSON embrulhado em items/rows também passa", () => {
+    const r = lerDicionario('{"items":[{"tabela":"T","coluna":"C"}]}');
+    expect(r.linhas).toHaveLength(1);
+  });
+
+  it("JSON malformado não quebra — devolve vazio", () => {
+    expect(lerDicionario("{ isso não é json").linhas).toEqual([]);
   });
 });
