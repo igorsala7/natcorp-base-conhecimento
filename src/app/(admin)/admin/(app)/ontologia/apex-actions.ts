@@ -313,14 +313,36 @@ export type DicColuna = { table: string | null; column: string | null; label: st
 /** O dicionário de COLUNAS (tabela·coluna·label) — a "planilha" para revisar/exportar. */
 export async function listDataDictionaryColumns(spaceId: string): Promise<DicColuna[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("data_dictionary")
-    .select("db_table, db_column, label, metadata")
-    .eq("space_id", spaceId)
-    .eq("kind", "column")
-    .order("db_table", { ascending: true })
-    .order("db_column", { ascending: true });
-  return (data ?? []).map((r) => {
+  /**
+   * PAGINADO — sem isto, tela e CSV paravam em 1.000.
+   *
+   * A importação gravou 78.126 colunas e a tela mostrava mil. O PostgREST tem
+   * teto padrão de linhas por resposta e uma consulta sem `.range()` PARA nele:
+   * não dá erro, não avisa, só devolve menos. E como o export de CSV chama esta
+   * mesma função, quem tentava conferir pelo arquivo via o mesmo número — o
+   * caminho de auditoria repetindo o defeito que deveria denunciar.
+   *
+   * É a terceira vez que este teto morde este projeto: primeiro a árvore de
+   * conteúdo, depois a ontologia, agora o dicionário. A regra `select-sem-teto`
+   * na catraca existe por causa disso, e `data_dictionary` não estava na lista
+   * de tabelas que ela vigia — está agora.
+   */
+  const data = await fetchAllPaged<{
+    db_table: string | null;
+    db_column: string | null;
+    label: string | null;
+    metadata: unknown;
+  }>((from, to) =>
+    supabase
+      .from("data_dictionary")
+      .select("db_table, db_column, label, metadata")
+      .eq("space_id", spaceId)
+      .eq("kind", "column")
+      .order("db_table", { ascending: true })
+      .order("db_column", { ascending: true })
+      .range(from, to),
+  );
+  return data.map((r) => {
     const labels = (r.metadata as { labels?: unknown } | null)?.labels;
     return { table: r.db_table, column: r.db_column, label: r.label, labels: Array.isArray(labels) ? labels.map(String) : [] };
   });
