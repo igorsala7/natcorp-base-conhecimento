@@ -6,6 +6,7 @@ import { UsersManager } from "./users-manager";
 import { RolesGuide } from "./roles-guide";
 import { listAuthors, type AuthorRow } from "./author-actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Usuários" };
 
@@ -148,13 +149,11 @@ export default async function UsuariosPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Usuários</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          {users.length} {users.length === 1 ? "usuário" : "usuários"} · você é nível {actorLevel}
-        </p>
-      </div>
+    <PageShell
+      titulo="Usuários"
+      descricao={`${users.length} ${users.length === 1 ? "usuário" : "usuários"} · você é nível ${actorLevel}`}
+      largura="wide"
+    >
 
       <UsersManager
         users={users}
@@ -167,6 +166,6 @@ export default async function UsuariosPage() {
       />
 
       <RolesGuide roles={rolesWithPerms} />
-    </div>
+    </PageShell>
   );
 }

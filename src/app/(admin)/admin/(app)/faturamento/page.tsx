@@ -9,6 +9,7 @@ import { ConfigForm } from "./config-form";
 import { FaturamentoView } from "./faturamento-view";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Faturamento" };
 
@@ -59,14 +60,11 @@ export default async function FaturamentoPage({ searchParams }: { searchParams: 
   const [cfg, consumo] = await Promise.all([getConfig(), getConsumo({ de, ate, cliente })]);
 
   return (
-    <div className="mx-auto max-w-[1400px]">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-text">Faturamento</h1>
-        <p className="mt-1 text-text-muted">
-          Consumo de IA por cliente no período. Só o widget é cobrável — o portal público de
-          documentação é cortesia e aparece separado, fora de qualquer total.
-        </p>
-      </header>
+    <PageShell
+      titulo="Faturamento"
+      descricao="Consumo de IA por cliente no período. Só o widget é cobrável — o portal público de documentação é cortesia e aparece separado, fora de qualquer total."
+      largura="wide"
+    >
 
       {/* ── Período e cliente ─────────────────────────────────────────── */}
       <form className="mt-6" method="get">
@@ -107,6 +105,6 @@ export default async function FaturamentoPage({ searchParams }: { searchParams: 
           periodo={{ de, ate }}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
