@@ -18,7 +18,9 @@ describe("mapa de rotas", () => {
 
   it("mantém o item aceso nas rotas que foram absorvidas", () => {
     // Foi para isto que o `also` existia. Aqui é declarado junto do destino.
-    expect(rotaAtiva("/admin/importar")?.href).toBe("/admin/documentacoes");
+    // Importar tem item PRÓPRIO: é ferramenta de uso diário, e absorvê-la em
+    // "Documentações" custava três passos para chegar.
+    expect(rotaAtiva("/admin/importar")?.href).toBe("/admin/importar");
     expect(rotaAtiva("/admin/estudio/sessao-1")?.href).toBe("/admin/documentacoes");
     expect(rotaAtiva("/admin/ontologia")?.href).toBe("/admin/assistente");
     expect(rotaAtiva("/admin/conversas")?.href).toBe("/admin/assistente");

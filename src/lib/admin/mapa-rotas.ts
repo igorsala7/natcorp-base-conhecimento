@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
   Library,
+  Upload,
   Bot,
   BarChart3,
   Plug,
@@ -105,7 +106,6 @@ export const MAPA: Secao[] = [
         tambem: [
           "/admin/documentacoes",
           "/admin/conteudo",
-          "/admin/importar",
           "/admin/estudio",
           "/admin/revisao",
           "/admin/lixeira",
@@ -115,7 +115,7 @@ export const MAPA: Secao[] = [
           "/admin/configuracoes",
           "/admin/previa",
         ],
-        apelidos: ["conteúdo", "artigos", "árvore", "editor", "importar", "estúdio", "revisão", "lixeira", "aparência", "portal", "preferências"],
+        apelidos: ["conteúdo", "artigos", "árvore", "editor", "estúdio", "revisão", "lixeira", "aparência", "portal", "preferências"],
       },
     ],
   },
@@ -123,6 +123,33 @@ export const MAPA: Secao[] = [
     titulo: "Documentação",
     escopo: "espaco",
     rotas: [
+      {
+        href: "/admin/importar",
+        rotulo: "Importar",
+        icone: Upload,
+        escopo: "espaco",
+        permissao: "content.import",
+        /**
+         * DE VOLTA AO MENU, e a lição está aqui.
+         *
+         * Ela foi absorvida por "Documentações" no primeiro desenho, junto com
+         * Estúdio, Revisão e Lixeira — pela lógica de que tudo isso é trabalho
+         * sobre conteúdo. A lógica estava certa e a decisão, errada: chegar aqui
+         * passou a custar três passos (Documentações → escolher a doc → achar a
+         * ação) numa tela de uso diário.
+         *
+         * Agrupar por assunto vale para o que se CONSULTA. Ferramenta de uso
+         * frequente é diferente: ela merece porta própria mesmo pertencendo a um
+         * grupo maior, porque o custo de um clique a mais se paga todo dia.
+         */
+        descricao: "Trazer PDF, Word, planilha ou página da web para a documentação — e gerar os embeddings do chatbot.",
+        tambem: ["/admin/importar"],
+        apelidos: ["importar", "upload", "pdf", "docx", "embeddings", "indexar", "scraping", "url"],
+        abas: [
+          { key: "documentos", rotulo: "Importar documentos" },
+          { key: "embeddings", rotulo: "Embeddings", permissao: "embeddings.reindex" },
+        ],
+      },
       {
         href: "/admin/assistente",
         rotulo: "Assistente de IA",
