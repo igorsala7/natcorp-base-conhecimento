@@ -13,6 +13,7 @@ import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { permissoesDo } from "@/lib/auth/permissions";
 import { PageShell } from "@/components/ui/page-shell";
+import { AssistenteTabs } from "@/components/admin/assistente-tabs";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -69,7 +70,9 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   // `permissoesDo` é memoizado por request — o layout já consultou, então aqui
   // não custa ida ao banco. A aba de rastreio exige nível 80; oferecê-la a quem
   // não pode abrir a transformaria num beco.
-  const podeRastrear = (await permissoesDo()).has("ai.configure");
+  const permissoes = await permissoesDo();
+  const podeRastrear = permissoes.has("ai.configure");
+  const podeWidget = permissoes.has("widget.manage");
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();
@@ -162,7 +165,15 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
       largura="wide"
       /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
       acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
-      abas={<TrackingTabs current="conversas" spaceId={atual.id} podeRastrear={podeRastrear} />}
+      abas={
+        /* Duas barras, dois níveis. A de cima diz em que parte do Assistente se
+           está; a de baixo, qual das três leituras do mesmo tráfego. Fundi-las
+           num nível só misturaria "onde estou" com "o que estou vendo". */
+        <div className="space-y-3">
+          <AssistenteTabs atual="atividade" spaceId={atual.id} podeGerenciarWidget={podeWidget} />
+          <TrackingTabs current="conversas" spaceId={atual.id} podeRastrear={podeRastrear} />
+        </div>
+      }
     >
 
       {/* Filtros — GET, para o estado viver na URL (compartilhável). */}

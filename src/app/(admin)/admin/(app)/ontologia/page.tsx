@@ -17,6 +17,8 @@ import { listDataDictionaryColumns } from "./apex-actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
 import { Button } from "@/components/ui/button";
+import { AssistenteTabs } from "@/components/admin/assistente-tabs";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Ontologia" };
 
@@ -44,6 +46,8 @@ export default async function OntologiaPage({
 
   const spaces = await listSpaces();
   const { space } = await searchParams;
+  // Memoizado por request — o layout já consultou, então não custa ida ao banco.
+  const podeWidget = (await permissoesDo()).has("widget.manage");
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
@@ -81,6 +85,7 @@ export default async function OntologiaPage({
           <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
         </>
       }
+      abas={<AssistenteTabs atual="ontologia" spaceId={atual.id} podeGerenciarWidget={podeWidget} />}
     >
 
       <div className="mt-6">

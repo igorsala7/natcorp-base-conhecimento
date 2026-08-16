@@ -14,6 +14,7 @@ import type { ApiKeyRow } from "../widget/api-key-manager";
 import { ChatbotTabs } from "./chatbot-tabs";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
+import { AssistenteTabs } from "@/components/admin/assistente-tabs";
 
 export const metadata: Metadata = { title: "Chatbot" };
 
@@ -108,6 +109,7 @@ export default async function ChatbotPage({
         /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
         <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
       }
+      abas={<AssistenteTabs atual="canais" spaceId={atual.id} podeGerenciarWidget />}
     >
 
       {/* Base de conhecimento do bot */}
