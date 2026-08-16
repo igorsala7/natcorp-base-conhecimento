@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Activity, AlertTriangle, X } from "lucide-react";
-import { atividadeRecente, type ItemAtividade } from "@/app/(admin)/admin/(app)/atividade-actions";
+import { atividadeRecente, dispensarAtividade, type ItemAtividade } from "@/app/(admin)/admin/(app)/atividade-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -42,6 +42,7 @@ const INTERVALO = 15_000;
 export function Atividade() {
   const [itens, setItens] = useState<ItemAtividade[]>([]);
   const [aberta, setAberta] = useState(false);
+  const [limpando, setLimpando] = useState(false);
 
   const carregar = useCallback(() => {
     void atividadeRecente().then(setItens);
@@ -58,6 +59,26 @@ export function Atividade() {
 
   const comErro = itens.filter((i) => i.status === "error");
   const emCurso = itens.filter((i) => i.status !== "error");
+
+  /**
+   * Some da lista NA HORA e só depois confirma com o servidor.
+   *
+   * A sondagem é de 15s: esperar a volta deixaria o item na tela por até um
+   * ciclo inteiro depois do clique, e a pessoa clicaria de novo. Se o servidor
+   * recusar, `carregar()` traz o item de volta — que é a informação honesta.
+   */
+  async function limpar(alvos: ItemAtividade[]) {
+    if (!alvos.length) return;
+    const chaves = new Set(alvos.map((i) => `${i.tipo}|${i.id}`));
+    setItens((atuais) => atuais.filter((i) => !chaves.has(`${i.tipo}|${i.id}`)));
+    setLimpando(true);
+    try {
+      await dispensarAtividade(alvos.map((i) => ({ tipo: i.tipo, id: i.id })));
+    } finally {
+      setLimpando(false);
+      carregar();
+    }
+  }
   if (itens.length === 0 && !aberta) return null;
 
   return (
@@ -88,9 +109,20 @@ export function Atividade() {
           <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-3">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-sm font-semibold text-text">Atividade</h2>
-              <Button variant="ghost" size="icon" onClick={() => setAberta(false)} aria-label="Fechar">
-                <X />
-              </Button>
+              <div className="flex items-center gap-1">
+                {/* Só aparece quando há o que limpar, e só alcança os ERROS:
+                    dispensar um job em curso esconderia exatamente o que a
+                    gaveta existe para mostrar, e ele voltaria a aparecer ao
+                    falhar — pior que não ter o botão. */}
+                {comErro.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => void limpar(comErro)} loading={limpando} loadingLabel="Limpando">
+                    Limpar {comErro.length === 1 ? "erro" : `${comErro.length} erros`}
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => setAberta(false)} aria-label="Fechar">
+                  <X />
+                </Button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto p-3">
@@ -118,6 +150,18 @@ export function Atividade() {
                         {i.status !== "error" && (
                           <span className="ml-auto text-2xs tabular-nums text-text-muted">{i.progresso}%</span>
                         )}
+                        {/* Dispensa individual — alcança também o job TRAVADO
+                            em `queued`, que o "Limpar erros" não pega porque
+                            ele nunca chega a falhar. */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={i.status === "error" ? "ml-auto size-6" : "size-6"}
+                          onClick={() => void limpar([i])}
+                          aria-label={`Dispensar ${ROTULO[i.tipo] ?? i.tipo}${i.rotulo ? ` — ${i.rotulo}` : ""}`}
+                        >
+                          <X className="size-3.5" />
+                        </Button>
                       </div>
 
                       {i.rotulo && <p className="mt-1 truncate text-xs text-text-muted">{i.rotulo}</p>}

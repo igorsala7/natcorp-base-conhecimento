@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Search, ChevronLeft, ChevronRight, FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { dispensarAtividade } from "../atividade-actions";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
@@ -43,6 +44,7 @@ export function ApexIngest({ spaceId }: { spaceId: string }) {
    * montar a consulta, em vez de dois que precisam concordar.
    */
   const [recarga, setRecarga] = useState(0);
+  const [dispensados, setDispensados] = useState<Set<string>>(new Set());
   const { jobs, acompanhar } = useAcompanharJobs<ApexJob>(
     () => listApexJobs(spaceId),
     () => setRecarga((n) => n + 1),
@@ -184,8 +186,20 @@ export function ApexIngest({ spaceId }: { spaceId: string }) {
   const totalPaginas = Math.max(1, Math.ceil(dic.total / POR_PAGINA));
 
   const jobsAcompanhados = jobs.filter(
-    (j) => j.status === "queued" || j.status === "running" || j.status === "error",
+    (j) => (j.status === "queued" || j.status === "running" || j.status === "error") && !dispensados.has(j.id),
   );
+  const errosVisiveis = jobsAcompanhados.filter((j) => j.status === "error");
+
+  /**
+   * Esconde o job desta lista, com a MESMA dispensa da gaveta de Atividade —
+   * senão limpar aqui deixaria o erro lá, e vice-versa. O estado local é só
+   * para o item sumir antes da próxima sondagem.
+   */
+  async function dispensar(alvos: { id: string }[]) {
+    if (!alvos.length) return;
+    setDispensados((s) => new Set([...s, ...alvos.map((a) => a.id)]));
+    await dispensarAtividade(alvos.map((a) => ({ tipo: "dicionario", id: a.id })));
+  }
 
   return (
     <Surface elevation={1} padding="lg" className="space-y-4">
@@ -243,6 +257,14 @@ export function ApexIngest({ spaceId }: { spaceId: string }) {
           e some justamente quando a pessoa mais precisa saber o que houve. */}
       {jobsAcompanhados.length > 0 && (
         <div className="space-y-2" aria-live="polite">
+          {errosVisiveis.length > 0 && (
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => void dispensar(errosVisiveis)}>
+                <X className="size-3.5" />
+                Limpar {errosVisiveis.length === 1 ? "o erro" : `os ${errosVisiveis.length} erros`}
+              </Button>
+            </div>
+          )}
           {jobsAcompanhados.map((j) => {
             const erro = j.status === "error";
             return (
@@ -259,6 +281,17 @@ export function ApexIngest({ spaceId }: { spaceId: string }) {
                     </span>
                   ) : null}
                   <span className="ml-auto tabular-nums text-text-muted">{erro ? "" : `${j.progress}%`}</span>
+                  {/* Também alcança o job travado em `queued`, que "Limpar os
+                      erros" não pega porque ele nunca chega a falhar. */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    onClick={() => void dispensar([j])}
+                    aria-label={erro ? "Dispensar este erro" : "Parar de acompanhar este processo"}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
                 </div>
                 {erro ? (
                   <p className="rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">

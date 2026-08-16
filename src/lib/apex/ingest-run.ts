@@ -55,6 +55,38 @@ export async function runApexIngest(supabase: DbClient, jobId: string): Promise<
 
   const componentes = linhas.filter((l) => l.kind !== "column").length;
   const colunas = linhas.filter((l) => l.kind === "column").length;
+
+  /**
+   * ZERO COLUNAS COM ESTRUTURA LIDA É FALHA, NÃO SUCESSO.
+   *
+   * Passou despercebido três vezes em 16/08/2026, sempre igual: o job terminava
+   * `done`, a barra ia a 100%, o `found` dizia 0 — e nada distinguia isso de um
+   * processamento bem-sucedido. Duas causas diferentes produziram exatamente a
+   * mesma tela silenciosa (o normalizador que não entendia o dump das views, e
+   * depois o worker rodando código antigo).
+   *
+   * Extrair o mapa tabela·coluna é a razão de ser desta ingestão. Ler 1.568
+   * componentes e nenhuma coluna nunca é um resultado legítimo — é sintoma. E
+   * `componentes > 0` é o que separa isso de um arquivo genuinamente vazio, que
+   * merece outra mensagem.
+   */
+  if (componentes > 0 && colunas === 0) {
+    await supabase
+      .from("data_dictionary_jobs")
+      .update({
+        status: "error",
+        progress: 100,
+        result: { componentes, colunas, termos },
+        error:
+          `Li ${componentes.toLocaleString("pt-BR")} componentes da aplicação mas NENHUMA ligação coluna↔tabela — ` +
+          "que é justamente o que esta ingestão existe para extrair. " +
+          "Causa mais comum: o worker está rodando uma versão antiga do código (reinicie o `npm run worker` após o deploy). " +
+          "Se o worker estiver atualizado, o JSON provavelmente não traz `database_items`.",
+      })
+      .eq("id", jobId);
+    return { componentes, colunas, termos };
+  }
+
   await supabase.from("data_dictionary_jobs").update({ status: "done", progress: 100, found: termos, result: { componentes, colunas, termos } }).eq("id", jobId);
   return { componentes, colunas, termos };
 }

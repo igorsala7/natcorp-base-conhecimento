@@ -639,6 +639,27 @@ export type Database = {
           },
         ]
       }
+      atividade_dispensas: {
+        Row: {
+          dispensada_em: string
+          job_id: string
+          tipo: string
+          user_id: string
+        }
+        Insert: {
+          dispensada_em?: string
+          job_id: string
+          tipo: string
+          user_id: string
+        }
+        Update: {
+          dispensada_em?: string
+          job_id?: string
+          tipo?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_bases: {
         Row: {
           active: boolean
