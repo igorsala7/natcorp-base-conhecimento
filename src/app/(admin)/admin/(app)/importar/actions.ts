@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { audit } from "@/lib/auth/audit";
 import { uniqueSlug } from "@/lib/content/unique-slug";
 import { enqueueImport, enqueueImportImprove } from "@/lib/jobs/boss";
+import { parseLog } from "./status";
 import type { ProposedNode, ContentItem } from "@/lib/importer/structure";
 import { newId, type Block, type BlockDoc } from "@/lib/blocks/schema";
 import { blocksToText } from "@/lib/blocks/serialize";
@@ -475,6 +476,56 @@ export async function deleteImportJob(jobId: string): Promise<ImportResult> {
   }
   await supabase.storage.from("imports").remove([job.source_file]).catch(() => {});
   await supabase.from("import_jobs").delete().eq("id", jobId);
+  revalidatePath("/admin/importar");
+  return { ok: true };
+}
+
+/**
+ * TENTAR DE NOVO um job que falhou.
+ *
+ * Um job em erro só oferecia "Remover" — e remover apaga o arquivo do Storage
+ * junto. Quem tomasse um erro transitório (worker fora do ar, timeout da IA,
+ * rede) tinha de subir o arquivo outra vez. Isso é caro num PDF de 200 páginas
+ * e absurdo quando a causa foi o worker estar reiniciando.
+ *
+ * Reenfileira o MESMO registro: mesmo arquivo, mesmo destino, mesmo id. Criar um
+ * job novo deixaria o antigo na lista como lixo e duplicaria o arquivo no
+ * Storage — e a lista de importações é justamente onde se procura o que deu
+ * errado.
+ *
+ * O log é PRESERVADO, com uma linha marcando a retentativa. Apagá-lo perderia a
+ * pista do erro anterior, que é o que permite dizer "falhou duas vezes na
+ * extração" em vez de "falhou".
+ */
+export async function retryImportJob(jobId: string): Promise<ImportResult> {
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("import_jobs")
+    .select("space_id, status, log")
+    .eq("id", jobId)
+    .single();
+  if (!job) return { ok: false, error: "Job não encontrado." };
+  try {
+    await requirePermission("content.import", job.space_id);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  if (job.status !== "error") {
+    return { ok: false, error: "Só um job com erro pode ser reenviado." };
+  }
+
+  const log = parseLog(job.log);
+  log.push({ at: new Date().toISOString(), msg: "— Reenviado para a fila —" });
+
+  const { error } = await supabase
+    .from("import_jobs")
+    .update({ status: "queued", progress: 0, error: null, log })
+    .eq("id", jobId);
+  if (error) return { ok: false, error: error.message };
+
+  // Mesma fila do envio original: o worker não distingue retentativa de job
+  // novo, e não precisa — o registro é o mesmo.
+  await enqueueImport(jobId);
   revalidatePath("/admin/importar");
   return { ok: true };
 }

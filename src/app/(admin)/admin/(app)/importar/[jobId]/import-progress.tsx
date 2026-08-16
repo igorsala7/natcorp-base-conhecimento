@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { STATUS_LABEL, isTerminal, parseLog, type ImportLogLine } from "../status";
+import { STATUS_LABEL, PASSOS_IMPORT, passoDoJob, isTerminal, parseLog, type ImportLogLine } from "../status";
+import { Stepper } from "@/components/ui/stepper";
 
 type State = { status: string; progress: number; error: string | null; log: ImportLogLine[] };
 
@@ -79,6 +80,7 @@ export function ImportProgress({
   }, [jobId, initial.status, doneHref, router]);
 
   const erro = job.status === "error";
+  const passo = passoDoJob(job.status, job.log);
   const pronto = job.status === "done";
 
   return (
@@ -105,7 +107,12 @@ export function ImportProgress({
           <span className="ml-auto tabular-nums text-text-muted">{job.progress}%</span>
         </div>
 
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+        {/* Os oito estados já existiam tipados e nunca chegaram à tela. Quem
+            esperava via UM badge e não sabia quantas etapas faltavam — três
+            minutos em "Estruturando" é indistinguível de travado. */}
+        <Stepper className="mt-3" passos={[...PASSOS_IMPORT]} atual={passo.atual} falhou={passo.falhou} />
+
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
           <div
             className={`h-full transition-all duration-300 ${erro ? "bg-red-600 dark:bg-red-500" : "bg-primary"}`}
             style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}

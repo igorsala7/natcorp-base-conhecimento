@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Upload, Link2, Loader2, Camera } from "lucide-react";
+import { RotateCw, Upload, Link2, Loader2, Camera } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { controlClass } from "@/components/ui/input";
 import { CaptureDialog } from "@/components/capture/capture-dialog";
-import { createImportJob, createUrlImportJob, deleteImportJob } from "./actions";
+import { createImportJob, createUrlImportJob, deleteImportJob, retryImportJob } from "./actions";
 import { createCaptureImport, sugerirCaminhoCaptura } from "./capture-actions";
 import { ImportValidateDialog } from "./import-validate-dialog";
 import { ACCEPT_ATTR, extensaoAceita, MAX_UPLOAD_BYTES } from "@/lib/importer/file-guard";
@@ -269,6 +269,25 @@ export function ImportManager({
                             Ver na árvore
                           </Link>
                         </>
+                      )}
+                      {/* Antes, um job em erro só oferecia "Remover" — e remover
+                          apaga o arquivo do Storage junto. Quem tomasse um erro
+                          transitório (worker reiniciando, timeout da IA) tinha
+                          de subir o PDF de 200 páginas outra vez. */}
+                      {job.status === "error" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto p-0 text-xs text-primary hover:bg-transparent hover:underline"
+                          onClick={() => {
+                            void retryImportJob(job.id).then((r) => {
+                              if (r.ok) toast.success("Reenviado para a fila.");
+                              else toast.error(r.error);
+                            });
+                          }}
+                        >
+                          <RotateCw /> Tentar de novo
+                        </Button>
                       )}
                       <button
                         type="button"

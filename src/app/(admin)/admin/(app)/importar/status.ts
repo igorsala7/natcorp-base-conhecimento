@@ -39,3 +39,44 @@ export function parseLog(raw: unknown): ImportLogLine[] {
     return typeof msg === "string" ? [{ at: typeof at === "string" ? at : "", msg }] : [];
   });
 }
+
+/**
+ * Os estados viram PASSOS visíveis.
+ *
+ * A lista existia desde sempre e nunca chegou à tela: a UI mostrava um badge
+ * com o estado atual, e quem esperava não sabia quantas etapas faltavam. Três
+ * minutos em "Inferindo estrutura" é indistinguível de travado.
+ *
+ * `done` e `error` ficam de fora dos passos: um é o fim de todos eles, o outro
+ * não é uma etapa — marca ONDE o trabalho parou, e é isso que o Stepper mostra.
+ * "Melhorando layout" é opcional (só existe se a pessoa pediu), mas aparece
+ * apagado desde o começo para não surgir do nada no meio da espera.
+ */
+export const PASSOS_IMPORT = [
+  { key: "queued", rotulo: "Na fila" },
+  { key: "extracting", rotulo: "Extraindo" },
+  { key: "inferring", rotulo: "Estruturando" },
+  { key: "preview", rotulo: "Revisão" },
+  { key: "importing", rotulo: "Importando" },
+  { key: "improving", rotulo: "Melhorando layout", opcional: true },
+] as const;
+
+/**
+ * Em que passo o job está — e, se falhou, onde parou.
+ *
+ * `error` não diz sozinho ONDE quebrou; o worker registra a última etapa no log
+ * antes de falhar. Sem essa informação, o Stepper marcaria o primeiro passo
+ * como culpado e mandaria olhar o arquivo quando o problema era o destino.
+ */
+export function passoDoJob(status: string, log: ImportLogLine[]): { atual: string; falhou: boolean } {
+  if (status === "done") return { atual: "improving", falhou: false };
+  if (status !== "error") return { atual: status, falhou: false };
+
+  // De trás para frente: a última etapa mencionada é onde o trabalho estava.
+  const chaves = PASSOS_IMPORT.map((p) => p.key);
+  for (let i = log.length - 1; i >= 0; i--) {
+    const achou = chaves.find((k) => log[i]!.msg.toLowerCase().includes(STATUS_LABEL[k]!.toLowerCase()));
+    if (achou) return { atual: achou, falhou: true };
+  }
+  return { atual: "extracting", falhou: true };
+}
