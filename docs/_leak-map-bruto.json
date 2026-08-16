@@ -1,0 +1,350 @@
+[
+  {
+    "portas": [
+      {
+        "porta": "Resultado de tool ORDS — corpo cru vira `data`",
+        "arquivo": "src/lib/integrations/executor.ts",
+        "linha": 294,
+        "comoVaza": "`executeTool` lê o corpo da resposta ORDS como texto e faz `JSON.parse(text)` direto em `data`. Não existe mapeamento de chave em lugar nenhum do executor: o objeto devolvido tem EXATAMENTE as chaves que o Oracle/ORDS emitiu (colunas do SELECT, em MAIÚSCULA). O merge de paginação (linhas 348-358) reconstrói `{...data, items: junto.items}` — as linhas seguem intactas, só ganham `hasMore/count/_truncado`.",
+        "exemplo": "const text = await res.text();\nlet data: unknown = text;\ntry {\n  data = JSON.parse(text);\n} catch { /* resposta não-JSON: devolve o texto cru */ }",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não neste ponto. O rótulo humano existe no banco, na tabela `data_dictionary` (`db_table`, `db_column`, `label`) — ver src/lib/database.types.ts:2818 — alimentada pela ingestão APEX/DDL. O executor nunca a consulta."
+      },
+      {
+        "porta": "Cadeia de pós-processamento do tool-builder (todas preservam a chave)",
+        "arquivo": "src/lib/integrations/tool-builder.ts",
+        "linha": 904,
+        "comoVaza": "Entre a API e o modelo o resultado passa por 6 transformações — `dedupItems`/`filtrarPorTermo` (882-885), `filtrarProprioDosResultados` (887), `semRemuneracao` (893), `extractDocumentsFromResult` (896), `limparMarcacaoHtml` e `redigirCredenciais` (904). TODAS reconstroem o objeto com `out[k] = ...`: filtram LINHAS e mascaram VALORES, nunca renomeiam CHAVE. `redigirCredenciais` é a prova do padrão — ela sabe casar nome de campo (`campoSensivel`) e mesmo assim mantém a chave, só troca o valor por `[removido]`.",
+        "exemplo": "const seguro = redigirCredenciais(limparMarcacaoHtml(cleaned));\nawait registrar(seguro, true, result.status, files.length, null);\nreturn seguro;\n\n// redact-fields.ts:51-54 — a chave sobrevive, só o valor muda:\nfor (const [k, v] of Object.entries(dados)) {\n  if (campoSensivel(k)) out[k] = ... MARCA;\n  else out[k] = redigirCredenciais(v, nivel + 1);\n}",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. Este é o ponto natural para um `traduzirChaves(dados, dicionarioDaBase)` — é onde já existe uma varredura recursiva chave a chave (`redact-fields.ts:46`, `html-values.ts:59`), com a mesma forma de código que a tradução exigiria."
+      },
+      {
+        "porta": "`injetarDatasetComRelato` — a AMOSTRA que o modelo lê",
+        "arquivo": "src/lib/chat/datasets.ts",
+        "linha": 331,
+        "comoVaza": "É aqui que se decide o que o modelo vê. As linhas da amostra são fatiadas do objeto ORIGINAL (`podado`), não das linhas re-chaveadas do registro interno: `podado.slice(0, cabem)`. Ou seja, cada linha entregue ao modelo tem as chaves ORDS na íntegra. O `cN` que existe em `registrarDataset` (datasets.ts:130-138) fica só dentro do registro — nunca é o que trafega.",
+        "exemplo": "if (Array.isArray(podado)) {\n  out = { ...tag, itens: truncado ? podado.slice(0, cabem) : podado };\n} else {\n  ...\n  if (Array.isArray(v) && v.some(ehLinha)) { out = { ...o, [k]: v.slice(0, cabem), ...tag }; }\n}",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. É o gargalo único do caminho de dados: TODA tool de integração passa por `injetarDatasetComRelato` (tool-builder.ts:1057), nas três rotas de chat. Traduzir aqui cobriria o volume inteiro numa função pura e já testada."
+      },
+      {
+        "porta": "Metadado `_colunas` — a lista literal de nomes de coluna",
+        "arquivo": "src/lib/chat/datasets.ts",
+        "linha": 325,
+        "comoVaza": "Além das linhas, o servidor injeta uma TAG com a lista explícita dos nomes de coluna. `inferirColunas` (datasets.ts:100-104) faz a união das chaves das 100 primeiras linhas e devolve até 150 nomes — e todos vão para o modelo em `_colunas`, mesmo quando a amostra é de 1 linha só. É a forma mais concentrada do vazamento: um array de identificadores técnicos, sem valor nenhum em volta.",
+        "exemplo": "const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };\nif (truncado) { tag._amostra = cabem; tag._nota = notaAmostra(meta.id, meta.total); }\nelse tag._completo = true;",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. Há uma instrução de prompt pedindo para IGNORAR esse campo ao escrever (src/lib/chat/visuals-directive.ts:83-85: \"Ignore `_dataset`/`_total`/`_colunas` ao escrever a resposta\") — mitigação por texto, não garantia."
+      },
+      {
+        "porta": "Retorno das ferramentas de dados (`consultar_registros`, `agrupar`, `derivar_coluna`…)",
+        "arquivo": "src/lib/chat/query-tools.ts",
+        "linha": 88,
+        "comoVaza": "As 8 tools de análise devolvem os nomes de coluna DE VOLTA ao modelo em cada resultado: `colunas: r.colunas` (88, 271, 312, 343) e `coluna: r.coluna` (128, 164). Como o dataset `dsN` nasceu de um retorno ORDS, `r.colunas` são as chaves cruas. Pior: o modelo precisa CITAR o nome da coluna para chamar essas tools (`coluna: z.string()`, linha 116), então o identificador técnico entra também no argumento da chamada e fica no histórico da conversa.",
+        "exemplo": "return {\n  total: r.total,\n  resultado_em: r.id,\n  colunas: r.colunas,\n  amostra: r.amostra,\n  nota: comAviso(...)\n};",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. Se a tradução acontecer em `registrarDataset`/`injetarDataset`, estas tools passam a operar sobre nomes já humanos e ficam corretas de graça — inclusive os argumentos que o modelo escreve."
+      },
+      {
+        "porta": "Mensagens de erro que ENUMERAM as colunas reais",
+        "arquivo": "src/lib/chat/datasets.ts",
+        "linha": 646,
+        "comoVaza": "Quando o modelo erra o nome da coluna, o servidor responde listando as colunas verdadeiras — `explicarColuna` (632-648, \"Colunas reais: …\", 14 nomes) e `textoDatasetsDisponiveis` (617-624, id + 12 nomes por dataset). Esses textos entram no tool-result e são usados em query-tools.ts:34/84/124/162, e em report-tools.ts:165/174/183. São frases prontas em português, formuladas como se fossem para ler — exatamente o tipo de texto que o modelo repassa ao usuário.",
+        "exemplo": "return (\n  `A coluna \"${coluna}\" não existe em \"${id}\". Colunas reais: ${nomes.slice(0, 14).join(\", \")}.` +\n  (perto ? ` Você quis dizer \"${perto}\"?` : \"\")\n);",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. É o caso em que o vazamento é mais provável de virar resposta: o modelo tende a repassar o erro quase literal (\"não achei a coluna X; as disponíveis são COD_FILIAL, NOME_FILIAL…\")."
+      },
+      {
+        "porta": "Cabeçalho da TABELA no PDF/XLSX gerado (`gerar_relatorio`)",
+        "arquivo": "src/lib/chat/report-tools.ts",
+        "linha": 565,
+        "comoVaza": "`expandirTabela` (datasets.ts:378-397) usa `ds.headers`, e para um dataset vindo de API `headers === colunas === chaves ORDS` (datasets.ts:140). Esses nomes viram os CABEÇALHOS do arquivo entregue. Aqui não há modelo no meio: o arquivo sai por SSE (`sse({ type: \"file\", ... })`, route.ts:2279) e o usuário abre e lê `COD_FILIAL` na primeira linha da planilha. Mesma coisa no gráfico: o nome da série é a coluna que o modelo passou (report-tools.ts:233) e vai por `sse({ type: \"chart\" })` (route.ts:2287).",
+        "exemplo": "const exp = expandirTabela(datasets, t.dados_de, t.campos, t.colunas);\n...\nblocos.push({ ...b, tabela: { titulo: t.titulo, colunas: exp.colunas, linhas: exp.linhas } });\n\n// datasets.ts:140 — headers = as próprias chaves da API:\nreg.list.push({ id, rows, colunas, headers: colunas });",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "Não. E note que o schema INSTRUI o modelo a não preencher `colunas` (\"Com `dados_de`, NÃO preencha: o servidor usa os cabeçalhos reais\", report-tools.ts:480) — ou seja, o caminho recomendado é justamente o que garante cabeçalho técnico."
+      },
+      {
+        "porta": "Glossário da ontologia no system prompt",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 1879,
+        "comoVaza": "`glossarioCasado` (src/lib/ai/ontology.ts:247-270) monta \"Termo canônico (sinônimo1, sinônimo2…)\" e injeta no prompt. Os sinônimos vêm de `ontology_aliases`, e a ingestão do dicionário de dados grava a COLUNA DO BANCO como alias (src/lib/data-dictionary/ontology-feed.ts:30: `if (c.db_column) aliases.add(String(c.db_column))`). Resultado: o prompt reintroduz o nome técnico — \"Id. Empresa (COD_EMPRESA)\" — do lado do rótulo humano, ensinando ao modelo que os dois são intercambiáveis.",
+        "exemplo": "const blocoGloss = glossario\n  ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`\n  : \"\";",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Sim, e é o mesmo registro: `data_dictionary.label` é o termo canônico e `db_column` é o alias. O par rótulo↔coluna JÁ EXISTE por espaço — só nunca é usado no sentido inverso (coluna → rótulo) no caminho do dado."
+      },
+      {
+        "porta": "Nome do parâmetro no schema da tool (argumento que o modelo escreve)",
+        "arquivo": "src/lib/integrations/tool-builder.ts",
+        "linha": 710,
+        "comoVaza": "O schema exposto ao modelo é montado de `ai_tools.params` por `buildModelSchema` (src/lib/integrations/params.ts, via `chaveDoModelo`). Quando o cadastro da ferramenta nomeia o parâmetro como o campo do banco (`P_COD_CANDIDATO` aparece assim em src/lib/integrations/tools.ts:126), o identificador entra no prompt pela definição da tool e reaparece na `tool_call` que o modelo emite — antes mesmo de existir resultado. É uma porta menor em volume, mas independente das outras: fechar o resultado não a fecha.",
+        "exemplo": "tools[bt.tool.key] = tool({\n  description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(\" \"),\n  inputSchema: buildModelSchema(paramsEscopo, loopEscopo),",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Parcialmente: `ai_tools.params` tem campo de rótulo/descrição por parâmetro, mas o NOME é o que vai ao schema. Depende de higiene de cadastro, não de código."
+      }
+    ],
+    "observacoes": "RESPOSTA DIRETA ÀS QUATRO PERGUNTAS\n\n1) O JSON cru vai para o modelo com as chaves originais?\nSIM, integralmente. Rastreei o caminho inteiro e não há um único ponto de renomeação. `executor.ts:294` faz `JSON.parse` do corpo ORDS; as seis transformações seguintes (tool-builder.ts:882-904) filtram linhas e mascaram valores mas reconstroem sempre com `out[k] = ...`; `injetarDatasetComRelato` fatia a amostra do objeto ORIGINAL (`datasets.ts:331/338`). O que chega ao modelo é `{\"COD_FILIAL\":1,\"NOME_FILIAL\":\"Matriz\"}` mais uma tag `_dataset/_total/_colunas`.\n\n2) Onde exatamente o resultado é serializado para o modelo?\nEm duas etapas, e a segunda está fora do seu código:\n- src/lib/integrations/tool-builder.ts:1059 — `return saida;` é o último ponto sob seu controle. `saida` é o objeto JS que sai de `injetarDatasetComRelato` (chamado na linha 1057).\n- src/lib/chat/tool-trace.ts:187 — `instrumentarTools` embrulha o `execute` só para emitir passos de trace; devolve `r` intacto (linha 198). Não transforma nada.\n- node_modules/@ai-sdk/anthropic/dist/index.mjs:2527 — `contentValue = JSON.stringify(output.value);` — o objeto vira o TEXTO do bloco `tool_result` enviado ao Claude. É literalmente aqui que \"COD_FILIAL\" entra no contexto como caractere.\nConfirmei por grep que o projeto não define `toModelOutput` nem `experimental_toToolResultContent` em nenhuma tool (zero ocorrências em src/) — ou seja, o gancho oficial do SDK v6 para reescrever o output antes de serializar está livre e não é usado.\n\n3) Existe alguma tradução coluna→rótulo hoje?\nNÃO existe nenhuma tradução executável. Existem três coisas que se parecem com isso e não são:\n- Uma REGRA DE PROMPT: `regraRotulosColuna()` em src/lib/chat/regras-nucleo.ts:42-51 (\"cite cada campo pela LABEL amigável… NUNCA pela chave técnica do JSON/banco (COD_CARGO, DS_NOME, VL_SALARIO)\"). Ela é aplicada em src/app/api/v1/chat/route.ts:1899, e SÓ quando `temTools`. É pedido ao modelo, não garantia — e o próprio arquivo abre dizendo que \"regra ajuda; verificação garante\" (src/lib/chat/titular.ts:11-13, sobre outro problema resolvido com trava de servidor).\n- Uma CÓPIA MORTA da mesma regra: `REGRA_ROTULOS_COLUNA` em src/lib/chat/form-fields.ts:579-584, exportada e não importada em lugar nenhum (grep confirma: só a própria declaração).\n- Um DICIONÁRIO que teria os rótulos mas nunca é lido no caminho do dado: tabela `data_dictionary` com `db_table`/`db_column`/`label` (src/lib/database.types.ts:2818-2835), alimentada pela ingestão APEX/DDL. Hoje ela só serve para semear a ontologia (src/lib/data-dictionary/ontology-feed.ts:15-39) — e no sentido CONTRÁRIO ao desejado: `label` vira termo e `db_column` vira alias, o que faz o nome técnico voltar ao prompt pelo glossário.\nCobertura das rotas: a regra de rótulo existe apenas em /api/v1/chat. As outras duas rotas que montam as mesmas tools de integração — src/app/api/portal/chat/route.ts:162 e src/app/api/chat/route.ts:127 — não a incluem (grep vazio). Lá o vazamento não tem nem a mitigação de prompt.\n\n4) Quantas linhas/colunas vão?\nGovernado por src/lib/chat/datasets.ts:\n- LINHAS: `MAX_ITENS_MODELO = 50` (linha 148) e `MAX_CHARS_AMOSTRA = 60_000` (linha 162), combinados em `linhasQueCabem` (172-182): `max(1, min(nLinhas, 50, floor(60000 / bytes_da_primeira_linha)))`. Registro largo (cadastro funcional com ~200 campos) cai para pouquíssimas linhas; registro estreito vai a 50.\n- COLUNAS: `inferirColunas` (100-104) — união das chaves das 100 primeiras linhas, teto de 150 colunas. Esse array inteiro vai ao modelo em `_colunas`, independentemente de quantas linhas couberam.\n- Rede final: `HARD_MAX_CHARS = 400_000` (linha 190) com poda agressiva (239-263).\nDUAS EXCEÇÕES IMPORTANTES, em que NÃO há corte nenhum e o retorno vai 100% cru:\n(a) Resultado que não é lista — um objeto único, o caso típico de \"dados do colaborador X\". `extrairLista` devolve null (datasets.ts:80-97), `meta` fica null, e `out` permanece sendo `podado`, o objeto original inteiro, com todas as suas chaves. Só a rede de 400 KB o alcança.\n(b) Lista com ≤ `cabem` linhas — a tag recebe `_completo = true` (linha 329) e TODAS as linhas seguem, cruas.\n\nONDE EU FECHARIA (uma observação de engenharia, não uma mudança — nada foi alterado)\nHá um gargalo único e limpo: `injetarDatasetComRelato` (src/lib/chat/datasets.ts:300) é atravessado por todo resultado de tool de integração nas três rotas, é função PURA e já tem suíte de teste (datasets.test.ts, 36 KB). Uma renomeação de chaves aplicada ali — alimentada por `data_dictionary` filtrado pelo espaço/base, guardando o mapa reverso para as query-tools continuarem casando — cobriria as portas 1 a 7 de uma vez, inclusive o cabeçalho do PDF (porta 7 lê `ds.headers`, que nasce em `registrarDataset`, datasets.ts:140). Sobrariam fora: o glossário (porta 8, resolve-se parando de emitir `db_column` como sinônimo em ontology-feed.ts:30) e o nome do parâmetro no schema (porta 9, que é cadastro).\nE a exceção da aplicação \"Carga de Dados\": não encontrei nenhuma menção a ela no código (grep por \"carga de dados\"/\"carga_de_dados\" em src/ retorna vazio). O que hoje identifica a origem é `p_portal`/`p_base` (src/lib/chat/tracking.ts:7-18) e o contexto de tela (src/lib/chat/page-context.ts) — então o \"ligar/desligar a tradução\" precisaria de um sinal novo, decidido por você; é regra de negócio, não detalhe de implementação."
+  },
+  {
+    "portas": [
+      {
+        "porta": "Bloco de contexto do RAG (conteúdo cru do chunk)",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/rag.ts",
+        "linha": 487,
+        "comoVaza": "buildContextBlock concatena o `content` do chunk LITERALMENTE, sem nenhum saneamento, e o resultado vira o bloco \"CONTEXTO:\" do system prompt (widget: src/app/api/v1/chat/route.ts:1874 e contextoStr; portal: src/app/api/portal/chat/route.ts:342; admin: src/app/api/chat/route.ts:232). Se o artigo diz \"grave em CENTRO_DE_CUSTO.COD\", essa string chega inteira ao modelo. Não há filtro, regex, allowlist nem reescrita em nenhum ponto do caminho.",
+        "exemplo": "return `[${s.n}] ${origem}${s.title}${s.heading_path ? ` — ${s.heading_path}` : \"\"}\\n${s.content}`;",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não nesse ponto. O rótulo humano equivalente existe no MESMO espaço, na tabela `data_dictionary` (colunas db_table/db_column → label), populada por src/lib/apex/ingest-run.ts:44 e src/lib/dbobjects/run.ts:31 — mas o RAG nunca a consulta."
+      },
+      {
+        "porta": "Chunking grava o texto cru (artigos e arquivos)",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/content/chunk.ts",
+        "linha": 248,
+        "comoVaza": "reindexNodeChunks insere `content: c.content` — o texto do artigo como está. O mesmo em reindexDocumentChunks (linha 389) para PDF/DOCX/planilha/HTML. Só o EMBEDDING recebe um prefixo de contexto (textoParaEmbedding, linha 150-159); a coluna `content`, que é a que vai para o prompt e para o snippet, continua o texto puro. Portanto qualquer nome de tabela/coluna escrito num manual técnico importado sobrevive intacto até a resposta.",
+        "exemplo": "content: c.content,\n      token_count: Math.ceil(c.content.length / 4),",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. Este é o ponto natural de tradução (o space_id já está em mãos, e `data_dictionary` é por space_id), mas nada é consultado ali."
+      },
+      {
+        "porta": "Recuperação sem filtro por tipo de conteúdo",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/supabase/migrations/20260805130000_hybrid_search_group_limit.sql",
+        "linha": 45,
+        "comoVaza": "O único filtro do hybrid_search_scoped é de ESCOPO (p_node_ids / p_document_ids). Não existe predicado por tipo, sensibilidade ou público-alvo — e não poderia existir: a tabela `chunks` não tem coluna de tipo (src/lib/database.types.ts:2156-2172 — article_id, content, document_id, embedding, heading_path, node_id, space_id, token_count, tsv). Consequência: NÃO HÁ COMO excluir \"conteúdo técnico\" da busca hoje; a única trava disponível é ocultar/despublicar o nó inteiro.",
+        "exemplo": "and ( (p_node_ids is null and p_document_ids is null)\n              or (p_node_ids is not null and c.node_id = any (p_node_ids))\n              or (p_document_ids is not null and c.document_id = any (p_document_ids)) )",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não existe marcação de tipo em lugar nenhum do pipeline (nem em `nodes`, nem em `chunks`)."
+      },
+      {
+        "porta": "Artigo \"Documentação técnica\" gerado pela IA a partir do metadado APEX — é um dicionário de dados em forma de ARTIGO",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/apex/docs.ts",
+        "linha": 53,
+        "comoVaza": "SIM, existe documentação ingerida que é dicionário de dados. gerarDocsPagina pede à IA DOIS artigos por página APEX: um \"usuario\" (por LABEL) e um \"tecnico\" com \"itens e a COLUNA do banco de cada um, as regiões e suas consultas SQL\". src/lib/apex/docs-run.ts:46 cria esse segundo artigo na MESMA árvore de conteúdo, com o título `<página> — Documentação técnica`, irmão do guia do usuário, dentro da pasta `Documentação — <app>` (docs-run.ts:35,43). Publicado, ele é chunkado como qualquer artigo e passa a ser recuperável pelo widget — sem nada que o distinga de um artigo de usuário final.",
+        "exemplo": "`2) \"tecnico\" — para os ANALISTAS DE SISTEMAS/PROGRAMADORES da Natcorp: itens e a COLUNA do banco de cada um, as ` + `regiões e suas consultas SQL, validações, processes (tipo/ponto), dynamic actions (evento) e o FLUXO de ` + `funcionamento/dados. Objetivo e completo.`",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "Sim, e é o caso mais fácil de resolver: o artigo GÊMEO \"usuario\" (docs.ts:51) já é a versão por LABEL, gerado no mesmo passe. Falta apenas marcar/segregar o técnico fora do escopo do chatbot (ou criá-lo em outro espaço/pasta oculta)."
+      },
+      {
+        "porta": "Contexto que alimenta o artigo técnico já é a lista de identificadores",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/apex/docs.ts",
+        "linha": 28,
+        "comoVaza": "contextoPagina monta o texto \"CAMPOS (item · label · origem)\" com o NOME DO ITEM APEX (ex.: P10_COD_CCUSTO) e a coluna de origem; a linha 33 faz o mesmo com os aliases das colunas de relatório, e a linha 23 despeja até 400 chars do SQL de cada região. Esse texto é a matéria-prima do artigo técnico → vira bloco → vira chunk → vira contexto do chat.",
+        "exemplo": "for (const i of itens) linhas.push(`- ${i.name} · \"${i.label ?? \"\"}\" · ${i.displayAs ?? \"\"}${i.source ? ` · coluna ${i.source}` : \"\"}`);",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Sim — `i.label` está literalmente ao lado de `i.name` na mesma linha. O par técnico↔humano existe no momento da geração e é jogado junto no mesmo documento."
+      },
+      {
+        "porta": "Título, origem (manual) e heading_path da fonte entram no prompt",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/rag.ts",
+        "linha": 398,
+        "comoVaza": "Além do conteúdo, cada fonte leva ao prompt o `title` (título do nó), o `origin` (título do diretório de 1º nível — o \"manual\") e o `heading_path` (a trilha de headings do artigo). Num artigo técnico o heading É o identificador: um H2 \"P10_COD_CCUSTO\" produz heading_path \"P10_COD_CCUSTO > Origem\", e o título do nó é \"Página 10 — Documentação técnica\". Tudo formatado em rag.ts:487.",
+        "exemplo": "origin: rootTitleById.get(r.node_id) ?? null,\n      heading_path: r.heading_path,",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não no ponto de leitura — o rótulo teria de ser aplicado na CRIAÇÃO do nó/heading (docs-run.ts:46 e o importador), porque aqui só existe o texto já gravado."
+      },
+      {
+        "porta": "Cartão de citação do widget — exibe título e trilha SEM passar pelo modelo",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/public/widget.js",
+        "linha": 7738,
+        "comoVaza": "As citações montadas em src/app/api/v1/chat/route.ts:1323-1329 ({n, title, url, image, heading_path}) são renderizadas literalmente no bloco \"Fontes (n)\". Nenhuma regra de prompt alcança este caminho: mesmo que o modelo se comporte perfeitamente no texto, o cartão mostra \"[3] Página 10 — Documentação técnica\" e, logo abaixo, \"P10_COD_CCUSTO > Origem\". Mesmo comportamento no portal (src/components/portal/ask-ai.tsx:608-610) e no admin (src/components/admin/chat-panel.tsx:388-390).",
+        "exemplo": "t.textContent = \"[\" + c.n + \"] \" + c.title;\n      ...\n        hp.textContent = c.heading_path;",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "Não. Só chegam `title` e `heading_path` já prontos; a correção precisa acontecer antes (na criação do conteúdo) ou numa camada de tradução na montagem das citações."
+      },
+      {
+        "porta": "Enumeração (\"todos os X\") despeja até 40 chunks crus de arquivo",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/rag.ts",
+        "linha": 322,
+        "comoVaza": "Quando a pergunta pede lista (pedeEnumeracao) e a documentação é a fonte principal, o RPC knowledge_list_chunks traz TODOS os chunks que casam a consulta (até 40, teto 100 na função — supabase/migrations/20260730180000_knowledge_list_chunks.sql:33) e eles são mesclados em `resultados` (rag.ts:345), indo inteiros para buildContextBlock. Uma planilha/CSV de estrutura (tabela;coluna;label) subida na base de conhecimento entra praticamente inteira no prompt.",
+        "exemplo": "const { data: lista } = await supabase.rpc(\"knowledge_list_chunks\", {\n      p_query: limparConsultaLista(query),\n      p_document_ids: documentIds,\n      p_limit: 40,\n    });",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Não. E a extração de planilha repete o CABEÇALHO DA COLUNA em cada linha por desenho (src/lib/importer/extract-sheet.ts:40-49, linhaComCabecalho), então um cabeçalho técnico é multiplicado por linha dentro do chunk."
+      },
+      {
+        "porta": "Fonte de ARQUIVO usa o nome do arquivo como título e como origem",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/rag.ts",
+        "linha": 374,
+        "comoVaza": "Para chunks de knowledge_documents, `title` e `origin` viram `knowledge_documents.original_name` (o RPC devolve coalesce(n.title, d.original_name) — migration 20260805130000:147). Um arquivo chamado \"DICIONARIO_TB_FERIAS.xlsx\" ou \"DDL_CENTRO_DE_CUSTO.csv\" vira o rótulo da citação no cartão E o rótulo da fonte dentro do prompt.",
+        "exemplo": "origin: r.title ?? \"Documento\",",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "Não existe. A tabela `knowledge_documents` não tem campo de título amigável — só `original_name` (src/lib/database.types.ts:3199-3214)."
+      },
+      {
+        "porta": "Regra de citação obriga a nomear o artigo; nenhuma regra proíbe repetir identificador",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/prompt-cascade.ts",
+        "linha": 44,
+        "comoVaza": "As REGRAS_ABSOLUTAS mandam \"cite o ARTIGO PELO NOME\" — o que empurra ativamente o modelo a pronunciar \"Página 10 — Documentação técnica\". E o único freio próximo é a linha 50 (\"Não repita o contexto cru\"), que é sobre estilo, não sobre identificadores: nada em REGRAS_ABSOLUTAS proíbe reproduzir nome de tabela/coluna vindo do CONTEXTO. O bloco é reanexado sempre (buildSystemPrompt:104-110), então é o lugar certo para uma regra nova.",
+        "exemplo": "Ao apontar onde a pessoa encontra o assunto, cite o ARTIGO PELO NOME (ex.: \"isso está no artigo 'Requisição de férias' [2]\") com uma frase resumindo o que ele traz — NUNCA aponte só a pasta/seção.",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "n/a — é ausência de trava, não vazamento de dado."
+      },
+      {
+        "porta": "A regra de rótulo amigável existe, mas NÃO cobre a documentação",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/chat/regras-nucleo.ts",
+        "linha": 44,
+        "comoVaza": "regraRotulosColuna já diz exatamente o que o dono quer (\"NUNCA pela chave técnica do JSON/banco\"), mas o escopo declarado é \"de ferramenta, da tela ou de arquivo\" — a DOCUMENTAÇÃO/RAG ficou de fora do enunciado. Pior: o bloco só entra no prompt quando há ferramentas (src/app/api/v1/chat/route.ts:1899: `const blocoNucleo = temTools ? [...]`), e o chat do PORTAL (src/app/api/portal/chat/route.ts) sequer importa esse módulo. Ou seja: numa pergunta puramente documental, ou no portal, a regra não está no prompt.",
+        "exemplo": "\"RÓTULO DAS COLUNAS: ao apresentar dados (de ferramenta, da tela ou de arquivo), cite cada campo pela LABEL amigável que o usuário reconhece (\\\"Cargo\\\", \\\"Data de admissão\\\", \\\"Salário\\\"), NUNCA pela chave técnica do JSON/banco (\\\"COD_CARGO\\\", \\\"DS_NOME\\\", \\\"VL_SALARIO\\\").\"",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Sim — o próprio texto da regra já traz o padrão de tradução (COD_CARGO → \"Cargo\"). Falta ampliar o escopo para documentação e tirá-la de trás do gate `temTools`."
+      },
+      {
+        "porta": "Glossário da ontologia leva a COLUNA do banco como sinônimo",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/data-dictionary/ontology-feed.ts",
+        "linha": 30,
+        "comoVaza": "Este é o elo entre o dicionário de dados e o prompt. alimentarOntologiaDeColunas transforma a LABEL em termo canônico e o `db_column` em ALIAS. Depois, glossarioCasado imprime \"canônico (sinônimos)\" (src/lib/ai/ontology.ts:261-263, forms = [term, ...aliases] em ontology.ts:163) e o texto entra no prompt como \"GLOSSÁRIO do domínio\" (src/app/api/v1/chat/route.ts:1879-1880; portal route.ts:346-348). Resultado: em todo turno que case o termo, o modelo recebe literalmente \"Id. Empresa (COD_EMPRESA)\". Aciona-se pelo mesmo caminho do RAG (expandirConsulta em rag.ts:219).",
+        "exemplo": "if (c.db_column) aliases.add(String(c.db_column));   // → alias do termo\n// ontology.ts:261-263: return sins.length ? `${canon} (${sins.slice(0, 6).join(\", \")})` : canon;",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "Sim, e é o melhor caso de todos: o CANÔNICO já é a label humana. O alias técnico é necessário para CASAR a consulta, mas não precisa ser IMPRESSO no glossário — basta glossarioCasado emitir só o canônico (ou filtrar aliases que pareçam identificador)."
+      },
+      {
+        "porta": "API pública de busca devolve trecho e trilha crus",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/app/api/v1/search/route.ts",
+        "linha": 53,
+        "comoVaza": "POST /api/v1/search devolve {title, heading_path, snippet} direto das fontes; o snippet é ts_headline sobre `c.content` (migration 20260805130000:149-152) ou os primeiros 200 chars do content. Sem modelo no meio e sem qualquer filtro — quem integrar essa API (ou o Cmd+K do portal, src/components/portal/portal-search.tsx:286-288) vê o identificador exatamente como está gravado.",
+        "exemplo": "const results = sources.map((s) => ({\n    title: s.title,\n    heading_path: s.heading_path,\n    snippet: s.snippet ?? s.content.slice(0, 200),\n    url: s.url,\n  }));",
+        "visivelAoUsuario": "sim-direto",
+        "jaTemRotulo": "Não."
+      },
+      {
+        "porta": "Chat do ADMIN busca na árvore com RASCUNHOS",
+        "arquivo": "/Users/igor_sala/instalacoes/Projetos/natcorp-base-conhecimento/src/lib/ai/rag.ts",
+        "linha": 425,
+        "comoVaza": "retrieveContext usa getEffectiveTreeAdmin (src/lib/content/overlays.ts:169-172), que NÃO filtra status — inclui rascunhos e nós ocultos por overlay. A \"Documentação técnica\" criada por docs-run.ts nasce como rascunho e já é recuperável ali. No público, overlays.ts:184 filtra `status === \"published\"`; ou seja, a única barreira que hoje segura o conteúdo técnico do widget é o ato de PUBLICAR — não o tipo do conteúdo. Um \"publicar tudo\" em lote derruba a barreira sem aviso.",
+        "exemplo": "const tree = await getEffectiveTreeAdmin(spaceId);\n  return retrieveWith(supabase as DbClient, [{ spaceId, tree }], query, limit, scope);",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir",
+        "jaTemRotulo": "n/a — é questão de escopo, não de rótulo."
+      }
+    ],
+    "observacoes": "RESPOSTA DIRETA ÀS TRÊS PERGUNTAS\n\n1) \"Trechos de documentação técnica com nome de tabela/coluna podem ser recuperados e repetidos na resposta?\" SIM, sem nenhum obstáculo. O caminho é: texto do artigo/arquivo → chunk.ts:248/389 (grava `content` cru) → hybrid_search_scoped (sem filtro de tipo) → rag.ts:487 buildContextBlock (concatena cru) → bloco \"CONTEXTO:\" do system prompt. E o modelo é instruído a citar o artigo PELO NOME (prompt-cascade.ts:44). Não existe uma única linha de saneamento em todo o percurso.\n\n2) \"Há algum artigo/documentação ingerida que seja dicionário de dados?\" SIM — e é gerado pelo próprio produto, não importado por acidente. src/lib/apex/docs.ts:53 pede à IA um artigo \"tecnico\" com \"itens e a COLUNA do banco de cada um, as regiões e suas consultas SQL\", e src/lib/apex/docs-run.ts:46 o cria na árvore de conteúdo como \"<página> — Documentação técnica\", irmão do \"— Guia do usuário\", sob a pasta \"Documentação — <app>\". Publicado, é indistinguível de um artigo de usuário final para o RAG. Existe também o dicionário estruturado em `data_dictionary` (src/lib/apex/ingest-run.ts:44, src/lib/dbobjects/run.ts:31, src/app/(admin)/admin/(app)/ontologia/csv-actions.ts:92) — esse NÃO é chunkado nem entra no RAG diretamente, mas vaza pela ontologia (porta do glossário acima).\n\n3) \"Existe filtro por tipo de conteúdo?\" NÃO, e não há como haver hoje: a tabela `chunks` não tem coluna de tipo/sensibilidade (src/lib/database.types.ts:2156-2172), e o RPC só filtra por escopo (node_ids/document_ids). As únicas segregações disponíveis são despublicar (overlays.ts:184), ocultar por overlay (rag.ts:100) ou separar em outro espaço.\n\nO ASSIMÉTRICO QUE VALE NOTAR\nO projeto JÁ tem a regra que o dono quer, escrita quase com as palavras dele (regras-nucleo.ts:44 — \"NUNCA pela chave técnica do JSON/banco\"), e já tem o par técnico↔humano em três lugares (data_dictionary.label, o artigo gêmeo \"usuario\" do APEX, e o canônico da ontologia). O problema não é falta de informação — é que a regra foi escrita pensando em dados de FERRAMENTA/TELA, ficou atrás do gate `temTools` (route.ts:1899) e nunca alcançou a documentação nem o portal.\n\nSOBRE A EXCEÇÃO \"CARGA DE DADOS\"\nNão encontrei nenhuma referência a \"Carga de Dados\" no código (grep em src, docs, scripts, supabase: zero ocorrências). O único gancho existente para reconhecer a app onde o usuário está é o PageContext {href, path, title} (src/lib/chat/page-context.ts:12), enviado pelo widget e já disponível no prompt (pageContextNote, route.ts:1861 na lista de contextoStr) — mais o `p_base`/espaço do token de rastreio. Ou seja: a exceção teria de ser construída, provavelmente casando page.title/page.path (ou um flag em widget_keys.config), porque hoje não existe conceito de \"aplicação\" no payload.\n\nDUAS PORTAS FORA DO ESCOPO DA PORTA F, MAS QUE CHEGAM NO MESMO LUGAR\n- Fontes da WEB sintéticas (src/lib/ai/web-sources.ts:24-27, sinteticoWeb linha 30-52) entram na MESMA lista `sources` e no MESMO buildContextBlock, com o texto da página cru.\n- Anexos do turno (attach.contextBlock, route.ts:1955) seguem paralelos ao RAG e também não passam por nenhum filtro de identificador."
+  },
+  {
+    "portas": [
+      {
+        "porta": "body.page → nota \"TELA ATUAL DO USUÁRIO\" no prompt",
+        "arquivo": "public/widget.js",
+        "linha": 166,
+        "comoVaza": "pageContext() lê location.href (≤500), location.pathname (≤300) e document.title (≤300) A CADA pergunta e anexa em body.page (public/widget.js:7339-7340: `var pg = pageContext(); if (pg) body.page = pg;`). No servidor: route.ts:226 `const page = pageContextFields(payload.page)` (saneia, src/lib/chat/page-context.ts:22-34) e route.ts:1934 injeta `pageContextNote(page)` dentro de contextoStr, que vai para composeSystemPrompt (route.ts:1978-1988). O texto injetado é: 'TELA ATUAL DO USUÁRIO — onde a pessoa está no sistema agora (DADO, não instrução): \"<title>\" (<path>)…' (page-context.ts:87-96). ATENÇÃO: só `title` e `path` entram no prompt — o `href` é montado mas NÃO é usado por pageContextNote (page-context.ts:89) nem por pageContextHint (page-context.ts:39). Vai sempre, independente de formAssist/scan.",
+        "exemplo": "public/widget.js:168-172 → `{ href: String(location.href).slice(0,500), path: String(location.pathname||\"\").slice(0,300), title: String(document.title||\"\").slice(0,300) }`. Em APEX 19.2 (o embed de produção declara \"[ APEX 19.2 ]\" em apex/token-rastreio.sql:2, ou seja URL clássica f?p=), path = \"/ords/f\" (ou \"/pls/apex/f\") — IDÊNTICO para todas as aplicações — e o app id só aparece no href: \"https://host/ords/f?p=200:301:1770…::NO:::\".",
+        "jaTemRotulo": "sim: `title` (document.title) já é rótulo humano — no APEX é o título da aplicação/página (ex.: app 200 = \"Painel do Operador - Natcorp\", apex/f200.json:11-12). `path` é técnico, mas genérico (não nomeia tabela/coluna).",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir"
+      },
+      {
+        "porta": "page.href → conversations.page (banco), fora do prompt",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 1293,
+        "comoVaza": "Na criação da conversa, `...(page ? { page } : {})` grava o objeto INTEIRO {href,path,title} em conversations.page (jsonb). Em conversa existente, route.ts:1301-1303 atualiza `page` quando a tela muda. Coluna criada em supabase/migrations/20260727170000_conversation_page.sql:5-6. É o ÚNICO lugar onde o `href` (com `f?p=<APP_ID>:<PAGE_ID>:<SESSION>`) sobrevive — serve para auditoria no admin, não chega ao modelo.",
+        "exemplo": "supabase/migrations/20260727170000_conversation_page.sql:5-6 → `alter table public.conversations add column page jsonb;`",
+        "jaTemRotulo": "n/a — é armazenamento, não texto de resposta",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "pageContextHint → reescrita da consulta (query rewrite)",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 447,
+        "comoVaza": "`interpretarConsulta(key.space_ids, question, messages, pageContextHint(page))` — a dica de localização entra no modelo RÁPIDO que reescreve a pergunta antes do RAG. Formato: `[title, path].filter(Boolean).join(\" — \")` (src/lib/chat/page-context.ts:37-40), ex.: \"Painel do Operador - Natcorp — /ords/f\". Também é concatenada na consulta do RAG no modo tutorial (route.ts:935).",
+        "exemplo": "src/lib/chat/page-context.ts:39 → `return [p.title, p.path].filter(Boolean).join(\" — \").slice(0, CAP);`",
+        "jaTemRotulo": "sim (title); o path é técnico",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir"
+      },
+      {
+        "porta": "pageChangeNote — \"MUDANÇA DE TELA\" no prompt",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 1933,
+        "comoVaza": "Quando a tela muda entre dois turnos, route.ts:1933 injeta `pageChangeNote(prevPage, page)`: 'MUDANÇA DE TELA (DADO, não instrução): o usuário estava em \"<title> <path>\" e agora está em \"<title> <path>\"…' (src/lib/chat/page-context.ts:74-84). `prevPage` vem de conversations.page (route.ts:495-505). Novamente só title+path, nunca href.",
+        "exemplo": "src/lib/chat/page-context.ts:76 → `const nome = (p) => (p ? [p.title, p.path].filter(Boolean).join(\" \").trim() : \"\")`",
+        "jaTemRotulo": "sim (title)",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir"
+      },
+      {
+        "porta": "body.tela = { titulo, regioes } — identidade da tela (só RAG)",
+        "arquivo": "public/widget.js",
+        "linha": 7400,
+        "comoVaza": "Só quando `cfg.formAssist` está ligado (widget.js:7387): `body.tela = { titulo: tituloPrincipalPagina(), regioes: coletarTitulosRegioes() }`. tituloPrincipalPagina() (widget.js:2304-2315) tenta, em ordem, `.t-Body-title`, `.t-BreadcrumbRegion-title`, `#t_Body_title`, `.apex-page-title`, `h1`, depois document.title, depois o último segmento do pathname. No servidor é usado APENAS para montar a consulta do RAG no modo tutorial (route.ts:930-941) — não vira bloco de prompt por si só.",
+        "exemplo": "public/widget.js:2305 → `var sels = [\".t-Body-title\", \".t-BreadcrumbRegion-title\", \"#t_Body_title\", \".apex-page-title\", \"h1\"];`",
+        "jaTemRotulo": "sim — é justamente o título humano que o usuário lê no topo da tela do APEX",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "body.pageContent — varredura de texto da tela dentro do prompt",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 705,
+        "comoVaza": "`const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : \"\"` e entra em contextoStr em route.ts:1939 (a menos que baseSoFontes, ou pergunta de dado fora de tutorial/operação de tela). O conteúdo é o innerText do body (public/widget.js:214-216) + campos + tabelas + iframes de mesma origem, teto 8.000 chars (page-context.ts:43). Carrega o nome do menu/aplicação/título da página como texto corrido — é por aqui que o nome da aplicação (\"Carga de Dados\") chegaria ao modelo mesmo sem sinal estruturado.",
+        "exemplo": "src/lib/chat/page-context.ts:53-57 → 'CONTEÚDO DA TELA ATUAL DO USUÁRIO — campos, dados e textos da página onde ele está agora…'",
+        "jaTemRotulo": "parcial: os rótulos vêm de label/aria-label; o fallback é `el.name || el.id` (public/widget.js:206) — ou seja, sem label o identificador TÉCNICO do item APEX (ex.: P204_CCUSTO) entra como rótulo",
+        "visivelAoUsuario": "sim-se-o-modelo-repetir"
+      },
+      {
+        "porta": "body.contexto = { programa, filtros } — nunca no prompt",
+        "arquivo": "public/widget.js",
+        "linha": 7411,
+        "comoVaza": "`if (_ctx.programa || _ctx.filtros.length) body.contexto = _ctx;` (contextoRelatorio em widget.js:2337-2361; programa = tituloPrincipalPagina()). No servidor: route.ts:1044-1047 só monta `contextoLinha` para o SUBTÍTULO do PDF/gráfico gerado (route.ts:1056). Está documentado em route.ts:205-208 que NUNCA entra no prompt. Ou seja, existe um nome humano de programa disponível a cada turno que hoje não é usado para condicionar a resposta.",
+        "exemplo": "src/app/api/v1/chat/route.ts:1045 → `const programaRel = ctxRel ? String(ctxRel.programa ?? \"\").trim().slice(0, 160) : \"\";`",
+        "jaTemRotulo": "sim — `programa` é o título humano da página do APEX",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "track (token kbt1h.) → p_portal = PAINEL (PO/PG/PC)",
+        "arquivo": "apex/token-rastreio.sql",
+        "linha": 78,
+        "comoVaza": "O embed PL/SQL assina `{\"p_usuario\",\"p_empresa\",\"p_matricula\",\"p_perfil\",\"p_portal\":<:P_PAINEL>,\"p_base\",\"sid\",\"exp\"}` e o widget manda o token opaco em body.track (public/widget.js:79-90 e 7333). O servidor decodifica em route.ts:239 (decodeTrackDetalhado → src/lib/tracking/resolve.ts:57-67) e usa p_portal para: liberar/desligar o widget por painel (route.ts:306-315 contra ai_bases.widget_paineis) e montar a diretriz de escopo (route.ts:1859). Valores válidos: EXATAMENTE \"PO\" | \"PG\" | \"PC\" (src/lib/widget/disponibilidade.ts:18-20; qualquer outra coisa é tratada como \"sem painel\", disponibilidade.ts:55). Isso identifica o PAINEL (Operador/Gestor/Colaborador), NÃO a aplicação — não distingue \"Carga de Dados\".",
+        "exemplo": "src/lib/widget/disponibilidade.ts:18-20 → `export type PainelWidget = \"PO\" | \"PG\" | \"PC\"; const PAINEIS = [\"PO\",\"PG\",\"PC\"];` e o teste src/lib/chat/escopo-identidade.test.ts:8,14,18 confirma os três valores em produção",
+        "jaTemRotulo": "não é rótulo — é código de painel; e não entra no texto da resposta",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "track → p_base (código do cliente/base ORDS)",
+        "arquivo": "src/app/api/v1/chat/route.ts",
+        "linha": 306,
+        "comoVaza": "p_base seleciona a base de integrações (`ai_bases.base_code`, ilike em route.ts:310) e portanto QUAIS ferramentas ORDS o modelo recebe. Em produção vale 'natcorp' (apex/token-rastreio.sql:72). É por cliente, não por aplicação — todas as aplicações APEX do mesmo cliente mandam o mesmo p_base.",
+        "exemplo": "supabase/migrations/20260728160000_ai_integrations_module.sql:31-39 → tabela `ai_bases (id, base_code, name, active, …)` — não existe nenhuma coluna de aplicação/app_id",
+        "jaTemRotulo": "ai_bases.name é o rótulo humano da base, mas não é rótulo de aplicação",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "data-key (chave pública pk_live_…) — hoje é POR PAINEL",
+        "arquivo": "apex/token-rastreio.sql",
+        "linha": 36,
+        "comoVaza": "Cada painel APEX embute um `<script src=\".../widget.js\" data-key=\"pk_live_…\" data-token=\"kbt1h.…\">` com uma chave e uma chave de rastreio PRÓPRIAS (comentário em apex/token-rastreio.sql:29-38 lista Colaborador/Gestor/Operador). O widget lê a chave em public/widget.js:18 e a manda em todo POST (widget.js:4470/4482/4495 e no /chat). O servidor resolve em resolveWidgetKey (src/lib/widget/auth.ts:66-98) e obtém id, space_id, space_ids, config e system_prompt. É o discriminador mais confiável já existente: se a aplicação \"Carga de Dados\" receber uma chave pk_ própria (ou for embutida com um `data-key` distinto), o servidor sabe com certeza — sem confiar em título de página — e ainda pode ter `widget_keys.system_prompt` próprio (supabase/migrations/20260720120000_widget_scope_and_prompt.sql:57).",
+        "exemplo": "apex/token-rastreio.sql:37 → `c_widget constant varchar2(80) := 'pk_live_77c1d31cadd25d2768ac7c93167023bf'; -- Operador`; public/widget.js:18 → `var KEY = script.getAttribute(\"data-key\");`",
+        "jaTemRotulo": "sim — widget_keys.name e widget_keys.config.title são textos humanos definidos no admin (supabase/migrations/20260718210000_widget_and_api.sql:11,16)",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "apexInfo() — app_id/page_id/session existem no navegador, mas NÃO vão no /chat",
+        "arquivo": "public/widget.js",
+        "linha": 646,
+        "comoVaza": "apexInfo(win) lê `apex.env.APP_ID`, `apex.env.APP_PAGE_ID`, `apex.env.APP_SESSION` (fallback: hidden inputs #pFlowId/#pFlowStepId/#pInstance e, por último, regex `[?&]p=(\\d+):(\\d+):(\\d+)` no href). Esses valores são enviados APENAS para /api/v1/report-data (public/widget.js:782: `JSON.stringify({ app_id: Number(info.app), page_id: Number(info.page), session: String(info.sess), region, appUser, track })`) e para o processo in-session PRC_DADOS_IR (widget.js:695-696). O corpo do POST /api/v1/chat (montado em widget.js:7330-7447) NÃO inclui nenhum campo de app/página do APEX — o chat só recebe o app id indiretamente, embutido no `page.href`, que por sua vez não entra no prompt.",
+        "exemplo": "public/widget.js:649-656 → `var app = (env && env.APP_ID) || valHidden(\"#pFlowId\", doc); … var m = href.match(/[?&]p=(\\d+):(\\d+):(\\d+)/);`",
+        "jaTemRotulo": "não — app id é numérico (ex.: 200); o rótulo humano equivalente é APPLICATION_NAME (\"Painel do Operador - Natcorp\", apex/f200.json:11) e ALIAS (\"PO_NATCORP\", apex/f200.json:12), que só existem do lado do APEX",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "Cabeçalho Origin (allowlist/CORS)",
+        "arquivo": "src/lib/widget/auth.ts",
+        "linha": 105,
+        "comoVaza": "`originAllowed(allowed, origin)` compara apenas esquema+host (`allowed_origins` da chave). Todas as aplicações APEX servidas pelo mesmo ORDS compartilham a MESMA origem, então o Origin não distingue aplicação. Vazio/ausente = permitido (auth.ts:106-107). O Referer não é lido em nenhum ponto do fluxo do widget (só no portal /docs, src/app/(portal)/actions.ts:322).",
+        "exemplo": "src/lib/widget/auth.ts:108 → `return allowed.some((a) => a.trim().replace(/\\/$/, \"\") === origin.replace(/\\/$/, \"\"));`",
+        "jaTemRotulo": "n/a",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "sid / exp do token são DESCARTADOS no servidor",
+        "arquivo": "src/lib/chat/tracking.ts",
+        "linha": 7,
+        "comoVaza": "TRACKING_KEYS lista só p_base, p_usuario, p_portal, p_empresa, p_matricula, p_perfil, p_cod_candidato; trackingFields() (tracking.ts:29-41) copia SOMENTE essas chaves. Como decodificarRastreio chama lerPayload → trackingFields (src/lib/tracking/token.ts:72), o `sid` (sessão do APEX) e o `exp` nunca chegam ao objeto `track` do servidor — o `sid` é usado apenas no navegador, para escopar o localStorage (public/widget.js:138-152). Ou seja, não há hoje NENHUM campo de rastreio livre por onde a aplicação pudesse ser declarada sem alterar o contrato.",
+        "exemplo": "src/lib/chat/tracking.ts:7-18 → `export const TRACKING_KEYS = [\"p_base\",\"p_usuario\",\"p_portal\",\"p_empresa\",\"p_matricula\",\"p_perfil\",\"p_cod_candidato\"] as const;`",
+        "jaTemRotulo": "n/a",
+        "visivelAoUsuario": "nao"
+      },
+      {
+        "porta": "Tabelas de configuração não têm noção de \"aplicação\"",
+        "arquivo": "supabase/migrations/20260814100000_widget_por_painel.sql",
+        "linha": 14,
+        "comoVaza": "`ai_bases.widget_paineis text[]` é o recorte mais fino existente e é por PAINEL (PO/PG/PC), não por aplicação: 'Painéis (PO/PG/PC) em que o widget aparece nesta base. NULL = todos; {} = nenhum.' (linha 17-18). widget_keys tem space_id, allowed_origins, rate_limit, config jsonb, system_prompt — nenhuma coluna de app (supabase/migrations/20260718210000_widget_and_api.sql:8-19 + 20260720120000_widget_scope_and_prompt.sql:57). widget_keys.config (tipada em src/lib/widget/auth.ts:6-44) só tem visual + `scan` + `formAssist`. conversations tem os p_* + page jsonb, e nada mais.",
+        "exemplo": "supabase/migrations/20260814100000_widget_por_painel.sql:17-18 → `comment on column public.ai_bases.widget_paineis is 'Painéis (PO/PG/PC) em que o widget aparece nesta base. NULL = todos; {} = nenhum.';`",
+        "jaTemRotulo": "n/a",
+        "visivelAoUsuario": "nao"
+      }
+    ],
+    "observacoes": "RESPOSTA DIRETA ÀS 4 PERGUNTAS\n\n1) QUAIS SINAIS CHEGAM AO SERVIDOR A CADA MENSAGEM (POST /api/v1/chat, corpo montado em public/widget.js:7330-7447)?\n- SEMPRE: `messages`, `conversationId`, `sessionId`, `runId`, `key` (pk_ via data-key, widget.js:18), `track` (token kbt1h./kbt1., widget.js:7333), `page` = {href, path, title} (widget.js:7339-7340), `lang`, `scope`/`contextScope`.\n- SÓ COM `cfg.formAssist` LIGADO: `pageContent` (varredura de texto), `screenTables`, `telaTem` {tabela, relatorio, campos, modal}, `emptyReport`, `fields`, `focusedField`, `tela` {titulo, regioes} (widget.js:7345-7401).\n- SÓ COM `cfg.scan !== false`: `contexto` {programa, filtros} (widget.js:7407-7412).\n- NÃO CHEGAM NO CHAT: app_id, page_id e sessão do APEX. Eles são lidos no navegador por apexInfo() (widget.js:646-657) mas só viajam para /api/v1/report-data (widget.js:782) e para o processo in-session PRC_DADOS_IR. `sid` e `exp` do token são cortados por trackingFields (src/lib/chat/tracking.ts:29-41).\n\n2) QUAL SINAL DISTINGUIRIA \"CARGA DE DADOS\" DAS OUTRAS APLICAÇÕES?\nHoje, nenhum sinal ESTRUTURADO e confiável. Em ordem de qualidade:\n(a) `key` / data-key (pk_live_…) — HOJE é uma chave por PAINEL (apex/token-rastreio.sql:29-38: Colaborador/Gestor/Operador), não por aplicação. Mas é o mecanismo pronto e à prova de erro: se o embed de \"Carga de Dados\" usar uma chave pk_ própria, o servidor identifica a aplicação com certeza em resolveWidgetKey (src/lib/widget/auth.ts:66-98) e essa chave já pode ter `widget_keys.system_prompt` e `config` próprios. Nenhuma mudança de contrato de dados é necessária.\n(b) `page.title` (document.title) — chega em toda mensagem e é o único texto no PROMPT que nomeia a aplicação. Depende do título que o app APEX define (em app 200 o logo é `&P_TITULO.`, apex/f200.json). É heurística: título pode mudar/repetir.\n(c) `contexto.programa` e `tela.titulo` (tituloPrincipalPagina, widget.js:2304-2315) — nome humano da página, já coletados hoje, mas o primeiro NUNCA entra no prompt (é só subtítulo de arquivo, route.ts:1044-1056) e o segundo só alimenta a consulta do RAG em modo tutorial (route.ts:930-941). Ambos dependem de formAssist/scan ligados.\n(d) `p_portal` NÃO serve: vale exatamente \"PO\"|\"PG\"|\"PC\" (src/lib/widget/disponibilidade.ts:18-20, confirmado em src/lib/chat/escopo-identidade.test.ts:8,14,18). É painel, não aplicação. Observação: no export do APEX o item :P_PAINEL aparece também sendo passado como `p_app_alias` para pkg_sso_app.maybe_begin_sso dentro do app 200 — vale confirmar com o time do ERP se :P_PAINEL carrega \"PO\" ou o alias (\"PO_NATCORP\"), porque se carregar o alias, `ehPainel()` devolve false e o recorte por painel de ai_bases.widget_paineis está sendo silenciosamente ignorado (disponibilidade.ts:55 → \"sem painel → libera\").\n(e) `Origin` NÃO serve: mesmo host ORDS para todas as aplicações (src/lib/widget/auth.ts:105-109).\n\n3) O WIDGET MANDA A URL/TÍTULO DA PÁGINA?\nSim, os dois, em toda mensagem: `body.page.href` (≤500 chars), `body.page.path` (≤300) e `body.page.title` (≤300) — public/widget.js:166-176 e 7339-7340. Mas atenção à assimetria: o HREF vai ao BANCO (conversations.page, route.ts:1293 / migration 20260727170000_conversation_page.sql:5-6) e NÃO ao prompt; o que entra no prompt é só `title` + `path` (page-context.ts:87-96, route.ts:1933-1934) e a dica `title — path` na reescrita da consulta (route.ts:447).\n\n4) O WIDGET MANDA O APP ID DO APEX?\nNão no chat. Só implicitamente dentro de `page.href` — e em APEX 19.2 (URL clássica `f?p=APP:PAGE:SESSION`) é exatamente ali que o app id vive, porque `location.pathname` é \"/ords/f\" para todas as aplicações. Como o href não é usado por pageContextNote/pageContextHint, o modelo hoje NÃO recebe o app id de forma alguma. Envio explícito de app_id/page_id existe apenas em /api/v1/report-data (widget.js:782 → src/app/api/v1/report-data/route.ts).\n\nNOTA SOBRE O ALVO DA INVESTIGAÇÃO\n\"CARGA DE DADOS\" aparece uma única vez no export do APEX presente no repo (apex/f200.json, app 200 \"Painel do Operador - Natcorp\", alias PO_NATCORP): como nome de permissão de botão na página 301 \"Interface\" — `pkg_acesso_po.FNCT_BOTAO(null, :P_USUARIO, NULL, 'CARGA DE DADOS')`. A aplicação em si não está neste repositório, então não dá para afirmar por leitura de código qual APPLICATION_ID/ALIAS/título ela usa — isso precisa ser confirmado com o time do ERP antes de escolher o sinal (a). Nenhum arquivo foi alterado."
+  }
+]
