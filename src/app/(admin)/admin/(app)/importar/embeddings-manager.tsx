@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, FileText, FileUp, Trash2, Database, Sparkles, Loader2 } from "lucide-react";
+import { Check, X, Link2, FileText, FileUp, Trash2, Database, Sparkles, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
@@ -23,6 +23,7 @@ import { ingestKnowledgeFile } from "../base-conhecimento/actions";
 import { MAX_BYTES, MAX_MB, ACCEPT } from "../base-conhecimento/constants";
 import { Select } from "@/components/ui/select";
 import { lerUrl, indexarUrl, type PreviaUrl } from "./url-actions";
+import { Spinner } from "@/components/ui/spinner";
 
 export type EmbJobRow = {
   id: string;
@@ -54,6 +55,9 @@ function data(iso: string | null): string {
 }
 
 type NodeOpt = { id: string; title: string; type: string; depth: number };
+
+/** Um arquivo na fila. O erro fica AQUI, não num toast que some no meio do lote. */
+type ItemFila = { nome: string; estado: "aguardando" | "enviando" | "pronto" | "erro"; erro?: string };
 
 export function EmbeddingsManager({
   initial,
@@ -134,6 +138,7 @@ export function EmbeddingsManager({
   const [nodeSel, setNodeSel] = useState(initialNodeId ?? "__all__");
   const [gerando, setGerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [fila, setFila] = useState<ItemFila[]>([]);
   // Nós carregados junto do espaço a que pertencem — o "carregando" é DERIVADO
   // (sem setState síncrono no efeito, que dispara re-render em cascata).
   const [loaded, setLoaded] = useState<{ spaceId: string; list: NodeOpt[] } | null>(null);
@@ -237,34 +242,72 @@ export function EmbeddingsManager({
     }
   }
 
-  async function enviarArquivo(file: File) {
+  /**
+   * FILA DE ARQUIVOS — um de cada vez, de propósito.
+   *
+   * Aceitar vários e disparar todos em paralelo parece mais rápido e não é:
+   * cada arquivo gera embeddings, que é chamada paga a provedor de IA com
+   * limite de taxa. Dez PDFs simultâneos rendem `429` no meio do lote, e aí
+   * alguns entram e outros não — sem que ninguém saiba quais.
+   *
+   * Em série, o custo é o mesmo e o resultado é legível: cada arquivo tem seu
+   * estado, e um que falha não derruba os demais. É a diferença entre "o lote
+   * falhou" e "o terceiro arquivo falhou, os outros nove entraram".
+   *
+   * ── Por que o erro fica na LISTA, e não num toast ───────────────────────
+   * Toast some. Num lote de dez, o erro do terceiro desaparece antes de o
+   * décimo terminar — e o produto já tinha esse defeito, concatenando todos os
+   * erros com " · " numa torrada ilegível.
+   */
+  async function enfileirar(escolhidos: File[]) {
     if (!spaceId) {
       toast.warning("Escolha uma documentação de destino.");
       return;
     }
-    if (file.size > MAX_BYTES) {
-      toast.warning(`Arquivo maior que ${MAX_MB} MB.`);
-      return;
+    const grandes = escolhidos.filter((f) => f.size > MAX_BYTES);
+    const validos = escolhidos.filter((f) => f.size <= MAX_BYTES);
+    // Recusa o grande e segue com o resto: descartar o lote inteiro por causa
+    // de um arquivo obriga a pessoa a reselecionar os outros nove.
+    if (grandes.length > 0) {
+      toast.warning(
+        `${grandes.length} arquivo(s) acima de ${MAX_MB} MB ficaram de fora: ${grandes.map((f) => f.name).join(", ")}`,
+      );
     }
+    if (validos.length === 0) return;
+
+    setFila(validos.map((f) => ({ nome: f.name, estado: "aguardando" as const })));
     setEnviando(true);
-    const path = `${spaceId}/kb-${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-    const { error } = await supabase.storage.from("imports").upload(path, file);
-    if (error) {
-      setEnviando(false);
-      toast.error(`Falha no upload: ${error.message}`);
-      return;
+
+    let ok = 0;
+    for (let i = 0; i < validos.length; i++) {
+      const file = validos[i]!;
+      setFila((f) => f.map((x, j) => (j === i ? { ...x, estado: "enviando" } : x)));
+
+      const path = `${spaceId}/kb-${Date.now()}-${i}-${file.name.replace(/[^\w.-]/g, "_")}`;
+      const up = await supabase.storage.from("imports").upload(path, file);
+      if (up.error) {
+        setFila((f) => f.map((x, j) => (j === i ? { ...x, estado: "erro", erro: up.error!.message } : x)));
+        continue;
+      }
+      const res = await ingestKnowledgeFile({
+        spaceId,
+        storagePath: path,
+        originalName: file.name,
+        mime: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+      setFila((f) =>
+        f.map((x, j) => (j === i ? { ...x, estado: res.ok ? "pronto" : "erro", erro: res.ok ? undefined : res.error } : x)),
+      );
+      if (res.ok) ok++;
+      // Atualiza a lista a cada arquivo: num lote longo, ver o relatório crescer
+      // é o que diz que a fila está andando.
+      router.refresh();
     }
-    const res = await ingestKnowledgeFile({
-      spaceId,
-      storagePath: path,
-      originalName: file.name,
-      mime: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
+
     setEnviando(false);
-    if (res.ok) toast.success("Arquivo indexado — o chatbot já pode usá-lo.");
-    else toast.error(res.error);
-    router.refresh();
+    if (ok === validos.length) toast.success(`${ok} arquivo(s) indexado(s) — o chatbot já pode usá-los.`);
+    else toast.warning(`${ok} de ${validos.length} indexado(s). Os que falharam estão marcados na lista.`);
   }
 
   async function apagar(row: EmbeddingReportRow) {
@@ -343,7 +386,7 @@ export function EmbeddingsManager({
           <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-8 text-center transition-colors hover:border-primary">
             <FileUp className="size-6 text-text-muted" />
             <span className="text-sm font-medium">
-              {enviando ? "Processando…" : "Clique para escolher um arquivo"}
+              {enviando ? "Processando a fila…" : "Clique para escolher um ou mais arquivos"}
             </span>
             <span className="text-xs text-text-muted">
               PDF, Word, Excel, CSV, HTML, Markdown · até {MAX_MB} MB — indexado só para o chatbot
@@ -353,13 +396,40 @@ export function EmbeddingsManager({
               accept={ACCEPT}
               className="hidden"
               disabled={enviando}
+              multiple
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void enviarArquivo(f);
+                const fs = Array.from(e.target.files ?? []);
+                if (fs.length > 0) void enfileirar(fs);
                 e.target.value = "";
               }}
             />
           </label>
+
+          {fila.length > 0 && (
+            <ul className="mt-3 space-y-1" aria-live="polite">
+              {fila.map((f, i) => (
+                <li
+                  key={`${f.nome}-${i}`}
+                  className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs"
+                >
+                  {f.estado === "pronto" ? (
+                    <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  ) : f.estado === "erro" ? (
+                    <X className="size-3.5 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+                  ) : f.estado === "enviando" ? (
+                    <Spinner />
+                  ) : (
+                    <span className="size-3.5 shrink-0 rounded-full border border-border-strong" aria-hidden="true" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{f.nome}</span>
+                  {/* A mensagem do erro fica na LINHA do arquivo: num lote de dez,
+                      o toast do terceiro some antes de o décimo terminar. */}
+                  {f.erro && <span className="shrink-0 text-rose-700 dark:text-rose-300">{f.erro}</span>}
+                  {f.estado === "aguardando" && <span className="shrink-0 text-text-muted">na fila</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* ── A partir de uma URL ──────────────────────────────────────────
