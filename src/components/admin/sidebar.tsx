@@ -155,7 +155,7 @@ export function Sidebar({
         data-testid="menu-lateral"
         className={cn(
           "hidden shrink-0 border-r border-border bg-surface transition-[width] duration-200 md:block",
-          recolhida ? "w-16" : "w-60",
+          recolhida ? "w-16" : "w-64",
         )}
       >
         {conteudo}

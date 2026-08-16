@@ -64,14 +64,23 @@ export function PageShell({
     >
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-2.5">
-              <h1 className="truncate text-2xl font-semibold tracking-tight text-text">{titulo}</h1>
+          {/* `basis-64` + `grow`: o bloco de título tem uma largura mínima
+              confortável e cresce; abaixo dela, o `flex-wrap` do pai joga as
+              ações para a linha de baixo em vez de espremer as duas colunas. */}
+          <div className="min-w-0 grow basis-64 space-y-1">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              {/* QUEBRA, não corta. `truncate` some com o fim do título e não
+                  há tooltip que o devolva — e título cortado numa tela cujo
+                  nome carrega o escopo ("Chatbot desta documentação") esconde
+                  justamente a parte que distingue uma tela da outra. */}
+              <h1 className="text-2xl font-semibold tracking-tight text-text text-balance">{titulo}</h1>
               {badge}
             </div>
-            {descricao && <p className="max-w-[68ch] text-sm text-text-muted">{descricao}</p>}
+            {descricao && <p className="max-w-[68ch] text-pretty text-sm text-text-muted">{descricao}</p>}
           </div>
-          {acoes && <div className="flex shrink-0 flex-wrap items-center gap-2">{acoes}</div>}
+          {/* Sem `shrink-0`: com ele, uma ação larga (o seletor de documentação
+              com nome comprido) empurrava o título até cortá-lo. */}
+          {acoes && <div className="flex flex-wrap items-center gap-2">{acoes}</div>}
         </div>
         {abas && <div className="mt-5">{abas}</div>}
       </header>

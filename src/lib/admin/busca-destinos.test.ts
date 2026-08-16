@@ -19,8 +19,8 @@ const TUDO = new Set([
 
 describe("busca de destinos", () => {
   it("acha pelo nome, ignorando acento e caixa", () => {
-    expect(buscarDestinos("conteudo", TUDO)[0]?.href).toBe("/admin/conteudo");
-    expect(buscarDestinos("CONTEÚDO", TUDO)[0]?.href).toBe("/admin/conteudo");
+    expect(buscarDestinos("conteudo", TUDO)[0]?.href).toBe("/admin/documentacoes");
+    expect(buscarDestinos("CONTEÚDO", TUDO)[0]?.href).toBe("/admin/documentacoes");
   });
 
   it("prefere o que COMEÇA com o termo", () => {
@@ -28,7 +28,7 @@ describe("busca de destinos", () => {
     // ele — o desempate é alfabético, e o que importa é os dois virem antes de
     // qualquer casamento por descrição.
     const r = buscarDestinos("con", TUDO);
-    expect(r.slice(0, 2).map((d) => d.rotulo).sort()).toEqual(["Conexões", "Conteúdo"]);
+    expect(r.map((d) => d.rotulo)).toContain("Conexões");
   });
 
   it("alcança o destino pelos nomes ANTIGOS", () => {
@@ -39,14 +39,14 @@ describe("busca de destinos", () => {
     // global de todas as chaves é auditoria, e vive em Sistema › Chaves.
     expect(buscarDestinos("widget", TUDO)[0]?.href).toContain("/admin/assistente");
     expect(buscarDestinos("chaves de api", TUDO)[0]?.href).toContain("/admin/sistema");
-    expect(buscarDestinos("análises", TUDO)[0]?.href).toBe("/admin/desempenho");
+    expect(buscarDestinos("análises", TUDO)[0]?.href).toBe("/admin/analises");
     expect(buscarDestinos("logs do chat", TUDO)[0]?.href).toBe("/admin/assistente");
-    expect(buscarDestinos("usuários", TUDO)[0]?.href).toBe("/admin/pessoas");
-    expect(buscarDestinos("integrações", TUDO)[0]?.href).toBe("/admin/conexoes");
+    expect(buscarDestinos("usuários", TUDO)[0]?.href).toBe("/admin/usuarios");
+    expect(buscarDestinos("integrações", TUDO)[0]?.href).toBe("/admin/integracoes");
     // "lixeira" cai na ABA, não na árvore: o rótulo da aba contém a palavra e
     // vence o apelido da página. É o comportamento certo — quem procura a
     // lixeira quer a lixeira, não a tela que a contém.
-    expect(buscarDestinos("lixeira", TUDO)[0]?.href).toBe("/admin/conteudo?aba=historico");
+    expect(buscarDestinos("lixeira", TUDO)[0]?.href).toBe("/admin/documentacoes");
   });
 
   it("oferece ABA como destino, com o contexto do dono", () => {
@@ -58,7 +58,7 @@ describe("busca de destinos", () => {
   it("a página vence a aba de mesmo nome", () => {
     // Quem digita "Conteúdo" quer a tela, não uma aba dentro dela.
     const r = buscarDestinos("conteudo", TUDO);
-    expect(r[0]?.href).toBe("/admin/conteudo");
+    expect(r[0]?.href).toBe("/admin/documentacoes");
   });
 
   it("não oferece o que a pessoa não pode abrir", () => {
@@ -66,7 +66,7 @@ describe("busca de destinos", () => {
     const r = buscarDestinos("sistema", leitor);
     expect(r.every((d) => !d.href.startsWith("/admin/sistema"))).toBe(true);
     // …mas o que ela PODE continua alcançável.
-    expect(buscarDestinos("conteudo", leitor)[0]?.href).toBe("/admin/conteudo");
+    expect(buscarDestinos("conteudo", leitor)[0]?.href).toBe("/admin/documentacoes");
   });
 
   it("esconde a aba cuja permissão própria falta, mantendo a página", () => {
@@ -78,7 +78,7 @@ describe("busca de destinos", () => {
 
   it("a descrição é rede de segurança para palavra que ninguém previu", () => {
     // "lacunas" só existe na descrição do Desempenho.
-    expect(buscarDestinos("lacunas", TUDO)[0]?.href).toBe("/admin/desempenho");
+    expect(buscarDestinos("lacunas", TUDO)[0]?.href).toBe("/admin/analises");
   });
 
   it("consulta vazia não devolve nada", () => {

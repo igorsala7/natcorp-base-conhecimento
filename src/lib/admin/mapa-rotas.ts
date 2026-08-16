@@ -1,9 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
-  FileText,
+  Library,
   Bot,
-  Globe,
   BarChart3,
   Plug,
   Users,
@@ -84,23 +83,39 @@ export const MAPA: Secao[] = [
         descricao: "O que precisa da sua atenção agora.",
       },
       {
-        href: "/admin/conteudo",
-        rotulo: "Conteúdo",
-        icone: FileText,
-        escopo: "espaco",
+        href: "/admin/documentacoes",
+        rotulo: "Documentações",
+        icone: Library,
+        escopo: "geral",
         permissao: "content.view",
-        // A tela mais linkada do produto (49 links internos) não tinha item de
-        // menu — só se chegava a ela passando por "Documentações".
-        descricao: "Árvore, editor, importação e revisão.",
-        tambem: ["/admin/conteudo", "/admin/importar", "/admin/estudio", "/admin/revisao", "/admin/lixeira"],
-        apelidos: ["artigos", "árvore", "editor", "importar", "estúdio", "revisão", "lixeira"],
-        abas: [
-          { key: "arvore", rotulo: "Árvore" },
-          { key: "importar", rotulo: "Importar", permissao: "content.import" },
-          { key: "estudio", rotulo: "Criar com IA", permissao: "content.create" },
-          { key: "revisao", rotulo: "Revisão", permissao: "review.approve" },
-          { key: "historico", rotulo: "Histórico e lixeira", permissao: "content.restore" },
+        /**
+         * A LISTAGEM, não o conteúdo de uma delas.
+         *
+         * Por um momento este item apontou direto para `/admin/conteudo`, que
+         * entra na árvore da documentação selecionada. Estava errado: o menu é
+         * global e não deve presumir em qual documentação a pessoa quer entrar
+         * — quem opera seis clientes começa escolhendo qual, não caindo dentro
+         * do último que abriu.
+         *
+         * O caminho para os artigos continua a um clique, a partir do cartão da
+         * documentação. E o `tambem` mantém este item aceso durante todo o
+         * trabalho de conteúdo, inclusive dentro do editor.
+         */
+        descricao: "Todas as documentações — e, de cada uma, a árvore, o editor, a importação e a revisão.",
+        tambem: [
+          "/admin/documentacoes",
+          "/admin/conteudo",
+          "/admin/importar",
+          "/admin/estudio",
+          "/admin/revisao",
+          "/admin/lixeira",
+          // Aparência e Preferências são de UMA documentação e se alcançam pelo
+          // cartão dela — não merecem item próprio no menu global.
+          "/admin/aparencia",
+          "/admin/configuracoes",
+          "/admin/previa",
         ],
+        apelidos: ["conteúdo", "artigos", "árvore", "editor", "importar", "estúdio", "revisão", "lixeira", "aparência", "portal", "preferências"],
       },
     ],
   },
@@ -141,21 +156,7 @@ export const MAPA: Secao[] = [
         ],
       },
       {
-        href: "/admin/portal",
-        rotulo: "Portal público",
-        icone: Globe,
-        escopo: "espaco",
-        permissao: "space.manage",
-        descricao: "Aparência, endereço, visibilidade e prévia.",
-        tambem: ["/admin/portal", "/admin/aparencia", "/admin/configuracoes", "/admin/previa"],
-        apelidos: ["aparência", "tema", "configurações", "domínio", "prévia"],
-        abas: [
-          { key: "aparencia", rotulo: "Aparência" },
-          { key: "geral", rotulo: "Geral" },
-        ],
-      },
-      {
-        href: "/admin/desempenho",
+        href: "/admin/analises",
         rotulo: "Desempenho",
         icone: BarChart3,
         escopo: "espaco",
@@ -177,7 +178,7 @@ export const MAPA: Secao[] = [
     escopo: "plataforma",
     rotas: [
       {
-        href: "/admin/conexoes",
+        href: "/admin/integracoes",
         rotulo: "Conexões",
         icone: Plug,
         escopo: "plataforma",
@@ -190,7 +191,7 @@ export const MAPA: Secao[] = [
         apelidos: ["integrações", "tools", "apis", "ords", "agentes", "whatsapp", "execuções"],
       },
       {
-        href: "/admin/pessoas",
+        href: "/admin/usuarios",
         rotulo: "Pessoas",
         icone: Users,
         escopo: "plataforma",
@@ -216,7 +217,7 @@ export const MAPA: Secao[] = [
         ],
       },
       {
-        href: "/admin/operacao",
+        href: "/admin/auditoria",
         rotulo: "Operação",
         icone: Activity,
         escopo: "plataforma",

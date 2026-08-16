@@ -13,11 +13,14 @@ const buttonVariants = cva(
           "bg-primary text-primary-fg shadow-1 hover:bg-primary-hover hover:shadow-2",
         // Outline do catálogo: superfície branca, texto discreto, e o hover
         // "acende" a marca (borda + texto roxos) em vez de escurecer o fundo.
+        // O `text-xs` saiu daqui: fixo na variante, ele vencia o `size` e um
+        // `size="lg"` secundário vinha com letra de 12px. Agora o tamanho manda,
+        // e `sm` continua entregando o 12px do catálogo.
         secondary:
-          "gap-1.5 border border-border bg-surface text-xs text-text-muted hover:border-brand-purple-300 hover:text-brand-purple-700 dark:hover:border-brand-purple-700 dark:hover:text-brand-purple-300",
+          "gap-1.5 border border-border bg-surface text-text-muted hover:border-brand-purple-300 hover:text-brand-purple-700 dark:hover:border-brand-purple-700 dark:hover:text-brand-purple-300",
         // Outline de alerta (ex.: Despublicar).
         warning:
-          "gap-1.5 border border-amber-300 bg-amber-50 text-xs text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
+          "gap-1.5 border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
         ghost: "text-text-muted hover:bg-surface-2 hover:text-text",
         accent: "bg-accent text-accent-fg shadow-1 hover:opacity-90 hover:shadow-2",
         danger: "bg-rose-600 text-white shadow-1 hover:bg-rose-700 hover:shadow-2",
@@ -32,8 +35,8 @@ const buttonVariants = cva(
     },
     compoundVariants: [
       // Outline no tamanho padrão segue o catálogo à risca: px-3 py-2 text-xs.
-      { variant: "secondary", size: "md", class: "px-3" },
-      { variant: "warning", size: "md", class: "px-3" },
+      { variant: "secondary", size: "md", class: "px-3 text-xs" },
+      { variant: "warning", size: "md", class: "px-3 text-xs" },
       // Botão de ícone destrutivo é sutil: cor só aparece no hover.
       {
         variant: "danger",
