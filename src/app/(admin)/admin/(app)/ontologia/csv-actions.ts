@@ -41,12 +41,30 @@ const ORIGEM = "csv_dict";
  */
 export async function importarDicionarioCsv(
   spaceId: string,
-  texto: string,
+  entrada: { jsonText?: string; storagePath?: string },
 ): Promise<ResultadoImportCsv> {
   try {
     await requirePermission("ai.configure", spaceId);
   } catch {
     return { ok: false, error: "Sem permissão." };
+  }
+
+  /**
+   * O texto pode vir colado ou de um arquivo no Storage.
+   *
+   * A primeira versão desta action recebia só o texto, e eu justifiquei o
+   * síncrono dizendo que "resolve em segundos" — verdade sobre o
+   * PROCESSAMENTO, e irrelevante para o TRANSPORTE. Um CSV de dicionário
+   * inteiro passa do limite de corpo da Server Action antes de chegar aqui.
+   */
+  let texto: string;
+  if (entrada.storagePath) {
+    const supa = createAdminClient();
+    const { data: blob, error } = await supa.storage.from("imports").download(entrada.storagePath);
+    if (error || !blob) return { ok: false, error: `Arquivo não encontrado: ${error?.message ?? "sem corpo"}` };
+    texto = await blob.text();
+  } else {
+    texto = entrada.jsonText ?? "";
   }
 
   const { linhas, ignoradas, descartadas } = lerDicionarioCsv(texto);

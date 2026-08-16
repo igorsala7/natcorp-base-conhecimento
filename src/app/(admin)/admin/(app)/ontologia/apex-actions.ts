@@ -133,23 +133,36 @@ export async function gerarDocsApex(
 }
 
 /** Recebe o JSON de `pkg_db_meta.f_schema_json` (objetos de banco) → cria e enfileira a ingestão. */
-export async function ingestDbJson(spaceId: string, jsonText: string): Promise<Ok> {
+export async function ingestDbJson(
+  spaceId: string,
+  entrada: { jsonText?: string; storagePath?: string },
+): Promise<Ok> {
   try {
     await requirePermission("ai.configure", spaceId);
   } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
-  let meta: Json;
-  try {
-    meta = JSON.parse(jsonText) as Json;
-  } catch (e) {
-    return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+  let input: { meta?: Json; storagePath?: string };
+  if (entrada.storagePath) {
+    input = { storagePath: entrada.storagePath };
+  } else if (entrada.jsonText?.trim()) {
+    let meta: Json;
+    try {
+      meta = JSON.parse(entrada.jsonText) as Json;
+    } catch {
+      return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+    }
+    if (!normalizarDbJson(meta)) {
+      return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
+    }
+    input = { meta };
+  } else {
+    return { ok: false, error: "Cole o JSON ou envie o arquivo." };
   }
-  if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
   const admin = createAdminClient();
   const { data: job } = await admin
     .from("data_dictionary_jobs")
-    .insert({ space_id: spaceId, kind: "db_objects", input: { meta } })
+    .insert({ space_id: spaceId, kind: "db_objects", input })
     .select("id")
     .single();
   if (!job) return { ok: false, error: "Falha ao criar o job." };
@@ -164,24 +177,37 @@ export async function ingestDbJson(spaceId: string, jsonText: string): Promise<O
 }
 
 /** Gera a DOCUMENTAÇÃO TÉCNICA dos objetos de banco (um artigo por objeto) na base. */
-export async function gerarDbDocs(spaceId: string, jsonText: string): Promise<Ok> {
+export async function gerarDbDocs(
+  spaceId: string,
+  entrada: { jsonText?: string; storagePath?: string },
+): Promise<Ok> {
   try {
     await requirePermission("content.create", spaceId);
     await requirePermission("ai.configure", spaceId);
   } catch (e) {
     return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
   }
-  let meta: Json;
-  try {
-    meta = JSON.parse(jsonText) as Json;
-  } catch (e) {
-    return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+  let input: { meta?: Json; storagePath?: string };
+  if (entrada.storagePath) {
+    input = { storagePath: entrada.storagePath };
+  } else if (entrada.jsonText?.trim()) {
+    let meta: Json;
+    try {
+      meta = JSON.parse(entrada.jsonText) as Json;
+    } catch {
+      return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
+    }
+    if (!normalizarDbJson(meta)) {
+      return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
+    }
+    input = { meta };
+  } else {
+    return { ok: false, error: "Cole o JSON ou envie o arquivo." };
   }
-  if (!normalizarDbJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
   const admin = createAdminClient();
   const { data: job } = await admin
     .from("data_dictionary_jobs")
-    .insert({ space_id: spaceId, kind: "db_docs", input: { meta } })
+    .insert({ space_id: spaceId, kind: "db_docs", input })
     .select("id")
     .single();
   if (!job) return { ok: false, error: "Falha ao criar o job." };

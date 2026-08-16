@@ -7,6 +7,7 @@ import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { gerarDbDocs, ingestDbJson, listApexJobs, type ApexJob } from "./apex-actions";
+import { useEntradaGrande, resumoDaEntrada } from "./use-entrada-grande";
 
 /**
  * Fase D — objetos de banco (tabelas, views, triggers, procedures, functions, packages).
@@ -17,7 +18,8 @@ import { gerarDbDocs, ingestDbJson, listApexJobs, type ApexJob } from "./apex-ac
  */
 export function DbIngest({ spaceId }: { spaceId: string }) {
   const toast = useToast();
-  const [json, setJson] = useState("");
+  // Arquivo grande vai pelo Storage; pequeno, no corpo. Ver o hook.
+  const ent = useEntradaGrande(spaceId, "db");
   const [jobs, setJobs] = useState<ApexJob[]>([]);
   const [pend, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -41,7 +43,7 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
 
   function processar() {
     start(async () => {
-      const r = await ingestDbJson(spaceId, json);
+      const r = await ingestDbJson(spaceId, ent.entrada());
       if (r.ok) { toast.success("Ingestão de objetos enfileirada — colunas entram na planilha acima."); iniciarPoll(); }
       else toast.error(r.error);
     });
@@ -49,19 +51,12 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
 
   function documentar() {
     start(async () => {
-      const r = await gerarDbDocs(spaceId, json);
+      const r = await gerarDbDocs(spaceId, ent.entrada());
       if (r.ok) { toast.success("Documentação técnica enfileirada — um artigo por objeto na base."); iniciarPoll(); }
       else toast.error(r.error);
     });
   }
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setJson(String(reader.result ?? ""));
-    reader.readAsText(f);
-  }
 
   const jobsAtivos = jobs.filter((j) => j.status === "queued" || j.status === "running");
 
@@ -82,19 +77,36 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
       <textarea
         className={`${controlClass} min-h-[8rem] w-full font-mono text-xs`}
         placeholder='Cole aqui o JSON de pkg_db_meta.f_schema_json…'
-        value={json}
-        onChange={(e) => setJson(e.target.value)}
+        value={ent.texto}
+        onChange={(e) => ent.setTexto(e.target.value)}
       />
-      <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={onFile} />
+      <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void ent.aoEscolherArquivo(e)} />
+
+      {(() => {
+        const r = resumoDaEntrada(ent);
+        if (!r) return null;
+        return (
+          <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-2xs">
+            {r.arquivo && <FileUp className="size-3.5 shrink-0 text-primary" aria-hidden="true" />}
+            {r.arquivo && <span className="min-w-0 flex-1 truncate font-medium text-text">{r.arquivo}</span>}
+            <span className="tabular-nums text-text-muted">{r.tamanho}</span>
+            {r.arquivo && (
+              <Button variant="ghost" size="sm" className="h-auto p-0 text-2xs" onClick={ent.limparArquivo}>
+                Remover
+              </Button>
+            )}
+          </p>
+        );
+      })()}
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={processar} disabled={pend || !json.trim()}>
+        <Button onClick={processar} disabled={pend || ent.subindo || !ent.temAlgo}>
           {pend ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
           Processar
         </Button>
-        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend}>
+        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend} loading={ent.subindo} loadingLabel="Enviando…">
           <FileUp className="size-4" /> Subir JSON
         </Button>
-        <Button variant="ghost" onClick={documentar} disabled={pend || !json.trim()} title="Gera um artigo técnico por objeto na base de conhecimento">
+        <Button variant="ghost" onClick={documentar} disabled={pend || ent.subindo || !ent.temAlgo} title="Gera um artigo técnico por objeto na base de conhecimento">
           <FileText className="size-4" /> Gerar documentação técnica
         </Button>
         <span className="text-xs text-text-muted">Precisa do worker rodando (npm run worker).</span>

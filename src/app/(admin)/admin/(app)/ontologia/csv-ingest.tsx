@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Table2, Upload } from "lucide-react";
+import { FileUp, Table2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { importarDicionarioCsv } from "./csv-actions";
+import { useEntradaGrande, resumoDaEntrada } from "./use-entrada-grande";
 
 /**
  * DICIONÁRIO POR CSV — a porta de entrada sem PL/SQL.
@@ -22,12 +23,13 @@ import { importarDicionarioCsv } from "./csv-actions";
 export function CsvIngest({ spaceId }: { spaceId: string }) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [texto, setTexto] = useState("");
+  // Arquivo grande vai pelo Storage; pequeno, no corpo. Ver o hook.
+  const ent = useEntradaGrande(spaceId, "csvdic");
   const [pend, start] = useTransition();
 
   function importar() {
     start(async () => {
-      const r = await importarDicionarioCsv(spaceId, texto);
+      const r = await importarDicionarioCsv(spaceId, ent.entrada());
       if (!r.ok) {
         toast.error(r.error);
         return;
@@ -40,18 +42,11 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
         r.ignoradas.length > 0 ? `colunas não usadas: ${r.ignoradas.slice(0, 5).join(", ")}` : "",
       ].filter(Boolean);
       toast.success(`${r.gravadas} coluna(s) no dicionário.${extras.length ? " " + extras.join(" · ") : ""}`);
-      setTexto("");
+      ent.setTexto("");
+      ent.limparArquivo();
     });
   }
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setTexto(String(reader.result ?? ""));
-    reader.readAsText(f);
-  }
 
   return (
     <Surface elevation={1} padding="lg" className="space-y-4">
@@ -71,16 +66,33 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
       <textarea
         className={`${controlClass} h-32 font-mono text-2xs`}
         placeholder={"tabela,coluna,label,descricao\nCENTRO_DE_CUSTO,COD,Código,Identificador do centro de custo\nFILIAIS,COD_FILIAL,Filial,"}
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
+        value={ent.texto}
+        onChange={(e) => ent.setTexto(e.target.value)}
       />
-      <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv" className="hidden" onChange={onFile} />
+      <input ref={fileRef} type="file" accept=".csv,.tsv,text/csv" className="hidden" onChange={(e) => void ent.aoEscolherArquivo(e)} />
+
+      {(() => {
+        const r = resumoDaEntrada(ent);
+        if (!r) return null;
+        return (
+          <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-2xs">
+            {r.arquivo && <FileUp className="size-3.5 shrink-0 text-primary" aria-hidden="true" />}
+            {r.arquivo && <span className="min-w-0 flex-1 truncate font-medium text-text">{r.arquivo}</span>}
+            <span className="tabular-nums text-text-muted">{r.tamanho}</span>
+            {r.arquivo && (
+              <Button variant="ghost" size="sm" className="h-auto p-0 text-2xs" onClick={ent.limparArquivo}>
+                Remover
+              </Button>
+            )}
+          </p>
+        );
+      })()}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={importar} loading={pend} loadingLabel="Importando…" disabled={!texto.trim()}>
+        <Button onClick={importar} loading={pend} loadingLabel="Importando…" disabled={ent.subindo || !ent.temAlgo}>
           <Table2 /> Importar dicionário
         </Button>
-        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend}>
+        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend} loading={ent.subindo} loadingLabel="Enviando…">
           <Upload /> Escolher arquivo
         </Button>
         {/* Dito antes de acontecer: reimportar SUBSTITUI. É o comportamento
