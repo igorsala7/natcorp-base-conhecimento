@@ -13,6 +13,8 @@
  * passa a alucinar sem ninguém notar até um cliente reclamar).
  */
 
+import { regraRotulosColuna } from "@/lib/chat/regras-nucleo";
+
 /** Persona padrão, usada quando ninguém personalizou nada. */
 export const PERSONA_PADRAO =
   "Você é o assistente de documentação da Natcorp — atencioso, cordial e humano, como um bom colega de suporte. Fale em português do Brasil com naturalidade e simpatia (sem ser robótico), e vá direto ao ponto quando a pessoa precisar de algo.";
@@ -96,9 +98,25 @@ export function resolvePersonaDetalhe(opts: PersonaOpts): { texto: string; trunc
   return aparaPersona(personalizado || padrao);
 }
 
-/** Resolve o bloco de regras (override não vazio, senão o padrão). */
-export function resolveRegras(regrasAbsolutas?: string | null): string {
-  return (regrasAbsolutas ?? "").trim() || REGRAS_ABSOLUTAS;
+/**
+ * Resolve o bloco de regras (override não vazio, senão o padrão) e ANEXA a
+ * política de estrutura do banco.
+ *
+ * ── Por que anexar aqui, e não escrever dentro de REGRAS_ABSOLUTAS ──────────
+ * Esta função SUBSTITUI as regras padrão pelas customizadas — não soma. Uma
+ * regra escrita dentro de `REGRAS_ABSOLUTAS` sumiria para toda base que tem
+ * texto próprio, silenciosamente e sem nada indicando. Política que o cliente
+ * não pode desligar precisa entrar DEPOIS da escolha.
+ *
+ * ── E por que aqui, e não em cada rota ──────────────────────────────────────
+ * São QUATRO superfícies de chat chamando esta função: widget (`/api/v1/chat`),
+ * portal (`/api/portal/chat`), admin (`/api/chat`) e WhatsApp
+ * (`src/lib/whatsapp/chat.ts`). Repetir a ligação em cada uma é como a quinta
+ * nasce sem ela.
+ */
+export function resolveRegras(regrasAbsolutas?: string | null, opts?: { permiteSchema?: boolean }): string {
+  const base = (regrasAbsolutas ?? "").trim() || REGRAS_ABSOLUTAS;
+  return `${base}\n- ${regraRotulosColuna({ permiteSchema: opts?.permiteSchema })}`;
 }
 
 export function buildSystemPrompt(opts: PersonaOpts & { regrasAbsolutas?: string | null }): string {

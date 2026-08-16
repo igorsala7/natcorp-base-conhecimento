@@ -34,7 +34,7 @@ describe("composeSystemPrompt — compatibilidade byte-idêntica", () => {
   });
 
   it("caso mais simples reproduz o formato persona\\n\\nregras\\n\\nCONTEXTO:", () => {
-    expect(viaComposer({}, CTX)).toBe(`${PERSONA_PADRAO}\n\n${REGRAS_ABSOLUTAS}\n\nCONTEXTO:\n${CTX}`);
+    expect(viaComposer({}, CTX)).toBe(`${PERSONA_PADRAO}\n\n${resolveRegras(null)}\n\nCONTEXTO:\n${CTX}`);
   });
 });
 

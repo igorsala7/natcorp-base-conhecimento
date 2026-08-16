@@ -33,6 +33,75 @@ export function pageContextFields(raw: unknown): PageContext | null {
   };
 }
 
+/**
+ * QUAL APLICAÇÃO APEX — extraída do `href` que já viaja a cada pergunta.
+ *
+ * Regras de negócio podem valer só em certas aplicações do ERP (a primeira:
+ * falar de tabela e coluna, proibido em geral e necessário na "Carga de Dados").
+ * Para isso o servidor precisa saber ONDE a pessoa está — e já sabe, sem que
+ * nada mude no widget: o `href` do APEX carrega a aplicação e a página.
+ *
+ * Duas formas, e as duas importam:
+ *  · clássica — `…/f?p=200:2:8627713…::NO:::` → app "200", página "2". É a que a
+ *    produção usa hoje (conferido em `conversations.page`);
+ *  · amigável — `…/r/natcorp/po_natcorp/colaboradores` → app "po_natcorp". É o
+ *    padrão do APEX desde a versão 20, então uma aplicação mais nova pode estar
+ *    nela. Ignorar essa forma seria acertar só as aplicações antigas.
+ *
+ * Na clássica o primeiro campo pode ser o ID **ou** o alias (o APEX aceita os
+ * dois), e é por isso que `app` é string e a comparação é por texto: quem
+ * configura pode escrever `200` ou `PO_NATCORP` e as duas funcionam.
+ *
+ * Devolve minúsculo para a comparação não depender de caixa. `null` quando não é
+ * uma tela do APEX — o portal público cai aqui, e deve cair.
+ */
+export type ApexDaTela = { app: string; page: string };
+
+const RE_CLASSICA = /[?&]p=([^:&#]+):([^:&#]*)/i;
+const RE_AMIGAVEL = /\/r\/[^/?#]+\/([^/?#]+)(?:\/([^/?#]*))?/i;
+
+const pedaco = (v: string | undefined): string => {
+  try {
+    return decodeURIComponent(v ?? "").trim().toLowerCase();
+  } catch {
+    // href malformado (`%` solto) não pode derrubar o turno inteiro.
+    return (v ?? "").trim().toLowerCase();
+  }
+};
+
+export function apexDaTela(p: PageContext | null): ApexDaTela | null {
+  const url = p?.href || p?.path || "";
+  if (!url) return null;
+
+  const classica = url.match(RE_CLASSICA);
+  if (classica) {
+    const app = pedaco(classica[1]);
+    if (app) return { app, page: pedaco(classica[2]) };
+  }
+
+  const amigavel = url.match(RE_AMIGAVEL);
+  if (amigavel) {
+    const app = pedaco(amigavel[1]);
+    if (app) return { app, page: pedaco(amigavel[2]) };
+  }
+
+  return null;
+}
+
+/**
+ * A tela atual é uma das aplicações listadas?
+ *
+ * Casa por ID **ou** por alias, porque quem configura não deveria precisar saber
+ * qual dos dois a URL usa. Lista vazia = nenhuma: o padrão de uma exceção é não
+ * existir, senão um campo esquecido vira permissão silenciosa.
+ */
+export function telaEstaEm(p: PageContext | null, apps: readonly string[] | null | undefined): boolean {
+  if (!apps?.length) return false;
+  const atual = apexDaTela(p);
+  if (!atual) return false;
+  return apps.some((a) => a.trim().toLowerCase() === atual.app);
+}
+
 /** Dica curta e legível da localização, para o ENTENDIMENTO da consulta. */
 export function pageContextHint(p: PageContext | null): string {
   if (!p) return "";

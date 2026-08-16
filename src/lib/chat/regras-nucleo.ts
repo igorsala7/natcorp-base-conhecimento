@@ -38,12 +38,43 @@ export function regraAgirOuPerguntar(): string {
  * Rótulo das colunas — estava DUPLICADO em quatro lugares do mesmo prompt. Repetição
  * não é ênfase: o modelo pode ler as cópias como regras diferentes sobre coisas
  * diferentes. Uma cópia, no núcleo.
+ *
+ * ── Decisão do Igor (16/08/2026) ────────────────────────────────────────────
+ * "O chat do agente nunca pode mencionar a tabela e o nome do campo, só pode se
+ * tiver na aplicação de Carga de Dados."
+ *
+ * A regra antiga já dizia metade disso e falhava em três pontos, todos medidos:
+ *
+ *  1. Escopo — dizia "ao apresentar DADOS (de ferramenta, da tela ou de
+ *     arquivo)". A DOCUMENTAÇÃO ficava de fora, e é justamente ela que traz
+ *     nome de tabela: os manuais técnicos ingeridos, e o artigo "Documentação
+ *     técnica" que o próprio produto gera com a coluna do banco de cada item
+ *     (`src/lib/apex/docs.ts:53`).
+ *  2. Só COLUNA — nada dizia sobre o nome da TABELA. `CENTRO_DE_CUSTO` passava.
+ *  3. O portão `temTools` — a regra entrava só quando havia ferramentas. Isto é,
+ *     ela estava presente no caso já protegido (dado de API, que a IA costuma
+ *     rotular sozinha) e AUSENTE no desprotegido (pergunta documental, onde o
+ *     trecho recuperado carrega o identificador escrito por extenso).
+ *
+ * A exceção é por aplicação e vem de fora (`apexDaTela`/`telaEstaEm` em
+ * `page-context.ts`), lida do `href` que já viaja a cada pergunta.
  */
-export function regraRotulosColuna(): string {
+export function regraRotulosColuna(opts?: { permiteSchema?: boolean }): string {
+  if (opts?.permiteSchema) {
+    return (
+      "NOMES TÉCNICOS: nesta tela o usuário trabalha com a estrutura do banco, então você PODE citar nome de " +
+      "tabela e de coluna quando isso ajudar. Continue oferecendo o rótulo humano junto sempre que souber " +
+      "(\"Filial (FILIAIS.COD_FILIAL)\") — quem carrega dado precisa dos dois."
+    );
+  }
   return (
-    "RÓTULO DAS COLUNAS: ao apresentar dados (de ferramenta, da tela ou de arquivo), cite cada campo pela LABEL " +
-    "amigável que o usuário reconhece (\"Cargo\", \"Data de admissão\", \"Salário\"), NUNCA pela chave técnica do " +
-    "JSON/banco (\"COD_CARGO\", \"DS_NOME\", \"VL_SALARIO\")."
+    "NUNCA CITE ESTRUTURA DO BANCO: em NENHUMA resposta escreva nome de TABELA (\"CENTRO_DE_CUSTO\", " +
+    "\"PE_RESULTADO_APURACAO\") nem nome técnico de COLUNA/CAMPO (\"COD_CARGO\", \"DS_NOME\", \"P10_COD_CCUSTO\"). " +
+    "Vale para TUDO: dados de ferramenta, conteúdo da tela, arquivos, documentação recuperada e mensagens de erro — " +
+    "inclusive quando o texto que você recebeu trouxer o nome escrito por extenso. Use sempre o RÓTULO que o " +
+    "usuário vê na tela (\"Cargo\", \"Data de admissão\", \"Centro de Custo\"). " +
+    "Sem rótulo conhecido, descreva o campo em palavras (\"o código do centro de custo\") — nunca devolva o " +
+    "identificador cru, e nunca invente um rótulo bonito a partir dele."
   );
 }
 

@@ -30,13 +30,13 @@ import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } fro
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts, receiveAttachment } from "@/lib/chat/attachment-store";
-import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, type PageContext } from "@/lib/chat/page-context";
+import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, telaEstaEm, type PageContext } from "@/lib/chat/page-context";
 import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, selecaoFracaDirective, buildTrocaFonteTool, type PedidoDeFonte, RX_GERA_ARQUIVO, RX_OFERTA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
 import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
 import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
-import { regraAgirOuPerguntar, regraRotulosColuna, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
+import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
@@ -303,15 +303,20 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // WIDGET DESLIGADO nesta base+painel. O bootstrap já evita a bolha; isto aqui
   // segura a página que ficou aberta desde antes da mudança — e quem chamar a
   // API por fora.
+  // Aplicações onde o assistente PODE falar de tabela/coluna. Fica fora do `if`
+  // porque é usado lá embaixo, na montagem do prompt: dentro do bloco ele
+  // morreria junto com o `baseCfg`.
+  let appsSchema: string[] | null = null;
   if (String(track.p_base ?? "").trim()) {
     const { data: baseCfg } = await supabase
       .from("ai_bases")
-      .select("active, widget_paineis")
+      .select("active, widget_paineis, apps_schema")
       .ilike("base_code", String(track.p_base).trim().replace(/([\\%_])/g, "\\$1"))
       .maybeSingle();
     if (baseCfg && !widgetLiberado(baseCfg.widget_paineis, track.p_portal, baseCfg.active)) {
       return json({ error: "O assistente não está disponível neste painel.", code: "widget_desativado" }, 403);
     }
+    appsSchema = baseCfg?.apps_schema ?? null;
   }
   if (motivoRastreio === "expirado") {
     return Response.json(
@@ -1896,7 +1901,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     : "";
   // NÚCLEO: as regras que valem em qualquer turno, com dono único. Vêm primeiro, e
   // uma vez só — antes moravam duplicadas em 4 lugares e com textos conflitantes.
-  const blocoNucleo = temTools ? [regraAgirOuPerguntar(), regraRotulosColuna(), regraNumerosExatos(), regraMatriculaComFonte()].join("\n") : "";
+  // A regra de estrutura do banco vale em TODO turno — as outras três falam de
+  // ferramenta e só fazem sentido quando há ferramenta. Ela estava junto delas,
+  // atrás do mesmo portão, e por isso faltava justamente nas conversas
+  // documentais: as que recuperam manual técnico com o nome da tabela escrito
+  // por extenso. O portão economizava ~60 tokens e decidia semântica sem querer.
+  const blocoNucleo = temTools ? [regraAgirOuPerguntar(), regraNumerosExatos(), regraMatriculaComFonte()].join("\n") : "";
   const usoFerramentasStr = [
     blocoNucleo,
     integ.capabilities,
@@ -1981,7 +1991,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       especializacao: especializacaoFinal,
       usoFerramentas: usoFerramentasStr,
       linguagem: [instrucaoIdioma, linguagemAnalise].filter(Boolean).join("\n"),
-      regras: resolveRegras(aP.regras_absolutas),
+      regras: resolveRegras(aP.regras_absolutas, { permiteSchema: telaEstaEm(page, appsSchema) }),
       comTools: temDataTools,
     },
     contextoStr,

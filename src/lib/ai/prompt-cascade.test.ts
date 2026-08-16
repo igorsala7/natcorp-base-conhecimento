@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LIMITE_PERSONA, PERSONA_PADRAO, REGRAS_ABSOLUTAS, aparaPersona, buildSystemPrompt, resolvePersona, withContext } from "./prompt-cascade";
+import { LIMITE_PERSONA, PERSONA_PADRAO, REGRAS_ABSOLUTAS, aparaPersona, buildSystemPrompt, resolvePersona, resolveRegras, withContext } from "./prompt-cascade";
 
 describe("cascata do prompt", () => {
   it("sem personalização usa a persona padrão", () => {
@@ -55,7 +55,10 @@ describe("cascata do prompt", () => {
   it("persona gigante é truncada, e as regras sobrevivem", () => {
     const p = buildSystemPrompt({ promptDaChave: "x".repeat(LIMITE_PERSONA * 3) });
     expect(p).toContain(REGRAS_ABSOLUTAS);
-    expect(p.length).toBeLessThan(LIMITE_PERSONA + REGRAS_ABSOLUTAS.length + 10);
+    // Mede contra o bloco de regras REAL, não contra a constante: desde que a
+    // política de schema é anexada em `resolveRegras`, a constante virou só a
+    // base dele. A margem de 10 continua valendo — é ela que pega inchaço.
+    expect(p.length).toBeLessThan(LIMITE_PERSONA + resolveRegras(null).length + 10);
   });
 });
 
@@ -155,5 +158,39 @@ describe("REGRAS_ABSOLUTAS — escopo de assunto", () => {
 
   it("exige separar fato de leitura na análise", () => {
     expect(REGRAS_ABSOLUTAS).toMatch(/FATO dos dados do que é sua LEITURA/i);
+  });
+});
+
+describe("estrutura do banco nunca vaza pelo prompt", () => {
+  it("a regra entra mesmo quando o cliente TROCA as regras absolutas", () => {
+    // `resolveRegras` SUBSTITUI, não soma. Escrever a regra dentro de
+    // REGRAS_ABSOLUTAS a apagaria para toda base com texto próprio — em
+    // silêncio, que é o pior jeito de uma política sumir.
+    const r = resolveRegras("Só fale de férias. Nada mais.");
+    expect(r).toContain("Só fale de férias");
+    expect(r).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+  });
+
+  it("entra também no caminho padrão", () => {
+    expect(resolveRegras(null)).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+    expect(resolveRegras("   ")).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+  });
+
+  it("na aplicação liberada, a proibição dá lugar à permissão — e some", () => {
+    const r = resolveRegras(null, { permiteSchema: true });
+    expect(r).toContain("NOMES TÉCNICOS");
+    expect(r).not.toContain("NUNCA CITE ESTRUTURA DO BANCO");
+  });
+
+  it("o padrão é proibir: sem opts, sem exceção", () => {
+    // Um `permiteSchema` esquecido não pode virar permissão.
+    expect(resolveRegras(null, {})).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+    expect(resolveRegras(null, { permiteSchema: false })).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+  });
+
+  it("chega ao prompt montado, depois da persona", () => {
+    const p = buildSystemPrompt({ promptDaChave: "Você é o assistente do Alfa." });
+    expect(p).toContain("NUNCA CITE ESTRUTURA DO BANCO");
+    expect(p.indexOf("NUNCA CITE ESTRUTURA DO BANCO")).toBeGreaterThan(p.indexOf("assistente do Alfa"));
   });
 });

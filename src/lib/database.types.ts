@@ -642,6 +642,7 @@ export type Database = {
       ai_bases: {
         Row: {
           active: boolean
+          apps_schema: string[] | null
           base_code: string
           base_url: string | null
           created_at: string
@@ -658,6 +659,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          apps_schema?: string[] | null
           base_code: string
           base_url?: string | null
           created_at?: string
@@ -674,6 +676,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          apps_schema?: string[] | null
           base_code?: string
           base_url?: string | null
           created_at?: string
