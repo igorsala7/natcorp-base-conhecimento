@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, FileUp, Trash2, Database, Sparkles, Loader2 } from "lucide-react";
+import { Link2, FileText, FileUp, Trash2, Database, Sparkles, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
@@ -22,6 +22,7 @@ import {
 import { ingestKnowledgeFile } from "../base-conhecimento/actions";
 import { MAX_BYTES, MAX_MB, ACCEPT } from "../base-conhecimento/constants";
 import { Select } from "@/components/ui/select";
+import { lerUrl, indexarUrl, type PreviaUrl } from "./url-actions";
 
 export type EmbJobRow = {
   id: string;
@@ -199,6 +200,43 @@ export function EmbeddingsManager({
     else toast.error(res.error);
   }
 
+  const [url, setUrl] = useState("");
+  const [lendo, setLendo] = useState(false);
+  const [indexando, setIndexando] = useState(false);
+  const [previa, setPrevia] = useState<PreviaUrl | null>(null);
+
+  async function lerPagina() {
+    if (!spaceId) {
+      toast.warning("Escolha uma documentação de destino.");
+      return;
+    }
+    setLendo(true);
+    setPrevia(null);
+    try {
+      const r = await lerUrl(spaceId, url);
+      if (r.ok) setPrevia(r);
+      else toast.error(r.error);
+    } finally {
+      setLendo(false);
+    }
+  }
+
+  async function indexar() {
+    if (!previa || !spaceId) return;
+    setIndexando(true);
+    try {
+      const r = await indexarUrl({ spaceId, url: previa.url, titulo: previa.titulo, conteudo: previa.conteudo });
+      if (r.ok) {
+        toast.success("Página indexada — o chatbot já pode usá-la.");
+        setPrevia(null);
+        setUrl("");
+        router.refresh();
+      } else toast.error(r.error);
+    } finally {
+      setIndexando(false);
+    }
+  }
+
   async function enviarArquivo(file: File) {
     if (!spaceId) {
       toast.warning("Escolha uma documentação de destino.");
@@ -322,6 +360,62 @@ export function EmbeddingsManager({
               }}
             />
           </label>
+        </div>
+
+        {/* ── A partir de uma URL ──────────────────────────────────────────
+            Muita documentação de fornecedor, norma e procedimento vive numa
+            página e não num arquivo. Baixar o PDF, subir e refazer isso a cada
+            revisão é trabalho que o scraping dispensa. */}
+        <div>
+          <p className="mb-2 text-xs font-medium text-text-muted">Ou a partir de um endereço na web</p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className={`${controlClass} min-w-64 flex-1`}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void lerPagina();
+              }}
+              placeholder="https://exemplo.com/manual/ferias"
+              aria-label="Endereço da página"
+              inputMode="url"
+            />
+            <Button variant="secondary" loading={lendo} loadingLabel="Lendo…" disabled={!url.trim() || !spaceId} onClick={() => void lerPagina()}>
+              <Link2 /> Ler página
+            </Button>
+          </div>
+          <p className="mt-1.5 text-2xs text-text-muted">
+            O conteúdo é extraído sem menu, rodapé nem banner. Página com login ou montada por JavaScript não
+            funciona — nesses casos, salve como PDF e envie o arquivo acima.
+          </p>
+
+          {/* A PRÉVIA é o ponto do fluxo. Scraping erra: página com login
+              devolve o formulário, SPA devolve esqueleto vazio, e um site sem
+              <main> pode entregar a barra lateral. Indexar qualquer uma dessas
+              envenena o chatbot em silêncio — ele passa a citar "Aceite os
+              cookies" como se fosse procedimento. */}
+          {previa && (
+            <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{previa.titulo}</p>
+                <span className="shrink-0 text-2xs tabular-nums text-text-muted">
+                  {previa.caracteres.toLocaleString("pt-BR")} caracteres
+                </span>
+              </div>
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-surface p-2 text-2xs leading-relaxed text-text-muted">
+                {previa.conteudo.slice(0, 3000)}
+                {previa.conteudo.length > 3000 && "\n…"}
+              </pre>
+              <div className="mt-2.5 flex gap-2">
+                <Button size="sm" loading={indexando} loadingLabel="Indexando…" onClick={() => void indexar()}>
+                  Indexar esta página
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPrevia(null)} disabled={indexando}>
+                  Descartar
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
       </Surface>
