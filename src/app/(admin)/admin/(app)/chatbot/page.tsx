@@ -13,6 +13,7 @@ import type { WidgetKeyRow } from "../widget/widget-manager";
 import type { ApiKeyRow } from "../widget/api-key-manager";
 import { ChatbotTabs } from "./chatbot-tabs";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Chatbot" };
 
@@ -95,17 +96,19 @@ export default async function ChatbotPage({
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Chatbot</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            O assistente desta documentação: chaves do widget, persona, visual e a base de
-            conhecimento que alimenta as respostas.
-          </p>
-        </div>
+    <PageShell
+      /* "desta documentação" no título porque existe uma tela quase homônima —
+         "Widget e API" — que lista as chaves de TODAS. As duas renderizavam o
+         mesmo componente, diferindo por uma prop, e o nome não dizia qual era
+         qual: quem caía na errada não tinha como perceber. */
+      titulo="Chatbot desta documentação"
+      descricao="Chaves do widget, persona, visual e a base de conhecimento que alimenta as respostas — só desta documentação."
+      largura="wide"
+      acoes={
+        /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
         <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-      </div>
+      }
+    >
 
       {/* Base de conhecimento do bot */}
       <Surface elevation={1} padding="md" className="mt-6 flex flex-wrap items-center gap-3">
@@ -148,6 +151,6 @@ export default async function ChatbotPage({
         siteUrl={env.NEXT_PUBLIC_SITE_URL}
         fixedSpaceId={atual.id}
       />
-    </div>
+    </PageShell>
   );
 }

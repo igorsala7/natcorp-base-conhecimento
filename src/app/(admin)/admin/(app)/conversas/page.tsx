@@ -12,6 +12,7 @@ import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { permissoesDo } from "@/lib/auth/permissions";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -147,24 +148,22 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   );
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">Conversas</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            O que os usuários perguntaram ao chatbot e ao portal — com os parâmetros de rastreio
-            (base, usuário, portal, empresa, matrícula, perfil) que a conversa carregou.{" "}
-            <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
-              Como enviar os parâmetros? →
-            </a>
-          </p>
-        </div>
-        <div className="ml-auto">
-          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </div>
-      </div>
-
-      <TrackingTabs current="conversas" spaceId={atual.id} podeRastrear={podeRastrear} />
+    <PageShell
+      titulo="Conversas"
+      descricao={
+        <>
+          O que os usuários perguntaram ao chatbot e ao portal — com os parâmetros de rastreio (base, usuário,
+          portal, empresa, matrícula, perfil) que a conversa carregou.{" "}
+          <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
+            Como enviar os parâmetros? →
+          </a>
+        </>
+      }
+      largura="wide"
+      /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
+      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+      abas={<TrackingTabs current="conversas" spaceId={atual.id} podeRastrear={podeRastrear} />}
+    >
 
       {/* Filtros — GET, para o estado viver na URL (compartilhável). */}
       <form method="get" className="mt-6 rounded-xl border border-border bg-surface p-4 shadow-1">
@@ -212,6 +211,6 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
       <div className="mt-4">
         <ConversasList conversas={lista} limite={LIMITE} totalTrazido={convs.length} />
       </div>
-    </div>
+    </PageShell>
   );
 }

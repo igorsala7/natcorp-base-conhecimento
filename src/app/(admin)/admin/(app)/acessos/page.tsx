@@ -11,6 +11,7 @@ import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { permissoesDo } from "@/lib/auth/permissions";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -105,24 +106,22 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
   );
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">Acessos às páginas</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Quais documentações, diretórios e artigos cada usuário abriu no portal — registrado quando a
-            visita traz os parâmetros de rastreio (<code>p_usuario</code>, <code>p_empresa</code>…).{" "}
-            <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
-              Como enviar os parâmetros? →
-            </a>
-          </p>
-        </div>
-        <div className="ml-auto">
-          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </div>
-      </div>
-
-      <TrackingTabs current="acessos" spaceId={atual.id} podeRastrear={podeRastrear} />
+    <PageShell
+      titulo="Acessos às páginas"
+      descricao={
+        <>
+          Quais documentações, diretórios e artigos cada usuário abriu no portal — registrado quando a visita traz
+          os parâmetros de rastreio (<code>p_usuario</code>, <code>p_empresa</code>…).{" "}
+          <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
+            Como enviar os parâmetros? →
+          </a>
+        </>
+      }
+      largura="wide"
+      /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
+      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+      abas={<TrackingTabs current="acessos" spaceId={atual.id} podeRastrear={podeRastrear} />}
+    >
 
       <form method="get" className="mt-6 rounded-xl border border-border bg-surface p-4 shadow-1">
         <input type="hidden" name="space" value={atual.id} />
@@ -170,6 +169,6 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
       <div className="mt-4">
         <AcessosList acessos={acessos} limite={LIMITE} paginasDistintas={paginas} usuariosDistintos={usuarios} />
       </div>
-    </div>
+    </PageShell>
   );
 }
