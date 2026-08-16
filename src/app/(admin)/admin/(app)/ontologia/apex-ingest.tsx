@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
+import { FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   type ApexJob,
   type DicColuna,
 } from "./apex-actions";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Ingestão de app APEX (Produto 1): cola/sobe o JSON de pkg_apex_meta → extrai o
@@ -23,6 +24,10 @@ import {
 export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialCols: DicColuna[] }) {
   const toast = useToast();
   const [json, setJson] = useState("");
+  /** Arquivo grande já no Storage: o job leva o caminho, não o conteúdo. */
+  const [arquivo, setArquivo] = useState<{ nome: string; path: string; bytes: number } | null>(null);
+  const [subindo, setSubindo] = useState(false);
+  const supabase = createClient();
   const [cols, setCols] = useState<DicColuna[]>(initialCols);
   const [jobs, setJobs] = useState<ApexJob[]>([]);
   const [pend, start] = useTransition();
@@ -54,27 +59,23 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
    * disso, então checamos antes de enviar.
    */
   const bytes = new Blob([json]).size;
-  const grandeDemais = bytes > 7.5 * 1024 * 1024;
+
+  /** O que mandar para a action: o caminho do Storage vence o textarea. */
+  function entradaAtual() {
+    return arquivo ? { storagePath: arquivo.path } : { jsonText: json };
+  }
 
   function processar() {
-    if (grandeDemais) {
-      toast.error("Este JSON passa de 7,5 MB e não cabe num envio. Gere o metadado por aplicação, não do banco inteiro.");
-      return;
-    }
     start(async () => {
-      const r = await ingestApexJson(spaceId, json);
+      const r = await ingestApexJson(spaceId, entradaAtual());
       if (r.ok) { toast.success("Ingestão enfileirada — progresso abaixo."); iniciarPoll(); }
       else toast.error(r.error);
     });
   }
 
   function documentar() {
-    if (grandeDemais) {
-      toast.error("Este JSON passa de 7,5 MB e não cabe num envio. Gere o metadado por aplicação, não do banco inteiro.");
-      return;
-    }
     start(async () => {
-      const r = await gerarDocsApex(spaceId, json);
+      const r = await gerarDocsApex(spaceId, entradaAtual());
       if (r.ok) { toast.success("Documentação enfileirada — 2 artigos por página (usuário + técnica) na base."); iniciarPoll(); }
       else toast.error(r.error);
     });
@@ -93,12 +94,46 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
     });
   }
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  /**
+   * Arquivo PEQUENO vai para o textarea; GRANDE vai direto para o Storage.
+   *
+   * O `f200.json` real tem 22 MB. Ler isso no textarea trava o navegador —
+   * React re-renderiza a cada keystroke de um valor de 22 milhões de
+   * caracteres — e depois nem sai daqui, porque estoura a Server Action. O
+   * navegador manda direto para o Storage, e o job leva só o caminho.
+   *
+   * O corte em 1 MB não é o limite técnico (são ~7 MB); é onde o textarea
+   * deixa de ser útil. Ninguém revisa 1 MB de JSON numa caixa de texto.
+   */
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
+    e.target.value = "";
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setJson(String(reader.result ?? ""));
-    reader.readAsText(f);
+
+    if (f.size <= 1024 * 1024) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setJson(String(reader.result ?? ""));
+        setArquivo(null);
+      };
+      reader.readAsText(f);
+      return;
+    }
+
+    setSubindo(true);
+    try {
+      const path = `${spaceId}/apex-${Date.now()}-${f.name.replace(/[^\w.-]/g, "_")}`;
+      const { error } = await supabase.storage.from("imports").upload(path, f, { contentType: "application/json" });
+      if (error) {
+        toast.error(`Falha no upload: ${error.message}`);
+        return;
+      }
+      setJson("");
+      setArquivo({ nome: f.name, path, bytes: f.size });
+      toast.success("Arquivo enviado. Agora clique em Processar ou Documentar.");
+    } finally {
+      setSubindo(false);
+    }
   }
 
   const jobsAtivos = jobs.filter((j) => j.status === "queued" || j.status === "running");
@@ -122,24 +157,33 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
         value={json}
         onChange={(e) => setJson(e.target.value)}
       />
-      <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={onFile} />
+      <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void onFile(e)} />
       {/* O tamanho fica visível ANTES do clique: descobrir que não cabe depois
           de esperar o envio é a pior ordem possível. */}
-      {bytes > 0 && (
-        <p className={`text-2xs tabular-nums ${grandeDemais ? "font-medium text-rose-700 dark:text-rose-300" : "text-text-muted"}`}>
-          {(bytes / 1024 / 1024).toFixed(1)} MB
-          {grandeDemais && " — passa do limite de envio. Gere o metadado por aplicação, não do banco inteiro."}
+      {/* Qual das duas entradas está valendo. Sem isto, quem sobe um arquivo e
+          depois cola algo no textarea não sabe qual dos dois vai ser
+          processado — e o caminho do Storage vence. */}
+      {arquivo ? (
+        <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-2xs">
+          <FileJson className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate font-medium text-text">{arquivo.nome}</span>
+          <span className="tabular-nums text-text-muted">{(arquivo.bytes / 1024 / 1024).toFixed(1)} MB</span>
+          <Button variant="ghost" size="sm" className="h-auto p-0 text-2xs" onClick={() => setArquivo(null)}>
+            Remover
+          </Button>
         </p>
+      ) : (
+        bytes > 0 && <p className="text-2xs tabular-nums text-text-muted">{(bytes / 1024).toFixed(0)} KB colados</p>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={processar} disabled={pend || !json.trim()}>
+        <Button onClick={processar} disabled={pend || subindo || (!json.trim() && !arquivo)}>
           {pend ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
           Processar
         </Button>
-        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend}>
+        <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={pend} loading={subindo} loadingLabel="Enviando…">
           <FileUp className="size-4" /> Subir JSON
         </Button>
-        <Button variant="ghost" onClick={documentar} disabled={pend || !json.trim()} title="Gera 2 artigos por página (usuário + técnica) na base de conhecimento">
+        <Button variant="ghost" onClick={documentar} disabled={pend || subindo || (!json.trim() && !arquivo)} title="Gera 2 artigos por página (usuário + técnica) na base de conhecimento">
           <FileText className="size-4" /> Gerar documentação
         </Button>
         <span className="text-xs text-text-muted">Precisa do worker rodando (npm run worker).</span>

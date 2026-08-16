@@ -16,23 +16,50 @@ import { fetchAllPaged } from "@/lib/supabase/paginate";
 type Ok = { ok: true; jobId?: string } | { ok: false; error: string };
 
 /** Recebe o JSON de `pkg_apex_meta.f_app_json` (colado/upload) → cria e enfileira o job. */
-export async function ingestApexJson(spaceId: string, jsonText: string): Promise<Ok> {
+/**
+ * O metadado vem por UM de dois caminhos, e a escolha é de tamanho:
+ *
+ *  · `jsonText` — colado no textarea. Cabe até ~7 MB, o limite prático de uma
+ *    Server Action, e é o caminho natural para app pequeno.
+ *  · `storagePath` — o arquivo já subiu para o Storage pelo navegador. É o
+ *    único caminho possível para os 22 MB de um `f200.json` real: um corpo
+ *    desse tamanho numa Server Action seria carregado inteiro na memória de um
+ *    worker do Next, que não é onde esse trabalho pertence.
+ *
+ * Validar o conteúdo aqui exigiria BAIXAR os 22 MB de volta só para conferir o
+ * formato — a validação fica no worker, que é quem já vai lê-lo de qualquer
+ * jeito. O que se valida aqui é o que é barato: que veio um dos dois.
+ */
+export async function ingestApexJson(
+  spaceId: string,
+  entrada: { jsonText?: string; storagePath?: string },
+): Promise<Ok> {
   try {
     await requirePermission("ai.configure", spaceId);
   } catch (e) {
     return { ok: false, error: "Sem permissão." };
   }
-  let meta: Json;
-  try {
-    meta = JSON.parse(jsonText) as Json;
-  } catch (e) {
-    return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
+  let input: { meta?: Json; storagePath?: string };
+  if (entrada.storagePath) {
+    input = { storagePath: entrada.storagePath };
+  } else if (entrada.jsonText?.trim()) {
+    let meta: Json;
+    try {
+      meta = JSON.parse(entrada.jsonText) as Json;
+    } catch {
+      return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
+    }
+    if (!normalizarApexJson(meta)) {
+      return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
+    }
+    input = { meta };
+  } else {
+    return { ok: false, error: "Cole o JSON ou envie o arquivo." };
   }
-  if (!normalizarApexJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
   const admin = createAdminClient();
   const { data: job } = await admin
     .from("data_dictionary_jobs")
-    .insert({ space_id: spaceId, kind: "apex_ingest", input: { meta } })
+    .insert({ space_id: spaceId, kind: "apex_ingest", input })
     .select("id")
     .single();
   if (!job) return { ok: false, error: "Falha ao criar o job." };
@@ -47,24 +74,51 @@ export async function ingestApexJson(spaceId: string, jsonText: string): Promise
 }
 
 /** Gera a DOCUMENTAÇÃO por página (usuário + técnica) na base, a partir do mesmo JSON. */
-export async function gerarDocsApex(spaceId: string, jsonText: string): Promise<Ok> {
+/**
+ * O metadado vem por UM de dois caminhos, e a escolha é de tamanho:
+ *
+ *  · `jsonText` — colado no textarea. Cabe até ~7 MB, o limite prático de uma
+ *    Server Action, e é o caminho natural para app pequeno.
+ *  · `storagePath` — o arquivo já subiu para o Storage pelo navegador. É o
+ *    único caminho possível para os 22 MB de um `f200.json` real: um corpo
+ *    desse tamanho numa Server Action seria carregado inteiro na memória de um
+ *    worker do Next, que não é onde esse trabalho pertence.
+ *
+ * Validar o conteúdo aqui exigiria BAIXAR os 22 MB de volta só para conferir o
+ * formato — a validação fica no worker, que é quem já vai lê-lo de qualquer
+ * jeito. O que se valida aqui é o que é barato: que veio um dos dois.
+ */
+export async function gerarDocsApex(
+  spaceId: string,
+  entrada: { jsonText?: string; storagePath?: string },
+): Promise<Ok> {
   try {
     await requirePermission("content.create", spaceId);
     await requirePermission("ai.configure", spaceId);
   } catch (e) {
     return { ok: false, error: "Sem permissão (precisa criar conteúdo + configurar IA)." };
   }
-  let meta: Json;
-  try {
-    meta = JSON.parse(jsonText) as Json;
-  } catch (e) {
-    return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
+  let input: { meta?: Json; storagePath?: string };
+  if (entrada.storagePath) {
+    input = { storagePath: entrada.storagePath };
+  } else if (entrada.jsonText?.trim()) {
+    let meta: Json;
+    try {
+      meta = JSON.parse(entrada.jsonText) as Json;
+    } catch {
+      return { ok: false, error: "JSON inválido — cole a saída de pkg_apex_meta.f_app_json." };
+    }
+    if (!normalizarApexJson(meta)) {
+      return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
+    }
+    input = { meta };
+  } else {
+    return { ok: false, error: "Cole o JSON ou envie o arquivo." };
   }
-  if (!normalizarApexJson(meta)) return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_apex_meta)." };
   const admin = createAdminClient();
   const { data: job } = await admin
     .from("data_dictionary_jobs")
-    .insert({ space_id: spaceId, kind: "apex_docs", input: { meta } })
+    .insert({ space_id: spaceId, kind: "apex_docs", input })
     .select("id")
     .single();
   if (!job) return { ok: false, error: "Falha ao criar o job." };

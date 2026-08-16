@@ -5,20 +5,22 @@ import { normalizarApexJson } from "./metadata";
 import { gerarDocsPagina } from "./docs";
 import { criarNoConteudo } from "@/lib/content/create-node";
 import { htmlToBlocks } from "@/lib/blocks/from-html";
+import { carregarMetaApex } from "./carregar-meta";
 
 type DbClient = SupabaseClient<Database>;
 
 /**
  * Job de DOCUMENTAÇÃO da app APEX: para cada página com conteúdo, gera dois artigos (guia
  * do usuário + doc técnica) e os cria na base de conhecimento sob uma pasta da aplicação.
- * O metadado vem em `job.input.meta` (JSON de pkg_apex_meta).
+ * O metadado vem de `job.input` — inline (`meta`) ou do Storage
+ * (`storagePath`), para os JSONs de 20 MB+. Ver `carregarMetaApex`.
  */
 export async function runApexDocs(supabase: DbClient, jobId: string): Promise<{ paginas: number; artigos: number }> {
   const vazio = { paginas: 0, artigos: 0 };
   const { data: job } = await supabase.from("data_dictionary_jobs").select("space_id, input").eq("id", jobId).single();
   if (!job) return vazio;
   const spaceId = job.space_id;
-  const meta = normalizarApexJson((job.input as { meta?: unknown } | null)?.meta);
+  const meta = await carregarMetaApex(supabase, job.input);
   if (!meta) {
     await supabase.from("data_dictionary_jobs").update({ status: "error", error: "Metadado APEX inválido." }).eq("id", jobId);
     return vazio;

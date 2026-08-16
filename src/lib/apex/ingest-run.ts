@@ -6,20 +6,22 @@ import { colunasParaResolver, construirLinhasDicionario, type ResolucaoColunas }
 import { resolverColunasRegiao } from "@/lib/ai/apex-resolve";
 import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
+import { carregarMetaApex } from "./carregar-meta";
 
 type DbClient = SupabaseClient<Database>;
 
 /**
  * Executa um job de INGESTÃO de app APEX: resolve as colunas por região (IA lê o SQL),
  * grava o `data_dictionary` (re-ingest idempotente por app) e alimenta a ontologia (auto-
- * traduzida). Atualiza progresso. O metadado vem em `job.input.meta` (JSON do pkg_apex_meta).
+ * traduzida). Atualiza progresso. O metadado vem de `job.input` — inline
+ * (`meta`) ou do Storage (`storagePath`). Ver `carregarMetaApex`.
  */
 export async function runApexIngest(supabase: DbClient, jobId: string): Promise<{ componentes: number; colunas: number; termos: number }> {
   const vazio = { componentes: 0, colunas: 0, termos: 0 };
   const { data: job } = await supabase.from("data_dictionary_jobs").select("space_id, input").eq("id", jobId).single();
   if (!job) return vazio;
   const spaceId = job.space_id;
-  const meta = normalizarApexJson((job.input as { meta?: unknown } | null)?.meta);
+  const meta = await carregarMetaApex(supabase, job.input);
   if (!meta) {
     await supabase.from("data_dictionary_jobs").update({ status: "error", error: "Metadado APEX inválido (esperado o JSON de pkg_apex_meta)." }).eq("id", jobId);
     return vazio;
