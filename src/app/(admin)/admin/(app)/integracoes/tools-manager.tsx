@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Braces, Copy, Globe, List, Pencil, Plus, Table as TableIcon, Trash2, Webhook } from "lucide-react";
+import { Play, Braces, Copy, Globe, List, Pencil, Plus, Table as TableIcon, Trash2, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
@@ -31,6 +31,8 @@ import { PORTAIS } from "@/lib/integrations/gating";
 import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
 import { Select } from "@/components/ui/select";
+import { Sheet } from "@/components/ui/sheet";
+import { testarTool, type ResultadoTeste } from "./testar-tool-action";
 
 /** Teto da descrição de usuário. Medido no widget: o sublabel comporta ~52 chars por
  *  linha no desktop e ~44 no celular, e o gate de fonte chega a listar 10 opções —
@@ -1086,22 +1088,59 @@ export function ToolDialog({
     };
   }
 
+  /**
+   * O teste chama a base REAL com o cadastro JÁ SALVO — não com o formulário em
+   * tela. Testar o rascunho exigiria um caminho de execução paralelo ao de
+   * produção, e aí o teste passaria a testar a si mesmo. O custo é ter de salvar
+   * antes; a contrapartida é que "passou no teste" significa "vai funcionar".
+   */
+  const [teste, setTeste] = useState<ResultadoTeste | null>(null);
+  const [testando, setTestando] = useState(false);
+  const baseDoTeste = bases.find((b) => baseIds.has(b.id));
+
+  async function testar() {
+    if (!baseDoTeste?.base_code) return;
+    setTestando(true);
+    try {
+      setTeste(await testarTool(baseDoTeste.base_code, key.trim(), {}));
+    } finally {
+      setTestando(false);
+    }
+  }
+
   return (
-    <Dialog
+    <Sheet
       open
       onClose={onClose}
       title={tool ? "Editar API/Tool" : "Nova API/Tool"}
-      size="lg"
-      resizable
+      size="xl"
+      /* Um Esc distraído aqui custa ~40 campos preenchidos. Fecha só pelo X ou
+         por Cancelar — a saída existe, mas exige intenção. */
+      dismissible={false}
       footer={
-        <div className="flex justify-end gap-2">
+        <>
+          {/* O TESTE fica à ESQUERDA, separado do par Cancelar/Salvar. É a única
+              ação que não encerra o painel, e agrupá-la com as que encerram faria
+              o dedo errar justamente na tela onde errar custa 40 campos. */}
+          <Button
+            variant="secondary"
+            className="mr-auto"
+            loading={testando}
+            loadingLabel="Chamando…"
+            disabled={!key.trim() || baseIds.size === 0}
+            onClick={testar}
+          >
+            <Play /> Testar
+          </Button>
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button disabled={pending} onClick={() => onSave(payload())}>
+          <Button loading={pending} loadingLabel="Salvando…" onClick={() => onSave(payload())}>
             Salvar
           </Button>
-        </div>
+        </>
       }
     >
+      {teste && <ResultadoDoTeste r={teste} aoFechar={() => setTeste(null)} />}
+
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Chave" htmlFor="tool_key" hint="Só minúsculas, números e _.">
@@ -1528,7 +1567,7 @@ export function ToolDialog({
           Ativa (no catálogo)
         </label>
       </div>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -1775,3 +1814,57 @@ export type BaseToolRow = {
   empresas: string[];
   perfis: string[];
 };
+
+/**
+ * O QUE VOLTOU DA CHAMADA.
+ *
+ * Mesma anatomia da aba "Execuções" — status, tempo, requisição e amostra da
+ * resposta —, porque quem depura já aprendeu a ler aquilo. Um segundo formato
+ * para a mesma informação seria uma segunda coisa a aprender.
+ */
+function ResultadoDoTeste({ r, aoFechar }: { r: ResultadoTeste; aoFechar: () => void }) {
+  return (
+    <div
+      role="status"
+      className={`mb-4 rounded-lg border p-3 text-xs ${
+        r.ok
+          ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20"
+          : "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <Badge tone={r.ok ? "success" : "danger"}>{r.ok ? "OK" : "falhou"}</Badge>
+        <span className="font-medium text-text">HTTP {r.status}</span>
+        <span className="tabular-nums text-text-muted">{r.ms} ms</span>
+        {r.registros !== undefined && (
+          <span className="tabular-nums text-text-muted">
+            {r.registros} registro(s)
+            {/* 200 com zero registros é o resultado mais enganoso: parece
+                sucesso e não serve ao agente, que não distingue "não existe"
+                de "não achei". */}
+            {r.registros === 0 && " — respondeu, mas sem dado"}
+          </span>
+        )}
+        <Button variant="ghost" size="sm" className="ml-auto" onClick={aoFechar}>
+          Fechar
+        </Button>
+      </div>
+
+      {r.erro && <p className="mt-2 text-rose-700 dark:text-rose-300">{r.erro}</p>}
+
+      {r.curl && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-text-muted">Requisição</summary>
+          <pre className="mt-1 overflow-x-auto rounded bg-surface-2 p-2 text-2xs">{r.curl}</pre>
+        </details>
+      )}
+
+      {r.corpo && (
+        <details className="mt-1.5" open={!r.ok}>
+          <summary className="cursor-pointer text-text-muted">Resposta</summary>
+          <pre className="mt-1 max-h-64 overflow-auto rounded bg-surface-2 p-2 text-2xs">{r.corpo}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
