@@ -55,6 +55,7 @@ import {
 import { createCaptureStudio } from "../capture-actions";
 import { sugerirCaminhoCaptura } from "../../importar/capture-actions";
 import { Select } from "@/components/ui/select";
+import { resumirProposta } from "@/lib/studio/resumo-proposta";
 
 type MsgView = StudioMsg | { role: "system"; text: string };
 
@@ -75,6 +76,7 @@ export function Studio({
   const router = useRouter();
   const { pedirTexto } = useConfirm();
   const [msgs, setMsgs] = useState<MsgView[]>(sessao.messages);
+  const { confirmar } = useConfirm();
   const [proposal, setProposal] = useState<ProposalNode[]>(sessao.proposal);
   const [materiais, setMateriais] = useState(sessao.materiais);
   const [parentId, setParentId] = useState<string>(sessao.parentId ?? "__root__");
@@ -284,15 +286,41 @@ export function Studio({
     el.click();
   }
 
-  async function criar() {
+  /**
+   * O PORTÃO.
+   *
+   * Antes, "Criar na documentação" materializava direto: sem resumo, sem
+   * confirmação e sem volta — depois disso o botão vira "Já criada" e o destino
+   * fica travado. O contraste dentro do próprio produto era gritante: o editor
+   * de blocos põe antes/depois em CADA proposta de IA, e o Estúdio, que gera
+   * muito mais conteúdo de uma vez, não tinha portão nenhum.
+   */
+  async function confirmarECriar() {
+    const r = resumirProposta(proposal);
+    const destino = parentId === "__root__" ? "a raiz da documentação" : "a pasta escolhida";
+
+    const ok = await confirmar({
+      title: "Criar na documentação?",
+      description:
+        `${r.artigos} artigo(s) e ${r.pastas} pasta(s) em ${destino}` +
+        (r.niveis > 1 ? `, em ${r.niveis} níveis` : "") +
+        (r.vazios > 0
+          ? `. ATENÇÃO: ${r.vazios} artigo(s) estão só com o título, sem conteúdo — serão criados vazios.`
+          : ".") +
+        "\n\nOs artigos nascem como rascunho, mas a estrutura é criada de verdade.",
+      confirmLabel: "Criar",
+      tone: r.vazios > 0 ? "danger" : "primary",
+    });
+    if (!ok) return;
+
     setCriando(true);
-    const r = await materializeStudio(sessao.id, parentId === "__root__" ? null : parentId);
+    const res = await materializeStudio(sessao.id, parentId === "__root__" ? null : parentId);
     setCriando(false);
-    if (!r.ok) {
-      sistema(r.error);
+    if (!res.ok) {
+      sistema(res.error);
       return;
     }
-    router.push(r.data.rootId ? `/admin/conteudo/${r.data.rootId}` : "/admin/conteudo");
+    router.push(res.data.rootId ? `/admin/conteudo/${res.data.rootId}` : "/admin/conteudo");
   }
 
   // ── Árvore da proposta (renomear/remover/selecionar) ──────────────────────
@@ -393,7 +421,7 @@ export function Studio({
             ))}
           </Select>
         </label>
-        <Button onClick={criar} disabled={!podecriar || criando || !!ocupado}>
+        <Button onClick={() => void confirmarECriar()} disabled={!podecriar || criando || !!ocupado}>
           {criando ? (
             <>
               <Loader2 className="size-4 animate-spin" /> Criando…
