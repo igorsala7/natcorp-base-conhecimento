@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { chatModel, hasAiKey } from "@/lib/ai/config";
 import { comContextoDeConsumo } from "@/lib/ai/usage-context";
 import { buildSchemaTools, resumoEsquema } from "@/lib/integrations/builder-tools";
+import { emSimulacao, type Operacao } from "@/lib/integrations/builder-plano";
 
 export const runtime = "nodejs";
 
@@ -42,28 +43,73 @@ async function handlePost(req: NextRequest) {
     return Response.json({ error: "Nenhuma IA configurada (Sistema → IA)." }, { status: 400 });
   }
 
-  const { messages } = (await req.json()) as { messages: Msg[] };
+  const body = (await req.json()) as { messages: Msg[]; aplicar?: Operacao[] };
+
+  /**
+   * APLICAR — executa o plano que a pessoa aprovou, sem passar pelo modelo.
+   *
+   * Reexecutar o LLM seria pedir outra resposta, possivelmente diferente da que
+   * ela aprovou. Aqui as operações registradas na simulação rodam diretamente,
+   * na mesma ordem, com as ferramentas de verdade.
+   */
+  if (Array.isArray(body.aplicar) && body.aplicar.length > 0) {
+    const reais = buildSchemaTools() as Record<string, { execute?: (a: unknown) => Promise<unknown> }>;
+    const feitas: string[] = [];
+    for (const op of body.aplicar) {
+      const f = reais[op.ferramenta]?.execute;
+      if (!f) continue;
+      try {
+        await f(op.args);
+        feitas.push(op.ferramenta);
+      } catch (e) {
+        // Para na primeira falha e diz o que já foi feito: seguir em frente
+        // deixaria o esquema meio aplicado, sem ninguém saber onde parou.
+        return Response.json(
+          { error: `Falhou em "${op.ferramenta}": ${(e as Error).message}`, feitas },
+          { status: 500 },
+        );
+      }
+    }
+    return Response.json({ ok: true, feitas });
+  }
+
+  const { messages } = body;
   const resumo = await resumoEsquema();
+
+  /**
+   * SIMULAÇÃO por padrão. As escritas apenas registram o que fariam; as leituras
+   * seguem reais, porque o plano precisa ser feito com o estado verdadeiro.
+   *
+   * O prompt já pedia "resuma e peça confirmação antes de mudança grande" — e
+   * não bastava: nada impedia o modelo de chamar a ferramenta e resumir depois.
+   * A garantia tem que estar fora do modelo.
+   */
+  const plano: Operacao[] = [];
 
   const result = streamText({
     model: await chatModel({ origem: "admin" }),
     system: `${SYSTEM}\n\nESQUEMA ATUAL:\n${resumo}`,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    tools: buildSchemaTools(),
+    tools: emSimulacao(buildSchemaTools(), plano),
     stopWhen: stepCountIs(10),
     onError: ({ error }) => console.error("[builder] falha ao gerar resposta:", error),
   });
 
   const enc = new TextEncoder();
-  const body = new ReadableStream<Uint8Array>({
+  const corpo = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const delta of result.textStream) controller.enqueue(enc.encode(delta));
       } catch {
         /* stream vazio/erro do provedor: o cliente trata resposta vazia */
       }
+      // O plano só existe DEPOIS do último passo, então viaja no fim do mesmo
+      // stream, atrás de um marcador que não aparece em texto natural.
+      if (plano.length > 0) {
+        controller.enqueue(enc.encode(`\n<<<PLANO>>>${JSON.stringify(plano)}`));
+      }
       controller.close();
     },
   });
-  return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(corpo, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }

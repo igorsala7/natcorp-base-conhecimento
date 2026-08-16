@@ -8,6 +8,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { comBase } from "@/lib/base-path";
+import { descreverPlano, type Operacao } from "@/lib/integrations/builder-plano";
+
+/** Separa o plano do texto no fim do stream. Não aparece em texto natural. */
+const MARCADOR = "<<<PLANO>>>";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -20,6 +24,29 @@ const SUGESTOES = [
 export function BuilderChat() {
   const router = useRouter();
   const toast = useToast();
+  const [plano, setPlano] = useState<Operacao[] | null>(null);
+  const [aplicando, setAplicando] = useState(false);
+
+  async function aplicar() {
+    if (!plano) return;
+    setAplicando(true);
+    try {
+      const res = await fetch(comBase("/api/integrations/builder"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [], aplicar: plano }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string; feitas?: string[] };
+      if (!res.ok || j.error) throw new Error(j.error ?? "Falha ao aplicar.");
+      toast.success(`${j.feitas?.length ?? 0} alteração(ões) aplicada(s).`);
+      setPlano(null);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao aplicar.");
+    } finally {
+      setAplicando(false);
+    }
+  }
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -53,9 +80,13 @@ export function BuilderChat() {
         const { value, done } = await reader.read();
         if (done) break;
         acc += dec.decode(value, { stream: true });
+        // O plano viaja no fim do MESMO stream, atrás de um marcador — separá-lo
+        // aqui evita que o JSON apareça como texto na conversa.
+        const corte = acc.indexOf(MARCADOR);
+        const texto = corte >= 0 ? acc.slice(0, corte) : acc;
         setMessages((prev) => {
           const c = prev.slice();
-          c[c.length - 1] = { role: "assistant", content: acc };
+          c[c.length - 1] = { role: "assistant", content: texto };
           return c;
         });
       }
@@ -66,7 +97,16 @@ export function BuilderChat() {
           return c;
         });
       }
-      router.refresh(); // reflete as mudanças no esquema (canvas e demais abas)
+      const corte = acc.indexOf(MARCADOR);
+      if (corte >= 0) {
+        try {
+          setPlano(JSON.parse(acc.slice(corte + MARCADOR.length)) as Operacao[]);
+        } catch {
+          /* plano ilegível: melhor não oferecer aplicar do que aplicar errado */
+        }
+      }
+      // Nada mudou no esquema ainda — a simulação não grava. O refresh acontece
+      // depois de aplicar.
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao falar com o construtor.");
       setMessages((prev) => prev.slice(0, -1));
@@ -132,6 +172,32 @@ export function BuilderChat() {
             </ul>
           )}
         </div>
+
+        {/* O PORTÃO. Nada foi gravado até aqui: a simulação registra a intenção
+            e a pessoa decide. Era o único ponto do produto onde a IA escrevia em
+            produção sem prévia — o editor de blocos tem antes/depois para toda
+            proposta, e aqui a ferramenta nascia ATIVA enquanto o texto ainda
+            estava sendo transmitido. */}
+        {plano && plano.length > 0 && (
+          <div className="border-t border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              {plano.length} alteração(ões) no esquema — nada foi gravado ainda
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+              {descreverPlano(plano).map((linha, i) => (
+                <li key={i}>· {linha}</li>
+              ))}
+            </ul>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" loading={aplicando} loadingLabel="Aplicando…" onClick={() => void aplicar()}>
+                Aplicar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPlano(null)} disabled={aplicando}>
+                Descartar
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="border-t border-border p-2.5">
           <div className="flex items-end gap-2">
