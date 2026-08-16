@@ -12,8 +12,16 @@ import { normalizarTermo } from "@/lib/ai/ontology";
 import { idiomaNome } from "@/lib/i18n/languages";
 import type { Json } from "@/lib/database.types";
 import { fetchAllPaged } from "@/lib/supabase/paginate";
+import { lerDicionario } from "@/lib/apex/dicionario-csv";
+import { importarDicionarioCsv } from "./csv-actions";
 
-type Ok = { ok: true; jobId?: string } | { ok: false; error: string };
+/**
+ * `dicionario` marca o caso em que a lista de colunas caiu no cartão de objetos
+ * e foi tratada como dicionário. Sem ele a tela diria "ingestão enfileirada"
+ * para algo que já terminou e não é um job — mentindo sobre o que aconteceu e
+ * mandando a pessoa esperar uma barra que nunca vai aparecer.
+ */
+type Ok = { ok: true; jobId?: string; dicionario?: number } | { ok: false; error: string };
 
 /** Recebe o JSON de `pkg_apex_meta.f_app_json` (colado/upload) → cria e enfileira o job. */
 /**
@@ -133,6 +141,30 @@ export async function gerarDocsApex(
 }
 
 /** Recebe o JSON de `pkg_db_meta.f_schema_json` (objetos de banco) → cria e enfileira a ingestão. */
+/**
+ * O arquivo no Storage é uma lista de colunas, e não o metadado de objetos?
+ *
+ * Baixa só os primeiros 4 KB. Um `all_tab_columns.json` tem 8 MB e um schema
+ * completo pode ter mais — baixar inteiro só para decidir o roteamento seria
+ * pagar duas vezes pelo mesmo download.
+ *
+ * O sinal é a PRIMEIRA chave do primeiro objeto: a lista de colunas começa com
+ * `[{"TABLE_NAME"...`, e o envelope do pkg_db_meta começa com `{"ok"` ou
+ * `{"tables"`. Não precisa parsear o JSON inteiro para ver isso.
+ */
+async function pareceListaDeColunas(storagePath: string): Promise<boolean> {
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin.storage.from("imports").download(storagePath);
+    if (!data) return false;
+    const inicio = (await data.slice(0, 4096).text()).trimStart();
+    if (!inicio.startsWith("[")) return false;
+    return /"(TABLE_NAME|tabela|table)"\s*:/i.test(inicio);
+  } catch {
+    return false;
+  }
+}
+
 export async function ingestDbJson(
   spaceId: string,
   entrada: { jsonText?: string; storagePath?: string },
@@ -144,6 +176,13 @@ export async function ingestDbJson(
   }
   let input: { meta?: Json; storagePath?: string };
   if (entrada.storagePath) {
+    // Arquivo grande: o conteúdo não passou por aqui, então a checagem de
+    // formato acontece baixando só o começo — o suficiente para distinguir a
+    // lista de colunas do envelope do pkg_db_meta.
+    if (await pareceListaDeColunas(entrada.storagePath)) {
+      const r = await importarDicionarioCsv(spaceId, entrada);
+      return r.ok ? { ok: true, dicionario: r.gravadas } : r;
+    }
     input = { storagePath: entrada.storagePath };
   } else if (entrada.jsonText?.trim()) {
     let meta: Json;
@@ -153,6 +192,22 @@ export async function ingestDbJson(
       return { ok: false, error: "JSON inválido — cole a saída de pkg_db_meta.f_schema_json." };
     }
     if (!normalizarDbJson(meta)) {
+      /**
+       * LISTA DE COLUNAS caiu no cartão errado — e é fácil cair.
+       *
+       * Os dois cartões desta página aceitam arquivo JSON, e nada na tela dizia
+       * qual formato é de qual. Um dump de `all_tab_columns` chegava aqui e
+       * recebia "Metadado de banco inválido": resposta correta sobre a pergunta
+       * errada, que obriga a pessoa a adivinhar onde era.
+       *
+       * Reconhecer e TRATAR é melhor que recusar com instrução: o arquivo já
+       * está aqui, tem 8 MB, e mandar refazer o upload noutro cartão é cobrar
+       * pela ambiguidade que o produto criou.
+       */
+      if (lerDicionario(entrada.jsonText).linhas.length > 0) {
+        const r = await importarDicionarioCsv(spaceId, entrada);
+        return r.ok ? { ok: true, dicionario: r.gravadas } : r;
+      }
       return { ok: false, error: "Não reconheci o metadado (esperado o JSON de pkg_db_meta)." };
     }
     input = { meta };

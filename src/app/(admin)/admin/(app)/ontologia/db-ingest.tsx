@@ -33,7 +33,11 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
   function processar() {
     start(async () => {
       const r = await ingestDbJson(spaceId, ent.entrada());
-      if (r.ok) { toast.success("Ingestão de objetos enfileirada — colunas entram na planilha acima."); acompanhar(); }
+      if (r.ok && r.dicionario) {
+        // Caiu no cartão errado e foi tratado: dizer o que REALMENTE aconteceu
+        // evita a pessoa esperar uma barra de progresso que não vai existir.
+        toast.success(`${r.dicionario.toLocaleString("pt-BR")} coluna(s) no dicionário — era uma lista de colunas, não objetos de banco.`);
+      } else if (r.ok) { toast.success("Ingestão de objetos enfileirada — colunas entram na planilha acima."); acompanhar(); }
       else toast.error(r.error);
     });
   }
@@ -61,7 +65,9 @@ export function DbIngest({ spaceId }: { spaceId: string }) {
         <strong> mesmo dicionário de dados</strong> e a ontologia; a documentação técnica gera um
         artigo por objeto (propósito, colunas, relacionamentos e passo a passo do código) para os
         analistas de sistemas e programadores.
-      </p>
+       Se o arquivo for uma <strong>lista de colunas</strong> (um dump de{" "}
+        <code>all_tab_columns</code>), ele é reconhecido e vai direto para o dicionário — não precisa
+        trocar de cartão.</p>
 
       <textarea
         className={`${controlClass} min-h-[8rem] w-full font-mono text-xs`}
