@@ -5,6 +5,9 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { LogsList, type ChatTraceRow } from "./logs-list";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
+import { TrackingTabs } from "@/components/admin/tracking-tabs";
+import { createClient } from "@/lib/supabase/server";
+import { resolvedSpaceId } from "@/lib/content/current-space";
 
 export const metadata: Metadata = { title: "Logs do chat" };
 
@@ -78,15 +81,31 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const { data, error } = await q;
   const rows = (error ? [] : (data ?? [])) as ChatTraceRow[];
 
+  // Cliente NORMAL de propósito: o `admin` desta tela é service role e ignora a
+  // RLS — usá-lo aqui listaria documentações que a pessoa não pode ver, só para
+  // montar um link de volta.
+  const supabase = await createClient();
+  const { data: espacos } = await supabase.from("spaces").select("id");
+  const espacoParaVoltar = await resolvedSpaceId(undefined, espacos ?? []);
+
   return (
     <div className="mx-auto max-w-6xl">
       <div className="flex items-center gap-2">
         <ScrollText className="size-6 text-primary" />
-        <h1 className="text-2xl font-semibold tracking-tight">Logs do chat</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Rastreio do chat</h1>
       </div>
       <p className="mt-1 text-sm text-text-muted">
         Passo a passo de cada turno — do envio à resposta. Use para rastrear onde o roteamento/ferramentas falharam.
       </p>
+
+      {/* O caminho de volta. Antes era de mão única: das conversas não havia
+          rota até aqui, e daqui não havia rota de volta — duas telas em grupos
+          de menu diferentes, tratando da mesma visita.
+
+          O `space` vem do cookie porque ESTA tela não filtra por documentação
+          (é chaveada por `base_code`). Ele serve só para as outras duas não
+          perderem a seleção quando a pessoa voltar. */}
+      <TrackingTabs current="rastreio" spaceId={espacoParaVoltar ?? ""} podeRastrear />
 
       <form className="mt-5 grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">
         <Campo label="Base / cliente" name="base" value={sp.base} placeholder="ex.: natcorp" />
