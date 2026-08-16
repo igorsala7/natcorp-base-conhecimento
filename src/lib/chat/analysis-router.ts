@@ -87,7 +87,12 @@ export async function classificarAnalise(args: {
   const cols = (args.columns ?? []).map(String);
   if (q.length < 4 || !cols.length || !args.sampleRows?.length) return A_PURO;
 
-  const temJulgamento = RX_JULGAMENTO.test(q);
+  // Dobrado (sem acento): as regexes abaixo são escritas sem acento, e
+  // `análise` — a palavra mais provável de todas — não casa com `analis`. A
+  // própria RX_JULGAMENTO carrega a cicatriz disso, com `indíci` E `ind[íi]cio`
+  // lado a lado: remendaram a palavra, não a classe.
+  const qn = q.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  const temJulgamento = RX_JULGAMENTO.test(qn);
   if (!temJulgamento) return A_PURO;
 
   // Há alguma coluna de texto livre? (candidata a B). Sem isso, é análise A.
@@ -97,7 +102,7 @@ export async function classificarAnalise(args: {
   if (!textuais.length) return A_PURO;
 
   // Puramente agregação (ex.: "compare a soma por mês") mesmo com "analise" → A.
-  if (RX_AGREGACAO.test(q) && !/(reclama|risco|fraud|irregular|inconsist|motiv|teor|sentiment)/i.test(q)) {
+  if (RX_AGREGACAO.test(qn) && !/(reclama|risco|fraud|irregular|inconsist|motiv|teor|sentiment)/i.test(qn)) {
     return A_PURO;
   }
 

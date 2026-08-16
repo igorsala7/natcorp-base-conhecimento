@@ -498,6 +498,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // base de cliente: uma conversationId de outro espaço/chave é descartada.
   let convId = payload.conversationId;
   let prevPage: PageContext | null = null;
+  // A TROCA DE TELA é sinal de fluxo, não só texto de prompt: ela reabre a
+  // ambiguidade de "os dados" (ver `referenciaVaga`). Declarada aqui porque o
+  // esclarecimento de sujeito, lá embaixo, precisa dela — antes ela nascia e
+  // morria dentro do bloco que grava `conversations.page`.
+  let mudouPagina = false;
   if (convId) {
     const { data: existing } = await supabase
       .from("conversations")
@@ -508,6 +513,8 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     if (!existing) convId = undefined;
     else prevPage = pageContextFields(existing.page);
   }
+  // Só há "troca" se havia tela anterior: a primeira mensagem não trocou de nada.
+  mudouPagina = !!(page && prevPage && !mesmaPagina(prevPage, page));
   // Escopo do usuário (isolamento) — reusado p/ datasets persistidos e fontes salvas.
   const userRef = `${String(track.p_base ?? "").trim()}:${String(track.p_usuario ?? track.p_matricula ?? "").trim()}`;
   // Dataset persistido (F1): o widget mandou só o id → rehidrata as linhas, SEMPRE
@@ -1303,7 +1310,6 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   } else if (convId) {
     // Conversa existente: atualiza a página guardada quando a TELA muda (o próximo turno
     // compara contra esta) e mantém a ressalva mais recente para o Histórico.
-    const mudouPagina = !!(page && !mesmaPagina(prevPage, page));
     if (mudouPagina && disclaimerServer) await supabase.from("conversations").update({ page, disclaimer: disclaimerServer }).eq("id", convId);
     else if (mudouPagina) await supabase.from("conversations").update({ page }).eq("id", convId);
     else if (disclaimerServer) await supabase.from("conversations").update({ disclaimer: disclaimerServer }).eq("id", convId);
@@ -1366,7 +1372,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Sem nada no contexto que case → NÃO pergunta. Já escolhido (`referente`) → segue.
   if (
     !scopeIn?.referente && !continuation && !social && !modoTutorial && !geraArquivo &&
-    deveClassificarSujeito(question, messages, !!reportDataResolved || temRelatorioNaTela)
+    deveClassificarSujeito(question, messages, !!reportDataResolved || temRelatorioNaTela, { mudouTela: mudouPagina })
   ) {
     const decSuj = await classificarSujeito({
       question,

@@ -22,6 +22,40 @@ export type ClarifyMsg = { role: string; content: string };
 const RX_ANAFORA =
   /\b(ele|ela|eles|elas|dele|dela|deles|delas|nele|nela|neles|nelas|lhe|lhes)\b|\b[oa]s?\s+(primeir|segund|terceir|quart|quint|[uú]ltim)[oa]s?\b|^\s*e\s+[oa]s?\b|\b(ess[ae]s?|dess[ae]s?|ness[ae]s?|aquel[ea]s?)\b/i;
 
+/**
+ * DESCRIÇÃO DEFINIDA — "os dados", "a tabela", "o relatório", "essa tela".
+ *
+ * Gramaticalmente não é anáfora: não há pronome nem demonstrativo, então
+ * `RX_ANAFORA` não pega. E não deveria pegar em geral — "analise os dados" na
+ * tela em que a pessoa está há dez minutos não tem ambiguidade nenhuma:
+ * "os dados" são os da tela, e perguntar seria burocracia.
+ *
+ * O que muda tudo é a TROCA DE TELA. Relatado pelo Igor (16/08/2026): estava
+ * conversando sobre um colaborador numa tela sem relatório, foi para uma tela
+ * COM relatório e pediu para avaliar os dados — o chat avaliou o colaborador.
+ * A frase não mudou; o mundo em volta dela mudou, e passou a ter dois
+ * candidatos: a tela nova e o assunto em curso.
+ *
+ * Por isso esta lista só vale acompanhada de `mudouTela`. É a troca de tela que
+ * transforma uma frase clara em ambígua — sozinha, a lista dispararia o tempo
+ * todo e a confirmação viraria ruído.
+ */
+const RX_REFERENCIA_VAGA =
+  /\b(os\s+dados|esses\s+dados|as\s+informacoes|a\s+tabela|o\s+relatorio|a\s+lista|a\s+tela|a\s+pagina|os\s+registros|os\s+resultados|os\s+numeros|as\s+linhas)\b/;
+
+/** Verbo que pede leitura de um conjunto — "avalie", "analise", "resuma". */
+const RX_PEDE_ANALISE = /\b(analis|avali|resum|compar|verifiq|confir|revis|explic|interpret|olh[ae]|veja|olhar)/;
+
+/**
+ * Sem acento e em minúscula.
+ *
+ * As duas regexes acima são escritas SEM acento e comparam contra o texto já
+ * dobrado — porque a alternativa não funciona: `análise` (substantivo) não casa
+ * com `analis`, e escrever `an[áa]lis` para cada palavra multiplica a chance de
+ * esquecer uma. Foi assim que "faz uma análise" passou batido no primeiro teste.
+ */
+const dobrar = (s: string): string => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
 /** Pré-filtro BARATO: a mensagem "parece anafórica"? Só quem passa vai ao classificador. */
 export function pareceAnaforico(question: string): boolean {
   const q = String(question ?? "").trim();
@@ -29,10 +63,37 @@ export function pareceAnaforico(question: string): boolean {
   return RX_ANAFORA.test(q);
 }
 
-/** Roda o classificador SÓ quando parece anáfora E há contexto para referir: relatório
- *  na tela OU um turno anterior do assistente com conteúdo substancial (possível lista). */
-export function deveClassificarSujeito(question: string, messages: ClarifyMsg[], temRelatorio: boolean): boolean {
-  if (!pareceAnaforico(question)) return false;
+/**
+ * A mensagem aponta para um conjunto SEM dizer qual?
+ *
+ * Duas formas: a descrição definida ("avalie os dados") e o pedido de análise
+ * sem objeto nenhum ("faz uma análise"). A segunda é a mais ambígua das duas —
+ * não há sequer um substantivo para ancorar.
+ */
+export function referenciaVaga(question: string): boolean {
+  const bruto = String(question ?? "").trim();
+  if (bruto.length < 2) return false;
+  const q = dobrar(bruto);
+  if (RX_REFERENCIA_VAGA.test(q)) return true;
+  // "faz uma análise", "avalia aí", "me dá uma olhada" — verbo de leitura sem objeto.
+  return RX_PEDE_ANALISE.test(q) && q.split(/\s+/).length <= 6;
+}
+
+/**
+ * Roda o classificador SÓ quando parece anáfora E há contexto para referir: relatório
+ * na tela OU um turno anterior do assistente com conteúdo substancial (possível lista).
+ *
+ * `mudouTela` amplia o gatilho para as descrições definidas — ver
+ * `RX_REFERENCIA_VAGA`. Só amplia: nada que já disparava deixa de disparar.
+ */
+export function deveClassificarSujeito(
+  question: string,
+  messages: ClarifyMsg[],
+  temRelatorio: boolean,
+  opts?: { mudouTela?: boolean },
+): boolean {
+  const aponta = pareceAnaforico(question) || (!!opts?.mudouTela && referenciaVaga(question));
+  if (!aponta) return false;
   if (temRelatorio) return true;
   const ultAssist = [...(messages ?? [])].reverse().find((m) => m.role === "assistant");
   return !!ultAssist && String(ultAssist.content ?? "").length > 160;
