@@ -5,6 +5,7 @@ import { normalizarDbJson, type DbMeta } from "./metadata";
 import { construirLinhasDb } from "./ingest";
 import { gerarDocObjetoDb } from "./docs";
 import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
+import { gravarDicionario } from "@/lib/data-dictionary/gravar";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 import { criarNoConteudo } from "@/lib/content/create-node";
 import { htmlToBlocks } from "@/lib/blocks/from-html";
@@ -29,7 +30,14 @@ export async function runDbIngest(supabase: DbClient, jobId: string): Promise<{ 
   await supabase.from("data_dictionary_jobs").update({ status: "running", total: 2, done: 0, progress: 0 }).eq("id", jobId);
   const linhas = construirLinhasDb(spaceId, meta);
   await supabase.from("data_dictionary").delete().eq("space_id", spaceId).eq("source", "db_ddl");
-  for (let i = 0; i < linhas.length; i += 500) await supabase.from("data_dictionary").insert(linhas.slice(i, i + 500));
+  const grav = await gravarDicionario(supabase, linhas);
+  if (grav.erro) {
+    await supabase
+      .from("data_dictionary_jobs")
+      .update({ status: "error", progress: 100, result: { ...grav }, error: grav.erro })
+      .eq("id", jobId);
+    return { objetos: 0, colunas: 0, termos: 0 };
+  }
   await supabase.from("data_dictionary_jobs").update({ done: 1, progress: 50 }).eq("id", jobId);
   const termos = await alimentarOntologiaDeColunas(supabase, spaceId, linhas);
   try {

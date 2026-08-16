@@ -7,6 +7,7 @@ import { resolverColunasRegiao } from "@/lib/ai/apex-resolve";
 import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 import { carregarMetaApex } from "./carregar-meta";
+import { gravarDicionario, deduplicar } from "@/lib/data-dictionary/gravar";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -42,7 +43,14 @@ export async function runApexIngest(supabase: DbClient, jobId: string): Promise<
   const linhas = construirLinhasDicionario(spaceId, meta, resolvido);
   const appId = meta.app.id || "";
   await supabase.from("data_dictionary").delete().eq("space_id", spaceId).eq("source", "apex_dict").eq("app_id", appId);
-  for (let i = 0; i < linhas.length; i += 500) await supabase.from("data_dictionary").insert(linhas.slice(i, i + 500));
+  const grav = await gravarDicionario(supabase, linhas);
+  if (grav.erro) {
+    await supabase
+      .from("data_dictionary_jobs")
+      .update({ status: "error", progress: 100, result: { ...grav }, error: grav.erro })
+      .eq("id", jobId);
+    return vazio;
+  }
   done += 1;
   await supabase.from("data_dictionary_jobs").update({ done, progress: Math.round((done / total) * 100) }).eq("id", jobId);
 
@@ -53,8 +61,11 @@ export async function runApexIngest(supabase: DbClient, jobId: string): Promise<
     /* best-effort */
   }
 
-  const componentes = linhas.filter((l) => l.kind !== "column").length;
-  const colunas = linhas.filter((l) => l.kind === "column").length;
+  // Contadas sobre o que sobreviveu à deduplicação — antes vinham do ARRAY em
+  // memória, e por isso o job publicava 13.710 quando o banco tinha 10.710.
+  const { unicas } = deduplicar(linhas);
+  const componentes = unicas.filter((l) => l.kind !== "column").length;
+  const colunas = unicas.filter((l) => l.kind === "column").length;
 
   /**
    * ZERO COLUNAS COM ESTRUTURA LIDA É FALHA, NÃO SUCESSO.
