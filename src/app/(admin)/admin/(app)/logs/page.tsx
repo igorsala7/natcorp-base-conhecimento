@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { ScrollText } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { LogsList, type ChatTraceRow } from "./logs-list";
@@ -8,6 +7,7 @@ import { controlClass } from "@/components/ui/input";
 import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { createClient } from "@/lib/supabase/server";
 import { resolvedSpaceId } from "@/lib/content/current-space";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Logs do chat" };
 
@@ -89,23 +89,19 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const espacoParaVoltar = await resolvedSpaceId(undefined, espacos ?? []);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div className="flex items-center gap-2">
-        <ScrollText className="size-6 text-primary" />
-        <h1 className="text-2xl font-semibold tracking-tight">Rastreio do chat</h1>
-      </div>
-      <p className="mt-1 text-sm text-text-muted">
-        Passo a passo de cada turno — do envio à resposta. Use para rastrear onde o roteamento/ferramentas falharam.
-      </p>
+    <PageShell
+      titulo="Rastreio do chat"
+      descricao="Passo a passo de cada turno — do envio à resposta. Use para rastrear onde o roteamento/ferramentas falharam."
+      largura="wide"
+      /* O caminho de volta. Antes era de mão única: das conversas não havia rota
+         até aqui, e daqui não havia rota de volta — duas telas em grupos de menu
+         diferentes, tratando da mesma visita.
 
-      {/* O caminho de volta. Antes era de mão única: das conversas não havia
-          rota até aqui, e daqui não havia rota de volta — duas telas em grupos
-          de menu diferentes, tratando da mesma visita.
-
-          O `space` vem do cookie porque ESTA tela não filtra por documentação
-          (é chaveada por `base_code`). Ele serve só para as outras duas não
-          perderem a seleção quando a pessoa voltar. */}
-      <TrackingTabs current="rastreio" spaceId={espacoParaVoltar ?? ""} podeRastrear />
+         O `space` vem do cookie porque ESTA tela não filtra por documentação (é
+         chaveada por `base_code`). Serve só para as outras duas não perderem a
+         seleção quando a pessoa voltar. */
+      abas={<TrackingTabs current="rastreio" spaceId={espacoParaVoltar ?? ""} podeRastrear />}
+    >
 
       <form className="mt-5 grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">
         <Campo label="Base / cliente" name="base" value={sp.base} placeholder="ex.: natcorp" />
@@ -136,6 +132,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       <div className="mt-5">
         <LogsList rows={rows} limite={LIMITE} />
       </div>
-    </div>
+    </PageShell>
   );
 }

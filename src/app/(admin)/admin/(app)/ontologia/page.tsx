@@ -15,6 +15,8 @@ import { ApexIngest } from "./apex-ingest";
 import { DbIngest } from "./db-ingest";
 import { listDataDictionaryColumns } from "./apex-actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Ontologia" };
 
@@ -55,26 +57,31 @@ export default async function OntologiaPage({
   ]);
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0">
-          <Link
-            href={`/admin/assistente?space=${atual.id}`}
-            className="mb-1 inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text"
-          >
-            <ArrowLeft className="size-4" /> Assistente
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">Ontologia</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Termos e sinônimos que deixam o assistente mais preciso: quando o leitor digita uma
-            variação, a busca casa com o termo certo.
-            {!aiReady && " Configure a IA do Chat em Sistema para a varredura."}
-          </p>
-        </div>
-        <div className="ml-auto">
+    <PageShell
+      titulo="Ontologia"
+      descricao={
+        <>
+          Termos e sinônimos que deixam o assistente mais preciso: quando o leitor digita uma variação, a busca
+          casa com o termo certo.
+          {!aiReady && " Configure a IA do Chat em Sistema para a varredura."}
+        </>
+      }
+      largura="wide"
+      acoes={
+        <>
+          {/* O caminho de volta explícito: esta tela é filha do Assistente na
+              nova arquitetura e ainda não virou aba dele. Enquanto não virar, o
+              link evita que ela pareça um destino solto. */}
+          <Button asChild variant="ghost">
+            <Link href={`/admin/assistente?space=${atual.id}`}>
+              <ArrowLeft /> Assistente
+            </Link>
+          </Button>
+          {/* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */}
           <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </div>
-      </div>
+        </>
+      }
+    >
 
       <div className="mt-6">
         <OntologyManager
@@ -108,6 +115,6 @@ export default async function OntologiaPage({
           <ApexXliffTranslator key={`xliff-${atual.id}`} spaceId={atual.id} activeLangs={langs} />
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
