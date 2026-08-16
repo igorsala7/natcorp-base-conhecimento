@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { MessageSquarePlus, Wand2 } from "lucide-react";
+import { MessageSquarePlus } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { pickSpace } from "@/lib/content/current-space";
@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { createStudioSession, listStudioSessions } from "./actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Estúdio IA" };
 
@@ -48,28 +50,27 @@ export default async function EstudioPage({
   const sessoes = await listStudioSessions(atual.id);
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <Wand2 className="size-6 text-primary" /> Estúdio IA
-          </h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Converse com um editor de IA: explique o que precisa, anexe material (até código), e
-            construa artigos ou uma estrutura inteira — tudo nasce rascunho.
-          </p>
-        </div>
-        <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-      </div>
-
-      <div className="mt-6">
-        <Link
-          href={`/admin/estudio?space=${atual.id}&nova=1`}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-fg shadow-1 transition-colors hover:bg-primary-hover"
-        >
-          <MessageSquarePlus className="size-4" /> Nova conversa
-        </Link>
-      </div>
+    <PageShell
+      titulo="Estúdio IA"
+      descricao="Converse com um editor de IA: explique o que precisa, anexe material (até código), e construa artigos ou uma estrutura inteira — tudo nasce rascunho."
+      largura="page"
+      acoes={
+        <>
+          {/* O SpaceSwitcher da página CONTINUA aqui, apesar de a barra lateral
+              agora ter o seu. Ele não é duplicata: é quem GRAVA o cookie, a
+              partir do espaço que a página resolveu. Removê-lo deixaria o
+              seletor do chrome sem fonte de verdade. */}
+          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
+          {/* A ação primária sobe para o cabeçalho: solta abaixo dele, competia
+              visualmente com o primeiro item da lista. */}
+          <Button asChild>
+            <Link href={`/admin/estudio?space=${atual.id}&nova=1`}>
+              <MessageSquarePlus /> Nova conversa
+            </Link>
+          </Button>
+        </>
+      }
+    >
 
       {sessoes.length === 0 ? (
         <EmptyState
@@ -100,6 +101,6 @@ export default async function EstudioPage({
           ))}
         </ul>
       )}
-    </div>
+    </PageShell>
   );
 }
