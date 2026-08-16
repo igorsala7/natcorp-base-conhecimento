@@ -13,6 +13,7 @@ import { OntologyLanguages } from "./ontology-languages";
 import { ApexXliffTranslator } from "./apex-xliff-translator";
 import { ApexIngest } from "./apex-ingest";
 import { DbIngest } from "./db-ingest";
+import { CsvIngest } from "./csv-ingest";
 import { listDataDictionaryColumns } from "./apex-actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
@@ -111,6 +112,7 @@ export default async function OntologiaPage({
 
       {canManage && (
         <div className="mt-6">
+          <CsvIngest key={`csv-${atual.id}`} spaceId={atual.id} />
           <DbIngest key={`db-${atual.id}`} spaceId={atual.id} />
         </div>
       )}
