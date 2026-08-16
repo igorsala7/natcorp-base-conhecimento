@@ -25,7 +25,7 @@ import { useAcompanharJobs } from "./use-acompanhar-jobs";
 /** Cem por página: o que cabe numa rolagem sem virar rolagem infinita. */
 const POR_PAGINA = 100;
 
-export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialCols: DicColuna[] }) {
+export function ApexIngest({ spaceId }: { spaceId: string }) {
   const toast = useToast();
   const [json, setJson] = useState("");
   /** Arquivo grande já no Storage: o job leva o caminho, não o conteúdo. */
@@ -57,7 +57,7 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
    * serializado antes de o navegador desenhar o primeiro pixel. Agora chegam
    * cem por vez, buscadas quando a tela pede.
    */
-  const [dic, setDic] = useState<{ linhas: DicColuna[]; total: number }>({ linhas: initialCols, total: initialCols.length });
+  const [dic, setDic] = useState<{ linhas: DicColuna[]; total: number }>({ linhas: [], total: 0 });
   const [carregandoDic, setCarregandoDic] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 

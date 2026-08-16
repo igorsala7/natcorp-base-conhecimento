@@ -14,7 +14,6 @@ import { ApexXliffTranslator } from "./apex-xliff-translator";
 import { ApexIngest } from "./apex-ingest";
 import { DbIngest } from "./db-ingest";
 import { CsvIngest } from "./csv-ingest";
-import { listDataDictionaryColumns } from "./apex-actions";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
 import { Button } from "@/components/ui/button";
@@ -52,16 +51,15 @@ export default async function OntologiaPage({
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
-  const [{ terms, jobs }, nodes, canManage, aiReady, langs, dicCols] = await Promise.all([
+  const [{ terms, jobs }, nodes, canManage, aiReady, langs] = await Promise.all([
     listOntology(atual.id),
     listSpaceNodes(atual.id),
     hasPermission("ai.configure", atual.id),
     hasAiKey("chat"),
     listSpaceLanguages(atual.id),
-    // Vazio de propósito: o dicionário chega por `listDicPagina`, cem por vez.
-    // Carregá-lo aqui embutia 78 mil linhas no HTML e a página não abria.
-    Promise.resolve([]),
   ]);
+  // O dicionário NÃO é carregado aqui: ele chega por `listDicPagina`, cem por
+  // vez. Embutir as 78 mil colunas no HTML era o que impedia a página de abrir.
 
   return (
     <PageShell
@@ -108,7 +106,7 @@ export default async function OntologiaPage({
 
       {canManage && (
         <div className="mt-6">
-          <ApexIngest key={`ingest-${atual.id}`} spaceId={atual.id} initialCols={dicCols} />
+          <ApexIngest key={`ingest-${atual.id}`} spaceId={atual.id} />
         </div>
       )}
 
