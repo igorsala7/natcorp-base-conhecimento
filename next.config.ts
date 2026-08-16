@@ -54,6 +54,21 @@ const nextConfig: NextConfig = {
         "*.trycloudflare.com",
         ...(process.env.NEXT_PUBLIC_SITE_URL ? [new URL(process.env.NEXT_PUBLIC_SITE_URL).host] : []),
       ],
+      /**
+       * O padrão é 1 MB, e ele derrubava a ingestão do APEX.
+       *
+       * O metadado de uma aplicação inteira — objetos, tabelas, campos e labels —
+       * passa de 1 MB com folga. Estourado o limite, o Next não devolve erro de
+       * validação: devolve uma resposta que o cliente não sabe ler, e o console
+       * mostra "An unexpected response was received from the server". Do lado de
+       * quem usa, a tela simplesmente quebra, sem dizer que o problema era
+       * TAMANHO — o diagnóstico menos provável de alguém adivinhar.
+       *
+       * 8 MB cobre o metadado de aplicação grande. Acima disso o caminho certo é
+       * arquivo em Storage e job, não Server Action: manter o corpo pequeno é o
+       * que evita segurar um worker de Next com megabytes na memória.
+       */
+      bodySizeLimit: "8mb",
     },
   },
   async headers() {

@@ -46,7 +46,21 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
     pollRef.current = setInterval(run, 2500);
   }
 
+  /**
+   * O limite de corpo de Server Action (8 MB, ver next.config) não avisa quando
+   * estoura: o Next devolve uma resposta que o cliente não sabe ler, o console
+   * mostra "An unexpected response was received from the server" e a tela
+   * quebra. TAMANHO é o diagnóstico menos provável de alguém adivinhar a partir
+   * disso, então checamos antes de enviar.
+   */
+  const bytes = new Blob([json]).size;
+  const grandeDemais = bytes > 7.5 * 1024 * 1024;
+
   function processar() {
+    if (grandeDemais) {
+      toast.error("Este JSON passa de 7,5 MB e não cabe num envio. Gere o metadado por aplicação, não do banco inteiro.");
+      return;
+    }
     start(async () => {
       const r = await ingestApexJson(spaceId, json);
       if (r.ok) { toast.success("Ingestão enfileirada — progresso abaixo."); iniciarPoll(); }
@@ -55,6 +69,10 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
   }
 
   function documentar() {
+    if (grandeDemais) {
+      toast.error("Este JSON passa de 7,5 MB e não cabe num envio. Gere o metadado por aplicação, não do banco inteiro.");
+      return;
+    }
     start(async () => {
       const r = await gerarDocsApex(spaceId, json);
       if (r.ok) { toast.success("Documentação enfileirada — 2 artigos por página (usuário + técnica) na base."); iniciarPoll(); }
@@ -105,6 +123,14 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
         onChange={(e) => setJson(e.target.value)}
       />
       <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={onFile} />
+      {/* O tamanho fica visível ANTES do clique: descobrir que não cabe depois
+          de esperar o envio é a pior ordem possível. */}
+      {bytes > 0 && (
+        <p className={`text-2xs tabular-nums ${grandeDemais ? "font-medium text-rose-700 dark:text-rose-300" : "text-text-muted"}`}>
+          {(bytes / 1024 / 1024).toFixed(1)} MB
+          {grandeDemais && " — passa do limite de envio. Gere o metadado por aplicação, não do banco inteiro."}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={processar} disabled={pend || !json.trim()}>
           {pend ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
