@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
+import { carimbo } from "@/lib/format/quando";
 
 /**
  * O TRABALHO QUE SOBREVIVE À TELA QUE O DISPAROU.
@@ -38,6 +39,7 @@ const ROTULO: Record<string, string> = {
 };
 
 const INTERVALO = 15_000;
+
 
 export function Atividade() {
   const [itens, setItens] = useState<ItemAtividade[]>([]);
@@ -164,7 +166,17 @@ export function Atividade() {
                         </Button>
                       </div>
 
-                      {i.rotulo && <p className="mt-1 truncate text-xs text-text-muted">{i.rotulo}</p>}
+                      {/* Sempre presente, mesmo sem rótulo: é o carimbo que
+                          diz se este item é de agora ou de horas atrás. */}
+                      <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-2xs text-text-muted">
+                        <time dateTime={i.created_at} className="tabular-nums">
+                          {carimbo(i.created_at).absoluto}
+                        </time>
+                        <span>·</span>
+                        <span>{carimbo(i.created_at).relativo}</span>
+                      </p>
+
+                      {i.rotulo && <p className="mt-0.5 truncate text-xs text-text-muted">{i.rotulo}</p>}
 
                       {i.status === "error" && i.error && (
                         // A mensagem do worker inteira, não truncada: é o único

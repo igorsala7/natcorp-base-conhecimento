@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { Skeleton } from "@/components/ui/skeleton";
 import { resumoDicionario, type LinhaResumoDic } from "./apex-actions";
+import { relativo } from "@/lib/format/quando";
 
 /**
  * O QUE ESTÁ NO DICIONÁRIO AGORA.
@@ -33,17 +34,6 @@ const NOME: Record<string, { titulo: string; de: string }> = {
 
 const num = (n: number) => n.toLocaleString("pt-BR");
 
-/** "há 3 minutos", "ontem" — a data absoluta não responde "foi o que acabei de subir?". */
-function quando(iso: string | null): string {
-  if (!iso) return "";
-  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (min < 1) return "agora há pouco";
-  if (min < 60) return `há ${min} min`;
-  const h = Math.round(min / 60);
-  if (h < 24) return `há ${h}h`;
-  const d = Math.round(h / 24);
-  return d === 1 ? "ontem" : `há ${d} dias`;
-}
 
 export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarga?: number }) {
   const [linhas, setLinhas] = useState<LinhaResumoDic[] | null>(null);
@@ -96,7 +86,7 @@ export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarg
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-sm font-medium text-text">{nome.titulo}</span>
                   <span className="text-2xs text-text-muted">{nome.de}</span>
-                  <span className="ml-auto text-2xs text-text-muted">{quando(l.atualizado_em)}</span>
+                  <span className="ml-auto text-2xs text-text-muted">{relativo(l.atualizado_em)}</span>
                 </div>
                 <p className="mt-1 text-sm tabular-nums text-text">
                   {num(l.linhas)} colunas <span className="text-text-muted">em</span> {num(l.tabelas)} tabelas

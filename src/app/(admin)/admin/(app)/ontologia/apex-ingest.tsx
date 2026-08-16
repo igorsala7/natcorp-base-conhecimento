@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Search, ChevronLeft, ChevronRight, FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { carimbo } from "@/lib/format/quando";
 import { dispensarAtividade } from "../atividade-actions";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
@@ -283,6 +284,12 @@ export function ApexIngest({ spaceId, onMudou }: { spaceId: string; onMudou?: ()
                       {j.done?.toLocaleString("pt-BR")} de {j.total.toLocaleString("pt-BR")}
                     </span>
                   ) : null}
+                  {/* Sem janela de tempo nesta lista: os últimos 6 jobs ficam
+                      até seis novos os empurrarem. Sem o carimbo, um erro da
+                      manhã parece o do arquivo que você acabou de subir. */}
+                  <time dateTime={j.created_at} className="tabular-nums text-text-muted">
+                    {carimbo(j.created_at).absoluto} · {carimbo(j.created_at).relativo}
+                  </time>
                   <span className="ml-auto tabular-nums text-text-muted">{erro ? "" : `${j.progress}%`}</span>
                   {/* Também alcança o job travado em `queued`, que "Limpar os
                       erros" não pega porque ele nunca chega a falhar. */}
