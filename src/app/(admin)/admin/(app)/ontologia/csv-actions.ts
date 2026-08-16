@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerDicionario } from "@/lib/apex/dicionario-csv";
+import { rotuloDoComentario, ehRotuloUtil } from "@/lib/data-dictionary/rotulo";
+import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
+import { gravarDicionario, enfileirarEnriquecimentoDicionario } from "@/lib/data-dictionary/gravar";
 
 export type ResultadoImportCsv =
-  | { ok: true; gravadas: number; ignoradas: string[]; descartadas: number }
+  | { ok: true; gravadas: number; duplicadas: number; termos: number; ignoradas: string[]; descartadas: number }
   | { ok: false; error: string };
 
 /**
@@ -91,7 +94,17 @@ export async function importarDicionarioCsv(
   const admin = createAdminClient();
   await admin.from("data_dictionary").delete().eq("space_id", spaceId).eq("source", ORIGEM);
 
-  const registros = linhas.map((l) => ({
+  const registros = linhas.map((l) => {
+    /**
+     * O rótulo pode estar DENTRO do comentário — o ERP grava
+     * "Codigo - Código, que deseja incluir…". Sem extrair, 4.809 comentários
+     * conviviam com ZERO rótulos, e é o rótulo que permite ao assistente dizer
+     * "Filial" no lugar de COD_FILIAL. O `label` explícito do arquivo, quando
+     * existe, vence: ele foi escrito para ser rótulo.
+     */
+    const doComentario = rotuloDoComentario(l.descricao);
+    const label = ehRotuloUtil(l.label) ? l.label : doComentario.label;
+    return ({
     space_id: spaceId,
     // `column` é o valor que o CHECK do banco aceita — eu tinha escrito
     // "db_column", que não existe na lista e derrubava a primeira linha.
@@ -102,26 +115,27 @@ export async function importarDicionarioCsv(
     parent_name: l.tabela,
     db_table: l.tabela,
     db_column: l.coluna,
-    label: l.label,
-    description: l.descricao,
+    label,
+    description: doComentario.descricao ?? l.descricao,
     source: ORIGEM,
     metadata: l.tipo ? { data_type: l.tipo } : {},
-  }));
+  });
+  });
 
-  // Em lotes: um insert de dez mil linhas numa chamada estoura o limite do
-  // PostgREST, e o erro que ele devolve não diz que o problema foi tamanho.
-  let gravadas = 0;
-  for (let i = 0; i < registros.length; i += 500) {
-    const { error } = await admin.from("data_dictionary").insert(registros.slice(i, i + 500));
-    if (error) {
-      return {
-        ok: false,
-        error: `Falhou na linha ~${i + 1}: ${error.message}. As ${gravadas} anteriores foram gravadas.`,
-      };
-    }
-    gravadas += Math.min(500, registros.length - i);
-  }
+  // Deduplica e confere cada lote — o insert em lote é atômico, e uma linha
+  // repetida derrubava as outras 499 em silêncio. Ver `gravar.ts`.
+  const grav = await gravarDicionario(admin, registros);
+  if (grav.erro) return { ok: false, error: grav.erro };
+
+  /**
+   * ALIMENTA A ONTOLOGIA — este caminho não fazia isso, e era um esquecimento,
+   * não uma decisão: as ingestões de APEX e de banco sempre alimentaram. Sem
+   * isto, o rótulo/coluna importado por CSV nunca virava vocabulário de busca,
+   * e o assistente não ligava "filial" a COD_FILIAL.
+   */
+  const termos = await alimentarOntologiaDeColunas(admin, spaceId, registros);
+  await enfileirarEnriquecimentoDicionario(admin, spaceId, null);
 
   revalidatePath("/admin/ontologia");
-  return { ok: true, gravadas, ignoradas, descartadas };
+  return { ok: true, gravadas: grav.gravadas, duplicadas: grav.duplicadas, termos, ignoradas, descartadas };
 }

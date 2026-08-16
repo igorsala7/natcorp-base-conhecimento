@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { motivoFila } from "@/lib/jobs/motivo-fila";
 import { createClient } from "@/lib/supabase/server";
+import { enqueueOntologyScan } from "@/lib/jobs/boss";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/permissions";
 import { enqueueApexIngest, enqueueApexDocs, enqueueDbIngest, enqueueDbDocs } from "@/lib/jobs/boss";
@@ -504,4 +505,43 @@ export async function resumoDicionario(spaceId: string): Promise<LinhaResumoDic[
     return [];
   }
   return (data ?? []) as LinhaResumoDic[];
+}
+
+/**
+ * ENRIQUECE COM IA os rótulos que o dicionário trouxe.
+ *
+ * A ingestão já cria os termos de forma determinística (rótulo → termo, coluna
+ * → sinônimo). Isto acrescenta o que nenhuma regra deriva: quem pergunta
+ * "quantos na unidade 3" não escreve "Filial" nem "COD_FILIAL", escreve
+ * "unidade".
+ *
+ * Vai para a fila porque são ~1.250 termos em lotes de 60 — mais de vinte
+ * chamadas de IA, muito além do que uma Server Action deve segurar.
+ */
+export async function enriquecerOntologiaDoDicionario(spaceId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requirePermission("ai.configure", spaceId);
+  } catch {
+    return { ok: false, error: "Sem permissão." };
+  }
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  const admin = createAdminClient();
+
+  const { data: job, error } = await admin
+    .from("ontology_jobs")
+    .insert({ space_id: spaceId, scope: "dicionario", created_by: auth.user?.id ?? null })
+    .select("id")
+    .single();
+  if (error || !job) return { ok: false, error: error?.message ?? "Não consegui criar o job." };
+
+  try {
+    await enqueueOntologyScan(job.id);
+  } catch (e) {
+    // A linha fica em `queued` e a gaveta de Atividade a mostra: melhor um job
+    // visivelmente parado do que um erro que some da tela.
+    await admin.from("ontology_jobs").update({ status: "error", error: "Fila indisponível (worker parado?)." }).eq("id", job.id);
+    return { ok: false, error: `Fila indisponível: ${e instanceof Error ? e.message : "worker parado?"}` };
+  }
+  return { ok: true };
 }

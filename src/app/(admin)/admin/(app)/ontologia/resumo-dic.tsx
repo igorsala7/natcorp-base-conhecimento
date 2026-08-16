@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Database, RefreshCw } from "lucide-react";
+import { Database, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { Skeleton } from "@/components/ui/skeleton";
-import { resumoDicionario, type LinhaResumoDic } from "./apex-actions";
+import { useToast } from "@/components/ui/toast";
+import { resumoDicionario, enriquecerOntologiaDoDicionario, type LinhaResumoDic } from "./apex-actions";
 import { relativo } from "@/lib/format/quando";
 
 /**
@@ -38,6 +39,8 @@ const num = (n: number) => n.toLocaleString("pt-BR");
 export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarga?: number }) {
   const [linhas, setLinhas] = useState<LinhaResumoDic[] | null>(null);
   const [pend, setPend] = useState(false);
+  const [enriquecendo, setEnriquecendo] = useState(false);
+  const toast = useToast();
 
   // `buscar` não toca em `pend`: chamar setState no corpo de um efeito dispara
   // renderização em cascata (o lint pega, e está certo). Na primeira carga quem
@@ -47,6 +50,22 @@ export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarg
   useEffect(() => {
     void buscar();
   }, [buscar, recarga]);
+
+  /**
+   * A IA que a regra determinística não alcança: "Filial" → "unidade",
+   * "estabelecimento". A ingestão já criou os termos; isto acrescenta o
+   * vocabulário de quem PERGUNTA, que não é o de quem modelou o banco.
+   */
+  async function enriquecer() {
+    setEnriquecendo(true);
+    try {
+      const r = await enriquecerOntologiaDoDicionario(spaceId);
+      if (r.ok) toast.success("Enriquecimento na fila. Acompanhe em Atividade — leva alguns minutos.");
+      else toast.error(r.error ?? "Não consegui enfileirar.");
+    } finally {
+      setEnriquecendo(false);
+    }
+  }
 
   /** O botão explícito: aí sim o giro é a resposta ao clique. */
   const carregar = useCallback(() => {
@@ -107,6 +126,23 @@ export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarg
             );
           })}
         </ul>
+      )}
+
+      {(linhas?.some((l) => l.com_label > 0) ?? false) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 p-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-text">Sinônimos por IA</p>
+            <p className="text-2xs leading-relaxed text-text-muted">
+              A importação já ligou o rótulo à coluna (&ldquo;Filial&rdquo; ↔ <code>COD_FILIAL</code>). A IA
+              acrescenta como as pessoas realmente perguntam — &ldquo;unidade&rdquo;, &ldquo;estabelecimento&rdquo;
+              — que nenhuma regra deriva do nome do campo.
+            </p>
+          </div>
+          <Button onClick={() => void enriquecer()} loading={enriquecendo} loadingLabel="Enfileirando">
+            <Sparkles className="size-4" />
+            Gerar sinônimos
+          </Button>
+        </div>
       )}
 
       {/* Dito no lugar onde a dúvida aparece, não só ao lado do botão de importar. */}

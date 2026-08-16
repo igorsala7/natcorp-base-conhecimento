@@ -7,7 +7,7 @@ import { resolverColunasRegiao } from "@/lib/ai/apex-resolve";
 import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 import { carregarMetaApex } from "./carregar-meta";
-import { gravarDicionario, deduplicar } from "@/lib/data-dictionary/gravar";
+import { gravarDicionario, deduplicar, enfileirarEnriquecimentoDicionario } from "@/lib/data-dictionary/gravar";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -55,6 +55,7 @@ export async function runApexIngest(supabase: DbClient, jobId: string): Promise<
   await supabase.from("data_dictionary_jobs").update({ done, progress: Math.round((done / total) * 100) }).eq("id", jobId);
 
   const termos = await alimentarOntologiaDeColunas(supabase, spaceId, linhas);
+  await enfileirarEnriquecimentoDicionario(supabase, spaceId, null);
   try {
     await enfileirarTraducoesPendentes(supabase, spaceId, null);
   } catch {

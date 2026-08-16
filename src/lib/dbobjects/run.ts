@@ -5,7 +5,7 @@ import { normalizarDbJson, type DbMeta } from "./metadata";
 import { construirLinhasDb } from "./ingest";
 import { gerarDocObjetoDb } from "./docs";
 import { alimentarOntologiaDeColunas } from "@/lib/data-dictionary/ontology-feed";
-import { gravarDicionario } from "@/lib/data-dictionary/gravar";
+import { gravarDicionario, enfileirarEnriquecimentoDicionario } from "@/lib/data-dictionary/gravar";
 import { enfileirarTraducoesPendentes } from "@/lib/ai/ontology-translate-enqueue";
 import { criarNoConteudo } from "@/lib/content/create-node";
 import { htmlToBlocks } from "@/lib/blocks/from-html";
@@ -40,6 +40,7 @@ export async function runDbIngest(supabase: DbClient, jobId: string): Promise<{ 
   }
   await supabase.from("data_dictionary_jobs").update({ done: 1, progress: 50 }).eq("id", jobId);
   const termos = await alimentarOntologiaDeColunas(supabase, spaceId, linhas);
+  await enfileirarEnriquecimentoDicionario(supabase, spaceId, null);
   try {
     await enfileirarTraducoesPendentes(supabase, spaceId, null);
   } catch {

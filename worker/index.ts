@@ -35,6 +35,7 @@ import { montarArvoreFluxos } from "../src/lib/importer/flow-tree";
 import { generateArticle } from "../src/lib/importer/generate-article";
 import { hasAiKey, resolveAi } from "../src/lib/ai/config";
 import { extrairTermos, sinonimosDeTermos } from "../src/lib/ai/ontology-scan";
+import { ehRotuloUtil } from "../src/lib/data-dictionary/rotulo";
 import { runTraducaoOntologia } from "../src/lib/ai/ontology-translate-run";
 import { enfileirarTraducoesPendentes } from "../src/lib/ai/ontology-translate-enqueue";
 import { runApexIngest } from "../src/lib/apex/ingest-run";
@@ -432,6 +433,92 @@ async function processEmbeddings(jobId: string): Promise<void> {
    *
    * O texto já está lá, chunkado no upload. Faltava a varredura olhar para ele.
    */
+  /**
+   * O DICIONÁRIO DE DADOS — tabelas, colunas e rótulos importados.
+   *
+   * A ingestão já alimenta a ontologia de forma DETERMINÍSTICA (rótulo vira
+   * termo, coluna vira sinônimo). O que faltava era a camada de IA: quem
+   * pergunta "quantos funcionários na unidade 3" não escreve "Filial" nem
+   * "COD_FILIAL" — escreve "unidade". Esse sinônimo nenhuma regra deriva; ele
+   * precisa de quem conheça o domínio.
+   *
+   * Usa `sinonimosDeTermos`, a mesma da importação por arquivo: recebe os termos
+   * PRONTOS e só enriquece, sem inventar termos fora da lista. Uma segunda
+   * extração produziria vocabulário com critério diferente, e o mesmo jargão
+   * viraria dois termos conforme a porta de entrada.
+   *
+   * ── O que entra, e o que fica de fora ───────────────────────────────────
+   * Só coluna COM RÓTULO, e rótulo que sirva (ver `ehRotuloUtil`): mandar
+   * `COD_ALCADA` cru para a IA é pedir que ela adivinhe, e ela adivinha. Sem
+   * rótulo, o caminho certo é extraí-lo do comentário (`rotuloDoComentario`),
+   * que é determinístico — não gastar token chutando.
+   *
+   * DISTINTOS por rótulo normalizado: 2.221 colunas com rótulo viram ~1.256
+   * termos. Mandar as 2.221 seria pagar duas vezes pela mesma palavra.
+   */
+  if (job.scope === "dicionario") {
+    await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
+
+    const porTermo = new Map<string, { term: string; aliases: Set<string> }>();
+    for (let from = 0; ; from += 1000) {
+      const { data } = await supabase
+        .from("data_dictionary")
+        .select("label, db_column, db_table")
+        .eq("space_id", job.space_id)
+        .eq("kind", "column")
+        .not("label", "is", null)
+        .range(from, from + 999);
+      const lote = data ?? [];
+      for (const c of lote) {
+        if (!ehRotuloUtil(c.label)) continue;
+        const term = String(c.label).trim();
+        const norm = normalizarTermo(term);
+        if (!norm) continue;
+        const e = porTermo.get(norm) ?? { term, aliases: new Set<string>() };
+        // A COLUNA como sinônimo já entra aqui: a IA a recebe como pista do que
+        // o campo é, e a devolve junto — sem isso ela perderia o único vínculo
+        // com o banco que o termo tem.
+        if (c.db_column) e.aliases.add(String(c.db_column));
+        porTermo.set(norm, e);
+      }
+      if (lote.length < 1000) break;
+    }
+
+    const entradas = [...porTermo.values()].map((e) => ({ term: e.term, aliases: [...e.aliases] }));
+    if (entradas.length === 0) {
+      await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found: 0 }).eq("id", jobId);
+      return;
+    }
+
+    const lotes = emLotes(entradas, 60);
+    await supabase.from("ontology_jobs").update({ total: lotes.length }).eq("id", jobId);
+
+    const acumulado = new Map<string, TermoAcumulado>();
+    let feitos = 0;
+    for (const lote of lotes) {
+      try {
+        for (const t of await sinonimosDeTermos(lote)) {
+          const norm = normalizarTermo(t.term);
+          if (!norm) continue;
+          const ex = acumulado.get(norm) ?? { term: t.term, kind: t.kind, description: t.description, aliases: new Set<string>() };
+          if (!ex.description && t.description) ex.description = t.description;
+          for (const a of t.aliases) if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+          acumulado.set(norm, ex);
+        }
+      } catch (e) {
+        // Um lote que falha não pode levar os outros 20 junto: são 60 termos de
+        // ~1.250, e perder tudo por causa de um timeout seria desproporcional.
+        console.error("Ontologia do dicionário — lote falhou:", e instanceof Error ? e.message : e);
+      }
+      feitos += 1;
+      await supabase.from("ontology_jobs").update({ done: feitos, progress: Math.round((feitos / lotes.length) * 100) }).eq("id", jobId);
+    }
+
+    const found = await mesclarTermos(supabase, job.space_id, acumulado, { source: "ia", createdBy: job.created_by });
+    await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+    return;
+  }
+
   if (job.scope === "document" && job.target_id) {
     await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
     const found = await varrerOntologiaDeDocumento(job.space_id, job.target_id, job.created_by, async (done, total) => {
