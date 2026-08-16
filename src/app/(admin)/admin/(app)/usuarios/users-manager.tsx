@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
-import { FolderTree, Plus, Search, Trash2, Upload, UserPlus, UserRound } from "lucide-react";
+import { Check, FolderTree, Plus, Search, Trash2, Upload, UserPlus, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
@@ -30,6 +30,8 @@ import { saveAuthor, deleteAuthor, type AuthorRow, type AuthorActionResult } fro
 import { listSpaceFolders } from "../conteudo/space-actions";
 import { uploadAvatar } from "@/lib/content/upload";
 import { Select } from "@/components/ui/select";
+import { Sheet } from "@/components/ui/sheet";
+import { oQueOPapelFaz } from "@/lib/auth/o-que-o-papel-faz";
 
 type Perms = { invite: boolean; manage: boolean; suspend: boolean };
 
@@ -120,11 +122,11 @@ function AvatarUpload({
   );
 }
 
-function InviteSubmit({ disabled }: { disabled?: boolean }) {
+function InviteSubmit({ disabled, form }: { disabled?: boolean; form?: string }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending || disabled}>
-      {pending ? "Convidando…" : "Convidar"}
+    <Button type="submit" form={form} loading={pending} loadingLabel="Convidando…" disabled={disabled}>
+      Convidar
     </Button>
   );
 }
@@ -171,15 +173,17 @@ function InviteDialog({
   const [escopo, setEscopo] = useState("");
   const papelEscolhido = assignable.find((r) => r.key === papelConvite);
   const escopoGlobal = escopo === "__todas";
+  const nomeDoEscopo = spaces.find((sp) => sp.id === escopo)?.name;
+  const resumo = papelEscolhido ? oQueOPapelFaz(papelEscolhido.level) : null;
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={onClose}
       size="md"
       title="Convidar usuário"
       description="A pessoa recebe um e-mail para definir a senha e entrar."
     >
-      <form action={action} className="space-y-4">
+      <form id="form-convite" action={action} className="space-y-4">
         <Field label="E-mail" htmlFor="invite-email" required error={state?.error ?? null}>
           <Input
             id="invite-email"
@@ -239,14 +243,41 @@ function InviteDialog({
           </p>
         )}
 
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancelar
-          </Button>
-          <InviteSubmit disabled={!escopo} />
-        </div>
+        {/* A PRÉVIA — o que muda de fato quando este convite for aceito.
+            O guia de papéis existe, mas mora no rodapé da página: informação
+            que exige sair da tela para ser consultada não é consultada. Aqui
+            ela aparece no momento da escolha, em verbos e não em chaves. */}
+        {resumo && (
+          <div className="space-y-2 rounded-lg border border-border bg-surface-2 px-4 py-3 text-xs">
+            <p className="font-semibold text-text">
+              {papelEscolhido?.name} {escopo && !escopoGlobal && <>em <strong>{nomeDoEscopo}</strong></>} poderá:
+            </p>
+            <ul className="space-y-0.5 text-text-muted">
+              {resumo.pode.map((x) => (
+                <li key={x} className="flex gap-1.5">
+                  <Check className="mt-0.5 size-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  {x}
+                </li>
+              ))}
+              {resumo.naoPode?.map((x) => (
+                <li key={x} className="flex gap-1.5">
+                  <X className="mt-0.5 size-3 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+                  <span>Não {x}</span>
+                </li>
+              ))}
+            </ul>
+            {resumo.atencao && <p className="pt-1 font-medium text-amber-700 dark:text-amber-400">{resumo.atencao}</p>}
+          </div>
+        )}
       </form>
-    </Dialog>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Cancelar
+        </Button>
+        <InviteSubmit disabled={!escopo} form="form-convite" />
+      </div>
+    </Sheet>
   );
 }
 
