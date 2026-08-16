@@ -11,9 +11,7 @@ import { listOntology, listSpaceLanguages } from "./actions";
 import { OntologyManager } from "./ontology-manager";
 import { OntologyLanguages } from "./ontology-languages";
 import { ApexXliffTranslator } from "./apex-xliff-translator";
-import { ApexIngest } from "./apex-ingest";
-import { DbIngest } from "./db-ingest";
-import { CsvIngest } from "./csv-ingest";
+import { DicionarioSecao } from "./dicionario-secao";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
 import { Button } from "@/components/ui/button";
@@ -106,14 +104,7 @@ export default async function OntologiaPage({
 
       {canManage && (
         <div className="mt-6">
-          <ApexIngest key={`ingest-${atual.id}`} spaceId={atual.id} />
-        </div>
-      )}
-
-      {canManage && (
-        <div className="mt-6">
-          <CsvIngest key={`csv-${atual.id}`} spaceId={atual.id} />
-          <DbIngest key={`db-${atual.id}`} spaceId={atual.id} />
+          <DicionarioSecao key={`dic-${atual.id}`} spaceId={atual.id} />
         </div>
       )}
 

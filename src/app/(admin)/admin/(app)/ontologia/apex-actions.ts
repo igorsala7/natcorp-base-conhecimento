@@ -477,3 +477,31 @@ export async function dataDictionaryCsv(spaceId: string): Promise<{ ok: true; cs
   }
   return { ok: true, csv: linhas.join("\n") };
 }
+
+export type LinhaResumoDic = {
+  origem: string;
+  linhas: number;
+  tabelas: number;
+  com_label: number;
+  com_descricao: number;
+  com_tipo: number;
+  atualizado_em: string | null;
+};
+
+/**
+ * O ESTADO do dicionário, por origem — não o resultado do último evento.
+ *
+ * "Não dá pra saber se realmente foi, se substituiu o anterior, se apenas
+ * adicionou" (Igor, 16/08/2026). As três perguntas são sobre o que EXISTE, e o
+ * toast só responde sobre o que ACONTECEU — por cinco segundos, numa importação
+ * que leva doze.
+ */
+export async function resumoDicionario(spaceId: string): Promise<LinhaResumoDic[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("resumo_dicionario", { p_space_id: spaceId });
+  if (error) {
+    console.error("[resumoDicionario]", error.message);
+    return [];
+  }
+  return (data ?? []) as LinhaResumoDic[];
+}

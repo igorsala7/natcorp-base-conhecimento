@@ -4949,6 +4949,18 @@ export type Database = {
           type: string
         }[]
       }
+      resumo_dicionario: {
+        Args: { p_space_id: string }
+        Returns: {
+          origem: string
+          linhas: number
+          tabelas: number
+          com_label: number
+          com_descricao: number
+          com_tipo: number
+          atualizado_em: string
+        }[]
+      }
       verify_space_password: {
         Args: { p_plain: string; p_space_id: string }
         Returns: boolean

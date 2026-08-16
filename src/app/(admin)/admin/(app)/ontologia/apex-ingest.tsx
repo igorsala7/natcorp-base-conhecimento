@@ -26,7 +26,7 @@ import { useAcompanharJobs } from "./use-acompanhar-jobs";
 /** Cem por página: o que cabe numa rolagem sem virar rolagem infinita. */
 const POR_PAGINA = 100;
 
-export function ApexIngest({ spaceId }: { spaceId: string }) {
+export function ApexIngest({ spaceId, onMudou }: { spaceId: string; onMudou?: () => void }) {
   const toast = useToast();
   const [json, setJson] = useState("");
   /** Arquivo grande já no Storage: o job leva o caminho, não o conteúdo. */
@@ -47,7 +47,10 @@ export function ApexIngest({ spaceId }: { spaceId: string }) {
   const [dispensados, setDispensados] = useState<Set<string>>(new Set());
   const { jobs, acompanhar } = useAcompanharJobs<ApexJob>(
     () => listApexJobs(spaceId),
-    () => setRecarga((n) => n + 1),
+    () => {
+      setRecarga((n) => n + 1);
+      onMudou?.();
+    },
   );
   const [pend, start] = useTransition();
   const [busca, setBusca] = useState("");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { FileUp, Table2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
@@ -20,7 +20,7 @@ import { useEntradaGrande, resumoDaEntrada } from "./use-entrada-grande";
  * primeira tentativa costuma falhar por cabeçalho — e um erro de cabeçalho que
  * não diz qual cabeçalho faltou obriga a pessoa a adivinhar.
  */
-export function CsvIngest({ spaceId }: { spaceId: string }) {
+export function CsvIngest({ spaceId, onImportado }: { spaceId: string; onImportado?: () => void }) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   // Arquivo grande vai pelo Storage; pequeno, no corpo. Ver o hook.
@@ -44,6 +44,9 @@ export function CsvIngest({ spaceId }: { spaceId: string }) {
       toast.success(`${r.gravadas} coluna(s) no dicionário.${extras.length ? " " + extras.join(" · ") : ""}`);
       ent.setTexto("");
       ent.limparArquivo();
+      // O toast some em 5s; o resumo acima fica. É ele que responde "substituiu
+      // ou somou?" amanhã, quando não houver mais toast nenhum.
+      onImportado?.();
     });
   }
 
