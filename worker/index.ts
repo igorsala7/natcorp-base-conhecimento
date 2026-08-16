@@ -422,6 +422,28 @@ async function processEmbeddings(jobId: string): Promise<void> {
   }
 
   // Resolve os nós-artigo do escopo.
+  /**
+   * DOCUMENTO DA BASE — arquivo ou página indexada para o chatbot.
+   *
+   * A varredura sempre leu `articles`, filtrando por `node_id`. Documento subido
+   * para o chatbot não tem `node_id`: ele vira `chunks` e nunca passou por
+   * ontologia. O resultado era um beco — não adiantava re-subir o arquivo, porque
+   * esse caminho nunca gerou ontologia em momento nenhum.
+   *
+   * O texto já está lá, chunkado no upload. Faltava a varredura olhar para ele.
+   */
+  if (job.scope === "document" && job.target_id) {
+    await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
+    const found = await varrerOntologiaDeDocumento(job.space_id, job.target_id, job.created_by, async (done, total) => {
+      await supabase
+        .from("ontology_jobs")
+        .update({ total, done, progress: total ? Math.round((done / total) * 100) : 100 })
+        .eq("id", jobId);
+    });
+    await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+    return;
+  }
+
   let nodeIds: string[] = [];
   if (job.scope === "article" && job.target_id) {
     nodeIds = [job.target_id];
@@ -500,6 +522,58 @@ function agruparPorTamanho(textos: string[], maxChars: number): string[] {
  * manual preservada). Carimba `articles.ontology_at`. `onProgress(done,total)`
  * é chamado por lote. Retorna quantos itens (termos+aliases) foram gravados.
  */
+/**
+ * O NÚCLEO da varredura: pedaços de texto → termos e sinônimos gravados.
+ *
+ * Extraído de `varrerOntologia` quando a varredura passou a valer também para
+ * documentos da base de conhecimento. As duas precisam usar o MESMO extrator e
+ * o MESMO merge: uma segunda implementação produziria vocabulário com critério
+ * diferente, e aí o mesmo jargão viraria dois termos conforme a porta de
+ * entrada — artigo ou arquivo.
+ */
+async function gravarTermosVarridos(
+  spaceId: string,
+  pedacos: string[],
+  createdBy: string | null,
+  onProgress?: (done: number, total: number) => Promise<void>,
+): Promise<number> {
+  const lotes = agruparPorTamanho(pedacos, 40_000);
+  await onProgress?.(0, lotes.length);
+
+  const acumulado = new Map<
+    string,
+    { term: string; kind: string; description: string | null; aliases: Set<string> }
+  >();
+  let done = 0;
+  for (const lote of lotes) {
+    try {
+      const termos = await extrairTermos(lote);
+      for (const t of termos) {
+        const norm = normalizarTermo(t.term);
+        if (!norm) continue;
+        const ex = acumulado.get(norm) ?? {
+          term: t.term,
+          kind: t.kind,
+          description: t.description,
+          aliases: new Set<string>(),
+        };
+        if (!ex.description && t.description) ex.description = t.description;
+        for (const a of t.aliases) {
+          if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+        }
+        acumulado.set(norm, ex);
+      }
+    } catch (e) {
+      console.error(`Ontologia lote falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await onProgress?.(done, lotes.length);
+  }
+
+  // MERGE compartilhado com a importação por arquivo (não duplica termo/alias).
+  return mesclarTermos(supabase, spaceId, acumulado, { source: "ia", createdBy });
+}
+
 async function varrerOntologia(
   spaceId: string,
   nodeIds: string[],
@@ -542,41 +616,7 @@ async function varrerOntologia(
       return `${cabecalho}\n${a.content_text ?? ""}`.trim();
     })
     .filter((t) => t.length > 20);
-  const lotes = agruparPorTamanho(pedacos, 40_000);
-  await onProgress?.(0, lotes.length);
-
-  const acumulado = new Map<
-    string,
-    { term: string; kind: string; description: string | null; aliases: Set<string> }
-  >();
-  let done = 0;
-  for (const lote of lotes) {
-    try {
-      const termos = await extrairTermos(lote);
-      for (const t of termos) {
-        const norm = normalizarTermo(t.term);
-        if (!norm) continue;
-        const ex = acumulado.get(norm) ?? {
-          term: t.term,
-          kind: t.kind,
-          description: t.description,
-          aliases: new Set<string>(),
-        };
-        if (!ex.description && t.description) ex.description = t.description;
-        for (const a of t.aliases) {
-          if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
-        }
-        acumulado.set(norm, ex);
-      }
-    } catch (e) {
-      console.error(`Ontologia lote falhou:`, e instanceof Error ? e.message : e);
-    }
-    done += 1;
-    await onProgress?.(done, lotes.length);
-  }
-
-  // MERGE compartilhado com a importação por arquivo (não duplica termo/alias).
-  const found = await mesclarTermos(supabase, spaceId, acumulado, { source: "ia", createdBy });
+  const found = await gravarTermosVarridos(spaceId, pedacos, createdBy, onProgress);
 
   // Carimba os artigos varridos (bolinha de ontologia na árvore).
   const agora = new Date().toISOString();
@@ -619,6 +659,49 @@ async function processOntologyScan(jobId: string): Promise<void> {
       .eq("id", jobId);
   });
   await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
+}
+
+/**
+ * Varre os CHUNKS de um documento da base de conhecimento.
+ *
+ * Reusa `extrairTermos`, `sinonimosDeTermos` e `mesclarTermos` — os mesmos dos
+ * artigos. Uma segunda extração produziria vocabulário com critério diferente,
+ * e aí o mesmo jargão viraria dois termos conforme a porta de entrada.
+ *
+ * O `heading_path` do chunk entra como contexto, igual ao caminho de pastas do
+ * artigo: "Férias > Aquisitivo" ajuda o extrator a saber que "aquisitivo" é
+ * termo do domínio e não adjetivo solto.
+ */
+async function varrerOntologiaDeDocumento(
+  spaceId: string,
+  documentId: string,
+  createdBy: string | null,
+  onProgress?: (done: number, total: number) => Promise<void>,
+): Promise<number> {
+  const { data: doc } = await supabase
+    .from("knowledge_documents")
+    .select("title")
+    .eq("id", documentId)
+    .maybeSingle();
+
+  const chunks: { content: string; heading_path: string | null }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase
+      .from("chunks")
+      .select("content, heading_path")
+      .eq("document_id", documentId)
+      .range(from, from + 999);
+    const lote = data ?? [];
+    chunks.push(...lote);
+    if (lote.length < 1000) break;
+  }
+  if (chunks.length === 0) return 0;
+
+  const pedacos = chunks
+    .map((c) => [doc?.title ?? "", c.heading_path ?? "", c.content ?? ""].filter(Boolean).join("\n"))
+    .filter((t) => t.trim().length > 40);
+
+  return gravarTermosVarridos(spaceId, pedacos, createdBy, onProgress);
 }
 
 const MAX_TERMOS_IMPORT = 5000;

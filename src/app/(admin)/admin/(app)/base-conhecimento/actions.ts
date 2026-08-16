@@ -7,6 +7,9 @@ import { audit } from "@/lib/auth/audit";
 import { extractDocument } from "@/lib/importer/extract";
 import { reindexDocumentChunks } from "@/lib/content/chunk";
 import { MAX_BYTES, MAX_MB } from "./constants";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueOntologyScan } from "@/lib/jobs/boss";
+import { criarJobOntologia } from "@/lib/ai/ontology-enqueue";
 
 export type KbResult = { ok: true } | { ok: false; error: string };
 
@@ -24,8 +27,20 @@ export async function ingestKnowledgeFile(input: {
   originalName: string;
   mime: string;
   sizeBytes: number;
+  /**
+   * Varrer a ontologia deste documento depois de indexar.
+   *
+   * OPT-IN, e por um motivo de custo: a varredura é chamada de IA por lote de
+   * texto, e um acervo grande de manuais pagaria caro por vocabulário que às
+   * vezes não existe — nem todo documento tem jargão que valha virar termo.
+   *
+   * Quem liga ganha o outro lado: o RAG usa os sinônimos para casar a pergunta
+   * do leitor com o vocabulário do documento. Sem ontologia, o manual só é
+   * encontrado por quem já escreve como o manual escreve.
+   */
+  varrerOntologia?: boolean;
 }): Promise<KbResult> {
-  const { spaceId, storagePath, originalName, mime, sizeBytes } = input;
+  const { spaceId, storagePath, originalName, mime, sizeBytes, varrerOntologia } = input;
   try {
     await requirePermission("content.edit", spaceId);
   } catch {
@@ -89,6 +104,22 @@ export async function ingestKnowledgeFile(input: {
       .update({ status: "error", error: msg.slice(0, 400) })
       .eq("id", doc.id);
     return { ok: false, error: `Falha ao processar: ${msg}` };
+  }
+
+  if (varrerOntologia) {
+    // Falha aqui NUNCA desfaz a indexação — o documento já está no ar para o
+    // chatbot, e a ontologia é acréscimo. Mesma regra da publicação de artigo.
+    try {
+      const jobId = await criarJobOntologia(createAdminClient(), {
+        spaceId,
+        scope: "document",
+        targetId: doc.id,
+        createdBy: user?.id ?? null,
+      });
+      if (jobId) await enqueueOntologyScan(jobId);
+    } catch {
+      /* fila indisponível: dá para varrer depois pela página de Ontologia */
+    }
   }
 
   await audit({

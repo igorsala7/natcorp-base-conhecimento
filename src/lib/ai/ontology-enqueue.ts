@@ -21,7 +21,7 @@ export async function criarJobOntologia(
   db: SupabaseClient<Database>,
   input: {
     spaceId: string;
-    scope: "article" | "subtree";
+    scope: "article" | "subtree" | "document";
     targetId: string;
     createdBy: string | null;
   },

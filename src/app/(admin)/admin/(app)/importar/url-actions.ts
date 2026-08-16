@@ -111,8 +111,10 @@ export async function indexarUrl(input: {
   url: string;
   titulo: string;
   conteudo: string;
+  /** Varrer a ontologia depois de indexar. Ver `ingestKnowledgeFile`. */
+  varrerOntologia?: boolean;
 }): Promise<{ ok: true } | ErroUrl> {
-  const { spaceId, url, titulo, conteudo } = input;
+  const { spaceId, url, titulo, conteudo, varrerOntologia } = input;
   try {
     await requirePermission("content.edit", spaceId);
   } catch {
@@ -137,6 +139,7 @@ export async function indexarUrl(input: {
     originalName: nome,
     mime: "text/markdown",
     sizeBytes: bytes.byteLength,
+    varrerOntologia,
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }

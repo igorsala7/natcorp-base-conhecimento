@@ -24,6 +24,7 @@ import { MAX_BYTES, MAX_MB, ACCEPT } from "../base-conhecimento/constants";
 import { Select } from "@/components/ui/select";
 import { lerUrl, indexarUrl, type PreviaUrl } from "./url-actions";
 import { Spinner } from "@/components/ui/spinner";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export type EmbJobRow = {
   id: string;
@@ -139,6 +140,7 @@ export function EmbeddingsManager({
   const [gerando, setGerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [fila, setFila] = useState<ItemFila[]>([]);
+  const [comOntologia, setComOntologia] = useState(false);
   // Nós carregados junto do espaço a que pertencem — o "carregando" é DERIVADO
   // (sem setState síncrono no efeito, que dispara re-render em cascata).
   const [loaded, setLoaded] = useState<{ spaceId: string; list: NodeOpt[] } | null>(null);
@@ -230,7 +232,13 @@ export function EmbeddingsManager({
     if (!previa || !spaceId) return;
     setIndexando(true);
     try {
-      const r = await indexarUrl({ spaceId, url: previa.url, titulo: previa.titulo, conteudo: previa.conteudo });
+      const r = await indexarUrl({
+        spaceId,
+        url: previa.url,
+        titulo: previa.titulo,
+        conteudo: previa.conteudo,
+        varrerOntologia: comOntologia,
+      });
       if (r.ok) {
         toast.success("Página indexada — o chatbot já pode usá-la.");
         setPrevia(null);
@@ -295,6 +303,7 @@ export function EmbeddingsManager({
         originalName: file.name,
         mime: file.type || "application/octet-stream",
         sizeBytes: file.size,
+        varrerOntologia: comOntologia,
       });
       setFila((f) =>
         f.map((x, j) => (j === i ? { ...x, estado: res.ok ? "pronto" : "erro", erro: res.ok ? undefined : res.error } : x)),
@@ -380,6 +389,17 @@ export function EmbeddingsManager({
             {gerando ? "Gerando…" : "Gerar"}
           </Button>
         </div>
+
+        {/* Vale para arquivo E para URL, e por isso fica ACIMA das duas. Uma
+            caixa por entrada sugeriria que são opções diferentes, e a pessoa
+            marcaria uma e esqueceria a outra. */}
+        <Checkbox
+          checked={comOntologia}
+          onChange={setComOntologia}
+          className="rounded-lg border border-border bg-surface-2 px-3 py-2.5"
+          label="Gerar ontologia também"
+          description="Extrai termos e sinônimos do documento para o assistente casar a pergunta do leitor com o vocabulário dele. Custa uma passada de IA por lote de texto — deixe desligado para material sem jargão próprio."
+        />
 
         <div>
           <p className="mb-2 text-xs font-medium text-text-muted">Ou a partir de um arquivo</p>
