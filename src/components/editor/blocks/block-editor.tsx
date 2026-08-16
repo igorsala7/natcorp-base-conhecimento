@@ -16,7 +16,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import {
+import { EyeOff,
   BookOpen,
   Check,
   ClipboardPaste,
@@ -1132,20 +1132,44 @@ function BlockEditorInner({
     toast.success("Devolvido para rascunho.");
     router.refresh();
   }
-  async function onPublishToggle() {
-    // Despublica só quando está publicado e SEM rascunho pendente. Caso
-    // contrário, publica (comitando o rascunho, se houver).
-    const willUnpublish = status === "published" && !hasDraft;
-    if (!willUnpublish) await flush(); // garante o rascunho mais recente salvo
-    const res = await loader.during(
-      willUnpublish ? "Despublicando…" : "Publicando…",
-      () => (willUnpublish ? unpublishNode(nodeId) : publishNode(nodeId)),
-    );
+  /**
+   * PUBLICAR e DESPUBLICAR deixam de ser o mesmo botão.
+   *
+   * Antes era um só, no lugar primário, que mudava de significado conforme o
+   * estado: "Publicar", "Publicar alterações" ou "Despublicar". A mesma posição,
+   * a mesma cor, e às vezes a ação tirava o artigo do ar — sem confirmar.
+   *
+   * O produto pede confirmação para excluir um artigo. Tirar do ar sem
+   * perguntar era incoerente com ele mesmo: a diferença entre as duas é que a
+   * exclusão avisa e a despublicação some em silêncio, com o leitor batendo em
+   * 404 numa URL que já foi compartilhada.
+   */
+  async function onPublish() {
+    await flush(); // garante o rascunho mais recente salvo
+    const res = await loader.during("Publicando…", () => publishNode(nodeId));
     if (!res.ok) return toast.error(res.error);
-    setStatus(willUnpublish ? "draft" : "published");
+    setStatus("published");
     setHasDraft(false);
     publishedRef.current = blocks; // o conteúdo atual passou a ser o oficial
-    toast.success(willUnpublish ? "Artigo despublicado." : "Artigo publicado.");
+    toast.success("Artigo publicado.");
+    router.refresh();
+  }
+
+  async function onUnpublish() {
+    setShowMore(false);
+    const ok = await confirmar({
+      title: "Tirar do ar?",
+      description:
+        "O artigo sai do portal e do chatbot. Quem tiver o link vai bater em página não encontrada — e links de documentação costumam estar colados em e-mail e em conversa.",
+      tone: "danger",
+      confirmLabel: "Tirar do ar",
+    });
+    if (!ok) return;
+    const res = await loader.during("Despublicando…", () => unpublishNode(nodeId));
+    if (!res.ok) return toast.error(res.error);
+    setStatus("draft");
+    setHasDraft(false);
+    toast.success("Artigo despublicado.");
     router.refresh();
   }
 
@@ -1351,6 +1375,7 @@ function BlockEditorInner({
             </Button>
             {showMore && (
               <div className="absolute right-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-surface p-1.5 shadow-2">
+                <p className="px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">Ver</p>
                 <a
                   href={`/admin/previa/${spaceId}#${ancoraDePrevia(nodeId)}`}
                   target="_blank"
@@ -1377,11 +1402,25 @@ function BlockEditorInner({
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowHistory(true); setShowMore(false); }}>
                   <History className="size-4 text-text-muted" /> Histórico de versões
                 </button>
+                <p className="px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">Publicação</p>
                 {canPublish && (
                   <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowSchedule(true); setShowMore(false); }} title="Publicar/despublicar em data e hora marcadas">
                     <CalendarClock className="size-4 text-text-muted" /> Agendar publicação
                   </button>
                 )}
+                {/* Saiu do lugar primário: um botão que tira o artigo do ar não
+                    merece a posição mais clicável da tela. Aqui, com confirmação. */}
+                {canPublish && status === "published" && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2"
+                    onClick={() => { void onUnpublish(); }}
+                    title="Sai do portal e do chatbot; o conteúdo fica salvo como rascunho"
+                  >
+                    <EyeOff className="size-4 text-text-muted" /> Tirar do ar
+                  </button>
+                )}
+                <p className="px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">Escrever com IA</p>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { setShowChat(true); setShowOptimize(false); setShowMore(false); }} title="Converse com a IA: ela altera o artigo em tempo real (Ctrl+Z desfaz)">
                   <MessageSquareText className="size-4 text-text-muted" /> Chat IA (editar conversando)
                 </button>
@@ -1394,6 +1433,7 @@ function BlockEditorInner({
                 <button type="button" disabled={remixando !== null} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50" onClick={() => { void onRemix("faq"); setShowMore(false); }} title="Gera um artigo de FAQ a partir deste (IA, com prévia)">
                   <Wand2 className="size-4 text-text-muted" /> {remixando === "faq" ? "Gerando FAQ…" : "Gerar FAQ (IA)"}
                 </button>
+                <p className="px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">Reaproveitar</p>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { onColar(); setShowMore(false); }} title="Cola ao fim deste artigo os blocos copiados/recortados de outro artigo">
                   <ClipboardPaste className="size-4 text-text-muted" /> Colar blocos (fim do artigo)
                 </button>
@@ -1405,6 +1445,7 @@ function BlockEditorInner({
                     <Repeat2 className="size-4 text-text-muted" /> Salvar bloco como snippet
                   </button>
                 )}
+                <p className="px-2 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider text-text-muted">Manutenção</p>
                 <button type="button" className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { onReindex(); setShowMore(false); }}>
                   <Sparkles className="size-4 text-text-muted" /> Gerar embeddings
                 </button>
@@ -1441,15 +1482,20 @@ function BlockEditorInner({
               Descartar
             </Button>
           )}
-          {canPublish ? (
-            <Button
-              variant={status === "published" && !hasDraft ? "secondary" : "primary"}
-              onClick={onPublishToggle}
-            >
-              {hasDraft ? "Publicar alterações" : status === "published" ? "Despublicar" : "Publicar"}
+          {/* O primário SÓ publica. Publicado e sem rascunho, não há o que
+              fazer aqui — e um botão que só existe para desfazer não merece a
+              posição mais clicável da tela. Despublicar foi para o menu ⋯. */}
+          {canPublish && (status !== "published" || hasDraft) && (
+            <Button onClick={onPublish}>{hasDraft ? "Publicar alterações" : "Publicar"}</Button>
+          )}
+          {/* "Enviar para revisão" aparecia SÓ para quem não pode publicar. Um
+              editor sênior que quisesse uma segunda leitura não tinha como pedir
+              — a opção existia e estava escondida justamente de quem escolheria
+              usá-la. Agora é secundária para quem publica, primária para quem não. */}
+          {status === "draft" && (
+            <Button variant={canPublish ? "secondary" : "primary"} onClick={onSubmitReview}>
+              Enviar para revisão
             </Button>
-          ) : (
-            status === "draft" && <Button variant="primary" onClick={onSubmitReview}>Enviar para revisão</Button>
           )}
         </div>
       </div>
