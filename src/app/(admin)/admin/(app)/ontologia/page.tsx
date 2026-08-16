@@ -58,7 +58,9 @@ export default async function OntologiaPage({
     hasPermission("ai.configure", atual.id),
     hasAiKey("chat"),
     listSpaceLanguages(atual.id),
-    listDataDictionaryColumns(atual.id),
+    // Vazio de propósito: o dicionário chega por `listDicPagina`, cem por vez.
+    // Carregá-lo aqui embutia 78 mil linhas no HTML e a página não abria.
+    Promise.resolve([]),
   ]);
 
   return (

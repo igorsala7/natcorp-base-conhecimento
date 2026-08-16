@@ -310,6 +310,74 @@ export async function listApexJobs(spaceId: string): Promise<ApexJob[]> {
 
 export type DicColuna = { table: string | null; column: string | null; label: string | null; labels: string[] };
 
+export type PaginaDic = { linhas: DicColuna[]; total: number };
+
+/**
+ * UMA PÁGINA do dicionário, filtrada e contada no BANCO.
+ *
+ * A versão que carregava tudo derrubava a página: 78.126 colunas viajavam no
+ * HTML inicial do servidor — alguns megabytes de JSON serializado antes de o
+ * navegador desenhar o primeiro pixel. Filtrar e paginar no cliente resolvia a
+ * RENDERIZAÇÃO e não o transporte, que era o gargalo maior.
+ *
+ * Agora o servidor devolve cem linhas e o total. O `count: "exact"` numa
+ * consulta só evita a segunda ida ao banco: sem ele, a paginação não sabe
+ * quantas páginas existem, e "página 11 de ?" é pior que não paginar.
+ *
+ * A busca vai para o SQL. Filtrar no cliente exigiria ter tudo no cliente, que
+ * é justamente o que não pode acontecer.
+ */
+export async function listDicPagina(
+  spaceId: string,
+  opts: { busca?: string; pagina?: number; porPagina?: number } = {},
+): Promise<PaginaDic> {
+  try {
+    await requirePermission("content.view", spaceId);
+  } catch {
+    return { linhas: [], total: 0 };
+  }
+  const porPagina = Math.min(500, Math.max(1, opts.porPagina ?? 100));
+  const de = Math.max(0, opts.pagina ?? 0) * porPagina;
+
+  const supabase = await createClient();
+  let q = supabase
+    .from("data_dictionary")
+    .select("db_table, db_column, label, metadata", { count: "exact" })
+    .eq("space_id", spaceId)
+    .eq("kind", "column");
+
+  const termo = (opts.busca ?? "").trim();
+  if (termo) {
+    // Cada termo precisa casar em ALGUM dos três campos — é o que faz
+    // "centro cod" achar CENTRO_DE_CUSTO.COD sem exigir ordem nem separador.
+    // O `%` e o `,` do PostgREST são escapados: um termo com vírgula quebraria
+    // a sintaxe do `.or()` e viraria erro de consulta.
+    for (const t of termo.split(/\s+/).slice(0, 5)) {
+      const seguro = t.replace(/[%,()]/g, "");
+      if (!seguro) continue;
+      q = q.or(`db_table.ilike.%${seguro}%,db_column.ilike.%${seguro}%,label.ilike.%${seguro}%`);
+    }
+  }
+
+  const { data, count } = await q
+    .order("db_table", { ascending: true })
+    .order("db_column", { ascending: true })
+    .range(de, de + porPagina - 1);
+
+  return {
+    linhas: (data ?? []).map((r) => {
+      const labels = (r.metadata as { labels?: unknown } | null)?.labels;
+      return {
+        table: r.db_table,
+        column: r.db_column,
+        label: r.label,
+        labels: Array.isArray(labels) ? labels.map(String) : [],
+      };
+    }),
+    total: count ?? 0,
+  };
+}
+
 /** O dicionário de COLUNAS (tabela·coluna·label) — a "planilha" para revisar/exportar. */
 export async function listDataDictionaryColumns(spaceId: string): Promise<DicColuna[]> {
   const supabase = await createClient();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Search, ChevronLeft, ChevronRight, FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
@@ -11,7 +11,7 @@ import {
   gerarDocsApex,
   ingestApexJson,
   listApexJobs,
-  listDataDictionaryColumns,
+  listDicPagina,
   type ApexJob,
   type DicColuna,
 } from "./apex-actions";
@@ -32,18 +32,33 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
   const [arquivo, setArquivo] = useState<{ nome: string; path: string; bytes: number } | null>(null);
   const [subindo, setSubindo] = useState(false);
   const supabase = createClient();
-  const [cols, setCols] = useState<DicColuna[]>(initialCols);
   /**
    * Acompanha até o job TERMINAR, e começa sozinho na montagem — recarregar a
    * página no meio de uma importação de 20 minutos mostrava tela limpa.
    */
+  /**
+   * Sem `aoTerminar` aqui: recarregar o dicionário quando o job acaba exigiria
+   * ler `busca`/`pagina`, que só são declarados abaixo. Quem recarrega é o
+   * efeito de busca, disparado por `recarga` — e assim há UM lugar que sabe
+   * montar a consulta, em vez de dois que precisam concordar.
+   */
+  const [recarga, setRecarga] = useState(0);
   const { jobs, acompanhar } = useAcompanharJobs<ApexJob>(
     () => listApexJobs(spaceId),
-    () => void listDataDictionaryColumns(spaceId).then(setCols),
+    () => setRecarga((n) => n + 1),
   );
   const [pend, start] = useTransition();
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(0);
+  /**
+   * LAZY: o dicionário NÃO vem no HTML inicial.
+   *
+   * Com 78.126 colunas embutidas, a página não abria — alguns megabytes de JSON
+   * serializado antes de o navegador desenhar o primeiro pixel. Agora chegam
+   * cem por vez, buscadas quando a tela pede.
+   */
+  const [dic, setDic] = useState<{ linhas: DicColuna[]; total: number }>({ linhas: initialCols, total: initialCols.length });
+  const [carregandoDic, setCarregandoDic] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
 
@@ -144,31 +159,29 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
    * impureza, era não precisar dela.
    */
   /**
-   * Filtro e paginação no CLIENTE.
+   * Busca ao digitar, com respiro de 300ms.
    *
-   * As 78 mil colunas já vieram para cá — é o que permite conferir o total sem
-   * confiar num contador. Filtrar 78 mil strings no navegador leva milissegundos;
-   * o que travava era DESENHAR todas. Antes havia um `slice(0, 500)` mudo: a
-   * tabela mostrava 500 e nada dizia que havia mais.
-   *
-   * `useMemo` porque o filtro roda a cada tecla, e sem ele o React refaria a
-   * varredura em toda re-renderização, inclusive nas que não têm a ver com a
-   * busca.
+   * Sem o respiro, cada tecla vira uma consulta ao banco — "centro de custo"
+   * dispararia dezesseis. O valor é o de sempre para busca: curto o bastante
+   * para parecer imediato, longo o bastante para o dedo terminar a palavra.
    */
-  const filtradas = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    if (!q) return cols;
-    // Termos separados por espaço, todos precisam casar: "centro cod" acha
-    // CENTRO_DE_CUSTO.COD sem exigir a ordem exata nem o separador certo.
-    const termos = q.split(/\s+/);
-    return cols.filter((c) => {
-      const alvo = `${c.table ?? ""} ${c.column ?? ""} ${c.label ?? ""}`.toLowerCase();
-      return termos.every((t) => alvo.includes(t));
-    });
-  }, [cols, busca]);
+  useEffect(() => {
+    let vivo = true;
+    const t = setTimeout(async () => {
+      setCarregandoDic(true);
+      const r = await listDicPagina(spaceId, { busca, pagina, porPagina: POR_PAGINA });
+      if (vivo) {
+        setDic(r);
+        setCarregandoDic(false);
+      }
+    }, busca ? 300 : 0);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [spaceId, busca, pagina, recarga]);
 
-  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
-  const daPagina = filtradas.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
+  const totalPaginas = Math.max(1, Math.ceil(dic.total / POR_PAGINA));
 
   const jobsAcompanhados = jobs.filter(
     (j) => j.status === "queued" || j.status === "running" || j.status === "error",
@@ -262,15 +275,15 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
         </div>
       )}
 
-      {cols.length > 0 && (
+      {(dic.total > 0 || busca) && (
         <div className="space-y-3 border-t border-border pt-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">
               Dicionário de colunas{" "}
-              <span className="tabular-nums text-text-muted">({cols.length.toLocaleString("pt-BR")})</span>
+              <span className="tabular-nums text-text-muted">({dic.total.toLocaleString("pt-BR")})</span>
             </span>
             <div className="ml-auto flex gap-2">
-              <Button variant="ghost" onClick={async () => setCols(await listDataDictionaryColumns(spaceId))}>
+              <Button variant="ghost" onClick={async () => setDic(await listDicPagina(spaceId, { busca, pagina, porPagina: POR_PAGINA }))}>
                 <RefreshCw className="size-4" /> Recarregar
               </Button>
               <Button variant="ghost" onClick={baixarCsv} disabled={pend}>
@@ -294,9 +307,7 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
               />
             </div>
             <span aria-live="polite" className="shrink-0 text-xs tabular-nums text-text-muted">
-              {busca
-                ? `${filtradas.length.toLocaleString("pt-BR")} de ${cols.length.toLocaleString("pt-BR")}`
-                : `${cols.length.toLocaleString("pt-BR")} colunas`}
+              {carregandoDic ? "buscando…" : `${dic.total.toLocaleString("pt-BR")} coluna(s)`}
             </span>
           </div>
 
@@ -310,14 +321,14 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
                 </tr>
               </thead>
               <tbody>
-                {daPagina.map((c, i) => (
+                {dic.linhas.map((c, i) => (
                   <tr key={`${c.table}.${c.column}-${i}`} className="border-t border-border">
                     <td className="px-3 py-1.5 font-mono text-xs">{c.table ?? "—"}</td>
                     <td className="px-3 py-1.5 font-mono text-xs">{c.column ?? "—"}</td>
                     <td className="px-3 py-1.5">{c.label ?? <span className="text-text-muted">—</span>}</td>
                   </tr>
                 ))}
-                {daPagina.length === 0 && (
+                {dic.linhas.length === 0 && !carregandoDic && (
                   <tr>
                     <td colSpan={3} className="px-3 py-6 text-center text-xs text-text-muted">
                       Nada encontrado para “{busca}”.
@@ -337,8 +348,8 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
                   diz ONDE se está num acervo grande; "página 11" não diz nada. */}
               <span className="text-xs tabular-nums text-text-muted">
                 {(pagina * POR_PAGINA + 1).toLocaleString("pt-BR")}–
-                {Math.min((pagina + 1) * POR_PAGINA, filtradas.length).toLocaleString("pt-BR")} de{" "}
-                {filtradas.length.toLocaleString("pt-BR")}
+                {Math.min((pagina + 1) * POR_PAGINA, dic.total).toLocaleString("pt-BR")} de{" "}
+                {dic.total.toLocaleString("pt-BR")}
               </span>
               <Button
                 variant="ghost"
