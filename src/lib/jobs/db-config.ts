@@ -19,6 +19,32 @@ export type DbConfig = {
   ssl?: { rejectUnauthorized: boolean };
 };
 
+/**
+ * Desfaz o percent-encoding do usuário e da senha.
+ *
+ * Este parse é manual, e por isso precisava fazer à mão o que o parser de URI
+ * faz de graça. Sem isto, uma senha escrita como `Davout123%21%40%23` — que é
+ * a grafia CORRETA de `Davout123!@#` numa URI — chegava ao Postgres com os
+ * sinais de porcentagem literais, e o banco recusava a credencial.
+ *
+ * O defeito era especialmente escorregadio porque só aparecia AQUI: quem
+ * testasse a mesma URL com `new pg.Client({ connectionString })` veria funcionar,
+ * porque o `pg` decodifica. Mesmo endereço, mesma senha, resultados opostos
+ * conforme o caminho — e a mensagem ("o banco recusou a credencial") apontava
+ * para a senha estar errada, que era o único lugar onde ela não estava.
+ *
+ * `try/catch` porque `decodeURIComponent` LANÇA em sequência malformada (`%zz`,
+ * ou um `%` solto numa senha que não foi codificada). Nesses casos o valor cru
+ * é o certo — era exatamente assim que este projeto vinha operando.
+ */
+function decodificar(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 /** Host local não tem TLS; exigir SSL aí só produz erro de conexão. */
 function ehLocal(host: string): boolean {
   return (
@@ -42,8 +68,8 @@ export function parseDbConfig(url = process.env.SUPABASE_DB_URL): DbConfig {
 
   const ci = userinfo.indexOf(":");
   if (ci === -1) throw new Error("SUPABASE_DB_URL sem senha (esperado user:senha@host).");
-  const user = userinfo.slice(0, ci);
-  const password = userinfo.slice(ci + 1);
+  const user = decodificar(userinfo.slice(0, ci));
+  const password = decodificar(userinfo.slice(ci + 1));
 
   // Corta querystring (?sslmode=…) antes de separar host e banco.
   const semQuery = semQueryDe(resto);
