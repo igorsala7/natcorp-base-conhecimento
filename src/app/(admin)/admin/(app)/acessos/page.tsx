@@ -10,6 +10,7 @@ import { AcessosList, type Acesso } from "./acessos-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -60,6 +61,10 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
   const spaces = await listSpaces();
   const sp = await searchParams;
   const atual = await pickSpace(spaces, sp.space);
+  // `permissoesDo` é memoizado por request — o layout já consultou, então aqui
+  // não custa ida ao banco. A aba de rastreio exige nível 80; oferecê-la a quem
+  // não pode abrir a transformaria num beco.
+  const podeRastrear = (await permissoesDo()).has("ai.configure");
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();
@@ -117,7 +122,7 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <TrackingTabs current="acessos" spaceId={atual.id} />
+      <TrackingTabs current="acessos" spaceId={atual.id} podeRastrear={podeRastrear} />
 
       <form method="get" className="mt-6 rounded-xl border border-border bg-surface p-4 shadow-1">
         <input type="hidden" name="space" value={atual.id} />
