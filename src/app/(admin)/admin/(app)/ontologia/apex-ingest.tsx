@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { Search, ChevronLeft, ChevronRight, FileJson, Boxes, Download, FileText, FileUp, Loader2, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
@@ -22,6 +22,9 @@ import { useAcompanharJobs } from "./use-acompanhar-jobs";
  * Ingestão de app APEX (Produto 1): cola/sobe o JSON de pkg_apex_meta → extrai o
  * dicionário de dados (tabela·coluna·label), alimenta a ontologia e exporta a planilha.
  */
+/** Cem por página: o que cabe numa rolagem sem virar rolagem infinita. */
+const POR_PAGINA = 100;
+
 export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialCols: DicColuna[] }) {
   const toast = useToast();
   const [json, setJson] = useState("");
@@ -39,6 +42,8 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
     () => void listDataDictionaryColumns(spaceId).then(setCols),
   );
   const [pend, start] = useTransition();
+  const [busca, setBusca] = useState("");
+  const [pagina, setPagina] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
 
@@ -138,6 +143,33 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
    * resultados diferentes para a mesma árvore. A resposta não era memoizar a
    * impureza, era não precisar dela.
    */
+  /**
+   * Filtro e paginação no CLIENTE.
+   *
+   * As 78 mil colunas já vieram para cá — é o que permite conferir o total sem
+   * confiar num contador. Filtrar 78 mil strings no navegador leva milissegundos;
+   * o que travava era DESENHAR todas. Antes havia um `slice(0, 500)` mudo: a
+   * tabela mostrava 500 e nada dizia que havia mais.
+   *
+   * `useMemo` porque o filtro roda a cada tecla, e sem ele o React refaria a
+   * varredura em toda re-renderização, inclusive nas que não têm a ver com a
+   * busca.
+   */
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return cols;
+    // Termos separados por espaço, todos precisam casar: "centro cod" acha
+    // CENTRO_DE_CUSTO.COD sem exigir a ordem exata nem o separador certo.
+    const termos = q.split(/\s+/);
+    return cols.filter((c) => {
+      const alvo = `${c.table ?? ""} ${c.column ?? ""} ${c.label ?? ""}`.toLowerCase();
+      return termos.every((t) => alvo.includes(t));
+    });
+  }, [cols, busca]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const daPagina = filtradas.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
+
   const jobsAcompanhados = jobs.filter(
     (j) => j.status === "queued" || j.status === "running" || j.status === "error",
   );
@@ -231,9 +263,12 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
       )}
 
       {cols.length > 0 && (
-        <div className="space-y-2 border-t border-border pt-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Dicionário de colunas ({cols.length})</span>
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">
+              Dicionário de colunas{" "}
+              <span className="tabular-nums text-text-muted">({cols.length.toLocaleString("pt-BR")})</span>
+            </span>
             <div className="ml-auto flex gap-2">
               <Button variant="ghost" onClick={async () => setCols(await listDataDictionaryColumns(spaceId))}>
                 <RefreshCw className="size-4" /> Recarregar
@@ -243,7 +278,29 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
               </Button>
             </div>
           </div>
-          <div className="max-h-80 overflow-auto rounded-lg border border-border">
+
+          {/* A busca cobre tabela, coluna E label numa caixa só. Três campos
+              obrigariam a saber de antemão em qual deles o termo está — e quem
+              procura "centro de custo" não sabe se é nome de tabela ou label. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-56 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+              <input
+                className={`${controlClass} pl-8`}
+                value={busca}
+                onChange={(e) => { setBusca(e.target.value); setPagina(0); }}
+                placeholder="Buscar tabela, coluna ou label…"
+                aria-label="Buscar no dicionário"
+              />
+            </div>
+            <span aria-live="polite" className="shrink-0 text-xs tabular-nums text-text-muted">
+              {busca
+                ? `${filtradas.length.toLocaleString("pt-BR")} de ${cols.length.toLocaleString("pt-BR")}`
+                : `${cols.length.toLocaleString("pt-BR")} colunas`}
+            </span>
+          </div>
+
+          <div className="overflow-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-surface text-left text-text-muted">
                 <tr>
@@ -253,16 +310,63 @@ export function ApexIngest({ spaceId, initialCols }: { spaceId: string; initialC
                 </tr>
               </thead>
               <tbody>
-                {cols.slice(0, 500).map((c, i) => (
-                  <tr key={i} className="border-t border-border">
+                {daPagina.map((c, i) => (
+                  <tr key={`${c.table}.${c.column}-${i}`} className="border-t border-border">
                     <td className="px-3 py-1.5 font-mono text-xs">{c.table ?? "—"}</td>
                     <td className="px-3 py-1.5 font-mono text-xs">{c.column ?? "—"}</td>
-                    <td className="px-3 py-1.5">{c.label ?? "—"}</td>
+                    <td className="px-3 py-1.5">{c.label ?? <span className="text-text-muted">—</span>}</td>
                   </tr>
                 ))}
+                {daPagina.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-6 text-center text-xs text-text-muted">
+                      Nada encontrado para “{busca}”.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+
+          {totalPaginas > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPagina((p) => Math.max(0, p - 1))} disabled={pagina === 0}>
+                <ChevronLeft /> Anterior
+              </Button>
+              {/* Intervalo, não só o número da página: "1.001–1.100 de 78.126"
+                  diz ONDE se está num acervo grande; "página 11" não diz nada. */}
+              <span className="text-xs tabular-nums text-text-muted">
+                {(pagina * POR_PAGINA + 1).toLocaleString("pt-BR")}–
+                {Math.min((pagina + 1) * POR_PAGINA, filtradas.length).toLocaleString("pt-BR")} de{" "}
+                {filtradas.length.toLocaleString("pt-BR")}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))}
+                disabled={pagina >= totalPaginas - 1}
+              >
+                Próxima <ChevronRight />
+              </Button>
+              {/* Ir direto: com 782 páginas, chegar ao fim clicando é inviável. */}
+              <label className="ml-auto flex items-center gap-1.5 text-xs text-text-muted">
+                Página
+                <input
+                  type="number"
+                  min={1}
+                  max={totalPaginas}
+                  value={pagina + 1}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (n >= 1 && n <= totalPaginas) setPagina(n - 1);
+                  }}
+                  className={`${controlClass} w-20 text-center tabular-nums`}
+                  aria-label="Ir para a página"
+                />
+                de {totalPaginas.toLocaleString("pt-BR")}
+              </label>
+            </div>
+          )}
         </div>
       )}
     </Surface>
