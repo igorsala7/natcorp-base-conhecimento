@@ -9,6 +9,8 @@ import { hasAiKey } from "@/lib/ai/config";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { AssistantWorkbench } from "./assistente-workbench";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Assistente" };
 
@@ -61,27 +63,33 @@ export default async function AssistentePage({
     .order("name");
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">Assistente</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Ajuste a persona do assistente desta documentação e teste no chat ao lado — as
-            respostas usam só o conteúdo dela, com citações.
-            {!aiReady && " Configure a IA em Sistema para ativar."}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Link
-            href={`/admin/ontologia?space=${atual.id}`}
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text transition-colors hover:border-primary hover:text-primary"
-            title="Termos e sinônimos que deixam o assistente mais preciso"
-          >
-            <Network className="size-4" /> Ontologia
-          </Link>
+    <PageShell
+      titulo="Assistente de IA"
+      descricao={
+        <>
+          Ajuste a persona do assistente desta documentação e teste no chat ao lado — as respostas usam só o
+          conteúdo dela, com citações.
+          {!aiReady && " Configure a IA em Sistema para ativar."}
+        </>
+      }
+      largura="full"
+      acoes={
+        <>
+          {/* A ontologia era alcançável por ESTE link e por mais nenhum lugar em
+              todo o admin — uma tela órfã, achável só por quem já soubesse que
+              ela existia. Continua aqui até virar aba desta página; enquanto
+              isso, o menu e o Cmd+K já a apontam como "Assistente de IA ›
+              Ontologia". */}
+          <Button asChild variant="secondary">
+            <Link href={`/admin/ontologia?space=${atual.id}`}>
+              <Network /> Ontologia
+            </Link>
+          </Button>
+          {/* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */}
           <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </div>
-      </div>
+        </>
+      }
+    >
 
       <div className="mt-6">
         {/* key por documentação: trocar de doc reinicia o rascunho e o chat. */}
@@ -94,6 +102,6 @@ export default async function AssistentePage({
           bases={bases ?? []}
         />
       </div>
-    </div>
+    </PageShell>
   );
 }
