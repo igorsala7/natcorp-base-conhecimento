@@ -4,6 +4,15 @@
 > está em curso, e o que depende de decisão sua. Leia a Parte 2 primeiro — é a tarefa
 > aberta.
 
+## AO VOLTAR, FAÇA ISTO PRIMEIRO
+
+1. `git pull`
+2. **Reiniciar o worker** (`npm run worker`) — ele estava rodando código velho e é por
+   isso que a ingestão do APEX vinha achando zero colunas.
+3. Subir o `f200.json` na página de Ontologia → processar. Confirmar no job:
+   `componentes` deve dar ~10.694 (não 1.568) e `colunas` ~2.481 (não 0).
+4. Retomar a Parte 2 — faltam as **cinco decisões** e três dos seis leitores do mapa.
+
 ---
 
 ## PARTE 1 — O que já está entregue
@@ -41,9 +50,12 @@ Plano completo em `~/.claude/plans/glistening-splashing-ritchie.md`. Entregue e 
   lia todos os campos vazios — job terminava `done` com zero achados
   (`src/lib/apex/dump-views.ts`).
 - Barra de progresso que sumia antes do job acabar (`use-acompanhar-jobs.ts`).
-- **Lazy loading do dicionário** (último commit): as 78.126 colunas viajavam no HTML
-  inicial e a página não abria. Agora `listDicPagina()` devolve 100 por vez com busca no
-  SQL. Medido: 100 linhas em 92 ms; `centro cod` → 118 resultados.
+- **Lazy loading do dicionário**: as 78.126 colunas viajavam no HTML inicial e a página
+  não abria. Agora `listDicPagina()` devolve 100 por vez com busca no SQL. Medido: 100
+  linhas em 92 ms; `centro cod` → 118 resultados.
+- **Ingestão do APEX gravava a tabela dentro do nome da coluna** (`f203c73`) — ver Parte 2,
+  "Os rótulos". Traz 2.481 colunas, 1.163 com tabela e 1.921 com rótulo, onde antes eram
+  zero. **Exige reiniciar o worker e reprocessar.**
 
 Portões atuais: `tsc` limpo · 1836 testes · lint 0 erros · build passa · catraca estável.
 
@@ -128,9 +140,9 @@ quer ("NUNCA pela chave técnica do JSON/banco"). Três buracos:
 estável. Casar por `document.title` funcionaria sem mexer no widget, mas quebra se alguém
 renomear a aplicação.
 
-### ⚠ O furo que muda o desenho: **não há rótulo para traduzir**
+### Os rótulos: por que não existiam, e como recuperá-los  ✔ RESOLVIDO no código
 
-Conferido no banco de produção agora:
+Estado do banco quando a pergunta apareceu:
 
 ```
 data_dictionary  kind=column  source=db_ddl   78.126 linhas
@@ -139,14 +151,44 @@ data_dictionary  kind=column  source=db_ddl   78.126 linhas
 ontology_terms                  2.240 termos, 0 vindos do dicionário
 ```
 
-O CSV de `ALL_TAB_COLUMNS` traz `TABLE_NAME, COLUMN_NAME, DATA_TYPE` — **não traz label**.
-E os ~738 rótulos que a ingestão do APEX havia produzido **não estão em
-`data_dictionary`** hoje (a consulta agrupada por `kind`/`source` devolveu um grupo só).
-Vale investigar se foram sobrescritos ou se foram para outro espaço.
+O CSV de `ALL_TAB_COLUMNS` só traz `TABLE_NAME, COLUMN_NAME, DATA_TYPE`. E os rótulos do
+APEX nunca chegaram — **não foram apagados**: os dois `delete` são escopados por `source`
+(`ingest-run.ts:44` apaga só `apex_dict` do mesmo app; `dbobjects/run.ts:31` só `db_ddl`).
 
-**Consequência:** uma camada de tradução `COD_FILIAL → "Filial"` não tem com o que
-traduzir. Então a primeira entrega tem de ser **supressão** (não dizer o nome), não
-tradução. A tradução vem depois, conforme os rótulos entrarem.
+Três causas, investigadas e corrigidas (commit `f203c73`):
+
+1. **O worker rodava código velho.** O job das 12:48 gravou `componentes: 1568`, que é
+   exatamente 1 app + 281 páginas + 1.286 regiões — sem itens nem colunas de relatório.
+   Com o código atual esse número é 10.694. O conserto do dump das views entrou 12:30 e o
+   worker não foi reiniciado.
+2. **`dump-views.ts` juntava tabela e coluna numa string** `"TABELA.COLUNA"` esperando que
+   a IA a partisse lendo o SQL da região. Sem resolução, o fallback gravava
+   `db_table: null` e a string inteira em `db_column`. Agora a entrada é partida no último
+   ponto — `database_items` já afirma as duas coisas, não precisa de IA.
+3. **O portão `ehColuna(sourceType)` descartava os itens de banco.** Eu gravara
+   `source_type: null`, e o `page_items` declara `"Always Null"`/`"SQL Query"` mesmo para
+   itens que a view de banco lista com tabela e coluna. Estar em `database_items` é a
+   prova; passou a valer isso.
+
+Medido no `f200.json` real, com a IA desligada:
+
+| | antes | depois |
+|---|---|---|
+| colunas | 0 | 2.481 |
+| com tabela | 0 | 1.163 *(44 tabelas distintas)* |
+| com rótulo | 0 | 1.921 |
+| tabela **e** rótulo | 0 | **727** |
+
+**Consequência para o desenho:** a tradução `COD_FILIAL → "Filial"` passa a ser possível
+para os 727 pares — uma fatia do ERP, não ele todo. Para o resto continua valendo
+**supressão**, porque não há rótulo para pôr no lugar. Cobertura maior exige subir o
+metadado das outras aplicações APEX além da 200.
+
+> **AÇÃO PENDENTE, na ordem:** `git pull` → **reiniciar o worker** (foi o passo que faltou)
+> → subir o `f200.json` e processar. O arquivo já está no Storage (cinco cópias de 21,8 MB
+> em `imports/a5e69064-…/apex-*-f200.json`), mas o fluxo da tela é upload → processar.
+> A ingestão apaga só as linhas `apex_dict` do mesmo app: não duplica e não encosta nas
+> 78.126 do CSV. As duas fontes convivem — o CSV dá cobertura, o APEX dá os rótulos.
 
 ### Decisões que dependem de você
 
@@ -169,7 +211,7 @@ tradução. A tradução vem depois, conforme os rótulos entrarem.
 | 2 | Suprimir `_colunas` e as mensagens `"Colunas reais: …"` do que vai ao modelo | É o vazamento mais concentrado e não tem função para o usuário |
 | 3 | `glossarioCasado` deixa de imprimir aliases que parecem identificador técnico | O casamento da consulta não depende de imprimir |
 | 4 | Detecção da app + portão: fora da Carga de Dados, a supressão vale; dentro, não | Depende da decisão 1 |
-| 5 | Camada de tradução em `injetarDatasetComRelato` (gargalo único) | Só faz sentido quando houver rótulo no dicionário |
+| 5 | Camada de tradução em `injetarDatasetComRelato` (gargalo único) | Já há 727 pares tabela+rótulo depois de reprocessar o APEX; o que não tiver rótulo cai na supressão |
 | 6 | Cartão de citação e cabeçalho de PDF/XLSX | Não passam pelo modelo — exigem tradução de verdade |
 | 7 | Marcar conteúdo técnico fora do escopo do chatbot | Exige coluna de tipo em `chunks` (migration) |
 
