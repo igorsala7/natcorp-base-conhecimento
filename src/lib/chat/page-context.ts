@@ -88,18 +88,58 @@ export function apexDaTela(p: PageContext | null): ApexDaTela | null {
   return null;
 }
 
+/** Sem acento, minúsculo, espaços colapsados. */
+const dobrar = (s: string): string =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+
 /**
- * A tela atual é uma das aplicações listadas?
+ * Os pedaços comparáveis do TÍTULO da tela.
  *
- * Casa por ID **ou** por alias, porque quem configura não deveria precisar saber
- * qual dos dois a URL usa. Lista vazia = nenhuma: o padrão de uma exceção é não
- * existir, senão um campo esquecido vira permissão silenciosa.
+ * O `document.title` do APEX vem com sufixo com frequência — nos dados reais
+ * aparecem tanto "Painel do Operador" quanto "Painel do Operador - Natcorp".
+ * Exigir igualdade exata perderia o segundo; aceitar "contém" faria "Carga de
+ * Dados" casar com "Carga de Dados Funcionais", e a exceção vazaria para uma
+ * tela que não é a certa.
+ *
+ * Por isso: quebra nos separadores usuais e compara cada pedaço INTEIRO. O
+ * título completo também entra, para o caso de o separador fazer parte do nome.
  */
-export function telaEstaEm(p: PageContext | null, apps: readonly string[] | null | undefined): boolean {
-  if (!apps?.length) return false;
+function pedacosDoTitulo(titulo: string): string[] {
+  const bruto = String(titulo ?? "");
+  if (!bruto.trim()) return [];
+  // QUEBRA ANTES DE NORMALIZAR. `\p{Diacritic}` inclui o `·` (U+00B7, ponto
+  // volado), então normalizar primeiro APAGA o separador: "Carga de Dados ·
+  // Natcorp" virava uma frase só e deixava de casar. A ordem não é indiferente.
+  const partes = bruto.split(/\s*[-–—|·•:]\s*/);
+  return [dobrar(bruto), ...partes.map(dobrar)].filter(Boolean);
+}
+
+/**
+ * A tela atual é uma das listadas?
+ *
+ * Cada entrada da lista casa de três formas, e quem configura escolhe a que
+ * tiver em mãos:
+ *  · o ID da aplicação APEX ("400");
+ *  · o ALIAS ("CARGA_DADOS") — as duas aparecem na URL de produção;
+ *  · o TÍTULO da tela ("Carga de Dados"), que é o que a pessoa lê no topo.
+ *
+ * O título é mais frágil (renomear a página desliga a exceção), mas falha para o
+ * lado SEGURO: volta a valer a regra restritiva. O id é o oposto — estável, e
+ * ninguém sabe de cor.
+ *
+ * Lista vazia = nenhuma. O padrão de uma exceção é não existir, senão um campo
+ * esquecido vira permissão silenciosa.
+ */
+export function telaEstaEm(p: PageContext | null, entradas: readonly string[] | null | undefined): boolean {
+  if (!entradas?.length) return false;
+  const alvos = entradas.map((e) => dobrar(String(e ?? ""))).filter(Boolean);
+  if (!alvos.length) return false;
+
   const atual = apexDaTela(p);
-  if (!atual) return false;
-  return apps.some((a) => a.trim().toLowerCase() === atual.app);
+  if (atual && alvos.includes(atual.app)) return true;
+
+  const titulos = pedacosDoTitulo(p?.title ?? "");
+  return titulos.some((t) => alvos.includes(t));
 }
 
 /** Dica curta e legível da localização, para o ENTENDIMENTO da consulta. */

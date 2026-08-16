@@ -105,3 +105,61 @@ describe("qual aplicação APEX", () => {
     expect(telaEstaEm({ href: "https://x/apex/r/ws/carga_dados/home" }, ["CARGA_DADOS"])).toBe(true);
   });
 });
+
+describe("casar a tela pelo TÍTULO", () => {
+  const CARGA = ["Carga de Dados"];
+
+  it("casa o título exato", () => {
+    expect(telaEstaEm({ title: "Carga de Dados", href: "https://x/apex/f?p=400:1:0" }, CARGA)).toBe(true);
+  });
+
+  it("casa com o sufixo que o APEX costuma pôr", () => {
+    // Nos dados reais aparecem "Painel do Operador" E "Painel do Operador - Natcorp".
+    for (const t of ["Carga de Dados - Natcorp", "Carga de Dados | ERP", "Carga de Dados · Natcorp", "Carga de Dados: importação"]) {
+      expect(telaEstaEm({ title: t }, CARGA)).toBe(true);
+    }
+  });
+
+  it("NÃO casa uma tela cujo nome apenas começa igual", () => {
+    // O risco de "contém": a exceção vazaria para telas que não são a certa.
+    expect(telaEstaEm({ title: "Carga de Dados Funcionais" }, CARGA)).toBe(false);
+    expect(telaEstaEm({ title: "Dados Funcionais" }, CARGA)).toBe(false);
+    expect(telaEstaEm({ title: "Recarga de Dados" }, CARGA)).toBe(false);
+  });
+
+  it("ignora acento, caixa e espaço a mais", () => {
+    expect(telaEstaEm({ title: "CARGA DE DADOS" }, CARGA)).toBe(true);
+    expect(telaEstaEm({ title: "  Carga  de   Dados  " }, CARGA)).toBe(true);
+    expect(telaEstaEm({ title: "Importação" }, ["importacao"])).toBe(true);
+  });
+
+  it("id, alias e título convivem na mesma lista", () => {
+    const lista = ["400", "CARGA_DADOS", "Carga de Dados"];
+    expect(telaEstaEm({ href: "https://x/apex/f?p=400:1:0", title: "Outra coisa" }, lista)).toBe(true);
+    expect(telaEstaEm({ href: "https://x/apex/r/ws/carga_dados/home" }, lista)).toBe(true);
+    expect(telaEstaEm({ title: "Carga de Dados" }, lista)).toBe(true);
+    expect(telaEstaEm({ href: "https://x/apex/f?p=200:2:0", title: "Colaboradores" }, lista)).toBe(false);
+  });
+
+  it("tela sem título e fora do APEX não casa nada", () => {
+    expect(telaEstaEm({ href: "https://www.natcorpbr.com.br/natcorp/ia/docs/natcorp" }, CARGA)).toBe(false);
+    expect(telaEstaEm(null, CARGA)).toBe(false);
+    expect(telaEstaEm({ title: "" }, CARGA)).toBe(false);
+  });
+
+  it("entrada em branco na lista não libera tudo", () => {
+    // `["", "  "]` não pode casar com um título vazio nem com qualquer coisa.
+    expect(telaEstaEm({ title: "Colaboradores" }, ["", "   "])).toBe(false);
+    expect(telaEstaEm({ title: "" }, ["", "   "])).toBe(false);
+  });
+});
+
+describe("o separador não pode ser comido na normalização", () => {
+  it("o ponto volado sobrevive — \\p{Diacritic} o inclui", () => {
+    // Normalizar antes de quebrar apagava o `·` (U+00B7) e transformava o título
+    // numa frase só. Foi assim que "Carga de Dados · Natcorp" deixou de casar.
+    expect(telaEstaEm({ title: "Carga de Dados · Natcorp" }, ["Carga de Dados"])).toBe(true);
+    // E o resto do título continua não casando por acidente.
+    expect(telaEstaEm({ title: "Carga de Dados · Natcorp" }, ["Dados Natcorp"])).toBe(false);
+  });
+});

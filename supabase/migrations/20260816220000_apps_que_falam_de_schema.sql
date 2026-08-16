@@ -18,14 +18,25 @@
 -- padrão de uma exceção é não existir. Uma base recém-cadastrada, ou um campo
 -- que alguém esqueceu de preencher, não pode virar permissão em silêncio.
 --
--- ── Aceita ID ou ALIAS ──────────────────────────────────────────────────────
--- O `href` do APEX carrega `f?p=<app>:<página>:…` e o primeiro campo pode ser o
--- número ou o alias — as duas formas aparecem na produção da Natcorp ('200' e
--- 'CHINT_LEADEC'). Por isso é text[] e não int[]: quem configura escreve o que
--- vê na URL, sem precisar descobrir qual das duas o APEX resolveu usar.
--- A comparação é sem caixa (ver `telaEstaEm` em src/lib/chat/page-context.ts).
+-- ── Aceita ID, ALIAS ou TÍTULO ──────────────────────────────────────────────
+-- Três formas, e quem configura usa a que tiver em mãos:
+--  · o ID da aplicação ('400');
+--  · o ALIAS ('CARGA_DADOS') — o `href` do APEX é `f?p=<app>:<página>:…` e o
+--    primeiro campo pode ser qualquer um dos dois; as duas aparecem na produção
+--    da Natcorp ('200' e 'CHINT_LEADEC');
+--  · o TÍTULO da tela ('Carga de Dados'), que é o que a pessoa lê no topo — foi
+--    o que o Igor tinha em mãos, e é o mais fácil de conferir.
+--
+-- Título é mais frágil (renomear a página desliga a exceção) mas falha para o
+-- lado SEGURO: volta a valer a regra restritiva. O id é estável e ninguém sabe
+-- de cor. Por isso text[], e não int[].
+--
+-- A comparação ignora acento e caixa, e quebra o título nos separadores usuais
+-- para tolerar o sufixo que o APEX põe ('Carga de Dados - Natcorp'). Casa
+-- pedaço INTEIRO: 'Carga de Dados Funcionais' NÃO casa com 'Carga de Dados'.
+-- Ver `telaEstaEm` em src/lib/chat/page-context.ts.
 alter table public.ai_bases
   add column if not exists apps_schema text[];
 
 comment on column public.ai_bases.apps_schema is
-  'Aplicações APEX (id OU alias, ex.: {"400","CARGA_DADOS"}) onde o assistente pode citar nome de tabela e de coluna. NULL/{} = nenhuma — a regra vale em todas as telas.';
+  'Telas onde o assistente pode citar nome de tabela e de coluna — por id de app, alias ou TÍTULO da tela (ex.: {"400","CARGA_DADOS","Carga de Dados"}). NULL/{} = nenhuma: a regra vale em todas.';
