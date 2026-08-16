@@ -4623,7 +4623,20 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      atividade_recente: {
+        Row: {
+          tipo: string
+          id: string
+          space_id: string | null
+          status: string
+          progresso: number
+          rotulo: string | null
+          error: string | null
+          created_at: string
+          updated_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       tool_uso_vizinhos: {

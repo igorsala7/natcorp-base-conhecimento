@@ -2,6 +2,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { signOut } from "@/app/(admin)/admin/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { SearchTrigger } from "@/components/admin/search-trigger";
+import { Atividade } from "@/components/admin/atividade";
 
 /**
  * Barra superior do Admin. O campo de busca é um placeholder visual —
@@ -19,6 +20,7 @@ export function Topbar({ email }: { email: string }) {
       <SearchTrigger />
 
       <div className="flex items-center gap-2 sm:gap-3">
+        <Atividade />
         <ThemeToggle />
         <span className="hidden text-sm text-text-muted lg:inline">{email}</span>
         {/* Avatar em roxo, não em rosa: a marca principal é o roxo — o rosa é
