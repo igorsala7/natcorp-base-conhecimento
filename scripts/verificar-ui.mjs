@@ -117,7 +117,11 @@ const PADROES = [
      * Lista fechada, revisada contra o banco: são as que já passam de mil linhas
      * ou vão passar. Tabela nova que crescer entra aqui.
      */
-    rx: /\.from\("(ontology_terms|ontology_aliases|ontology_translations|data_dictionary|chunks|nodes|messages|conversations|search_logs|article_views|audit_log|ai_tool_runs)"\)(?![^;]*\.(range|limit|single|maybeSingle|count)\()[^;]*;/gs,
+    // A regra vale para LEITURA: escrita não tem teto de retorno para estourar.
+    // `.update().eq("id", …)` mexe numa linha e era marcado junto com um `select`
+    // de tabela inteira — ruído que empurra para subir o baseline em vez de
+    // olhar. `insert`/`upsert`/`delete`/`update` saem da conta.
+    rx: /\.from\("(ontology_terms|ontology_aliases|ontology_translations|data_dictionary|chunks|nodes|messages|conversations|search_logs|article_views|audit_log|ai_tool_runs)"\)(?![^;]*\.(range|limit|single|maybeSingle|count|insert|upsert|update|delete)\()[^;]*;/gs,
     ignora: (f) => f.endsWith(".test.ts") || f.includes("database.types"),
     porque:
       "Consulta sem .range() para no teto do PostgREST em silêncio. Use fetchAllPaged onde a tabela cresce.",

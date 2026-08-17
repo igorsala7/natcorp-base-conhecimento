@@ -459,7 +459,7 @@ async function processEmbeddings(jobId: string): Promise<void> {
   if (job.scope === "dicionario") {
     await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
 
-    const porTermo = new Map<string, { term: string; aliases: Set<string> }>();
+    const porTermo = new Map<string, { term: string; colunas: Set<string> }>();
     for (let from = 0; ; from += 1000) {
       const { data } = await supabase
         .from("data_dictionary")
@@ -474,17 +474,29 @@ async function processEmbeddings(jobId: string): Promise<void> {
         const term = String(c.label).trim();
         const norm = normalizarTermo(term);
         if (!norm) continue;
-        const e = porTermo.get(norm) ?? { term, aliases: new Set<string>() };
-        // A COLUNA como sinônimo já entra aqui: a IA a recebe como pista do que
-        // o campo é, e a devolve junto — sem isso ela perderia o único vínculo
-        // com o banco que o termo tem.
-        if (c.db_column) e.aliases.add(String(c.db_column));
+        const e = porTermo.get(norm) ?? { term, colunas: new Set<string>() };
+        /**
+         * A COLUNA NÃO VAI PARA A IA — ela é anexada aqui, no servidor.
+         *
+         * A primeira versão mandava `db_column` como "pista". O resultado, medido
+         * em 17/08: de 4.312 aliases de coluna, 2.011 estavam colados no termo
+         * ERRADO — `INCID_13_ADTO_RAIS` virou sinônimo de "Adto 13". Com 60
+         * termos num prompt só e uma resposta em lista plana, o modelo cruza os
+         * nomes entre as linhas.
+         *
+         * E não havia o que ganhar: o par coluna↔rótulo o servidor JÁ tem, de
+         * forma determinística. Mandá-lo para a IA só abria espaço para ela
+         * errar um vínculo que estava certo.
+         */
+        if (c.db_column) e.colunas.add(String(c.db_column));
         porTermo.set(norm, e);
       }
       if (lote.length < 1000) break;
     }
 
-    const entradas = [...porTermo.values()].map((e) => ({ term: e.term, aliases: [...e.aliases] }));
+    // Só o RÓTULO vai para a IA. A coluna é reanexada depois, pelo termo original.
+    const entradas = [...porTermo.values()].map((e) => ({ term: e.term, aliases: [] as string[] }));
+    const colunasPorTermo = new Map([...porTermo.entries()].map(([n, e]) => [n, [...e.colunas]]));
     if (entradas.length === 0) {
       await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found: 0 }).eq("id", jobId);
       return;
@@ -497,14 +509,47 @@ async function processEmbeddings(jobId: string): Promise<void> {
     let feitos = 0;
     for (const lote of lotes) {
       try {
-        for (const t of await sinonimosDeTermos(lote)) {
+        const devolvidos = await sinonimosDeTermos(lote);
+        devolvidos.forEach((t, i) => {
           const norm = normalizarTermo(t.term);
-          if (!norm) continue;
-          const ex = acumulado.get(norm) ?? { term: t.term, kind: t.kind, description: t.description, aliases: new Set<string>() };
+          if (!norm) return;
+
+          /**
+           * REANCORAR o resultado ao rótulo que entrou.
+           *
+           * A IA agora EXPANDE ("Adto salarial" → "Adiantamento Salarial"), então
+           * o termo que volta não é mais o que foi mandado — e sem saber a qual
+           * linha ele pertence não dá para reanexar a coluna nem para dizer à
+           * mesclagem que os dois são o MESMO conceito.
+           *
+           * Primeiro tenta pelo sinônimo: o prompt exige que a forma abreviada
+           * volte em `aliases`, então ela é a âncora natural. O índice é a queda:
+           * pedi "um item por linha, na mesma ordem", mas ordem devolvida por
+           * modelo não é contrato — só serve quando nada melhor existe.
+           */
+          const porAlias = t.aliases
+            .map((a) => normalizarTermo(a))
+            .find((an) => an && porTermo.has(an));
+          const origemNorm = porAlias ?? (lote[i] ? normalizarTermo(lote[i]!.term) : "");
+          const origem = origemNorm ? porTermo.get(origemNorm) : undefined;
+
+          const ex = acumulado.get(norm) ?? {
+            term: t.term,
+            kind: t.kind,
+            description: t.description,
+            aliases: new Set<string>(),
+            // Diz à mesclagem: se já existe um termo com ESTE nome antigo, é o
+            // mesmo conceito — renomeie em vez de criar um segundo.
+            ...(origemNorm && origemNorm !== norm ? { normAnterior: origemNorm } : {}),
+          };
           if (!ex.description && t.description) ex.description = t.description;
           for (const a of t.aliases) if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+          // O rótulo original vira sinônimo: quem digitar "adto" precisa achar.
+          if (origem && normalizarTermo(origem.term) !== norm) ex.aliases.add(origem.term);
+          // E as colunas voltam aqui, pelo vínculo que o servidor já tinha.
+          for (const col of colunasPorTermo.get(origemNorm) ?? []) ex.aliases.add(col);
           acumulado.set(norm, ex);
-        }
+        });
       } catch (e) {
         // Um lote que falha não pode levar os outros 20 junto: são 60 termos de
         // ~1.250, e perder tudo por causa de um timeout seria desproporcional.

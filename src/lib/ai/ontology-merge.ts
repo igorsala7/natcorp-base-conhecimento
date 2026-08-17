@@ -8,6 +8,15 @@ export type TermoAcumulado = {
   kind: string;
   description: string | null;
   aliases: Set<string>;
+  /**
+   * O nome que este conceito tinha ANTES de a IA expandi-lo.
+   *
+   * Sem isto, renomear duplica: a busca é feita pelo nome DEVOLVIDO, "Adiantamento
+   * Salarial" não casa com o "Adto salarial" que já existia, e um segundo termo
+   * nasce deixando o primeiro órfão. Medido em 17/08: 724 termos eram também
+   * alias de outro, e cada nova rodada multiplicava.
+   */
+  normAnterior?: string;
 };
 
 /**
@@ -49,7 +58,24 @@ export async function mesclarTermos(
 
   let found = 0;
   for (const [norm, t] of acumulado) {
-    const existenteId = normToTermId.get(norm);
+    /**
+     * Procura pelo nome NOVO e, se não achar, pelo ANTIGO — e aí RENOMEIA.
+     *
+     * É o que transforma "expandir a abreviação" em melhoria do termo existente
+     * em vez de um segundo termo competindo com ele.
+     */
+    let existenteId = normToTermId.get(norm);
+    if (!existenteId && t.normAnterior) {
+      const antigoId = normToTermId.get(t.normAnterior);
+      if (antigoId) {
+        await db
+          .from("ontology_terms")
+          .update({ term: t.term, term_norm: norm, updated_at: new Date().toISOString() })
+          .eq("id", antigoId);
+        normToTermId.set(norm, antigoId);
+        existenteId = antigoId;
+      }
+    }
     let termId: string;
     if (existenteId) {
       termId = existenteId;

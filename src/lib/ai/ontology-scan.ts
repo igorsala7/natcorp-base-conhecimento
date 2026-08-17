@@ -67,14 +67,43 @@ export async function sinonimosDeTermos(
   const lista = limpos
     .map((e) => (e.aliases.length ? `- ${e.term} (sinônimos dados: ${e.aliases.join(", ")})` : `- ${e.term}`))
     .join("\n");
+  /**
+   * A INSTRUÇÃO QUE PROTEGIA CONTRA ALUCINAÇÃO BLOQUEAVA O TRABALHO.
+   *
+   * A versão anterior dizia "corrija capitalização/acento óbvios, mas mantenha o
+   * sentido" e "NÃO invente termos que não estejam na lista". A IA obedecia: dado
+   * "Adto salarial", devolvia "Adto salarial". Foi o relato do Igor (16/08) —
+   * pediu ontologia dos campos com rótulo e os termos saíram abreviados, como
+   * `ADTO_13` em vez de "Adiantamento de 13º".
+   *
+   * O prompt não distinguia duas coisas muito diferentes:
+   *  · INVENTAR um conceito que não está na lista → continua proibido;
+   *  · escrever o MESMO conceito por extenso → é justamente o que se quer.
+   *
+   * Rótulo de tela é abreviado por falta de espaço na tela, não porque o negócio
+   * chama assim. Quem pergunta ao chat escreve "adiantamento", não "adto".
+   *
+   * A forma abreviada volta como SINÔNIMO — sem isso, quem digitasse "adto"
+   * deixaria de encontrar, e o conserto teria trocado um buraco por outro.
+   */
   const instrucao =
-    "Você recebe uma LISTA de termos de domínio de um produto (cada linha é UM termo, " +
-    "podendo trazer sinônimos já informados). Para CADA termo da lista devolva: o termo " +
-    "canônico (corrija capitalização/acento óbvios, mas mantenha o sentido), o tipo " +
-    "(conceito/entidade/acao/sigla/outro), uma descrição curta (1 frase; pode ficar vazia " +
-    "se não souber) e uma lista de SINÔNIMOS/variações comuns — INCLUA os sinônimos dados e " +
-    "acrescente outros do mesmo domínio (abreviações, plural/singular, termos equivalentes). " +
-    "NÃO invente termos que não estejam na lista. Responda apenas com os termos da lista.\n\nLISTA:\n" +
+    "Você recebe uma LISTA de termos de um sistema de RH, extraídos de rótulos de tela. " +
+    "Rótulos de tela são ABREVIADOS por falta de espaço — sua tarefa é devolver cada um " +
+    "por EXTENSO, como uma pessoa da área falaria.\n\n" +
+    "Para CADA termo da lista devolva:\n" +
+    "- `term`: o conceito ESCRITO POR EXTENSO. Expanda abreviações e siglas do domínio: " +
+    "\"Adto salarial\" → \"Adiantamento Salarial\"; \"Adto 13\" → \"Adiantamento de 13º Salário\"; " +
+    "\"Dt Adm\" → \"Data de Admissão\"; \"Qtd Depend\" → \"Quantidade de Dependentes\". " +
+    "Se já estiver por extenso, só corrija capitalização e acento.\n" +
+    "- `kind`: conceito/entidade/acao/sigla/outro.\n" +
+    "- `description`: uma frase, ou vazio se não souber.\n" +
+    "- `aliases`: como as pessoas REALMENTE se referem a isso ao perguntar — INCLUA " +
+    "obrigatoriamente a forma abreviada que veio na lista, mais variações comuns " +
+    "(sinônimos do RH, plural/singular, com e sem acento). Ex.: para \"Adiantamento de 13º " +
+    "Salário\" → [\"Adto 13\", \"adiantamento de décimo terceiro\", \"13º salário\", \"antecipação do 13\"].\n\n" +
+    "REGRA: é PROIBIDO inventar um conceito que não esteja na lista. Expandir a abreviação " +
+    "de um termo da lista NÃO é inventar — é a tarefa. Devolva exatamente um item por " +
+    "linha da lista, na mesma ordem.\n\nLISTA:\n" +
     lista;
 
   const { object } = await generateObject({
