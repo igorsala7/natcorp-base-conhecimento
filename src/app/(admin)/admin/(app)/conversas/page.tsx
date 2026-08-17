@@ -66,12 +66,9 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   const spaces = await listSpaces();
   const sp = await searchParams;
   const atual = await pickSpace(spaces, sp.space);
-  // `permissoesDo` é memoizado por request — o layout já consultou, então aqui
-  // não custa ida ao banco. A aba de rastreio exige nível 80; oferecê-la a quem
-  // não pode abrir a transformaria num beco.
+  // Memoizado por request — o layout já consultou. A barra some sozinha com a
+  // aba que a pessoa não pode abrir; a tela não precisa mais saber quais são.
   const permissoes = await permissoesDo();
-  const podeRastrear = permissoes.has("ai.configure");
-  const podeWidget = permissoes.has("widget.manage");
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();

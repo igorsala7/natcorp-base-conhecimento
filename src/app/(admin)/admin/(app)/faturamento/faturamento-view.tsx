@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Download, TriangleAlert } from "lucide-react";
 import { Surface } from "@/components/ui/surface";
-import { Segmented } from "@/components/ui/segmented";
+import { Tabs, useAbaAtual, type Aba as AbaUI } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   agrupar,
@@ -27,12 +27,16 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 
 type Aba = "cliente" | "provider" | "model" | "purpose";
 
+/** O mesmo recorte em dois formatos: o do primitivo de abas, e o da legenda. */
 const ABAS: { value: Aba; label: string }[] = [
   { value: "cliente", label: "Cliente" },
   { value: "provider", label: "Provedor" },
   { value: "model", label: "Modelo" },
   { value: "purpose", label: "Ação" },
 ];
+
+/** A mesma lista no formato do primitivo — uma fonte, dois consumidores. */
+const ABAS_UI: AbaUI[] = ABAS.map((a) => ({ key: a.value, label: a.label }));
 
 const CHAVE: Record<Aba, (l: LinhaFaturamento) => string> = {
   cliente: (l) => l.cliente,
@@ -174,7 +178,9 @@ export function FaturamentoView({
   cobrarOverhead: boolean;
   periodo: { de: string; ate: string };
 }) {
-  const [aba, setAba] = useState<Aba>("cliente");
+  /* Recorte na URL: "manda o consumo por MODELO" precisa ser um link, e com
+     `useState` o F5 voltava sempre para "por cliente". */
+  const aba = useAbaAtual(ABAS_UI) as Aba;
 
   // O que entra na conta. Quando o overhead interno não é repassado, ele sai
   // daqui — mas continua visível no bloco de diagnóstico mais abaixo, para a
@@ -290,7 +296,7 @@ export function FaturamentoView({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Segmented value={aba} onChange={setAba} options={ABAS} />
+            <Tabs tabs={ABAS_UI} aria-label="Recorte do consumo" />
             <Button type="button" variant="secondary" size="sm" onClick={baixarCsv}>
               <Download className="size-3.5" /> CSV
             </Button>

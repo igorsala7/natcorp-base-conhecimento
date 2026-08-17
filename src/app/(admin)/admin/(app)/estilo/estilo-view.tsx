@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton, SkeletonText, SkeletonTable, SkeletonCards, SkeletonList } from "@/components/ui/skeleton";
+import { SkeletonText, SkeletonTable, SkeletonCards, SkeletonList } from "@/components/ui/skeleton";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { ErroDaRota } from "@/components/ui/erro-da-rota";
 import { useToast } from "@/components/ui/toast";
