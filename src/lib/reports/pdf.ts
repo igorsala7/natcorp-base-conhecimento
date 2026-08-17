@@ -642,8 +642,122 @@ function desenharMarkdown(ctx: Ctx, texto: string) {
  */
 const PDF_VETOR: ReadonlySet<string> = new Set(["barras", "colunas", "linha", "area"]);
 
+/**
+ * SEÇÃO — o divisor de assunto.
+ *
+ * Uma faixa em degradê da largura do conteúdo, com o título em branco. Abre
+ * página nova quando já há conteúdo na atual: um divisor no meio da página
+ * divide menos do que separa mal.
+ */
+function desenharSecao(ctx: Ctx, b: Extract<ReportBlock, { tipo: "secao" }>) {
+  const H = 62;
+  const noTopo = ctx.y > A4.h - HEADER_H - 40;
+  if (!noTopo) novaPagina(ctx);
+  ensure(ctx, H + 20);
+
+  const y = ctx.y - H;
+  faixaDegrade(ctx.page, M, y, CONTENT_W, H, 60);
+  desenharLosango(ctx.page, M + CONTENT_W - 26, y + H / 2, H * 0.55, COR.branco, 0.09);
+
+  const t = trunc(ctx.bold, b.titulo, 17, CONTENT_W - 56);
+  ctx.page.drawText(t, { x: M + 18, y: y + (b.subtitulo ? H / 2 + 2 : H / 2 - 6), size: 17, font: ctx.bold, color: COR.branco });
+  if (b.subtitulo) {
+    const st = trunc(ctx.font, b.subtitulo, 10, CONTENT_W - 56);
+    ctx.page.drawText(st, { x: M + 18, y: y + H / 2 - 14, size: 10, font: ctx.font, color: cor(clarear(MARCA.faixa[2], 0.65)) });
+  }
+  ctx.y = y - 22;
+}
+
+/**
+ * DESTAQUES — a faixa de números grandes.
+ *
+ * O "+30 Módulos · +70% Produtividade · +35 Anos" do deck. O número em rosa e
+ * grande, o rótulo pequeno embaixo: é a hierarquia que faz o olho pegar o valor
+ * antes de ler o que ele é.
+ *
+ * Divide a largura em partes iguais em vez de medir cada item — colunas de
+ * larguras diferentes deixariam de parecer uma faixa e passariam a parecer
+ * três coisas soltas.
+ */
+function desenharDestaques(ctx: Ctx, b: Extract<ReportBlock, { tipo: "destaques" }>) {
+  const H = b.itens.some((i) => i.nota) ? 92 : 76;
+  ensure(ctx, H + 16 + (b.titulo ? 22 : 0));
+  if (b.titulo) {
+    drawRuns(ctx, [{ text: b.titulo, bold: true }], 12, ctx.primary, 0, 4);
+  }
+  const y = ctx.y - H;
+  const n = b.itens.length;
+  const gap = 12;
+  const w = (CONTENT_W - gap * (n - 1)) / n;
+
+  b.itens.forEach((it, i) => {
+    const x = M + i * (w + gap);
+    ctx.page.drawRectangle({ x, y, width: w, height: H, color: cor(MARCA.superficieAlt), borderColor: COR.border, borderWidth: 0.5 });
+    // Filete rosa no topo do cartão: é o que amarra o bloco à marca sem pintar
+    // o cartão inteiro, que competiria com o número.
+    ctx.page.drawRectangle({ x, y: y + H - 3, width: w, height: 3, color: COR.regua });
+
+    const valor = trunc(ctx.bold, it.valor, 26, w - 20);
+    ctx.page.drawText(valor, { x: x + 12, y: y + H - 40, size: 26, font: ctx.bold, color: COR.destaque });
+    const rot = trunc(ctx.bold, it.rotulo, 9.5, w - 20);
+    ctx.page.drawText(rot, { x: x + 12, y: y + H - 56, size: 9.5, font: ctx.bold, color: COR.texto });
+    if (it.nota) {
+      for (const [k, l] of wrap(ctx.font, it.nota, 8, w - 20).slice(0, 2).entries()) {
+        ctx.page.drawText(l, { x: x + 12, y: y + H - 70 - k * 10, size: 8, font: ctx.font, color: COR.muted });
+      }
+    }
+  });
+  ctx.y = y - 16;
+}
+
+/** CARDS — a grade de cartões com título e descrição. */
+function desenharCards(ctx: Ctx, b: Extract<ReportBlock, { tipo: "cards" }>) {
+  const n = b.itens.length;
+  const gap = 12;
+  const w = (CONTENT_W - gap * (n - 1)) / n;
+  // Altura pelo item MAIS LONGO: cartões de alturas diferentes numa linha leem
+  // como erro de alinhamento, não como conteúdo de tamanhos diferentes.
+  const linhas = b.itens.map((it) => wrap(ctx.font, it.texto, 9, w - 24).length);
+  const H = 46 + Math.max(...linhas, 1) * 12;
+
+  ensure(ctx, H + 16 + (b.titulo ? 22 : 0));
+  if (b.titulo) drawRuns(ctx, [{ text: b.titulo, bold: true }], 12, ctx.primary, 0, 4);
+  const y = ctx.y - H;
+
+  b.itens.forEach((it, i) => {
+    const x = M + i * (w + gap);
+    ctx.page.drawRectangle({ x, y, width: w, height: H, color: cor(MARCA.cartao), borderColor: COR.border, borderWidth: 0.5 });
+    // O losango como marcador do cartão — o ícone quadrado colorido do deck.
+    desenharLosango(ctx.page, x + 17, y + H - 18, 7, ctx.primary);
+    const t = trunc(ctx.bold, it.titulo, 10.5, w - 40);
+    ctx.page.drawText(t, { x: x + 30, y: y + H - 22, size: 10.5, font: ctx.bold, color: COR.texto });
+    wrap(ctx.font, it.texto, 9, w - 24).slice(0, 6).forEach((l, k) => {
+      ctx.page.drawText(l, { x: x + 12, y: y + H - 40 - k * 12, size: 9, font: ctx.font, color: COR.muted });
+    });
+  });
+  ctx.y = y - 16;
+}
+
+/** A nota do bloco: uma linha em itálico dizendo o que aquilo mostra. */
+function desenharNota(ctx: Ctx, nota?: string) {
+  if (!nota) return;
+  ensure(ctx, 16);
+  for (const l of wrap(ctx.font, nota, 8.5, CONTENT_W).slice(0, 3)) {
+    ctx.page.drawText(l, { x: M, y: ctx.y - 8.5, size: 8.5, font: ctx.font, color: COR.muted });
+    ctx.y -= 12;
+  }
+  ctx.y -= 6;
+}
+
 function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
-  if (b.tipo === "texto") {
+  if (b.tipo === "secao") {
+    desenharSecao(ctx, b);
+  } else if (b.tipo === "destaques") {
+    desenharDestaques(ctx, b);
+  } else if (b.tipo === "cards") {
+    desenharCards(ctx, b);
+  } else if (b.tipo === "texto") {
+    if (b.titulo) drawRuns(ctx, [{ text: b.titulo, bold: true }], 13, ctx.primary, 0, 4);
     desenharMarkdown(ctx, b.texto);
   } else if (b.tipo === "tabela") {
     desenharTabela(ctx, b.colunas, b.linhas, b.titulo);
@@ -672,6 +786,7 @@ function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
     }
     ctx.y -= boxH + 12;
   }
+  desenharNota(ctx, "nota" in b ? b.nota : undefined);
 }
 
 /** Carimba o rodapé (paginação + data) em todas as páginas ao final. */

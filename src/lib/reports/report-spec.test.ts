@@ -38,3 +38,80 @@ describe("normalizeReport", () => {
     expect(r!.titulo).toBe("Relatório");
   });
 });
+
+describe("vocabulário de layout", () => {
+  const bloco = (b: unknown) => normalizeReport({ titulo: "T", formato: "pptx", blocos: [b] })?.blocos ?? [];
+
+  it("seção sem título é descartada — divisor vazio é página em branco", () => {
+    expect(bloco({ tipo: "secao", titulo: "Panorama" })).toEqual([{ tipo: "secao", titulo: "Panorama" }]);
+    expect(bloco({ tipo: "secao", titulo: "   " })).toEqual([]);
+    expect(bloco({ tipo: "secao" })).toEqual([]);
+  });
+
+  it("destaques exige DOIS itens — destaque só existe em contraste", () => {
+    const um = bloco({ tipo: "destaques", itens: [{ valor: "10", rotulo: "X" }] });
+    expect(um).toEqual([]);
+    const dois = bloco({ tipo: "destaques", itens: [{ valor: "10", rotulo: "X" }, { valor: "20", rotulo: "Y" }] });
+    expect(dois).toHaveLength(1);
+  });
+
+  it("corta no quarto item em vez de recusar o bloco", () => {
+    // Cinco números lado a lado deixam de ser destaque e viram tabela ruim.
+    // Perder o quinto é melhor que perder os quatro.
+    const b = bloco({ tipo: "destaques", itens: Array.from({ length: 6 }, (_, i) => ({ valor: String(i), rotulo: "R" + i })) })[0];
+    expect(b && "itens" in b ? b.itens : []).toHaveLength(4);
+  });
+
+  it("item sem valor OU sem rótulo não entra", () => {
+    const b = bloco({
+      tipo: "destaques",
+      itens: [{ valor: "10", rotulo: "Bom" }, { valor: "", rotulo: "Sem valor" }, { valor: "20", rotulo: "" }, { valor: "30", rotulo: "Também bom" }],
+    })[0];
+    // `itens` é união (destaques × cards); o narrow explícito mantém o teste tipado.
+    const itens = b?.tipo === "destaques" ? b.itens : [];
+    expect(itens.map((i) => i.rotulo)).toEqual(["Bom", "Também bom"]);
+  });
+
+  it("cards seguem a mesma regra de dois a quatro", () => {
+    expect(bloco({ tipo: "cards", itens: [{ titulo: "A", texto: "a" }] })).toEqual([]);
+    const b = bloco({ tipo: "cards", itens: [{ titulo: "A", texto: "a" }, { titulo: "B", texto: "b" }] })[0];
+    expect(b && "itens" in b ? b.itens : []).toHaveLength(2);
+  });
+
+  it("a NOTA vale para qualquer bloco", () => {
+    // É ela que carrega a narrativa sem custar uma segunda passada de IA:
+    // notas do apresentador no PPTX, linha em itálico no PDF e no Word.
+    for (const b of [
+      { tipo: "texto", texto: "oi", nota: "N" },
+      { tipo: "secao", titulo: "S", nota: "N" },
+      { tipo: "tabela", colunas: ["a"], linhas: [["1"]], nota: "N" },
+      { tipo: "destaques", itens: [{ valor: "1", rotulo: "a" }, { valor: "2", rotulo: "b" }], nota: "N" },
+    ]) {
+      const r = bloco(b)[0]!;
+      expect("nota" in r ? r.nota : null).toBe("N");
+    }
+  });
+
+  it("nota vazia não vira campo", () => {
+    const r = bloco({ tipo: "texto", texto: "oi", nota: "   " })[0]!;
+    expect("nota" in r).toBe(false);
+  });
+
+  it("texto ganhou título próprio — antes todo slide repetia o do relatório", () => {
+    const r = bloco({ tipo: "texto", titulo: "Leitura", texto: "oi" })[0]!;
+    expect(r).toMatchObject({ tipo: "texto", titulo: "Leitura" });
+  });
+
+  it("a ordem dos blocos novos é preservada junto com os antigos", () => {
+    const r = normalizeReport({
+      titulo: "T", formato: "pdf",
+      blocos: [
+        { tipo: "secao", titulo: "S" },
+        { tipo: "destaques", itens: [{ valor: "1", rotulo: "a" }, { valor: "2", rotulo: "b" }] },
+        { tipo: "texto", texto: "t" },
+        { tipo: "cards", itens: [{ titulo: "A", texto: "a" }, { titulo: "B", texto: "b" }] },
+      ],
+    });
+    expect(r?.blocos.map((b) => b.tipo)).toEqual(["secao", "destaques", "texto", "cards"]);
+  });
+});

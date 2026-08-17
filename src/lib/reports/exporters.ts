@@ -3,6 +3,7 @@ import type { Paragraph as DocxParagraph, Table as DocxTable } from "docx";
 import type { Worksheet as XlsxWorksheet, Fill as XlsxFill, Border as XlsxBorder, Font as XlsxFont } from "exceljs";
 import type { OutFile } from "@/lib/integrations/documents";
 import { LOGO_COR, LOGO_BRANCO, logoPng, logoDataUrl } from "./assets/logo";
+import { MARCA, degrade, semCerquilha } from "./marca";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import { renderReportPdf, type BrandInfo } from "./pdf";
 import { parseMarkdown, runsText, type MdRun } from "./markdown";
@@ -361,8 +362,69 @@ async function renderDocxImpl(spec: ReportSpec, brand: BrandInfo, nativo: boolea
     }
   };
 
+  /** Uma linha de cartões, como TABELA de 1×N — é como o Word faz colunas. */
+  const cartoes = (celulas: DocxParagraph[][]) =>
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+        // Só a divisória VERTICAL, e clara: é o que separa os cartões sem
+        // desenhar uma caixa em volta de cada um, que num documento de texto
+        // pesaria mais que o conteúdo.
+        insideVertical: { style: BorderStyle.SINGLE, size: 2, color: c.borda },
+      },
+      rows: [new TableRow({ children: celulas.map((ps) => new TableCell({ margins: { top: 120, bottom: 120, left: 160, right: 160 }, children: ps })) })],
+    });
+
   for (const bl of spec.blocos) {
-    if (bl.tipo === "texto") {
+    if (bl.tipo === "secao") {
+      // Quebra de página + faixa: no Word o divisor de assunto é o começo de uma
+      // folha, senão ele vira só mais um título no meio do texto.
+      filhos.push(new Paragraph({ pageBreakBefore: true, spacing: { after: 0 }, children: [] }));
+      filhos.push(
+        new Paragraph({
+          shading: { type: ShadingType.CLEAR, fill: c.primary },
+          spacing: { before: 0, after: bl.subtitulo ? 0 : 200 },
+          children: [new TextRun({ text: "  " + bl.titulo, bold: true, size: 34, color: "FFFFFF", font: FONTE })],
+        }),
+      );
+      if (bl.subtitulo)
+        filhos.push(
+          new Paragraph({
+            shading: { type: ShadingType.CLEAR, fill: c.primary },
+            spacing: { after: 200 },
+            children: [new TextRun({ text: "  " + bl.subtitulo, size: 20, color: "E7DCF2", font: FONTE })],
+          }),
+        );
+    } else if (bl.tipo === "destaques") {
+      if (bl.titulo) filhos.push(tituloSecao(bl.titulo));
+      filhos.push(
+        cartoes(
+          bl.itens.map((it) => [
+            new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: it.valor, bold: true, size: 44, color: semCerquilha(MARCA.destaque), font: FONTE })] }),
+            new Paragraph({ spacing: { after: it.nota ? 30 : 0 }, children: [new TextRun({ text: it.rotulo, bold: true, size: 20, font: FONTE })] }),
+            ...(it.nota ? [new Paragraph({ children: [new TextRun({ text: it.nota, size: 16, color: "6B6577", font: FONTE })] })] : []),
+          ]),
+        ),
+      );
+      filhos.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
+    } else if (bl.tipo === "cards") {
+      if (bl.titulo) filhos.push(tituloSecao(bl.titulo));
+      filhos.push(
+        cartoes(
+          bl.itens.map((it) => [
+            new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: it.titulo, bold: true, size: 22, color: c.primary, font: FONTE })] }),
+            new Paragraph({ children: [new TextRun({ text: it.texto, size: 19, color: "444444", font: FONTE })] }),
+          ]),
+        ),
+      );
+      filhos.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
+    } else if (bl.tipo === "texto") {
+      if (bl.titulo) filhos.push(tituloSecao(bl.titulo));
       renderMarkdown(bl.texto);
     } else if (bl.tipo === "tabela") {
       if (bl.titulo) filhos.push(tituloSecao(bl.titulo));
@@ -395,6 +457,16 @@ async function renderDocxImpl(spec: ReportSpec, brand: BrandInfo, nativo: boolea
           filhos.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
         }
       }
+    }
+    // A nota do bloco: a linha em itálico que diz o que aquilo mostra. No PPTX
+    // o mesmo campo vira notas do apresentador.
+    if ("nota" in bl && bl.nota) {
+      filhos.push(
+        new Paragraph({
+          spacing: { after: 160 },
+          children: [new TextRun({ text: bl.nota, italics: true, size: 17, color: "6B6577", font: FONTE })],
+        }),
+      );
     }
   }
 
@@ -481,7 +553,56 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
   if (spec.subtitulo) capa.addText(spec.subtitulo, { x: 0.9, y: 3.5, w: W - 1.8, h: 0.6, fontSize: 18, color: "F0E8F6", align: "left", fontFace: FONTE });
   capa.addText(`${brand.marca}   ·   ${brand.dataHoje}`, { x: 0.9, y: 6.6, w: W - 1.8, h: 0.4, fontSize: 12, color: "E7DCF2", align: "left", fontFace: FONTE });
 
+  /**
+   * A faixa em degradê num slide.
+   *
+   * O pptxgenjs não faz degradê em forma. São 60 retângulos colados — num slide
+   * de 13,33" dão 0,22" cada, que ninguém separa a olho.
+   *
+   * Duas armadilhas, e as duas apareceram na primeira tentativa como listras
+   * escuras verticais:
+   *
+   *  · `line: { width: 0 }` NÃO desliga a borda. No OOXML largura zero vira
+   *    *hairline* — a menor linha que o renderizador consegue desenhar, que é
+   *    1px. Sessenta retângulos viravam sessenta traços. O interruptor é
+   *    `line: { type: "none" }`.
+   *  · a conversão polegada→EMU arredonda, então retângulos exatamente colados
+   *    deixam fresta. A sobreposição de meio passo custa nada e fecha.
+   */
+  const faixaPpt = (sl: ReturnType<typeof pres.addSlide>, y: number, h: number) => {
+    const n = 60;
+    const passo = W / n;
+    degrade(n).forEach((hex: string, i: number) => {
+      sl.addShape(pres.ShapeType.rect, {
+        x: i * passo,
+        y,
+        w: passo * 1.5,
+        h,
+        fill: { color: semCerquilha(hex) },
+        line: { type: "none" },
+      });
+    });
+  };
+
   for (const b of spec.blocos) {
+    /**
+     * SEÇÃO ocupa o slide INTEIRO e não usa o master.
+     *
+     * Um divisor de assunto com a mesma barra e o mesmo rodapé dos slides de
+     * conteúdo não divide nada — ele precisa parecer outra coisa. É o mesmo
+     * recurso do deck, onde as aberturas de capítulo são a faixa escura cheia.
+     */
+    if (b.tipo === "secao") {
+      const sec = pres.addSlide();
+      faixaPpt(sec, 0, 7.5);
+      sec.addImage({ x: W - 2.0, y: 0.4, w: 1.5, h: 1.5 / LOGO_BRANCO.proporcao, data: logoDataUrl(LOGO_BRANCO) });
+      sec.addShape(pres.ShapeType.rect, { x: 0.9, y: 3.05, w: 1.3, h: 0.06, fill: { color: c.secondary }, line: { width: 0 } });
+      sec.addText(b.titulo, { x: 0.9, y: 3.3, w: W - 1.8, h: 1.0, fontSize: 34, bold: true, color: "FFFFFF", fontFace: FONTE });
+      if (b.subtitulo) sec.addText(b.subtitulo, { x: 0.9, y: 4.35, w: W - 1.8, h: 0.6, fontSize: 15, color: "E7DCF2", fontFace: FONTE });
+      if (b.nota) sec.addNotes(b.nota);
+      continue;
+    }
+
     const slide = pres.addSlide({ masterName: "NATCORP" });
     const tituloSlide = (t: string) =>
       slide.addText(t, { x: 0.4, y: 0.02, w: W - 1.6, h: 0.6, fontSize: 18, bold: true, color: "FFFFFF", align: "left", valign: "middle", fontFace: FONTE });
@@ -516,6 +637,35 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
         });
       });
       slide.addText(objs.length ? objs : [{ text: b.texto, options: { fontSize: 15, color: "333333", fontFace: FONTE } }], { x: 0.7, y: 1.0, w: W - 1.4, h: 5.9, valign: "top" });
+    } else if (b.tipo === "destaques") {
+      // Números grandes lado a lado. Larguras iguais: colunas de tamanhos
+      // diferentes deixam de parecer uma faixa e viram três coisas soltas.
+      tituloSlide(b.titulo || spec.titulo);
+      const n = b.itens.length;
+      const gap = 0.35;
+      const w = (W - 1.0 - gap * (n - 1)) / n;
+      b.itens.forEach((it, i) => {
+        const x = 0.5 + i * (w + gap);
+        slide.addShape(pres.ShapeType.roundRect, { x, y: 2.0, w, h: 2.6, fill: { color: "F7F5FA" }, line: { color: c.borda, width: 0.5 }, rectRadius: 0.06 });
+        slide.addShape(pres.ShapeType.rect, { x, y: 2.0, w, h: 0.07, fill: { color: c.secondary }, line: { width: 0 } });
+        slide.addText(it.valor, { x: x + 0.25, y: 2.35, w: w - 0.5, h: 0.9, fontSize: 40, bold: true, color: semCerquilha(MARCA.destaque), fontFace: FONTE });
+        slide.addText(it.rotulo, { x: x + 0.25, y: 3.25, w: w - 0.5, h: 0.4, fontSize: 14, bold: true, color: "333333", fontFace: FONTE });
+        if (it.nota) slide.addText(it.nota, { x: x + 0.25, y: 3.65, w: w - 0.5, h: 0.7, fontSize: 11, color: "6B6577", fontFace: FONTE });
+      });
+    } else if (b.tipo === "cards") {
+      tituloSlide(b.titulo || spec.titulo);
+      const n = b.itens.length;
+      const gap = 0.35;
+      const w = (W - 1.0 - gap * (n - 1)) / n;
+      b.itens.forEach((it, i) => {
+        const x = 0.5 + i * (w + gap);
+        slide.addShape(pres.ShapeType.roundRect, { x, y: 1.6, w, h: 3.4, fill: { color: "FFFFFF" }, line: { color: c.borda, width: 0.75 }, rectRadius: 0.06 });
+        // O losango da marca como marcador do cartão — `diamond` é nativo aqui,
+        // sem a conversão de centro que o pdf-lib exige.
+        slide.addShape(pres.ShapeType.diamond, { x: x + 0.25, y: 1.9, w: 0.26, h: 0.26, fill: { color: c.primary }, line: { width: 0 } });
+        slide.addText(it.titulo, { x: x + 0.62, y: 1.85, w: w - 0.9, h: 0.4, fontSize: 15, bold: true, color: "333333", fontFace: FONTE });
+        slide.addText(it.texto, { x: x + 0.25, y: 2.4, w: w - 0.5, h: 2.3, fontSize: 12, color: "6B6577", valign: "top", fontFace: FONTE });
+      });
     } else if (b.tipo === "tabela") {
       tituloSlide(b.titulo || "Tabela");
       const header = b.colunas.map((col) => ({ text: col, options: { bold: true, color: "FFFFFF", fill: { color: c.primary }, align: "center", valign: "middle", fontFace: FONTE } }));
@@ -572,6 +722,10 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
         slide.addTable([header, ...linhas], { x: 0.5, y: 1.0, w: W - 1, fontSize: 11, border: { type: "solid", color: c.borda, pt: 0.5 } });
       }
     }
+    // A NOTA vira NOTAS DO APRESENTADOR — o campo que carrega a narrativa sem
+    // custar uma segunda passada de IA. No PDF e no Word ela é a linha em
+    // itálico sob o bloco; aqui, o que a pessoa lê enquanto apresenta.
+    if ("nota" in b && b.nota) slide.addNotes(b.nota);
   }
 
   // Avisos de degradação num slide final — melhor dizer do que deixar o usuário

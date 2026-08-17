@@ -49,8 +49,28 @@ const spec = (formato: ReportSpec["formato"]): ReportSpec => ({
   subtitulo: "Competência 07/2026 · Todas as filiais · Gerado pelo assistente Natcorp",
   formato,
   blocos: [
+    { tipo: "secao", titulo: "Panorama do quadro", subtitulo: "Onde estamos e o que mudou desde junho" },
+    {
+      tipo: "destaques",
+      itens: [
+        { valor: "1.284", rotulo: "Colaboradores", nota: "+3,1% sobre junho" },
+        { valor: "R$ 5,2 Mi", rotulo: "Folha bruta", nota: "custo médio caiu 1,4%" },
+        { valor: "4,8%", rotulo: "Turnover", nota: "dentro da meta de 6%" },
+      ],
+      nota: "Os três indicadores que a diretoria acompanha mensalmente.",
+    },
+    {
+      tipo: "cards",
+      titulo: "O que explica o crescimento",
+      itens: [
+        { titulo: "Duas filiais", texto: "Campinas e Curitiba concentram 71% das admissões do mês." },
+        { titulo: "Faixa salarial", texto: "As entradas vieram abaixo da média, o que derrubou o custo por colaborador." },
+        { titulo: "Sazonalidade", texto: "Julho repete o padrão de 2025, com pico de contratação no operacional." },
+      ],
+    },
     {
       tipo: "texto",
+      titulo: "Leitura do período",
       texto:
         "## Panorama\n\nO quadro fechou julho com **1.284 colaboradores**, 3,1% acima de junho. " +
         "O crescimento se concentra em duas filiais, e o custo médio por colaborador caiu — " +
@@ -66,6 +86,7 @@ const spec = (formato: ReportSpec["formato"]): ReportSpec => ({
         categorias: filiais,
         series: [{ nome: "Colaboradores", valores: [412, 233, 198, 174, 151, 116] }],
       },
+      nota: "A Matriz concentra quase um terço do quadro — vale considerar isso ao ler qualquer média por filial.",
     },
     {
       tipo: "grafico",
@@ -79,6 +100,7 @@ const spec = (formato: ReportSpec["formato"]): ReportSpec => ({
         ],
       },
     },
+    { tipo: "secao", titulo: "Pontos de atenção" },
     {
       tipo: "texto",
       texto:
