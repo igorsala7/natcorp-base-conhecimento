@@ -40,6 +40,21 @@ export function DataTable({
       className="overflow-x-auto rounded-lg border border-border"
     >
       <table className={cn("w-full text-sm", className)} {...props}>
+        {/**
+         * A REGIÃO tem nome; a TABELA também precisa do dela.
+         *
+         * A árvore de acessibilidade mostrava quatro nós `table` sem nome
+         * nenhum na tela Sistema. O `aria-label` da região só é anunciado ao
+         * ENTRAR nela — quem usa o modo de navegação por tabelas (o jeito
+         * normal de ler dado tabular com leitor de tela) pula direto de tabela
+         * em tabela e ouvia só "tabela, 4 colunas". Nenhuma ferramenta
+         * automática reclama disso: `axe` não exige nome em tabela.
+         *
+         * `<caption>` e não outro `aria-label`: é o mecanismo que o HTML já tem
+         * para isso, e o `sr-only` o mantém fora da tela — o título visível da
+         * seção já está logo acima.
+         */}
+        <caption className="sr-only">{rotulo}</caption>
         {children}
       </table>
     </div>

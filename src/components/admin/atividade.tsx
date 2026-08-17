@@ -39,6 +39,31 @@ const ROTULO: Record<string, string> = {
   backup: "Backup",
 };
 
+/**
+ * O ESTADO, em português.
+ *
+ * O badge mostrava `i.status` cru — o valor do banco. Numa interface
+ * inteiramente em português, apareciam "QUEUED" e "PREVIEW" em caixa-alta,
+ * as únicas palavras em inglês na tela. Não é detalhe de tradução: `preview`
+ * não diz a ninguém que a importação está PARADA esperando revisão, e é
+ * justamente esse o estado em que ela precisa de uma ação humana.
+ *
+ * O mapa de `tipo` logo acima já fazia isso desde sempre. Faltou aplicar a
+ * mesma ideia ao vizinho de baixo — o tipo de omissão que só se vê olhando a
+ * tela, porque nada quebra.
+ */
+const ROTULO_STATUS: Record<string, string> = {
+  queued: "na fila",
+  running: "rodando",
+  extracting: "extraindo",
+  inferring: "analisando",
+  importing: "importando",
+  improving: "melhorando",
+  processing: "processando",
+  preview: "aguardando revisão",
+  error: "erro",
+};
+
 const INTERVALO = 15_000;
 
 
@@ -159,7 +184,7 @@ export function Atividade() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-text">{ROTULO[i.tipo] ?? i.tipo}</span>
                         <Badge tone={i.status === "error" ? "danger" : "info"}>
-                          {i.status === "error" ? "erro" : i.status}
+                          {ROTULO_STATUS[i.status] ?? i.status}
                         </Badge>
                         {i.status !== "error" && (
                           <span className="ml-auto text-2xs tabular-nums text-text-muted">{i.progresso}%</span>
