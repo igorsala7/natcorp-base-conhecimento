@@ -60,15 +60,30 @@ export function EditAffordance({
   const destino = `/admin/previa/${spaceId}?edit=1${nodeId ? `#${ancoraDePrevia(nodeId)}` : ""}`;
 
   return (
-    <a
-      href={destino}
-      target="_blank"
-      rel="noopener"
-      title="Abrir a documentação inteira em modo edição, incluindo o que não foi publicado"
-      className="fixed bottom-4 left-4 z-40 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium shadow-2 transition-colors hover:border-primary hover:text-primary"
+    /**
+     * Envolto num landmark de propósito.
+     *
+     * Sendo `fixed`, o botão fica fora de `<main>`, de `<nav>` e de qualquer
+     * outra região — e conteúdo fora de landmark some do atalho "pular entre
+     * regiões" que leitores de tela oferecem. Numa página de leitura, o único
+     * jeito de alcançá-lo seria tabular o artigo inteiro.
+     *
+     * `<nav>` e não `<div>`: o conteúdo é um link para outra tela.
+     */
+    <nav
+      aria-label="Edição da documentação"
+      className="fixed bottom-4 left-4 z-40"
     >
-      <Pencil className="size-4" />
-      Modo edição
-    </a>
+      <a
+        href={destino}
+        target="_blank"
+        rel="noopener"
+        title="Abrir a documentação inteira em modo edição, incluindo o que não foi publicado"
+        className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium shadow-2 transition-colors hover:border-primary hover:text-primary"
+      >
+        <Pencil className="size-4" />
+        Modo edição
+      </a>
+    </nav>
   );
 }

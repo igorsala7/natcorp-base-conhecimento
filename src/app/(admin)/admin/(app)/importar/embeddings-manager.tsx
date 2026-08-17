@@ -556,7 +556,7 @@ export function EmbeddingsManager({
             description="Gere acima (por arquivo ou selecionando um diretório/artigo) ou publique artigos para o chatbot indexar o conteúdo."
           />
         ) : (
-          <DataTable>
+          <DataTable rotulo="Artigos e situação dos embeddings">
             <DataHead>
               <Th>Origem</Th>
               <Th>Documentação</Th>

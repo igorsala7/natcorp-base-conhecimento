@@ -59,9 +59,16 @@ export function Tabs({
   value,
   onChange,
   className,
+  comPainel = false,
   "aria-label": ariaLabel = "Seções da página",
 }: {
   tabs: Aba[];
+  /**
+   * `true` só quando o conteúdo está dentro de um `<TabPanel>`. Liga o
+   * `aria-controls` — que sem o painel apontaria para o vazio. Ver o comentário
+   * no atributo.
+   */
+  comPainel?: boolean;
   /**
    * Nome do parâmetro na URL. Com ele, o componente lê e escreve sozinho.
    * `null` = controlado por `value`/`onChange` — só para abas DENTRO de um
@@ -138,7 +145,23 @@ export function Tabs({
             role="tab"
             id={`aba-${t.key}`}
             aria-selected={ativa}
-            aria-controls={`painel-${t.key}`}
+            /**
+             * `aria-controls` só quando o painel EXISTE.
+             *
+             * Ele era incondicional e apontava para `painel-<key>`, que só o
+             * `TabPanel` renderiza — e o `TabPanel` é usado em UM arquivo, a
+             * vitrine do design system. Nas doze telas reais, toda aba
+             * declarava controlar um elemento inexistente: violação crítica
+             * (`aria-valid-attr-value`), e o leitor de tela anuncia uma relação
+             * quebrada, que é pior que relação nenhuma.
+             *
+             * É o mesmo formato do defeito do `fieldAria`: o primitivo exporta
+             * o par correto, a vitrine demonstra, e nenhuma tela real usa. Aqui
+             * a saída é diferente — em vez de injetar, o componente para de
+             * afirmar o que não pode garantir. Quem renderiza `TabPanel` liga o
+             * atributo passando `comPainel`.
+             */
+            aria-controls={comPainel ? `painel-${t.key}` : undefined}
             // Só a aba ativa entra na ordem de Tab; dentro do tablist, as setas
             // é que navegam. É o padrão ARIA, e evita 9 paradas de Tab seguidas.
             tabIndex={ativa ? 0 : -1}

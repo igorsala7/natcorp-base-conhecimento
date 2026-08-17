@@ -103,7 +103,7 @@ export default async function AuditoriaPage({
       </div>
 
       <div className="mt-4">
-        <DataTable>
+        <DataTable rotulo="Registro de auditoria">
           <DataHead>
             <Th>Quando</Th>
             <Th>Ator</Th>

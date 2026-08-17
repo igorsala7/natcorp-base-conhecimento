@@ -275,7 +275,7 @@ function AbaIA({
           />
         ) : (
           <div className="mt-4">
-            <DataTable>
+            <DataTable rotulo="Provedores de IA">
               <DataHead>
                 <Th>Nome</Th>
                 <Th>Tipo</Th>
@@ -325,6 +325,11 @@ function AbaIA({
                           size="sm"
                           variant="ghost"
                           disabled={pending}
+                          // Só o ícone: sem rótulo, o leitor de tela anunciava
+                          // "botão" três vezes seguidas numa tabela e não dizia
+                          // o que cada um exclui. Nomeia o PROVEDOR, não a ação
+                          // — quem navega botão a botão precisa do alvo.
+                          aria-label={`Excluir o provedor ${p.name}`}
                           onClick={async () => {
                             if (
                               await confirmar({
@@ -656,7 +661,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por IA</h3>
-            <DataTable>
+            <DataTable rotulo="Finalidades de IA">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th className="text-right">Envio</Th>
@@ -684,7 +689,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por modelo</h3>
-            <DataTable>
+            <DataTable rotulo="Modelos e preços">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th>Modelo</Th>
@@ -714,7 +719,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por IA, modelo e ação</h3>
-            <DataTable>
+            <DataTable rotulo="Limites por base">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th>Modelo</Th>

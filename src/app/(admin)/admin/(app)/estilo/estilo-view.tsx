@@ -32,7 +32,9 @@ export function EstiloView() {
       titulo="Estilo"
       descricao="Todo primitivo em todos os estados. É a superfície de revisão do sistema de design e o alvo dos snapshots — troque o tema no topo para conferir os dois."
       largura="wide"
-      abas={<Tabs tabs={ABAS} aria-label="Áreas do sistema de design" />}
+      // `comPainel`: esta é a única tela que envolve o conteúdo em `TabPanel`,
+      // então é a única em que o `aria-controls` das abas tem destino.
+      abas={<Tabs tabs={ABAS} comPainel aria-label="Áreas do sistema de design" />}
     >
       <TabPanel aba="controles" atual={aba} className="space-y-10">
         <Section titulo="Botão — variantes" descricao="Uma primária por tela. As demais são subordinadas.">

@@ -203,6 +203,10 @@ export function Sidebar({
       </Sheet>
 
       <aside
+        // Dois <aside> na mesma página (esta barra e a coluna da árvore) sem
+        // rótulo fazem o leitor anunciar "complementar" duas vezes, sem
+        // distinguir uma da outra. Nomear é o que torna o landmark útil.
+        aria-label="Menu principal"
         data-testid="menu-lateral"
         className={cn(
           "hidden shrink-0 border-r border-border bg-surface transition-[width] duration-200 md:block",

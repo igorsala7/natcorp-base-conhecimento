@@ -309,7 +309,7 @@ export function BackupPanel({
       <Surface elevation={1} padding="lg">
         <h2 className={eyebrowLabel}>Backups realizados</h2>
         <div className="mt-4">
-          <DataTable>
+          <DataTable rotulo="Backups">
             <DataHead>
               <Th>Quando</Th>
               <Th>Tipo</Th>

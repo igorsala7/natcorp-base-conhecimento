@@ -16,7 +16,7 @@ import {
   getRelatedArticles,
   getArticleBylines,
 } from "@/lib/portal/data";
-import { RenderBlocks } from "@/lib/blocks/render";
+import { RenderBlocks, deslocamentoDeHeading } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { PortalShell, Breadcrumbs, spaceChrome } from "@/components/portal/shell";
@@ -389,9 +389,23 @@ export default async function DocsPage({
               {i > 0 && sections[i - 1]?.kind === "article" && (
                 <hr className="mb-10 w-full border-border/60" />
               )}
-              <h3 className="text-2xl font-bold leading-tight">
-                {s.node.title}
-              </h3>
+              {/**
+                * O NÍVEL segue a profundidade, como o tamanho já seguia.
+                *
+                * Era `h3` fixo. A escada da página é h1 (a pasta aberta) → h2
+                * (seção-pasta) → h3 (artigo dentro dela); com o `h3` fixo, um
+                * artigo no PRIMEIRO nível vinha logo depois do h1 e pulava o
+                * h2. Quem navega por títulos lê o salto como "existe um nível
+                * aqui que eu não alcancei".
+                *
+                * `s.depth <= 1` é o mesmo sinal que a seção-pasta já usa para
+                * escolher o tamanho — agora ele decide as duas coisas, que é o
+                * que impede as duas de divergirem.
+                */}
+              {(() => {
+                const Titulo = s.depth <= 1 ? "h2" : "h3";
+                return <Titulo className="text-2xl font-bold leading-tight">{s.node.title}</Titulo>;
+              })()}
               {(s.updatedAt || bylines.get(s.node.id)?.author) && (
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
                   {bylines.get(s.node.id)?.author && (
@@ -442,10 +456,18 @@ export default async function DocsPage({
                   ))}
                 </p>
               )}
-              {/* headingShift=2: o H1 do conteúdo vira H3 — um degrau ABAIXO do
-                  título do artigo (H3 visual 24px), nunca acima dele. */}
+              {/* O menor título do conteúdo cai UM degrau abaixo do título do
+                  artigo — que é `h2` no primeiro nível e `h3` mais fundo. Era
+                  `headingShift={2}` fixo, o que só funcionava para artigos que
+                  começam em `h1`; os que começam em `h2` pulavam um degrau.
+                  Ver `deslocamentoDeHeading`. */}
               <div className="prose prose-neutral prose-portal mt-5 max-w-none dark:prose-invert">
-                <RenderBlocks blocks={s.blocks} snippets={snippets} idPrefix={s.prefix} headingShift={2} />
+                <RenderBlocks
+                  blocks={s.blocks}
+                  snippets={snippets}
+                  idPrefix={s.prefix}
+                  headingShift={deslocamentoDeHeading(s.blocks, s.depth <= 1 ? 3 : 4)}
+                />
               </div>
               <Feedback nodeId={s.node.id} supportUrl={supportUrl} />
             </section>

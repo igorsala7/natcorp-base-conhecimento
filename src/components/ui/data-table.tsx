@@ -12,12 +12,33 @@ import { cn } from "@/lib/utils";
 export function DataTable({
   children,
   className,
+  rotulo = "Tabela",
   ...props
-}: React.HTMLAttributes<HTMLTableElement>) {
+}: React.HTMLAttributes<HTMLTableElement> & {
+  /** Nome da região rolável, anunciado ao chegar nela pelo teclado. */
+  rotulo?: string;
+}) {
   return (
-    // O scroll fica AQUI dentro: uma tabela larga nunca pode fazer a página
-    // rolar na horizontal.
-    <div className="overflow-x-auto rounded-lg border border-border">
+    /**
+     * O scroll fica AQUI dentro: uma tabela larga nunca pode fazer a página
+     * rolar na horizontal.
+     *
+     * ── E quem rola precisa ALCANÇAR ────────────────────────────────────────
+     * Um contêiner com `overflow-x-auto` rola com a roda do mouse e com o
+     * gesto de arrastar, e não rola com o teclado: sem `tabIndex`, ele nunca
+     * recebe foco, e as setas continuam rolando a PÁGINA. Numa tabela de nove
+     * colunas a 1024px, as últimas colunas ficam inalcançáveis para quem não
+     * usa mouse — o dado existe e não há como chegar nele.
+     *
+     * `role="region"` + nome: a parada de tabulação a mais só se justifica se,
+     * ao chegar nela, o leitor de tela disser o que é.
+     */
+    <div
+      tabIndex={0}
+      role="region"
+      aria-label={rotulo}
+      className="overflow-x-auto rounded-lg border border-border"
+    >
       <table className={cn("w-full text-sm", className)} {...props}>
         {children}
       </table>

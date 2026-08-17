@@ -115,7 +115,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
             description="Suba manuais, tabelas de preço ou procedimentos que o chatbot deve conhecer sem que virem artigos publicados."
           />
         ) : (
-          <DataTable>
+          <DataTable rotulo="Arquivos da base de conhecimento">
             <DataHead>
               <Th>Arquivo</Th>
               <Th>Situação</Th>

@@ -738,6 +738,49 @@ function renderEmbed(block: Extract<Block, { type: "embed" }>): ReactNode {
 // ── entrypoints ──────────────────────────────────────────────────────────────
 
 /**
+ * O DESLOCAMENTO DE TÍTULOS, calculado em vez de fixo.
+ *
+ * A leitura contínua empilha vários artigos sob um título de página, e cada
+ * artigo tem os próprios títulos internos. Para a escada não quebrar, o MENOR
+ * título do conteúdo precisa cair exatamente um degrau abaixo do título do
+ * artigo — e um `headingShift` constante não garante isso: ele assume que todo
+ * artigo começa em `h1`.
+ *
+ * Os que começam em `h2` (comuns em conteúdo importado) caíam em `h4` com o
+ * artigo em `h2`, deixando o `h3` vazio no meio. Quem navega por títulos lê o
+ * buraco como um nível que existe e não foi alcançado.
+ *
+ * Devolve `null` quando não há título nenhum — aí qualquer deslocamento serve.
+ */
+export function menorNivelDeHeading(blocks: Block[]): number | null {
+  let menor: number | null = null;
+  const anda = (bs: Block[]) => {
+    for (const b of bs) {
+      if (b.type === "heading") {
+        const n = b.data.level;
+        if (menor === null || n < menor) menor = n;
+      }
+      if ("children" in b && Array.isArray(b.children)) anda(b.children);
+    }
+  };
+  anda(blocks);
+  return menor;
+}
+
+/**
+ * Quanto deslocar para que o menor título do conteúdo vire `nivelAlvo`.
+ *
+ * `nivelAlvo` é sempre "um abaixo do título do artigo". Nunca negativo: um
+ * conteúdo que já começa fundo não deve SUBIR e passar por cima do título que
+ * o contém — só o buraco no meio da escada é defeito, empurrar para baixo não.
+ */
+export function deslocamentoDeHeading(blocks: Block[], nivelAlvo: number): number {
+  const menor = menorNivelDeHeading(blocks);
+  if (menor === null) return 0;
+  return Math.max(0, nivelAlvo - menor);
+}
+
+/**
  * Extrai H2/H3 para o índice da página (MESMA slugificação do render — passe o
  * mesmo `idPrefix` usado em <RenderBlocks> para as âncoras baterem).
  */

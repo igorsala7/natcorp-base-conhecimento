@@ -51,10 +51,23 @@ const DEFAULT = 288; // = w-72
 export function ContentShell({
   aside,
   children,
+  titulo,
   defaultCollapsed = false,
 }: {
   aside: ReactNode;
   children: ReactNode;
+  /**
+   * O `<h1>` da página, invisível.
+   *
+   * As telas de tela cheia não passam pelo `PageShell`, então não tinham
+   * cabeçalho nenhum — e uma página sem `<h1>` deixa quem usa leitor de tela
+   * sem a primeira resposta que ele procura ("onde eu caí?"). O atalho de
+   * navegar por títulos simplesmente não encontrava nada.
+   *
+   * `sr-only` e não visível: a resposta visual aqui é a própria árvore ao lado,
+   * e um título grande roubaria a altura que o editor usa.
+   */
+  titulo: string;
   /** Começa com a árvore recolhida num trilho fino (página do editor). */
   defaultCollapsed?: boolean;
 }) {
@@ -133,6 +146,7 @@ export function ContentShell({
    */
   const trilho = (aoClicar: () => void, soNoCelular: boolean) => (
     <aside
+      aria-label="Árvore de conteúdo (recolhida)"
       className={cn(
         "mr-3 w-11 shrink-0 flex-col items-center rounded-lg border border-border bg-surface py-2",
         soNoCelular ? "flex md:hidden" : "hidden md:flex",
@@ -174,7 +188,9 @@ export function ContentShell({
       style={gaveta ? undefined : { width }}
       role={gaveta ? "dialog" : undefined}
       aria-modal={gaveta || undefined}
-      aria-label={gaveta ? "Árvore de conteúdo" : undefined}
+      // Rotulado SEMPRE: como gaveta é o nome do diálogo, como coluna é o nome
+      // do landmark que a distingue do menu principal.
+      aria-label="Árvore de conteúdo"
       className={cn(
         "shrink-0 flex-col overflow-auto border border-border bg-surface p-3",
         "hidden rounded-lg md:flex",
@@ -213,6 +229,7 @@ export function ContentShell({
   if (collapsed) {
     return (
       <div data-fullbleed className="flex h-full">
+        <h1 className="sr-only">{titulo}</h1>
         {scrim}
         {/* Recolhida no desktop, a coluna some — mas a gaveta do celular
             continua precisando dela montada, então ela só é renderizada
@@ -227,6 +244,7 @@ export function ContentShell({
 
   return (
     <div data-fullbleed className="flex h-full">
+      <h1 className="sr-only">{titulo}</h1>
       {scrim}
       {/* No celular a coluna some por CSS e o trilho a substitui. */}
       {trilho(() => setGaveta(true), true)}

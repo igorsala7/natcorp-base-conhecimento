@@ -74,7 +74,14 @@ function Secao({ metodo, path, titulo, children }: { metodo: string; path: strin
   );
 }
 
-const H = ({ children }: { children: ReactNode }) => <h4 className="text-sm font-semibold text-text">{children}</h4>;
+/**
+ * `h3`, não `h4`: o cabeçalho da seção acima é `h2`, então pular para `h4`
+ * abria um buraco na escada. Quem navega por títulos usa os níveis como
+ * estrutura — um salto sugere um nível intermediário que não existe, e o
+ * tamanho na tela (14px) não muda: hierarquia semântica e tamanho visual são
+ * decisões separadas.
+ */
+const H = ({ children }: { children: ReactNode }) => <h3 className="text-sm font-semibold text-text">{children}</h3>;
 
 // ————————————————————————————————————————————————————————————————
 // Exemplos (strings simples — sem `${}` nem crases internas)
