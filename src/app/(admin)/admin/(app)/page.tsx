@@ -23,7 +23,19 @@ export const metadata: Metadata = { title: "Painel" };
 /** Painel do admin (padrão Lumina) — números reais, ranking e pendências. */
 export default async function AdminHome() {
   const supabase = await createClient();
-  const [spaces, articles, published, review, convs, gaps, viewsRows, fbRows, draftRows] =
+  /**
+   * A AGREGAÇÃO É DO POSTGRES, NÃO DAQUI.
+   *
+   * Esta tela lia `article_views` e `article_feedback` cruas — sem `limit`, sem
+   * paginação — e somava em JavaScript. O teto do PostgREST é 1.000 linhas e
+   * não é um erro: é um corte silencioso. Passado o milésimo registro, três
+   * números da primeira tela do dia congelariam sem sinal nenhum.
+   *
+   * Ver `20260817150000_painel_agregado.sql`. As RPCs rodam como INVOCADOR, então
+   * a RLS das duas tabelas continua valendo — a agregação enxerga exatamente o
+   * que a pessoa já podia ler.
+   */
+  const [spaces, articles, published, review, convs, gaps, resumo, topRows, draftRows] =
     await Promise.all([
       supabase.from("spaces").select("id", { count: "exact", head: true }),
       supabase.from("nodes").select("id", { count: "exact", head: true }).eq("type", "article").is("deleted_at", null),
@@ -32,8 +44,8 @@ export default async function AdminHome() {
       supabase.from("conversations").select("id", { count: "exact", head: true }),
       // Só o portal: busca do admin é o time procurando, não leitor sem resposta.
       supabase.from("search_logs").select("id", { count: "exact", head: true }).eq("results_count", 0).eq("origin", "portal"),
-      supabase.from("article_views").select("node_id, views"),
-      supabase.from("article_feedback").select("node_id, helpful"),
+      supabase.rpc("painel_resumo"),
+      supabase.rpc("painel_top_artigos", { p_limit: 6 }),
       supabase
         .from("nodes")
         .select("id, title, updated_at")
@@ -44,44 +56,19 @@ export default async function AdminHome() {
         .limit(5),
     ]);
 
-  // Ranking "melhor desempenho": views somadas + % útil do feedback.
-  const viewsPorNode = new Map<string, number>();
-  for (const r of viewsRows.data ?? []) {
-    viewsPorNode.set(r.node_id, (viewsPorNode.get(r.node_id) ?? 0) + r.views);
-  }
-  const fbPorNode = new Map<string, { sim: number; total: number }>();
-  for (const r of fbRows.data ?? []) {
-    const f = fbPorNode.get(r.node_id) ?? { sim: 0, total: 0 };
-    f.total += 1;
-    if (r.helpful) f.sim += 1;
-    fbPorNode.set(r.node_id, f);
-  }
-  const topIds = [...viewsPorNode.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const { data: topNodes } = topIds.length
-    ? await supabase
-        .from("nodes")
-        .select("id, title, status")
-        .in("id", topIds.map(([id]) => id))
-    : { data: [] as { id: string; title: string; status: string }[] };
-  const top = topIds
-    .map(([id, views]) => {
-      const node = (topNodes ?? []).find((n) => n.id === id);
-      if (!node) return null;
-      const fb = fbPorNode.get(id);
-      return {
-        id,
-        title: node.title,
-        status: node.status,
-        views,
-        util: fb && fb.total > 0 ? Math.round((fb.sim / fb.total) * 100) : null,
-      };
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-
-  const totalFb = (fbRows.data ?? []).length;
-  const totalSim = (fbRows.data ?? []).filter((r) => r.helpful).length;
+  const agregado = resumo.data?.[0];
+  const totalViews = Number(agregado?.total_views ?? 0);
+  const totalFb = Number(agregado?.feedback_total ?? 0);
+  const totalSim = Number(agregado?.feedback_util ?? 0);
   const satisfacao = totalFb > 0 ? Math.round((totalSim / totalFb) * 100) : null;
-  const totalViews = [...viewsPorNode.values()].reduce((a, b) => a + b, 0);
+
+  const top = (topRows.data ?? []).map((r) => ({
+    id: r.node_id,
+    title: r.title,
+    status: r.status,
+    views: Number(r.views),
+    util: r.util_pct,
+  }));
 
   const cards = [
     {

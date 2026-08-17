@@ -31,6 +31,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
@@ -257,7 +258,7 @@ export function FlowManager({
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-text">Fluxo de agentes e ferramentas</h2>
+        <h2 className={sectionTitleClass}>Fluxo de agentes e ferramentas</h2>
         <div className="flex items-center gap-2">
           {editMode && (
             <>

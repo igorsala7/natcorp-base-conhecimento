@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronsRight, ChevronsLeft, Search } from "lucide-react";
+import { ChevronsRight, ChevronsLeft } from "lucide-react";
+import { SearchInput } from "./search-input";
 import { cn } from "@/lib/utils";
 
 export type ShuttleItem = { id: string; label: string; sub?: string };
@@ -69,16 +70,7 @@ export function Shuttle({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Filtrar…"
-          aria-label="Filtrar itens"
-          className="w-full rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-sm text-text outline-none placeholder:text-text-muted focus:border-[var(--color-primary)]"
-        />
-      </div>
+      <SearchInput value={q} onChange={setQ} label="Filtrar itens" placeholder="Filtrar…" />
       <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2">
         <Column
           title={leftTitle}

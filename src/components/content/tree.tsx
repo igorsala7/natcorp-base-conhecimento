@@ -15,10 +15,11 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CheckCircle2, ExternalLink, FileText, FilePlus, FoldVertical, Folder, FolderPlus, Link2, ListFilter, Minus, MoreHorizontal, Network, Pencil, Plus, Replace, Search, Shapes, Sparkles, Trash2, UnfoldVertical, Wand2, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileText, FilePlus, FoldVertical, Folder, FolderPlus, Link2, ListFilter, Minus, MoreHorizontal, Network, Pencil, Plus, Replace, Shapes, Sparkles, Trash2, UnfoldVertical, Wand2, X } from "lucide-react";
 import type { TreeNode } from "@/lib/content/tree";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
 import { controlClass } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -925,33 +926,24 @@ export function Tree({
 
         {/* Busca com autocomplete na árvore INTEIRA. */}
         <div ref={buscaWrapRef} className="relative mt-2">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-          <input
+          {/* Foi ESTA instância que deu origem ao `SearchInput`: era a única das
+              dez cópias com botão de limpar. O primitivo levou o botão para as
+              outras nove — e trouxe de volta o foco devolvido ao campo, que
+              aqui faltava (limpar deixava o foco no <body>). */}
+          <SearchInput
             value={busca}
-            onChange={(e) => {
-              setBusca(e.target.value);
-              setBuscaAberta(true);
+            onChange={(v) => {
+              setBusca(v);
+              // Limpar fecha o autocomplete; digitar abre.
+              setBuscaAberta(v !== "");
               setBuscaSel(0);
             }}
             onFocus={() => setBuscaAberta(true)}
             onKeyDown={onBuscaKey}
+            label="Buscar na árvore"
             placeholder="Buscar na árvore…"
-            aria-label="Buscar na árvore"
-            className={`${controlClass} h-8 w-full pl-8 pr-7 text-sm`}
+            className="h-8 py-1 text-sm"
           />
-          {busca && (
-            <button
-              type="button"
-              onClick={() => {
-                setBusca("");
-                setBuscaAberta(false);
-              }}
-              aria-label="Limpar busca"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted hover:bg-surface-2 hover:text-text"
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
 
           {buscaAberta && busca.trim() && (
             <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-[22rem] overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-2">

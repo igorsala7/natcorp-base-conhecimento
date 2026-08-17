@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Replace, FileText, CornerDownRight, Loader2 } from "lucide-react";
+import { Replace, FileText, CornerDownRight, Loader2, Search } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
@@ -139,25 +140,23 @@ export function GlobalFindReplace({
       <div className="space-y-3">
         {/* Linha de busca */}
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-            <Input
-              autoFocus
-              value={term}
-              onChange={(e) => {
-                setTerm(e.target.value);
-                if (buscou) reset();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void buscar();
-                }
-              }}
-              placeholder="Localizar…"
-              className="pl-8"
-            />
-          </div>
+          <SearchInput
+            autoFocus
+            value={term}
+            onChange={(v) => {
+              setTerm(v);
+              if (buscou) reset();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void buscar();
+              }
+            }}
+            label="Localizar em todos os artigos"
+            placeholder="Localizar…"
+            wrapperClassName="flex-1"
+          />
           <button
             type="button"
             onClick={() => setCaseSensitive((v) => !v)}

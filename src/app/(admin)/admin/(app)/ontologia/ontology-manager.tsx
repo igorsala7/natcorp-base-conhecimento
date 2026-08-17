@@ -6,6 +6,7 @@ import { FileText, Loader2, Network, Pencil, Plus, ScanSearch, Sparkles, Target,
 import { createClient } from "@/lib/supabase/client";
 import { ACCEPT_ATTR } from "@/lib/importer/file-guard";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -209,7 +210,7 @@ export function OntologyManager({
         <div className="flex flex-wrap items-start gap-3">
           <ScanSearch className="mt-0.5 size-5 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold">Varredura por IA</h2>
+            <h2 className={sectionTitleClass}>Varredura por IA</h2>
             <p className="mt-0.5 text-sm text-text-muted">
               A IA configurada no Chat lê todos os artigos desta documentação e sugere termos +
               sinônimos, já cadastrados como origem “IA”. Termos que você editou à mão são preservados.
@@ -292,7 +293,7 @@ export function OntologyManager({
           <div className="flex flex-wrap items-start gap-3">
             <Upload className="mt-0.5 size-5 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold">Importar termos de arquivo</h2>
+              <h2 className={sectionTitleClass}>Importar termos de arquivo</h2>
               <p className="mt-0.5 text-sm text-text-muted">
                 Suba um arquivo com uma lista de palavras (txt, csv, planilha, Word, PDF…). O sistema
                 cria cada termo e <strong>gera os sinônimos por IA</strong>, sem duplicar o que já existe.
@@ -329,7 +330,7 @@ export function OntologyManager({
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold">
+            <h2 className={sectionTitleClass}>
               Termos <span className="tabular-nums text-text-muted">({initialTerms.length})</span>{" "}
               <span className="font-normal text-text-muted">· {totalAliases} sinônimo(s)</span>
             </h2>

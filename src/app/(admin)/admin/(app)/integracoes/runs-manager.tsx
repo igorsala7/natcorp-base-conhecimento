@@ -2,11 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Database, RefreshCw, Search, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, Database, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Segmented } from "@/components/ui/segmented";
+import { SearchInput } from "@/components/ui/search-input";
+import { controlClass } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 export type RunRow = {
   id: string;
@@ -73,7 +77,7 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-text">Execuções das ferramentas</h2>
+        <h2 className={sectionTitleClass}>Execuções das ferramentas</h2>
         <Button size="sm" variant="secondary" onClick={() => router.refresh()}>
           <RefreshCw /> Atualizar
         </Button>
@@ -84,16 +88,13 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
       </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-48 flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filtrar por tool, base, agente, perfil, usuário, empresa, matrícula, portal…"
-            aria-label="Filtrar execuções"
-            className="w-full rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-sm text-text outline-none placeholder:text-text-muted focus:border-[var(--color-primary)]"
-          />
-        </div>
+        <SearchInput
+          value={q}
+          onChange={setQ}
+          label="Filtrar execuções"
+          placeholder="Filtrar por tool, base, agente, perfil, usuário, empresa, matrícula, portal…"
+          wrapperClassName="min-w-48 flex-1"
+        />
         <label className="flex items-center gap-1 text-xs text-text-muted">
           De
           <input
@@ -101,7 +102,7 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
             value={de}
             onChange={(e) => setDe(e.target.value)}
             aria-label="Data inicial"
-            className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-[var(--color-primary)]"
+            className={cn(controlClass, "w-auto px-2 py-1")}
           />
         </label>
         <label className="flex items-center gap-1 text-xs text-text-muted">
@@ -111,7 +112,7 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
             value={ate}
             onChange={(e) => setAte(e.target.value)}
             aria-label="Data final"
-            className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-[var(--color-primary)]"
+            className={cn(controlClass, "w-auto px-2 py-1")}
           />
         </label>
         <Segmented

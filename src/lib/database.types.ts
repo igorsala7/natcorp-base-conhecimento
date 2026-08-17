@@ -2469,6 +2469,7 @@ export type Database = {
           p_portal: string | null
           p_usuario: string | null
           page: Json | null
+          rag_memoria: Json
           session_id: string | null
           space_id: string
           user_ref: string | null
@@ -2488,6 +2489,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          rag_memoria?: Json
           session_id?: string | null
           space_id: string
           user_ref?: string | null
@@ -2507,6 +2509,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          rag_memoria?: Json
           session_id?: string | null
           space_id?: string
           user_ref?: string | null
@@ -4753,6 +4756,23 @@ export type Database = {
       register_article_view: {
         Args: { p_node_id: string }
         Returns: undefined
+      }
+      // Agregação do Painel no banco. A leitura crua estourava o teto de 1.000
+      // linhas do PostgREST em silêncio — ver 20260817150000_painel_agregado.sql.
+      painel_resumo: {
+        Args: Record<string, never>
+        Returns: { total_views: number; feedback_total: number; feedback_util: number }[]
+      }
+      painel_top_artigos: {
+        Args: { p_limit?: number }
+        Returns: {
+          node_id: string
+          title: string
+          status: string
+          views: number
+          /** `null` = nenhuma avaliação ainda. Não é o mesmo que 0%. */
+          util_pct: number | null
+        }[]
       }
       embeddings_report: {
         Args: { p_space_id?: string | null }

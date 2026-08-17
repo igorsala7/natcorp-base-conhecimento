@@ -2,9 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UserCog, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { UserCog, Pencil, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
+import { SearchInput } from "@/components/ui/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -90,7 +92,7 @@ export function ProfilesManager({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-text">Perfis de Análise</h2>
+        <h2 className={sectionTitleClass}>Perfis de Análise</h2>
         <Button size="sm" onClick={() => setDialog({})}>
           <Plus /> Novo perfil
         </Button>
@@ -309,15 +311,13 @@ function ProfileDialog({
             <p className="text-xs text-text-muted">Nenhum módulo sincronizado ainda (sincronize a base na aba APIs).</p>
           ) : (
             <>
-              <div className="relative mb-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-                <input
-                  className={cn(controlClass, "pl-8")}
-                  placeholder="Filtrar módulos…"
-                  value={filtroMod}
-                  onChange={(e) => setFiltroMod(e.target.value)}
-                />
-              </div>
+              <SearchInput
+                value={filtroMod}
+                onChange={setFiltroMod}
+                label="Filtrar módulos"
+                placeholder="Filtrar módulos…"
+                wrapperClassName="mb-2"
+              />
               {modulosFiltrados.length === 0 ? (
                 <p className="px-1 py-2 text-xs text-text-muted">Nenhum módulo para “{filtroMod}”.</p>
               ) : (

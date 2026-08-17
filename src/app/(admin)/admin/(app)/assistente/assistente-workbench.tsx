@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Surface } from "@/components/ui/surface";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { controlClass } from "@/components/ui/input";
@@ -57,7 +58,7 @@ export function AssistantWorkbench({
       <div className="w-full shrink-0 lg:h-full lg:w-[26rem] lg:overflow-y-auto lg:pr-1">
         <Surface elevation={1} padding="lg" className="space-y-4">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+            <h2 className={sectionTitleClass}>
               Parametrização
             </h2>
             <p className="mt-1 text-xs text-text-muted">
@@ -117,7 +118,7 @@ export function AssistantWorkbench({
         {bases.length > 0 && (
           <Surface elevation={1} padding="lg" className="mt-4 space-y-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+              <h2 className={sectionTitleClass}>
                 Simular identidade
               </h2>
               <p className="mt-1 text-xs text-text-muted">

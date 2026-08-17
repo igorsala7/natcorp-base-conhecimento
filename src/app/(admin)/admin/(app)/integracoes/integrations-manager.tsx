@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, KeyRound, Pencil, Plus, ShieldAlert, Stethoscope, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -154,7 +155,7 @@ export function IntegrationsManager({
       )}
 
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-text">Bases / Clientes</h2>
+        <h2 className={sectionTitleClass}>Bases / Clientes</h2>
         <Button size="sm" onClick={() => setBaseDialog({})}>
           <Plus /> Nova base
         </Button>

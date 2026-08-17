@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Send, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -118,7 +119,7 @@ export function BuilderChat() {
   return (
     <div>
       <div className="mb-3">
-        <h2 className="text-sm font-semibold text-text">Construtor de IA</h2>
+        <h2 className={sectionTitleClass}>Construtor de IA</h2>
         <p className="mt-1 text-xs text-text-muted">
           Converse para montar e editar o esquema: ferramentas/APIs, agentes e vínculos. O assistente
           <strong> não apaga nada</strong> nem mexe em credenciais/segredos — isso continua manual nas abas.

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { createApiKey, revokeApiKey } from "./actions";
@@ -75,7 +76,7 @@ export function ApiKeysManager({ keys }: { keys: KeyRow[] }) {
       )}
 
       <div className="rounded-xl border border-border bg-surface p-4">
-        <h2 className="text-sm font-semibold text-text">Nova chave</h2>
+        <h2 className={sectionTitleClass}>Nova chave</h2>
         <div className="mt-3 flex flex-col gap-3">
           <input
             className={controlClass}

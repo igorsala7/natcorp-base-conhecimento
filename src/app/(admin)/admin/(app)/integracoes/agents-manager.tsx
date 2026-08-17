@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Network, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -76,7 +77,7 @@ export function AgentsManager({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-text">Agentes</h2>
+        <h2 className={sectionTitleClass}>Agentes</h2>
         <Button size="sm" onClick={() => setDialog({})}>
           <Plus /> Novo agente
         </Button>

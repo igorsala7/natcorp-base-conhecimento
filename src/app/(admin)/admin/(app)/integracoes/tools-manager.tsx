@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } f
 import { useRouter } from "next/navigation";
 import { Play, Braces, Copy, Globe, List, Pencil, Plus, Table as TableIcon, Trash2, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -261,7 +262,7 @@ export function ToolsManager({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-text">Catálogo de APIs / Tools</h2>
+        <h2 className={sectionTitleClass}>Catálogo de APIs / Tools</h2>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-lg border border-border p-0.5">
             <ViewButton active={view === "lista"} onClick={() => setView("lista")} title="Lista">

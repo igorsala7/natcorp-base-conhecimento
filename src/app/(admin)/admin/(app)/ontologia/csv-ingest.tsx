@@ -3,6 +3,7 @@
 import { useRef, useTransition } from "react";
 import { FileUp, Table2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Surface } from "@/components/ui/surface";
 import { controlClass } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
@@ -55,7 +56,7 @@ export function CsvIngest({ spaceId, onImportado }: { spaceId: string; onImporta
     <Surface elevation={1} padding="lg" className="space-y-4">
       <div className="flex items-center gap-2">
         <Table2 className="size-5 text-primary" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-text">Tabelas e colunas (CSV ou JSON)</h2>
+        <h2 className={sectionTitleClass}>Tabelas e colunas (CSV ou JSON)</h2>
       </div>
 
       <p className="text-xs leading-relaxed text-text-muted">

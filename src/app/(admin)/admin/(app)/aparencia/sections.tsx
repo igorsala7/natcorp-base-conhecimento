@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, Search, Star, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
 import { eyebrowLabel } from "@/components/ui/field";
 import { addItemClass } from "@/components/ui/segmented";
 import { Input, controlClass } from "@/components/ui/input";
@@ -274,16 +275,12 @@ export function DestaquesPicker({
 
       {featured.length < max ? (
         <div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar artigo publicado…"
-              aria-label="Buscar artigo para destacar"
-              className={`${controlClass} pl-8`}
-            />
-          </div>
+          <SearchInput
+            value={busca}
+            onChange={setBusca}
+            label="Buscar artigo para destacar"
+            placeholder="Buscar artigo publicado…"
+          />
           {sugestoes.length > 0 && (
             <ul className="mt-1 overflow-hidden rounded-md border border-border bg-surface">
               {sugestoes.map((a) => (
