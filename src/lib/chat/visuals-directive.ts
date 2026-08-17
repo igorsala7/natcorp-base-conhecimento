@@ -58,7 +58,15 @@ export function visualsExtras(): string {
     "colunas/barras/linha/área, nunca em pizza/rosca, e só quando agregam algo.\n" +
     "- Escolha do formato: lista de dados → xlsx (ou csv); texto/passo a passo → pdf ou docx; apresentação → pptx. " +
     "Se o usuário não disse e não está claro, PERGUNTE.\n" +
-    "- Nos blocos `texto` você pode usar markdown (`##`, **negrito**, listas) — o gerador converte de verdade.\n" +
+    "- O FORMATO decide a densidade. pptx = APRESENTAR: uma ideia por slide, 2 a 4 números, o detalhe vai em `nota` " +
+    "(notas do apresentador). pdf/docx = LER: capa, seções, análise e a tabela inteira. xlsx/csv = TRABALHAR: dado " +
+    "puro, sem enfeite. A mesma pergunta em pptx e em xlsx não produz o mesmo arquivo.\n" +
+    "- Monte como MATERIAL, não como despejo: `secao` abre o assunto, `destaques` traz os números que importam, " +
+    "`cards` explica os porquês, `texto` faz a leitura, `tabela`/`grafico` mostram a evidência.\n" +
+    "- `nota` em todo bloco de dado, com o que aquilo MOSTRA — não o que ele repete. \"A Matriz concentra um terço do " +
+    "quadro, o que puxa qualquer média para cima\" é nota; \"a tabela traz as filiais\" não é.\n" +
+    "- Nos blocos `texto` você pode usar markdown (`##`, **negrito**, listas) — o gerador converte de verdade. Dê a " +
+    "eles um `titulo` próprio: sem isso, no PPT todos os slides de texto repetem o título do relatório.\n" +
     "- Pediram arquivo COM gráfico? O bloco `grafico` é obrigatório na chamada.\n" +
     "- Página SEM tabela/dataset: monte o arquivo com o CONTEÚDO DA TELA que você recebeu (campos e valores), " +
     "digitando `colunas`/`linhas` — aqui não existe `dados_de`. Não se recuse por \"não ter tabela\".\n" +

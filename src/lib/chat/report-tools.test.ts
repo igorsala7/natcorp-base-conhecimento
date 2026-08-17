@@ -265,3 +265,38 @@ describe("escopoRelatorioDirective", () => {
     expect(d).toMatch(/nunca peça para ele escrever/i);
   });
 });
+
+describe("o vocabulário de layout chega ao arquivo", () => {
+  it("secao, destaques, cards e nota atravessam a tool até a spec", () => {
+    // O `execute` monta os blocos à mão para expandir `dados_de`. Este teste
+    // guarda o caminho de passagem: um campo novo no schema que não chega ao
+    // renderizador é pior que campo nenhum — o modelo o preenche e nada aparece.
+    let capturado: ReportSpec | null = null;
+    const arquivos: ArquivoGerado[] = [];
+    const tools = buildReportTool(
+      [],
+      undefined,
+      async (spec) => {
+        capturado = spec;
+        return { filename: "x.pptx", mimeType: "application/pptx", base64: "" };
+      },
+      arquivos,
+    );
+    return exec(tools, "gerar_relatorio", {
+        titulo: "T",
+        formato: "pptx",
+        blocos: [
+          { tipo: "secao", titulo: "Panorama", subtitulo: "Julho" },
+          { tipo: "destaques", itens: [{ valor: "1.284", rotulo: "Colaboradores" }, { valor: "4,8%", rotulo: "Turnover" }] },
+          { tipo: "cards", itens: [{ titulo: "A", texto: "aa" }, { titulo: "B", texto: "bb" }] },
+          { tipo: "texto", titulo: "Leitura", texto: "oi", nota: "o que isto mostra" },
+        ],
+      }).then(() => {
+        const spec = capturado as unknown as ReportSpec;
+        expect(spec.blocos.map((b) => b.tipo)).toEqual(["secao", "destaques", "cards", "texto"]);
+        const ultimo = spec.blocos[3]!;
+        expect("nota" in ultimo ? ultimo.nota : null).toBe("o que isto mostra");
+        expect("titulo" in ultimo ? ultimo.titulo : null).toBe("Leitura");
+      });
+  });
+});

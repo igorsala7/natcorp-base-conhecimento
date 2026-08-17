@@ -456,8 +456,9 @@ const reportInput = z.object({
     .optional()
     .describe(
       "Formato do arquivo a gerar, conforme o usuário pediu: 'pdf' (relatório de marca; é o padrão se omitido), 'xlsx' " +
-        "(Excel) ou 'csv' (planilha — priorize TABELAS), 'docx' (Word — texto + tabelas) ou 'pptx' (PowerPoint — um " +
-        "slide por bloco). Na dúvida sobre o formato, PERGUNTE. Para dados tabulares (listas), xlsx/csv são os melhores.",
+        "(Excel) ou 'csv' (planilha — priorize TABELAS), 'docx' (Word — relatório completo com capa) ou 'pptx' " +
+        "(PowerPoint — APRESENTAÇÃO: uma ideia por slide, poucos números, o detalhe vai nas notas). " +
+        "Na dúvida sobre o formato, PERGUNTE. Para dados tabulares (listas), xlsx/csv são os melhores.",
     ),
   formatos: z
     .array(z.enum(["pdf", "xlsx", "csv", "docx", "pptx"]))
@@ -469,8 +470,45 @@ const reportInput = z.object({
   blocos: z
     .array(
       z.object({
-        tipo: z.enum(["texto", "tabela", "grafico"]).describe("O tipo deste bloco."),
+        tipo: z
+          .enum(["texto", "tabela", "grafico", "secao", "destaques", "cards"])
+          .describe(
+            "O tipo deste bloco. 'texto' = parágrafo/markdown · 'tabela' = dados · 'grafico' = visual · " +
+              "'secao' = ABERTURA de assunto (vira slide inteiro no PPT e página nova no PDF/Word) · " +
+              "'destaques' = 2 a 4 NÚMEROS grandes lado a lado · 'cards' = 2 a 4 cartões com título e frase.",
+          ),
+        titulo: z
+          .string()
+          .optional()
+          .describe(
+            "Título DESTE bloco — vira o cabeçalho do slide no PPT. Use em tipo='texto' e em 'secao'. " +
+              "Sem ele, todos os slides de texto repetem o título do relatório.",
+          ),
         texto: z.string().optional().describe("Parágrafo — use quando tipo='texto' (introdução, observações)."),
+        subtitulo: z.string().optional().describe("Linha de apoio da SEÇÃO (tipo='secao'), uma frase."),
+        itens: z
+          .array(
+            z.object({
+              valor: z.string().optional().describe("O NÚMERO do destaque, já formatado: \"1.284\", \"R$ 5,2 Mi\", \"4,8%\"."),
+              rotulo: z.string().optional().describe("O que o número é: \"Colaboradores\", \"Turnover\"."),
+              titulo: z.string().optional().describe("Título do CARTÃO (tipo='cards')."),
+              texto: z.string().optional().describe("Uma ou duas frases do CARTÃO (tipo='cards')."),
+              nota: z.string().optional().describe("Meia linha de contexto do destaque: \"+3,1% sobre junho\"."),
+            }),
+          )
+          .optional()
+          .describe(
+            "Itens de 'destaques' ({valor, rotulo}) ou de 'cards' ({titulo, texto}). SEMPRE 2 a 4 — " +
+              "um só não contrasta com nada e cinco viram tabela mal formatada.",
+          ),
+        nota: z
+          .string()
+          .optional()
+          .describe(
+            "O que este bloco MOSTRA, em uma frase — a leitura, não a repetição do dado. " +
+              "No PowerPoint vira as NOTAS DO APRESENTADOR; no PDF e no Word, a linha em itálico embaixo. " +
+              "É onde entra sua análise: \"a Matriz concentra um terço do quadro, o que puxa qualquer média para cima\".",
+          ),
         tabela: z
           .object({
             titulo: z.string().optional().describe("Título da tabela (opcional)."),
@@ -534,8 +572,11 @@ export function buildReportTool(
         "Word (docx) ou PowerPoint (pptx) — a partir dos dados que você obteve pelas ferramentas OU do conteúdo da " +
         "DOCUMENTAÇÃO (ex.: um passo a passo/guia que você montou a partir dos artigos). Use SEMPRE que o usuário pedir o " +
         "resultado 'em PDF/Excel/CSV/Word/PowerPoint', uma planilha, um relatório, um documento ou uma apresentação. " +
-        "Estruture em blocos, na ordem: 'texto' para introdução/observações, 'tabela' para os DADOS (prefira tabelas; em " +
-        "xlsx/csv cada tabela vira uma planilha/bloco) e 'grafico' para uma visão visual opcional. Para incluir uma tabela " +
+        "ESTRUTURE COMO MATERIAL DA NATCORP, não como despejo de dados. Abra com 'secao' (o assunto), use 'destaques' " +
+        "para os 2 a 4 números que importam, 'cards' para os pontos que explicam, 'texto' para a leitura, 'tabela' para " +
+        "os DADOS e 'grafico' para o visual. Em TODO bloco de dado escreva `nota` com o que aquilo mostra — é o que " +
+        "vira nota do apresentador no PPT e a linha de leitura no PDF/Word. Em xlsx/csv cada tabela vira uma planilha. " +
+        "Para incluir uma tabela " +
         "da TELA ou de ferramenta, NÃO redigite as linhas nem os cabeçalhos: passe SÓ `tabela.dados_de` com o id (ex.: " +
         "\"tela1\") — o servidor inclui todas as linhas reais. Não invente dados. NÃO escreva seu raciocínio nem os dados " +
         "no texto do chat — chame a ferramenta direto. O arquivo é entregue como download; não repita a tabela no texto.",
