@@ -523,7 +523,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 </div>
                 <div className="relative mx-auto max-w-2xl">
                   <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400 motion-reduce:animate-none" />
+                    <span className="size-1.5 animate-pulse rounded-full bg-success motion-reduce:animate-none" />
                     Central de ajuda · {dados.spaceName}
                   </p>
                   {aberturaConteudo}

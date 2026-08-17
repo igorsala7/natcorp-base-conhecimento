@@ -12,8 +12,8 @@ import {
 import { getQualityContext } from "@/app/(admin)/admin/(app)/conteudo/quality-actions";
 
 const COR: Record<Impacto, string> = {
-  alto: "bg-red-500",
-  medio: "bg-amber-500",
+  alto: "bg-danger",
+  medio: "bg-warning",
   baixo: "bg-brand-gray-400",
 };
 const ROTULO: Record<Impacto, string> = { alto: "Alto", medio: "Médio", baixo: "Baixo" };

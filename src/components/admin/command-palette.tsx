@@ -184,7 +184,7 @@ export function CommandPalette({ permissoes = [] }: { permissoes?: string[] }) {
           {loading && <p className="px-3 py-4 text-sm text-text-muted">Buscando…</p>}
 
           {!loading && error && (
-            <p className="px-3 py-4 text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="px-3 py-4 text-sm text-danger">{error}</p>
           )}
 
           {!loading && !error && query.trim().length >= 2 && hits.length === 0 && destinos.length === 0 && (

@@ -1179,7 +1179,7 @@ export function ToolDialog({
             onChange={(e) => setDescricaoUsuario(e.target.value)}
             placeholder="Mostra os períodos de férias já marcados e o saldo de dias de um colaborador."
           />
-          <p className={`mt-1 text-xs ${descricaoUsuario.length > 160 ? "text-amber-600 dark:text-amber-400" : "text-text-muted"}`}>
+          <p className={`mt-1 text-xs ${descricaoUsuario.length > 160 ? "text-warning" : "text-text-muted"}`}>
             {descricaoUsuario.length}/{MAX_DESC_USUARIO} caracteres
             {descricaoUsuario.length > 160 && " — acima de 160 o botão passa de 3 linhas no celular"}
           </p>
@@ -1505,7 +1505,7 @@ export function ToolDialog({
                     <p className="mt-1 text-xs leading-snug text-text-muted">{guardInfo(guard)!.description}</p>
                   )}
                   {guard && !guardInfo(guard) && (
-                    <p className="mt-1 text-xs leading-snug text-amber-600 dark:text-amber-500">
+                    <p className="mt-1 text-xs leading-snug text-warning">
                       Guard desconhecido — a ferramenta fica bloqueada até corrigir.
                     </p>
                   )}
@@ -1828,8 +1828,8 @@ function ResultadoDoTeste({ r, aoFechar }: { r: ResultadoTeste; aoFechar: () => 
       role="status"
       className={`mb-4 rounded-lg border p-3 text-xs ${
         r.ok
-          ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20"
-          : "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20"
+          ? "border-success-line bg-success-soft"
+          : "border-danger-line bg-danger-soft"
       }`}
     >
       <div className="flex items-center gap-2">
@@ -1850,7 +1850,7 @@ function ResultadoDoTeste({ r, aoFechar }: { r: ResultadoTeste; aoFechar: () => 
         </Button>
       </div>
 
-      {r.erro && <p className="mt-2 text-rose-700 dark:text-rose-300">{r.erro}</p>}
+      {r.erro && <p className="mt-2 text-danger">{r.erro}</p>}
 
       {r.curl && (
         <details className="mt-2">

@@ -314,7 +314,7 @@ export function ImportManager({
                       )}
                       <button
                         type="button"
-                        className="rounded-sm text-xs text-text-muted transition-colors hover:text-red-600 dark:hover:text-red-400"
+                        className="rounded-sm text-xs text-text-muted transition-colors hover:text-danger"
                         onClick={async () => {
                           if (
                             await confirmar({

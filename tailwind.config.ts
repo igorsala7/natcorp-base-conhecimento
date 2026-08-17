@@ -99,6 +99,48 @@ const config: Config = {
           fg: "var(--color-accent-fg)",
         },
         ring: "var(--color-focus-ring)",
+        /**
+         * ESTADO — semântico, e separado do acento de propósito.
+         *
+         * A cor de estado responde "isto está bem / precisa de atenção / deu
+         * errado". Ela não é decoração e não deve competir com a marca: por
+         * isso não sai da escala roxa/rosa, e por isso o rosa do acento nunca
+         * deve significar "erro".
+         *
+         * Uso:
+         *   text-danger              tinta sobre fundo claro
+         *   bg-danger-soft           fundo suave do aviso
+         *   border-danger-line       borda dele
+         *   bg-danger text-danger-on preenchimento sólido
+         *
+         * Os quatro papéis existem porque um aviso precisa dos quatro. Quando
+         * só havia `bg-red-50` e `text-red-700` do Tailwind, cada tela
+         * improvisava a combinação — e as improvisações divergiram.
+         */
+        success: {
+          DEFAULT: "var(--color-success)",
+          soft: "var(--color-success-soft)",
+          line: "var(--color-success-line)",
+          on: "var(--color-success-on)",
+        },
+        warning: {
+          DEFAULT: "var(--color-warning)",
+          soft: "var(--color-warning-soft)",
+          line: "var(--color-warning-line)",
+          on: "var(--color-warning-on)",
+        },
+        danger: {
+          DEFAULT: "var(--color-danger)",
+          soft: "var(--color-danger-soft)",
+          line: "var(--color-danger-line)",
+          on: "var(--color-danger-on)",
+        },
+        info: {
+          DEFAULT: "var(--color-info)",
+          soft: "var(--color-info-soft)",
+          line: "var(--color-info-line)",
+          on: "var(--color-info-on)",
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],

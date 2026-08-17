@@ -101,11 +101,11 @@ function artigosComStatus(nodes: TreeNode[], status: string): string[] {
 
 /** Estados filtráveis da árvore (rótulo + bolinha de cor). */
 const FILTRO_DEFS = [
-  { key: "publicado", rotulo: "Publicados", cor: "bg-emerald-500" },
+  { key: "publicado", rotulo: "Publicados", cor: "bg-success" },
   { key: "rascunho", rotulo: "Rascunho", cor: "bg-brand-gray-400" },
-  { key: "revisao", rotulo: "Aguardando aprovação", cor: "bg-amber-500" },
-  { key: "embedding", rotulo: "Embedding", cor: "bg-blue-600" },
-  { key: "ontologia", rotulo: "Ontologia", cor: "bg-slate-600" },
+  { key: "revisao", rotulo: "Aguardando aprovação", cor: "bg-warning" },
+  { key: "embedding", rotulo: "Embedding", cor: "bg-info" },
+  { key: "ontologia", rotulo: "Ontologia", cor: "bg-text-muted" },
 ] as const;
 const FILTROS_VAZIO = { publicado: false, rascunho: false, revisao: false, embedding: false, ontologia: false };
 
@@ -324,7 +324,7 @@ export function Tree({
     return (
       <>
         {titulo.slice(0, i)}
-        <mark className="rounded bg-amber-200/70 text-text dark:bg-amber-400/30">
+        <mark className="rounded bg-warning-soft text-text">
           {titulo.slice(i, i + q.length)}
         </mark>
         {titulo.slice(i + q.length)}

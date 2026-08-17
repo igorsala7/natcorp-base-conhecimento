@@ -296,6 +296,38 @@ export function EstiloView() {
           </div>
         </Section>
 
+        <Section
+          titulo="Cor de estado"
+          descricao="Os quatro papéis que faltavam — e cuja ausência produziu 401 cores cruas espalhadas por 60 arquivos."
+        >
+          {/* Cada tom aparece nos QUATRO usos porque um aviso precisa dos
+              quatro, e era a combinação — não a cor — que cada tela improvisava
+              de um jeito. Ver os quatro juntos é o que revela a incoerência. */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {(
+              [
+                ["success", "Concluído", "bg-success", "text-success-on", "bg-success-soft", "text-success", "border-success-line"],
+                ["warning", "Atenção", "bg-warning", "text-warning-on", "bg-warning-soft", "text-warning", "border-warning-line"],
+                ["danger", "Erro", "bg-danger", "text-danger-on", "bg-danger-soft", "text-danger", "border-danger-line"],
+                ["info", "Informação", "bg-info", "text-info-on", "bg-info-soft", "text-info", "border-info-line"],
+              ] as const
+            ).map(([nome, rotulo, solido, tintaSolida, suave, tinta, linha]) => (
+              <div key={nome} className="space-y-2">
+                <div
+                  className={`flex h-12 items-center justify-center rounded-md text-sm font-semibold ${solido} ${tintaSolida}`}
+                >
+                  {rotulo}
+                </div>
+                <div className={`rounded-md border px-3 py-2 text-sm ${suave} ${tinta} ${linha}`}>
+                  Fundo suave com borda
+                </div>
+                <p className={`text-sm ${tinta}`}>Tinta sobre a página</p>
+                <code className="block text-2xs text-text-muted">--color-{nome}</code>
+              </div>
+            ))}
+          </div>
+        </Section>
+
         <Section titulo="Foco" descricao="Dois modelos, cada um no seu lugar: anel em controle de formulário, contorno no resto.">
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="secondary">Tecle Tab até aqui</Button>

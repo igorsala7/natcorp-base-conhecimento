@@ -229,7 +229,7 @@ export function GlobalFindReplace({
                           {h.count}
                         </span>
                         {h.hasDraft && (
-                          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-2xs font-medium text-amber-600">
+                          <span className="shrink-0 rounded-full bg-warning-soft px-1.5 py-0.5 text-2xs font-medium text-warning">
                             rascunho
                           </span>
                         )}
@@ -241,7 +241,7 @@ export function GlobalFindReplace({
                         <CornerDownRight className="mt-0.5 size-3.5 shrink-0" />
                         <span className="truncate font-mono">
                           {h.snippetBefore}
-                          <mark className="rounded bg-amber-200/70 px-0.5 text-text dark:bg-amber-400/30">
+                          <mark className="rounded bg-warning-soft px-0.5 text-text">
                             {h.snippetMatch}
                           </mark>
                           {h.snippetAfter}

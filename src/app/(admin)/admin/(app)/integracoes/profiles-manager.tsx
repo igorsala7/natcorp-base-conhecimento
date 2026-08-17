@@ -122,7 +122,7 @@ export function ProfilesManager({
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-1">
                   {p.modulos.length === 0 ? (
-                    <span className="text-xs text-amber-600">sem módulo vinculado (não será acionado)</span>
+                    <span className="text-xs text-warning">sem módulo vinculado (não será acionado)</span>
                   ) : (
                     p.modulos.map((m) => (
                       <span key={tagKey(m)} className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-text-muted">

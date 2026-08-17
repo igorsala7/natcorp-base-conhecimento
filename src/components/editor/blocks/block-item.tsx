@@ -242,7 +242,7 @@ function BarBtn({
       onClick={onClick}
       className={`flex size-6 items-center justify-center rounded-sm text-text-muted transition-colors ${
         danger
-          ? "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
+          ? "hover:bg-danger-soft hover:text-danger"
           : "hover:bg-surface-2 hover:text-text"
       }`}
     >

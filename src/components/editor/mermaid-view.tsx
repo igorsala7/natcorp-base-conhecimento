@@ -38,7 +38,7 @@ export function MermaidView({ code }: { code: string }) {
   return (
     <div className="my-5 overflow-hidden rounded-lg border border-border bg-surface shadow-1">
       {error ? (
-        <div className="m-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 font-mono text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+        <div className="m-3 rounded-md border border-warning-line bg-warning-soft px-4 py-3 font-mono text-xs text-warning">
           Diagrama inválido: {error}
         </div>
       ) : (

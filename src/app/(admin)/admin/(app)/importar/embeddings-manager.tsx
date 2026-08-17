@@ -433,9 +433,9 @@ export function EmbeddingsManager({
                   className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs"
                 >
                   {f.estado === "pronto" ? (
-                    <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    <Check className="size-3.5 shrink-0 text-success" aria-hidden="true" />
                   ) : f.estado === "erro" ? (
-                    <X className="size-3.5 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+                    <X className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
                   ) : f.estado === "enviando" ? (
                     <Spinner />
                   ) : (
@@ -444,7 +444,7 @@ export function EmbeddingsManager({
                   <span className="min-w-0 flex-1 truncate">{f.nome}</span>
                   {/* A mensagem do erro fica na LINHA do arquivo: num lote de dez,
                       o toast do terceiro some antes de o décimo terminar. */}
-                  {f.erro && <span className="shrink-0 text-rose-700 dark:text-rose-300">{f.erro}</span>}
+                  {f.erro && <span className="shrink-0 text-danger">{f.erro}</span>}
                   {f.estado === "aguardando" && <span className="shrink-0 text-text-muted">na fila</span>}
                 </li>
               ))}
@@ -621,7 +621,7 @@ export function EmbeddingsManager({
                       onClick={() => apagar(r)}
                       title="Apagar embeddings"
                     >
-                      <Trash2 className="size-4 text-red-600 dark:text-red-400" />
+                      <Trash2 className="size-4 text-danger" />
                     </Button>
                   </Td>
                 </Tr>

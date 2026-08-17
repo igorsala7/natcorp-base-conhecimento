@@ -104,7 +104,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                 type="button"
                 onClick={() => rmNode(n.id)}
                 title="Remover"
-                className="shrink-0 text-text-muted hover:text-rose-600"
+                className="shrink-0 text-text-muted hover:text-danger"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -158,7 +158,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                 type="button"
                 onClick={() => rmEdge(e.id)}
                 title="Remover"
-                className="shrink-0 text-text-muted hover:text-rose-600"
+                className="shrink-0 text-text-muted hover:text-danger"
               >
                 <Trash2 className="size-3.5" />
               </button>

@@ -111,7 +111,7 @@ export function TrashManager({
                         run(() => hardDeleteTrash(it.id), (n) => `Excluído (${n} itens).`);
                     }}
                   >
-                    <Trash2 className="size-4 text-red-600 dark:text-red-400" />
+                    <Trash2 className="size-4 text-danger" />
                   </Button>
                 )}
               </li>

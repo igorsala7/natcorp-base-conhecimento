@@ -213,7 +213,7 @@ function WhatsappForm({
   return (
     <div className="flex flex-col gap-5">
       {!temChaveMestra && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning-line bg-warning-soft px-3.5 py-2.5 text-sm text-warning">
           <ShieldAlert className="mt-0.5 size-4 shrink-0" />
           <span>
             <strong className="font-semibold">APP_ENCRYPTION_KEY não configurada.</strong> Os tokens

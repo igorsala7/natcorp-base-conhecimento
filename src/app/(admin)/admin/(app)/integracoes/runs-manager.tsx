@@ -149,7 +149,7 @@ export function RunsManager({ runs }: { runs: RunRow[] }) {
                     <ChevronRight className="size-4 shrink-0 text-text-muted" />
                   )}
                   {r.ok ? (
-                    <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+                    <CheckCircle2 className="size-4 shrink-0 text-success" />
                   ) : (
                     <XCircle className="size-4 shrink-0 text-brand-pink-700" />
                   )}

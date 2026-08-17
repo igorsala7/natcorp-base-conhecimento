@@ -58,7 +58,7 @@ export function InlineArticleEditor({
               <Check className="size-3.5" /> {hasDraft ? "salvo como rascunho" : "salvo"}
             </span>
           )}
-          {saveState === "error" && <span className="text-red-600">{erro}</span>}
+          {saveState === "error" && <span className="text-danger">{erro}</span>}
         </span>
         <Button size="sm" variant="ghost" className="ml-auto" onClick={onFechar}>
           <X className="size-4" /> Concluir

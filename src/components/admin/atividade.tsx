@@ -96,7 +96,7 @@ export function Atividade() {
         className="gap-1.5"
       >
         {comErro.length > 0 ? (
-          <AlertTriangle className="text-rose-600 dark:text-rose-400" />
+          <AlertTriangle className="text-danger" />
         ) : (
           // O giro é o próprio sinal de "acontecendo" — sem ele, o ícone parado
           // não distingue trabalho em curso de trabalho terminado.
@@ -141,7 +141,7 @@ export function Atividade() {
                       key={`${i.tipo}-${i.id}`}
                       className={cn(
                         "rounded-lg border p-3",
-                        i.status === "error" ? "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20" : "border-border",
+                        i.status === "error" ? "border-danger-line bg-danger-soft" : "border-border",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -182,7 +182,7 @@ export function Atividade() {
                         // A mensagem do worker inteira, não truncada: é o único
                         // lugar onde ela aparece depois que a tela de origem
                         // foi fechada.
-                        <p className="mt-1.5 text-xs text-rose-700 dark:text-rose-300">{i.error}</p>
+                        <p className="mt-1.5 text-xs text-danger">{i.error}</p>
                       )}
 
                       {i.status !== "error" && (

@@ -46,9 +46,9 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   suspended: "danger",
 };
 const STATUS_DOT: Record<string, string> = {
-  active: "bg-emerald-500",
-  invited: "bg-sky-500",
-  suspended: "bg-rose-500",
+  active: "bg-success",
+  invited: "bg-info",
+  suspended: "bg-danger",
 };
 
 function maxLevel(u: UserRow) {
@@ -236,7 +236,7 @@ function InviteDialog({
         {escopoGlobal && (
           <p
             role="alert"
-            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200"
+            className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs text-warning"
           >
             <strong>{papelEscolhido?.name ?? "Este papel"}</strong> em <strong>todas</strong> as documentações —
             inclusive nas que forem criadas depois.
@@ -255,18 +255,18 @@ function InviteDialog({
             <ul className="space-y-0.5 text-text-muted">
               {resumo.pode.map((x) => (
                 <li key={x} className="flex gap-1.5">
-                  <Check className="mt-0.5 size-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
                   {x}
                 </li>
               ))}
               {resumo.naoPode?.map((x) => (
                 <li key={x} className="flex gap-1.5">
-                  <X className="mt-0.5 size-3 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+                  <X className="mt-0.5 size-3 shrink-0 text-danger" aria-hidden="true" />
                   <span>Não {x}</span>
                 </li>
               ))}
             </ul>
-            {resumo.atencao && <p className="pt-1 font-medium text-amber-700 dark:text-amber-400">{resumo.atencao}</p>}
+            {resumo.atencao && <p className="pt-1 font-medium text-warning">{resumo.atencao}</p>}
           </div>
         )}
       </form>

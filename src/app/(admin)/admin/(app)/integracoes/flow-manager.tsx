@@ -460,7 +460,7 @@ function Inspector({
                 <li key={r.id} className="rounded-lg border border-border bg-surface-2/40 p-2 text-xs">
                   <div className="flex items-center gap-1.5">
                     {r.ok ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-500" />
+                      <CheckCircle2 className="size-3.5 text-success" />
                     ) : (
                       <XCircle className="size-3.5 text-brand-pink-700" />
                     )}

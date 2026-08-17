@@ -175,13 +175,13 @@ export function TreeItem({
         {node.title}
         {node.status === "published" && (
           <span
-            className="ml-1.5 inline-block size-1.5 rounded-full bg-emerald-500 align-middle"
+            className="ml-1.5 inline-block size-1.5 rounded-full bg-success align-middle"
             title="Publicado"
           />
         )}
         {node.type === "article" && node.status === "review" && (
           <span
-            className="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle"
+            className="ml-1.5 inline-block size-1.5 rounded-full bg-warning align-middle"
             title="Aguardando aprovação"
           />
         )}
@@ -193,13 +193,13 @@ export function TreeItem({
         )}
         {hasEmbedding && (
           <span
-            className="ml-1 inline-block size-1.5 rounded-full bg-blue-600 align-middle dark:bg-blue-500"
+            className="ml-1 inline-block size-1.5 rounded-full bg-info align-middle"
             title="Indexado para busca e IA (embeddings gerados)"
           />
         )}
         {hasOntology && (
           <span
-            className="ml-1 inline-block size-1.5 rounded-full bg-slate-600 align-middle dark:bg-slate-400"
+            className="ml-1 inline-block size-1.5 rounded-full bg-text-muted align-middle"
             title="Incluído na varredura de ontologia"
           />
         )}

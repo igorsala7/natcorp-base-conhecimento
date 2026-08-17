@@ -265,8 +265,8 @@ export function FaturamentoView({
       </section>
 
       {semPreco.length > 0 ? (
-        <Surface elevation={1} padding="md" className="border-amber-500/40 bg-amber-500/5">
-          <p className="flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
+        <Surface elevation={1} padding="md" className="border-warning bg-warning-soft">
+          <p className="flex items-center gap-2 text-sm font-semibold text-warning">
             <TriangleAlert className="size-4" />
             {semPreco.length} modelo{semPreco.length > 1 ? "s" : ""} sem preço cadastrado
           </p>

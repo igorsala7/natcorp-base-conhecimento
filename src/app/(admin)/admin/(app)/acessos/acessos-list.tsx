@@ -26,7 +26,7 @@ const dataHora = (iso: string) => fmt.format(new Date(iso));
 const KIND = {
   home: { label: "Documentação", Icon: Home, cls: "bg-brand-purple-100 text-brand-purple-700" },
   folder: { label: "Diretório", Icon: Folder, cls: "bg-brand-blue-100 text-brand-blue-700" },
-  article: { label: "Artigo", Icon: FileText, cls: "bg-emerald-100 text-emerald-700" },
+  article: { label: "Artigo", Icon: FileText, cls: "bg-success-soft text-success" },
 } as const;
 
 const PARAMS: [keyof Acesso, string][] = [

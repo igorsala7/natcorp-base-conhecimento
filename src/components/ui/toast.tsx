@@ -40,10 +40,18 @@ export function useToast(): ToastApi {
   return ctx;
 }
 
+/**
+ * Cada tom era três classes cruas mais três variantes `dark:` — dezoito
+ * decisões de cor num arquivo, nenhuma delas medida. Agora são tokens: a
+ * variável já troca de valor no tema escuro, então o `dark:` some.
+ *
+ * `info` continua neutro de propósito: o toast informativo é o mais comum, e
+ * pintá-lo de azul faria o aviso de rotina competir com o erro pela atenção.
+ */
 const ESTILO: Record<ToastType, { icon: typeof Info; classe: string; auto: boolean; role: "status" | "alert" }> = {
   success: {
     icon: CheckCircle2,
-    classe: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-100",
+    classe: "border-success-line bg-success-soft text-success",
     auto: true,
     role: "status",
   },
@@ -55,13 +63,13 @@ const ESTILO: Record<ToastType, { icon: typeof Info; classe: string; auto: boole
   },
   warning: {
     icon: AlertTriangle,
-    classe: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100",
+    classe: "border-warning-line bg-warning-soft text-warning",
     auto: false,
     role: "alert",
   },
   error: {
     icon: XCircle,
-    classe: "border-red-300 bg-red-50 text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-100",
+    classe: "border-danger-line bg-danger-soft text-danger",
     auto: false,
     role: "alert",
   },

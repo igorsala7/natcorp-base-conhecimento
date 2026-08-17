@@ -12,9 +12,9 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
           aqui só o cabeçalho da janela (WYSIWYG). */}
       <div className="flex items-center justify-between gap-2 border-b border-brand-gray-800 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="size-2.5 shrink-0 rounded-full bg-rose-500/80" />
-          <span className="size-2.5 shrink-0 rounded-full bg-amber-500/80" />
-          <span className="size-2.5 shrink-0 rounded-full bg-emerald-500/80" />
+          <span className="size-2.5 shrink-0 rounded-full bg-danger-soft" />
+          <span className="size-2.5 shrink-0 rounded-full bg-warning-soft" />
+          <span className="size-2.5 shrink-0 rounded-full bg-success-soft" />
           {b.data.filename && (
             <span className="ml-2 min-w-0 truncate font-mono text-xs text-brand-gray-400">{b.data.filename}</span>
           )}

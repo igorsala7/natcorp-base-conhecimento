@@ -1244,7 +1244,7 @@ function BlockEditorInner({
                       : "Rascunho"}
           </span>
           {saveState === "saved" && (
-            <span className="ml-2 text-2xs font-semibold text-emerald-600">Salvo</span>
+            <span className="ml-2 text-2xs font-semibold text-success">Salvo</span>
           )}
           {hasDraft && (
             <span
@@ -1501,7 +1501,7 @@ function BlockEditorInner({
       </div>
 
       {erroSalvar && (
-        <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{erroSalvar}</p>
+        <p role="alert" className="mt-2 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm text-danger">{erroSalvar}</p>
       )}
 
       {/* Só ocupa o topo quando o artigo está em revisão (ou aberto pelo menu

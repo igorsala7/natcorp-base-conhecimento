@@ -252,7 +252,7 @@ export function AppearanceEditor({
           </Field>
 
           {contrasteClaro !== null && contrasteClaro < 4.5 && (
-            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs text-warning">
               Esta cor mede {contrasteClaro.toFixed(2)}:1 sobre branco — abaixo de 4,5:1. Ela serve
               para preenchimentos, mas texto e links nela ficam difíceis de ler.
             </p>
@@ -407,7 +407,7 @@ export function AppearanceEditor({
             ]}
           />
           {tema.home.heroStyle === "image" && !tema.brand.coverUrl && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
+            <p className="text-xs text-warning">
               Envie a imagem de capa acima — sem ela, a abertura usa a cor.
             </p>
           )}
@@ -443,7 +443,7 @@ export function AppearanceEditor({
                 </div>
               </Field>
               {contrasteAbertura < 4.5 && (
-                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs text-warning">
                   Esta cor mede {contrasteAbertura.toFixed(2)}:1 com o texto branco da abertura — abaixo
                   de 4,5:1. Uma cor mais escura deixa o título e a busca mais legíveis.
                 </p>

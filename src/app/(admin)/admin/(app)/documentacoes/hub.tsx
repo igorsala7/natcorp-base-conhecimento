@@ -195,10 +195,10 @@ function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
       {/* Métricas escaneáveis (conteúdo + prontidão de IA), sem caixas pesadas. */}
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
-          <Metrica n={d.publicados} label="publicados" dot="bg-emerald-500" />
+          <Metrica n={d.publicados} label="publicados" dot="bg-success" />
           <Metrica n={d.rascunhos} label="rascunhos" dot="bg-brand-gray-400" />
-          <Metrica n={d.emRevisao} label="em revisão" dot="bg-amber-500" />
-          <Metrica n={d.pastas} label="pastas" dot="bg-slate-400" />
+          <Metrica n={d.emRevisao} label="em revisão" dot="bg-warning" />
+          <Metrica n={d.pastas} label="pastas" dot="bg-text-muted" />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
           <span className="inline-flex items-center gap-1.5">

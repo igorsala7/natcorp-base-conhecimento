@@ -84,7 +84,7 @@ export function AssistantWorkbench({
           </Field>
           {/* U3: contador — a persona é CORTADA em 2000 chars ao aplicar; sem aviso, era
               cortada no meio da frase em silêncio. */}
-          <p className={`-mt-2 text-xs ${prompt.length > 2000 ? "text-red-600 dark:text-red-400" : "text-text-muted"}`}>
+          <p className={`-mt-2 text-xs ${prompt.length > 2000 ? "text-danger" : "text-text-muted"}`}>
             {prompt.length}/2000 caracteres{prompt.length > 2000 ? " — o excedente será CORTADO ao aplicar a persona." : ""}
           </p>
 

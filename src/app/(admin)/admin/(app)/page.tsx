@@ -208,8 +208,11 @@ export default async function AdminHome() {
                         <span>{a.util}%</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                        {/* Preenchimento chapado em token, não gradiente: a
+                            barra mede uma coisa só (% útil), e um degradê
+                            sugere uma segunda dimensão que não existe. */}
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600"
+                          className="h-full rounded-full bg-success"
                           style={{ width: `${a.util}%` }}
                         />
                       </div>
@@ -256,15 +259,15 @@ export default async function AdminHome() {
                   <Link
                     key={d.id}
                     href={`/admin/conteudo/${d.id}`}
-                    className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 transition-colors hover:border-amber-300 dark:border-amber-900 dark:bg-amber-950/25"
+                    className="flex items-center justify-between gap-3 rounded-md border border-warning-line bg-warning-soft px-3.5 py-2.5 transition-colors hover:border-warning-line"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{d.title}</span>
-                      <span className="block text-2xs text-amber-700 dark:text-amber-400">
+                      <span className="block text-2xs text-warning">
                         Editado em {new Date(d.updated_at).toLocaleDateString("pt-BR")}
                       </span>
                     </span>
-                    <PenSquare className="size-4 shrink-0 text-amber-600" />
+                    <PenSquare className="size-4 shrink-0 text-warning" />
                   </Link>
                 ))}
               </div>

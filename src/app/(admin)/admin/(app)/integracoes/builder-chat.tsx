@@ -179,11 +179,11 @@ export function BuilderChat() {
             proposta, e aqui a ferramenta nascia ATIVA enquanto o texto ainda
             estava sendo transmitido. */}
         {plano && plano.length > 0 && (
-          <div className="border-t border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          <div className="border-t border-warning-line bg-warning-soft p-3">
+            <p className="text-sm font-semibold text-warning">
               {plano.length} alteração(ões) no esquema — nada foi gravado ainda
             </p>
-            <ul className="mt-2 space-y-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+            <ul className="mt-2 space-y-1 text-xs text-warning">
               {descreverPlano(plano).map((linha, i) => (
                 <li key={i}>· {linha}</li>
               ))}

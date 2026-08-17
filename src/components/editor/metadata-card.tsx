@@ -142,7 +142,7 @@ export function MetadataCard({
         </div>
         <p className="mt-1 flex items-center gap-1 text-2xs text-text-muted">
           {salvo ? (
-            <span className="flex items-center gap-1 font-semibold text-emerald-600">
+            <span className="flex items-center gap-1 font-semibold text-success">
               <Check className="size-3.5" /> Salvo
             </span>
           ) : slugLocal.trim() !== slug ? (
@@ -151,7 +151,7 @@ export function MetadataCard({
             "Título e descrição salvam ao sair do campo."
           )}
         </p>
-        {erro && <p className="mt-1 text-xs font-medium text-red-600">{erro}</p>}
+        {erro && <p className="mt-1 text-xs font-medium text-danger">{erro}</p>}
       </div>
       </div>
       <div className="mt-2 flex justify-center border-t border-border pt-1.5">

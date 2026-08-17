@@ -189,7 +189,7 @@ export function PreviewDoc({
                         <span
                           aria-label={STATUS[node.status]?.rotulo}
                           title={STATUS[node.status]?.rotulo}
-                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                          className="size-1.5 shrink-0 rounded-full bg-warning"
                         />
                       )}
                     </a>
