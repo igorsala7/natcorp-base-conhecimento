@@ -43,7 +43,8 @@
     "seed:graph:write": "tsx --env-file=.env.local scripts/seed-graph-write.ts",
     "seed:graph:write:prod": "tsx --env-file=.env scripts/seed-graph-write.ts",
     "seed:graph:modulos": "tsx --env-file=.env.local scripts/seed-graph-modules.ts",
-    "seed:graph:modulos:prod": "tsx --env-file=.env scripts/seed-graph-modules.ts"
+    "seed:graph:modulos:prod": "tsx --env-file=.env scripts/seed-graph-modules.ts",
+    "relatorio:amostra": "tsx --tsconfig worker/tsconfig.json scripts/amostra-relatorio.ts"
   },
   "repository": {
     "type": "git",

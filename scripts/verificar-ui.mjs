@@ -126,8 +126,15 @@ const PADROES = [
     chave: "hex-em-componente",
     rx: /["'`]#[0-9a-fA-F]{3,8}["'`]/g,
     // Seletor de cor, e-mail (onde CSS var não funciona) e dataviz têm paleta própria.
+    //
+    // `reports/marca.ts` é a DEFINIÇÃO dos tokens de documento — é o único lugar
+    // onde o hex tem que morar, do mesmo jeito que `globals.css` é onde ele mora
+    // para a tela. Marcá-lo seria a regra reclamando da própria fundação. O
+    // teste `marca.test.ts` é o que garante que esses valores não divergem do
+    // Tailwind; a catraca aqui não teria como.
     ignora: (f) =>
       ULTIMA_REDE(f) ||
+      /reports\/marca\./.test(f) ||
       /appearance-editor|widget-manager|email-html|email-template|chart-view|flow-view|flow-canvas|mindmap/.test(f),
     porque: "Use um token semântico. Hex em componente é o que impede trocar tema por cliente.",
   },

@@ -3,10 +3,12 @@ import { PDFDocument, StandardFonts, rgb, degrees, type PDFImage, type PDFPage, 
 import type { OutFile } from "@/lib/integrations/documents";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
-import { CHART_PALETTE, medianOf, linReg } from "@/lib/chat/chart-spec";
+import { medianOf, linReg } from "@/lib/chat/chart-spec";
 import { chartSvg } from "./chart-svg";
 import { parseMarkdown, type MdRun } from "./markdown";
+import { tokenizarRuns } from "./tokens";
 import { winAnsiSafe } from "./winansi";
+import { MARCA, CORES_GRAFICO, degrade, paraUnidade, ROSA, ROXO as ROXO_MARCA, clarear } from "./marca";
 
 /**
  * Gera o PDF do relatório com pdf-lib (fontes-padrão embutidas → texto sempre
@@ -23,21 +25,29 @@ const HEADER_H = 66;
 const FOOTER_H = 32;
 const CONTENT_W = A4.w - M * 2;
 
-function hexToRgb(hex: string): RGB {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return rgb(0.32, 0.11, 0.46); // #511C76
-  const n = parseInt(m[1]!, 16);
-  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+/** `#RRGGBB` → `RGB` do pdf-lib. A conversão mora em `marca.ts`. */
+function cor(hex: string): RGB {
+  const [r, g, b] = paraUnidade(hex);
+  return rgb(r, g, b);
 }
 function mix(c: RGB, white: number): RGB {
   return rgb(c.red + (1 - c.red) * white, c.green + (1 - c.green) * white, c.blue + (1 - c.blue) * white);
 }
 
+/**
+ * As cores do documento vêm todas de `marca.ts`.
+ *
+ * Antes eram literais de `rgb(0.1, 0.1, 0.12)` cravados aqui — perto o bastante
+ * dos neutros da UI para ninguém notar, longe o bastante para o documento e a
+ * tela nunca combinarem de verdade.
+ */
 const COR = {
-  texto: rgb(0.1, 0.1, 0.12),
-  muted: rgb(0.42, 0.42, 0.47),
-  border: rgb(0.87, 0.87, 0.9),
-  branco: rgb(1, 1, 1),
+  texto: cor(MARCA.texto),
+  muted: cor(MARCA.textoSuave),
+  border: cor(MARCA.borda),
+  branco: cor("#FFFFFF"),
+  regua: cor(MARCA.regua),
+  destaque: cor(MARCA.destaque),
 };
 
 type Ctx = {
@@ -83,13 +93,70 @@ function wrap(font: PDFFont, txt: string, size: number, maxW: number): string[] 
   return out;
 }
 
+/**
+ * A FAIXA EM DEGRADÊ — o elemento que mais identifica o material da Natcorp.
+ *
+ * O pdf-lib não tem degradê. Desenho as paradas de `degrade()` como fatias
+ * verticais coladas: numa faixa A4 são ~5pt cada, que nenhum olho separa, e 120
+ * retângulos não pesam em lugar nenhum. A alternativa seria embutir um PNG, que
+ * custaria uma imagem por página e perderia a nitidez em zoom.
+ *
+ * O `+1` na largura da fatia é o que evita a listra branca de meio ponto entre
+ * elas — arredondamento de subpixel aparece como faixa zebrada quando o leitor
+ * de PDF renderiza em escala alta.
+ */
+function faixaDegrade(page: PDFPage, x: number, y: number, w: number, h: number, n = 120) {
+  const paradas = degrade(n);
+  const passo = w / n;
+  paradas.forEach((hex, i) => {
+    page.drawRectangle({ x: x + i * passo, y, width: passo + 1, height: h, color: cor(hex) });
+  });
+}
+
+/**
+ * Os losangos da marca como textura da faixa.
+ *
+ * É o mesmo motivo do deck: a forma do logo, grande, quase invisível, sangrando
+ * pela borda. Quadrado girado a 45° em vez de path — o pdf-lib rotaciona
+ * retângulo nativamente, e `drawSvgPath` inverte o eixo Y, que é uma armadilha
+ * boa de evitar num arquivo que já tem coordenada suficiente.
+ */
+/**
+ * Um losango CENTRADO em `(cx, cy)`, com meia-diagonal `r`.
+ *
+ * O pdf-lib gira o retângulo em torno do canto inferior-esquerdo, não do centro.
+ * Um quadrado de lado `s` em `(x, y)` girado 45° vira um losango com o vértice
+ * DE BAIXO em `(x, y)` e o centro em `(x, y + s/√2)` — meia diagonal acima de
+ * onde a intuição coloca. Na primeira tentativa isso cortou os losangos no topo
+ * da faixa e eles viraram um zigue-zague.
+ *
+ * A conversão fica aqui, uma vez: quem chamar posiciona pensando no centro, que
+ * é como se pensa em forma.
+ */
+function desenharLosango(page: PDFPage, cx: number, cy: number, r: number, cor_: RGB, opacity = 1) {
+  const lado = r * Math.SQRT2;
+  page.drawRectangle({ x: cx, y: cy - r, width: lado, height: lado, rotate: degrees(45), color: cor_, opacity });
+}
+
+/**
+ * Os losangos da marca como textura da faixa.
+ *
+ * É o mesmo motivo do deck: a forma do logo, grande, quase invisível, sangrando
+ * pela borda direita. Sobrepostos e com opacidade baixa — quem olha vê textura,
+ * não desenho, que é o papel dela.
+ */
+function losangosDaFaixa(page: PDFPage, y: number, h: number, opacidade = 0.05) {
+  const r = h * 0.62;
+  for (let i = 0; i < 4; i++) desenharLosango(page, A4.w - 30 - i * r * 1.15, y + h / 2, r, COR.branco, opacidade);
+}
+
 function novaPagina(ctx: Ctx) {
   const page = ctx.doc.addPage([A4.w, A4.h]);
   ctx.pages.push(page);
   ctx.page = page;
-  // Faixa de cabeçalho (cor da marca).
-  page.drawRectangle({ x: 0, y: A4.h - HEADER_H, width: A4.w, height: HEADER_H, color: ctx.primary });
-  const marca = trunc(ctx.bold, ctx.brand.marca || "Relatório", 15, CONTENT_W - 90);
+  faixaDegrade(page, 0, A4.h - HEADER_H, A4.w, HEADER_H);
+  losangosDaFaixa(page, A4.h - HEADER_H, HEADER_H);
+  const marca = trunc(ctx.bold, ctx.brand.marca || "Natcorp", 15, CONTENT_W - 90);
   page.drawText(marca, { x: M, y: A4.h - HEADER_H / 2 - 5, size: 15, font: ctx.bold, color: COR.branco });
   const tag = "Relatório";
   page.drawText(tag, {
@@ -97,9 +164,75 @@ function novaPagina(ctx: Ctx) {
     y: A4.h - HEADER_H / 2 - 4,
     size: 11,
     font: ctx.font,
-    color: mix(ctx.primary, 0.75),
+    color: cor(clarear(MARCA.faixa[2], 0.55)),
   });
   ctx.y = A4.h - HEADER_H - 28;
+}
+
+/**
+ * A CAPA — que não existia.
+ *
+ * O PDF começava direto no conteúdo: faixa, título e já a primeira tabela. Para
+ * quem recebe o arquivo por e-mail e abre no celular, isso não se apresenta —
+ * não diz de quem é, do que trata nem de quando.
+ *
+ * O desenho segue o arquétipo dominante do deck institucional: faixa escura em
+ * degradê ocupando o terço superior, título grande em branco dentro dela,
+ * subtítulo e data embaixo no claro, com o filete rosa entre os dois.
+ *
+ * Página própria, com `addPage` direto e não `novaPagina`: a capa não leva a
+ * faixa de cabeçalho comum nem entra na conta de conteúdo.
+ */
+function desenharCapa(ctx: Ctx, spec: ReportSpec) {
+  const page = ctx.doc.addPage([A4.w, A4.h]);
+  ctx.pages.push(page);
+  const H = A4.h * 0.42;
+  faixaDegrade(page, 0, A4.h - H, A4.w, H);
+  losangosDaFaixa(page, A4.h - H, H, 0.07);
+
+  // Marca no topo da faixa, acima do título — é a primeira coisa que se lê.
+  page.drawText(trunc(ctx.bold, ctx.brand.marca || "Natcorp", 12, CONTENT_W), {
+    x: M, y: A4.h - 56, size: 12, font: ctx.bold, color: cor(clarear(MARCA.faixa[2], 0.6)),
+  });
+
+  // Título dentro da faixa, quebrando em até 3 linhas de baixo para cima, para
+  // que o bloco fique ancorado no rodapé da faixa por mais longo que ele seja.
+  const linhas = wrap(ctx.bold, spec.titulo, 30, CONTENT_W).slice(0, 3);
+  let y = A4.h - H + 54 + (linhas.length - 1) * 36;
+  for (const l of linhas) {
+    page.drawText(l, { x: M, y, size: 30, font: ctx.bold, color: COR.branco });
+    y -= 36;
+  }
+
+  // O filete rosa: separa a faixa do claro e é assinatura da marca.
+  page.drawRectangle({ x: M, y: A4.h - H - 26, width: 96, height: 4, color: COR.regua });
+
+  if (spec.subtitulo) {
+    let sy = A4.h - H - 56;
+    for (const l of wrap(ctx.font, spec.subtitulo, 13, CONTENT_W).slice(0, 4)) {
+      page.drawText(l, { x: M, y: sy, size: 13, font: ctx.font, color: COR.muted });
+      sy -= 18;
+    }
+  }
+
+  /**
+   * O losango grande sangrando pela borda direita.
+   *
+   * Sem ele a metade de baixo da capa fica um vazio branco — e vazio numa capa
+   * não lê como respiro, lê como página que não terminou de carregar. É o mesmo
+   * recurso do deck (a forma da marca, grande, cortada pela margem), em tom
+   * claro para não competir com o título.
+   *
+   * Os três concêntricos dão a profundidade do logo, que tem losangos
+   * sobrepostos — um só ficaria chapado.
+   */
+  const cx = A4.w + 40;
+  const cy = A4.h * 0.24;
+  desenharLosango(page, cx, cy, 250, cor(clarear(ROXO_MARCA, 0.9)));
+  desenharLosango(page, cx, cy, 190, cor(clarear(ROXO_MARCA, 0.84)));
+  desenharLosango(page, cx, cy, 120, cor(clarear(ROSA, 0.86)));
+
+  page.drawText(ctx.brand.dataHoje, { x: M, y: M + 18, size: 9.5, font: ctx.font, color: COR.muted });
 }
 
 /** Garante `h` pontos livres antes do rodapé; senão abre nova página. */
@@ -236,7 +369,7 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
   const page = ctx.page;
   const cats = spec.categorias;
   const series = spec.series;
-  const pal = (i: number) => hexToRgb(CHART_PALETTE[i % CHART_PALETTE.length]!);
+  const pal = (i: number) => cor(CORES_GRAFICO[i % CORES_GRAFICO.length]!);
 
   if (spec.titulo) {
     page.drawText(trunc(ctx.bold, spec.titulo, 12, w), { x, y: top - 12, size: 12, font: ctx.bold, color: COR.texto });
@@ -387,7 +520,7 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
   // Mediana e tendência (quando marcadas na spec) — nunca em pizza/rosca.
   const med = spec.mediana ? medianOf(series.flatMap((s) => s.valores)) : null;
   if (med != null) {
-    const corMed = hexToRgb("#C95788");
+    const corMed = cor(ROSA);
     if (spec.tipo === "barras") {
       const mx = plotX + (plotW * (med - vmin)) / span;
       page.drawLine({ start: { x: mx, y: plotBottom }, end: { x: mx, y: plotTop }, thickness: 1, color: corMed, dashArray: [4, 3] });
@@ -402,7 +535,7 @@ function desenharGrafico(ctx: Ctx, spec: ChartSpec, top: number, boxH: number) {
   if (spec.tendencia && spec.tipo !== "barras") {
     const reg = linReg(series[0]!.valores);
     if (reg) {
-      const corT = hexToRgb("#2563EB");
+      const corT = cor(MARCA.faixa[0]);
       const clY = (y: number) => Math.max(plotBottom, Math.min(plotTop, y));
       const xa = plotX + band / 2;
       const xb = plotX + band * (cats.length - 1) + band / 2;
@@ -420,24 +553,26 @@ function drawRuns(ctx: Ctx, runs: MdRun[], size: number, color: RGB, indent = 0,
   const maxW = CONTENT_W - indent;
   const lh = size * 1.45;
   const spaceW = ctx.font.widthOfTextAtSize(" ", size);
-  const toks: { t: string; f: PDFFont }[] = [];
-  for (const r of runs) {
-    const f = r.bold ? ctx.bold : ctx.font;
-    for (const w of String(r.text).split(/\s+/)) if (w) toks.push({ t: w, f });
-  }
+  const toks = tokenizarRuns(runs);
   if (!toks.length) { ctx.y -= gap; return; }
   ensure(ctx, lh);
   let x = M + indent;
-  for (const tok of toks) {
-    const w = tok.f.widthOfTextAtSize(tok.t, size);
-    if (x > M + indent && x + w > M + indent + maxW) {
+  toks.forEach((tok, i) => {
+    const f = tok.negrito ? ctx.bold : ctx.font;
+    const w = f.widthOfTextAtSize(tok.texto, size);
+    // O espaço vem ANTES do token e só quando ele não cola — é o que impede o
+    // "colaboradores ," que aparecia em todo negrito seguido de pontuação.
+    const espaco = i === 0 || tok.colado ? 0 : spaceW;
+    if (x > M + indent && x + espaco + w > M + indent + maxW) {
       ctx.y -= lh;
       ensure(ctx, lh);
       x = M + indent;
+    } else {
+      x += espaco;
     }
-    ctx.page.drawText(tok.t, { x, y: ctx.y - size, size, font: tok.f, color });
-    x += w + spaceW;
-  }
+    ctx.page.drawText(tok.texto, { x, y: ctx.y - size, size, font: f, color });
+    x += w;
+  });
   ctx.y -= lh + gap;
 }
 
@@ -473,7 +608,15 @@ function desenharMarkdown(ctx: Ctx, texto: string) {
  * um vetor bonito da forma ERRADA, que era o que acontecia antes (tudo que este
  * arquivo não reconhecia caía no ramo de linha, em silêncio).
  */
-const PDF_VETOR: ReadonlySet<string> = new Set(["pizza", "rosca", "barras", "colunas", "linha", "area"]);
+/**
+ * `pizza` e `rosca` SAÍRAM daqui em 16/08/2026, e a razão é que o vetor deste
+ * arquivo mentia: `desenharGrafico` desenhava uma BARRA 100% EMPILHADA com
+ * legenda e chamava de pizza. Números certos, forma errada, sem aviso.
+ *
+ * O `chart-svg.ts` já desenha a pizza de verdade, com arcos — só nunca era
+ * chamado para isso. Agora as duas rasterizam por lá.
+ */
+const PDF_VETOR: ReadonlySet<string> = new Set(["barras", "colunas", "linha", "area"]);
 
 function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
   if (b.tipo === "texto") {
@@ -481,12 +624,25 @@ function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
   } else if (b.tipo === "tabela") {
     desenharTabela(ctx, b.colunas, b.linhas, b.titulo);
   } else if (b.tipo === "grafico") {
-    const boxH = 210;
+    const boxH = 250;
     ensure(ctx, boxH + 6);
     if (imagem) {
-      const w = CONTENT_W;
-      const h = Math.min(boxH, (imagem.height / imagem.width) * w);
-      ctx.page.drawImage(imagem, { x: M, y: ctx.y - h, width: w, height: h });
+      /**
+       * Encolhe pelos DOIS lados, preservando a proporção.
+       *
+       * Antes a largura era fixa em `CONTENT_W` e só a altura levava
+       * `Math.min(boxH, …)`. Uma imagem 900×520 pede 288pt de altura nessa
+       * largura; o teto cortava para 210 e a figura achatava 27%. Passou anos
+       * sem aparecer porque a única forma que denuncia distorção é o círculo —
+       * e o PDF não desenhava círculo nenhum até a pizza virar pizza de verdade.
+       *
+       * Centraliza o que sobrar: um gráfico estreito encostado à esquerda numa
+       * página de tabelas largas parece desalinhamento, não escolha.
+       */
+      const escala = Math.min(CONTENT_W / imagem.width, boxH / imagem.height);
+      const w = imagem.width * escala;
+      const h = imagem.height * escala;
+      ctx.page.drawImage(imagem, { x: M + (CONTENT_W - w) / 2, y: ctx.y - h, width: w, height: h });
     } else {
       desenharGrafico(ctx, b.grafico, ctx.y, boxH);
     }
@@ -496,8 +652,12 @@ function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
 
 /** Carimba o rodapé (paginação + data) em todas as páginas ao final. */
 function carimbarRodapes(ctx: Ctx) {
-  const total = ctx.pages.length;
-  ctx.pages.forEach((page, i) => {
+  // A CAPA fica de fora: ela já tem a data no rodapé, e "Página 1 de 8" numa
+  // capa denuncia que a capa é só mais uma página. A numeração passa a contar o
+  // CONTEÚDO, que é o que quem lê procura ao citar "veja a página 3".
+  const conteudo = ctx.pages.slice(1);
+  const total = conteudo.length;
+  conteudo.forEach((page, i) => {
     page.drawLine({
       start: { x: M, y: FOOTER_H + 8 },
       end: { x: A4.w - M, y: FOOTER_H + 8 },
@@ -532,12 +692,18 @@ export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promi
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const primary = hexToRgb(brand.primariaHex);
-  const ctx: Ctx = { doc, font, bold, primary, zebra: mix(primary, 0.93), page: null as unknown as PDFPage, y: 0, pages: [], brand };
+  /**
+   * A cor vem da MARCA, não de `brand.primariaHex`.
+   *
+   * Decisão do Igor (16/08/2026): sempre Natcorp, em qualquer cliente. O campo
+   * continua no tipo porque outras rotas o preenchem, mas o documento deixou de
+   * obedecê-lo — quem configurou a cor da bolha do widget continua com ela na
+   * bolha, e o relatório sai roxo Natcorp.
+   */
+  const primary = cor(ROXO_MARCA);
+  const ctx: Ctx = { doc, font, bold, primary, zebra: cor(MARCA.zebra), page: null as unknown as PDFPage, y: 0, pages: [], brand };
+  desenharCapa(ctx, spec);
   novaPagina(ctx);
-  // Título + subtítulo.
-  paragrafo(ctx, spec.titulo, 20, ctx.bold, COR.texto, spec.subtitulo ? 2 : 10);
-  if (spec.subtitulo) paragrafo(ctx, spec.subtitulo, 11, ctx.font, COR.muted, 12);
   // Rasteriza ANTES do desenho (que é síncrono) os gráficos que este arquivo não
   // desenha em vetor — empilhados, combo, radar. Sem isto eles caíam no ramo de
   // linha e saíam com a forma errada, sem ninguém perceber.
@@ -547,7 +713,7 @@ export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promi
     if (b.tipo !== "grafico" || PDF_VETOR.has(b.grafico.tipo)) continue;
     try {
       const { Resvg } = await import("@resvg/resvg-js");
-      const svg = chartSvg(b.grafico, CHART_PALETTE, 900, 520);
+      const svg = chartSvg(b.grafico, CORES_GRAFICO, 900, 520);
       const png = new Resvg(svg, { fitTo: { mode: "width", value: 1100 }, background: "white" }).render().asPng();
       imagens.set(i, await doc.embedPng(Buffer.from(png)));
     } catch (e) {
