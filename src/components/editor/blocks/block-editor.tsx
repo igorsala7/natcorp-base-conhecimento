@@ -1230,7 +1230,7 @@ function BlockEditorInner({
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
-          <span className="text-2xs text-brand-gray-400">
+          <span className="text-2xs text-text-muted">
             {saveState === "saving"
               ? "Salvando…"
               : saveState === "error"

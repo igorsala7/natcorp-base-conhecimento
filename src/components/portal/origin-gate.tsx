@@ -66,7 +66,7 @@ export function OriginGate({ space }: { space: GateSpace }) {
         <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
           <ShieldAlert className="size-6" />
         </span>
-        <p className="mt-5 text-[0.9375rem] leading-relaxed text-text">{mensagem}</p>
+        <p className="mt-5 text-base leading-relaxed text-text">{mensagem}</p>
         <p className="mt-3 text-sm text-text-muted">
           Abra a documentação pelo link disponível dentro do sistema.
         </p>

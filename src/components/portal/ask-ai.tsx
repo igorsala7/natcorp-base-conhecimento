@@ -417,7 +417,7 @@ function AskAiPanelInner({
             <Sparkles className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-bold leading-tight">Assistente de IA</p>
+            <p className="truncate text-base font-bold leading-tight">Assistente de IA</p>
             <p className="truncate text-xs text-white/80">Respostas com base na documentação</p>
           </div>
           {messages.length > 0 && (

@@ -330,7 +330,7 @@ export function Studio({
       <div key={n.tmpId}>
         <div
           style={{ paddingLeft: nivel * 14 + 4 }}
-          className={`group flex items-center gap-1.5 rounded-md py-1 pr-1 text-[0.8125rem] ${
+          className={`group flex items-center gap-1.5 rounded-md py-1 pr-1 text-ui ${
             ativo ? "bg-brand-purple-50 dark:bg-brand-purple-950/40" : "hover:bg-surface-2"
           }`}
         >

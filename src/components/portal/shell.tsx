@@ -155,7 +155,7 @@ gtag('config', '${tema.tracking.ga4}');`}
             )}
             <Link
               href={`/docs/${space.slug}`}
-              className="flex min-w-0 items-center gap-2.5 rounded-sm text-[0.9375rem] font-semibold tracking-tight"
+              className="flex min-w-0 items-center gap-2.5 rounded-sm text-base font-semibold tracking-tight"
             >
               {tema.brand.logoUrl ? (
                 // Logo cresce junto com a barra (altura - respiro), para poder
@@ -357,7 +357,7 @@ export function Breadcrumbs({
       </Link>
       {crumbs.map((c) => (
         <span key={c.id} className="flex items-center gap-1.5">
-          <ChevronRight className="size-3.5 text-brand-gray-300 dark:text-brand-gray-600" />
+          <ChevronRight className="size-3.5 text-border-strong" />
           <Link
             href={`/docs/${spaceSlug}/${c.slugPath.join("/")}`}
             className="rounded-sm transition-colors hover:text-primary"
@@ -368,7 +368,7 @@ export function Breadcrumbs({
       ))}
       {current && (
         <span className="flex items-center gap-1.5">
-          <ChevronRight className="size-3.5 text-brand-gray-300 dark:text-brand-gray-600" />
+          <ChevronRight className="size-3.5 text-border-strong" />
           <span aria-current="page" className="font-semibold text-text">
             {current}
           </span>

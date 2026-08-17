@@ -61,7 +61,7 @@ export function Stepper({
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-medium transition-colors",
                 erro
-                  ? "bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300"
+                  ? "bg-danger-soft text-danger"
                   : agora
                     ? "bg-brand-purple-100 text-brand-purple-800 dark:bg-brand-purple-900/50 dark:text-brand-purple-200"
                     : feito

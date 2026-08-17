@@ -196,7 +196,7 @@ export function FolderPanel({
               <IconePreview className="size-5" />
             </span>
             <span className="font-semibold leading-snug">{title.trim() || node.title}</span>
-            <span className="text-[0.8125rem] leading-relaxed text-text-muted">
+            <span className="text-ui leading-relaxed text-text-muted">
               {description.trim() || `${artigos} artigo(s)`}
             </span>
           </div>

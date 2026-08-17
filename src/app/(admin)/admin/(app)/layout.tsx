@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { Sidebar } from "@/components/admin/sidebar";
+import { Sidebar, MenuMobileProvider } from "@/components/admin/sidebar";
 import { permissoesDo } from "@/lib/auth/permissions";
 import { SeletorDocumentacao } from "@/components/admin/seletor-documentacao";
 import { resolvedSpaceId } from "@/lib/content/current-space";
@@ -64,6 +64,9 @@ export default async function AppLayout({
       <ConfirmProvider>
         <LoaderProvider>
           <NavProvider>
+            {/* O estado da gaveta do celular é compartilhado entre a barra (que
+                a RENDERIZA) e a topbar (que tem o BOTÃO). Ver `MenuMobileProvider`. */}
+            <MenuMobileProvider>
             <div className="flex h-dvh overflow-hidden bg-bg text-text">
               <Sidebar
                 permissoes={[...permissoes]}
@@ -88,6 +91,7 @@ export default async function AppLayout({
               </div>
               <CommandPalette permissoes={[...permissoes]} />
             </div>
+            </MenuMobileProvider>
           </NavProvider>
         </LoaderProvider>
       </ConfirmProvider>

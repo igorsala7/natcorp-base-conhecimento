@@ -40,7 +40,7 @@ export function Toc({ items }: { items: TocItem[] }) {
   if (items.length === 0) return null;
 
   return (
-    <nav aria-label="Índice da página" className="text-[0.8125rem]">
+    <nav aria-label="Índice da página" className="text-ui">
       <div className="mb-2 flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wider text-text-muted">
         <List className="size-3.5" /> Nesta página
       </div>
@@ -60,7 +60,7 @@ export function Toc({ items }: { items: TocItem[] }) {
               }}
               aria-current={active === item.id ? "location" : undefined}
               className={cn(
-                "-ml-px block border-l-2 py-1 text-[0.8125rem] leading-[1.4] transition-colors",
+                "-ml-px block border-l-2 py-1 text-ui leading-[1.4] transition-colors",
                 item.level === 3 ? "pl-6" : "pl-3",
                 active === item.id
                   ? "border-primary font-medium text-primary"

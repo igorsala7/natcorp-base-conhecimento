@@ -169,6 +169,8 @@ const config: Config = {
       fontSize: {
         "2xs": ["var(--text-2xs)", { lineHeight: "0.875rem" }],
         xs: ["var(--text-xs)", { lineHeight: "1rem" }],
+        // 13px — densidade de interface. Ver o bloco em globals.css.
+        ui: ["var(--text-ui)", { lineHeight: "1.125rem" }],
         sm: ["var(--text-sm)", { lineHeight: "1.25rem" }],
         base: ["var(--text-base)", { lineHeight: "1.5rem" }],
         lg: ["var(--text-lg)", { lineHeight: "1.75rem" }],

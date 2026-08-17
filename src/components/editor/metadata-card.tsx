@@ -105,7 +105,7 @@ export function MetadataCard({
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           placeholder="Título do artigo"
           aria-label="Título do artigo"
-          className="w-full border-0 bg-transparent text-2xl font-bold tracking-[-0.025em] text-text placeholder:text-brand-gray-300 focus:outline-none dark:placeholder:text-brand-gray-600"
+          className="w-full border-0 bg-transparent text-2xl font-bold tracking-[-0.025em] text-text placeholder:text-text-muted focus:outline-none"
         />
         <input
           value={desc}

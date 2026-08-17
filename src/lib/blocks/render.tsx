@@ -184,7 +184,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         >
           {partes.map((p, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <ChevronRight className="size-3.5 text-brand-gray-400" aria-hidden="true" />}
+              {i > 0 && <ChevronRight className="size-3.5 text-text-muted" aria-hidden="true" />}
               <span className={i === partes.length - 1 ? "font-medium text-text" : ""}>{p}</span>
             </span>
           ))}
@@ -214,16 +214,16 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               <span className="size-2.5 rounded-full bg-amber-500/80" />
               <span className="size-2.5 rounded-full bg-emerald-500/80" />
               {filename && (
-                <span className="ml-2 font-mono text-xs text-brand-gray-400">{filename}</span>
+                <span className="ml-2 font-mono text-xs text-text-muted">{filename}</span>
               )}
             </div>
             {lang && (
-              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-brand-gray-500">
+              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-text-muted">
                 {lang}
               </span>
             )}
           </div>
-          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !bg-transparent !p-4 font-mono text-[13px] leading-[1.6] !text-brand-gray-100">
+          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !bg-transparent !p-4 font-mono text-ui leading-[1.6] !text-brand-gray-100">
             <CodeCopy code={code} />
             {html ? (
               <code className="hljs text-brand-gray-100" dangerouslySetInnerHTML={{ __html: html }} />
@@ -795,7 +795,7 @@ export function FileCardView({ url, name, size }: { url: string; name: string; s
         {/* No hover do CARTÃO o botão inverte: borda+fundo primários, seta branca. */}
         <span
           aria-hidden
-          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-brand-gray-400 transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-fg"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-text-muted transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-fg"
         >
           <Download className="size-4" />
         </span>

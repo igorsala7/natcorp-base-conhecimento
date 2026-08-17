@@ -984,7 +984,7 @@ export function Tree({
                         >
                           <Icone className="mt-0.5 size-4 shrink-0 text-text-muted" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[0.8125rem] text-text">
+                            <span className="block truncate text-ui text-text">
                               {realceTitulo(f.node.title)}
                             </span>
                             {caminho && (

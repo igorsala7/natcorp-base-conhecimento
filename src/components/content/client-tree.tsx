@@ -415,7 +415,7 @@ export function ClientTree({
               <button
                 type="button"
                 onClick={() => router.push(`/admin/conteudo/${n.id}?space=${clientSpaceId}`)}
-                className="min-w-0 flex-1 cursor-pointer text-left text-[0.8125rem] leading-[1.45] [overflow-wrap:anywhere] hover:text-primary"
+                className="min-w-0 flex-1 cursor-pointer text-left text-ui leading-[1.45] [overflow-wrap:anywhere] hover:text-primary"
               >
                 {n.title}
               </button>

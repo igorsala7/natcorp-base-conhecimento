@@ -161,7 +161,7 @@ export default async function AdminHome() {
                   {c.value}
                 </div>
                 <div className="mt-0.5 text-sm font-medium text-text-muted">{c.label}</div>
-                <div className="mt-0.5 text-xs text-brand-gray-400">{c.detail}</div>
+                <div className="mt-0.5 text-xs text-text-muted">{c.detail}</div>
               </Surface>
             </Link>
           );
@@ -279,7 +279,7 @@ export default async function AdminHome() {
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-brand-purple-900 dark:text-brand-purple-200">
               <CheckCircle2 className="size-4" /> Dica de conteúdo
             </h2>
-            <p className="mt-2 text-[0.8125rem] leading-relaxed text-brand-purple-900/90 dark:text-brand-purple-200/90">
+            <p className="mt-2 text-ui leading-relaxed text-brand-purple-900/90 dark:text-brand-purple-200/90">
               Artigos com <strong>passo a passo</strong> e <strong>checklist</strong> recebem mais
               avaliações positivas. Use os blocos visuais do editor — e o{" "}
               <strong>Melhorar layout</strong> converte texto corrido em blocos ricos com IA.

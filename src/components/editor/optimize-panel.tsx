@@ -99,7 +99,7 @@ export function OptimizePanel({
                   <span aria-hidden className={`size-1.5 rounded-full ${COR[i.impacto]}`} />
                   {ROTULO[i.impacto]}
                 </span>
-                <span className="mt-0.5 block text-[0.8125rem] leading-snug">{i.mensagem}</span>
+                <span className="mt-0.5 block text-ui leading-snug">{i.mensagem}</span>
               </>
             );
             return (

@@ -33,7 +33,7 @@ export function ImageBlock({ block, onChange, spaceId }: BlockEditProps) {
       <button
         type="button"
         onClick={pick}
-        className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-surface-2 text-sm text-brand-gray-400 hover:border-primary hover:text-primary"
+        className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-surface-2 text-sm text-text-muted hover:border-primary hover:text-primary"
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
         {busy ? "Enviando…" : "Enviar imagem"}

@@ -85,7 +85,7 @@ export function BlockPalette({
                 </IconBox>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-semibold">{sn.title}</span>
-                  <span className="block truncate text-2xs text-brand-gray-400">
+                  <span className="block truncate text-2xs text-text-muted">
                     {sn.key}
                   </span>
                 </span>
@@ -139,7 +139,7 @@ function PaletteItem({ meta, onAdd }: { meta: BlockMeta; onAdd: (t: BlockType) =
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-semibold">{meta.label}</span>
         {meta.description && (
-          <span className="block truncate text-2xs text-brand-gray-400">
+          <span className="block truncate text-2xs text-text-muted">
             {meta.description}
           </span>
         )}

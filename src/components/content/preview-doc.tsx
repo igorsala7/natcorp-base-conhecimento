@@ -250,7 +250,7 @@ export function PreviewDoc({
                           </p>
                           {selo}
                         </div>
-                        <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
+                        <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl">
                           {node.title}
                         </h2>
                       </div>
@@ -265,7 +265,7 @@ export function PreviewDoc({
                         <h2
                           className={
                             depth <= 1
-                              ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
+                              ? "mt-1.5 text-2xl font-semibold leading-tight sm:text-3xl"
                               : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                           }
                         >
@@ -292,7 +292,7 @@ export function PreviewDoc({
                     <hr className="mb-10 w-full border-border/60" />
                   )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[1.6rem] font-bold leading-tight">{node.title}</h3>
+                    <h3 className="text-2xl font-bold leading-tight">{node.title}</h3>
                     {selo}
                     {rascunhos.has(node.id) && <Badge tone="primary">Edição pendente</Badge>}
                     {/* Ferramentas de edição só no modo Editar: em leitura pura a

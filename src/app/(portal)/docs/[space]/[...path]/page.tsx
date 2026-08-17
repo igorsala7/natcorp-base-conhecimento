@@ -290,7 +290,7 @@ export default async function DocsPage({
           {título}
         </h1>
         {/* Metadados como "eyebrow" discreto: informam sem competir com o título. */}
-        <div className="mb-6 mt-3 flex items-center gap-2 border-b border-border pb-6 text-[0.8125rem] text-text-muted">
+        <div className="mb-6 mt-3 flex items-center gap-2 border-b border-border pb-6 text-ui text-text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Clock className="size-3.5" /> {minutes} min de leitura
           </span>
@@ -356,7 +356,7 @@ export default async function DocsPage({
                     Seção
                   </p>
                   {/* Título de seção ~2x o corpo. */}
-                  <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
+                  <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl">
                     {s.node.title}
                   </h2>
                 </div>
@@ -368,7 +368,7 @@ export default async function DocsPage({
                   <h2
                     className={
                       s.depth <= 1
-                        ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
+                        ? "mt-1.5 text-2xl font-semibold leading-tight sm:text-3xl"
                         : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                     }
                   >
@@ -389,7 +389,7 @@ export default async function DocsPage({
               {i > 0 && sections[i - 1]?.kind === "article" && (
                 <hr className="mb-10 w-full border-border/60" />
               )}
-              <h3 className="text-[1.6rem] font-bold leading-tight">
+              <h3 className="text-2xl font-bold leading-tight">
                 {s.node.title}
               </h3>
               {(s.updatedAt || bylines.get(s.node.id)?.author) && (
@@ -493,7 +493,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">← Anterior</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-text-muted">← Anterior</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {prevGroup.title}
               </span>
@@ -506,7 +506,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 text-right no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">Próximo →</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-text-muted">Próximo →</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {nextGroup.title}
               </span>

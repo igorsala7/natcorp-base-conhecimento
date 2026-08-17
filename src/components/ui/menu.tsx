@@ -153,14 +153,10 @@ export function MenuItem({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors disabled:pointer-events-none disabled:opacity-40",
-        danger
-          ? "text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
-          : "text-text hover:bg-surface-2",
+        danger ? "text-danger hover:bg-danger-soft" : "text-text hover:bg-surface-2",
       )}
     >
-      {Icon && (
-        <Icon className={cn("size-4 shrink-0", danger ? "text-rose-600 dark:text-rose-400" : "text-text-muted")} />
-      )}
+      {Icon && <Icon className={cn("size-4 shrink-0", danger ? "text-danger" : "text-text-muted")} />}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {hint != null && (
         <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-xs font-medium text-text-muted">{hint}</span>

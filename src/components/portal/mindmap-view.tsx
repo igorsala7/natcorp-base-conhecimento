@@ -208,7 +208,7 @@ function Canvas({
           <svg
             width={lay.width}
             height={lay.height}
-            className="pointer-events-none absolute inset-0 overflow-visible text-brand-gray-300 dark:text-brand-gray-600"
+            className="pointer-events-none absolute inset-0 overflow-visible text-border-strong"
           >
             {lay.edges.map((e) => (
               <path

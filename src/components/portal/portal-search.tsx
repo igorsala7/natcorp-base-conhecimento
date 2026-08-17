@@ -59,7 +59,7 @@ export function SearchTrigger({
       >
         <Search className="size-5 shrink-0" />
         <span className="flex-1 text-base">{placeholder}</span>
-        <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+        <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
           ⌘K
         </kbd>
       </button>
@@ -74,7 +74,7 @@ export function SearchTrigger({
     >
       <Search className="size-4" />
       <span className="hidden sm:inline">Buscar</span>
-      <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+      <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
         ⌘K
       </kbd>
     </button>
@@ -229,7 +229,7 @@ export function PortalAssistant({
                 aria-label="Buscar"
                 className="h-14 flex-1 bg-transparent text-base outline-none placeholder:text-text-muted"
               />
-              <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+              <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
                 Esc
               </kbd>
             </div>

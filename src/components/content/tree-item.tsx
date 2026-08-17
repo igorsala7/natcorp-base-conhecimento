@@ -90,7 +90,7 @@ export function TreeItem({
         paddingLeft: depth * indentationWidth + 4,
       }}
       className={cn(
-        "group relative flex items-start gap-1 rounded-md py-[3px] pr-1 text-[0.8125rem] leading-[1.45] transition-[background-color,box-shadow,padding] duration-150",
+        "group relative flex items-start gap-1 rounded-md py-[3px] pr-1 text-ui leading-[1.45] transition-[background-color,box-shadow,padding] duration-150",
         selected
           ? "bg-brand-purple-50 font-semibold text-primary dark:bg-brand-purple-950/40"
           : "hover:bg-surface-2",

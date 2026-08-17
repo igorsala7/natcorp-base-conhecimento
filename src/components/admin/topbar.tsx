@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SearchTrigger } from "@/components/admin/search-trigger";
 import { Atividade } from "@/components/admin/atividade";
 import { Breadcrumb } from "@/components/admin/breadcrumb";
+import { BotaoMenuMobile } from "@/components/admin/sidebar";
 
 /**
  * Barra superior do Admin: trilha de navegação, busca e conta.
@@ -24,7 +25,10 @@ export function Topbar({ email }: { email: string }) {
     <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-4 sm:px-5">
       {/* `min-w-0` nos dois: sem ele, um rótulo longo empurra a busca para fora
           da barra em vez de truncar. */}
-      <div className="flex min-w-0 flex-1 items-center gap-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
+        {/* Primeiro elemento da barra, no FLUXO. Era um `fixed left-3 top-3`
+            que flutuava por cima do breadcrumb em toda tela do celular. */}
+        <BotaoMenuMobile />
         <Breadcrumb />
         <SearchTrigger />
       </div>
