@@ -650,22 +650,35 @@ const PDF_VETOR: ReadonlySet<string> = new Set(["barras", "colunas", "linha", "a
  * divide menos do que separa mal.
  */
 function desenharSecao(ctx: Ctx, b: Extract<ReportBlock, { tipo: "secao" }>) {
-  const H = 62;
+  const H = 48;
+  /**
+   * Quebra de página só quando NÃO CABE — não como regra.
+   *
+   * A versão anterior abria folha nova em toda seção. Bastava o conteúdo dela
+   * ser curto para sobrar uma página quase vazia com um título grande no alto —
+   * o "PDF com título e sem conteúdo" que o Igor relatou em 17/08.
+   *
+   * O piso de 200pt é a faixa mais o que dá para chamar de começo de seção
+   * (umas seis linhas). Abaixo disso a quebra é a decisão certa; acima, ela só
+   * desperdiça papel e faz o relatório parecer maior do que é.
+   */
+  const MINIMO = 200;
   const noTopo = ctx.y > A4.h - HEADER_H - 40;
-  if (!noTopo) novaPagina(ctx);
+  if (!noTopo && ctx.y - MINIMO < M + FOOTER_H) novaPagina(ctx);
   ensure(ctx, H + 20);
+  if (!noTopo) ctx.y -= 12; // ar antes da faixa: seção precisa respirar do que veio antes
 
   const y = ctx.y - H;
   faixaDegrade(ctx.page, M, y, CONTENT_W, H, 60);
-  desenharLosango(ctx.page, M + CONTENT_W - 26, y + H / 2, H * 0.55, COR.branco, 0.09);
+  desenharLosango(ctx.page, M + CONTENT_W - 22, y + H / 2, H * 0.5, COR.branco, 0.07);
 
-  const t = trunc(ctx.bold, b.titulo, 17, CONTENT_W - 56);
-  ctx.page.drawText(t, { x: M + 18, y: y + (b.subtitulo ? H / 2 + 2 : H / 2 - 6), size: 17, font: ctx.bold, color: COR.branco });
+  const t = trunc(ctx.bold, b.titulo, 14, CONTENT_W - 56);
+  ctx.page.drawText(t, { x: M + 16, y: y + (b.subtitulo ? H / 2 + 1 : H / 2 - 5), size: 14, font: ctx.bold, color: COR.branco });
   if (b.subtitulo) {
-    const st = trunc(ctx.font, b.subtitulo, 10, CONTENT_W - 56);
-    ctx.page.drawText(st, { x: M + 18, y: y + H / 2 - 14, size: 10, font: ctx.font, color: cor(clarear(MARCA.faixa[2], 0.65)) });
+    const st = trunc(ctx.font, b.subtitulo, 9, CONTENT_W - 56);
+    ctx.page.drawText(st, { x: M + 16, y: y + H / 2 - 13, size: 9, font: ctx.font, color: cor(clarear(MARCA.faixa[2], 0.7)) });
   }
-  ctx.y = y - 22;
+  ctx.y = y - 20;
 }
 
 /**
@@ -749,7 +762,31 @@ function desenharNota(ctx: Ctx, nota?: string) {
   ctx.y -= 6;
 }
 
-function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
+/**
+ * O texto abre repetindo o título que a seção acabou de dar?
+ *
+ * A IA escreve `## Pontos de atenção` no bloco de texto logo depois de um bloco
+ * `secao` com o mesmo nome — e vai escrever sempre, porque as duas coisas são o
+ * mesmo pensamento dela. O documento saía com o título duas vezes, uma dentro da
+ * faixa e outra logo abaixo.
+ *
+ * Some o heading, não o bloco: o parágrafo é o conteúdo e precisa ficar.
+ */
+function semTituloRepetido(texto: string, tituloAnterior: string | null): string {
+  if (!tituloAnterior) return texto;
+  const linhas = texto.split("\n");
+  const i = linhas.findIndex((l) => l.trim());
+  if (i < 0) return texto;
+  const primeira = linhas[i]!.trim();
+  const m = primeira.match(/^#{1,3}\s+(.*)$/);
+  if (!m) return texto;
+  const igual = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (igual(m[1] ?? "") !== igual(tituloAnterior)) return texto;
+  linhas.splice(i, 1);
+  return linhas.join("\n").replace(/^\s*\n/, "");
+}
+
+function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage, tituloAnterior?: string | null) {
   if (b.tipo === "secao") {
     desenharSecao(ctx, b);
   } else if (b.tipo === "destaques") {
@@ -758,7 +795,7 @@ function desenharBloco(ctx: Ctx, b: ReportBlock, imagem?: PDFImage) {
     desenharCards(ctx, b);
   } else if (b.tipo === "texto") {
     if (b.titulo) drawRuns(ctx, [{ text: b.titulo, bold: true }], 13, ctx.primary, 0, 4);
-    desenharMarkdown(ctx, b.texto);
+    desenharMarkdown(ctx, semTituloRepetido(b.texto, b.titulo ?? tituloAnterior ?? null));
   } else if (b.tipo === "tabela") {
     desenharTabela(ctx, b.colunas, b.linhas, b.titulo);
   } else if (b.tipo === "grafico") {
@@ -866,7 +903,12 @@ export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promi
       console.error("[pdf] falha ao rasterizar o gráfico:", e);
     }
   }
-  spec.blocos.forEach((b, i) => desenharBloco(ctx, b, imagens.get(i)));
+  // A seção anterior é passada adiante para o texto não repetir o título dela.
+  let secaoAtual: string | null = null;
+  spec.blocos.forEach((b, i) => {
+    desenharBloco(ctx, b, imagens.get(i), secaoAtual);
+    secaoAtual = b.tipo === "secao" ? b.titulo : b.tipo === "texto" ? null : secaoAtual;
+  });
   // Avisos de degradação (tipo trocado por limitação do formato) — em vez de trocar
   // em silêncio, o arquivo DIZ o que mudou.
   if (spec.avisos?.length) {

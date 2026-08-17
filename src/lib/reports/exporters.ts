@@ -544,15 +544,6 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
   };
   const empilhadoPpt = new Set(["colunas_emp", "barras_emp", "area_emp"]);
 
-  // Capa (fundo da marca + acento).
-  const capa = pres.addSlide();
-  capa.background = { color: c.primary };
-  capa.addImage({ x: 0.9, y: 0.85, w: 2.3, h: 2.3 / LOGO_BRANCO.proporcao, data: logoDataUrl(LOGO_BRANCO) });
-  capa.addShape(pres.ShapeType.rect, { x: 0.9, y: 3.2, w: 4.2, h: 0.12, fill: { color: c.secondary } });
-  capa.addText(spec.titulo, { x: 0.9, y: 2.0, w: W - 1.8, h: 1.1, fontSize: 40, bold: true, color: "FFFFFF", align: "left", fontFace: FONTE });
-  if (spec.subtitulo) capa.addText(spec.subtitulo, { x: 0.9, y: 3.5, w: W - 1.8, h: 0.6, fontSize: 18, color: "F0E8F6", align: "left", fontFace: FONTE });
-  capa.addText(`${brand.marca}   ·   ${brand.dataHoje}`, { x: 0.9, y: 6.6, w: W - 1.8, h: 0.4, fontSize: 12, color: "E7DCF2", align: "left", fontFace: FONTE });
-
   /**
    * A faixa em degradê num slide.
    *
@@ -583,6 +574,37 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
       });
     });
   };
+
+  /**
+   * A CAPA — refeita em 17/08.
+   *
+   * Ela era roxo CHAPADO enquanto o PDF e os slides de seção já tinham o degradê
+   * da marca: a primeira coisa que se vê era a única que não parecia material da
+   * Natcorp ("o primeiro slide não está com um novo layout" — Igor).
+   *
+   * O espaçamento também mudou. Antes o título estava em y=2.0, o filete em 3.2 e
+   * o subtítulo em 3.5 — tudo empilhado no meio, com um vazio grande embaixo. A
+   * versão nova ancora o bloco mais abaixo e abre respiro entre as três linhas:
+   * capa formal é meia página vazia de propósito, não conteúdo espremido.
+   */
+  const capa = pres.addSlide();
+  faixaPpt(capa, 0, 7.5);
+  capa.addImage({ x: 0.9, y: 0.75, w: 2.1, h: 2.1 / LOGO_BRANCO.proporcao, data: logoDataUrl(LOGO_BRANCO) });
+  capa.addShape(pres.ShapeType.rect, { x: 0.9, y: 3.35, w: 1.3, h: 0.06, fill: { color: c.secondary }, line: { type: "none" } });
+  capa.addText(spec.titulo, {
+    x: 0.9, y: 3.75, w: W - 3.2, h: 1.4,
+    fontSize: 34, bold: true, color: "FFFFFF", align: "left", valign: "top",
+    lineSpacingMultiple: 1.15, fontFace: FONTE,
+  });
+  if (spec.subtitulo)
+    capa.addText(spec.subtitulo, {
+      x: 0.9, y: 5.3, w: W - 3.2, h: 0.8,
+      fontSize: 15, color: "E7DCF2", align: "left", valign: "top", lineSpacingMultiple: 1.3, fontFace: FONTE,
+    });
+  capa.addText(`${brand.marca}   ·   ${brand.dataHoje}`, {
+    x: 0.9, y: 6.75, w: W - 1.8, h: 0.4, fontSize: 11, color: "C9B8DC", align: "left", fontFace: FONTE,
+  });
+
 
   for (const b of spec.blocos) {
     /**
@@ -636,7 +658,18 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
           });
         });
       });
-      slide.addText(objs.length ? objs : [{ text: b.texto, options: { fontSize: 15, color: "333333", fontFace: FONTE } }], { x: 0.7, y: 1.0, w: W - 1.4, h: 5.9, valign: "top" });
+      /**
+       * Respiro. "Letras muito coladas, linhas muito grudadas" (Igor, 17/08).
+       *
+       * O pptxgenjs não aplica entrelinha por padrão: 15pt de texto com
+       * entrelinha 1,0 num slide de 13" fica denso como corpo de contrato.
+       * 1,35 é o que separa as linhas sem virar espaçamento duplo — e a margem
+       * lateral abriu de 0,7" para 0,9", porque texto que encosta na borda lê
+       * como se tivesse sido cortado.
+       */
+      slide.addText(objs.length ? objs : [{ text: b.texto, options: { fontSize: 15, color: "333333", fontFace: FONTE } }], {
+        x: 0.9, y: 1.15, w: W - 1.8, h: 5.6, valign: "top", lineSpacingMultiple: 1.35,
+      });
     } else if (b.tipo === "destaques") {
       // Números grandes lado a lado. Larguras iguais: colunas de tamanhos
       // diferentes deixam de parecer uma faixa e viram três coisas soltas.
@@ -664,7 +697,7 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
         // sem a conversão de centro que o pdf-lib exige.
         slide.addShape(pres.ShapeType.diamond, { x: x + 0.25, y: 1.9, w: 0.26, h: 0.26, fill: { color: c.primary }, line: { width: 0 } });
         slide.addText(it.titulo, { x: x + 0.62, y: 1.85, w: w - 0.9, h: 0.4, fontSize: 15, bold: true, color: "333333", fontFace: FONTE });
-        slide.addText(it.texto, { x: x + 0.25, y: 2.4, w: w - 0.5, h: 2.3, fontSize: 12, color: "6B6577", valign: "top", fontFace: FONTE });
+        slide.addText(it.texto, { x: x + 0.25, y: 2.45, w: w - 0.5, h: 2.3, fontSize: 12, color: "6B6577", valign: "top", lineSpacingMultiple: 1.3, fontFace: FONTE });
       });
     } else if (b.tipo === "tabela") {
       tituloSlide(b.titulo || "Tabela");
@@ -708,13 +741,50 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
       const ct = tipoChart[g.tipo] || "bar";
       try {
         const data = g.series.map((s) => ({ name: s.nome, labels: g.categorias, values: s.valores }));
+        const ehFatia = g.tipo === "pizza" || g.tipo === "rosca";
+        /**
+         * LEGENDA E VALORES — o gráfico saía mudo.
+         *
+         * A regra anterior era `showLegend: g.series.length > 1`, escrita
+         * pensando em barras, onde a legenda nomeia SÉRIES. Numa pizza existe uma
+         * série só e são as CATEGORIAS que carregam o sentido — então a condição
+         * excluía justamente o tipo que mais precisa dela. O resultado era uma
+         * roda de fatias coloridas sem dizer qual filial é qual.
+         *
+         * `showValue` estava fixo em `false`: nenhum gráfico mostrava número.
+         * Numa apresentação isso obriga quem apresenta a ler o valor em voz alta
+         * ou a mandar todo mundo abrir o Excel.
+         *
+         * O teto de 24 rótulos é o que impede o remédio de virar doença: 12
+         * categorias × 3 séries são 36 números empilhados sobre as barras, e aí
+         * o gráfico fica menos legível do que sem nada.
+         */
+        const rotulos = g.categorias.length * g.series.length;
         slide.addChart(ct as never, data, {
-          x: 0.6, y: 1.0, w: W - 1.2, h: 5.7,
+          x: 0.6, y: 1.0, w: W - 1.2, h: 5.5,
           barDir: g.tipo === "colunas" || g.tipo === "colunas_emp" || g.tipo === "combo" ? "col" : "bar",
           ...(empilhadoPpt.has(g.tipo) ? { barGrouping: "stacked", barOverlapPct: 100 } : {}),
-          chartColors, showLegend: g.series.length > 1, legendPos: "b",
-          showValue: false, showTitle: false,
+          chartColors,
+          showLegend: ehFatia || g.series.length > 1,
+          legendPos: "b",
+          legendFontSize: 11,
+          // Fatia mostra PORCENTAGEM (é o que a pizza responde); o resto, o valor.
+          /**
+           * Rótulo FORA da fatia, em texto escuro.
+           *
+           * Dentro exigiria escolher entre branco e escuro sem saber a cor da
+           * fatia: a paleta alterna claro e escuro de propósito (para sobreviver
+           * à impressão em preto-e-branco), então qualquer cor fixa some em
+           * metade das fatias. Fora, o fundo é sempre o branco do slide.
+           */
+          ...(ehFatia
+            ? { showPercent: true, showValue: false, dataLabelFontSize: 11, dataLabelColor: semCerquilha(MARCA.texto), dataLabelPosition: "outEnd" }
+            : { showValue: rotulos <= 24, dataLabelFontSize: 10, dataLabelColor: semCerquilha(MARCA.textoSuave), dataLabelPosition: "outEnd" }),
+          showTitle: false,
+          catAxisLabelFontSize: 11,
+          valAxisLabelFontSize: 11,
           catAxisLabelFontFace: FONTE, valAxisLabelFontFace: FONTE, legendFontFace: FONTE,
+          dataLabelFontFace: FONTE,
         });
       } catch {
         const header = [{ text: "Categoria", options: { bold: true, color: "FFFFFF", fill: { color: c.primary } } }, ...g.series.map((s) => ({ text: s.nome, options: { bold: true, color: "FFFFFF", fill: { color: c.primary } } }))];
