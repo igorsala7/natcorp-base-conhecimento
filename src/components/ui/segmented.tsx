@@ -22,7 +22,16 @@ export function Segmented<T extends string>({
     <div
       role="tablist"
       className={cn(
-        "flex rounded-md border border-border bg-surface-2 p-0.5",
+        // `max-w-full` + rolagem própria: com quatro opções ("Todos · Ativo ·
+        // Convidado · Suspenso") o grupo passa de 375px e empurrava a PÁGINA
+        // para os lados. É o mesmo defeito que a tabela larga do portal já
+        // causou uma vez — conteúdo largo rola dentro do próprio contêiner,
+        // nunca no corpo do documento.
+        //
+        // Rolagem e não `flex-wrap`: um grupo segmentado quebrado em duas
+        // linhas deixa de parecer um controle único, que é a única coisa que
+        // ele comunica.
+        "slim-scroll flex max-w-full overflow-x-auto rounded-md border border-border bg-surface-2 p-0.5",
         className,
       )}
     >
@@ -35,7 +44,7 @@ export function Segmented<T extends string>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
             value === o.value
               ? "bg-surface text-text shadow-1"
               : "text-text-muted hover:text-text",

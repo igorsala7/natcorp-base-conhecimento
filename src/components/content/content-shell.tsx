@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const KEY = "kb.treeWidth";
@@ -15,6 +16,18 @@ const DEFAULT = 288; // = w-72
  * A coluna da árvore é redimensionável (largura persistida) e RECOLHÍVEL —
  * na página do EDITOR ela começa recolhida (padrão da referência: o editor
  * ocupa a tela; a árvore expande sob demanda pelo trilho).
+ *
+ * ── Abaixo de 768px não existem duas colunas ────────────────────────────────
+ * Um `flex` com um aside de 288px numa tela de 375px deixa 87px para o editor.
+ * Duas colunas não é um layout que "aperta" no celular: é um layout que deixa
+ * de existir, e insistir nele entrega as duas metades inutilizáveis em vez de
+ * uma inteira.
+ *
+ * No celular a árvore vira GAVETA (o mesmo `Sheet` da barra lateral do admin,
+ * com foco preso e Escape) e o editor fica com a largura toda. O gatilho é o
+ * MESMO trilho fino que o modo recolhido já usa no desktop — quem aprendeu o
+ * gesto numa largura o reconhece na outra, e não há um segundo controle para
+ * explicar.
  */
 export function ContentShell({
   aside,
@@ -29,6 +42,8 @@ export function ContentShell({
   const [width, setWidth] = useState(DEFAULT);
   const [dragging, setDragging] = useState(false);
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  /** Gaveta do celular. Independente de `collapsed`, que é estado do desktop. */
+  const [gaveta, setGaveta] = useState(false);
   const widthRef = useRef(DEFAULT);
   const chaveColapso = `${KEY_COLAPSO}.${defaultCollapsed ? "editor" : "nav"}`;
 
@@ -90,22 +105,52 @@ export function ContentShell({
     localStorage.setItem(KEY, String(DEFAULT));
   }
 
+  /**
+   * O trilho fino. Um só componente para os dois papéis, porque é o mesmo
+   * gesto: no desktop ele EXPANDE a coluna, no celular ele ABRE a gaveta.
+   */
+  const trilho = (aoClicar: () => void, soNoCelular: boolean) => (
+    <aside
+      className={cn(
+        "mr-3 w-11 shrink-0 flex-col items-center rounded-lg border border-border bg-surface py-2",
+        soNoCelular ? "flex md:hidden" : "hidden md:flex",
+      )}
+    >
+      <button
+        type="button"
+        onClick={aoClicar}
+        title="Mostrar a árvore de conteúdo"
+        aria-label="Mostrar a árvore de conteúdo"
+        aria-expanded={false}
+        className="flex size-8 items-center justify-center rounded-lg border border-brand-purple-200 bg-brand-purple-50 text-primary transition-colors hover:bg-brand-purple-100 dark:border-brand-purple-900 dark:bg-brand-purple-950/50 dark:hover:bg-brand-purple-900/60"
+      >
+        <PanelLeftOpen className="size-4" />
+      </button>
+    </aside>
+  );
+
+  /* A gaveta do celular existe nos dois modos: `collapsed` é uma preferência
+     do desktop e não deve decidir nada abaixo de 768px. */
+  const gavetaMobile = (
+    <Sheet
+      open={gaveta}
+      onClose={() => setGaveta(false)}
+      title="Conteúdo"
+      side="left"
+      size="sm"
+      bodyClassName="p-3"
+      className="md:hidden"
+    >
+      {aside}
+    </Sheet>
+  );
+
   if (collapsed) {
     return (
       <div data-fullbleed className="flex h-full">
-        {/* Trilho fino: a árvore está a um clique. Botão destacado (acento roxo). */}
-        <aside className="mr-3 flex w-11 shrink-0 flex-col items-center rounded-lg border border-border bg-surface py-2">
-          <button
-            type="button"
-            onClick={alternar}
-            title="Mostrar a árvore de conteúdo"
-            aria-label="Mostrar a árvore de conteúdo"
-            aria-expanded={false}
-            className="flex size-8 items-center justify-center rounded-lg border border-brand-purple-200 bg-brand-purple-50 text-primary transition-colors hover:bg-brand-purple-100 dark:border-brand-purple-900 dark:bg-brand-purple-950/50 dark:hover:bg-brand-purple-900/60"
-          >
-            <PanelLeftOpen className="size-4" />
-          </button>
-        </aside>
+        {gavetaMobile}
+        {trilho(alternar, false)}
+        {trilho(() => setGaveta(true), true)}
         <section className="min-w-0 flex-1 overflow-auto">{children}</section>
       </div>
     );
@@ -113,9 +158,13 @@ export function ContentShell({
 
   return (
     <div data-fullbleed className="flex h-full">
+      {gavetaMobile}
+      {/* No celular a coluna some e o trilho a substitui — ver o cabeçalho. */}
+      {trilho(() => setGaveta(true), true)}
+
       <aside
         style={{ width }}
-        className="flex shrink-0 flex-col overflow-auto rounded-lg border border-border bg-surface p-3"
+        className="hidden shrink-0 flex-col overflow-auto rounded-lg border border-border bg-surface p-3 md:flex"
       >
         <div className="mb-1 flex justify-end">
           <button
@@ -133,7 +182,7 @@ export function ContentShell({
         {aside}
       </aside>
 
-      {/* Divisor arrastável */}
+      {/* Divisor arrastável — só onde há duas colunas para dividir. */}
       <div
         onPointerDown={onPointerDown}
         onDoubleClick={reset}
@@ -141,7 +190,7 @@ export function ContentShell({
         aria-orientation="vertical"
         title="Arraste para redimensionar (duplo clique para restaurar)"
         className={cn(
-          "relative mx-1 w-1.5 shrink-0 cursor-col-resize rounded-full transition-colors",
+          "relative mx-1 hidden w-1.5 shrink-0 cursor-col-resize rounded-full transition-colors md:block",
           dragging ? "bg-primary" : "bg-transparent hover:bg-brand-purple-200",
         )}
       >
