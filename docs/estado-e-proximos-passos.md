@@ -17,9 +17,10 @@
    instrução em `visuals-directive.ts` e eu reforço.
 3. Para olhar os arquivos sem passar pelo chat: `npm run relatorio:amostra -- <pasta>`.
 
-**Estado das duas frentes abertas:** a Parte 2 (chat não cita tabela/campo) está com a
-regra no ar e três caminhos ainda vazando; a Parte 4 (arquivos gerados) está nas fases
-1→3 de 6.
+**Estado das duas frentes abertas:** a Parte 2 (chat não cita tabela/campo) tem a regra no
+ar, três caminhos ainda vazando e — desde 16/08 23h — **os rótulos no banco**, o que
+inverteu o desenho: a tradução virou o caminho principal e a supressão, a exceção. A
+Parte 4 (arquivos gerados) está nas fases 1→3 de 6.
 
 ---
 
@@ -148,7 +149,12 @@ quer ("NUNCA pela chave técnica do JSON/banco"). Três buracos:
 estável. Casar por `document.title` funcionaria sem mexer no widget, mas quebra se alguém
 renomear a aplicação.
 
-### Os rótulos: por que não existiam, e como recuperá-los  ✔ RESOLVIDO no código
+### Os rótulos: por que não existiam, e como recuperá-los  ✔ RESOLVIDO e JÁ NO BANCO
+
+> **Atualizado em 16/08 23h.** O worker foi reiniciado e as duas fontes reprocessadas. Esta
+> seção mudou de "o que fazer" para "o que temos" — e a conclusão de desenho **virou**:
+> a tradução deixou de ser exceção e passou a ser o caminho principal. Ver "O que isto
+> muda no plano", no fim da seção.
 
 Estado do banco quando a pergunta apareceu:
 
@@ -178,25 +184,59 @@ Três causas, investigadas e corrigidas (commit `f203c73`):
    itens que a view de banco lista com tabela e coluna. Estar em `database_items` é a
    prova; passou a valer isso.
 
-Medido no `f200.json` real, com a IA desligada:
+**Uma quarta causa apareceu depois**, e valia sozinha a rodada: o insert em lote é atômico
+no Postgres, e uma linha duplicada derrubava as outras 499. **3.000 linhas sumiam em
+silêncio** (`apex_app` e `apex_page` ficavam com ZERO), porque o erro do insert nunca era
+conferido e a contagem publicada vinha do array em memória. Corrigido em
+`src/lib/data-dictionary/gravar.ts` (deduplica, confere cada lote, para no primeiro erro).
 
-| | antes | depois |
-|---|---|---|
-| colunas | 0 | 2.481 |
-| com tabela | 0 | 1.163 *(44 tabelas distintas)* |
-| com rótulo | 0 | 1.921 |
-| tabela **e** rótulo | 0 | **727** |
+**E os rótulos do CSV estavam escondidos dentro do comentário.** O ERP grava
+`"Codigo - Código, que deseja incluir…"` no comentário da coluna: dos 4.809 comentários,
+1.865 seguem esse padrão e 1.733 são curtos o bastante para serem o próprio rótulo.
+`src/lib/data-dictionary/rotulo.ts` extrai isso sem IA nenhuma.
 
-**Consequência para o desenho:** a tradução `COD_FILIAL → "Filial"` passa a ser possível
-para os 727 pares — uma fatia do ERP, não ele todo. Para o resto continua valendo
-**supressão**, porque não há rótulo para pôr no lugar. Cobertura maior exige subir o
-metadado das outras aplicações APEX além da 200.
+#### Estado do banco AGORA (medido 16/08 23h)
 
-> **AÇÃO PENDENTE, na ordem:** `git pull` → **reiniciar o worker** (foi o passo que faltou)
-> → subir o `f200.json` e processar. O arquivo já está no Storage (cinco cópias de 21,8 MB
-> em `imports/a5e69064-…/apex-*-f200.json`), mas o fluxo da tela é upload → processar.
-> A ingestão apaga só as linhas `apex_dict` do mesmo app: não duplica e não encosta nas
-> 78.126 do CSV. As duas fontes convivem — o CSV dá cobertura, o APEX dá os rótulos.
+| origem | colunas | com rótulo | com tabela | tabela **e** rótulo |
+|---|---|---|---|---|
+| `db_ddl` (CSV) | 64.999 | 3.601 | 64.999 | 3.601 |
+| `apex_dict` (f200) | 2.789 | 2.300 | 1.848 | 1.446 |
+
+**5.031 pares distintos `tabela.coluna → rótulo`, em 509 tabelas** — contra 727 pares em 44
+tabelas, que era o número da versão anterior deste documento.
+
+Ontologia: **5.640 termos e 16.919 sinônimos** (eram 2.240 e 12.063). Os sinônimos técnicos
+entraram automaticamente (`COD_FILIAL` como alias de "Filial"), mais uma passada de IA pelo
+escopo `dicionario`.
+
+#### A ressalva que o número esconde
+
+Nem todo rótulo é tradução. Medido sobre os 3.413 pares distintos `coluna → rótulo`:
+
+- **~95% são tradução de verdade** — `COD_RET_IRF → "Código Retenção IR"`,
+  `USUARIO_ENVIO → "Usuário que enviou o arquivo"`, `FLG_CONTR_INSS → "Inss em Dia"`.
+- **184 ainda abrem com abreviação técnica** — `COD_ATIVIDADE → "Cod Atividade"`,
+  `CAD_VAGA → "Cod vaga"`. Isso **não** satisfaz a regra: é o nome da coluna fantasiado, e
+  passa mais fácil numa revisão do que o nome cru passaria.
+- Um terceiro grupo é inofensivo e não deve ser filtrado: `BAIRRO → "Bairro"`,
+  `MATRICULA → "Matrícula"`. A coluna coincide com a palavra humana; dizer "Bairro" está
+  certo.
+
+> **A tradução precisa de um portão de qualidade**, não só de um par. Rótulo que abre com
+> `Cod `/`Flg `/`Ind `/`Dt `/`Vlr ` cai na SUPRESSÃO, não na tradução.
+
+#### O que isto muda no plano
+
+A conclusão anterior — *"727 pares, uma fatia do ERP; para o resto vale supressão"* —
+**inverteu**. Com 5.031 pares em 509 tabelas, a tradução vira o caminho principal e a
+supressão vira a exceção (o que não tem rótulo, e os 184 de rótulo ruim).
+
+Isso reordena o plano de execução abaixo: o item 5 (camada de tradução no gargalo único)
+deixa de depender de "subir o metadado das outras aplicações APEX" e passa a ser
+executável agora.
+
+> ~~AÇÃO PENDENTE~~ ✔ **FEITO em 16/08.** Worker reiniciado, `f200.json` reprocessado
+> (`componentes: 10.694`, `colunas: 3.016`) e CSV reimportado com a extração de rótulo.
 
 ### Decisões que dependem de você
 
@@ -210,6 +250,10 @@ metadado das outras aplicações APEX além da 200.
    por rótulo, já é gerado no mesmo passe — `docs.ts:51`.)
 5. **Vale para o PDF/XLSX gerado também?** Lá não há modelo no meio: o cabeçalho é a
    coluna crua e só sai limpo com tradução ou com rótulo vindo da tela.
+   *(Atualização 16/08: os arquivos foram redesenhados — Parte 4 —, mas o cabeçalho de
+   tabela continua sendo a coluna crua. O redesenho não tocou nisso, e agora que existem
+   5.031 pares a tradução ali é barata: `expandirTabela` já monta os cabeçalhos num lugar
+   só, `datasets.ts:389-394`.)*
 
 ### Plano de execução proposto (depois das respostas)
 
@@ -217,11 +261,16 @@ metadado das outras aplicações APEX além da 200.
 |---|---|---|
 | 1 | `regraRotulosColuna` sai de trás do gate `temTools`, ganha a documentação no escopo e passa a valer no portal | Uma linha de escopo, cobre as três rotas, reversível |
 | 2 | Suprimir `_colunas` e as mensagens `"Colunas reais: …"` do que vai ao modelo | É o vazamento mais concentrado e não tem função para o usuário |
-| 3 | `glossarioCasado` deixa de imprimir aliases que parecem identificador técnico | O casamento da consulta não depende de imprimir |
+| 3 | `glossarioCasado` deixa de imprimir aliases que parecem identificador técnico | O casamento da consulta não depende de imprimir. **Ficou mais urgente:** os sinônimos foram de 12.063 para 16.919, e o que entrou são justamente os nomes de coluna |
 | 4 | Detecção da app + portão: fora da Carga de Dados, a supressão vale; dentro, não | Depende da decisão 1 |
-| 5 | Camada de tradução em `injetarDatasetComRelato` (gargalo único) | Já há 727 pares tabela+rótulo depois de reprocessar o APEX; o que não tiver rótulo cai na supressão |
-| 6 | Cartão de citação e cabeçalho de PDF/XLSX | Não passam pelo modelo — exigem tradução de verdade |
+| 5 | Camada de tradução em `injetarDatasetComRelato` (gargalo único) | **Promovido.** São 5.031 pares em 509 tabelas, não 727 em 44 — a tradução virou o caminho principal. Precisa do portão de qualidade (rótulo que abre com `Cod `/`Flg `/`Dt ` cai na supressão) |
+| 6 | Cartão de citação e cabeçalho de PDF/XLSX | Não passam pelo modelo — exigem tradução de verdade. O cabeçalho é montado num lugar só (`datasets.ts:389-394`), então é barato |
 | 7 | Marcar conteúdo técnico fora do escopo do chatbot | Exige coluna de tipo em `chunks` (migration) |
+
+**Ordem sugerida depois da atualização:** 5 → 2 → 3 → 6 → 1 → 4 → 7. A tradução (5) passou
+à frente porque agora cobre a maior parte dos casos, e porque os itens 2 e 3 ficam mais
+fáceis de calibrar quando já existe um tradutor para consultar: em vez de só suprimir,
+dá para trocar.
 
 **Regra de desenho que atravessa tudo:** as ferramentas *precisam* dos nomes de coluna
 para funcionar. O corte não pode ser "o modelo não vê" — tem de ser "o modelo não
