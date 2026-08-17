@@ -33,6 +33,7 @@ import type { IntegResult } from "./actions";
 import type { BaseRow } from "./integrations-manager";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
+import { useRascunho } from "@/components/ui/use-rascunho";
 import { testarTool, type ResultadoTeste } from "./testar-tool-action";
 
 /** Teto da descrição de usuário. Medido no widget: o sublabel comporta ~52 chars por
@@ -1090,6 +1091,82 @@ export function ToolDialog({
   }
 
   /**
+   * O RASCUNHO — o mesmo instantâneo que vai para o servidor.
+   *
+   * Reaproveita `payload()` de propósito: se um campo novo entrar no formulário
+   * e for para o `payload`, ele entra no rascunho junto, sem ninguém lembrar.
+   * Uma segunda lista de campos aqui divergiria da primeira — é o defeito que
+   * este arquivo já viu em outras formas.
+   */
+  const instantaneo = payload();
+  const rascunho = useRascunho(
+    // Por ENTIDADE: o rascunho de uma tool não pode reaparecer noutra, e o de
+    // "nova" não pode contaminar a edição de uma existente.
+    `tool.${tool?.id ?? "novo"}`,
+    instantaneo,
+    (r) => {
+      const v = r as ReturnType<typeof payload>;
+      setKey(v.key ?? "");
+      setName(v.name ?? "");
+      setDescription(v.description ?? "");
+      setDescricaoUsuario(v.descricao_usuario ?? "");
+      setSelecionavelNoChat(v.selecionavel_no_chat ?? true);
+      setMethod(v.method);
+      setPathTemplate(v.path_template ?? "");
+      setAuthType(v.auth_type);
+      setResponseHint(v.response_hint ?? "");
+      setSearchTerms(v.search_terms ?? "");
+      setActive(v.active ?? true);
+      setAlwaysInclude(v.always_include ?? false);
+      setPrioridade(String(v.prioridade ?? 0));
+      setGrupoAmbiguidade(v.grupo_ambiguidade ?? "");
+      setVenceDe(v.vence_de ?? []);
+      setTags(new Set((v.modulos ?? []).map(tagKey)));
+      setParams(v.params ?? []);
+      setEndpointKind(v.endpoint_kind);
+      setExternalUrl(v.external_url ?? "");
+      setCredentialId(v.credential_id ?? "");
+      setSystemPrompt(v.system_prompt ?? "");
+      setBodyMode(v.body_mode ?? "");
+      setGuard(v.guard ?? "");
+      setCacheTtl(v.cache_ttl != null ? String(v.cache_ttl) : "");
+      setCacheScope(v.cache_scope);
+      setLoopOn(Boolean(v.loop));
+      if (v.loop) {
+        setLoopUnit(v.loop.unit);
+        setLoopParam(v.loop.param ?? "");
+        setLoopMax(String(v.loop.max ?? 24));
+        if (v.loop.unit === "month") {
+          setLoopFrom(v.loop.from ?? "");
+          setLoopTo(v.loop.to ?? "");
+        }
+      }
+      setPanelScope(v.panel_scope);
+      setExcludeSelf(v.exclude_self ?? false);
+      /**
+       * `bases` estava faltando, e o teste de simetria pegou na primeira
+       * execução — que é exatamente o defeito que ele existe para pegar.
+       *
+       * O acesso por cliente é uma das partes mais trabalhosas do formulário
+       * (quais bases, e para cada uma os portais, empresas e perfis). Sem esta
+       * reposição, a pessoa recarregava, lia "recuperamos o que você
+       * preencheu", e a seção de acesso voltava VAZIA — pior que não recuperar,
+       * porque o aviso a convence de que está tudo lá.
+       *
+       * O payload achata `bases` numa lista; aqui ela volta a ser o par
+       * `baseIds` + `acesso` que o formulário usa.
+       */
+      const bases = v.bases ?? [];
+      setBaseIds(new Set(bases.map((b) => b.id)));
+      setAcesso(
+        Object.fromEntries(
+          bases.map((b) => [b.id, { portais: b.portais ?? [], empresas: b.empresas ?? [], perfis: b.perfis ?? [] }]),
+        ),
+      );
+    },
+  );
+
+  /**
    * O teste chama a base REAL com o cadastro JÁ SALVO — não com o formulário em
    * tela. Testar o rascunho exigiria um caminho de execução paralelo ao de
    * produção, e aí o teste passaria a testar a si mesmo. O custo é ter de salvar
@@ -1134,13 +1211,44 @@ export function ToolDialog({
             <Play /> Testar
           </Button>
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button loading={pending} loadingLabel="Salvando…" onClick={() => onSave(payload())}>
+          <Button
+            loading={pending}
+            loadingLabel="Salvando…"
+            /* Salvou: o rascunho perdeu a razão de existir. Mantê-lo faria a
+               próxima abertura oferecer "recuperar" o que já está gravado. */
+            onClick={() => {
+              rascunho.limpar();
+              onSave(payload());
+            }}
+          >
             Salvar
           </Button>
         </>
       }
     >
       {teste && <ResultadoDoTeste r={teste} aoFechar={() => setTeste(null)} />}
+
+      {/**
+       * RECUPERAR EM SILÊNCIO SERIA PIOR.
+       *
+       * Sem este aviso, a pessoa abre a tool e vê campos que não conferem com o
+       * que está gravado, sem saber se é o rascunho dela ou se alguém editou.
+       * O aviso responde as duas coisas — de quando é, e como voltar ao que o
+       * servidor tem.
+       */}
+      {rascunho.recuperado && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-info-line bg-info-soft px-3 py-2 text-sm text-info"
+        >
+          <span className="flex-1">
+            Recuperamos o que você tinha preenchido e não salvou.
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => { rascunho.descartar(); onClose(); }}>
+            Descartar e reabrir
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
