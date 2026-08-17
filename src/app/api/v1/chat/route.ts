@@ -55,6 +55,7 @@ import { classificarAnalise, estimarCustoB, filtrarSubconjunto, avgCharsColuna }
 import { enqueueSemanticAnalyze } from "@/lib/jobs/boss";
 import { buildQueryTool } from "@/lib/chat/query-tools";
 import { deveClassificarSujeito, classificarSujeito, montarOpcoesSujeito, diretrizReferente } from "@/lib/chat/subject-clarify";
+import { resolverReferente } from "@/lib/chat/referente-destacado";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
@@ -1364,6 +1365,31 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * um pedido de dados, e ali perguntar a fonte é o certo.
    */
   const _pedidoDeFormato = intencaoVis && datasets.list.length > 0;
+  /**
+   * REFERENTE PELO QUE FOI DESTACADO — antes de cogitar perguntar.
+   *
+   * Regra do Igor (17/08): se a resposta anterior destacou registros e a
+   * mensagem usa pronome sem nomear o alvo, ela se refere aos DESTACADOS. O
+   * `subject-clarify` abaixo perguntaria — e perguntar aqui é burocracia: o
+   * agente acabou de dizer de quem estava falando.
+   *
+   * Vem ANTES do gate de ambiguidade de propósito: resolvido o referente, não há
+   * ambiguidade a classificar, e economiza a chamada do classificador.
+   */
+  const destacadasAntes = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i] as { role?: string; payload?: { destacadas?: unknown } } | undefined;
+      if (m?.role !== "assistant") continue;
+      const d = m.payload?.destacadas;
+      return Array.isArray(d) ? (d as { coluna: string; valor: string }[]) : null;
+    }
+    return null;
+  })();
+  const refDestacado = resolverReferente({ mensagem: question, destacadasAntes });
+  if (refDestacado.tipo === "destacados") {
+    passo("referente:destacado", { linhas: refDestacado.linhas.length, valores: refDestacado.linhas.slice(0, 6) });
+  }
+
   // ══ SUJEITO AMBÍGUO (referente por histórico) ═══════════════════════════════════
   // Mensagem SEM sujeito ("dele", "e a matrícula?", "quanto ganham?") + candidatos no
   // contexto (colaboradores/itens LISTADOS antes OU relatório na tela) → confirma
@@ -1372,6 +1398,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Sem nada no contexto que case → NÃO pergunta. Já escolhido (`referente`) → segue.
   if (
     !scopeIn?.referente && !continuation && !social && !modoTutorial && !geraArquivo &&
+    // O destaque já respondeu quem é: perguntar seria pedir que a pessoa
+    // repetisse o que a tela mostra.
+    refDestacado.tipo !== "destacados" &&
     deveClassificarSujeito(question, messages, !!reportDataResolved || temRelatorioNaTela, { mudouTela: mudouPagina })
   ) {
     const decSuj = await classificarSujeito({
@@ -1936,6 +1965,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     notaDataAtual(),
     notaCortesia,
     diretrizReferente(scopeIn?.referente),
+    refDestacado.tipo === "destacados" ? refDestacado.diretriz : "",
     enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
     blocoRag,
     attach.contextBlock,
@@ -2451,11 +2481,30 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         full = (full.trim() ? full.trimEnd() + "\n\n" : "") +
           "_(Interrompido: esta resposta continuou sendo gerada depois que você saiu do painel e atingiu o limite de 10 minutos.)_";
       }
+      /**
+       * O DESTAQUE sobrevive ao turno.
+       *
+       * `destacar_tela` grava `linhas: [{coluna, valor}]` e isso ia só para a
+       * tela, via SSE. Mas é a informação que responde "quem são eles" quando a
+       * próxima mensagem for "me traga o cargo deles" (regra do Igor, 17/08) —
+       * e sem persistir, o turno seguinte não tem como saber.
+       *
+       * Vai no `payload` da mensagem, não numa coluna nova: é metadado do turno,
+       * pequeno, e ninguém consulta por ele.
+       */
+      const destacadas = uiActions.flatMap((a) =>
+        a.tipo === "destacar" && Array.isArray((a as { linhas?: unknown }).linhas)
+          ? ((a as { linhas: { coluna?: string; valor?: string }[] }).linhas ?? [])
+              .filter((l) => l?.coluna && l?.valor)
+              .map((l) => ({ coluna: String(l.coluna), valor: String(l.valor) }))
+          : [],
+      );
       await supabase.from("messages").insert({
         conversation_id: convId!,
         role: "assistant",
         content: full,
         citations: citations as never,
+        payload: (destacadas.length ? { destacadas } : null) as never,
         media: (media.length ? media : null) as never,
         latency_ms: Date.now() - started,
         tokens: totalTokensTurno,

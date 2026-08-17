@@ -31,10 +31,6 @@ function cor(hex: string): RGB {
   const [r, g, b] = paraUnidade(hex);
   return rgb(r, g, b);
 }
-function mix(c: RGB, white: number): RGB {
-  return rgb(c.red + (1 - c.red) * white, c.green + (1 - c.green) * white, c.blue + (1 - c.blue) * white);
-}
-
 /**
  * As cores do documento vêm todas de `marca.ts`.
  *
