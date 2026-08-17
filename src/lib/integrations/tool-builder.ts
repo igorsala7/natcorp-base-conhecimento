@@ -38,6 +38,16 @@ import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/m
 // experiência antes do corte — ver aprendizado.ts.
 const MAX_TOOLS_MODELO = 6;
 const MAX_TOOLS_COMPOSTO = 18; // COMPOSTO (multi-intenção): teto maior p/ caber as co-intenções
+/**
+ * O teto que a folga de dependência NÃO pode ultrapassar.
+ *
+ * A folga existe para que uma ferramenta puxada por dependência não empurre para
+ * fora quem a puxou. Mas sem um limite duro ela reabre o problema que o corte
+ * veio resolver: medido antes, um "teto de 6" chegava a 27 ferramentas por soma
+ * de dependências, e é aí que a lista de tools passa a custar mais que a
+ * resposta.
+ */
+const TETO_DURO_TOOLS = 12;
 /** Ferramenta que devolve a lotação/vínculo do próprio usuário. */
 const TOOL_MEUS_DADOS = "meus_dados";
 /** 15 min: dado cadastral muda raramente, e o custo de errar para menos é uma
@@ -48,6 +58,7 @@ import { expandirMeses } from "./loop";
 import { logToolRun } from "./run-log";
 import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
 import { idDaChamada } from "@/lib/chat/tool-trace";
+import { aplicarTetoTools } from "./teto-tools";
 import { sanitizarBody } from "./run-log-sanitize";
 
 export { identityFromTrack, avisoContaPendente, type ContaPendente };
@@ -628,17 +639,45 @@ export async function buildIntegrationTools(
    * As essenciais deixam de ser incondicionais: `meus_dados` numa pergunta sobre
    * outra pessoa é peso morto, e peso morto agora custa vaga.
    */
-  if (!soAsForcadas && manter.size > maxTools) {
-    const forcadas = new Set(sempreIncluir ?? []);
-    const ordenadas = [...manter].sort((a, b) => {
-      const fa = forcadas.has(a) ? 1 : 0, fb = forcadas.has(b) ? 1 : 0;
-      if (fa !== fb) return fb - fa;
-      return (simFinal?.get(b) ?? 0) - (simFinal?.get(a) ?? 0);
+  /**
+   * DEPENDÊNCIA NÃO DISPUTA VAGA — ela é requisito de quem já ganhou.
+   *
+   * Relatado pelo Igor (17/08): pediu "colaboradores que trabalharam hoje em X
+   * unidade" e o agente mandou `empresa` e `matrícula` em vez de só a data. O
+   * trace mostra por quê: `integracoes:teto` cortou `estrutura_filiais`,
+   * `estrutura_empresas` e `lista_opcoes` — exatamente as ferramentas que
+   * traduzem "unidade X" num código. Sem elas o modelo não tem como resolver o
+   * parâmetro, e preenche com o que sobra na sessão.
+   *
+   * A causa é de ORDEM: as dependências entram acima (linha ~616) e este corte,
+   * logo em seguida, as ordena por SIMILARIDADE com a pergunta. Mas uma
+   * ferramenta de estrutura tem baixa similaridade por definição —
+   * `estrutura_filiais` fala de filiais, não de "quem trabalhou hoje". O teto
+   * desfazia a resolução de dependência que a linha de cima tinha acabado de
+   * fazer.
+   *
+   * Agora são três faixas, nesta ordem: forçadas → dependências → similaridade.
+   * E o teto ganha folga do tamanho das dependências, com um teto DURO por cima:
+   * sem a folga elas empurrariam para fora justamente as ferramentas que as
+   * puxaram, e aí o remédio viraria outra doença. Foi o que aconteceu antes,
+   * quando "teto de 6" virava 30 — por isso a folga é limitada, e não infinita.
+   */
+  const chavesDep = new Set(deps.map((d) => d.key));
+  if (!soAsForcadas) {
+    const r = aplicarTetoTools({
+      candidatas: manter,
+      forcadas: sempreIncluir ?? [],
+      dependencias: chavesDep,
+      similaridade: simFinal ?? undefined,
+      maxTools,
+      tetoDuro: TETO_DURO_TOOLS,
     });
-    const cortadas = ordenadas.slice(maxTools);
-    for (const k of cortadas) manter.delete(k);
-    onPasso?.("integracoes:teto", { teto: maxTools, cortadas });
+    if (r.cortadas.length) {
+      for (const k of r.cortadas) manter.delete(k);
+      onPasso?.("integracoes:teto", { teto: r.teto, base: maxTools, dependencias: chavesDep.size, cortadas: r.cortadas });
+    }
   }
+
   const selecionadas = elegiveisTools.filter((e) => manter.has(e.bt.tool.key));
 
   // ── DADOS DO PRÓPRIO USUÁRIO, buscados sem o modelo ────────────────────────
