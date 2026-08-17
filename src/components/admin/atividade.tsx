@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, X } from "lucide-react";
 import { atividadeRecente, dispensarAtividade, type ItemAtividade } from "@/app/(admin)/admin/(app)/atividade-actions";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { carimbo } from "@/lib/format/quando";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 /**
  * O TRABALHO QUE SOBREVIVE À TELA QUE O DISPAROU.
@@ -44,6 +45,8 @@ const INTERVALO = 15_000;
 export function Atividade() {
   const [itens, setItens] = useState<ItemAtividade[]>([]);
   const [aberta, setAberta] = useState(false);
+  const painelRef = useRef<HTMLDivElement>(null);
+  useFocoPreso(aberta, painelRef, () => setAberta(false));
   const [limpando, setLimpando] = useState(false);
 
   const carregar = useCallback(() => {
@@ -106,9 +109,18 @@ export function Atividade() {
       </Button>
 
       {aberta && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Atividade">
+        <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setAberta(false)} role="presentation" />
-          <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-3">
+          {/* O diálogo é o PAINEL. No invólucro, o `aria-modal` cobria também o
+              scrim — e o painel não tinha Escape nem foco preso: abrir a
+              Atividade pelo teclado deixava a pessoa tabulando a tela atrás. */}
+          <div
+            ref={painelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Atividade"
+            className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-3"
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-sm font-semibold text-text">Atividade</h2>
               <div className="flex items-center gap-1">

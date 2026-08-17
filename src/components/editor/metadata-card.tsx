@@ -97,6 +97,18 @@ export function MetadataCard({
   return (
     <div className="mb-3 rounded-lg border border-border bg-surface p-4 shadow-1">
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      {/* O `focus:outline-none` SAIU dos dois campos.
+          Eles são WYSIWYG — o input renderiza como o próprio título — e a
+          intenção de não emoldurar cada linha é a mesma dos blocos do editor.
+          Só que ali existe um substituto (o trilho `.block-row:focus-within`),
+          e aqui NÃO: o cartão de metadados vive fora do `.block-row`, então
+          quem navega por teclado chegava ao título do artigo sem sinal nenhum.
+
+          Basta remover a classe. O `:focus-visible` global do `globals.css` já
+          desenha o anel — e só no foco por TECLADO, que preserva a ilusão de
+          estar editando a página quando se clica com o mouse. A classe do
+          Tailwind (`.x:focus`) vencia aquela regra por especificidade e apagava
+          os dois casos de uma vez. */}
       <div className="min-w-0 space-y-2">
         <input
           value={titulo}
@@ -105,7 +117,7 @@ export function MetadataCard({
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           placeholder="Título do artigo"
           aria-label="Título do artigo"
-          className="w-full border-0 bg-transparent text-2xl font-bold tracking-[-0.025em] text-text placeholder:text-text-muted focus:outline-none"
+          className="w-full border-0 bg-transparent text-2xl font-bold tracking-[-0.025em] text-text placeholder:text-text-muted"
         />
         <input
           value={desc}
@@ -114,7 +126,7 @@ export function MetadataCard({
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           placeholder="Descrição curta exibida na busca e nos cartões…"
           aria-label="Descrição do artigo"
-          className="w-full border-0 bg-transparent text-sm text-text-muted placeholder:text-text-muted/50 focus:outline-none"
+          className="w-full border-0 bg-transparent text-sm text-text-muted placeholder:text-text-muted/50"
         />
       </div>
       <div className="min-w-0">

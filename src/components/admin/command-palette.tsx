@@ -7,6 +7,7 @@ import { searchContent, registrarBusca, type SearchHit } from "@/app/(admin)/adm
 import { buscarDestinos } from "@/lib/admin/busca-destinos";
 import { Button } from "@/components/ui/button";
 import { eyebrowLabel } from "@/components/ui/field";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 const RECENT_KEY = "kb.recentSearches";
 
@@ -33,6 +34,19 @@ export function CommandPalette({ permissoes = [] }: { permissoes?: string[] }) {
   const [active, setActive] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const painelRef = useRef<HTMLDivElement>(null);
+  /**
+   * A paleta é modal e não era tratada como uma.
+   *
+   * Faltavam `role="dialog"`, `aria-modal` e — o que mais custa — a armadilha
+   * de foco: com ela aberta, Tab levava para os links da página ATRÁS, que
+   * continuavam alcançáveis por trás do scrim. Quem enxerga vê um modal; quem
+   * navega por teclado navegava a página escondida.
+   *
+   * O `autoFocus` do campo já resolvia a entrada do foco; o que não existia era
+   * a saída — voltar ao gatilho ao fechar — nem o ciclo do Tab.
+   */
+  useFocoPreso(open, painelRef, () => setOpen(false));
 
   // Atalho global de abertura.
   useEffect(() => {
@@ -133,6 +147,10 @@ export function CommandPalette({ permissoes = [] }: { permissoes?: string[] }) {
       onClick={() => setOpen(false)}
     >
       <div
+        ref={painelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Buscar artigos, telas e ações"
         className="w-full max-w-xl overflow-hidden rounded-xl border border-border bg-surface shadow-3"
         onClick={(e) => e.stopPropagation()}
       >

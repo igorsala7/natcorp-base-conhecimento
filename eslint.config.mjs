@@ -63,6 +63,20 @@ const CORES_CRUAS = String.raw`(bg|text|border-[ltrbxy]|border|ring|decoration|o
  */
 const TAMANHO_CRU = String.raw`text-\[[0-9]+(\.[0-9]+)?(rem|px)\]`;
 
+/**
+ * O TOKEN TEM CLASSE — não se escreve a variável à mão.
+ *
+ * `bg-[var(--color-primary)]` produz exatamente o mesmo CSS que `bg-primary`,
+ * então nada quebra — e é justamente por isso que se espalhou: 29 ocorrências
+ * em 6 arquivos, incluindo `ui/dialog.tsx`. O custo é de legibilidade e de
+ * busca: quem procura "quem usa a primária" com `grep bg-primary` não encontra
+ * essas, e quem lê a linha vê um valor arbitrário onde há um token.
+ *
+ * É a mesma deriva da cor crua, um nível mais sutil: em vez de furar o sistema,
+ * escreve-se o sistema pelo lado de fora dele.
+ */
+const VAR_A_MAO = String.raw`(bg|text|border|ring|fill|stroke|from|via|to|divide|outline|shadow)-\[var\(--color-`;
+
 const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
@@ -118,6 +132,16 @@ const eslintConfig = [
           selector: `TemplateElement[value.raw=/${TAMANHO_CRU}/]`,
           message:
             "Tamanho de fonte fora da escala. Use um degrau (text-2xs, text-xs, text-ui, text-sm, text-base, text-lg, text-xl, text-2xl, text-3xl, text-4xl) ou, na leitura do portal, text-[length:var(--l-*)]. Ver o bloco da escala tipográfica em globals.css.",
+        },
+        {
+          selector: `Literal[value=/${VAR_A_MAO}/]`,
+          message:
+            "Variável de token escrita à mão. O token já tem classe: bg-primary, text-primary, border-accent, ring… Ver o mapa em tailwind.config.ts.",
+        },
+        {
+          selector: `TemplateElement[value.raw=/${VAR_A_MAO}/]`,
+          message:
+            "Variável de token escrita à mão. O token já tem classe: bg-primary, text-primary, border-accent, ring… Ver o mapa em tailwind.config.ts.",
         },
       ],
     },

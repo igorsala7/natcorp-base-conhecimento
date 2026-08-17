@@ -57,7 +57,7 @@ type FlowNodeData = {
 
 const KIND: Record<NodeKind, { icon: typeof Bot; ring: string; badge: string }> = {
   base: { icon: Building2, ring: "border-brand-blue-500/60", badge: "text-brand-blue-500" },
-  agent: { icon: Bot, ring: "border-[var(--color-primary)]/60", badge: "text-[var(--color-primary)]" },
+  agent: { icon: Bot, ring: "border-primary/60", badge: "text-primary" },
   tool: { icon: Wrench, ring: "border-border", badge: "text-text-muted" },
   endpoint: { icon: Server, ring: "border-brand-pink-700/40", badge: "text-brand-pink-700" },
 };
@@ -71,7 +71,7 @@ function FlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       className={cn(
         "flex w-56 items-center gap-2 rounded-xl border bg-surface px-3 py-2 shadow-sm transition-shadow",
         cfg.ring,
-        selected && "ring-2 ring-[var(--color-primary)]",
+        selected && "ring-2 ring-primary",
         data.inactive && "opacity-50",
       )}
     >
@@ -442,7 +442,7 @@ function Inspector({
               onClick={() => setTab(t)}
               className={cn(
                 "-mb-px border-b-2 px-2.5 py-1.5 text-xs font-medium",
-                tab === t ? "border-[var(--color-primary)] text-[var(--color-primary)]" : "border-transparent text-text-muted hover:text-text",
+                tab === t ? "border-primary text-primary" : "border-transparent text-text-muted hover:text-text",
               )}
             >
               {t === "props" ? "Propriedades" : `Log (${toolRuns.length})`}

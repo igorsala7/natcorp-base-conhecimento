@@ -401,7 +401,7 @@ function ViewButton({ active, onClick, title, children }: { active: boolean; onC
       aria-pressed={active}
       className={
         active
-          ? "inline-flex items-center rounded-md bg-[var(--color-primary)]/10 p-1.5 text-[var(--color-primary)]"
+          ? "inline-flex items-center rounded-md bg-primary/10 p-1.5 text-primary"
           : "inline-flex items-center rounded-md p-1.5 text-text-muted hover:text-text"
       }
     >
@@ -460,7 +460,7 @@ function ToolsTable({
         </thead>
         <tbody>
           {tools.map((t) => (
-            <tr key={t.id} className={`border-b border-border/60 last:border-0 hover:bg-surface-2/30 ${selected.has(t.id) ? "bg-[var(--color-primary)]/5" : ""}`}>
+            <tr key={t.id} className={`border-b border-border/60 last:border-0 hover:bg-surface-2/30 ${selected.has(t.id) ? "bg-primary/5" : ""}`}>
               <td className={`${td} text-center`}>
                 <input
                   type="checkbox"
@@ -499,7 +499,7 @@ function ToolsTable({
               </td>
               <td className={`${td} text-center tabular-nums`}>
                 {t.tags.length > 0 ? (
-                  <button type="button" onClick={() => onEdit(t)} className="text-[var(--color-primary)] hover:underline" title="Editar tags de módulo">
+                  <button type="button" onClick={() => onEdit(t)} className="text-primary hover:underline" title="Editar tags de módulo">
                     {t.tags.length}
                   </button>
                 ) : (
@@ -561,7 +561,7 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
                   ? "border-border text-text-muted"
                   : v === "todos"
                     ? "border-border text-text"
-                    : "border-[var(--color-primary)]/40 text-[var(--color-primary)]"
+                    : "border-primary/40 text-primary"
               }`}
             >
               {ESCOPO_OPCOES.map((o) => (
@@ -577,7 +577,7 @@ function PanelScopeCell({ tool, disabled, onFlag }: { tool: ToolRow; disabled: b
         onClick={() => onFlag(tool, { exclude_self: !tool.exclude_self })}
         title={tool.exclude_self ? "Nunca os próprios dados — ligado (clique p/ desligar)" : "Permitir os próprios dados (clique p/ nunca mostrar os próprios)"}
         className={`ml-0.5 self-end rounded border px-1 py-0.5 text-2xs font-medium ${
-          tool.exclude_self ? "border-[var(--color-accent)] text-[var(--color-accent)]" : "border-border text-text-muted"
+          tool.exclude_self ? "border-accent text-accent" : "border-border text-text-muted"
         }`}
       >
         ≠eu
@@ -666,7 +666,7 @@ function BulkBar({
   onClear: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 px-3 py-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2">
       <span className="text-sm font-medium text-text">{count} selecionada(s)</span>
       <BulkGroup label="Ativa">
         <MiniBtn onClick={() => onFlag({ active: true })} disabled={pending}>Ativar</MiniBtn>
@@ -895,7 +895,7 @@ function OpToggle({ op, onChange, addLabel, removeLabel }: { op: "add" | "remove
           onClick={() => onChange(v)}
           className={
             op === v
-              ? "bg-[var(--color-primary)]/10 px-3 py-1.5 text-sm font-medium text-[var(--color-primary)]"
+              ? "bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary"
               : "px-3 py-1.5 text-sm text-text-muted hover:text-text"
           }
         >
@@ -1580,7 +1580,7 @@ function KindButton({ active, onClick, title, children }: { active: boolean; onC
       title={title}
       className={
         active
-          ? "inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-primary)] bg-[var(--color-primary)]/10 px-3 py-1.5 text-sm font-medium text-[var(--color-primary)]"
+          ? "inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary"
           : "inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text-muted hover:text-text"
       }
     >

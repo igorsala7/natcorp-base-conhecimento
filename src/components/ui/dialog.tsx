@@ -158,7 +158,7 @@ export function Dialog({
             <div
               onPointerDown={iniciarArrasto}
               title="Arraste para alargar"
-              className="pointer-events-auto flex h-16 w-3 cursor-ew-resize items-center justify-center rounded-l hover:bg-[var(--color-primary)]/15"
+              className="pointer-events-auto flex h-16 w-3 cursor-ew-resize items-center justify-center rounded-l hover:bg-primary/15"
             >
               <span className="h-8 w-0.5 rounded-full bg-border" />
             </div>

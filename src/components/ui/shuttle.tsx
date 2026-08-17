@@ -146,7 +146,7 @@ function Column({
                   title={i.sub ? `${i.label} — ${i.sub}` : i.label}
                   className={cn(
                     "flex w-full flex-col whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-text",
-                    "hover:bg-[var(--color-primary)]/8 focus:bg-[var(--color-primary)]/8 focus:outline-none",
+                    "hover:bg-primary/8 focus:bg-primary/8 focus:outline-none",
                   )}
                 >
                   <span>{i.label}</span>

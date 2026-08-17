@@ -140,7 +140,7 @@ export function BuilderChat() {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-left text-sm text-text hover:border-[var(--color-primary)]/50"
+                    className="rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-left text-sm text-text hover:border-primary/50"
                   >
                     {s}
                   </button>
@@ -154,7 +154,7 @@ export function BuilderChat() {
                   <span
                     className={cn(
                       "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full",
-                      m.role === "user" ? "bg-[var(--color-primary)]/12 text-[var(--color-primary)]" : "bg-surface-2 text-text-muted",
+                      m.role === "user" ? "bg-primary/12 text-primary" : "bg-surface-2 text-text-muted",
                     )}
                   >
                     {m.role === "user" ? <User className="size-4" /> : <Bot className="size-4" />}
@@ -162,7 +162,7 @@ export function BuilderChat() {
                   <div
                     className={cn(
                       "max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
-                      m.role === "user" ? "bg-[var(--color-primary)] text-white" : "bg-surface-2/60 text-text",
+                      m.role === "user" ? "bg-primary text-white" : "bg-surface-2/60 text-text",
                     )}
                   >
                     {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
@@ -213,7 +213,7 @@ export function BuilderChat() {
                 }
               }}
               placeholder="Ex.: crie a tool consultar_cep e vincule ao nati_rh"
-              className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none placeholder:text-text-muted focus:border-[var(--color-primary)]"
+              className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none placeholder:text-text-muted focus:border-primary"
             />
             <Button onClick={() => void send()} disabled={streaming || !input.trim()} title="Enviar">
               <Send />
