@@ -13,7 +13,6 @@
  * Requer SUPABASE_DB_URL no .env.local. O parse é feito por parseDbConfig
  * (a senha do Supabase tem '@'/'#', que quebram new URL()).
  */
-// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 import { normalizeDoc } from "../src/lib/blocks/convert";

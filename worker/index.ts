@@ -12,7 +12,6 @@ if (!globalThis.WebSocket) {
 }
 import { createHash, randomUUID } from "node:crypto";
 import PgBoss from "pg-boss";
-// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
 import { parseDbConfig } from "../src/lib/jobs/db-config";

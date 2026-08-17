@@ -28,7 +28,6 @@
  * diferença entre "faltou informar a chave velha" e "destruí o segredo". Por
  * isso também a simulação é o padrão, e não a gravação.
  */
-// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 import { decryptWith, encryptWith, isPlainSecret } from "../src/lib/crypto/secrets";

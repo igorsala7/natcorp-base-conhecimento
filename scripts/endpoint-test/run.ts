@@ -15,7 +15,6 @@ console.log = (...a: unknown[]) => {
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../../src/lib/jobs/db-config";
 import { decryptSecret } from "../../src/lib/crypto/secrets";

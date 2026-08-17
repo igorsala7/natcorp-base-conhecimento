@@ -10,7 +10,6 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-// @ts-expect-error — o pacote `pg` (transitivo via pg-boss) não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 

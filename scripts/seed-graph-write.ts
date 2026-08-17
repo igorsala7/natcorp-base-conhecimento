@@ -20,7 +20,6 @@
  *
  * `excluir` é a exceção dentro da própria agenda: apagar não se desfaz.
  */
-// @ts-expect-error — o pacote `pg` não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 

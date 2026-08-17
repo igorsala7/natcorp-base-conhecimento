@@ -22,7 +22,6 @@
  * (module-sync). Estes três não vêm de lá — são da suíte Microsoft, que não
  * existe no menu do cliente — então entram por cadastro explícito.
  */
-// @ts-expect-error — o pacote `pg` não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 

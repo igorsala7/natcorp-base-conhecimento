@@ -22,7 +22,6 @@
  * o Graph devolveria a caixa da conta de serviço apresentada como a do
  * usuário — resposta errada com cara de certa.
  */
-// @ts-expect-error — o pacote `pg` não traz tipos próprios.
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 
