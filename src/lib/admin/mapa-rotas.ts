@@ -204,7 +204,7 @@ export const MAPA: Secao[] = [
          * cor, que a resposta estava em quatro telas de três grupos de menu.
          */
         descricao: "Persona, ontologia, base de conhecimento, canais e o que ele andou respondendo.",
-        tambem: ["/admin/assistente", "/admin/ontologia", "/admin/chatbot", "/admin/conversas", "/admin/logs"],
+        tambem: ["/admin/assistente", "/admin/ontologia", "/admin/chatbot", "/admin/widget", "/admin/conversas", "/admin/logs"],
         apelidos: ["chatbot", "widget", "bot", "persona", "ontologia", "sinônimos", "conversas", "logs do chat", "rastreio", "embeddings"],
         /**
          * Cada aba é uma ROTA — daí todas trazerem `href`. Mover os corpos para
@@ -331,7 +331,13 @@ export const MAPA: Secao[] = [
         // `/admin/extensao` estava fora de todo `tambem` e, por isso, acendia
         // "Painel" — a raiz casava por prefixo. É a revisão das sessões da
         // extensão de navegador, cujo painel de configuração mora aqui.
-        tambem: ["/admin/sistema", "/admin/chaves-api", "/admin/widget", "/admin/estilo", "/admin/extensao"],
+        /* `/admin/widget` SAIU daqui. Ele lista as chaves de widget de todas as
+           documentações — o mesmo objeto que `/admin/chatbot` lista para uma
+           só, com o mesmo componente. Ter as duas portas em seções diferentes
+           do menu (Sistema e Assistente) fazia o item aceso mudar conforme o
+           escopo, e escopo não é assunto: as duas respondem "como o assistente
+           chega ao usuário". Agora as duas moram no Assistente. */
+        tambem: ["/admin/sistema", "/admin/chaves-api", "/admin/estilo", "/admin/extensao"],
         apelidos: ["configuração", "smtp", "backup", "chaves de api", "provedores", "estilo"],
         /**
          * Declarava uma aba "Chaves" que nunca existiu nesta tela — as chaves

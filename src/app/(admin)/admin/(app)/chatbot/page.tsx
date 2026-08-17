@@ -105,7 +105,16 @@ export default async function ChatbotPage({
          mesmo componente, diferindo por uma prop, e o nome não dizia qual era
          qual: quem caía na errada não tinha como perceber. */
       titulo="Chatbot desta documentação"
-      descricao="Chaves do widget, persona, visual e a base de conhecimento que alimenta as respostas — só desta documentação."
+      descricao={
+        <>
+          Chaves do widget, visual e a base de conhecimento que alimenta as respostas — só desta
+          documentação. Para ver as de{" "}
+          <Link href="/admin/widget" className="font-medium text-primary hover:underline">
+            todas as documentações
+          </Link>
+          , ou gerar um token de rastreio, use a visão global.
+        </>
+      }
       largura="wide"
       acoes={
         /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
