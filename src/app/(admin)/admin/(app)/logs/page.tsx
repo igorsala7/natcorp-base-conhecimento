@@ -4,7 +4,8 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { LogsList, type ChatTraceRow } from "./logs-list";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
-import { TrackingTabs } from "@/components/admin/tracking-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
+import { permissoesDo } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { resolvedSpaceId } from "@/lib/content/current-space";
 import { PageShell } from "@/components/ui/page-shell";
@@ -87,6 +88,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const supabase = await createClient();
   const { data: espacos } = await supabase.from("spaces").select("id");
   const espacoParaVoltar = await resolvedSpaceId(undefined, espacos ?? []);
+  // A barra filtra por permissão sozinha: "Canais e chaves" pede
+  // `widget.manage`, independente do `ai.configure` que abriu ESTA tela.
+  const permissoes = await permissoesDo();
 
   return (
     <PageShell
@@ -100,7 +104,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
          O `space` vem do cookie porque ESTA tela não filtra por documentação (é
          chaveada por `base_code`). Serve só para as outras duas não perderem a
          seleção quando a pessoa voltar. */
-      abas={<TrackingTabs current="rastreio" spaceId={espacoParaVoltar ?? ""} podeRastrear />}
+      abas={<AbasRota rota="/admin/assistente" atual="rastreio" permissoes={permissoes} spaceId={espacoParaVoltar ?? ""} />}
     >
 
       <form className="mt-5 grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">

@@ -32,9 +32,19 @@ import { STATUS_LABEL, STATUS_TONE, isTerminal } from "./status";
 
 export function ImportManager({
   spaceId,
+  spaceName,
   initialJobs,
 }: {
   spaceId: string;
+  /**
+   * O NOME do destino, escrito onde a ação acontece.
+   *
+   * O id sozinho não protege ninguém: a tela resolvia a documentação errada e,
+   * como não dizia qual era, o engano só aparecia depois — com o manual do
+   * cliente já indexado no espaço de outro. Repetir o nome na zona de envio e
+   * na confirmação é barato e é a única coisa entre o clique e um erro caro.
+   */
+  spaceName: string;
   initialJobs: ImportJobRow[];
 }) {
   const router = useRouter();
@@ -143,6 +153,16 @@ export function ImportManager({
     setProgressoUp(null);
     setUploading(false);
     if (erros.length) toast.error(erros.join(" · "));
+    // O sucesso NOMEIA o destino. Confirmação bloqueante antes de cada envio
+    // seria atrito diário para proteger de um erro que o seletor visível já
+    // impede; o aviso depois pega o caso que sobra — a pessoa que trocou de
+    // documentação sem perceber — e ainda dá tempo de apagar o job.
+    const enviados = files.length - erros.length;
+    if (enviados > 0) {
+      toast.success(
+        `${enviados} arquivo(s) na fila de ${spaceName}. Acompanhe o progresso abaixo.`,
+      );
+    }
   }
 
   async function importarUrl() {
@@ -153,7 +173,7 @@ export function ImportManager({
     setImportandoUrl(false);
     if (res.ok) {
       setUrl("");
-      toast.success("Página enviada para importação. Acompanhe abaixo.");
+      toast.success(`Página enviada para importação em ${spaceName}. Acompanhe abaixo.`);
     } else {
       toast.error(res.error);
     }
@@ -168,6 +188,9 @@ export function ImportManager({
         </span>
         <span className="text-xs text-text-muted">
           PDF, DOCX, PPTX, XLSX, CSV/TSV, HTML, Markdown e arquivos de desenvolvimento (SQL, JS, TS, CSS, JSON…) — pode escolher vários (processa um de cada vez)
+        </span>
+        <span className="text-xs text-text-muted">
+          Destino: <strong className="font-semibold text-text">{spaceName}</strong>
         </span>
         <input
           type="file"

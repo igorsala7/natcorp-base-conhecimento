@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup, MessageSquareText, Puzzle } from "lucide-react";
+import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup, MessageSquareText, Puzzle, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
-import { Segmented } from "@/components/ui/segmented";
+import { Tabs, useAbaAtual, type Aba as AbaUI } from "@/components/ui/tabs";
+import { abasDaRota } from "@/lib/admin/mapa-rotas";
 import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,21 @@ export type EmailRow = {
 
 type Aba = "ia" | "email" | "backup" | "prompts" | "extensao";
 
+/**
+ * O ícone fica AQUI, não no mapa de rotas.
+ *
+ * O mapa é dado puro e testável — importar `lucide-react` nele arrastaria o
+ * pacote de ícones para dentro de todo teste que só quer saber se as abas
+ * batem. O rótulo e a permissão vêm de lá; a aparência é assunto da tela.
+ */
+const ICONE_DA_ABA: Record<string, LucideIcon | undefined> = {
+  ia: Cpu,
+  email: Mail,
+  extensao: Puzzle,
+  prompts: MessageSquareText,
+  backup: DatabaseBackup,
+};
+
 export function SystemManager({
   providers,
   assignments,
@@ -95,7 +111,36 @@ export function SystemManager({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [aba, setAba] = useState<Aba>("ia");
+  /**
+   * A ABA MORA NA URL — e a lista vem do mapa de rotas.
+   *
+   * Eram duas falhas empilhadas. `useState` fazia o F5 voltar sempre para
+   * "Inteligência artificial", numa tela onde quem foi conferir um backup ou
+   * ajustar um prompt perde o lugar a cada recarga; e o `mapa-rotas` declarava
+   * para esta rota uma aba "Chaves" que nunca existiu aqui (as chaves são
+   * `/admin/chaves-api`) enquanto omitia "Extensão" e "Prompts", que existem.
+   * O Cmd+K oferecia "Sistema › Chaves", montava a URL, e a tela abria em IA
+   * sem dizer nada.
+   *
+   * Agora a barra e a paleta leem a MESMA lista, filtrada pelas mesmas
+   * permissões — não há duas verdades para divergirem.
+   */
+  const permissoesDaTela = useMemo(() => {
+    const s = new Set<string>();
+    if (canPrompts) s.add("ai.configure");
+    if (canBackup) s.add("system.backup");
+    return s;
+  }, [canPrompts, canBackup]);
+  const abas: AbaUI[] = useMemo(
+    () =>
+      abasDaRota("/admin/sistema", permissoesDaTela).map((a) => ({
+        key: a.key,
+        label: a.rotulo,
+        icon: ICONE_DA_ABA[a.key],
+      })),
+    [permissoesDaTela],
+  );
+  const aba = useAbaAtual(abas) as Aba;
   const [pending, startTransition] = useTransition();
 
   function run(fn: () => Promise<{ ok: boolean; msg?: string; error?: string }>) {
@@ -109,56 +154,7 @@ export function SystemManager({
 
   return (
     <div className="mt-6">
-      <Segmented
-        value={aba}
-        onChange={setAba}
-        options={[
-          {
-            value: "ia",
-            label: (
-              <>
-                <Cpu /> Inteligência artificial
-              </>
-            ),
-          },
-          {
-            value: "email",
-            label: (
-              <>
-                <Mail /> E-mail
-              </>
-            ),
-          },
-          {
-            value: "extensao",
-            label: (
-              <>
-                <Puzzle /> Extensão
-              </>
-            ),
-          },
-          ...(canPrompts
-            ? [{
-                value: "prompts" as const,
-                label: (
-                  <>
-                    <MessageSquareText /> Prompts
-                  </>
-                ),
-              }]
-            : []),
-          ...(canBackup
-            ? [{
-                value: "backup" as const,
-                label: (
-                  <>
-                    <DatabaseBackup /> Backup
-                  </>
-                ),
-              }]
-            : []),
-        ]}
-      />
+      <Tabs tabs={abas} aria-label="Áreas da configuração" />
 
       {!temChaveMestra && (
         <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
@@ -557,7 +553,7 @@ function ConsumoIA() {
       { provider: string; model: string; input: number; output: number; total: number; calls: number }
     >();
     for (const r of rows ?? []) {
-      const chave = `${r.provider} ${r.model}`;
+      const chave = `${r.provider}\u0000${r.model}`;
       const a = m.get(chave) ?? { provider: r.provider, model: r.model, input: 0, output: 0, total: 0, calls: 0 };
       a.input += r.input;
       a.output += r.output;

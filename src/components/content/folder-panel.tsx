@@ -132,7 +132,7 @@ export function FolderPanel({
   function gerarEmbeddings() {
     // A geração vive na aba Embeddings da Importar (job em background com
     // progresso). Abrimos já apontando para esta pasta.
-    router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${node.id}`);
+    router.push(`/admin/importar?aba=embeddings&space=${spaceId}&node=${node.id}`);
   }
 
   const IconePreview = (icon && ICONS[icon]) || Folder;

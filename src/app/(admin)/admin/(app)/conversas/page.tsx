@@ -6,14 +6,13 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
-import { TrackingTabs } from "@/components/admin/tracking-tabs";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { permissoesDo } from "@/lib/auth/permissions";
 import { PageShell } from "@/components/ui/page-shell";
-import { AssistenteTabs } from "@/components/admin/assistente-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
 
 export const metadata: Metadata = { title: "Conversas" };
 
@@ -165,15 +164,21 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
       largura="wide"
       /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
       acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
-      abas={
-        /* Duas barras, dois níveis. A de cima diz em que parte do Assistente se
-           está; a de baixo, qual das três leituras do mesmo tráfego. Fundi-las
-           num nível só misturaria "onde estou" com "o que estou vendo". */
-        <div className="space-y-3">
-          <AssistenteTabs atual="atividade" spaceId={atual.id} podeGerenciarWidget={podeWidget} />
-          <TrackingTabs current="conversas" spaceId={atual.id} podeRastrear={podeRastrear} />
-        </div>
-      }
+      /**
+       * UMA barra, não duas.
+       *
+       * Aqui se empilhavam a barra do Assistente e a do rastreio, e a palavra
+       * "Conversas" aparecia nas duas, em níveis diferentes. O argumento de que
+       * eram "dois níveis" só se sustentava enquanto as três leituras do
+       * tráfego morassem juntas — e elas não moram mais: Acessos foi para
+       * Desempenho, porque é sobre o que foi LIDO, não sobre o que o bot
+       * RESPONDEU.
+       *
+       * O que sobrou é o par que sempre foi indivisível: a conversa e o rastreio
+       * do turno que a produziu. Eles continuam ligados pelo link que existe
+       * dentro de cada conversa — que nunca dependeu desta barra.
+       */
+      abas={<AbasRota rota="/admin/assistente" atual="atividade" permissoes={permissoes} spaceId={atual.id} />}
     >
 
       {/* Filtros — GET, para o estado viver na URL (compartilhável). */}

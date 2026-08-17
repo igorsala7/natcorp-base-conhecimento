@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Network } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
@@ -10,8 +8,7 @@ import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { AssistantWorkbench } from "./assistente-workbench";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
-import { Button } from "@/components/ui/button";
-import { AssistenteTabs } from "@/components/admin/assistente-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
 import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Assistente" };
@@ -42,7 +39,7 @@ export default async function AssistentePage({
   const spaces = await listSpaces();
   const { space } = await searchParams;
   // Memoizado por request — o layout já consultou, então não custa ida ao banco.
-  const podeWidget = (await permissoesDo()).has("widget.manage");
+  const permissoes = await permissoesDo();
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
@@ -77,23 +74,13 @@ export default async function AssistentePage({
         </>
       }
       largura="full"
-      acoes={
-        <>
-          {/* A ontologia era alcançável por ESTE link e por mais nenhum lugar em
-              todo o admin — uma tela órfã, achável só por quem já soubesse que
-              ela existia. Continua aqui até virar aba desta página; enquanto
-              isso, o menu e o Cmd+K já a apontam como "Assistente de IA ›
-              Ontologia". */}
-          <Button asChild variant="secondary">
-            <Link href={`/admin/ontologia?space=${atual.id}`}>
-              <Network /> Ontologia
-            </Link>
-          </Button>
-          {/* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */}
-          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </>
-      }
-      abas={<AssistenteTabs atual="persona" spaceId={atual.id} podeGerenciarWidget={podeWidget} />}
+      /* O botão "Ontologia" que morava aqui virou ABA. Ele existia porque a
+         ontologia era uma tela órfã — um único link de entrada em todo o admin,
+         achável só por quem já soubesse que ela existia. Agora ela é um destino
+         de primeira classe da barra, e manter as duas portas faria a mesma tela
+         aparecer duas vezes na mesma moldura. */
+      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+      abas={<AbasRota rota="/admin/assistente" atual="persona" permissoes={permissoes} spaceId={atual.id} />}
     >
 
       <div className="mt-6">

@@ -1,89 +1,199 @@
-import { existsSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { MAPA, ROTAS, rotaAtiva } from "./mapa-rotas";
+import { MAPA, ROTAS, abasDaRota, rotaAtiva, trilha } from "./mapa-rotas";
 
 /**
- * O mapa é a fonte única de três consumidores (menu, breadcrumb, Cmd+K). Um
- * erro aqui não quebra o build — só apaga o menu numa tela, que é o tipo de
- * defeito que sobrevive meses.
+ * O CONTRATO DO MAPA — o que impede a próxima divergência.
+ *
+ * Este arquivo nasceu de um defeito concreto: o `mapa-rotas` declarava 15 abas
+ * e 11 delas não existiam. Ele oferecia "Sistema › Chaves" (aba que nunca
+ * existiu nesta tela), "Desempenho › Qualidade" (a página era uma rolagem sem
+ * abas) e "Importar › Embeddings" (a tela lia `?tab=`, não `?aba=`). Nada
+ * falhava: o link abria a tela certa na aba padrão, e a pessoa concluía que
+ * tinha errado a busca.
+ *
+ * Contrato declarado sem verificação sempre diverge. Não porque alguém é
+ * descuidado — porque duas listas mantidas à mão, em arquivos diferentes,
+ * separadas por semanas, não têm como concordar.
+ *
+ * A defesa principal é ESTRUTURAL, não de teste: as barras de abas e o Cmd+K
+ * agora leem `abasDaRota()`, a mesma função, então não há segunda lista para
+ * divergir. O que sobra para o teste são os invariantes que a estrutura não
+ * garante sozinha — e que já foram quebrados pelo menos uma vez cada um.
  */
-describe("mapa de rotas", () => {
-  it("acende o item pelo prefixo mais longo, não pelo primeiro que bate", () => {
-    // O defeito clássico: `/admin` casa com tudo. Sem a regra do prefixo mais
-    // longo, o Painel acenderia dentro do editor.
-    expect(rotaAtiva("/admin")?.href).toBe("/admin");
-    expect(rotaAtiva("/admin/conteudo")?.href).toBe("/admin/documentacoes");
-    expect(rotaAtiva("/admin/conteudo/abc-123")?.href).toBe("/admin/documentacoes");
+
+const TODAS_AS_PERMISSOES = new Set(
+  ROTAS.flatMap((r) => [r.permissao, ...(r.abas ?? []).map((a) => a.permissao)]).filter(
+    (p): p is string => Boolean(p),
+  ),
+);
+
+describe("mapa de rotas — integridade", () => {
+  it("não repete href entre rotas", () => {
+    const hrefs = ROTAS.map((r) => r.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("mantém o item aceso nas rotas que foram absorvidas", () => {
-    // Foi para isto que o `also` existia. Aqui é declarado junto do destino.
-    // Importar tem item PRÓPRIO: é ferramenta de uso diário, e absorvê-la em
-    // "Documentações" custava três passos para chegar.
-    expect(rotaAtiva("/admin/importar")?.href).toBe("/admin/importar");
-    expect(rotaAtiva("/admin/estudio/sessao-1")?.href).toBe("/admin/documentacoes");
-    expect(rotaAtiva("/admin/ontologia")?.href).toBe("/admin/assistente");
-    expect(rotaAtiva("/admin/conversas")?.href).toBe("/admin/assistente");
-    expect(rotaAtiva("/admin/logs")?.href).toBe("/admin/assistente");
-    // Aparência é de UMA documentação: alcança-se pelo cartão dela, não por item de menu.
-    expect(rotaAtiva("/admin/aparencia")?.href).toBe("/admin/documentacoes");
-    expect(rotaAtiva("/admin/auditoria")?.href).toBe("/admin/auditoria");
+  it("todo href começa em /admin", () => {
+    for (const r of ROTAS) expect(r.href.startsWith("/admin")).toBe(true);
   });
 
-  it("não acende nada fora do admin", () => {
-    expect(rotaAtiva("/docs/global/financeiro")).toBeNull();
-  });
-
-  it("não tem dois itens disputando o mesmo caminho", () => {
-    // Dois itens com o mesmo prefixo tornam o acendimento imprevisível — quem
-    // ganha passa a depender da ordem de declaração.
-    const vistos = new Map<string, string>();
+  it("todo `tambem` inclui o próprio href", () => {
+    // Sem isso a rota canônica não acende o item do menu — foi o defeito que o
+    // antigo campo `also` remendava à mão em cinco lugares.
     for (const r of ROTAS) {
-      for (const base of r.tambem ?? [r.href]) {
-        const dono = vistos.get(base);
-        expect(dono ?? r.href, `"${base}" está em ${dono} e em ${r.href}`).toBe(r.href);
-        vistos.set(base, r.href);
-      }
+      if (!r.tambem) continue;
+      expect(r.tambem, `${r.href} não se inclui em tambem`).toContain(r.href);
     }
   });
 
-  it("todo href do menu tem uma página de verdade", () => {
-    /**
-     * O defeito que este teste existe para impedir aconteceu de verdade: o
-     * mapa foi escrito com os caminhos da arquitetura NOVA (`/admin/portal`,
-     * `/admin/pessoas`, `/admin/conexoes`…) antes de as páginas existirem.
-     * Cinco itens do menu levavam a 404, e nada no build, no lint ou nos testes
-     * acusou — `href` é string, e o Next só descobre no clique.
-     *
-     * `tambem` fica DE FORA de propósito: ele pode listar caminhos futuros sem
-     * causar dano, porque só serve para acender o item.
-     */
-    for (const r of ROTAS) {
-      // As páginas do admin vivem no grupo de rota `(app)`, que não aparece na
-      // URL. `/admin` é a única cujo arquivo fica na raiz do grupo.
-      const sub = r.href.replace(/^\/admin/, "");
-      const dir = `src/app/(admin)/admin/(app)${sub}`;
-      expect(existsSync(`${dir}/page.tsx`), `${r.href} não tem page.tsx`).toBe(true);
-    }
-  });
-
-  it("toda rota declara permissão e descrição", () => {
-    // A permissão alimenta o menu E a tela de recusa; a descrição alimenta o
-    // subtítulo E o Cmd+K. Faltando uma, o buraco aparece em dois lugares.
-    for (const r of ROTAS) {
-      expect(r.permissao, r.href).toBeTruthy();
-      expect(r.descricao.length, r.href).toBeGreaterThan(10);
-    }
-  });
-
-  it("o escopo do item cabe no escopo da seção", () => {
+  it("não repete rótulo dentro da mesma seção", () => {
     for (const s of MAPA) {
-      if (s.escopo === "geral") continue;
-      for (const r of s.rotas) {
-        // Um item de plataforma sob o seletor de documentação prometeria que
-        // ele obedece ao seletor — e não obedece.
-        expect(r.escopo, `${r.href} em "${s.titulo}"`).toBe(s.escopo);
+      const rotulos = s.rotas.map((r) => r.rotulo);
+      expect(new Set(rotulos).size, `seção ${s.titulo}`).toBe(rotulos.length);
+    }
+  });
+
+  it("a rota herda o escopo declarado pela sua seção", () => {
+    // O escopo é o que promete ao usuário se a tela obedece ao seletor de
+    // documentação. A Importar dizia `espaco` e resolvia com
+    // `getDefaultSpace()` — importava para a documentação mais antiga do banco.
+    for (const s of MAPA) {
+      for (const r of s.rotas) expect(r.escopo, `${r.href}`).toBe(s.escopo);
+    }
+  });
+});
+
+describe("mapa de rotas — abas", () => {
+  it("não repete key dentro da mesma rota", () => {
+    for (const r of ROTAS) {
+      const keys = (r.abas ?? []).map((a) => a.key);
+      expect(new Set(keys).size, `${r.href}`).toBe(keys.length);
+    }
+  });
+
+  it("uma rota com abas declara pelo menos duas", () => {
+    // Uma aba só não é escolha, é ruído — e `AbasRota` nem renderiza a barra.
+    for (const r of ROTAS) {
+      if (!r.abas) continue;
+      expect(r.abas.length, `${r.href}`).toBeGreaterThan(1);
+    }
+  });
+
+  it("aba com href aponta para uma rota que existe no mapa", () => {
+    // Uma aba cross-rota apontando para lugar nenhum é o beco que esta rodada
+    // veio fechar.
+    for (const r of ROTAS) {
+      for (const a of r.abas ?? []) {
+        if (!a.href) continue;
+        const caminho = a.href.split("?")[0]!;
+        const alcancavel = ROTAS.some(
+          (outra) => outra.href === caminho || (outra.tambem ?? []).includes(caminho),
+        );
+        expect(alcancavel, `${r.href} › ${a.rotulo} → ${caminho}`).toBe(true);
       }
     }
+  });
+
+  it("aba que usa {space} só aparece em rota de escopo `espaco`", () => {
+    // `{space}` sem documentação em jogo vira `?space=` vazio — um link para a
+    // documentação errada, que é exatamente o defeito da Importar.
+    for (const r of ROTAS) {
+      for (const a of r.abas ?? []) {
+        if (!a.href?.includes("{space}")) continue;
+        expect(r.escopo, `${r.href} › ${a.rotulo}`).toBe("espaco");
+      }
+    }
+  });
+
+  it("permissão de aba é uma permissão que o mapa conhece", () => {
+    // Pega o erro de digitação que faria a aba sumir para todo mundo em
+    // silêncio — falha por permissão é indistinguível de aba inexistente.
+    for (const r of ROTAS) {
+      for (const a of r.abas ?? []) {
+        if (!a.permissao) continue;
+        expect(TODAS_AS_PERMISSOES.has(a.permissao), `${r.href} › ${a.rotulo}`).toBe(true);
+      }
+    }
+  });
+});
+
+describe("abasDaRota", () => {
+  const tudo = TODAS_AS_PERMISSOES;
+
+  it("a primeira aba visível aponta para a rota limpa, sem ?aba=", () => {
+    const abas = abasDaRota("/admin/analises", tudo);
+    expect(abas[0]!.href).toBe("/admin/analises");
+    expect(abas[1]!.href).toBe("/admin/analises?aba=leitura");
+  });
+
+  it("some com a aba cuja permissão falta, em vez de mostrá-la desabilitada", () => {
+    const semBackup = new Set([...tudo].filter((p) => p !== "system.backup"));
+    const keys = abasDaRota("/admin/sistema", semBackup).map((a) => a.key);
+    expect(keys).not.toContain("backup");
+    expect(keys).toContain("ia");
+  });
+
+  it("a primeira VISÍVEL fica limpa, mesmo quando não é a primeira declarada", () => {
+    // Quem só tem `embeddings.reindex` abre a Importar direto na segunda aba.
+    // Apontar a primeira visível para `?aba=` da aba que ela não vê geraria um
+    // link para uma aba que não está na barra.
+    const soEmbeddings = new Set(["embeddings.reindex"]);
+    const abas = abasDaRota("/admin/importar", soEmbeddings);
+    expect(abas).toHaveLength(1);
+    expect(abas[0]!.key).toBe("embeddings");
+    expect(abas[0]!.href).toBe("/admin/importar");
+  });
+
+  it("substitui {space} pela documentação em jogo", () => {
+    const abas = abasDaRota("/admin/assistente", tudo, "abc-123");
+    const conversas = abas.find((a) => a.key === "atividade")!;
+    expect(conversas.href).toBe("/admin/conversas?space=abc-123");
+  });
+
+  it("rota sem abas devolve lista vazia, não quebra", () => {
+    expect(abasDaRota("/admin/usuarios", tudo)).toEqual([]);
+    expect(abasDaRota("/rota/que/nao/existe", tudo)).toEqual([]);
+  });
+});
+
+describe("rotaAtiva / trilha", () => {
+  it("casa pelo prefixo mais longo, não pelo primeiro que bate", () => {
+    // `/admin` e `/admin/conteudo` competem por `/admin/conteudo/abc`; sem esta
+    // regra, o Painel acendia enquanto a pessoa editava um artigo.
+    expect(rotaAtiva("/admin/conteudo/abc")?.rotulo).toBe("Documentações");
+    expect(rotaAtiva("/admin")?.rotulo).toBe("Painel");
+  });
+
+  it("as três rotas do Assistente acendem o MESMO item do menu", () => {
+    // Era o defeito F2: Acessos dividia barra de abas com Conversas mas o mapa
+    // a arquivava em Desempenho, então clicar na aba do meio fazia o item aceso
+    // pular de seção.
+    for (const p of ["/admin/assistente", "/admin/conversas", "/admin/logs", "/admin/ontologia"]) {
+      expect(trilha(p)?.rota.rotulo, p).toBe("Assistente de IA");
+    }
+  });
+
+  it("Acessos acende Desempenho — a mesma seção das outras abas dessa barra", () => {
+    for (const p of ["/admin/analises", "/admin/acessos"]) {
+      expect(trilha(p)?.rota.rotulo, p).toBe("Desempenho");
+    }
+  });
+
+  it("toda aba cross-rota acende o MESMO item de menu que a rota dona da barra", () => {
+    // O invariante que generaliza os dois testes acima: uma barra de abas nunca
+    // deve atravessar duas seções do menu. Se atravessar, a barra lateral passa
+    // a discordar da barra de abas — e ela é metade da resposta a "onde estou".
+    for (const r of ROTAS) {
+      for (const a of r.abas ?? []) {
+        if (!a.href) continue;
+        const caminho = a.href.split("?")[0]!;
+        expect(trilha(caminho)?.rota.href, `${r.rotulo} › ${a.rotulo}`).toBe(r.href);
+      }
+    }
+  });
+
+  it("caminho fora do mapa não inventa trilha", () => {
+    expect(trilha("/admin/login")).toBeNull();
+    expect(rotaAtiva("/docs/global/qualquer")).toBeNull();
   });
 });

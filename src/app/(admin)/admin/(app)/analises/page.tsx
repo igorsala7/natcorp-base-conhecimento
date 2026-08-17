@@ -9,8 +9,11 @@ import { ViewsChart } from "./views-chart";
 import type { QualityIssue } from "@/lib/quality/audit-article";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
+import { permissoesDo } from "@/lib/auth/permissions";
+import { resolvedSpaceId } from "@/lib/content/current-space";
+import { AbasRota } from "@/components/admin/abas-rota";
 
-export const metadata: Metadata = { title: "Análises" };
+export const metadata: Metadata = { title: "Desempenho" };
 
 function StatCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -35,18 +38,50 @@ function topBy<T>(rows: T[], key: (r: T) => string, filter?: (r: T) => boolean, 
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
-export default async function AnalisesPage() {
+/** As abas declaradas no `mapa-rotas` para esta rota. Fallback: a primeira. */
+const ABAS = ["busca", "leitura", "chat", "qualidade"] as const;
+type AbaDesempenho = (typeof ABAS)[number];
+
+export default async function AnalisesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aba?: string }>;
+}) {
   if (!(await hasPermission("content.view"))) {
     return (
       <SemPermissao
-        titulo="Análises"
+        titulo="Desempenho"
         oQue="ver as análises"
         permissao="content.view"
         papel="Leitor"
       />
     );
   }
+
+  /**
+   * A tela era UMA ROLAGEM com cinco blocos, enquanto o `mapa-rotas` declarava
+   * quatro abas para ela. O Cmd+K oferecia "Desempenho › Qualidade", montava a
+   * URL `?aba=qualidade`, e a página ignorava o parâmetro — a pessoa chegava no
+   * topo da rolagem achando que tinha errado a busca.
+   *
+   * Aba desconhecida cai na primeira em vez de mostrar tela vazia: URL colada de
+   * outra versão do produto não pode virar página em branco.
+   */
+  const { aba: abaParam } = await searchParams;
+  const aba: AbaDesempenho = ABAS.includes(abaParam as AbaDesempenho)
+    ? (abaParam as AbaDesempenho)
+    : "busca";
+
   const supabase = await createClient();
+  const permissoes = await permissoesDo();
+  /**
+   * Esta tela é GLOBAL (soma todas as documentações), mas a aba "Acessos" é por
+   * documentação. O espaço vem do cookie — a última escolhida — só para a aba
+   * vizinha não perder a seleção. Sem isso, sair de Desempenho para Acessos
+   * jogaria a pessoa na primeira documentação da lista.
+   */
+  const { data: espacos } = await supabase.from("spaces").select("id");
+  const spaceParaAbas = await resolvedSpaceId(undefined, espacos ?? []);
 
   // Página dinâmica de admin: "hoje" é avaliado por requisição, de propósito —
   // não há re-render de cliente para o valor divergir.
@@ -147,15 +182,27 @@ export default async function AnalisesPage() {
     null,
   );
 
+  const descricoes: Record<AbaDesempenho, string> = {
+    busca: "O que os leitores procuram — e o que eles não encontram.",
+    leitura: "O que está sendo lido, o que ninguém abre e o que as pessoas acharam útil.",
+    chat: "Volume, latência e feedback das respostas do assistente.",
+    qualidade: "Descrição, alt de imagem, títulos e links — o que a varredura encontrou.",
+  };
+
   return (
     <PageShell
-      titulo="Análises"
-      descricao="Onde os usuários buscam, o que não encontram e como o assistente está indo."
+      // "Desempenho" é o nome no menu. O título dizia "Análises", e barra
+      // lateral e cabeçalho contando histórias diferentes é justamente o que
+      // impedia escrever um breadcrumb honesto.
+      titulo="Desempenho"
+      descricao={descricoes[aba]}
       largura="wide"
       className="space-y-8"
+      abas={<AbasRota rota="/admin/analises" atual={aba} permissoes={permissoes} spaceId={spaceParaAbas} />}
     >
 
       {/* Busca */}
+      {aba === "busca" && (
       <section>
         <h2 className={`mb-3 ${eyebrowLabel}`}>Busca</h2>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -176,8 +223,13 @@ export default async function AnalisesPage() {
           />
         </div>
       </section>
+      )}
 
-      {/* Assistente */}
+      {/* Chat — o desempenho AGREGADO do assistente. A leitura caso a caso
+          ("por que esta resposta saiu assim") mora em Assistente de IA ›
+          Conversas, junto do rastreio. Número e caso são perguntas diferentes,
+          feitas por pessoas diferentes. */}
+      {aba === "chat" && (
       <section>
         <h2 className={`mb-3 ${eyebrowLabel}`}>Assistente (chat)</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -191,8 +243,10 @@ export default async function AnalisesPage() {
           />
         </div>
       </section>
+      )}
 
       {/* Leitura */}
+      {aba === "leitura" && (
       <section>
         <h2 className={`mb-3 ${eyebrowLabel}`}>Leitura (90 dias)</h2>
         <div className="mb-3">
@@ -233,8 +287,12 @@ export default async function AnalisesPage() {
           </div>
         )}
       </section>
+      )}
 
-      {/* Feedback dos artigos */}
+      {/* Feedback dos artigos — mesma aba que Leitura de propósito: "quantos
+          abriram" e "quantos acharam útil" são a mesma pergunta em dois passos,
+          e separá-las obrigava a comparar duas telas de cabeça. */}
+      {aba === "leitura" && (
       <section>
         <h2 className={`mb-3 ${eyebrowLabel}`}>“Isso foi útil?” nos artigos</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -256,8 +314,10 @@ export default async function AnalisesPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Qualidade/SEO (varredura do worker: painel Otimizar em massa) */}
+      {aba === "qualidade" && (
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className={eyebrowLabel}>Qualidade da documentação</h2>
@@ -292,6 +352,7 @@ export default async function AnalisesPage() {
           </>
         )}
       </section>
+      )}
     </PageShell>
   );
 }

@@ -3,10 +3,15 @@ import { signOut } from "@/app/(admin)/admin/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { SearchTrigger } from "@/components/admin/search-trigger";
 import { Atividade } from "@/components/admin/atividade";
+import { Breadcrumb } from "@/components/admin/breadcrumb";
 
 /**
- * Barra superior do Admin. O campo de busca é um placeholder visual —
- * o command palette (Cmd/Ctrl+K) real chega na Fase 3.
+ * Barra superior do Admin: trilha de navegação, busca e conta.
+ *
+ * O `SearchTrigger` abre o command palette (Cmd/Ctrl+K) — este comentário
+ * dizia, até aqui, que ele era "um placeholder visual" e que a paleta "chega na
+ * Fase 3". Ela chegou há muito tempo. Comentário obsoleto em arquivo central é
+ * armadilha: alguém lê, acredita, e reimplementa o que já existe.
  */
 export function Topbar({ email }: { email: string }) {
   const initials =
@@ -17,7 +22,12 @@ export function Topbar({ email }: { email: string }) {
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-4 sm:px-5">
-      <SearchTrigger />
+      {/* `min-w-0` nos dois: sem ele, um rótulo longo empurra a busca para fora
+          da barra em vez de truncar. */}
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <Breadcrumb />
+        <SearchTrigger />
+      </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
         <Atividade />

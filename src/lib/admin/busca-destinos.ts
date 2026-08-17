@@ -1,4 +1,4 @@
-import { ROTAS, type Rota } from "./mapa-rotas";
+import { ROTAS, abasDaRota, type Rota } from "./mapa-rotas";
 
 /**
  * ONDE IR — a metade da paleta que não existia.
@@ -79,13 +79,24 @@ export function buscarDestinos(
     const p = pontuar(termo, r.rotulo, r.apelidos ?? [], r.descricao);
     if (p > 0) achados.push({ href: r.href, rotulo: r.rotulo, descricao: r.descricao, icone: r.icone, pontos: p });
 
-    for (const aba of r.abas ?? []) {
-      // A aba herda a permissão da página quando não declara a própria.
-      if (aba.permissao && !permissoes.has(aba.permissao)) continue;
+    /**
+     * As abas vêm de `abasDaRota` — a MESMA função que a barra de abas chama.
+     *
+     * Antes esta função montava o destino sozinha, sempre como
+     * `${r.href}?aba=${aba.key}`. Duas suposições erradas embutidas ali: que
+     * toda aba é `?aba=` (Assistente › Conversas é outra rota) e que toda tela
+     * lê esse parâmetro (só duas liam). Das 15 abas declaradas, 11 levavam à
+     * aba padrão sem aviso.
+     *
+     * O `{space}` fica sem substituir aqui de propósito: a paleta é global e
+     * não sabe qual documentação está em jogo. A página de destino resolve pelo
+     * cookie, que é o mesmo comportamento de abrir a tela pelo menu.
+     */
+    for (const aba of abasDaRota(r.href, permissoes)) {
       const pa = pontuar(termo, aba.rotulo, r.apelidos ?? [], r.descricao);
       if (pa > 0) {
         achados.push({
-          href: `${r.href}?aba=${aba.key}`,
+          href: aba.href.replace(/[?&]space=$/, ""),
           rotulo: aba.rotulo,
           contexto: r.rotulo,
           descricao: r.descricao,

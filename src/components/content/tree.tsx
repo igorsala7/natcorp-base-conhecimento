@@ -749,7 +749,7 @@ export function Tree({
               title="Gerar embeddings (pasta toda)"
               className="rounded p-1 text-text-muted hover:bg-surface hover:text-primary"
               onClick={() =>
-                router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${item.id}`)
+                router.push(`/admin/importar?aba=embeddings&space=${spaceId}&node=${item.id}`)
               }
             >
               <Sparkles className="size-3.5" />
@@ -1196,7 +1196,7 @@ export function Tree({
             size="sm"
             variant="ghost"
             title="Abrir a gestão de embeddings desta documentação"
-            onClick={() => router.push(`/admin/importar?tab=embeddings&space=${spaceId}`)}
+            onClick={() => router.push(`/admin/importar?aba=embeddings&space=${spaceId}`)}
           >
             Gerar embeddings
           </Button>

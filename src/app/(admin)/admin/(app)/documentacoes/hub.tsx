@@ -163,7 +163,7 @@ function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
                   <MenuLabel>IA e base do chatbot</MenuLabel>
                   <MenuItem
                     icon={Sparkles}
-                    onClick={() => { close(); router.push(`/admin/importar?tab=embeddings&space=${d.id}`); }}
+                    onClick={() => { close(); router.push(`/admin/importar?aba=embeddings&space=${d.id}`); }}
                   >
                     Gerar embeddings
                   </MenuItem>

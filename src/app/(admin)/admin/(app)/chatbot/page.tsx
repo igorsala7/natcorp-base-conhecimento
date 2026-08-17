@@ -8,13 +8,15 @@ import { pickSpace } from "@/lib/content/current-space";
 import { env } from "@/lib/env";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { Surface } from "@/components/ui/surface";
+import { Button } from "@/components/ui/button";
 import { KbUploadRow } from "./kb-upload-row";
 import type { WidgetKeyRow } from "../widget/widget-manager";
 import type { ApiKeyRow } from "../widget/api-key-manager";
 import { ChatbotTabs } from "./chatbot-tabs";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
-import { AssistenteTabs } from "@/components/admin/assistente-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Chatbot" };
 
@@ -109,7 +111,7 @@ export default async function ChatbotPage({
         /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
         <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
       }
-      abas={<AssistenteTabs atual="canais" spaceId={atual.id} podeGerenciarWidget />}
+      abas={<AbasRota rota="/admin/assistente" atual="canais" permissoes={await permissoesDo()} spaceId={atual.id} />}
     >
 
       {/* Base de conhecimento do bot */}
@@ -129,19 +131,24 @@ export default async function ChatbotPage({
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <KbUploadRow spaceId={atual.id} />
-          <Link
-            href={`/admin/importar?tab=embeddings&space=${atual.id}`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm transition-colors hover:border-primary hover:text-primary"
-          >
-            Gerenciar arquivos
-          </Link>
-          <Link
-            href={`/admin/assistente?space=${atual.id}`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary"
-            title="A persona da documentação vale como padrão para chaves sem persona própria"
-          >
-            <Bot className="size-4" /> Persona
-          </Link>
+          {/* `Button asChild` e não classes copiadas à mão: as duas cópias que
+              moravam aqui divergiram do primitivo em hover e em anel de foco —
+              o mesmo mecanismo que já tinha deixado quatro telas com foco morto.
+              O rótulo também mudou: "Gerenciar arquivos" era o quarto nome dado
+              à mesma coisa. Agora é "Base de conhecimento" em todo lugar. */}
+          <Button asChild variant="secondary" size="sm">
+            <Link href={`/admin/importar?aba=embeddings&space=${atual.id}`}>
+              Base de conhecimento
+            </Link>
+          </Button>
+          <Button asChild variant="secondary" size="sm">
+            <Link
+              href={`/admin/assistente?space=${atual.id}`}
+              title="A persona da documentação vale como padrão para chaves sem persona própria"
+            >
+              <Bot /> Persona
+            </Link>
+          </Button>
         </div>
       </Surface>
 

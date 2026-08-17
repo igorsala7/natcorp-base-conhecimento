@@ -50,9 +50,25 @@ describe("busca de destinos", () => {
   });
 
   it("oferece ABA como destino, com o contexto do dono", () => {
-    const onto = buscarDestinos("ontologia", TUDO).find((d) => d.href.includes("aba=ontologia"));
+    /**
+     * Este teste travava o defeito, não o acerto: ele exigia
+     * `/admin/assistente?aba=ontologia`, um endereço que NÃO EXISTIA. A
+     * ontologia sempre foi a rota `/admin/ontologia`; a página do assistente
+     * nunca leu `?aba=`. O teste passava porque só conferia o que a função
+     * montava, nunca se o destino abria.
+     *
+     * Agora o destino vem de `abasDaRota` — a mesma função que a barra de abas
+     * usa —, então o que a paleta oferece é literalmente o link em que a barra
+     * clica.
+     */
+    const onto = buscarDestinos("ontologia", TUDO).find((d) => d.contexto);
     expect(onto?.contexto).toBe("Assistente de IA");
-    expect(onto?.href).toBe("/admin/assistente?aba=ontologia");
+    expect(onto?.href).toBe("/admin/ontologia");
+  });
+
+  it("aba que é `?aba=` na própria rota continua sendo oferecida assim", () => {
+    const qualidade = buscarDestinos("qualidade", TUDO).find((d) => d.contexto === "Desempenho");
+    expect(qualidade?.href).toBe("/admin/analises?aba=qualidade");
   });
 
   it("a página vence a aba de mesmo nome", () => {

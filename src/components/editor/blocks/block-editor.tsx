@@ -1100,7 +1100,7 @@ function BlockEditorInner({
   function onReindex() {
     // A geração vive na aba Embeddings da Importar (job em background com
     // progresso). Abrimos já apontando para este artigo.
-    router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${nodeId}`);
+    router.push(`/admin/importar?aba=embeddings&space=${spaceId}&node=${nodeId}`);
   }
 
   async function onSubmitReview() {

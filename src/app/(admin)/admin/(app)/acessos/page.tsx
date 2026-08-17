@@ -5,13 +5,13 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { pickSpace } from "@/lib/content/current-space";
 import { SpaceSwitcher } from "@/components/content/space-switcher";
-import { TrackingTabs } from "@/components/admin/tracking-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
 import { AcessosList, type Acesso } from "./acessos-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
-import { permissoesDo } from "@/lib/auth/permissions";
 import { PageShell } from "@/components/ui/page-shell";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Acessos" };
 
@@ -62,10 +62,9 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
   const spaces = await listSpaces();
   const sp = await searchParams;
   const atual = await pickSpace(spaces, sp.space);
-  // `permissoesDo` é memoizado por request — o layout já consultou, então aqui
-  // não custa ida ao banco. A aba de rastreio exige nível 80; oferecê-la a quem
-  // não pode abrir a transformaria num beco.
-  const podeRastrear = (await permissoesDo()).has("ai.configure");
+  // Memoizado por request — o layout já consultou. A barra de abas some o que
+  // a pessoa não pode abrir.
+  const permissoes = await permissoesDo();
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();
@@ -120,7 +119,16 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
       largura="wide"
       /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
       acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
-      abas={<TrackingTabs current="acessos" spaceId={atual.id} podeRastrear={podeRastrear} />}
+      /**
+       * Acessos passa a ser uma aba de DESEMPENHO, não do rastreio do chat.
+       *
+       * Ela dividia barra com Conversas e Rastreio — "as três leituras do mesmo
+       * tráfego" — mas o `mapa-rotas` arquiva esta rota em Desempenho e as
+       * outras duas em Assistente de IA. A consequência era visível: clicar na
+       * aba do meio fazia o item aceso na barra lateral pular de seção, e sem
+       * breadcrumb a barra lateral era a única resposta para "onde estou".
+       */
+      abas={<AbasRota rota="/admin/analises" atual="acessos" permissoes={permissoes} spaceId={atual.id} />}
     >
 
       <form method="get" className="mt-6 rounded-xl border border-border bg-surface p-4 shadow-1">
