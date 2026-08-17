@@ -1,17 +1,25 @@
 # Estado do projeto e próximos passos
 
-> Gravado em 16/08/2026, antes de um reinício do VSCode. Contém o que foi feito, o que
-> está em curso, e o que depende de decisão sua. Leia a Parte 2 primeiro — é a tarefa
-> aberta.
+> Gravado em 16/08/2026, atualizado às 23h antes de um reinício do VSCode. Contém o que
+> foi feito, o que está em curso e o que depende de decisão sua.
+>
+> **Duas frentes abertas:** a Parte 2 (o chat não pode citar tabela/campo) e a Parte 4
+> (os arquivos gerados com a identidade Natcorp). A Parte 4 é onde eu estava trabalhando
+> quando você parou.
 
 ## AO VOLTAR, FAÇA ISTO PRIMEIRO
 
-1. `git pull`
-2. **Reiniciar o worker** (`npm run worker`) — ele estava rodando código velho e é por
-   isso que a ingestão do APEX vinha achando zero colunas.
-3. Subir o `f200.json` na página de Ontologia → processar. Confirmar no job:
-   `componentes` deve dar ~10.694 (não 1.568) e `colunas` ~2.481 (não 0).
-4. Retomar a Parte 2 — faltam as **cinco decisões** e três dos seis leitores do mapa.
+1. `git pull` · **reiniciar o worker** se for mexer em ingestão.
+2. **Teste o arquivo gerado pelo chat** — é o único passo que eu não consigo fazer daqui.
+   Peça um relatório em `formatos: ["pdf","docx","pptx"]` e veja se o modelo usa os blocos
+   novos (`secao`, `destaques`, `cards`, `nota`). Testei a mecânica, não o comportamento
+   do modelo: se ele continuar despejando texto+tabela, o problema é a redação da
+   instrução em `visuals-directive.ts` e eu reforço.
+3. Para olhar os arquivos sem passar pelo chat: `npm run relatorio:amostra -- <pasta>`.
+
+**Estado das duas frentes abertas:** a Parte 2 (chat não cita tabela/campo) está com a
+regra no ar e três caminhos ainda vazando; a Parte 4 (arquivos gerados) está nas fases
+1→3 de 6.
 
 ---
 
@@ -260,3 +268,71 @@ rodar `scripts/rekey-secrets.ts` → `PORTAL_COOKIE_SECRET`.
   6 caminhos de IA viram 1).
 - O portal ainda registra busca por tecla.
 - Disco da sua máquina em ~99% (425 GB de 460 GB).
+
+---
+
+## PARTE 4 — Arquivos gerados (PPTX, PDF, Word) com a identidade Natcorp
+
+Pedido de 16/08 à noite, com o deck institucional (23 slides) como referência. Plano
+completo em `~/.claude/plans/glistening-splashing-ritchie.md`.
+
+O diagnóstico que orientou tudo: o deck tem **nove arquétipos de layout**; o gerador fazia
+**um bloco por página/slide, sempre igual**. A diferença não era capricho, era vocabulário.
+
+### Decisões suas (não reabrir sem motivo)
+
+| | escolha |
+|---|---|
+| Identidade | **sempre Natcorp**, em qualquer cliente |
+| Tipografia do PDF | **manter Helvetica** (sem fonte embutida) |
+| Densidade | **o formato decide**: pptx = apresentar · pdf/docx = ler · xlsx/csv = trabalhar |
+| Público | diretoria **e** analista |
+
+> **Consequência visível já no ar:** quem configurou `widget_keys.config.primaryColor`
+> via a cor no PDF; agora sai roxo Natcorp. A cor continua valendo para a bolha do widget.
+
+### Entregue (4 commits, todos no `main`)
+
+`0100431` **marca, capa e a pizza** — `src/lib/reports/marca.ts` com as rampas 50→950
+(há teste que LÊ o `tailwind.config.ts` para as cópias não divergirem). Capa no PDF com
+faixa em degradê. Substituiu três implementações de cor que não se conheciam.
+
+`d74d0e6` **logo nos três** — `src/lib/reports/assets/logo.ts`, base64 (o Next rastreia
+imports, não caminhos de runtime). Regerável com `npx tsx scripts/gerar-logo-assets.ts`.
+
+`aa98b49` **arquétipos** — `secao`, `destaques`, `cards` + `titulo` no bloco de texto +
+`nota` em qualquer bloco (vira notas do apresentador no PPTX).
+
+`10fe089` **a IA aprende** — schema e instruções. O texto da tool dizia literalmente
+"pptx (PowerPoint — um slide por bloco)": o comportamento estava no contrato, não no
+código.
+
+### Cinco defeitos antigos que apareceram por OLHAR o arquivo
+
+1. **A pizza do PDF não era pizza** — desenhava barra 100% empilhada com legenda.
+2. **Imagem achatada 27%** — clamp em uma dimensão só. Nunca notado porque a única forma
+   que denuncia distorção é o círculo, e o PDF não desenhava círculo até a pizza virar pizza.
+3. **Espaço antes da pontuação** — `"colaboradores , 3,1%"`. O tokenizador quebrava cada
+   run em palavras e recolava com espaço, perdendo a fronteira. Extraído para `tokens.ts`.
+4. **Tabela do PPTX transbordava** — corte de 24 linhas e aviso num `y` fixo, ambos chute.
+5. **Faixa listrada no PPTX** — `line: { width: 0 }` NÃO desliga borda no OOXML; vira
+   hairline de 1px. O interruptor é `line: { type: "none" }`.
+
+### O que falta
+
+| # | o quê |
+|---|---|
+| 1 | **`combo` no PPTX perde a série de linha em silêncio** — `CHART_SUPORTE.combo.pptx = true` mas `exporters.ts` mapeia `combo → "bar"`. Ou implementa multi-tipo, ou marca `false` para `degradarTipo` avisar. Era o próximo item. |
+| 2 | Área do PDF é faixa vertical a 18% de opacidade, não polígono (`pdf.ts:374-379`) |
+| 3 | Testes estruturais dos renderizadores (jszip: PPTX tem N slides e `notesSlide`; DOCX tem capa e `Header`; PDF tem N páginas) |
+| 4 | Rodapé do PPTX ainda usa `brand.marca`; o master se chama "NATCORP" mesmo quando não é |
+
+### Como olhar o resultado
+
+```
+npm run relatorio:amostra -- <pasta>     # gera os 5 formatos com dados fictícios
+soffice --headless --convert-to pdf --outdir <p> <arquivo.pptx>   # para VER pptx/docx
+```
+
+O script de amostra veio na fase 1 e não no fim de propósito: sem conseguir abrir o
+arquivo, os cinco defeitos acima passariam de novo.
