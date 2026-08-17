@@ -33,10 +33,10 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 /**
  * Marcador que separa o TEXTO do modelo dos ARQUIVOS (base64) no fim do stream.
  * O cliente (ChatPanel) corta aqui e transforma o JSON em links de download.
- * Usa o caractere de controle RS (), que não aparece em texto do modelo.
+ * Usa o caractere de controle RS (\u001e), que não aparece em texto do modelo.
  * DEVE ser idêntico ao do ChatPanel.
  */
-const META_MARK = "\n__META__";
+const META_MARK = "\n\u001e__META__\u001e";
 
 /** Uso INTERNO da equipe: marcado como `admin`, fora de qualquer fatura de
  *  cliente, mas separado de `sistema` para dar para medir quanto a operação

@@ -224,7 +224,7 @@ export async function saveTool(input: unknown): Promise<IntegResult> {
       const linhas: { tool_id: string; modulo: string; submodulo: string | null }[] = [];
       for (const m of t.modulos) {
         const sub = m.submodulo?.trim() || null;
-        const chave = `${m.modulo} ${sub ?? ""}`;
+        const chave = `${m.modulo}\u0000${sub ?? ""}`;
         if (vistos.has(chave)) continue;
         vistos.add(chave);
         linhas.push({ tool_id: toolId!, modulo: m.modulo, submodulo: sub });
