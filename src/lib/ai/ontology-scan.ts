@@ -94,6 +94,12 @@ export async function sinonimosDeTermos(
     "- `term`: o conceito ESCRITO POR EXTENSO. Expanda abreviações e siglas do domínio: " +
     "\"Adto salarial\" → \"Adiantamento Salarial\"; \"Adto 13\" → \"Adiantamento de 13º Salário\"; " +
     "\"Dt Adm\" → \"Data de Admissão\"; \"Qtd Depend\" → \"Quantidade de Dependentes\". " +
+    // SÍMBOLO também é abreviação. A primeira versão só deu exemplos de palavra
+    // abreviada, e o Igor apareceu com "% Adiantamento" — que a IA manteria,
+    // porque "%" não parece uma abreviação a expandir, e sim pontuação.
+    "SÍMBOLO conta como abreviação: \"% Adiantamento\" → \"Percentual de Adiantamento\"; " +
+    "\"Nº Dependentes\" → \"Número de Dependentes\"; \"R$ Salário\" → \"Valor do Salário\"; " +
+    "\"Adm/Dem\" → \"Admissões e Demissões\". " +
     "Se já estiver por extenso, só corrija capitalização e acento.\n" +
     "- `kind`: conceito/entidade/acao/sigla/outro.\n" +
     "- `description`: uma frase, ou vazio se não souber.\n" +

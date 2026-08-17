@@ -21,6 +21,15 @@ describe("o prompt de sinônimos do dicionário", () => {
     expect(s).toMatch(/Adto salarial.*Adiantamento Salarial/);
   });
 
+  it("SÍMBOLO também é abreviação — o caso do Igor", async () => {
+    // Os primeiros exemplos só cobriam palavra abreviada ("Adto", "Dt", "Qtd").
+    // "% Adiantamento" ficava como estava, porque "%" não parece abreviação a
+    // expandir — parece pontuação.
+    const s = await promptDeSinonimos();
+    expect(s).toMatch(/% Adiantamento.*Percentual de Adiantamento/);
+    expect(s).toContain("SÍMBOLO conta como abreviação");
+  });
+
   it("continua proibindo INVENTAR conceito fora da lista", async () => {
     // O conserto não pode virar licença para alucinar: as duas regras convivem,
     // e a segunda frase é o que as separa.
