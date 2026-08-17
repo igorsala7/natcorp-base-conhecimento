@@ -105,6 +105,25 @@ describe("mapa de rotas — abas", () => {
     }
   });
 
+  it("abas do mesmo grupo ficam contíguas", () => {
+    // O separador da barra é desenhado quando o grupo MUDA de uma aba para a
+    // seguinte. Com um grupo interrompido — cliente, capacidade, cliente — a
+    // barra ganha um separador a mais e passa a mentir sobre o agrupamento.
+    for (const r of ROTAS) {
+      const grupos = (r.abas ?? []).map((a) => a.grupo).filter(Boolean);
+      if (grupos.length < 2) continue;
+      const vistos = new Set<string>();
+      let anterior: string | undefined;
+      for (const g of grupos as string[]) {
+        if (g !== anterior) {
+          expect(vistos.has(g), `${r.href}: grupo "${g}" aparece em dois trechos`).toBe(false);
+          vistos.add(g);
+          anterior = g;
+        }
+      }
+    }
+  });
+
   it("permissão de aba é uma permissão que o mapa conhece", () => {
     // Pega o erro de digitação que faria a aba sumir para todo mundo em
     // silêncio — falha por permissão é indistinguível de aba inexistente.

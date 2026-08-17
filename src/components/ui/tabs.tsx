@@ -34,6 +34,23 @@ export type Aba = {
   /** Contagem ou aviso. Use com parcimônia: badge em tudo não destaca nada. */
   badge?: React.ReactNode;
   disabled?: boolean;
+  /**
+   * Família da aba. Abas com famílias diferentes ganham um separador entre si.
+   *
+   * Existe por causa das Conexões: nove abas irmãs no mesmo nível, sem nenhuma
+   * hierarquia visível — o olho não consegue segurar nove escolhas paralelas, e
+   * ali havia três famílias óbvias (quem é o cliente, o que o bot sabe fazer, o
+   * que aconteceu).
+   *
+   * A saída ÓBVIA seria um segundo nível de abas. Seria errado: "seção dentro
+   * de seção" é exatamente a queixa que esta reforma veio resolver, e enterrar
+   * "Execuções" — a tela onde se passa o dia depurando — atrás de mais um
+   * clique piora justamente o caminho mais quente.
+   *
+   * O separador dá a hierarquia SEM a profundidade. O agrupamento fica legível,
+   * e nenhum destino fica mais longe do que já estava.
+   */
+  grupo?: string;
 };
 
 export function Tabs({
@@ -104,9 +121,16 @@ export function Tabs({
       {tabs.map((t, i) => {
         const ativa = t.key === atual;
         const Icone = t.icon;
+        // Separador quando a família muda. `aria-hidden` e fora do fluxo de
+        // teclado: para quem navega por setas, ele não existe — o agrupamento
+        // é uma ajuda visual, não uma parada a mais.
+        const trocouGrupo = i > 0 && t.grupo !== tabs[i - 1]!.grupo;
         return (
+          <React.Fragment key={t.key}>
+            {trocouGrupo && (
+              <span aria-hidden="true" className="mx-2 h-4 w-px shrink-0 self-center bg-border" />
+            )}
           <button
-            key={t.key}
             ref={(el) => {
               refs.current[i] = el;
             }}
@@ -136,6 +160,7 @@ export function Tabs({
               </span>
             )}
           </button>
+          </React.Fragment>
         );
       })}
     </div>

@@ -3,12 +3,6 @@
 import { Tabs, useAbaAtual, type Aba } from "@/components/ui/tabs";
 import { abasDaRota } from "@/lib/admin/mapa-rotas";
 
-/**
- * Nenhuma aba desta tela declara permissão própria: a página inteira já exige
- * `integrations.manage`, e quem chegou até aqui pode ver as nove. O conjunto
- * vazio é honesto — filtrar por permissão que ninguém declarou não filtra nada.
- */
-const PERMISSOES_DA_TELA = new Set<string>();
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { BaseAccessManager } from "./base-access-manager";
@@ -20,6 +14,13 @@ import { BuilderChat } from "./builder-chat";
 import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
 
 type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
+/**
+ * Nenhuma aba desta tela declara permissão própria: a página inteira já exige
+ * `integrations.manage`, e quem chegou até aqui pode ver as nove. O conjunto
+ * vazio é honesto — filtrar por permissão que ninguém declarou não filtra nada.
+ */
+const PERMISSOES_DA_TELA = new Set<string>();
+
 export type WhatsappBundle = {
   channels: Record<string, WhatsappSettings>;
   secrets: Record<string, SecretsPresent>;
@@ -70,6 +71,7 @@ export function IntegrationsShell({
   const abas: Aba[] = abasDaRota("/admin/integracoes", PERMISSOES_DA_TELA).map((a) => ({
     key: a.key,
     label: a.rotulo,
+    grupo: a.grupo,
   }));
   const tab = useAbaAtual(abas);
 

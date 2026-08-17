@@ -1,6 +1,7 @@
 "use client";
 
 import { Tabs, TabPanel, useAbaAtual, type Aba } from "@/components/ui/tabs";
+import { abasDaRota } from "@/lib/admin/mapa-rotas";
 import { ImportManager, type ImportJobRow } from "./import-manager";
 import { EmbeddingsManager, type EmbJobRow } from "./embeddings-manager";
 import type { EmbeddingReportRow } from "./embeddings-actions";
@@ -25,12 +26,18 @@ import type { EmbeddingReportRow } from "./embeddings-actions";
  * `useAbaAtual` com a mesma lista, então nunca discordam.
  */
 
-/** Lista compartilhada: a barra e os painéis precisam concordar sobre o que existe. */
+/**
+ * A lista vem do MAPA, não daqui.
+ *
+ * Manter uma segunda lista neste arquivo é exatamente o que fez o Cmd+K
+ * oferecer abas que a barra não tinha. As permissões chegam prontas da rota;
+ * `abasDaRota` filtra e monta os endereços com a mesma regra que a paleta usa.
+ */
 function abasDe(canImport: boolean, canEmbed: boolean): Aba[] {
-  return [
-    ...(canImport ? [{ key: "documentos", label: "Importar documentos" }] : []),
-    ...(canEmbed ? [{ key: "embeddings", label: "Embeddings" }] : []),
-  ];
+  const permissoes = new Set<string>();
+  if (canImport) permissoes.add("content.import");
+  if (canEmbed) permissoes.add("embeddings.reindex");
+  return abasDaRota("/admin/importar", permissoes).map((a) => ({ key: a.key, label: a.rotulo }));
 }
 
 export function ImportarAbas({ canImport, canEmbed }: { canImport: boolean; canEmbed: boolean }) {

@@ -95,6 +95,11 @@ export type AbaRota = {
    * defeito que a Importar tinha.
    */
   href?: string;
+  /**
+   * Família da aba, para o separador visual da barra. Ver `Aba.grupo` em
+   * `ui/tabs`: dá hierarquia a uma barra longa sem criar um segundo nível.
+   */
+  grupo?: string;
 };
 
 export type Secao = { titulo: string | null; escopo: Escopo; rotas: Rota[] };
@@ -292,15 +297,18 @@ export const MAPA: Secao[] = [
          * usar, monta-se o agente, e só então se observa o que aconteceu.
          */
         abas: [
-          { key: "bases", rotulo: "Bases / Clientes" },
-          { key: "apis", rotulo: "APIs / Tools" },
-          { key: "acesso", rotulo: "Acesso por base" },
-          { key: "agentes", rotulo: "Agentes" },
-          { key: "perfis", rotulo: "Perfis de análise" },
-          { key: "fluxo", rotulo: "Fluxo" },
-          { key: "construtor", rotulo: "Construtor IA" },
-          { key: "execucoes", rotulo: "Execuções" },
-          { key: "whatsapp", rotulo: "WhatsApp" },
+          // QUEM É O CLIENTE — cadastro, credencial, quem pode usar.
+          { key: "bases", rotulo: "Bases / Clientes", grupo: "cliente" },
+          { key: "acesso", rotulo: "Acesso por base", grupo: "cliente" },
+          { key: "whatsapp", rotulo: "WhatsApp", grupo: "cliente" },
+          // O QUE O BOT SABE FAZER — o catálogo e quem o opera.
+          { key: "apis", rotulo: "APIs / Tools", grupo: "capacidade" },
+          { key: "agentes", rotulo: "Agentes", grupo: "capacidade" },
+          { key: "perfis", rotulo: "Perfis de análise", grupo: "capacidade" },
+          { key: "construtor", rotulo: "Construtor IA", grupo: "capacidade" },
+          // O QUE ACONTECEU — leitura, não configuração.
+          { key: "fluxo", rotulo: "Fluxo", grupo: "atividade" },
+          { key: "execucoes", rotulo: "Execuções", grupo: "atividade" },
         ],
       },
       {
@@ -371,7 +379,7 @@ export const MAPA: Secao[] = [
 export const ROTAS: Rota[] = MAPA.flatMap((s) => s.rotas);
 
 /** Uma aba já resolvida: com destino final e filtrada por permissão. */
-export type AbaResolvida = { key: string; rotulo: string; href: string };
+export type AbaResolvida = { key: string; rotulo: string; href: string; grupo?: string };
 
 /**
  * As abas de uma rota, prontas para renderizar.
@@ -395,6 +403,7 @@ export function abasDaRota(
   return visiveis.map((a, i) => ({
     key: a.key,
     rotulo: a.rotulo,
+    grupo: a.grupo,
     href: a.href
       ? a.href.replace("{space}", spaceId ?? "")
       : // A primeira aba VISÍVEL não suja a URL. Tem que ser a primeira depois
