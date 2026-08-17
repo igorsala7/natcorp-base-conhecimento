@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasPermission } from "@/lib/auth/permissions";
 import { hasEncryptionKey } from "@/lib/crypto/secrets";
+import { PageShell } from "@/components/ui/page-shell";
+import { SemPermissao } from "@/components/ui/sem-permissao";
 import { env } from "@/lib/env";
 import { listSpaces } from "@/lib/content/spaces";
 import type { AuthType } from "@/lib/integrations/credentials";
@@ -29,14 +31,17 @@ export const metadata: Metadata = { title: "Integrações" };
 export default async function IntegracoesPage() {
   const pode = await hasPermission("integrations.manage", null);
   if (!pode) {
+    /* `SemPermissao` e não uma recusa escrita à mão: o primitivo nomeia a
+       PERMISSÃO e o PAPEL que faltam, e é isso que impede o link recebido de um
+       colega de virar mistério. As outras 30 telas já usavam; esta tinha a sua
+       própria, que dizia menos. */
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Integrações</h1>
-        <p className="mt-2 text-text-muted">
-          Você não tem permissão para gerenciar integrações. Esta área exige um papel{" "}
-          <strong className="font-medium">global</strong> de administração técnica.
-        </p>
-      </div>
+      <SemPermissao
+        titulo="Conexões"
+        oQue="gerenciar as conexões com as bases dos clientes"
+        permissao="integrations.manage"
+        papel="Admin técnico"
+      />
     );
   }
 
@@ -326,13 +331,20 @@ export default async function IntegracoesPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Integrações</h1>
-      <p className="mt-1 max-w-2xl text-sm leading-relaxed text-text-muted">
-        Clientes/bases, suas credenciais, e o catálogo de APIs que a IA pode consultar. Cada base
-        tem seu próprio <code>base_code</code> (o <code>p_base</code> do token), endpoints e credenciais.
-      </p>
-
+    /* "Conexões" e não "Integrações": é o nome no menu, e cabeçalho discordando
+       da barra lateral é o que impedia escrever um breadcrumb honesto.
+       `wide` e não a antiga `max-w-5xl`: a aba "APIs / Tools" é uma tabela de
+       catálogo, e cortar coluna é pior que rolar. */
+    <PageShell
+      titulo="Conexões"
+      descricao={
+        <>
+          Clientes/bases, suas credenciais, e o catálogo de APIs que a IA pode consultar. Cada base
+          tem seu próprio <code>base_code</code> (o <code>p_base</code> do token), endpoints e credenciais.
+        </>
+      }
+      largura="wide"
+    >
       <IntegrationsShell
         bases={baseRows}
         tools={toolRows}
@@ -346,6 +358,6 @@ export default async function IntegracoesPage() {
         whatsapp={whatsapp}
         temChaveMestra={hasEncryptionKey()}
       />
-    </div>
+    </PageShell>
   );
 }

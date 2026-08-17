@@ -11,10 +11,12 @@ import {
   PenSquare,
   Search,
   ThumbsUp,
+  Layers,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Surface } from "@/components/ui/surface";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Painel" };
 
@@ -87,7 +89,6 @@ export default async function AdminHome() {
       value: String(published.count ?? 0),
       detail: `${(articles.count ?? 0) - (published.count ?? 0)} em rascunho`,
       icon: FileText,
-      accent: "from-brand-purple-500 to-brand-purple-800",
       href: "/admin/conteudo",
     },
     {
@@ -95,7 +96,6 @@ export default async function AdminHome() {
       value: String(spaces.count ?? 0),
       detail: "Organizando o conteúdo",
       icon: FolderTree,
-      accent: "from-sky-500 to-blue-700",
       href: "/admin/documentacoes",
     },
     {
@@ -103,7 +103,6 @@ export default async function AdminHome() {
       value: totalViews.toLocaleString("pt-BR"),
       detail: "Somadas em todos os artigos",
       icon: Eye,
-      accent: "from-emerald-500 to-teal-700",
       href: "/admin/analises",
     },
     {
@@ -111,17 +110,31 @@ export default async function AdminHome() {
       value: satisfacao === null ? "—" : `${satisfacao}%`,
       detail: `${totalFb.toLocaleString("pt-BR")} avaliações recebidas`,
       icon: ThumbsUp,
-      accent: "from-amber-500 to-orange-600",
       href: "/admin/analises",
     },
   ];
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
-      <p className="mt-1 text-sm text-text-muted">Visão geral da sua base de conhecimento.</p>
-
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    /**
+     * O ESCOPO, DITO EM VOZ ALTA.
+     *
+     * Esta tela soma TODAS as documentações, enquanto quase todo o resto do
+     * admin obedece ao seletor da barra lateral. Ela não tinha seletor e não
+     * dizia que era agregada — quem opera uma conta específica lia aqueles
+     * números como se fossem dela. E é a primeira tela do dia: é aqui que a
+     * expectativa de escopo se forma para todas as outras.
+     */
+    <PageShell
+      titulo="Painel"
+      descricao="Visão geral de todas as documentações — as demais telas seguem a documentação selecionada na barra lateral."
+      largura="wide"
+      badge={
+        <Badge tone="neutral">
+          <Layers className="size-3" /> Todas as documentações
+        </Badge>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((c, i) => {
           const Icon = c.icon;
           return (
@@ -136,13 +149,12 @@ export default async function AdminHome() {
                 padding="none"
                 className="relative h-full overflow-hidden rounded-xl p-5 shadow-1 transition-shadow hover:shadow-2"
               >
-                <div
-                  aria-hidden
-                  className={`absolute right-0 top-0 size-20 -translate-y-6 translate-x-6 rounded-full bg-gradient-to-br opacity-10 ${c.accent}`}
-                />
-                <div
-                  className={`mb-3 flex size-9 items-center justify-center rounded-md bg-gradient-to-br text-white shadow-1 ${c.accent}`}
-                >
+                {/* O gradiente de marca saiu: o sistema de design abandonou o
+                    recurso, e quatro cartões com quatro gradientes diferentes
+                    (roxo, azul, verde, laranja) davam a números de naturezas
+                    diferentes um peso visual que não corresponde a nenhuma
+                    hierarquia real. Ícone em token de marca, superfície calma. */}
+                <div className="mb-3 flex size-9 items-center justify-center rounded-md bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
                   <Icon className="size-4" />
                 </div>
                 <div className="text-2xl font-bold leading-none tracking-tight tabular-nums">
@@ -276,6 +288,6 @@ export default async function AdminHome() {
           </div>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

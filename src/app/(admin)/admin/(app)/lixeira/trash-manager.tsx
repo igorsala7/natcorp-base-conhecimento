@@ -31,15 +31,16 @@ export function TrashManager({
     });
   }
 
+  /**
+   * Título, descrição, largura e a ação da página saíram daqui e foram para o
+   * `PageShell` da rota. Esta tela montava a própria moldura — `<h1>` com sua
+   * classe, seu espaçamento e sua `max-w-3xl` escolhida caso a caso — e era uma
+   * de quinze fazendo isso, cada uma com um resultado ligeiramente diferente.
+   * Disciplina não sustenta isso; anatomia obrigatória sustenta.
+   */
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Lixeira</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Itens excluídos. Restaurar traz a subárvore inteira de volta ao lugar de origem.
-          </p>
-        </div>
+    <>
+      <div className="mb-4 flex items-center justify-end">
         {canEmpty && initialItems.length > 0 && (
           <Button
             variant="secondary"
@@ -119,6 +120,6 @@ export function TrashManager({
           </ul>
         </Surface>
       )}
-    </div>
+    </>
   );
 }

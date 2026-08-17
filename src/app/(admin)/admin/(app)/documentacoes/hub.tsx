@@ -27,6 +27,7 @@ import type { SpaceInfo } from "@/lib/content/spaces";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
+import { PageShell } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
@@ -247,29 +248,35 @@ export function DocsHub({
 }) {
   const [criando, setCriando] = useState(false);
 
+  /**
+   * O `PageShell` é montado AQUI, e não na rota, porque a ação da página —
+   * "Nova documentação" — abre um diálogo cujo estado vive neste componente.
+   * Passar a ação como slot da rota exigiria subir o estado para o servidor,
+   * que é onde ele não pode morar.
+   *
+   * O `PageShell` não é "use client": é um componente comum, e usá-lo de dentro
+   * de um componente cliente é legítimo.
+   */
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Documentações</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Cada documentação com seu conteúdo, aparência, preferências e chatbot.
-          </p>
-        </div>
-        {canCreate && (
+    <PageShell
+      titulo="Documentações"
+      descricao="Cada documentação com seu conteúdo, aparência, preferências e chatbot."
+      largura="wide"
+      acoes={
+        canCreate && (
           <Button onClick={() => setCriando(true)}>
-            <Plus className="size-4" /> Nova documentação
+            <Plus /> Nova documentação
           </Button>
-        )}
-      </div>
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        )
+      }
+    >
+      <div className="grid gap-4 lg:grid-cols-2">
         {docs.map((d, i) => (
           <DocCard key={d.id} doc={d} index={i} />
         ))}
       </div>
 
       {criando && <NewSpaceDialog spaces={spaces} onClose={() => setCriando(false)} />}
-    </div>
+    </PageShell>
   );
 }
