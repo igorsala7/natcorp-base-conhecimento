@@ -9,6 +9,7 @@ import { parseMarkdown, type MdRun } from "./markdown";
 import { tokenizarRuns } from "./tokens";
 import { winAnsiSafe } from "./winansi";
 import { MARCA, CORES_GRAFICO, degrade, paraUnidade, ROSA, ROXO as ROXO_MARCA, clarear } from "./marca";
+import { LOGO_BRANCO, logoPng } from "./assets/logo";
 
 /**
  * Gera o PDF do relatório com pdf-lib (fontes-padrão embutidas → texto sempre
@@ -54,6 +55,17 @@ type Ctx = {
   doc: PDFDocument;
   font: PDFFont;
   bold: PDFFont;
+  /**
+   * O logo embutido UMA vez e reusado em todas as páginas.
+   *
+   * `embedPng` por página gravaria o mesmo PNG N vezes dentro do PDF — num
+   * relatório de 40 páginas seriam 40 cópias de 11 KB. O pdf-lib reusa o objeto
+   * quando se reusa o `PDFImage`.
+   *
+   * Opcional porque o desenho não pode depender dele: se o embed falhar, o
+   * documento sai com o nome escrito e não sai quebrado.
+   */
+  logo?: PDFImage;
   primary: RGB;
   zebra: RGB;
   page: PDFPage;
@@ -156,8 +168,15 @@ function novaPagina(ctx: Ctx) {
   ctx.page = page;
   faixaDegrade(page, 0, A4.h - HEADER_H, A4.w, HEADER_H);
   losangosDaFaixa(page, A4.h - HEADER_H, HEADER_H);
-  const marca = trunc(ctx.bold, ctx.brand.marca || "Natcorp", 15, CONTENT_W - 90);
-  page.drawText(marca, { x: M, y: A4.h - HEADER_H / 2 - 5, size: 15, font: ctx.bold, color: COR.branco });
+  if (ctx.logo) {
+    const h = 20;
+    page.drawImage(ctx.logo, { x: M, y: A4.h - HEADER_H / 2 - h / 2, width: h * LOGO_BRANCO.proporcao, height: h });
+  } else {
+    // Sem logo o documento continua saindo, com o nome escrito. Um relatório
+    // sem marca é pior que um relatório sem logo.
+    const marca = trunc(ctx.bold, ctx.brand.marca || "Natcorp", 15, CONTENT_W - 90);
+    page.drawText(marca, { x: M, y: A4.h - HEADER_H / 2 - 5, size: 15, font: ctx.bold, color: COR.branco });
+  }
   const tag = "Relatório";
   page.drawText(tag, {
     x: A4.w - M - ctx.font.widthOfTextAtSize(tag, 11),
@@ -191,9 +210,14 @@ function desenharCapa(ctx: Ctx, spec: ReportSpec) {
   losangosDaFaixa(page, A4.h - H, H, 0.07);
 
   // Marca no topo da faixa, acima do título — é a primeira coisa que se lê.
-  page.drawText(trunc(ctx.bold, ctx.brand.marca || "Natcorp", 12, CONTENT_W), {
-    x: M, y: A4.h - 56, size: 12, font: ctx.bold, color: cor(clarear(MARCA.faixa[2], 0.6)),
-  });
+  if (ctx.logo) {
+    const h = 34;
+    page.drawImage(ctx.logo, { x: M, y: A4.h - 52 - h, width: h * LOGO_BRANCO.proporcao, height: h });
+  } else {
+    page.drawText(trunc(ctx.bold, ctx.brand.marca || "Natcorp", 12, CONTENT_W), {
+      x: M, y: A4.h - 56, size: 12, font: ctx.bold, color: cor(clarear(MARCA.faixa[2], 0.6)),
+    });
+  }
 
   // Título dentro da faixa, quebrando em até 3 linhas de baixo para cima, para
   // que o bloco fique ancorado no rodapé da faixa por mais longo que ele seja.
@@ -702,6 +726,12 @@ export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promi
    */
   const primary = cor(ROXO_MARCA);
   const ctx: Ctx = { doc, font, bold, primary, zebra: cor(MARCA.zebra), page: null as unknown as PDFPage, y: 0, pages: [], brand };
+  try {
+    ctx.logo = await doc.embedPng(logoPng(LOGO_BRANCO));
+  } catch (e) {
+    // Best-effort: PNG corrompido não pode impedir a entrega do relatório.
+    console.error("[pdf] não consegui embutir o logo:", e);
+  }
   desenharCapa(ctx, spec);
   novaPagina(ctx);
   // Rasteriza ANTES do desenho (que é síncrono) os gráficos que este arquivo não

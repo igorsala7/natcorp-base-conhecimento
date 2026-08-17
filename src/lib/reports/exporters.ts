@@ -2,6 +2,7 @@ import "server-only";
 import type { Paragraph as DocxParagraph, Table as DocxTable } from "docx";
 import type { Worksheet as XlsxWorksheet, Fill as XlsxFill, Border as XlsxBorder, Font as XlsxFont } from "exceljs";
 import type { OutFile } from "@/lib/integrations/documents";
+import { LOGO_COR, LOGO_BRANCO, logoPng, logoDataUrl } from "./assets/logo";
 import type { ReportSpec, ReportBlock } from "./report-spec";
 import { renderReportPdf, type BrandInfo } from "./pdf";
 import { parseMarkdown, runsText, type MdRun } from "./markdown";
@@ -284,7 +285,22 @@ async function renderDocxImpl(spec: ReportSpec, brand: BrandInfo, nativo: boolea
   const filhos: (DocxParagraph | DocxTable)[] = [];
   const chartsNativos: { marker: string; xml: string }[] = [];
 
-  // Cabeçalho de marca: barra colorida + título + subtítulo + data.
+  // Cabeçalho de marca: logo + barra colorida + título + subtítulo + data.
+  //
+  // O logo COLORIDO aqui: o Word abre sobre branco, e a versão branca sumiria.
+  // No `Header` de página (abaixo) ele repete, menor.
+  filhos.push(
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [
+        new ImageRun({
+          data: logoPng(LOGO_COR),
+          transformation: { width: 132, height: Math.round(132 / LOGO_COR.proporcao) },
+          type: "png",
+        }),
+      ],
+    }),
+  );
   filhos.push(new Paragraph({ spacing: { after: 40 }, border: { bottom: { style: BorderStyle.SINGLE, size: 24, color: c.primary } }, children: [] }));
   filhos.push(
     new Paragraph({
@@ -433,6 +449,14 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
       { rect: { x: 0, y: 0.62, w: "100%", h: 0.06, fill: { color: c.secondary } } },
       { rect: { x: 0, y: 7.18, w: "100%", h: 0.32, fill: { color: c.contrast } } },
       { text: { text: brand.marca, options: { x: 0.4, y: 7.18, w: 9, h: 0.32, color: "FFFFFF", fontSize: 9, align: "left", valign: "middle", fontFace: FONTE } } },
+      // O logo na barra superior, à direita — é onde o deck o põe em todo slide
+      // de conteúdo. Branco, porque a barra é da cor da marca.
+      {
+        image: {
+          x: W - 1.75, y: 0.13, w: 1.35, h: 1.35 / LOGO_BRANCO.proporcao,
+          data: logoDataUrl(LOGO_BRANCO),
+        },
+      },
     ],
     slideNumber: { x: 12.4, y: 7.2, w: 0.6, h: 0.28, color: "FFFFFF", fontSize: 9, align: "right", fontFace: FONTE },
   });
@@ -451,6 +475,7 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
   // Capa (fundo da marca + acento).
   const capa = pres.addSlide();
   capa.background = { color: c.primary };
+  capa.addImage({ x: 0.9, y: 0.85, w: 2.3, h: 2.3 / LOGO_BRANCO.proporcao, data: logoDataUrl(LOGO_BRANCO) });
   capa.addShape(pres.ShapeType.rect, { x: 0.9, y: 3.2, w: 4.2, h: 0.12, fill: { color: c.secondary } });
   capa.addText(spec.titulo, { x: 0.9, y: 2.0, w: W - 1.8, h: 1.1, fontSize: 40, bold: true, color: "FFFFFF", align: "left", fontFace: FONTE });
   if (spec.subtitulo) capa.addText(spec.subtitulo, { x: 0.9, y: 3.5, w: W - 1.8, h: 0.6, fontSize: 18, color: "F0E8F6", align: "left", fontFace: FONTE });
@@ -494,11 +519,39 @@ async function renderPptx(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> 
     } else if (b.tipo === "tabela") {
       tituloSlide(b.titulo || "Tabela");
       const header = b.colunas.map((col) => ({ text: col, options: { bold: true, color: "FFFFFF", fill: { color: c.primary }, align: "center", valign: "middle", fontFace: FONTE } }));
-      const linhas = b.linhas.slice(0, 24).map((row, i) =>
+      /**
+       * QUANTAS LINHAS CABEM DE VERDADE NUM SLIDE.
+       *
+       * O corte era 24 e o slide transbordava: as últimas linhas saíam pela
+       * borda de baixo e o aviso "+N linhas", posicionado num `y` fixo de 6.75",
+       * caía POR CIMA dos dados. Duas coisas erradas pelo mesmo motivo — os
+       * números eram chute, não conta.
+       *
+       * Agora é conta: da altura útil (do topo do conteúdo até o rodapé do
+       * master, menos a linha do aviso) dividida pela altura da linha. Se
+       * alguém mexer no master ou no tamanho da fonte, o corte acompanha.
+       *
+       * E é o formato decidindo a densidade, como o Igor escolheu: quem precisa
+       * das 300 linhas abre o Excel; num slide, tabela que não cabe não informa,
+       * atrapalha.
+       */
+      const LINHA_H = 0.3;
+      const TOPO = 1.0;
+      const RODAPE = 7.18; // início da barra do master
+      const cabem = Math.max(3, Math.floor((RODAPE - TOPO - 0.4) / LINHA_H) - 1); // −1 do cabeçalho
+      const mostradas = b.linhas.slice(0, cabem);
+      const linhas = mostradas.map((row, i) =>
         b.colunas.map((_, j) => ({ text: row[j] ?? "", options: { fill: { color: i % 2 ? c.zebra : "FFFFFF" }, color: "333333", fontFace: FONTE } })),
       );
-      slide.addTable([header, ...linhas], { x: 0.5, y: 1.0, w: W - 1.0, fontSize: 11, border: { type: "solid", color: c.borda, pt: 0.5 }, valign: "middle", rowH: 0.3 });
-      if (b.linhas.length > 24) slide.addText(`+${b.linhas.length - 24} linhas — veja a versão Excel/CSV`, { x: 0.5, y: 6.75, w: W - 1, h: 0.3, fontSize: 9, italic: true, color: "999999", fontFace: FONTE });
+      slide.addTable([header, ...linhas], { x: 0.5, y: TOPO, w: W - 1.0, fontSize: 11, border: { type: "solid", color: c.borda, pt: 0.5 }, valign: "middle", rowH: LINHA_H });
+      if (b.linhas.length > cabem) {
+        // Logo ABAIXO da última linha desenhada, não num `y` fixo: com menos
+        // linhas que o teto, um `y` fixo deixaria o aviso solto no meio do vazio.
+        const y = TOPO + (mostradas.length + 1) * LINHA_H + 0.08;
+        slide.addText(`+${b.linhas.length - cabem} linhas — a tabela completa está na versão Excel`, {
+          x: 0.5, y, w: W - 1, h: 0.28, fontSize: 9, italic: true, color: "8A8A8A", fontFace: FONTE,
+        });
+      }
     } else if (b.tipo === "grafico") {
       const g = b.grafico;
       tituloSlide(g.titulo || "Gráfico");
