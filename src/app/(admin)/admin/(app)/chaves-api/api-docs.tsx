@@ -1,25 +1,27 @@
-"use client";
-
+/**
+ * A DOCUMENTAÇÃO DA API É ESTÁTICA — e vinha inteira para o navegador.
+ *
+ * 414 linhas de prosa, tabelas de parâmetros e exemplos de requisição, todas
+ * marcadas `"use client"` por causa de UMA coisa: o botão de copiar deste
+ * bloco de código. O `useToast` obrigava o boundary, o boundary contaminava o
+ * arquivo, e o arquivo inteiro passava a ser baixado, parseado e hidratado
+ * para entregar texto que nunca muda.
+ *
+ * É a forma mais comum de 70% de um produto virar cliente: não uma decisão de
+ * arquitetura, e sim um hook interativo no lugar errado. A fronteira desce
+ * para onde a interatividade realmente está — o `CopyButton`, que já existe,
+ * já é cliente e já tem o feedback dentro do próprio botão.
+ */
 import type { ReactNode } from "react";
-import { useToast } from "@/components/ui/toast";
+import { CopyButton } from "@/components/ui/copy-button";
 
 /** Bloco de código com rótulo de linguagem e botão copiar. */
 function Codigo({ lang, children }: { lang: string; children: string }) {
-  const toast = useToast();
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
         <span className="text-2xs font-medium uppercase tracking-wide text-text-muted">{lang}</span>
-        <button
-          type="button"
-          className="text-xs text-primary hover:underline"
-          onClick={() => {
-            navigator.clipboard?.writeText(children);
-            toast.info("Copiado.");
-          }}
-        >
-          Copiar
-        </button>
+        <CopyButton text={children} />
       </div>
       <pre className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed text-text">
         <code>{children}</code>
