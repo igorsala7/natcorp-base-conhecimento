@@ -164,21 +164,37 @@ const MAX_CHARS_AMOSTRA = 60_000;
 /**
  * Quantas linhas cabem no orçamento de caracteres.
  *
- * Mede a PRIMEIRA linha e divide — em vez de serializar tudo para depois cortar,
- * que é justamente o trabalho que estoura a memória em resultado grande.
- * Sempre devolve ao menos 1: uma linha gigante truncada ainda diz ao modelo que
- * formato ele tem em mãos; zero linha não diz nada.
+ * SOMA o tamanho real linha a linha, parando assim que estoura. A versão
+ * anterior media só `linhas[0]` e dividia — e extrapolar a partir da primeira
+ * linha não vale para dado de RH, onde o registro tem ~200 campos OPCIONAIS
+ * preenchidos de forma esparsa: se a primeira pessoa da lista tem poucos campos
+ * e as seguintes têm muitos, a conta erra por 5x. Foi assim que um resultado
+ * saiu com **293.789 bytes** sob um teto de 60.000 (medido em 30 dias de trace,
+ * 18/08/2026), e um de 25 linhas saiu com 148.841 bytes marcado `_completo` —
+ * o modelo informado de que tinha a lista inteira, e ela ocupando 37 mil tokens.
+ *
+ * Somar não traz de volta o problema que a extrapolação evitava (serializar
+ * tudo para depois cortar): o laço para no `maxLinhas`, então serializa no
+ * máximo 50 linhas, aconteça o que acontecer com o tamanho da lista.
+ *
+ * Sempre devolve ao menos 1 quando há linha: uma linha gigante truncada ainda
+ * diz ao modelo que formato ele tem em mãos; zero linha não diz nada.
  */
 export function linhasQueCabem(linhas: unknown[], maxLinhas = MAX_ITENS_MODELO, maxChars = MAX_CHARS_AMOSTRA): number {
-  if (linhas.length === 0) return 0;
-  let porLinha = 0;
-  try {
-    porLinha = JSON.stringify(linhas[0] ?? {}).length;
-  } catch {
-    porLinha = 0;
+  const teto = Math.min(linhas.length, maxLinhas);
+  let usados = 0;
+  for (let i = 0; i < teto; i++) {
+    let tam = 0;
+    try {
+      tam = JSON.stringify(linhas[i] ?? {}).length;
+    } catch {
+      tam = 0;
+    }
+    usados += tam;
+    // Esta linha já estourou: cabem as anteriores (ou 1, se foi logo a primeira).
+    if (usados > maxChars) return Math.max(1, i);
   }
-  if (porLinha <= 0) return Math.min(linhas.length, maxLinhas);
-  return Math.max(1, Math.min(linhas.length, maxLinhas, Math.floor(maxChars / porLinha)));
+  return teto;
 }
 /** A partir desta profundidade uma lista é ANINHADA (não a de topo) e é podada aqui — ex.:
  *  loop `{itens:[{valor, dados:{items:[...]}}]}`, onde a lista de topo é pequena (nº de
@@ -191,9 +207,18 @@ const HARD_MAX_CHARS = 400_000;
 
 const CHAVES_LISTA = ["items", "itens", "data", "dados", "rows", "registros", "result", "results", "lista"];
 
-function notaAmostra(id: string, total: number): string {
+/**
+ * `enviadas` é o número REAL de linhas na amostra, não o teto de 50.
+ *
+ * A nota dizia sempre "Amostra de 50" enquanto o campo `_amostra` ao lado
+ * trazia o número certo — dois números contraditórios sobre a mesma coisa no
+ * mesmo objeto, e o errado era o que vinha em prosa, que é o que o modelo lê.
+ * Com linha larga a amostra real cai para uma dezena, e mandar o modelo pensar
+ * que viu 50 de 397 quando viu 9 é convidá-lo a concluir pela amostra.
+ */
+function notaAmostra(id: string, total: number, enviadas: number): string {
   return (
-    `Amostra de ${MAX_ITENS_MODELO} de ${total} registros. Para o TOTAL exato, contar, filtrar, somar/média ` +
+    `Amostra de ${enviadas} de ${total} registros. Para o TOTAL exato, contar, filtrar, somar/média ` +
     `ou exportar, use as ferramentas de dados com dados_de="${id}" (elas cobrem 100% das linhas) — NUNCA conte/analise pela amostra.`
   );
 }
@@ -211,7 +236,13 @@ function podarProfundo(node: unknown, reg: DatasetRegistry, depth: number): unkn
     const filhos = node.map((el) => { const c = podarProfundo(el, reg, depth + 1); if (c !== el) mudou = true; return c; });
     if (depth >= PODAR_MIN_DEPTH && filhos.length > MAX_ITENS_MODELO && filhos.some(ehLinha)) {
       const meta = registrarDataset(reg, filhos);
-      if (meta) return { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas, _amostra: MAX_ITENS_MODELO, _nota: notaAmostra(meta.id, meta.total), itens: filhos.slice(0, MAX_ITENS_MODELO) };
+      // O teto de CARACTERES vale aqui também. Sem ele, uma lista aninhada de 51
+      // linhas largas passava inteira — o corte por linhas sozinho não protege
+      // contexto nenhum quando a linha tem 200 campos.
+      if (meta) {
+        const cabem = linhasQueCabem(filhos);
+        return { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas, _amostra: cabem, _nota: notaAmostra(meta.id, meta.total, cabem), itens: filhos.slice(0, cabem) };
+      }
     }
     return mudou ? filhos : node;
   }
@@ -307,25 +338,26 @@ export function injetarDatasetComRelato(
   // 2) Topo: registra a lista principal + tag + amostra (comportamento existente).
   const meta = registrarDataset(reg, podado);
   let out: unknown = podado;
+  // Fora do `if` porque o relato lá embaixo precisa deles — antes ele recalculava
+  // por conta própria (`Math.min(total, 50)`) e publicava um número que não era o
+  // que saiu, cegando justamente o trace que a gente usa para medir o consumo.
+  let enviadas = 0;
+  let truncado = false;
   if (meta) {
     // O corte é por LINHAS *e* por TAMANHO: registro largo (cadastro funcional
     // tem ~200 campos) estourava o contexto mesmo dentro das 50 linhas.
-    const listaTopo: unknown[] = Array.isArray(podado)
-      ? podado
-      : (() => {
-          const o = podado as Record<string, unknown>;
-          for (const k of CHAVES_LISTA) {
-            const v = o[k];
-            if (Array.isArray(v) && v.some(ehLinha)) return v;
-          }
-          return [];
-        })();
+    //
+    // A lista é a MESMA que `registrarDataset` contou (`extrairLista`). Havia uma
+    // segunda varredura aqui, com `some` no lugar de `filter`: quando as duas
+    // discordavam, `cabem` era medido sobre um array e o corte aplicado a outro.
+    const listaTopo: unknown[] = extrairLista(podado) ?? [];
     const cabem = linhasQueCabem(listaTopo);
-    const truncado = meta.total > cabem;
+    enviadas = cabem;
+    truncado = meta.total > cabem;
     const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
     // Truncado → é AMOSTRA (usa ferramentas de dados p/ o total). Completo → o modelo já
     // tem TODAS as linhas: marca `_completo` para ele responder direto sem re-consultar.
-    if (truncado) { tag._amostra = cabem; tag._nota = notaAmostra(meta.id, meta.total); }
+    if (truncado) { tag._amostra = cabem; tag._nota = notaAmostra(meta.id, meta.total, cabem); }
     else tag._completo = true;
     if (Array.isArray(podado)) {
       out = { ...tag, itens: truncado ? podado.slice(0, cabem) : podado };
@@ -359,8 +391,8 @@ export function injetarDatasetComRelato(
     relato: {
       dataset: meta?.id ?? null,
       total: meta?.total ?? 0,
-      amostra_enviada: meta ? Math.min(meta.total, MAX_ITENS_MODELO) : 0,
-      completo: !!meta && meta.total <= MAX_ITENS_MODELO,
+      amostra_enviada: enviadas,
+      completo: !!meta && !truncado,
       sem_dados: semDados,
       bytes: rede.bytes,
       poda_agressiva: rede.podou,
