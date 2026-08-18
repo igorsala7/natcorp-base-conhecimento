@@ -14,7 +14,10 @@ export const controlClass = cn(
   // substitui o outline e é sempre visível — a acessibilidade do foco vem dele.
   "focus:outline-none focus:border-brand-purple-400 focus:ring-2 focus:ring-brand-purple-100 dark:focus:ring-brand-purple-900",
   "disabled:cursor-not-allowed disabled:opacity-50",
-  "aria-[invalid=true]:border-rose-500",
+  // Quem seta o atributo é o `Field`, ao receber `error` — antes NINGUÉM o
+  // setava e esta linha era código morto. Token, não `rose-500`: o cru não tem
+  // variante escura, e no tema escuro a borda de erro sumia.
+  "aria-[invalid=true]:border-danger",
 );
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;

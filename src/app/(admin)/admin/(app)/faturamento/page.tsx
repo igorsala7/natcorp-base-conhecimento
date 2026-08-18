@@ -10,6 +10,8 @@ import { FaturamentoView } from "./faturamento-view";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { PageShell } from "@/components/ui/page-shell";
+import { AbasRota } from "@/components/admin/abas-rota";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Faturamento" };
 
@@ -61,9 +63,13 @@ export default async function FaturamentoPage({ searchParams }: { searchParams: 
 
   return (
     <PageShell
-      titulo="Faturamento"
+      /* Aba de Operação, não tela solta: "quanto custou" e "quem fez o quê" são
+         as duas leituras do que a plataforma ANDOU FAZENDO, e viviam em dois
+         destinos sem nada as ligando. */
+      titulo="Custos de IA"
       descricao="Consumo de IA por cliente no período. Só o widget é cobrável — o portal público de documentação é cortesia e aparece separado, fora de qualquer total."
       largura="wide"
+      abas={<AbasRota rota="/admin/auditoria" atual="custos" permissoes={await permissoesDo()} />}
     >
 
       {/* ── Período e cliente ─────────────────────────────────────────── */}

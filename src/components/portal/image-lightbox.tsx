@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 type Ampliada = { src: string; alt: string; caption: string };
 
@@ -17,7 +18,7 @@ type Ampliada = { src: string; alt: string; caption: string };
 export function ImageLightbox() {
   const pathname = usePathname();
   const [ampliada, setAmpliada] = useState<Ampliada | null>(null);
-  const fecharRef = useRef<HTMLButtonElement>(null);
+  const painelRef = useRef<HTMLDivElement>(null);
 
   const abrir = useCallback((img: HTMLImageElement) => {
     const fig = img.closest("figure");
@@ -55,26 +56,23 @@ export function ImageLightbox() {
     return () => limpezas.forEach((f) => f());
   }, [pathname, abrir]);
 
-  // Aberta: trava o scroll do fundo, fecha no Esc e move o foco para o botão.
-  useEffect(() => {
-    if (!ampliada) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAmpliada(null);
-    };
-    document.addEventListener("keydown", onKey);
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    fecharRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflowAnterior;
-    };
-  }, [ampliada]);
+  /**
+   * Trava o scroll, fecha no Esc, entra com o foco no botão de fechar E o
+   * devolve à imagem ao sair — mais o ciclo do Tab, que era o que faltava.
+   *
+   * Este arquivo tinha a própria versão de metade disso (scroll, Esc, foco de
+   * entrada) escrita à mão, sem a armadilha: Tab saía do lightbox e percorria
+   * o artigo por baixo do fundo escuro. Duas implementações de foco modal
+   * convivendo é exatamente o que `useFocoPreso` foi extraído para evitar —
+   * ele já tem teste, e agora também filtra o que está escondido por CSS.
+   */
+  useFocoPreso(!!ampliada, painelRef, () => setAmpliada(null));
 
   if (!ampliada) return null;
 
   return createPortal(
     <div
+      ref={painelRef}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm sm:p-8 motion-safe:animate-in motion-safe:fade-in"
       role="dialog"
       aria-modal="true"
@@ -82,7 +80,6 @@ export function ImageLightbox() {
       onClick={() => setAmpliada(null)}
     >
       <button
-        ref={fecharRef}
         type="button"
         aria-label="Fechar"
         onClick={() => setAmpliada(null)}

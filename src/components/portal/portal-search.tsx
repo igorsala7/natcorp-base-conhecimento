@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, FileText, Sparkles, LifeBuoy, CornerDownLeft, Clock } from "lucide-react";
 import { searchPortal, type PortalHit } from "@/app/(portal)/actions";
 import { AskAiPanel } from "@/components/portal/ask-ai";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 const OPEN_EVENT = "portal:open-search";
 const ASK_EVENT = "portal:open-ai";
@@ -59,7 +60,7 @@ export function SearchTrigger({
       >
         <Search className="size-5 shrink-0" />
         <span className="flex-1 text-base">{placeholder}</span>
-        <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+        <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
           ⌘K
         </kbd>
       </button>
@@ -74,7 +75,7 @@ export function SearchTrigger({
     >
       <Search className="size-4" />
       <span className="hidden sm:inline">Buscar</span>
-      <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+      <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
         ⌘K
       </kbd>
     </button>
@@ -104,6 +105,10 @@ export function PortalAssistant({
   const [recent, setRecent] = useState<string[]>([]);
   const [ask, setAsk] = useState<{ open: boolean; question?: string }>({ open: false });
   const inputRef = useRef<HTMLInputElement>(null);
+  const painelRef = useRef<HTMLDivElement>(null);
+  // Busca do portal é modal: sem a armadilha, Tab saía do painel e percorria os
+  // links do artigo por trás do scrim. O mesmo hook do Dialog/Sheet.
+  useFocoPreso(open, painelRef, () => setOpen(false));
 
   // Abre por atalho (⌘K/Ctrl+K, "/") e por evento global.
   useEffect(() => {
@@ -210,14 +215,23 @@ export function PortalAssistant({
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]"
-          role="dialog"
-          aria-label="Busca"
         >
           <div
             className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
             onClick={() => setOpen(false)}
+            role="presentation"
           />
-          <div className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2 motion-safe:animate-[scalein_150ms_ease-out]">
+          {/* `role="dialog"` desceu do invólucro para o PAINEL: no invólucro ele
+              englobava o scrim, e o leitor de tela anunciava o fundo como parte
+              do diálogo. Com `aria-modal` e o foco preso, o resto da página sai
+              da árvore de acessibilidade — que é o que o atributo promete. */}
+          <div
+            ref={painelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Buscar na documentação"
+            className="relative flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2 motion-safe:animate-[scalein_150ms_ease-out]"
+          >
             <div className="flex items-center gap-3 border-b border-border px-4">
               <Search className="size-5 shrink-0 text-text-muted" />
               <input
@@ -229,7 +243,7 @@ export function PortalAssistant({
                 aria-label="Buscar"
                 className="h-14 flex-1 bg-transparent text-base outline-none placeholder:text-text-muted"
               />
-              <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-brand-gray-400 sm:inline">
+              <kbd className="hidden rounded-sm border border-border bg-surface-2 px-2 py-0.5 font-mono text-2xs text-text-muted sm:inline">
                 Esc
               </kbd>
             </div>

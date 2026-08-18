@@ -97,7 +97,7 @@ export default async function ConteudoPage({
   if (current.type === "client") {
     const eff = await getEffectiveTreeAdmin(current.id);
     return (
-      <ContentShell aside={<>{switcher}<ClientTree clientSpaceId={current.id} nodes={eff} /></>}>
+      <ContentShell titulo="Conteúdo da documentação" aside={<>{switcher}<ClientTree clientSpaceId={current.id} nodes={eff} /></>}>
         <ConteudoVazio />
       </ContentShell>
     );
@@ -111,6 +111,7 @@ export default async function ConteudoPage({
   ]);
   return (
     <ContentShell
+      titulo="Conteúdo da documentação"
       aside={
         <>
           {switcher}

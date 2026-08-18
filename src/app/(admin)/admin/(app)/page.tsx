@@ -11,17 +11,31 @@ import {
   PenSquare,
   Search,
   ThumbsUp,
+  Layers,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Surface } from "@/components/ui/surface";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Painel" };
 
 /** Painel do admin (padrão Lumina) — números reais, ranking e pendências. */
 export default async function AdminHome() {
   const supabase = await createClient();
-  const [spaces, articles, published, review, convs, gaps, viewsRows, fbRows, draftRows] =
+  /**
+   * A AGREGAÇÃO É DO POSTGRES, NÃO DAQUI.
+   *
+   * Esta tela lia `article_views` e `article_feedback` cruas — sem `limit`, sem
+   * paginação — e somava em JavaScript. O teto do PostgREST é 1.000 linhas e
+   * não é um erro: é um corte silencioso. Passado o milésimo registro, três
+   * números da primeira tela do dia congelariam sem sinal nenhum.
+   *
+   * Ver `20260817150000_painel_agregado.sql`. As RPCs rodam como INVOCADOR, então
+   * a RLS das duas tabelas continua valendo — a agregação enxerga exatamente o
+   * que a pessoa já podia ler.
+   */
+  const [spaces, articles, published, review, convs, gaps, resumo, topRows, draftRows] =
     await Promise.all([
       supabase.from("spaces").select("id", { count: "exact", head: true }),
       supabase.from("nodes").select("id", { count: "exact", head: true }).eq("type", "article").is("deleted_at", null),
@@ -30,8 +44,8 @@ export default async function AdminHome() {
       supabase.from("conversations").select("id", { count: "exact", head: true }),
       // Só o portal: busca do admin é o time procurando, não leitor sem resposta.
       supabase.from("search_logs").select("id", { count: "exact", head: true }).eq("results_count", 0).eq("origin", "portal"),
-      supabase.from("article_views").select("node_id, views"),
-      supabase.from("article_feedback").select("node_id, helpful"),
+      supabase.rpc("painel_resumo"),
+      supabase.rpc("painel_top_artigos", { p_limit: 6 }),
       supabase
         .from("nodes")
         .select("id, title, updated_at")
@@ -42,44 +56,19 @@ export default async function AdminHome() {
         .limit(5),
     ]);
 
-  // Ranking "melhor desempenho": views somadas + % útil do feedback.
-  const viewsPorNode = new Map<string, number>();
-  for (const r of viewsRows.data ?? []) {
-    viewsPorNode.set(r.node_id, (viewsPorNode.get(r.node_id) ?? 0) + r.views);
-  }
-  const fbPorNode = new Map<string, { sim: number; total: number }>();
-  for (const r of fbRows.data ?? []) {
-    const f = fbPorNode.get(r.node_id) ?? { sim: 0, total: 0 };
-    f.total += 1;
-    if (r.helpful) f.sim += 1;
-    fbPorNode.set(r.node_id, f);
-  }
-  const topIds = [...viewsPorNode.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const { data: topNodes } = topIds.length
-    ? await supabase
-        .from("nodes")
-        .select("id, title, status")
-        .in("id", topIds.map(([id]) => id))
-    : { data: [] as { id: string; title: string; status: string }[] };
-  const top = topIds
-    .map(([id, views]) => {
-      const node = (topNodes ?? []).find((n) => n.id === id);
-      if (!node) return null;
-      const fb = fbPorNode.get(id);
-      return {
-        id,
-        title: node.title,
-        status: node.status,
-        views,
-        util: fb && fb.total > 0 ? Math.round((fb.sim / fb.total) * 100) : null,
-      };
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-
-  const totalFb = (fbRows.data ?? []).length;
-  const totalSim = (fbRows.data ?? []).filter((r) => r.helpful).length;
+  const agregado = resumo.data?.[0];
+  const totalViews = Number(agregado?.total_views ?? 0);
+  const totalFb = Number(agregado?.feedback_total ?? 0);
+  const totalSim = Number(agregado?.feedback_util ?? 0);
   const satisfacao = totalFb > 0 ? Math.round((totalSim / totalFb) * 100) : null;
-  const totalViews = [...viewsPorNode.values()].reduce((a, b) => a + b, 0);
+
+  const top = (topRows.data ?? []).map((r) => ({
+    id: r.node_id,
+    title: r.title,
+    status: r.status,
+    views: Number(r.views),
+    util: r.util_pct,
+  }));
 
   const cards = [
     {
@@ -87,7 +76,6 @@ export default async function AdminHome() {
       value: String(published.count ?? 0),
       detail: `${(articles.count ?? 0) - (published.count ?? 0)} em rascunho`,
       icon: FileText,
-      accent: "from-brand-purple-500 to-brand-purple-800",
       href: "/admin/conteudo",
     },
     {
@@ -95,7 +83,6 @@ export default async function AdminHome() {
       value: String(spaces.count ?? 0),
       detail: "Organizando o conteúdo",
       icon: FolderTree,
-      accent: "from-sky-500 to-blue-700",
       href: "/admin/documentacoes",
     },
     {
@@ -103,7 +90,6 @@ export default async function AdminHome() {
       value: totalViews.toLocaleString("pt-BR"),
       detail: "Somadas em todos os artigos",
       icon: Eye,
-      accent: "from-emerald-500 to-teal-700",
       href: "/admin/analises",
     },
     {
@@ -111,17 +97,31 @@ export default async function AdminHome() {
       value: satisfacao === null ? "—" : `${satisfacao}%`,
       detail: `${totalFb.toLocaleString("pt-BR")} avaliações recebidas`,
       icon: ThumbsUp,
-      accent: "from-amber-500 to-orange-600",
       href: "/admin/analises",
     },
   ];
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
-      <p className="mt-1 text-sm text-text-muted">Visão geral da sua base de conhecimento.</p>
-
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    /**
+     * O ESCOPO, DITO EM VOZ ALTA.
+     *
+     * Esta tela soma TODAS as documentações, enquanto quase todo o resto do
+     * admin obedece ao seletor da barra lateral. Ela não tinha seletor e não
+     * dizia que era agregada — quem opera uma conta específica lia aqueles
+     * números como se fossem dela. E é a primeira tela do dia: é aqui que a
+     * expectativa de escopo se forma para todas as outras.
+     */
+    <PageShell
+      titulo="Painel"
+      descricao="Visão geral de todas as documentações — as demais telas seguem a documentação selecionada na barra lateral."
+      largura="wide"
+      badge={
+        <Badge tone="neutral">
+          <Layers className="size-3" /> Todas as documentações
+        </Badge>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((c, i) => {
           const Icon = c.icon;
           return (
@@ -136,20 +136,19 @@ export default async function AdminHome() {
                 padding="none"
                 className="relative h-full overflow-hidden rounded-xl p-5 shadow-1 transition-shadow hover:shadow-2"
               >
-                <div
-                  aria-hidden
-                  className={`absolute right-0 top-0 size-20 -translate-y-6 translate-x-6 rounded-full bg-gradient-to-br opacity-10 ${c.accent}`}
-                />
-                <div
-                  className={`mb-3 flex size-9 items-center justify-center rounded-md bg-gradient-to-br text-white shadow-1 ${c.accent}`}
-                >
+                {/* O gradiente de marca saiu: o sistema de design abandonou o
+                    recurso, e quatro cartões com quatro gradientes diferentes
+                    (roxo, azul, verde, laranja) davam a números de naturezas
+                    diferentes um peso visual que não corresponde a nenhuma
+                    hierarquia real. Ícone em token de marca, superfície calma. */}
+                <div className="mb-3 flex size-9 items-center justify-center rounded-md bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40">
                   <Icon className="size-4" />
                 </div>
                 <div className="text-2xl font-bold leading-none tracking-tight tabular-nums">
                   {c.value}
                 </div>
                 <div className="mt-0.5 text-sm font-medium text-text-muted">{c.label}</div>
-                <div className="mt-0.5 text-xs text-brand-gray-400">{c.detail}</div>
+                <div className="mt-0.5 text-xs text-text-muted">{c.detail}</div>
               </Surface>
             </Link>
           );
@@ -196,8 +195,11 @@ export default async function AdminHome() {
                         <span>{a.util}%</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                        {/* Preenchimento chapado em token, não gradiente: a
+                            barra mede uma coisa só (% útil), e um degradê
+                            sugere uma segunda dimensão que não existe. */}
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600"
+                          className="h-full rounded-full bg-success"
                           style={{ width: `${a.util}%` }}
                         />
                       </div>
@@ -244,15 +246,15 @@ export default async function AdminHome() {
                   <Link
                     key={d.id}
                     href={`/admin/conteudo/${d.id}`}
-                    className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 transition-colors hover:border-amber-300 dark:border-amber-900 dark:bg-amber-950/25"
+                    className="flex items-center justify-between gap-3 rounded-md border border-warning-line bg-warning-soft px-3.5 py-2.5 transition-colors hover:border-warning-line"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{d.title}</span>
-                      <span className="block text-2xs text-amber-700 dark:text-amber-400">
+                      <span className="block text-2xs text-warning">
                         Editado em {new Date(d.updated_at).toLocaleDateString("pt-BR")}
                       </span>
                     </span>
-                    <PenSquare className="size-4 shrink-0 text-amber-600" />
+                    <PenSquare className="size-4 shrink-0 text-warning" />
                   </Link>
                 ))}
               </div>
@@ -264,7 +266,7 @@ export default async function AdminHome() {
             <h2 className="flex items-center gap-1.5 text-sm font-bold text-brand-purple-900 dark:text-brand-purple-200">
               <CheckCircle2 className="size-4" /> Dica de conteúdo
             </h2>
-            <p className="mt-2 text-[0.8125rem] leading-relaxed text-brand-purple-900/90 dark:text-brand-purple-200/90">
+            <p className="mt-2 text-ui leading-relaxed text-brand-purple-900/90 dark:text-brand-purple-200/90">
               Artigos com <strong>passo a passo</strong> e <strong>checklist</strong> recebem mais
               avaliações positivas. Use os blocos visuais do editor — e o{" "}
               <strong>Melhorar layout</strong> converte texto corrido em blocos ricos com IA.
@@ -276,6 +278,6 @@ export default async function AdminHome() {
           </div>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

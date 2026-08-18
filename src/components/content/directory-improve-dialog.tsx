@@ -120,7 +120,7 @@ export function DirectoryImproveDialog({
         <p className="text-sm text-text-muted">Não há artigos neste diretório para melhorar.</p>
       )}
 
-      {fase === "erro" && <p className="text-sm text-red-600 dark:text-red-400">{erro}</p>}
+      {fase === "erro" && <p className="text-sm text-danger">{erro}</p>}
 
       {fase === "confirmar" && (
         <div className="space-y-4">
@@ -144,7 +144,7 @@ export function DirectoryImproveDialog({
             </Button>
           )}
 
-          {erro && <p className="text-sm text-red-600 dark:text-red-400">{erro}</p>}
+          {erro && <p className="text-sm text-danger">{erro}</p>}
         </div>
       )}
 
@@ -164,7 +164,7 @@ export function DirectoryImproveDialog({
               <span className="text-text-muted"> {prog.removidos} artigo(s) vazio(s) removido(s) para a lixeira.</span>
             )}
             {prog.falhas > 0 && (
-              <span className="text-red-600 dark:text-red-400"> {prog.falhas} falhou(aram).</span>
+              <span className="text-danger"> {prog.falhas} falhou(aram).</span>
             )}
           </p>
           {fase === "concluido" && (

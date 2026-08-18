@@ -12,15 +12,15 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
           aqui só o cabeçalho da janela (WYSIWYG). */}
       <div className="flex items-center justify-between gap-2 border-b border-brand-gray-800 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="size-2.5 shrink-0 rounded-full bg-rose-500/80" />
-          <span className="size-2.5 shrink-0 rounded-full bg-amber-500/80" />
-          <span className="size-2.5 shrink-0 rounded-full bg-emerald-500/80" />
+          <span className="size-2.5 shrink-0 rounded-full bg-danger-soft" />
+          <span className="size-2.5 shrink-0 rounded-full bg-warning-soft" />
+          <span className="size-2.5 shrink-0 rounded-full bg-success-soft" />
           {b.data.filename && (
-            <span className="ml-2 min-w-0 truncate font-mono text-xs text-brand-gray-400">{b.data.filename}</span>
+            <span className="ml-2 min-w-0 truncate font-mono text-xs text-text-muted">{b.data.filename}</span>
           )}
         </div>
         {b.data.language && (
-          <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.1em] text-brand-gray-500">
+          <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.1em] text-text-muted">
             {b.data.language}
           </span>
         )}
@@ -31,7 +31,7 @@ export function CodeBlock({ block, onChange }: BlockEditProps) {
         placeholder="Cole ou escreva o código…"
         spellCheck={false}
         rows={Math.max(3, b.data.code.split("\n").length)}
-        className="w-full resize-none bg-transparent p-4 font-mono text-[13px] leading-[1.6] text-brand-gray-100 outline-none placeholder:text-brand-gray-600"
+        className="w-full resize-none bg-transparent p-4 font-mono text-ui leading-[1.6] text-brand-gray-100 outline-none placeholder:text-brand-gray-600"
       />
     </div>
   );

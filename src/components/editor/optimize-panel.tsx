@@ -12,8 +12,8 @@ import {
 import { getQualityContext } from "@/app/(admin)/admin/(app)/conteudo/quality-actions";
 
 const COR: Record<Impacto, string> = {
-  alto: "bg-red-500",
-  medio: "bg-amber-500",
+  alto: "bg-danger",
+  medio: "bg-warning",
   baixo: "bg-brand-gray-400",
 };
 const ROTULO: Record<Impacto, string> = { alto: "Alto", medio: "Médio", baixo: "Baixo" };
@@ -99,7 +99,7 @@ export function OptimizePanel({
                   <span aria-hidden className={`size-1.5 rounded-full ${COR[i.impacto]}`} />
                   {ROTULO[i.impacto]}
                 </span>
-                <span className="mt-0.5 block text-[0.8125rem] leading-snug">{i.mensagem}</span>
+                <span className="mt-0.5 block text-ui leading-snug">{i.mensagem}</span>
               </>
             );
             return (

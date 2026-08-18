@@ -1,0 +1,196 @@
+# Auditoria de agentes — mapeamento REAL deste projeto.
+#
+# Substitui o template de exemplo (que citava `agentes`, `tools`, `llm_calls` e
+# `src/agents/financeiro/` — nada disso existe aqui).
+#
+# ── A decisão de fundo: o que é "agente" ────────────────────────────────────
+# `ai_agents` (4 linhas ativas). Descartadas com número:
+#   · ai_bases (8)           → é TENANT (NATCORP, INCOR, LEADEC), não agente. Sem prompt.
+#   · ai_agent_profiles (12) → `comportamento` e `prompt_refino` têm 0 caracteres nas 12.
+# `ai_agents` é o que carrega system_prompt E a curadoria de tools
+# (tool-builder.ts:416 + personaDoPublico).
+#
+# ── Aviso que muda a leitura do relatório ──────────────────────────────────
+# `agents_query` devolve o bloco `persona`: 226 tokens medidos, de um system
+# prompt real de 13.445 (399 turnos). Os outros 98% são montados em runtime por
+# `composeSystemPrompt`. Por isso `files.agents` aponta para `.audit/`, capturado
+# de um turno real com AUDIT_DUMP_PROMPT=1 — ver src/lib/ai/audit-dump.ts.
+
+source: both
+
+supabase:
+  # ── AGENTES ───────────────────────────────────────────────────────────────
+  # 4 linhas. Atenção ao `nati_gestor`: system_prompt com 0 caracteres, o que faz
+  # `personaDoPublico` descartá-lo e a persona do gestor cair em nati_colaborador.
+  agents_query: |
+    select
+      a.key                          as name,
+      coalesce(a.system_prompt, '')  as system_prompt
+    from ai_agents a
+    where a.active
+    order by a.key
+
+  # ── TOOLS ─────────────────────────────────────────────────────────────────
+  # 242 linhas (88 operador / 85 gestor / 65 colaborador / 4 candidato).
+  #
+  # Reproduz a regra REAL de exposição (tool-builder.ts:435-490):
+  #   (a) tool curada sob agente ativo (ai_agent_tools), OU
+  #   (b) tool ÓRFÃ DE LEITURA (GET, sem vínculo com agente ativo), reclamada
+  #       pelos agentes `is_default`. Órfã de ESCRITA fica de fora. Hoje: 1 tool.
+  #
+  # `ai_tools.params` NÃO é JSON Schema — é descritor próprio. A conversão abaixo
+  # filtra `origem in ('modelo','pessoa')`, que são os únicos que `buildModelSchema`
+  # (params.ts) expõe ao modelo: identidade e credencial entram no servidor e não
+  # custam token.
+  #
+  # FRAGILIDADE CONHECIDA: a regra de órfã está duplicada aqui em SQL. Se mudar no
+  # código, esta query diverge em silêncio.
+  tools_query: |
+    with agente_da_tool as (
+      select a.key as agent, t.id as tool_id
+        from ai_agents a
+        join ai_agent_tools at on at.agent_id = a.id
+        join ai_tools t on t.id = at.tool_id
+       where a.active and t.active
+      union
+      select a.key as agent, t.id as tool_id
+        from ai_agents a
+        cross join ai_tools t
+       where a.active and a.is_default and t.active
+         and upper(coalesce(t.method, 'GET')) = 'GET'
+         and not exists (
+           select 1 from ai_agent_tools x
+             join ai_agents y on y.id = x.agent_id and y.active
+            where x.tool_id = t.id)
+    )
+    select
+      g.agent,
+      t.key         as name,
+      t.description,
+      jsonb_build_object(
+        'type', 'object',
+        'properties', coalesce((
+          select jsonb_object_agg(p->>'nome', jsonb_strip_nulls(jsonb_build_object(
+            'type', case p->>'tipo'
+                      when 'number'  then 'number'
+                      when 'boolean' then 'boolean'
+                      else 'string' end,
+            'description', nullif(p->>'descricao', ''),
+            'enum', case when p->>'tipo' = 'enum' then p->'opcoes' else null end)))
+            from jsonb_array_elements(t.params) p
+           where p->>'origem' in ('modelo', 'pessoa')), '{}'::jsonb),
+        'required', coalesce((
+          select jsonb_agg(p->>'nome')
+            from jsonb_array_elements(t.params) p
+           where p->>'origem' = 'modelo'
+             and (p->>'obrigatorio')::boolean), '[]'::jsonb)
+      ) as input_schema
+    from agente_da_tool g
+    join ai_tools t on t.id = g.tool_id
+    order by g.agent, t.key
+
+  # ── TRACES: uma CHAMADA ao modelo por linha ───────────────────────────────
+  # Aferido: 1.420 linhas, 466 turnos, 3,05 chamadas/turno em 7 dias.
+  #
+  # DUAS CORREÇÕES OBRIGATÓRIAS, não cosméticas:
+  #  1) `ai_usage.input_tokens` INCLUI cache_read e cache_write (tokensDe,
+  #     config.ts:297). O trace_analysis espera "cobrado SEM cache" e soma
+  #     ctx = input + cache_read. Sem o `- cache_read_tokens`, o contexto sai
+  #     DOBRADO e a taxa de cache, inflada.
+  #  2) `seq` não existe: derivado por row_number sobre created_at.
+  #
+  # `n_tools_offered` e `tool_calls` vêm de `ai_chat_traces`, ligados por
+  # conversation_id + janela de tempo. É HEURÍSTICA, não FK — aferida em 7d:
+  # 739/740 chamadas casaram (99,9%). Some quando `ai_chat_traces` ganhar turn_id.
+  #
+  # EIXO `agent`: base/portal (16 valores) — o custo varia por CLIENTE, e essa é
+  # a leitura que some ao agrupar só por agente. Para o eixo por agente, ver
+  # `traces_query_por_agente` abaixo e rodar a análise duas vezes.
+  traces_query: |
+    with t7 as (
+      select id, conversation_id, created_at, duracao_ms, passos
+        from ai_chat_traces
+       where created_at > now() - interval '7 days'
+    ),
+    tools_ofertadas as (
+      select t.id,
+             coalesce((select jsonb_array_length(e->'info'->'tools')
+                         from jsonb_array_elements(t.passos) e
+                        where e->>'passo' = 'ferramentas' and e->'info' ? 'tools'
+                        limit 1), 0)
+           + coalesce((select jsonb_array_length(e->'info'->'tools')
+                         from jsonb_array_elements(t.passos) e
+                        where e->>'passo' = 'integracoes' and e->'info' ? 'tools'
+                        limit 1), 0) as n
+        from t7 t
+    ),
+    chamadas as (
+      select u.turn_id, u.created_at, u.input_tokens, u.output_tokens,
+             u.cache_read_tokens, u.cache_write_tokens,
+             lower(coalesce(u.p_base, '?')) as base,
+             coalesce(u.p_portal, '?')      as portal,
+             tr.id as trace_id
+        from ai_usage u
+        left join lateral (
+          select t.id from t7 t
+           where t.conversation_id = u.conversation_id
+             and u.created_at between t.created_at - (coalesce(t.duracao_ms,0)+3000)*interval '1 ms'
+                                  and t.created_at + interval '3 s'
+           order by t.created_at limit 1) tr on true
+       where u.created_at > now() - interval '7 days'
+         and u.origem  = 'widget'
+         and u.turn_id is not null
+         and u.purpose <> 'embedding'
+    )
+    select
+      c.turn_id::text                                                     as turn_id,
+      c.base || '/' || c.portal                                           as agent,
+      row_number() over (partition by c.turn_id order by c.created_at) - 1 as seq,
+      greatest(c.input_tokens - c.cache_read_tokens, 0)                   as input_tokens,
+      c.output_tokens,
+      c.cache_read_tokens                                                 as cache_read_input_tokens,
+      c.cache_write_tokens                                                as cache_creation_input_tokens,
+      max(o.n) over (partition by c.turn_id)                              as n_tools_offered,
+      coalesce((select jsonb_agg(distinct e->'info'->>'tool')
+                  from t7 t, lateral jsonb_array_elements(t.passos) e
+                 where t.id = c.trace_id and e->>'passo' = 'tool_call'), '[]'::jsonb) as tool_calls
+    from chamadas c
+    left join tools_ofertadas o on o.id = c.trace_id
+    order by turn_id, seq
+
+  # ── SEGUNDO EIXO: por AGENTE (4 valores) ──────────────────────────────────
+  # Mesma query, com o `agent` mapeado do portal para o nome do agente — assim os
+  # números cruzam com `agents_query` e `tools_query`. Rodar a análise duas vezes:
+  # este eixo responde "qual agente custa"; o de cima, "qual cliente custa".
+  #
+  # PO→operador, PG→gestor, PC→colaborador é o que `personaDoPublico` faz.
+  traces_query_por_agente: |
+    -- idêntica à `traces_query`, trocando só a expressão do `agent`:
+    --   case upper(c.portal)
+    --     when 'PO' then 'nati_operador'
+    --     when 'PG' then 'nati_gestor'
+    --     when 'PC' then 'nati_colaborador'
+    --     else 'nati_candidato' end as agent
+
+# ── O prompt REAL, capturado de um turno ────────────────────────────────────
+# `agents_query` traz 226 tokens (só a persona). Estes arquivos trazem os 13.445.
+# Como gerar:  AUDIT_DUMP_PROMPT=1 npm run dev  → uma mensagem no chat → desligar.
+files:
+  agents:
+    - name: turno_real
+      system_prompt: .audit/system_prompt.txt
+
+# Amostras de conteúdo dinâmico, do mesmo turno. Sem elas mede-se o prompt
+# estático, não o turno. Vêm da captura acima — não invente.
+samples:
+  turno_real:
+    ontology_block: .audit/samples/ontologia_resolvida.txt
+    rag_chunk: .audit/samples/rag_chunk.txt
+    tool_result: .audit/samples/tool_result.json
+
+limiares:
+  turno_minimo_tokens: 25000
+  tools_por_agente: 12
+  overlap_score: 0.40
+  chamadas_por_turno: 3
+  taxa_cache_minima: 0.70

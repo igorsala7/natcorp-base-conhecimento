@@ -8,9 +8,9 @@ import type { TableColor } from "./schema";
 export const TABLE_CELL_BG: Record<TableColor, string> = {
   purple: "!bg-brand-purple-50 dark:!bg-brand-purple-950/40",
   pink: "!bg-brand-pink-50 dark:!bg-brand-pink-950/40",
-  blue: "!bg-sky-50 dark:!bg-sky-950/40",
-  green: "!bg-emerald-50 dark:!bg-emerald-950/40",
-  amber: "!bg-amber-50 dark:!bg-amber-950/40",
+  blue: "!bg-info-soft dark:!bg-info-soft",
+  green: "!bg-success-soft dark:!bg-success-soft",
+  amber: "!bg-warning-soft dark:!bg-warning-soft",
   gray: "!bg-surface-2",
 };
 
@@ -18,9 +18,9 @@ export const TABLE_CELL_BG: Record<TableColor, string> = {
 export const TABLE_CELL_SWATCH: Record<TableColor, string> = {
   purple: "bg-brand-purple-300 dark:bg-brand-purple-700",
   pink: "bg-brand-pink-300 dark:bg-brand-pink-700",
-  blue: "bg-sky-300 dark:bg-sky-700",
-  green: "bg-emerald-300 dark:bg-emerald-700",
-  amber: "bg-amber-300 dark:bg-amber-700",
+  blue: "bg-info",
+  green: "bg-success",
+  amber: "bg-warning",
   gray: "bg-brand-gray-400",
 };
 

@@ -120,11 +120,11 @@ export function ImportValidateDialog({
         <p className="py-6 text-center text-sm text-text-muted">Inserindo o conteúdo selecionado…</p>
       )}
 
-      {fase === "erro" && <p className="text-sm text-red-600 dark:text-red-400">{erro}</p>}
+      {fase === "erro" && <p className="text-sm text-danger">{erro}</p>}
 
       {fase === "resultado" && completo && (
         <p className="flex items-center gap-2 py-4 text-sm">
-          <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400" />
+          <CheckCircle2 className="size-5 text-success" />
           Está tudo completo — os artigos cobrem todo o conteúdo do original ({Math.round((rel!.completude) * 100)}
           %).
         </p>
@@ -197,7 +197,7 @@ export function ImportValidateDialog({
 
       {fase === "concluido" && feito && (
         <p className="flex items-center gap-2 py-4 text-sm">
-          <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400" />
+          <CheckCircle2 className="size-5 text-success" />
           Pronto: {feito.inseridos} item(ns) inserido(s)
           {feito.secoesCriadas > 0 && `, ${feito.secoesCriadas} seção(ões) criada(s)`}. Nos artigos publicados as
           mudanças ficaram como rascunho.

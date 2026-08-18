@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Replace, FileText, CornerDownRight, Loader2 } from "lucide-react";
+import { Replace, FileText, CornerDownRight, Loader2, Search } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
@@ -139,25 +140,23 @@ export function GlobalFindReplace({
       <div className="space-y-3">
         {/* Linha de busca */}
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" />
-            <Input
-              autoFocus
-              value={term}
-              onChange={(e) => {
-                setTerm(e.target.value);
-                if (buscou) reset();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void buscar();
-                }
-              }}
-              placeholder="Localizar…"
-              className="pl-8"
-            />
-          </div>
+          <SearchInput
+            autoFocus
+            value={term}
+            onChange={(v) => {
+              setTerm(v);
+              if (buscou) reset();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void buscar();
+              }
+            }}
+            label="Localizar em todos os artigos"
+            placeholder="Localizar…"
+            wrapperClassName="flex-1"
+          />
           <button
             type="button"
             onClick={() => setCaseSensitive((v) => !v)}
@@ -229,7 +228,7 @@ export function GlobalFindReplace({
                           {h.count}
                         </span>
                         {h.hasDraft && (
-                          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-2xs font-medium text-amber-600">
+                          <span className="shrink-0 rounded-full bg-warning-soft px-1.5 py-0.5 text-2xs font-medium text-warning">
                             rascunho
                           </span>
                         )}
@@ -241,7 +240,7 @@ export function GlobalFindReplace({
                         <CornerDownRight className="mt-0.5 size-3.5 shrink-0" />
                         <span className="truncate font-mono">
                           {h.snippetBefore}
-                          <mark className="rounded bg-amber-200/70 px-0.5 text-text dark:bg-amber-400/30">
+                          <mark className="rounded bg-warning-soft px-0.5 text-text">
                             {h.snippetMatch}
                           </mark>
                           {h.snippetAfter}

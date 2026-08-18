@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup, MessageSquareText, Puzzle } from "lucide-react";
+import { KeyRound, Plus, Trash2, Zap, Mail, Cpu, LayoutTemplate, DatabaseBackup, MessageSquareText, Puzzle, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
-import { Segmented } from "@/components/ui/segmented";
+import { Tabs, useAbaAtual, type Aba as AbaUI } from "@/components/ui/tabs";
+import { abasDaRota } from "@/lib/admin/mapa-rotas";
 import { Field, eyebrowLabel } from "@/components/ui/field";
 import { Input, controlClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,21 @@ export type EmailRow = {
 
 type Aba = "ia" | "email" | "backup" | "prompts" | "extensao";
 
+/**
+ * O ícone fica AQUI, não no mapa de rotas.
+ *
+ * O mapa é dado puro e testável — importar `lucide-react` nele arrastaria o
+ * pacote de ícones para dentro de todo teste que só quer saber se as abas
+ * batem. O rótulo e a permissão vêm de lá; a aparência é assunto da tela.
+ */
+const ICONE_DA_ABA: Record<string, LucideIcon | undefined> = {
+  ia: Cpu,
+  email: Mail,
+  extensao: Puzzle,
+  prompts: MessageSquareText,
+  backup: DatabaseBackup,
+};
+
 export function SystemManager({
   providers,
   assignments,
@@ -95,7 +111,36 @@ export function SystemManager({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [aba, setAba] = useState<Aba>("ia");
+  /**
+   * A ABA MORA NA URL — e a lista vem do mapa de rotas.
+   *
+   * Eram duas falhas empilhadas. `useState` fazia o F5 voltar sempre para
+   * "Inteligência artificial", numa tela onde quem foi conferir um backup ou
+   * ajustar um prompt perde o lugar a cada recarga; e o `mapa-rotas` declarava
+   * para esta rota uma aba "Chaves" que nunca existiu aqui (as chaves são
+   * `/admin/chaves-api`) enquanto omitia "Extensão" e "Prompts", que existem.
+   * O Cmd+K oferecia "Sistema › Chaves", montava a URL, e a tela abria em IA
+   * sem dizer nada.
+   *
+   * Agora a barra e a paleta leem a MESMA lista, filtrada pelas mesmas
+   * permissões — não há duas verdades para divergirem.
+   */
+  const permissoesDaTela = useMemo(() => {
+    const s = new Set<string>();
+    if (canPrompts) s.add("ai.configure");
+    if (canBackup) s.add("system.backup");
+    return s;
+  }, [canPrompts, canBackup]);
+  const abas: AbaUI[] = useMemo(
+    () =>
+      abasDaRota("/admin/sistema", permissoesDaTela).map((a) => ({
+        key: a.key,
+        label: a.rotulo,
+        icon: ICONE_DA_ABA[a.key],
+      })),
+    [permissoesDaTela],
+  );
+  const aba = useAbaAtual(abas) as Aba;
   const [pending, startTransition] = useTransition();
 
   function run(fn: () => Promise<{ ok: boolean; msg?: string; error?: string }>) {
@@ -109,59 +154,10 @@ export function SystemManager({
 
   return (
     <div className="mt-6">
-      <Segmented
-        value={aba}
-        onChange={setAba}
-        options={[
-          {
-            value: "ia",
-            label: (
-              <>
-                <Cpu /> Inteligência artificial
-              </>
-            ),
-          },
-          {
-            value: "email",
-            label: (
-              <>
-                <Mail /> E-mail
-              </>
-            ),
-          },
-          {
-            value: "extensao",
-            label: (
-              <>
-                <Puzzle /> Extensão
-              </>
-            ),
-          },
-          ...(canPrompts
-            ? [{
-                value: "prompts" as const,
-                label: (
-                  <>
-                    <MessageSquareText /> Prompts
-                  </>
-                ),
-              }]
-            : []),
-          ...(canBackup
-            ? [{
-                value: "backup" as const,
-                label: (
-                  <>
-                    <DatabaseBackup /> Backup
-                  </>
-                ),
-              }]
-            : []),
-        ]}
-      />
+      <Tabs tabs={abas} aria-label="Áreas da configuração" />
 
       {!temChaveMestra && (
-        <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+        <p className="mt-3 rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-sm leading-relaxed text-warning">
           <strong className="font-medium">Chaves guardadas em texto simples.</strong> Sem{" "}
           <code>APP_ENCRYPTION_KEY</code> no servidor, as chaves de API ficam legíveis no banco —
           quem obtiver um dump lê todas. O acesso segue restrito, mas <strong className="font-medium">
@@ -279,7 +275,7 @@ function AbaIA({
           />
         ) : (
           <div className="mt-4">
-            <DataTable>
+            <DataTable rotulo="Provedores de IA">
               <DataHead>
                 <Th>Nome</Th>
                 <Th>Tipo</Th>
@@ -329,6 +325,11 @@ function AbaIA({
                           size="sm"
                           variant="ghost"
                           disabled={pending}
+                          // Só o ícone: sem rótulo, o leitor de tela anunciava
+                          // "botão" três vezes seguidas numa tabela e não dizia
+                          // o que cada um exclui. Nomeia o PROVEDOR, não a ação
+                          // — quem navega botão a botão precisa do alvo.
+                          aria-label={`Excluir o provedor ${p.name}`}
                           onClick={async () => {
                             if (
                               await confirmar({
@@ -340,7 +341,7 @@ function AbaIA({
                               run(() => deleteProvider(p.id));
                           }}
                         >
-                          <Trash2 className="size-4 text-red-600 dark:text-red-400" />
+                          <Trash2 className="size-4 text-danger" />
                         </Button>
                       </div>
                     </Td>
@@ -557,7 +558,7 @@ function ConsumoIA() {
       { provider: string; model: string; input: number; output: number; total: number; calls: number }
     >();
     for (const r of rows ?? []) {
-      const chave = `${r.provider} ${r.model}`;
+      const chave = `${r.provider}\u0000${r.model}`;
       const a = m.get(chave) ?? { provider: r.provider, model: r.model, input: 0, output: 0, total: 0, calls: 0 };
       a.input += r.input;
       a.output += r.output;
@@ -643,7 +644,7 @@ function ConsumoIA() {
       )}
 
       {erro && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+        <p className="rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm text-danger">
           {erro}
         </p>
       )}
@@ -660,7 +661,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por IA</h3>
-            <DataTable>
+            <DataTable rotulo="Finalidades de IA">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th className="text-right">Envio</Th>
@@ -688,7 +689,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por modelo</h3>
-            <DataTable>
+            <DataTable rotulo="Modelos e preços">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th>Modelo</Th>
@@ -718,7 +719,7 @@ function ConsumoIA() {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Por IA, modelo e ação</h3>
-            <DataTable>
+            <DataTable rotulo="Limites por base">
               <DataHead>
                 <Th>Provedor</Th>
                 <Th>Modelo</Th>

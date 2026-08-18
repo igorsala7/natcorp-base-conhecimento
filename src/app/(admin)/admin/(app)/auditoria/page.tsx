@@ -5,6 +5,8 @@ import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-
 import { AuditFilters } from "./audit-filters";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
+import { AbasRota } from "@/components/admin/abas-rota";
+import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Auditoria" };
 
@@ -81,15 +83,27 @@ export default async function AuditoriaPage({
   const actorOptions = (profiles ?? []).map((p) => ({ id: p.id, label: p.full_name ?? p.email ?? p.id }));
   const actionOptions = Object.entries(ACTION_LABEL).map(([key, label]) => ({ key, label }));
 
+  // A barra some a aba "Custos de IA" para quem não tem `ai.configure` —
+  // oferecê-la a quem não pode abrir a transformaria num beco.
+  const permissoes = await permissoesDo();
+
   return (
-    <PageShell titulo="Auditoria" descricao={"Ações sensíveis (append-only) — quem fez o quê e quando."} largura="wide">
+    <PageShell
+      /* "Operação" é o nome no menu; a tela dizia "Auditoria", que é só uma das
+         suas duas metades. Barra lateral e cabeçalho contando histórias
+         diferentes é o que impedia escrever um breadcrumb honesto. */
+      titulo="Operação"
+      descricao="Ações sensíveis (append-only) — quem fez o quê e quando."
+      largura="wide"
+      abas={<AbasRota rota="/admin/auditoria" atual="auditoria" permissoes={permissoes} />}
+    >
 
       <div className="mt-4">
         <AuditFilters actors={actorOptions} actions={actionOptions} />
       </div>
 
       <div className="mt-4">
-        <DataTable>
+        <DataTable rotulo="Registro de auditoria">
           <DataHead>
             <Th>Quando</Th>
             <Th>Ator</Th>

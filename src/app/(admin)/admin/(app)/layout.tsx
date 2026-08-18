@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { Sidebar } from "@/components/admin/sidebar";
+import { Sidebar, MenuMobileProvider } from "@/components/admin/sidebar";
 import { permissoesDo } from "@/lib/auth/permissions";
 import { SeletorDocumentacao } from "@/components/admin/seletor-documentacao";
-import { resolvedSpaceId } from "@/lib/content/current-space";
+import { pickSpace } from "@/lib/content/current-space";
+import { listSpaces } from "@/lib/content/spaces";
 import { Topbar } from "@/components/admin/topbar";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -49,27 +50,48 @@ export default async function AppLayout({
 
   const permissoes = await permissoesDo();
 
-  // A lista e o que o COOKIE dizia. A URL (`?space=`) o layout não enxerga — no
-  // App Router `searchParams` não chega aqui —, então quem completa a ordem de
-  // resolução é o próprio seletor, no cliente. Ver o comentário dele.
-  const supabaseEspacos = await createClient();
-  const { data: espacos } = await supabaseEspacos
-    .from("spaces")
-    .select("id, name")
-    .order("name");
-  const espacoDoCookie = await resolvedSpaceId(undefined, espacos ?? []);
+  /**
+   * A MESMA LISTA QUE AS TELAS USAM — e por isso o mesmo padrão.
+   *
+   * Aqui havia uma segunda consulta, `select("id, name").order("name")`,
+   * enquanto toda tela usa `listSpaces()`, que ordena por `type` e depois
+   * `created_at`. Duas listas com ordenações diferentes, cada uma caindo no
+   * PRÓPRIO `[0]` quando não há cookie — e as duas exibindo com confiança.
+   *
+   * O resultado aparecia na tela: a barra lateral dizia "Documentação Natcorp"
+   * enquanto o cabeçalho da Importar dizia "Painel do Gestor", com
+   * "Destino: Painel do Gestor" logo abaixo. Numa tela de importação, isso é
+   * subir arquivo para a documentação errada acreditando na barra.
+   *
+   * O comentário do seletor já advertia contra exatamente isto ("a shell
+   * mentindo sobre o editor") e cuidava do caso do `?space=`. O que ninguém
+   * viu é que o PADRÃO — o caso sem parâmetro, que é o do dia a dia — tinha
+   * duas respostas diferentes.
+   *
+   * Agora a resolução é uma só (`pickSpace`, a mesma função das telas) e o
+   * menu recebe um id CONCRETO, então o `?? espacos[0]` do seletor deixa de
+   * ser alcançável. A ordem alfabética continua, mas só para EXIBIR.
+   */
+  const espacos = await listSpaces();
+  const espacoDoCookie = (await pickSpace(espacos))?.id;
+  const espacosParaOMenu = [...espacos]
+    .map((s) => ({ id: s.id, name: s.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   return (
     <ToastProvider>
       <ConfirmProvider>
         <LoaderProvider>
           <NavProvider>
+            {/* O estado da gaveta do celular é compartilhado entre a barra (que
+                a RENDERIZA) e a topbar (que tem o BOTÃO). Ver `MenuMobileProvider`. */}
+            <MenuMobileProvider>
             <div className="flex h-dvh overflow-hidden bg-bg text-text">
               <Sidebar
                 permissoes={[...permissoes]}
                 seletor={
                   <SeletorDocumentacao
-                    espacos={espacos ?? []}
+                    espacos={espacosParaOMenu}
                     atualDoServidor={espacoDoCookie}
                     podeCriar={permissoes.has("space.create")}
                   />
@@ -88,6 +110,7 @@ export default async function AppLayout({
               </div>
               <CommandPalette permissoes={[...permissoes]} />
             </div>
+            </MenuMobileProvider>
           </NavProvider>
         </LoaderProvider>
       </ConfirmProvider>

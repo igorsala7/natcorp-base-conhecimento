@@ -37,6 +37,53 @@
 
   --color-focus-ring: #8153a3; /* brand.purple.500 */
 
+  /* ── Estado ───────────────────────────────────────────────────────────
+     A LACUNA QUE PRODUZIU 401 CORES CRUAS.
+
+     Este bloco não existia. Havia token para primária, acento, superfície,
+     texto, borda, foco, raio, sombra e tipografia — e NADA para sucesso,
+     atenção, erro ou informação. Quem precisava pintar um aviso não tinha o
+     que usar, então escrevia `bg-amber-50 text-amber-900 dark:bg-amber-950/30`
+     à mão. Aconteceu 401 vezes, em mais de 60 arquivos.
+
+     Não foi indisciplina: foi a única saída disponível. E cada uma dessas 401
+     precisou de uma variante `dark:` escrita à mão — onde faltou, o modo
+     escuro quebra em silêncio.
+
+     Quatro papéis, quatro variáveis cada:
+       ·           — a tinta. Texto sobre fundo claro E preenchimento sólido.
+       · -soft     — o fundo suave do aviso.
+       · -line     — a borda dele.
+       · -on       — a tinta que vai SOBRE o preenchimento sólido.
+
+     Contraste medido sobre branco (o pior caso do tema claro):
+       success 7,34:1 · warning 7,18:1 · danger 7,51:1 · info 8,77:1
+     Todos passam AAA, então servem também a texto pequeno — que é onde a
+     maioria dos avisos vive.
+
+     Os matizes não são os do Tailwind: são puxados para o viés roxo dos
+     neutros da marca, pelo mesmo motivo que o cinza é. Verde puro ao lado
+     deste roxo parece de outro produto. */
+  --color-success: #0d6249;
+  --color-success-soft: #e7f4ef;
+  --color-success-line: #b8ddcf;
+  --color-success-on: #ffffff;
+
+  --color-warning: #7e4c07;
+  --color-warning-soft: #faf0de;
+  --color-warning-line: #e6cfa4;
+  --color-warning-on: #ffffff;
+
+  --color-danger: #a81038;
+  --color-danger-soft: #fbe9ee;
+  --color-danger-line: #f0c2d0;
+  --color-danger-on: #ffffff;
+
+  --color-info: #38409e;
+  --color-info-soft: #ecedf8;
+  --color-info-line: #c8cbea;
+  --color-info-on: #ffffff;
+
   /* Escala tipográfica deliberada (documentação = leitura em primeiro lugar). */
   /* 11px — o degrau micro que já existia de fato, escrito de três jeitos:
      text-[11px] (67×), text-[0.6875rem] (37×) e text-[10px] (19×). Vira um só.
@@ -44,6 +91,21 @@
      justificam — como constante do primitivo, nunca como classe no call site. */
   --text-2xs: 0.6875rem; /* 11 */
   --text-xs: 0.75rem; /* 12 */
+  /* 13px — o degrau de DENSIDADE DE INTERFACE.
+     Existia de fato, escrito como `text-[0.8125rem]` em 13 arquivos, e sempre
+     no mesmo papel: item de árvore, linha de TOC, navegação lateral, painel
+     de propriedades, bolha do chat do editor. É a densidade que Notion e Linear
+     usam no cromo — 12px vira legenda e 14px vira corpo de leitura.
+
+     O nome não entra na escada de camiseta (2xs → xs → sm) de propósito: não é
+     "mais um tamanho", é um PAPEL. Chamá-lo de `text-ui` diz onde ele se usa;
+     chamá-lo de `text-xs-plus` só diria que alguém não decidiu.
+
+     A lição vem do 11px, que este arquivo já registra: enquanto não teve nome,
+     foi escrito de três jeitos (`text-[11px]` 67×, `text-[0.6875rem]` 37×,
+     `text-[10px]` 19×). Degrau sem nome não deixa de existir — só deixa de ser
+     verificável. */
+  --text-ui: 0.8125rem; /* 13 */
   --text-sm: 0.875rem; /* 14 */
   --text-base: 1rem; /* 16 */
   --text-lg: 1.125rem; /* 18 */
@@ -99,6 +161,34 @@
   --color-accent-fg: #3d1122; /* brand.pink.950 */
 
   --color-focus-ring: #9e77bc; /* brand.purple.400 */
+
+  /* Estado no escuro NÃO é o claro invertido: a tinta sobe para os tons 300/400
+     (a mesma regra que a primária já seguia) e o fundo suave desce para um
+     escuro do próprio matiz, nunca cinza. Medido sobre o fundo escuro:
+       success 8,91:1 · warning 8,57:1 · danger 7,16:1 · info 7,70:1
+
+     O `-on` deixa de ser branco: sobre um verde claro, tinta branca some. Vira
+     um escuro do próprio matiz — mesma decisão que `--color-primary-fg` já
+     tomava ao virar #220c32 no escuro. */
+  --color-success: #5fc7a4;
+  --color-success-soft: #10352c;
+  --color-success-line: #1d5646;
+  --color-success-on: #06251c;
+
+  --color-warning: #e0a664;
+  --color-warning-soft: #3a2a11;
+  --color-warning-line: #5e451c;
+  --color-warning-on: #2a1c06;
+
+  --color-danger: #f0808f;
+  --color-danger-soft: #3c1620;
+  --color-danger-line: #612434;
+  --color-danger-on: #2c0c14;
+
+  --color-info: #98a4e8;
+  --color-info-soft: #1e2044;
+  --color-info-line: #343869;
+  --color-info-on: #12142e;
 
   /* Sombra sutil some sobre fundo escuro: aqui a elevação vem de preto mais
      denso, e a separação real fica por conta da borda/superfície. */

@@ -6,6 +6,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { Eye, EyeOff, GripVertical, ImagePlus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { useToast } from "@/components/ui/toast";
 import { Surface } from "@/components/ui/surface";
 import { Field } from "@/components/ui/field";
@@ -217,7 +218,7 @@ export function AppearanceEditor({
       {/* ── Formulário ─────────────────────────────────────────────── */}
       <div className="w-full shrink-0 space-y-5 xl:w-96">
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Marca</h2>
+          <h2 className={sectionTitleClass}>Marca</h2>
 
           <Field
             label="Cor da marca"
@@ -252,7 +253,7 @@ export function AppearanceEditor({
           </Field>
 
           {contrasteClaro !== null && contrasteClaro < 4.5 && (
-            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs text-warning">
               Esta cor mede {contrasteClaro.toFixed(2)}:1 sobre branco — abaixo de 4,5:1. Ela serve
               para preenchimentos, mas texto e links nela ficam difíceis de ler.
             </p>
@@ -316,7 +317,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Cabeçalho</h2>
+          <h2 className={sectionTitleClass}>Cabeçalho</h2>
 
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -352,7 +353,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Layout</h2>
+          <h2 className={sectionTitleClass}>Layout</h2>
 
           <SeletorEstilo
             legenda="Abertura (título e busca)"
@@ -407,7 +408,7 @@ export function AppearanceEditor({
             ]}
           />
           {tema.home.heroStyle === "image" && !tema.brand.coverUrl && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
+            <p className="text-xs text-warning">
               Envie a imagem de capa acima — sem ela, a abertura usa a cor.
             </p>
           )}
@@ -443,7 +444,7 @@ export function AppearanceEditor({
                 </div>
               </Field>
               {contrasteAbertura < 4.5 && (
-                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs text-warning">
                   Esta cor mede {contrasteAbertura.toFixed(2)}:1 com o texto branco da abertura — abaixo
                   de 4,5:1. Uma cor mais escura deixa o título e a busca mais legíveis.
                 </p>
@@ -600,7 +601,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+          <h2 className={sectionTitleClass}>
             Leitura
           </h2>
 
@@ -718,7 +719,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+          <h2 className={sectionTitleClass}>
             Cabeçalho e rodapé
           </h2>
           <Field
@@ -770,7 +771,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">Textos</h2>
+          <h2 className={sectionTitleClass}>Textos</h2>
           <Field label="Título" htmlFor="titulo" hint="Vazio usa o nome da documentação.">
             <Input
               id="titulo"
@@ -807,7 +808,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+          <h2 className={sectionTitleClass}>
             Assistente de IA
           </h2>
           <Field
@@ -832,7 +833,7 @@ export function AppearanceEditor({
         </Surface>
 
         <Surface elevation={1} padding="lg" className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted">
+          <h2 className={sectionTitleClass}>
             Integrações
           </h2>
           <Field

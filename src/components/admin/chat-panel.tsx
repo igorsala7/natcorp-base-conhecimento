@@ -39,7 +39,7 @@ const FALHA_RESPOSTA =
   "Não foi possível gerar a resposta agora. As fontes encontradas estão abaixo — tente de novo em instantes ou avise a equipe.";
 
 /** Marcador que separa o texto dos ARQUIVOS no fim do stream (idêntico ao /api/chat). */
-const META_MARK = "\n__META__";
+const META_MARK = "\n\u001e__META__\u001e";
 
 /** Arquivo (base64) retornado por uma ferramenta — vira link de download. */
 type FileAtt = { filename: string; mimeType: string; dataUrl: string };

@@ -27,6 +27,7 @@ import type { SpaceInfo } from "@/lib/content/spaces";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
+import { PageShell } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { NewSpaceDialog } from "@/components/content/new-space-dialog";
@@ -163,7 +164,7 @@ function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
                   <MenuLabel>IA e base do chatbot</MenuLabel>
                   <MenuItem
                     icon={Sparkles}
-                    onClick={() => { close(); router.push(`/admin/importar?tab=embeddings&space=${d.id}`); }}
+                    onClick={() => { close(); router.push(`/admin/importar?aba=embeddings&space=${d.id}`); }}
                   >
                     Gerar embeddings
                   </MenuItem>
@@ -194,10 +195,10 @@ function DocCard({ doc: d, index }: { doc: DocResumo; index: number }) {
       {/* Métricas escaneáveis (conteúdo + prontidão de IA), sem caixas pesadas. */}
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
-          <Metrica n={d.publicados} label="publicados" dot="bg-emerald-500" />
+          <Metrica n={d.publicados} label="publicados" dot="bg-success" />
           <Metrica n={d.rascunhos} label="rascunhos" dot="bg-brand-gray-400" />
-          <Metrica n={d.emRevisao} label="em revisão" dot="bg-amber-500" />
-          <Metrica n={d.pastas} label="pastas" dot="bg-slate-400" />
+          <Metrica n={d.emRevisao} label="em revisão" dot="bg-warning" />
+          <Metrica n={d.pastas} label="pastas" dot="bg-text-muted" />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
           <span className="inline-flex items-center gap-1.5">
@@ -247,29 +248,35 @@ export function DocsHub({
 }) {
   const [criando, setCriando] = useState(false);
 
+  /**
+   * O `PageShell` é montado AQUI, e não na rota, porque a ação da página —
+   * "Nova documentação" — abre um diálogo cujo estado vive neste componente.
+   * Passar a ação como slot da rota exigiria subir o estado para o servidor,
+   * que é onde ele não pode morar.
+   *
+   * O `PageShell` não é "use client": é um componente comum, e usá-lo de dentro
+   * de um componente cliente é legítimo.
+   */
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Documentações</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Cada documentação com seu conteúdo, aparência, preferências e chatbot.
-          </p>
-        </div>
-        {canCreate && (
+    <PageShell
+      titulo="Documentações"
+      descricao="Cada documentação com seu conteúdo, aparência, preferências e chatbot."
+      largura="wide"
+      acoes={
+        canCreate && (
           <Button onClick={() => setCriando(true)}>
-            <Plus className="size-4" /> Nova documentação
+            <Plus /> Nova documentação
           </Button>
-        )}
-      </div>
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        )
+      }
+    >
+      <div className="grid gap-4 lg:grid-cols-2">
         {docs.map((d, i) => (
           <DocCard key={d.id} doc={d} index={i} />
         ))}
       </div>
 
       {criando && <NewSpaceDialog spaces={spaces} onClose={() => setCriando(false)} />}
-    </div>
+    </PageShell>
   );
 }

@@ -163,7 +163,7 @@ export default async function EditarConteudoPage({
       hasPermission("content.publish", node.space_id),
     ]);
     return (
-      <ContentShell aside={aside}>
+      <ContentShell titulo={node?.title ?? "Editor de conteúdo"} aside={aside}>
         {herdado && (
           <div className="mx-auto max-w-3xl">
             <CustomizeBanner
@@ -208,7 +208,7 @@ export default async function EditarConteudoPage({
     const doc = normalizeDoc(article?.content_json ?? null);
     const tema = resolveTheme(nodeSpace?.theme);
     return (
-      <ContentShell aside={aside} defaultCollapsed>
+      <ContentShell titulo={node?.title ?? "Editor de conteúdo"} aside={aside} defaultCollapsed>
         <div className="mx-auto max-w-prose">
           <CustomizeBanner
             clientSpaceId={herdado.clientSpaceId}
@@ -253,7 +253,7 @@ export default async function EditarConteudoPage({
   const canDelete = canDeletePerm && !isCustomizado;
 
   return (
-    <ContentShell aside={aside} defaultCollapsed>
+    <ContentShell titulo={node?.title ?? "Editor de conteúdo"} aside={aside} defaultCollapsed>
       <BlockEditor
         nodeId={nodeId}
         spaceId={node.space_id}

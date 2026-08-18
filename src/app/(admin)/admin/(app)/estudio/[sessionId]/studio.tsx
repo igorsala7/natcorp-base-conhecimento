@@ -21,6 +21,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { DropdownMenu, MenuItem } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -330,7 +331,7 @@ export function Studio({
       <div key={n.tmpId}>
         <div
           style={{ paddingLeft: nivel * 14 + 4 }}
-          className={`group flex items-center gap-1.5 rounded-md py-1 pr-1 text-[0.8125rem] ${
+          className={`group flex items-center gap-1.5 rounded-md py-1 pr-1 text-ui ${
             ativo ? "bg-brand-purple-50 dark:bg-brand-purple-950/40" : "hover:bg-surface-2"
           }`}
         >
@@ -557,7 +558,7 @@ export function Studio({
         <Surface elevation={1} padding="none" className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Sparkles className="size-4 text-primary" />
-            <h2 className="text-sm font-semibold">Proposta</h2>
+            <h2 className={sectionTitleClass}>Proposta</h2>
             <span className="text-xs text-text-muted">
               {proposal.length === 0 ? "aparece aqui conforme a conversa" : ""}
             </span>

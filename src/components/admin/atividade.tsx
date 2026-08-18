@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, X } from "lucide-react";
 import { atividadeRecente, dispensarAtividade, type ItemAtividade } from "@/app/(admin)/admin/(app)/atividade-actions";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { carimbo } from "@/lib/format/quando";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 /**
  * O TRABALHO QUE SOBREVIVE À TELA QUE O DISPAROU.
@@ -38,12 +39,39 @@ const ROTULO: Record<string, string> = {
   backup: "Backup",
 };
 
+/**
+ * O ESTADO, em português.
+ *
+ * O badge mostrava `i.status` cru — o valor do banco. Numa interface
+ * inteiramente em português, apareciam "QUEUED" e "PREVIEW" em caixa-alta,
+ * as únicas palavras em inglês na tela. Não é detalhe de tradução: `preview`
+ * não diz a ninguém que a importação está PARADA esperando revisão, e é
+ * justamente esse o estado em que ela precisa de uma ação humana.
+ *
+ * O mapa de `tipo` logo acima já fazia isso desde sempre. Faltou aplicar a
+ * mesma ideia ao vizinho de baixo — o tipo de omissão que só se vê olhando a
+ * tela, porque nada quebra.
+ */
+const ROTULO_STATUS: Record<string, string> = {
+  queued: "na fila",
+  running: "rodando",
+  extracting: "extraindo",
+  inferring: "analisando",
+  importing: "importando",
+  improving: "melhorando",
+  processing: "processando",
+  preview: "aguardando revisão",
+  error: "erro",
+};
+
 const INTERVALO = 15_000;
 
 
 export function Atividade() {
   const [itens, setItens] = useState<ItemAtividade[]>([]);
   const [aberta, setAberta] = useState(false);
+  const painelRef = useRef<HTMLDivElement>(null);
+  useFocoPreso(aberta, painelRef, () => setAberta(false));
   const [limpando, setLimpando] = useState(false);
 
   const carregar = useCallback(() => {
@@ -96,7 +124,7 @@ export function Atividade() {
         className="gap-1.5"
       >
         {comErro.length > 0 ? (
-          <AlertTriangle className="text-rose-600 dark:text-rose-400" />
+          <AlertTriangle className="text-danger" />
         ) : (
           // O giro é o próprio sinal de "acontecendo" — sem ele, o ícone parado
           // não distingue trabalho em curso de trabalho terminado.
@@ -106,9 +134,18 @@ export function Atividade() {
       </Button>
 
       {aberta && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Atividade">
+        <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setAberta(false)} role="presentation" />
-          <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-3">
+          {/* O diálogo é o PAINEL. No invólucro, o `aria-modal` cobria também o
+              scrim — e o painel não tinha Escape nem foco preso: abrir a
+              Atividade pelo teclado deixava a pessoa tabulando a tela atrás. */}
+          <div
+            ref={painelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Atividade"
+            className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-3"
+          >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-sm font-semibold text-text">Atividade</h2>
               <div className="flex items-center gap-1">
@@ -141,13 +178,13 @@ export function Atividade() {
                       key={`${i.tipo}-${i.id}`}
                       className={cn(
                         "rounded-lg border p-3",
-                        i.status === "error" ? "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/20" : "border-border",
+                        i.status === "error" ? "border-danger-line bg-danger-soft" : "border-border",
                       )}
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-text">{ROTULO[i.tipo] ?? i.tipo}</span>
                         <Badge tone={i.status === "error" ? "danger" : "info"}>
-                          {i.status === "error" ? "erro" : i.status}
+                          {ROTULO_STATUS[i.status] ?? i.status}
                         </Badge>
                         {i.status !== "error" && (
                           <span className="ml-auto text-2xs tabular-nums text-text-muted">{i.progresso}%</span>
@@ -182,7 +219,7 @@ export function Atividade() {
                         // A mensagem do worker inteira, não truncada: é o único
                         // lugar onde ela aparece depois que a tela de origem
                         // foi fechada.
-                        <p className="mt-1.5 text-xs text-rose-700 dark:text-rose-300">{i.error}</p>
+                        <p className="mt-1.5 text-xs text-danger">{i.error}</p>
                       )}
 
                       {i.status !== "error" && (

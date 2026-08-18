@@ -148,6 +148,8 @@ async function retrieveWith(
   lang?: string | null,
   lexicalOnly = false,
   grupos?: number,
+  /** Nós já recuperados em turnos recentes desta conversa (memória de continuidade). */
+  continuidade?: string[],
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -304,6 +306,34 @@ async function retrieveWith(
     }
   }
 
+  // CONTINUIDADE entre turnos: artigos que já apareceram nesta conversa e não
+  // voltaram nesta recuperação entram apenas nas vagas LIVRES — quando a fusão
+  // devolveu MENOS que o limite pedido.
+  //
+  // Nunca deslocam um resultado da fusão. Enquanto o perfil de scores (passo
+  // `rag` do trace) não mostrar que a cauda é ruído, trocar um trecho RECUPERADO
+  // por um LEMBRADO seria trocar assertividade por continuidade — e essa troca
+  // não está autorizada. Com a medição em mãos, o passo seguinte é deixar a
+  // continuidade substituir a cauda fraca; hoje ela só preenche o que sobrou.
+  const _vagas = limit - resultados.length;
+  if (continuidade?.length && _vagas > 0) {
+    const escopoCont = nodeIds.length ? new Set(nodeIds) : null;
+    const jaPresente = new Set(resultados.map((r) => r.node_id).filter((x): x is string => !!x));
+    const lembrados = continuidade
+      .filter((id) => (!escopoCont || escopoCont.has(id)) && !jaPresente.has(id))
+      .slice(0, _vagas);
+    if (lembrados.length) {
+      const { data: extra } = await supabase.rpc("hybrid_search_scoped", {
+        p_query: pQuery,
+        p_embedding: embedding ? JSON.stringify(embedding) : undefined,
+        p_node_ids: lembrados,
+        p_limit: _vagas,
+        p_boost: boost ?? undefined,
+      });
+      if (extra && extra.length) resultados = [...resultados, ...extra].slice(0, limit);
+    }
+  }
+
   // ENUMERAÇÃO ("todos os X de Y"): o hybrid_search_scoped devolve no MÁXIMO 1
   // chunk por arquivo de conhecimento (distinct on document_id) — insuficiente
   // para listar TODOS os itens de uma lista (ex.: todos os programas de um
@@ -456,7 +486,7 @@ export async function retrievePublicContext(
   limit = 8,
   scope?: ClarifyScope | null,
   lang?: string | null,
-  opts?: { lexicalOnly?: boolean; grupos?: number },
+  opts?: { lexicalOnly?: boolean; grupos?: number; continuidade?: string[] },
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
@@ -469,7 +499,7 @@ export async function retrievePublicContext(
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly, opts?.grupos);
+  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly, opts?.grupos, opts?.continuidade);
 }
 
 /**

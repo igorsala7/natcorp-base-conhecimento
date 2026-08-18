@@ -86,7 +86,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
               <Select
                 value={n.type}
                 onChange={(v) => setNode(n.id, { type: v as FlowNodeType })}
-                className="shrink-0 rounded-md border border-border bg-surface px-1.5 py-1 text-xs outline-none"
+                className="shrink-0 rounded-md border border-border bg-surface px-1.5 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
                 title="Tipo do nó"
               >
                 {TIPOS.map((t) => (
@@ -104,7 +104,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                 type="button"
                 onClick={() => rmNode(n.id)}
                 title="Remover"
-                className="shrink-0 text-text-muted hover:text-rose-600"
+                className="shrink-0 text-text-muted hover:text-danger"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -128,7 +128,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
               <Select
                 value={e.from}
                 onChange={(v) => setEdge(e.id, { from: v })}
-                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none"
+                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
               >
                 {d.nodes.map((n) => (
                   <option key={n.id} value={n.id}>
@@ -140,7 +140,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
               <Select
                 value={e.to}
                 onChange={(v) => setEdge(e.id, { to: v })}
-                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none"
+                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-1 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
               >
                 {d.nodes.map((n) => (
                   <option key={n.id} value={n.id}>
@@ -158,7 +158,7 @@ export function FlowProps({ block, actions }: { block: FlowBlockT; actions: Edit
                 type="button"
                 onClick={() => rmEdge(e.id)}
                 title="Remover"
-                className="shrink-0 text-text-muted hover:text-rose-600"
+                className="shrink-0 text-text-muted hover:text-danger"
               >
                 <Trash2 className="size-3.5" />
               </button>

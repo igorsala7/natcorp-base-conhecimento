@@ -9,6 +9,9 @@ import { ChatbotTabs } from "../chatbot/chatbot-tabs";
 import { TrackingKeyPanel } from "./tracking-key-panel";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
+import { AbasRota } from "@/components/admin/abas-rota";
+import { permissoesDo } from "@/lib/auth/permissions";
+import Link from "next/link";
 
 export const metadata: Metadata = { title: "Widget e API" };
 
@@ -68,16 +71,27 @@ export default async function WidgetPage() {
 
   return (
     <PageShell
-      titulo="Widget e API"
+      /* MESMO OBJETO, OUTRO ESCOPO — e agora dito assim.
+         Esta tela e "Chatbot desta documentação" renderizam o mesmo componente,
+         diferindo por uma prop. Os títulos anteriores ("Widget e API" × "Chatbot
+         desta documentação") não deixavam isso claro: quem caía na errada não
+         tinha como perceber que existia a outra. Agora o título nomeia o escopo,
+         a barra de abas mostra que as duas moram no Assistente, e há link entre
+         elas. */
+      titulo="Chaves de todas as documentações"
       descricao={
         <>
           Chaves para <strong className="font-medium">embutir o chat</strong> num site (Widget) e para{" "}
-          <strong className="font-medium">acesso programático</strong> aos endpoints REST (API) — de{" "}
-          <strong className="font-medium">todas</strong> as documentações. Para configurar o bot de UMA delas, use
-          Assistente de IA.
+          <strong className="font-medium">acesso programático</strong> aos endpoints REST (API), de todas as
+          documentações de uma vez. Para trabalhar em uma só, use{" "}
+          <Link href="/admin/chatbot" className="font-medium text-primary hover:underline">
+            Chatbot desta documentação
+          </Link>
+          .
         </>
       }
       largura="wide"
+      abas={<AbasRota rota="/admin/assistente" atual="canais" permissoes={await permissoesDo()} />}
     >
       <ChatbotTabs
         widgetKeys={widgetKeys}

@@ -32,10 +32,29 @@ export function useFocoPreso(
     if (!aberto) return;
     const gatilho = document.activeElement as HTMLElement | null;
 
-    const focaveis = () =>
-      painelRef.current?.querySelectorAll<HTMLElement>(
-        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
-      ) ?? ([] as unknown as NodeListOf<HTMLElement>);
+    /**
+     * VISÍVEL, não apenas presente no DOM.
+     *
+     * O seletor sozinho devolve também o que está escondido por CSS — e a
+     * armadilha depende de saber quem é o ÚLTIMO focável para fechar o ciclo no
+     * Tab. Um botão `hidden md:inline-flex` continua casando com
+     * `button:not([disabled])`, vira o "último" da lista e nunca recebe foco:
+     * `document.activeElement === ultimo` jamais é verdade, o Tab não é
+     * interceptado, e o foco escapa para a página atrás. A armadilha parece
+     * montada e não prende.
+     *
+     * Apareceu quando a barra lateral virou gaveta no celular e o botão
+     * "Recolher" passou a ser só do desktop. Vale para qualquer painel com
+     * controle condicional — `getClientRects()` vazio cobre `display:none`,
+     * `visibility:hidden` e elemento sem caixa.
+     */
+    const focaveis = () => {
+      const todos =
+        painelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ) ?? [];
+      return [...todos].filter((el) => el.getClientRects().length > 0);
+    };
 
     // Foco no primeiro CAMPO, quando houver — é o que a pessoa veio preencher.
     // Sem campo, cai no primeiro focável que não seja o "fechar".

@@ -216,9 +216,9 @@ export function EditorChat({
             key={i}
             className={
               m.role === "user"
-                ? "group relative ml-4 rounded-lg bg-brand-purple-50 px-2.5 py-1.5 text-[0.8125rem] dark:bg-brand-purple-950/40"
+                ? "group relative ml-4 rounded-lg bg-brand-purple-50 px-2.5 py-1.5 text-ui dark:bg-brand-purple-950/40"
                 : m.role === "assistant"
-                  ? "mr-4 rounded-lg border border-border px-2.5 py-1.5 text-[0.8125rem]"
+                  ? "mr-4 rounded-lg border border-border px-2.5 py-1.5 text-ui"
                   : "rounded-md bg-surface-2 px-2.5 py-1 text-2xs text-text-muted"
             }
           >
@@ -280,7 +280,7 @@ export function EditorChat({
             <p className="mb-2 flex items-center gap-1.5 text-xs font-medium">
               <Sparkles className="size-3.5 text-primary" /> Sugestão de organização
             </p>
-            <ul className="space-y-1 text-[0.8125rem]">
+            <ul className="space-y-1 text-ui">
               {estrutura.map((it) => {
                 const filho = !!it.pai && estrutura.some((x) => x.tmp === it.pai);
                 const Icone = it.tipo === "folder" ? Folder : FileText;

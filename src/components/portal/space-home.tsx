@@ -208,7 +208,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium leading-snug">{d.title}</span>
                       {d.excerpt && (
-                        <span className="mt-0.5 line-clamp-2 block text-[0.8125rem] leading-relaxed text-text-muted">
+                        <span className="mt-0.5 line-clamp-2 block text-ui leading-relaxed text-text-muted">
                           {d.excerpt}
                         </span>
                       )}
@@ -292,7 +292,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                         <IconeDoNo chave={c.icon} fallback={Folder} className="size-5" />
                       </span>
                       <span className="font-semibold leading-snug">{c.title}</span>
-                      <span className="text-[0.8125rem] leading-relaxed text-text-muted">
+                      <span className="text-ui leading-relaxed text-text-muted">
                         {c.descricao ?? `${c.artigos} artigo(s)`}
                       </span>
                     </Link>
@@ -479,7 +479,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
             {tema.home.title || dados.spaceName}
           </h1>
           <p
-            className={`mx-auto mt-4 max-w-md text-[1.0625rem] leading-relaxed ${
+            className={`mx-auto mt-4 max-w-md text-lg leading-relaxed ${
               comFaixa ? "text-white/85" : "text-text-muted"
             }`}
           >
@@ -523,7 +523,7 @@ export function SpaceHomeView({ tema, dados }: { tema: TemaResolvido; dados: Dad
                 </div>
                 <div className="relative mx-auto max-w-2xl">
                   <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400 motion-reduce:animate-none" />
+                    <span className="size-1.5 animate-pulse rounded-full bg-success motion-reduce:animate-none" />
                     Central de ajuda · {dados.spaceName}
                   </p>
                   {aberturaConteudo}

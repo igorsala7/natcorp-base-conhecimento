@@ -32,6 +32,24 @@ export function withPrefixCache<T>(messages: T[], enabled: boolean): T[] {
 }
 
 /**
+ * Marca a PRIMEIRA mensagem com um breakpoint.
+ *
+ * Serve ao bloco de contexto de TELA, que é inserido antes do histórico: ele é
+ * idêntico enquanto a pessoa não troca de tela, então `tools + system + tela`
+ * vira um prefixo que casa entre os ~5 turnos de uma conversa. Sem o
+ * breakpoint aqui, o único ponto de leitura fica depois do histórico inteiro e
+ * a tela não é aproveitada.
+ *
+ * Não muta a entrada; sem contexto de tela (`enabled=false`) devolve como veio.
+ */
+export function withFirstCache<T>(messages: T[], enabled: boolean): T[] {
+  if (!enabled || messages.length === 0) return messages;
+  const out = messages.slice();
+  out[0] = { ...(out[0] as object), providerOptions: ANTHROPIC_CACHE } as T;
+  return out;
+}
+
+/**
  * Marca o breakpoint no fim do bloco de FERRAMENTAS.
  *
  * Por que existe: a marcação ficava na última ferramenta de INTEGRAÇÃO

@@ -90,6 +90,24 @@ export function PageShell({
 }
 
 /**
+ * A APARÊNCIA DO CABEÇALHO DE BLOCO, num lugar só.
+ *
+ * Exportada pelo mesmo motivo que `controlClass`: o `Section` inteiro nem
+ * sempre cabe (quando o bloco já é um `Surface` com o próprio espaçamento), e
+ * sem uma classe compartilhada o call site reinventa a formatação. Foi o que
+ * aconteceu — 24 cabeçalhos escritos à mão em 14 arquivos, em TRÊS grafias:
+ *
+ *   `text-sm font-semibold tracking-tight text-text`                → o Section
+ *   `text-sm font-semibold text-text`                               → integrações
+ *   `text-sm font-semibold uppercase tracking-wider text-text-muted` → aparência
+ *
+ * Nenhuma estava errada isolada. Juntas, faziam três telas vizinhas parecerem
+ * de produtos diferentes — que é exatamente o defeito que o `PageShell`
+ * resolveu um nível acima, e que se reproduziu aqui embaixo.
+ */
+export const sectionTitleClass = "text-sm font-semibold tracking-tight text-text";
+
+/**
  * Bloco dentro da página. O título é `<h2>` de propósito: a hierarquia de
  * cabeçalho é como leitor de tela navega, e páginas que montavam `<h1>` duas
  * vezes ou pulavam de h1 para h3 quebravam isso silenciosamente.
@@ -112,7 +130,7 @@ export function Section({
       {(titulo || acoes) && (
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <div className="space-y-0.5">
-            {titulo && <h2 className="text-sm font-semibold tracking-tight text-text">{titulo}</h2>}
+            {titulo && <h2 className={sectionTitleClass}>{titulo}</h2>}
             {descricao && <p className="text-xs text-text-muted">{descricao}</p>}
           </div>
           {acoes && <div className="flex items-center gap-2">{acoes}</div>}

@@ -46,7 +46,7 @@ function CopyButton({ text, label = "Copiar" }: { text: string; label?: string }
       title={label}
       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-text-muted transition-colors hover:border-primary hover:text-primary"
     >
-      {copiado ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
+      {copiado ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
       {copiado ? "Copiado" : label}
     </button>
   );
@@ -406,7 +406,7 @@ function Endpoint({
   response: string;
   curl: string;
 }) {
-  const tomMetodo = metodo === "GET" ? "bg-brand-blue-100 text-brand-blue-800 dark:bg-brand-blue-950/50 dark:text-brand-blue-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300";
+  const tomMetodo = metodo === "GET" ? "bg-brand-blue-100 text-brand-blue-800 dark:bg-brand-blue-950/50 dark:text-brand-blue-300" : "bg-success-soft text-success";
   return (
     <Surface elevation={1} padding="lg" className="space-y-3">
       <div className="flex items-center gap-2">

@@ -35,7 +35,10 @@ export function CopyButton({
       title={label}
       className={`inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-text-muted transition-colors hover:border-primary hover:text-primary ${className}`}
     >
-      {copiado ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
+      {/* `text-success`, não `emerald-600`: o cru não tinha variante escura e o
+          "✓ copiado" quase sumia no tema escuro — o feedback da ação
+          desaparecia justamente no tema em que se trabalha o dia todo. */}
+      {copiado ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
       <span aria-live="polite">{copiado ? "Copiado" : label}</span>
     </button>
   );

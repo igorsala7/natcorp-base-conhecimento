@@ -44,7 +44,7 @@ export function ErroDaRota({
       role="alert"
       className="mx-auto flex max-w-lg flex-col items-center gap-5 px-6 py-16 text-center"
     >
-      <span className="flex size-12 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
+      <span className="flex size-12 items-center justify-center rounded-full bg-danger-soft text-danger">
         <AlertTriangle className="size-6" aria-hidden="true" />
       </span>
 

@@ -116,7 +116,7 @@ export function ResumoDicionario({ spaceId, recarga }: { spaceId: string; recarg
                   <span>{num(l.com_tipo)} com tipo</span>
                 </p>
                 {semRotulo === l.linhas && l.linhas > 0 && (
-                  <p className="mt-1.5 text-2xs text-amber-700 dark:text-amber-400">
+                  <p className="mt-1.5 text-2xs text-warning">
                     Nenhuma tem rótulo humano — sem isso o assistente não consegue dizer
                     &ldquo;Filial&rdquo; no lugar de <code>COD_FILIAL</code>. Os rótulos vêm do metadado da
                     aplicação APEX ou de uma coluna <code>label</code> no CSV.

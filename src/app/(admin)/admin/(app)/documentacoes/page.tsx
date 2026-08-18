@@ -88,13 +88,7 @@ export default async function DocumentacoesPage() {
 
   const canCreate = await hasPermission("space.create");
 
-  return (
-    <div className="mx-auto max-w-5xl">
-      <DocsHub
-        docs={docs}
-        spaces={spaces}
-        canCreate={canCreate}
-      />
-    </div>
-  );
+  // Sem moldura própria: quem monta o `PageShell` é o hub, que é dono da ação
+  // "Nova documentação" (estado de diálogo, portanto cliente).
+  return <DocsHub docs={docs} spaces={spaces} canCreate={canCreate} />;
 }

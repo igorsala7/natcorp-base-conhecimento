@@ -2,12 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Search, X } from "lucide-react";
+import { Check, Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
-import { controlClass } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
@@ -182,16 +182,16 @@ export function BaseAccessManager({ bases, tools, baseTools }: Props) {
           <label htmlFor="acesso_busca" className="mb-1 block text-xs font-medium text-text-muted">
             Buscar ferramenta
           </label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
-            <input
-              id="acesso_busca"
-              className={cn(controlClass, "pl-8")}
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="ex.: ponto, férias, holerite…"
-            />
-          </div>
+          <SearchInput
+            id="acesso_busca"
+            value={busca}
+            onChange={setBusca}
+            // Mesmo texto do <label> visível acima: `aria-label` diferente do
+            // rótulo na tela quebra o "label in name" (WCAG 2.5.3) e confunde
+            // quem usa comando de voz ("clique em Buscar ferramenta").
+            label="Buscar ferramenta"
+            placeholder="ex.: ponto, férias, holerite…"
+          />
         </div>
 
         <div className="flex items-center gap-2">

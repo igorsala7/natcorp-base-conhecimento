@@ -274,7 +274,7 @@ export function ApexIngest({ spaceId, onMudou }: { spaceId: string; onMudou?: ()
             return (
               <div key={j.id} className="text-sm">
                 <div className="mb-1 flex flex-wrap items-center gap-x-2 text-xs">
-                  <span className={erro ? "font-medium text-rose-700 dark:text-rose-300" : "text-text-muted"}>
+                  <span className={erro ? "font-medium text-danger" : "text-text-muted"}>
                     {erro ? "Falhou" : j.status === "queued" ? "Na fila…" : "Processando…"}
                   </span>
                   {/* done/total diz MAIS que a porcentagem num job longo: "1.200
@@ -304,7 +304,7 @@ export function ApexIngest({ spaceId, onMudou }: { spaceId: string; onMudou?: ()
                   </Button>
                 </div>
                 {erro ? (
-                  <p className="rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                  <p className="rounded-md bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
                     {j.error ?? "sem detalhe"}
                   </p>
                 ) : (

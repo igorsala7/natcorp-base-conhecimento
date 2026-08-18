@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Merge, Pencil, Plus, Tag as TagIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
@@ -60,7 +61,7 @@ export function TagsManager({ spaceId, initial }: { spaceId: string; initial: Ta
       <div className="flex flex-wrap items-center gap-3">
         <TagIcon className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold">Tags</h2>
+          <h2 className={sectionTitleClass}>Tags</h2>
           <p className="text-xs text-text-muted">
             Etiquetas transversais à árvore — o leitor filtra por elas no portal.
           </p>

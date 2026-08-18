@@ -251,13 +251,13 @@ export function DirectoryTextImproveDialog({
           </div>
           <p className="text-sm text-text-muted">
             {fase === "processando" ? `Analisando ${prog.feitos} de ${prog.total}…` : `Aplicando ${prog.feitos} de ${prog.total}…`}
-            {prog.falhas > 0 && <span className="text-red-600 dark:text-red-400"> {prog.falhas} falha(s).</span>}
+            {prog.falhas > 0 && <span className="text-danger"> {prog.falhas} falha(s).</span>}
           </p>
         </div>
       )}
 
       {fase === "vazio" && <p className="text-sm text-text-muted">Não há artigos neste diretório.</p>}
-      {fase === "erro" && <p className="text-sm text-red-600 dark:text-red-400">{erro}</p>}
+      {fase === "erro" && <p className="text-sm text-danger">{erro}</p>}
 
       {fase === "concluido" && (
         <p className="text-sm leading-relaxed">

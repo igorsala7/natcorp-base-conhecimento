@@ -17,7 +17,7 @@ export function BlockPreview({ typeKey }: { typeKey: string }) {
   const blocks = useMemo(() => previewBlocks(typeKey), [typeKey]);
   if (!blocks) return null;
   return (
-    <div className="prose-portal pointer-events-none max-h-40 overflow-hidden rounded-md border border-border bg-surface p-2 text-[0.8125rem] [&_*]:!my-1 [&_h2]:!text-sm">
+    <div className="prose-portal pointer-events-none max-h-40 overflow-hidden rounded-md border border-border bg-surface p-2 text-ui [&_*]:!my-1 [&_h2]:!text-sm">
       <RenderBlocks blocks={blocks} snippets={VAZIO} />
     </div>
   );

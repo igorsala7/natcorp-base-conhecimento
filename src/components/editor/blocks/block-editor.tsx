@@ -1100,7 +1100,7 @@ function BlockEditorInner({
   function onReindex() {
     // A geração vive na aba Embeddings da Importar (job em background com
     // progresso). Abrimos já apontando para este artigo.
-    router.push(`/admin/importar?tab=embeddings&space=${spaceId}&node=${nodeId}`);
+    router.push(`/admin/importar?aba=embeddings&space=${spaceId}&node=${nodeId}`);
   }
 
   async function onSubmitReview() {
@@ -1230,7 +1230,7 @@ function BlockEditorInner({
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold tracking-tight">{title}</h1>
-          <span className="text-2xs text-brand-gray-400">
+          <span className="text-2xs text-text-muted">
             {saveState === "saving"
               ? "Salvando…"
               : saveState === "error"
@@ -1244,7 +1244,7 @@ function BlockEditorInner({
                       : "Rascunho"}
           </span>
           {saveState === "saved" && (
-            <span className="ml-2 text-2xs font-semibold text-emerald-600">Salvo</span>
+            <span className="ml-2 text-2xs font-semibold text-success">Salvo</span>
           )}
           {hasDraft && (
             <span
@@ -1501,7 +1501,7 @@ function BlockEditorInner({
       </div>
 
       {erroSalvar && (
-        <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">{erroSalvar}</p>
+        <p role="alert" className="mt-2 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm text-danger">{erroSalvar}</p>
       )}
 
       {/* Só ocupa o topo quando o artigo está em revisão (ou aberto pelo menu

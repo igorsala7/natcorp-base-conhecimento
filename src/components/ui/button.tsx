@@ -18,12 +18,15 @@ const buttonVariants = cva(
         // e `sm` continua entregando o 12px do catálogo.
         secondary:
           "gap-1.5 border border-border bg-surface text-text-muted hover:border-brand-purple-300 hover:text-brand-purple-700 dark:hover:border-brand-purple-700 dark:hover:text-brand-purple-300",
-        // Outline de alerta (ex.: Despublicar).
+        /* Outline de alerta (ex.: Despublicar). Em token: eram nove classes
+           cruas com `dark:` à mão, e o `hover` escurecia trocando de degrau da
+           escala — o que não existe num token. `brightness-95` faz o mesmo em
+           qualquer tema, sem uma segunda cor para manter em sincronia. */
         warning:
-          "gap-1.5 border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
+          "gap-1.5 border border-warning-line bg-warning-soft text-warning hover:brightness-95",
         ghost: "text-text-muted hover:bg-surface-2 hover:text-text",
         accent: "bg-accent text-accent-fg shadow-1 hover:opacity-90 hover:shadow-2",
-        danger: "bg-rose-600 text-white shadow-1 hover:bg-rose-700 hover:shadow-2",
+        danger: "bg-danger text-danger-on shadow-1 hover:opacity-90 hover:shadow-2",
       },
       size: {
         sm: "px-3 py-1.5 text-xs",
@@ -42,7 +45,7 @@ const buttonVariants = cva(
         variant: "danger",
         size: "icon",
         class:
-          "bg-transparent text-text-muted shadow-none hover:bg-rose-50 hover:text-rose-600 hover:shadow-none dark:hover:bg-rose-950/30 dark:hover:text-rose-400",
+          "bg-transparent text-text-muted shadow-none hover:bg-danger-soft hover:text-danger hover:shadow-none",
       },
     ],
     defaultVariants: {

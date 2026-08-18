@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Eye, FileText, Pencil, Upload } from "lucide-react";
-import { RenderBlocks } from "@/lib/blocks/render";
+import { RenderBlocks, deslocamentoDeHeading } from "@/lib/blocks/render";
 import type { Block } from "@/lib/blocks/schema";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -189,7 +189,7 @@ export function PreviewDoc({
                         <span
                           aria-label={STATUS[node.status]?.rotulo}
                           title={STATUS[node.status]?.rotulo}
-                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                          className="size-1.5 shrink-0 rounded-full bg-warning"
                         />
                       )}
                     </a>
@@ -250,7 +250,7 @@ export function PreviewDoc({
                           </p>
                           {selo}
                         </div>
-                        <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
+                        <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl">
                           {node.title}
                         </h2>
                       </div>
@@ -265,7 +265,7 @@ export function PreviewDoc({
                         <h2
                           className={
                             depth <= 1
-                              ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
+                              ? "mt-1.5 text-2xl font-semibold leading-tight sm:text-3xl"
                               : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                           }
                         >
@@ -292,7 +292,12 @@ export function PreviewDoc({
                     <hr className="mb-10 w-full border-border/60" />
                   )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[1.6rem] font-bold leading-tight">{node.title}</h3>
+                    {/* Espelha o portal: `h2` no primeiro nível, `h3` mais fundo. A prévia
+                        mente sobre a leitura publicada se divergir daqui. */}
+                    {(() => {
+                      const Titulo = depth <= 1 ? "h2" : "h3";
+                      return <Titulo className="text-2xl font-bold leading-tight">{node.title}</Titulo>;
+                    })()}
                     {selo}
                     {rascunhos.has(node.id) && <Badge tone="primary">Edição pendente</Badge>}
                     {/* Ferramentas de edição só no modo Editar: em leitura pura a
@@ -353,7 +358,7 @@ export function PreviewDoc({
                         blocks={artigo.blocks}
                         snippets={snippetsMap}
                         idPrefix={`${ancora(node)}--`}
-                        headingShift={2}
+                        headingShift={deslocamentoDeHeading(artigo.blocks, depth <= 1 ? 3 : 4)}
                       />
                     </div>
                   ) : (

@@ -52,7 +52,7 @@ function corDoPasso(p: TracePasso): string {
   const perdeu = i.encontrado === false || i.poda_agressiva === true || i.parou_por_teto === true || i.sem_dados === true;
   // `danger` não existe como cor do tema (só como tom de Badge) — usar a paleta
   // direta, como o resto do admin faz.
-  if (perdeu) return "border-l-rose-500 bg-rose-500/5";
+  if (perdeu) return "border-l-danger bg-danger-soft";
   if (/^(dataset|query_tool|visual_|integracoes)/.test(p.passo)) return "border-l-primary";
   return "border-l-transparent";
 }
@@ -60,9 +60,9 @@ function corDoPasso(p: TracePasso): string {
 /** Cor do "desfecho" para leitura rápida: verde = resposta; âmbar = pergunta/coleta; vermelho = recusa/erro. */
 function corDesfecho(d: string | null): string {
   if (!d) return "bg-surface-2 text-text-muted";
-  if (d === "resposta") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
-  if (d.startsWith("clarify") || d === "coleta") return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200";
-  if (d.startsWith("recusa") || d.startsWith("erro") || d.startsWith("aviso")) return "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200";
+  if (d === "resposta") return "bg-success-soft text-success";
+  if (d.startsWith("clarify") || d === "coleta") return "bg-warning-soft text-warning";
+  if (d.startsWith("recusa") || d.startsWith("erro") || d.startsWith("aviso")) return "bg-danger-soft text-danger";
   return "bg-brand-blue-100 text-brand-blue-700 dark:bg-brand-blue-900/40 dark:text-brand-blue-200";
 }
 
@@ -75,7 +75,7 @@ const CHIPS: [keyof ChatTraceRow, string][] = [
 function corVerbo(v: string): string {
   return v === "GET"
     ? "bg-brand-blue-100 text-brand-blue-800 dark:bg-brand-blue-900/40 dark:text-brand-blue-200"
-    : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+    : "bg-success-soft text-success";
 }
 
 /** Pares `chave=valor` dos parâmetros, para o resumo na linha fechada. */
@@ -135,7 +135,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
 
   return (
     <div
-      className={`rounded-lg border ${falhou ? "border-rose-300 bg-rose-500/5 dark:border-rose-900/60" : "border-border bg-surface"}`}
+      className={`rounded-lg border ${falhou ? "border-danger-line bg-danger-soft" : "border-border bg-surface"}`}
     >
       <div className="flex items-start gap-1">
       <button
@@ -146,9 +146,9 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
       >
         <span className="mt-0.5 shrink-0">
           {falhou ? (
-            <XCircle className="size-4 text-rose-600 dark:text-rose-300" />
+            <XCircle className="size-4 text-danger" />
           ) : (
-            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2 className="size-4 text-success" />
           )}
         </span>
         <span className="min-w-0 flex-1">
@@ -193,7 +193,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
             </span>
           )}
 
-          {c.erro && <span className="mt-1 block text-xs text-rose-600 dark:text-rose-300">{c.erro}</span>}
+          {c.erro && <span className="mt-1 block text-xs text-danger">{c.erro}</span>}
 
           {relato.sem_dados === true ? (
             <span className="mt-1 block text-2xs text-text-muted">Nenhum registro retornado.</span>
@@ -230,7 +230,7 @@ function CartaoFerramenta({ c, abrirPorPadrao }: { c: ChamadaFerramenta; abrirPo
           )}
 
           {c.guard && (
-            <div className="rounded-lg border border-rose-300 bg-rose-500/5 p-2.5 dark:border-rose-900/60">
+            <div className="rounded-lg border border-danger-line bg-danger-soft p-2.5">
               <p className="text-2xs font-semibold uppercase tracking-wide text-text-muted">
                 Bloqueada pela regra de acesso
               </p>

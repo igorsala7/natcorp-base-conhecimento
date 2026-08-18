@@ -295,7 +295,7 @@ function RailList({
                   }}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex min-w-0 flex-1 items-start gap-1.5 border-l-2 py-1.5 pl-2 text-[0.8125rem] leading-snug transition-colors",
+                    "flex min-w-0 flex-1 items-start gap-1.5 border-l-2 py-1.5 pl-2 text-ui leading-snug transition-colors",
                     isActive
                       ? "border-primary font-semibold text-primary"
                       : cn(

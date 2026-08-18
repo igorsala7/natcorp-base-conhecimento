@@ -2469,6 +2469,7 @@ export type Database = {
           p_portal: string | null
           p_usuario: string | null
           page: Json | null
+          rag_memoria: Json
           session_id: string | null
           space_id: string
           user_ref: string | null
@@ -2488,6 +2489,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          rag_memoria?: Json
           session_id?: string | null
           space_id: string
           user_ref?: string | null
@@ -2507,6 +2509,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          rag_memoria?: Json
           session_id?: string | null
           space_id?: string
           user_ref?: string | null
@@ -4753,6 +4756,86 @@ export type Database = {
       register_article_view: {
         Args: { p_node_id: string }
         Returns: undefined
+      }
+      // Agregação do Painel no banco. A leitura crua estourava o teto de 1.000
+      // linhas do PostgREST em silêncio — ver 20260817150000_painel_agregado.sql.
+      painel_resumo: {
+        Args: Record<string, never>
+        Returns: { total_views: number; feedback_total: number; feedback_util: number }[]
+      }
+      painel_top_artigos: {
+        Args: { p_limit?: number }
+        Returns: {
+          node_id: string
+          title: string
+          status: string
+          views: number
+          /** `null` = nenhuma avaliação ainda. Não é o mesmo que 0%. */
+          util_pct: number | null
+        }[]
+      }
+      // Agregação da tela Desempenho no banco — ver 20260817220000_analises_agregado.sql.
+      // `total_views` se repete em toda linha (é o total da janela, não da linha).
+      analises_leitura: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total_views: number
+          node_id: string
+          title: string
+          space_id: string
+          views: number
+        }[]
+      }
+      // Soma pública de visualizações — SECURITY DEFINER com o filtro de
+      // publicado/visível dentro. Ver 20260817231000_views_dos_nos.sql.
+      // Assuntos de partida do widget para o público não identificado: títulos
+      // publicados VISÍVEIS naquele espaço (respeitando a herança por overlay),
+      // ordenados por leitura. Ver 20260817234500_titulos_de_partida.sql.
+      titulos_de_partida: {
+        Args: { p_space_id: string; p_limit?: number }
+        Returns: { title: string }[]
+      }
+      views_dos_nos: {
+        Args: { p_ids: string[] }
+        Returns: number
+      }
+      analises_chat: {
+        Args: { p_dias?: number }
+        Returns: {
+          respostas: number
+          uteis: number
+          nao_uteis: number
+          recusas: number
+          latencia_media: number
+        }[]
+      }
+      // Totais repetidos por linha; `termo` nulo quando não há busca na janela.
+      // `achou` separa os dois rankings: `true` = mais buscados, `false` = lacunas.
+      analises_busca: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total: number
+          sem_resultado: number
+          termo: string | null
+          vezes: number
+          achou: boolean | null
+        }[]
+      }
+      analises_serie: {
+        Args: { p_dias?: number }
+        Returns: { day: string; space_id: string; views: number }[]
+      }
+      // Os dois totais se repetem em toda linha; `node_id` é nulo quando não há
+      // nenhum artigo sem visita (o `left join lateral` devolve a contagem sozinha).
+      analises_sem_visita: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total_publicados: number
+          total_sem_visita: number
+          node_id: string | null
+          title: string | null
+          space_id: string | null
+        }[]
       }
       embeddings_report: {
         Args: { p_space_id?: string | null }

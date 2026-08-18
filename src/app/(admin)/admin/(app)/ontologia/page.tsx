@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
 import { pickSpace } from "@/lib/content/current-space";
@@ -14,8 +12,7 @@ import { ApexXliffTranslator } from "./apex-xliff-translator";
 import { DicionarioSecao } from "./dicionario-secao";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
-import { Button } from "@/components/ui/button";
-import { AssistenteTabs } from "@/components/admin/assistente-tabs";
+import { AbasRota } from "@/components/admin/abas-rota";
 import { permissoesDo } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "Ontologia" };
@@ -45,7 +42,7 @@ export default async function OntologiaPage({
   const spaces = await listSpaces();
   const { space } = await searchParams;
   // Memoizado por request — o layout já consultou, então não custa ida ao banco.
-  const podeWidget = (await permissoesDo()).has("widget.manage");
+  const permissoes = await permissoesDo();
   const atual = await pickSpace(spaces, space);
   if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
@@ -70,21 +67,10 @@ export default async function OntologiaPage({
         </>
       }
       largura="wide"
-      acoes={
-        <>
-          {/* O caminho de volta explícito: esta tela é filha do Assistente na
-              nova arquitetura e ainda não virou aba dele. Enquanto não virar, o
-              link evita que ela pareça um destino solto. */}
-          <Button asChild variant="ghost">
-            <Link href={`/admin/assistente?space=${atual.id}`}>
-              <ArrowLeft /> Assistente
-            </Link>
-          </Button>
-          {/* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */}
-          <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
-        </>
-      }
-      abas={<AssistenteTabs atual="ontologia" spaceId={atual.id} podeGerenciarWidget={podeWidget} />}
+      /* O botão "← Assistente" saiu: a barra de abas agora mostra onde esta
+         tela mora E o caminho de volta, sem gastar uma ação do cabeçalho. */
+      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+      abas={<AbasRota rota="/admin/assistente" atual="ontologia" permissoes={permissoes} spaceId={atual.id} />}
     >
 
       <div className="mt-6">

@@ -50,13 +50,10 @@ export function ReviewQueue({
     });
   }
 
+  // Moldura (título, descrição, largura) é do `PageShell` da rota — ver
+  // `trash-manager.tsx` para o porquê.
   return (
-    <div className="mx-auto max-w-3xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Revisão</h1>
-      <p className="mt-1 text-sm text-text-muted">
-        Artigos aguardando aprovação para publicar.
-      </p>
-
+    <>
       {items.length === 0 ? (
         <EmptyState
           className="mt-6"
@@ -103,6 +100,6 @@ export function ReviewQueue({
           </ul>
         </Surface>
       )}
-    </div>
+    </>
   );
 }

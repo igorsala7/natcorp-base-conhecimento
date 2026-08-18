@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PageShell } from "@/components/ui/page-shell";
+import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -75,43 +77,42 @@ export default async function ConfiguracoesPage({
         hasPassword={temSenha === true}
         siteUrl={env.NEXT_PUBLIC_SITE_URL}
       />
-      <div className="mx-auto mt-6 max-w-2xl">
+      <div className="mt-6">
         <TagsManager spaceId={current.id} initial={tags} />
       </div>
     </>
   );
 
-  if (!returnTo) return form;
-
+  /**
+   * A MOLDURA VEM DO `PageShell`, e a trilha à mão saiu.
+   *
+   * Esta tela montava a própria: `<h1>` ausente, uma `max-w-2xl` decidida no
+   * lugar, e um breadcrumb de três níveis escrito à mão em `<ol>` — o único do
+   * admin, porque o produto não tinha nenhum. Agora existe um, na barra
+   * superior, alimentado pelo mapa de rotas.
+   *
+   * O que ELE não sabe é de onde a pessoa veio: chegar aqui pelo editor de um
+   * artigo é diferente de chegar pelo cartão da documentação. Esse retorno
+   * específico é a única parte que continua sendo do escopo da tela, e vira uma
+   * AÇÃO — que é o que ele sempre foi. Trilha é onde você está; botão é para
+   * onde você volta.
+   */
   return (
-    <div className="space-y-4">
-      <nav aria-label="Trilha" className="flex flex-wrap items-center justify-between gap-3">
-        <ol className="flex flex-wrap items-center gap-1.5 text-sm text-text-muted">
-          <li>
-            <Link href="/admin/conteudo" className="hover:text-primary">
-              Conteúdo
+    <PageShell
+      titulo="Preferências da documentação"
+      descricao={<>Endereço público, visibilidade, acesso e etiquetas de <strong className="font-semibold text-text">{current.name}</strong>.</>}
+      largura="page"
+      acoes={
+        returnTo ? (
+          <Button asChild variant="secondary">
+            <Link href={returnTo}>
+              <ArrowLeft /> Voltar para {editorNode?.title ?? "o editor"}
             </Link>
-          </li>
-          <li aria-hidden>›</li>
-          <li>
-            <Link href={returnTo} className="hover:text-primary">
-              {editorNode?.title ?? "Editor"}
-            </Link>
-          </li>
-          <li aria-hidden>›</li>
-          <li className="font-medium text-text" aria-current="page">
-            Configurações
-          </li>
-        </ol>
-        <Link
-          href={returnTo}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:border-primary hover:text-primary"
-        >
-          <ArrowLeft className="size-4" />
-          Voltar ao editor
-        </Link>
-      </nav>
+          </Button>
+        ) : undefined
+      }
+    >
       {form}
-    </div>
+    </PageShell>
   );
 }

@@ -53,7 +53,9 @@ export default async function UsuariosPage() {
   if (!canView) {
     return (
       <SemPermissao
-        titulo="Usuários"
+        /* "Pessoas" é o nome no menu. Cabeçalho discordando da barra lateral
+         era o que impedia escrever um breadcrumb honesto. */
+      titulo="Pessoas"
         oQue="ver os usuários"
         permissao="user.view"
         papel="Gestor de conteúdo"
@@ -150,8 +152,8 @@ export default async function UsuariosPage() {
 
   return (
     <PageShell
-      titulo="Usuários"
-      descricao={`${users.length} ${users.length === 1 ? "usuário" : "usuários"} · você é nível ${actorLevel}`}
+      titulo="Pessoas"
+      descricao={`${users.length} ${users.length === 1 ? "pessoa" : "pessoas"} com acesso ao admin · você é nível ${actorLevel}`}
       largura="wide"
     >
 

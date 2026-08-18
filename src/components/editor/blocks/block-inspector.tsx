@@ -221,7 +221,7 @@ function Act({ title, icon: Icon, onClick, danger }: { title: string; icon: Luci
       aria-label={title}
       onClick={onClick}
       className={`flex size-7 items-center justify-center rounded-md transition-colors ${
-        danger ? "text-text-muted hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40" : "text-text-muted hover:bg-surface-2 hover:text-text"
+        danger ? "text-text-muted hover:bg-danger-soft hover:text-danger" : "text-text-muted hover:bg-surface-2 hover:text-text"
       }`}
     >
       <Icon className="size-4" />

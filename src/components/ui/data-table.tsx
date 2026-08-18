@@ -12,13 +12,49 @@ import { cn } from "@/lib/utils";
 export function DataTable({
   children,
   className,
+  rotulo = "Tabela",
   ...props
-}: React.HTMLAttributes<HTMLTableElement>) {
+}: React.HTMLAttributes<HTMLTableElement> & {
+  /** Nome da região rolável, anunciado ao chegar nela pelo teclado. */
+  rotulo?: string;
+}) {
   return (
-    // O scroll fica AQUI dentro: uma tabela larga nunca pode fazer a página
-    // rolar na horizontal.
-    <div className="overflow-x-auto rounded-lg border border-border">
+    /**
+     * O scroll fica AQUI dentro: uma tabela larga nunca pode fazer a página
+     * rolar na horizontal.
+     *
+     * ── E quem rola precisa ALCANÇAR ────────────────────────────────────────
+     * Um contêiner com `overflow-x-auto` rola com a roda do mouse e com o
+     * gesto de arrastar, e não rola com o teclado: sem `tabIndex`, ele nunca
+     * recebe foco, e as setas continuam rolando a PÁGINA. Numa tabela de nove
+     * colunas a 1024px, as últimas colunas ficam inalcançáveis para quem não
+     * usa mouse — o dado existe e não há como chegar nele.
+     *
+     * `role="region"` + nome: a parada de tabulação a mais só se justifica se,
+     * ao chegar nela, o leitor de tela disser o que é.
+     */
+    <div
+      tabIndex={0}
+      role="region"
+      aria-label={rotulo}
+      className="overflow-x-auto rounded-lg border border-border"
+    >
       <table className={cn("w-full text-sm", className)} {...props}>
+        {/**
+         * A REGIÃO tem nome; a TABELA também precisa do dela.
+         *
+         * A árvore de acessibilidade mostrava quatro nós `table` sem nome
+         * nenhum na tela Sistema. O `aria-label` da região só é anunciado ao
+         * ENTRAR nela — quem usa o modo de navegação por tabelas (o jeito
+         * normal de ler dado tabular com leitor de tela) pula direto de tabela
+         * em tabela e ouvia só "tabela, 4 colunas". Nenhuma ferramenta
+         * automática reclama disso: `axe` não exige nome em tabela.
+         *
+         * `<caption>` e não outro `aria-label`: é o mecanismo que o HTML já tem
+         * para isso, e o `sr-only` o mantém fora da tela — o título visível da
+         * seção já está logo acima.
+         */}
+        <caption className="sr-only">{rotulo}</caption>
         {children}
       </table>
     </div>

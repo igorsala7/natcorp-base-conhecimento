@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, controlClass } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton, SkeletonText, SkeletonTable, SkeletonCards, SkeletonList } from "@/components/ui/skeleton";
+import { SkeletonText, SkeletonTable, SkeletonCards, SkeletonList } from "@/components/ui/skeleton";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { ErroDaRota } from "@/components/ui/erro-da-rota";
 import { useToast } from "@/components/ui/toast";
@@ -32,7 +32,9 @@ export function EstiloView() {
       titulo="Estilo"
       descricao="Todo primitivo em todos os estados. É a superfície de revisão do sistema de design e o alvo dos snapshots — troque o tema no topo para conferir os dois."
       largura="wide"
-      abas={<Tabs tabs={ABAS} aria-label="Áreas do sistema de design" />}
+      // `comPainel`: esta é a única tela que envolve o conteúdo em `TabPanel`,
+      // então é a única em que o `aria-controls` das abas tem destino.
+      abas={<Tabs tabs={ABAS} comPainel aria-label="Áreas do sistema de design" />}
     >
       <TabPanel aba="controles" atual={aba} className="space-y-10">
         <Section titulo="Botão — variantes" descricao="Uma primária por tela. As demais são subordinadas.">
@@ -291,6 +293,38 @@ export function EstiloView() {
               <div key={nome} className="space-y-1.5">
                 <div className={`h-12 rounded-md border border-border ${cls}`} />
                 <code className="block text-2xs text-text-muted">{nome}</code>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          titulo="Cor de estado"
+          descricao="Os quatro papéis que faltavam — e cuja ausência produziu 401 cores cruas espalhadas por 60 arquivos."
+        >
+          {/* Cada tom aparece nos QUATRO usos porque um aviso precisa dos
+              quatro, e era a combinação — não a cor — que cada tela improvisava
+              de um jeito. Ver os quatro juntos é o que revela a incoerência. */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {(
+              [
+                ["success", "Concluído", "bg-success", "text-success-on", "bg-success-soft", "text-success", "border-success-line"],
+                ["warning", "Atenção", "bg-warning", "text-warning-on", "bg-warning-soft", "text-warning", "border-warning-line"],
+                ["danger", "Erro", "bg-danger", "text-danger-on", "bg-danger-soft", "text-danger", "border-danger-line"],
+                ["info", "Informação", "bg-info", "text-info-on", "bg-info-soft", "text-info", "border-info-line"],
+              ] as const
+            ).map(([nome, rotulo, solido, tintaSolida, suave, tinta, linha]) => (
+              <div key={nome} className="space-y-2">
+                <div
+                  className={`flex h-12 items-center justify-center rounded-md text-sm font-semibold ${solido} ${tintaSolida}`}
+                >
+                  {rotulo}
+                </div>
+                <div className={`rounded-md border px-3 py-2 text-sm ${suave} ${tinta} ${linha}`}>
+                  Fundo suave com borda
+                </div>
+                <p className={`text-sm ${tinta}`}>Tinta sobre a página</p>
+                <code className="block text-2xs text-text-muted">--color-{nome}</code>
               </div>
             ))}
           </div>

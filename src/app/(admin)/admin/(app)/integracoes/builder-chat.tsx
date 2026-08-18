@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Send, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sectionTitleClass } from "@/components/ui/page-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -118,7 +119,7 @@ export function BuilderChat() {
   return (
     <div>
       <div className="mb-3">
-        <h2 className="text-sm font-semibold text-text">Construtor de IA</h2>
+        <h2 className={sectionTitleClass}>Construtor de IA</h2>
         <p className="mt-1 text-xs text-text-muted">
           Converse para montar e editar o esquema: ferramentas/APIs, agentes e vínculos. O assistente
           <strong> não apaga nada</strong> nem mexe em credenciais/segredos — isso continua manual nas abas.
@@ -139,7 +140,7 @@ export function BuilderChat() {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-left text-sm text-text hover:border-[var(--color-primary)]/50"
+                    className="rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-left text-sm text-text hover:border-primary/50"
                   >
                     {s}
                   </button>
@@ -153,7 +154,7 @@ export function BuilderChat() {
                   <span
                     className={cn(
                       "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full",
-                      m.role === "user" ? "bg-[var(--color-primary)]/12 text-[var(--color-primary)]" : "bg-surface-2 text-text-muted",
+                      m.role === "user" ? "bg-primary/12 text-primary" : "bg-surface-2 text-text-muted",
                     )}
                   >
                     {m.role === "user" ? <User className="size-4" /> : <Bot className="size-4" />}
@@ -161,7 +162,7 @@ export function BuilderChat() {
                   <div
                     className={cn(
                       "max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
-                      m.role === "user" ? "bg-[var(--color-primary)] text-white" : "bg-surface-2/60 text-text",
+                      m.role === "user" ? "bg-primary text-white" : "bg-surface-2/60 text-text",
                     )}
                   >
                     {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
@@ -179,11 +180,11 @@ export function BuilderChat() {
             proposta, e aqui a ferramenta nascia ATIVA enquanto o texto ainda
             estava sendo transmitido. */}
         {plano && plano.length > 0 && (
-          <div className="border-t border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          <div className="border-t border-warning-line bg-warning-soft p-3">
+            <p className="text-sm font-semibold text-warning">
               {plano.length} alteração(ões) no esquema — nada foi gravado ainda
             </p>
-            <ul className="mt-2 space-y-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+            <ul className="mt-2 space-y-1 text-xs text-warning">
               {descreverPlano(plano).map((linha, i) => (
                 <li key={i}>· {linha}</li>
               ))}
@@ -212,7 +213,7 @@ export function BuilderChat() {
                 }
               }}
               placeholder="Ex.: crie a tool consultar_cep e vincule ao nati_rh"
-              className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none placeholder:text-text-muted focus:border-[var(--color-primary)]"
+              className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none placeholder:text-text-muted focus:border-primary"
             />
             <Button onClick={() => void send()} disabled={streaming || !input.trim()} title="Enviar">
               <Send />

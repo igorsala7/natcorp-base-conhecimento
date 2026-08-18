@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { PortalNav } from "@/components/portal/nav";
 import type { PortalTreeNode } from "@/lib/portal/data";
 import type { ThemeLink } from "@/lib/portal/theme";
 import { comBase } from "@/lib/base-path";
+import { useFocoPreso } from "@/components/ui/use-foco-preso";
 
 /** Botão + drawer de navegação para telas pequenas (< lg). */
 export function PortalMobileNav({
@@ -21,6 +22,9 @@ export function PortalMobileNav({
   links?: ThemeLink[];
 }) {
   const [open, setOpen] = useState(false);
+  const painelRef = useRef<HTMLDivElement>(null);
+  // Gaveta do portal no celular: sem a armadilha, Tab percorria o artigo atrás.
+  useFocoPreso(open, painelRef, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
@@ -45,12 +49,22 @@ export function PortalMobileNav({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-label="Navegação">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div
             className="absolute inset-0 bg-black/40 motion-safe:animate-[fade_150ms_ease-out]"
             onClick={() => setOpen(false)}
+            role="presentation"
           />
-          <div className="relative flex h-dvh w-[85%] max-w-xs flex-col border-r border-border bg-surface shadow-3 motion-safe:animate-[slideinleft_200ms_ease-out]">
+          {/* `role="dialog"` no PAINEL, não no invólucro: no invólucro ele
+              englobava o scrim, e o leitor anunciava o fundo como conteúdo do
+              diálogo. */}
+          <div
+            ref={painelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navegação"
+            className="relative flex h-dvh w-[85%] max-w-xs flex-col border-r border-border bg-surface shadow-3 motion-safe:animate-[slideinleft_200ms_ease-out]"
+          >
             <div className="flex h-14 items-center justify-between border-b border-border px-4">
               <span className="font-semibold">Documentação</span>
               <button

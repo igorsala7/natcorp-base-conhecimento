@@ -48,7 +48,7 @@ export function ChecklistBlock({ block, onChange }: BlockEditProps) {
             type="button"
             title="Remover item"
             onClick={() => set(items.filter((i) => i.id !== item.id))}
-            className="mt-0.5 rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/item:opacity-100 dark:hover:bg-red-950/40"
+            className="mt-0.5 rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover/item:opacity-100"
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -107,7 +107,7 @@ export function StatsBlock({ block, onChange }: BlockEditProps) {
               type="button"
               title="Remover indicador"
               onClick={() => set(items.filter((i) => i.id !== item.id))}
-              className="absolute right-2 top-2 rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/item:opacity-100 dark:hover:bg-red-950/40"
+              className="absolute right-2 top-2 rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger group-hover/item:opacity-100"
             >
               <Trash2 className="size-3.5" />
             </button>

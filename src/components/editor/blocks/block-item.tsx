@@ -95,7 +95,7 @@ const BlockItem = memo(function BlockItem({
         <button
           type="button"
           aria-label="Arrastar bloco"
-          className="flex h-7 w-5 cursor-grab items-center justify-center rounded-sm text-brand-gray-300 transition-colors hover:bg-surface-2 active:cursor-grabbing dark:text-brand-gray-600"
+          className="flex h-7 w-5 cursor-grab items-center justify-center rounded-sm text-border-strong transition-colors hover:bg-surface-2 hover:text-text active:cursor-grabbing"
           {...attributes}
           {...listeners}
         >
@@ -116,7 +116,7 @@ const BlockItem = memo(function BlockItem({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-          <span className="flex items-center gap-1 px-1.5 text-2xs font-bold uppercase tracking-[0.05em] text-brand-gray-400">
+          <span className="flex items-center gap-1 px-1.5 text-2xs font-bold uppercase tracking-[0.05em] text-text-muted">
             <Meta.icon className="size-3.5" />
             {Meta.label}
           </span>
@@ -242,7 +242,7 @@ function BarBtn({
       onClick={onClick}
       className={`flex size-6 items-center justify-center rounded-sm text-text-muted transition-colors ${
         danger
-          ? "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
+          ? "hover:bg-danger-soft hover:text-danger"
           : "hover:bg-surface-2 hover:text-text"
       }`}
     >

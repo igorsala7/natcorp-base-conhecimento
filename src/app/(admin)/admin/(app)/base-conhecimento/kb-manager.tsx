@@ -115,7 +115,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
             description="Suba manuais, tabelas de preço ou procedimentos que o chatbot deve conhecer sem que virem artigos publicados."
           />
         ) : (
-          <DataTable>
+          <DataTable rotulo="Arquivos da base de conhecimento">
             <DataHead>
               <Th>Arquivo</Th>
               <Th>Situação</Th>
@@ -132,7 +132,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
                   <Tr key={r.id}>
                     <Td>
                       <div className="font-medium">{r.original_name}</div>
-                      {r.error && <div className="text-xs text-red-600">{r.error}</div>}
+                      {r.error && <div className="text-xs text-danger">{r.error}</div>}
                     </Td>
                     <Td>
                       <Badge tone={st.tom}>{st.rotulo}</Badge>
@@ -152,7 +152,7 @@ export function KbManager({ spaceId, initial }: { spaceId: string; initial: KbRo
                         onClick={() => excluir(r)}
                         title="Excluir"
                       >
-                        <Trash2 className="size-4 text-red-600 dark:text-red-400" />
+                        <Trash2 className="size-4 text-danger" />
                       </Button>
                     </Td>
                   </Tr>

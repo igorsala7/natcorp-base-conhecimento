@@ -93,7 +93,7 @@ export function DataImport({ onRows }: { onRows: (rows: string[][]) => void }) {
           }}
         />
       </div>
-      {erro && <p className="text-xs text-rose-600">{erro}</p>}
+      {erro && <p className="text-xs text-danger">{erro}</p>}
     </div>
   );
 }

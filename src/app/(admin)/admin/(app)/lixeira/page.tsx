@@ -3,6 +3,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { listTrash } from "./actions";
 import { TrashManager } from "./trash-manager";
 import { SemPermissao } from "@/components/ui/sem-permissao";
+import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Lixeira" };
 
@@ -18,5 +19,13 @@ export default async function LixeiraPage() {
     );
   }
   const [items, canEmpty] = await Promise.all([listTrash(), hasPermission("trash.empty")]);
-  return <TrashManager initialItems={items} canEmpty={canEmpty} />;
+  return (
+    <PageShell
+      titulo="Lixeira"
+      descricao="Itens excluídos. Restaurar traz a subárvore inteira de volta ao lugar de origem."
+      largura="page"
+    >
+      <TrashManager initialItems={items} canEmpty={canEmpty} />
+    </PageShell>
+  );
 }

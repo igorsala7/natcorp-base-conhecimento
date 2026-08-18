@@ -36,4 +36,26 @@ describe("useFocoPreso — foco preso", () => {
     // Nenhuma chamada direta a `onClose(` no corpo do efeito — seria stale.
     expect(/[^.]\bonClose\(/.test(efeito)).toBe(false);
   });
+
+  /**
+   * Regressão de um defeito que só apareceu ao CLICAR — build, tipos, lint e
+   * 2.040 testes passaram com ele dentro.
+   *
+   * A armadilha fecha o ciclo do Tab comparando `document.activeElement` com o
+   * ÚLTIMO focável do painel. `querySelectorAll` devolve também o que está
+   * escondido por CSS: quando a barra lateral virou gaveta no celular, o botão
+   * "Recolher" ganhou `hidden md:inline-flex`, continuou casando com
+   * `button:not([disabled])` e passou a ser o "último" da lista — um elemento
+   * que nunca recebe foco. A comparação jamais dava verdadeira, o Tab não era
+   * interceptado, e o foco escapava para a página atrás.
+   *
+   * A armadilha parecia montada e não prendia. É o pior modo de falha possível
+   * para acessibilidade: silencioso e invisível para quem usa mouse.
+   */
+  it("só considera focável o que está VISÍVEL (senão o Tab escapa)", () => {
+    const corpo = fonte.slice(fonte.indexOf("const focaveis"), fonte.indexOf("// Foco no primeiro CAMPO"));
+    // `getClientRects()` vazio cobre display:none, visibility:hidden e
+    // elemento sem caixa — os três jeitos de estar no DOM sem ser focável.
+    expect(corpo).toContain("getClientRects().length > 0");
+  });
 });

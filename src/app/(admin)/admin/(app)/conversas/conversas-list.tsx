@@ -217,10 +217,10 @@ export function ConversasList({
                       </span>
                     )}
                     {votos.up > 0 && (
-                      <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3.5" />{votos.up}</span>
+                      <span className="inline-flex items-center gap-1 text-success"><ThumbsUp className="size-3.5" />{votos.up}</span>
                     )}
                     {votos.down > 0 && (
-                      <span className="inline-flex items-center gap-1 text-rose-600"><ThumbsDown className="size-3.5" />{votos.down}</span>
+                      <span className="inline-flex items-center gap-1 text-danger"><ThumbsDown className="size-3.5" />{votos.down}</span>
                     )}
                     {c.session_id && <span className="font-mono opacity-70">{c.session_id.slice(0, 12)}</span>}
                   </span>
@@ -263,8 +263,8 @@ export function ConversasList({
                             >
                               {usuario ? "Usuário" : "Assistente"}
                             </span>
-                            {m.feedback === 1 && <ThumbsUp className="size-3.5 text-emerald-600" />}
-                            {m.feedback === -1 && <ThumbsDown className="size-3.5 text-rose-600" />}
+                            {m.feedback === 1 && <ThumbsUp className="size-3.5 text-success" />}
+                            {m.feedback === -1 && <ThumbsDown className="size-3.5 text-danger" />}
                             <span className="font-mono tabular-nums opacity-80">{dataHoraSeg(m.created_at)}</span>
                             {typeof m.latency_ms === "number" && <span>{m.latency_ms} ms</span>}
                             {entrada != null && (

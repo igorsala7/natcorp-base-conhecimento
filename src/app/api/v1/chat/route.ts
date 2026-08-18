@@ -11,6 +11,9 @@ import {
 } from "@/lib/ai/rag";
 import { resolvePersonaDetalhe, resolveRegras } from "@/lib/ai/prompt-cascade";
 import { composeSystemPrompt } from "@/lib/ai/system-prompt";
+import { auditDumpLigado, dumpPromptDoTurno } from "@/lib/ai/audit-dump";
+import { separarContexto, comDadosNaUltimaPergunta, comContextoDeTela, type BlocoContexto } from "@/lib/ai/prompt-split";
+import { lerMemoria, nosParaBoost, atualizarMemoria } from "@/lib/ai/rag-memoria";
 import { personaDeRelatorio } from "@/lib/ai/report-profile";
 import {
   resolveWidgetKey,
@@ -25,7 +28,7 @@ import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
 import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
-import { widgetLiberado } from "@/lib/widget/disponibilidade";
+import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
 import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } from "@/lib/chat/run-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
@@ -69,7 +72,7 @@ import { executarConfirmacao, blocoConfirmacaoExecutada, type ResultadoConfirmac
 import { rotulosAmigaveisTools, selecionarToolsAderentes } from "@/lib/chat/tool-clarify";
 import { glossarioCasado, formasExpandidas } from "@/lib/ai/ontology";
 import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
-import { marcarCacheDeTools, withPrefixCache } from "@/lib/ai/anthropic-cache";
+import { marcarCacheDeTools, withPrefixCache, withFirstCache } from "@/lib/ai/anthropic-cache";
 import { pedeAnalise } from "@/lib/chat/intencao-dados";
 import { notaDataAtual } from "@/lib/ai/current-date";
 import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
@@ -308,22 +311,55 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // porque é usado lá embaixo, na montagem do prompt: dentro do bloco ele
   // morreria junto com o `baseCfg`.
   let appsSchema: string[] | null = null;
-  if (String(track.p_base ?? "").trim()) {
-    const { data: baseCfg } = await supabase
-      .from("ai_bases")
-      .select("active, widget_paineis, apps_schema")
-      .ilike("base_code", String(track.p_base).trim().replace(/([\\%_])/g, "\\$1"))
-      .maybeSingle();
-    if (baseCfg && !widgetLiberado(baseCfg.widget_paineis, track.p_portal, baseCfg.active)) {
-      return json({ error: "O assistente não está disponível neste painel.", code: "widget_desativado" }, 403);
-    }
-    appsSchema = baseCfg?.apps_schema ?? null;
-  }
+  /**
+   * SESSÃO EXPIRADA vem ANTES do bloqueio por identidade.
+   *
+   * Os dois casos são "não consigo identificar", mas só um tem conserto que o
+   * usuário pode fazer: atualizar a página. Deixar o expirado cair no 403
+   * genérico trocaria uma instrução acionável por "não está disponível nesta
+   * tela" — e a pessoa ficaria olhando para uma tela que funcionava minutos antes.
+   */
   if (motivoRastreio === "expirado") {
     return Response.json(
       { error: "Sua sessão no painel expirou. Atualize a página para continuar.", code: "sessao_expirada" },
       { status: 401, headers: cors },
     );
+  }
+
+  /**
+   * A MESMA trava do `/config`, e pelo mesmo motivo.
+   *
+   * Esconder a bolha sem fechar a API deixaria o assistente acessível a quem
+   * chamasse o endpoint direto — a configuração viraria enfeite. Aqui o
+   * bloqueio é 403; lá é o `desativado` que impede a bolha de existir.
+   *
+   * Sem token não há como saber de qual cliente é a tela, e a decisão agora nega
+   * na dúvida (regra do Igor, 18/08). Antes tudo isto vivia dentro de
+   * `if (track.p_base)` e uma tela sem rastreio passava direto.
+   */
+  const bloqueio = bloqueioPorIdentidade({
+    temToken: motivoRastreio !== "sem_token",
+    decodificou: motivoRastreio === null,
+    baseCode: track.p_base,
+  });
+  if (bloqueio) {
+    return json({ error: "O assistente não está disponível nesta tela.", code: "widget_desativado", motivo: bloqueio }, 403);
+  }
+  {
+    const { data: baseCfg } = await supabase
+      .from("ai_bases")
+      .select("active, widget_paineis, apps_schema")
+      .ilike("base_code", String(track.p_base).trim().replace(/([\\%_])/g, "\\$1"))
+      .maybeSingle();
+    // Base desconhecida bloqueia: com token obrigatório, um token válido citando
+    // base inexistente é erro de cadastro, não instalação legítima.
+    if (!baseCfg) {
+      return json({ error: "O assistente não está disponível nesta tela.", code: "widget_desativado", motivo: "base_desconhecida" }, 403);
+    }
+    if (!widgetLiberado(baseCfg.widget_paineis, track.p_portal, baseCfg.active)) {
+      return json({ error: "O assistente não está disponível neste painel.", code: "widget_desativado" }, 403);
+    }
+    appsSchema = baseCfg.apps_schema ?? null;
   }
   // A partir daqui toda chamada de IA do turno sai atribuída a este cliente,
   // inclusive as que módulos internos disparam sem saber de quem é o turno.
@@ -753,7 +789,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // melhor tanto com a TELA (título/colunas/labels) quanto com as TOOLS (embedding
   // enriquecido). Só carrega quando pode haver roteamento (há base + relatório/IA).
   const podeRotear = !!baseCode && !continuation && !social && (temRelatorioNaTela || fonteEscolhida === "ia");
-  const formasOnto = podeRotear ? await formasExpandidas(supabase, key.space_ids, question, idioma) : [];
+  // Casa contra a consulta REESCRITA, não contra a mensagem crua. "E em julho?"
+  // não contém termo nenhum da ontologia — a reescrita (que já resolveu a
+  // anáfora com o histórico) contém. Medido: 33,3% dos turnos iam sem glossário.
+  // Quando a reescrita é pulada, `consultaRag === question` e nada muda.
+  const formasOnto = podeRotear ? await formasExpandidas(supabase, key.space_ids, consultaRag, idioma) : [];
   const consultaTool = formasOnto.length ? `${consultaTools}\n${formasOnto.slice(0, 6).join("\n")}` : consultaTools;
   let fonteEfetiva: "relatorio" | "ia" | undefined = fonteEscolhida;
   let matchesCache: ToolMatch[] | null = null;
@@ -956,7 +996,20 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // pergunta para responder com documentação — e buscá-la custava 3.268 tokens
   // por turno, medido na conversa de férias de 13/08/2026 (a linha "Fontes:"
   // aparecia embaixo de um "Sim", com oito documentos).
-  const ragSources = social || baseExclusiva || soRedigir || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined });
+  // MEMÓRIA DE CONTINUIDADE: nós recuperados nos turnos recentes desta conversa.
+  // Uma leitura por chave primária; sem conversa (1º turno) não há o que ler.
+  // Falha aqui NUNCA derruba o turno: perder continuidade é degradação aceitável.
+  const _turnoAtual = messages.filter((m) => m.role === "user").length;
+  const _memoriaRaw = convId
+    ? await supabase.from("conversations").select("rag_memoria").eq("id", convId).maybeSingle()
+        // `.then(ok, err)`: o builder do Supabase devolve PromiseLike, que não
+        // tem `.catch`. A forma de dois argumentos é a que compila e a que
+        // garante que uma falha de leitura vire "sem memória", não exceção.
+        .then((r) => r.data?.rag_memoria ?? null, () => null)
+    : null;
+  const _memoria = lerMemoria(_memoriaRaw);
+  const _continuidade = nosParaBoost(_memoria, _turnoAtual);
+  const ragSources = social || baseExclusiva || soRedigir || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined, continuidade: _continuidade });
   const _tRag = Date.now();
   console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? (docNoRelatorio ? " (modo_relatorio_doc)" : " (modo_relatorio_reduzido)") : ""}`);
   passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, // Motivos DISTINTOS para medir o efeito do corte: `modo_relatorio_cortado` é o
@@ -971,7 +1024,37 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
             ? "confirmacao_executada"
             : perguntaDeDado
               ? "pergunta_de_dado"
-              : "normal", ms: _tRag - _tRagStart });
+              : "normal", ms: _tRag - _tRagStart,
+    // PERFIL DA RECUPERAÇÃO (item 2 da auditoria): score RRF e tamanho de cada
+    // trecho, na ordem em que vieram. Sem isto não há como responder "os últimos
+    // trechos são sinal ou ruído?" — e essa é a única economia que anda junto
+    // com a assertividade: tirar ruído reduz token E melhora a resposta.
+    // `forced` marca o trecho que entrou pelo vínculo termo→artigo da ontologia,
+    // não pela fusão — o score dele não é comparável com os demais.
+    perfil: ragSources.map((s, i) => ({
+      pos: i + 1,
+      score: Math.round((s.score ?? 0) * 1e4) / 1e4,
+      tok: Math.round((s.content ?? "").length / 4),
+      forced: s.forced === true,
+    })),
+    // Queda do 1º ao último: recuperação saudável cai pouco; queda grande
+    // significa que a cauda entrou só para preencher o limite.
+    queda: ragSources.length > 1
+      ? Math.round((1 - (ragSources[ragSources.length - 1]!.score ?? 0) / (ragSources[0]!.score || 1)) * 100)
+      : null,
+  });
+  // Grava a memória para o próximo turno. Sem await: o turno não espera por
+  // isto, e uma falha aqui só custa continuidade — nunca a resposta.
+  if (convId && ragSources.length) {
+    const _nova = atualizarMemoria(
+      _memoria,
+      ragSources.map((r) => ({ node_id: r.node_id, document_id: r.document_id })),
+      _turnoAtual,
+    );
+    void supabase.from("conversations").update({ rag_memoria: _nova }).eq("id", convId)
+      .then(() => undefined, () => undefined);
+  }
+
   // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
   const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
@@ -1265,10 +1348,22 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     );
   }
   const _tGloss0 = Date.now();
-  const glossario = social || baseExclusiva ? "" : await glossarioCasado(supabase, key.space_ids, question, 12, idioma).catch(() => "");
+  // Mesma correção do roteador: casa contra a consulta REESCRITA. Ver a nota em
+  // `formasOnto` — a mensagem crua de um follow-up não tem termo para casar.
+  const _glossSuprimido = social ? "social" : baseExclusiva ? "base_exclusiva" : null;
+  const glossario = _glossSuprimido ? "" : await glossarioCasado(supabase, key.space_ids, consultaRag, 12, idioma).catch(() => "");
   // FONTES da "Base de Dados" (relatórios salvos escolhidos) → bloco de contexto.
   const fontesBlock = formAssist && baseRelIds.length ? await montarFontesBlock(baseRelIds) : "";
   console.log(`[chat-timing] glossario=${Date.now() - _tGloss0}ms | preparo total=${Date.now() - _tPrep0}ms (rewrite+rag+glossario+etc.) — a partir daqui é a chamada ao modelo (streaming)`);
+  // Glossário ausente deixa de ser invisível: sem isto, "suprimido pelo modo" e
+  // "nenhum termo casou" tinham exatamente a mesma aparência no trace — string
+  // vazia — e os dois pedem conserto oposto.
+  passo("ontologia", {
+    suprimido: _glossSuprimido,
+    termos: glossario ? glossario.split(";").length : 0,
+    casou: !!glossario,
+    consulta_usada: pularRewrite ? "original" : "reescrita",
+  });
   // RESSALVA do agente (mesma lógica do widget, `disclaimerTexto`) — guardada na
   // conversa p/ aparecer como coluna no Histórico. É rótulo de saída (não vai ao prompt).
   const _temFontesDisc = baseRelIds.length > 0 || baseAttIds.length > 0;
@@ -1916,9 +2011,14 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Tela sem campo não paga o bloco de campos — nem quando o assistente de
   // formulário está ligado, porque ligar é configuração e ter campo é fato.
   const blocoFields = baseSoFontes || modoAnalisePura || !telaTemCampos ? "" : fieldsContextBlock(screenFields);
-  const blocoGloss = glossario
-    ? `GLOSSÁRIO do domínio (termos canônicos e sinônimos — use-os para entender o pedido e escolher ferramentas/parâmetros): ${glossario}`
-    : "";
+  // O glossário tem duas metades com naturezas opostas: COMO usá-lo é instrução
+  // estável (mesma em todo turno); QUAIS termos casaram muda a cada pergunta.
+  // Juntas no system, a metade volátil derrubava o prefixo cacheado por causa de
+  // ~94 tokens. Separadas, a instrução fica no cache e só os termos viajam.
+  const blocoGlossDiretriz =
+    "GLOSSÁRIO do domínio: quando o contexto trouxer termos canônicos e seus sinônimos, " +
+    "use-os para entender o pedido e para escolher ferramentas e parâmetros.";
+  const blocoGlossTermos = glossario ? `GLOSSÁRIO — termos desta pergunta: ${glossario}` : "";
   // FONTE (relatório da tela × ferramentas): com um relatório carregado + tools de integração
   // (pergunta composta), o modelo tende a FILTRAR o relatório mesmo quando ele NÃO tem o dado
   // pedido — ex.: pedir a LISTA DE COLABORADORES num relatório que só traz cargo agregado, sem
@@ -1961,39 +2061,80 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   ]
     .filter(Boolean)
     .join("\n\n");
-  const contextoStr = [
-    notaDataAtual(),
-    notaCortesia,
-    diretrizReferente(scopeIn?.referente),
-    refDestacado.tipo === "destacados" ? refDestacado.diretriz : "",
-    enumera ? notaEnumeracao() : compl ? notaCompletude() : "",
-    blocoRag,
-    attach.contextBlock,
-    anexoTabelaBloco,
-    fontesBlock,
-    baseSoFontes
-      ? "MODO \"SÓ ESTAS FONTES\": responda APENAS com base nas FONTES DE DADOS SELECIONADAS acima. NÃO use os dados da tela, nem documentação/base de conhecimento geral, nem ontologia. Se a resposta não estiver nessas fontes, diga que não encontrou nelas."
-      : baseExclusiva
-        ? "MODO \"SÓ ESTAS FONTES + A TELA\": responda APENAS com base nas FONTES DE DADOS SELECIONADAS acima e nos DADOS DA TELA. NÃO use documentação/base de conhecimento geral nem ontologia. Se a resposta não estiver nessas fontes, diga que não encontrou nelas."
-        : "",
-    pageChangeNote(prevPage, page),
-    pageContextNote(page),
+  // CONTEXTO em blocos ROTULADOS e CLASSIFICADOS. A ordem é a de sempre — vários
+  // blocos referenciam o anterior ("as fontes ACIMA"), então reordenar quebraria
+  // referências que ninguém documentou.
+  //
+  // `diretriz` fica no system (é instrução: posição = autoridade, e turno de
+  // usuário é superfície de injeção). `dado` pode sair do system e ir para a
+  // última pergunta — é o conteúdo volátil e caro que hoje derruba o cache de
+  // prefixo a cada turno. Ver `@/lib/ai/prompt-split`.
+  //
+  // A classificação é DELIBERADAMENTE conservadora: `fontesBlock` fica como
+  // diretriz porque o MODO "SÓ ESTAS FONTES" logo abaixo diz "as fontes ACIMA"
+  // — separá-los deixaria o "acima" apontando para o nada.
+  const blocosContexto: BlocoContexto[] = [
+    { rotulo: "data", texto: notaDataAtual(), classe: "diretriz" },
+    { rotulo: "cortesia", texto: notaCortesia, classe: "diretriz" },
+    { rotulo: "referente", texto: diretrizReferente(scopeIn?.referente), classe: "diretriz" },
+    { rotulo: "destacado", texto: refDestacado.tipo === "destacados" ? refDestacado.diretriz : "", classe: "diretriz" },
+    { rotulo: "enumeracao", texto: enumera ? notaEnumeracao() : compl ? notaCompletude() : "", classe: "diretriz" },
+    { rotulo: "rag", texto: blocoRag, classe: "dado_pergunta" },
+    { rotulo: "anexo", texto: attach.contextBlock, classe: "dado_pergunta" },
+    { rotulo: "anexo_tabela", texto: anexoTabelaBloco, classe: "dado_pergunta" },
+    { rotulo: "fontes", texto: fontesBlock, classe: "diretriz" },
+    {
+      rotulo: "modo_fontes",
+      texto: baseSoFontes
+        ? "MODO \"SÓ ESTAS FONTES\": responda APENAS com base nas FONTES DE DADOS SELECIONADAS acima. NÃO use os dados da tela, nem documentação/base de conhecimento geral, nem ontologia. Se a resposta não estiver nessas fontes, diga que não encontrou nelas."
+        : baseExclusiva
+          ? "MODO \"SÓ ESTAS FONTES + A TELA\": responda APENAS com base nas FONTES DE DADOS SELECIONADAS acima e nos DADOS DA TELA. NÃO use documentação/base de conhecimento geral nem ontologia. Se a resposta não estiver nessas fontes, diga que não encontrou nelas."
+          : "",
+      classe: "diretriz",
+    },
+    { rotulo: "page_change", texto: pageChangeNote(prevPage, page), classe: "diretriz" },
+    { rotulo: "page_context", texto: pageContextNote(page), classe: "diretriz" },
     // "Só estas fontes" (baseSoFontes): IGNORA os dados da tela — responde só das fontes.
     // A DESCRIÇÃO DA PÁGINA (1.320 tok) sai quando a pergunta vai ser respondida
     // por consulta ao ERP: ali ela é peso que o modelo não tem como usar. Fica
     // em operação de tela e tutorial, onde a página É o assunto.
-    baseSoFontes || (perguntaDeDado && !operacaoDeTela && !modoTutorial) ? "" : scanBlock,
-    baseSoFontes ? "" : tablesBloco,
-    baseSoFontes ? "" : reportBloco,
-    blocoCombinar,
-    continuation ? (reportBloco ? harvestDoneNote() : continuationNote(executedActions)) : "",
-    blocoFields,
-    formAssist && !baseSoFontes && !modoAnalisePura ? focusedFieldNote(payload.focusedField) : "",
-    formAssist ? comparacaoBlock(payload.comparacao) : "",
-    blocoGloss,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+    { rotulo: "scan", texto: baseSoFontes || (perguntaDeDado && !operacaoDeTela && !modoTutorial) ? "" : scanBlock, classe: "dado_tela" },
+    { rotulo: "tables", texto: baseSoFontes ? "" : tablesBloco, classe: "dado_tela" },
+    { rotulo: "report", texto: baseSoFontes ? "" : reportBloco, classe: "dado_tela" },
+    { rotulo: "combinar", texto: blocoCombinar, classe: "diretriz" },
+    { rotulo: "continuacao", texto: continuation ? (reportBloco ? harvestDoneNote() : continuationNote(executedActions)) : "", classe: "diretriz" },
+    { rotulo: "fields", texto: blocoFields, classe: "dado_tela" },
+    { rotulo: "campo_foco", texto: formAssist && !baseSoFontes && !modoAnalisePura ? focusedFieldNote(payload.focusedField) : "", classe: "diretriz" },
+    { rotulo: "comparacao", texto: formAssist ? comparacaoBlock(payload.comparacao) : "", classe: "diretriz" },
+    { rotulo: "glossario_como_usar", texto: blocoGlossDiretriz, classe: "diretriz" },
+    { rotulo: "glossario_termos", texto: blocoGlossTermos, classe: "dado_pergunta" },
+  ];
+  const ctxSep = separarContexto(blocosContexto);
+  // LIGADO por padrão (fase de acompanhamento). Os blocos de DADO saem do system
+  // e vão para depois do prefixo cacheado: mesma informação, outra posição.
+  //
+  // `PROMPT_DADOS_FORA_DO_SYSTEM=0` volta à montagem antiga, byte-idêntica. O
+  // interruptor existe para ser usado sem deploy se o catálogo de casos apontar
+  // regressão — não apague.
+  const dadosForaDoSystem = process.env.PROMPT_DADOS_FORA_DO_SYSTEM !== "0";
+  const contextoStr = dadosForaDoSystem
+    ? ctxSep.diretrizes
+    : blocosContexto
+        .map((b) => b.texto)
+        .filter(Boolean)
+        .join("\n\n");
+  // Mensagens do turno. Duas inserções com propósitos diferentes:
+  //   · dados da PERGUNTA vão junto da última mensagem (mudam todo turno);
+  //   · dados de TELA vão ANTES do histórico, numa posição estável, para o
+  //     prefixo casar entre as ~5 perguntas de uma mesma conversa.
+  const messagesTurno = dadosForaDoSystem
+    ? comContextoDeTela(
+        comDadosNaUltimaPergunta(messages, ctxSep.dadosDaPergunta),
+        ctxSep.dadosDeTela,
+      )
+    : messages;
+  // Ponto de cache na tela: só faz sentido quando ela foi de fato inserida.
+  const temContextoDeTela = dadosForaDoSystem && !!ctxSep.dadosDeTela.trim();
   // PERFIL DE ANÁLISE por MÓDULO (só em modoRelatorio): a ESPECIALIZAÇÃO vem do perfil
   // casado com o MÓDULO do relatório da tela (título+colunas → classificador cacheado),
   // não da análise por pergunta/tools. Se nenhum perfil casar, mantém integ.agentPrompt.
@@ -2064,6 +2205,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   passo("prompt_blocks", {
     systemChars: systemPrompt.length,
     systemTok: _tok(systemPrompt),
+    // Separação diretriz × dado: é o par de números que compara antes/depois.
+    // `dadoTok` é quanto SAIRIA (ou saiu) do prefixo cacheado neste turno.
+    dadosForaDoSystem,
+    diretrizTok: ctxSep.medida.diretrizTok,
+    telaTok: ctxSep.medida.telaTok,
+    perguntaTok: ctxSep.medida.perguntaTok,
     ragTok: _tok(blocoRag),
     formAssistTok: _tok(blocoFormAssist),
     visualsTok: _tok(blocoVisuals),
@@ -2087,9 +2234,48 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       fields: _tok(blocoFields),
       attach: _tok(attach.contextBlock ?? ""),
       fontes: _tok(fontesBlock ?? ""),
-      glossario: _tok(blocoGloss),
+      glossario: _tok(blocoGlossDiretriz) + _tok(blocoGlossTermos),
     },
   });
+
+  /**
+   * Captura do prompt REAL, para a auditoria de agentes.
+   *
+   * O passo acima mede o TAMANHO de cada bloco; a auditoria precisa do
+   * CONTEÚDO. Sem ele, ela leria `ai_agents.system_prompt` — que é só o bloco
+   * `persona`, 226 tokens de um system de 13.445.
+   *
+   * Desligado por padrão (`AUDIT_DUMP_PROMPT=1`) e grava uma vez por processo.
+   * `void`: é diagnóstico, não pode adiar o primeiro token da resposta.
+   */
+  if (auditDumpLigado()) {
+    void dumpPromptDoTurno({
+      systemPrompt,
+      blocos: {
+        persona,
+        especializacao: especializacaoFinal ?? "",
+        capabilities: integ.capabilities ?? "",
+        formAssist: blocoFormAssist,
+        entregar: blocoEntregar,
+        modal: blocoModal,
+        integUsage: blocoIntegUsage,
+        escopo: blocoEscopo,
+        meus_dados: blocoMeus,
+        visuals: blocoVisuals,
+        invite: blocoInvite,
+        rag: blocoRag,
+        scan: baseSoFontes ? "" : scanBlock,
+        tables: baseSoFontes ? "" : tablesBloco,
+        report: baseSoFontes ? "" : reportBloco,
+        fields: blocoFields,
+        attach: attach.contextBlock ?? "",
+        fontes: fontesBlock ?? "",
+        glossario: blocoGlossDiretriz + blocoGlossTermos,
+      },
+      ontologia: blocoGlossTermos,
+      ragTrecho: blocoRag,
+    });
+  }
 
   // Guarda a falha real da geração p/ traduzi-la numa mensagem útil no catch abaixo
   // (o textStream às vezes só encerra o loop sem re-lançar o erro do provedor).
@@ -2158,7 +2344,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     system: systemPrompt,
     // Cache de prompt (Anthropic): com ferramentas, cacheia system + histórico
     // na última mensagem — re-chamadas do loop agêntico ~10× mais baratas.
-    messages: withPrefixCache(withImageParts(messages, attach.imageParts, attach.fileParts), temTools),
+    messages: withPrefixCache(withFirstCache(withImageParts(messagesTurno, attach.imageParts, attach.fileParts), temContextoDeTela), temTools),
     // Loop agêntico: o modelo pode chamar uma API (ou preencher_campo), ler o
     // resultado e responder. `stopWhen` trava o loop.
     // Teto de passos maior quando há geração de arquivos: o usuário pode pedir
@@ -2226,7 +2412,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
             // invalida os três níveis. Aqui vão só as 2 visuais, contra as ~30 da
             // principal — o prefixo diverge na posição 0.
             messages: withPrefixCache([
-              ...withImageParts(messages, attach.imageParts, attach.fileParts),
+              ...withImageParts(messagesTurno, attach.imageParts, attach.fileParts),
               ...histMsgs,
               {
                 role: "user" as const,
@@ -2285,7 +2471,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
                 // messages`, o prefixo diverge na posição 0. Não há nada para ler, e um
                 // breakpoint aqui seria escrita pura: 1,25× de custo, zero retorno.
                 messages: [
-                  ...withImageParts(messages, attach.imageParts, attach.fileParts),
+                  ...withImageParts(messagesTurno, attach.imageParts, attach.fileParts),
                   ...histMsgs,
                   { role: "user" as const, content: notaFechamento },
                 ],

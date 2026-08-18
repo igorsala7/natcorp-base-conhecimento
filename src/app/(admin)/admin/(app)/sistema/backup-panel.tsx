@@ -64,9 +64,9 @@ const DIAS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sáb
 const ehBackup = (b: BackupRow) => b.kind === "manual" || b.kind === "auto" || b.kind === "upload";
 
 function StatusCell({ b }: { b: BackupRow }) {
-  if (b.status === "done") return <span className="font-medium text-emerald-600">Concluído</span>;
+  if (b.status === "done") return <span className="font-medium text-success">Concluído</span>;
   if (b.status === "error")
-    return <span className="font-medium text-rose-600" title={b.error ?? ""}>Erro</span>;
+    return <span className="font-medium text-danger" title={b.error ?? ""}>Erro</span>;
   return (
     <span className="text-text-muted">
       {b.status === "queued" ? "Na fila" : "Rodando"}
@@ -309,7 +309,7 @@ export function BackupPanel({
       <Surface elevation={1} padding="lg">
         <h2 className={eyebrowLabel}>Backups realizados</h2>
         <div className="mt-4">
-          <DataTable>
+          <DataTable rotulo="Backups">
             <DataHead>
               <Th>Quando</Th>
               <Th>Tipo</Th>

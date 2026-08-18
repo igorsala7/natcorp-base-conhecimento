@@ -60,7 +60,7 @@ export function SubscribeForm({ spaceSlug }: { spaceSlug: string }) {
 
   return (
     <section aria-label="Receber novidades" className="mt-14 rounded-xl border border-border bg-surface p-6">
-      <h2 className="flex items-center gap-2 text-[0.9375rem] font-semibold">
+      <h2 className="flex items-center gap-2 text-base font-semibold">
         <BellRing className="size-4 text-primary" /> Receba as novidades
       </h2>
       <p className="mt-1 text-sm text-text-muted">

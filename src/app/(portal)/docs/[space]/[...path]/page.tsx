@@ -16,7 +16,7 @@ import {
   getRelatedArticles,
   getArticleBylines,
 } from "@/lib/portal/data";
-import { RenderBlocks } from "@/lib/blocks/render";
+import { RenderBlocks, deslocamentoDeHeading } from "@/lib/blocks/render";
 import { normalizeDoc } from "@/lib/blocks/convert";
 import { blocksToText } from "@/lib/blocks/serialize";
 import { PortalShell, Breadcrumbs, spaceChrome } from "@/components/portal/shell";
@@ -245,14 +245,20 @@ export default async function DocsPage({
     Math.round(artigoSections.reduce((n, s) => n + wordCount(blocksToText(s.blocks)), 0) / 200),
   );
 
-  // Total de visualizações dos artigos desta página (RLS pública já filtra).
-  const { data: viewsRows } = artigoSections.length
-    ? await db
-        .from("article_views")
-        .select("views")
-        .in("node_id", artigoSections.map((s) => s.node.id))
-    : { data: [] as { views: number }[] };
-  const totalViews = (viewsRows ?? []).reduce((n, r) => n + r.views, 0);
+  /**
+   * Total de visualizações desta página, somado no BANCO.
+   *
+   * Trazia todo o histórico DIÁRIO de cada artigo (uma linha por nó por dia,
+   * sem recorte de data) para somar em JS. Um diretório com 12 artigos vistos
+   * ao longo de um ano são ~4.400 linhas — acima do teto de 1.000 do PostgREST,
+   * e o número mostrado ao leitor ficaria menor que a realidade, em silêncio.
+   * É a única métrica que o LEITOR vê; um número que só encolhe é pior que
+   * número nenhum. Ver `20260817231000_views_dos_nos.sql`.
+   */
+  const { data: somaViews } = artigoSections.length
+    ? await db.rpc("views_dos_nos", { p_ids: artigoSections.map((s) => s.node.id) })
+    : { data: 0 };
+  const totalViews = Number(somaViews ?? 0);
 
   // Paginação: o diretório de 1º NÍVEL seguinte/anterior que tenha conteúdo.
   const temArtigo = (n: (typeof tree)[number]): boolean =>
@@ -290,7 +296,7 @@ export default async function DocsPage({
           {título}
         </h1>
         {/* Metadados como "eyebrow" discreto: informam sem competir com o título. */}
-        <div className="mb-6 mt-3 flex items-center gap-2 border-b border-border pb-6 text-[0.8125rem] text-text-muted">
+        <div className="mb-6 mt-3 flex items-center gap-2 border-b border-border pb-6 text-ui text-text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Clock className="size-3.5" /> {minutes} min de leitura
           </span>
@@ -356,7 +362,7 @@ export default async function DocsPage({
                     Seção
                   </p>
                   {/* Título de seção ~2x o corpo. */}
-                  <h2 className="mt-1 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]">
+                  <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl">
                     {s.node.title}
                   </h2>
                 </div>
@@ -368,7 +374,7 @@ export default async function DocsPage({
                   <h2
                     className={
                       s.depth <= 1
-                        ? "mt-1.5 text-[1.75rem] font-semibold leading-tight sm:text-[2rem]"
+                        ? "mt-1.5 text-2xl font-semibold leading-tight sm:text-3xl"
                         : "mt-1.5 text-[length:var(--l-article,var(--text-2xl))] font-semibold leading-tight"
                     }
                   >
@@ -389,9 +395,23 @@ export default async function DocsPage({
               {i > 0 && sections[i - 1]?.kind === "article" && (
                 <hr className="mb-10 w-full border-border/60" />
               )}
-              <h3 className="text-[1.6rem] font-bold leading-tight">
-                {s.node.title}
-              </h3>
+              {/**
+                * O NÍVEL segue a profundidade, como o tamanho já seguia.
+                *
+                * Era `h3` fixo. A escada da página é h1 (a pasta aberta) → h2
+                * (seção-pasta) → h3 (artigo dentro dela); com o `h3` fixo, um
+                * artigo no PRIMEIRO nível vinha logo depois do h1 e pulava o
+                * h2. Quem navega por títulos lê o salto como "existe um nível
+                * aqui que eu não alcancei".
+                *
+                * `s.depth <= 1` é o mesmo sinal que a seção-pasta já usa para
+                * escolher o tamanho — agora ele decide as duas coisas, que é o
+                * que impede as duas de divergirem.
+                */}
+              {(() => {
+                const Titulo = s.depth <= 1 ? "h2" : "h3";
+                return <Titulo className="text-2xl font-bold leading-tight">{s.node.title}</Titulo>;
+              })()}
               {(s.updatedAt || bylines.get(s.node.id)?.author) && (
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
                   {bylines.get(s.node.id)?.author && (
@@ -442,10 +462,18 @@ export default async function DocsPage({
                   ))}
                 </p>
               )}
-              {/* headingShift=2: o H1 do conteúdo vira H3 — um degrau ABAIXO do
-                  título do artigo (H3 visual 24px), nunca acima dele. */}
+              {/* O menor título do conteúdo cai UM degrau abaixo do título do
+                  artigo — que é `h2` no primeiro nível e `h3` mais fundo. Era
+                  `headingShift={2}` fixo, o que só funcionava para artigos que
+                  começam em `h1`; os que começam em `h2` pulavam um degrau.
+                  Ver `deslocamentoDeHeading`. */}
               <div className="prose prose-neutral prose-portal mt-5 max-w-none dark:prose-invert">
-                <RenderBlocks blocks={s.blocks} snippets={snippets} idPrefix={s.prefix} headingShift={2} />
+                <RenderBlocks
+                  blocks={s.blocks}
+                  snippets={snippets}
+                  idPrefix={s.prefix}
+                  headingShift={deslocamentoDeHeading(s.blocks, s.depth <= 1 ? 3 : 4)}
+                />
               </div>
               <Feedback nodeId={s.node.id} supportUrl={supportUrl} />
             </section>
@@ -493,7 +521,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${prevGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">← Anterior</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-text-muted">← Anterior</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {prevGroup.title}
               </span>
@@ -506,7 +534,7 @@ export default async function DocsPage({
               href={`/docs/${spaceSlug}/${nextGroup.slugPath.join("/")}`}
               className="group rounded-lg border border-border bg-surface p-4 text-right no-underline shadow-1 transition-all hover:border-brand-purple-300 hover:shadow-2 dark:hover:border-brand-purple-700"
             >
-              <span className="block text-2xs font-bold uppercase tracking-wider text-brand-gray-400">Próximo →</span>
+              <span className="block text-2xs font-bold uppercase tracking-wider text-text-muted">Próximo →</span>
               <span className="mt-1 block truncate text-sm font-semibold transition-colors group-hover:text-brand-purple-700 dark:group-hover:text-brand-purple-300">
                 {nextGroup.title}
               </span>

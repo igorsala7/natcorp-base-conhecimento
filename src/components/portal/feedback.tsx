@@ -43,7 +43,7 @@ export function Feedback({ nodeId, supportUrl }: { nodeId: string; supportUrl?: 
           onClick={yes}
           aria-label="Sim, esta página foi útil"
           title="Sim, foi útil"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-success-soft hover:text-success"
         >
           <ThumbsUp className="size-4" /> Sim
         </button>
@@ -52,7 +52,7 @@ export function Feedback({ nodeId, supportUrl }: { nodeId: string; supportUrl?: 
           onClick={no}
           aria-label="Não, esta página não foi útil"
           title="Não foi útil"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-danger-soft hover:text-danger"
         >
           <ThumbsDown className="size-4" /> Não
         </button>

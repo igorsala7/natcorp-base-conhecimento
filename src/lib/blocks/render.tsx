@@ -184,7 +184,7 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
         >
           {partes.map((p, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <ChevronRight className="size-3.5 text-brand-gray-400" aria-hidden="true" />}
+              {i > 0 && <ChevronRight className="size-3.5 text-text-muted" aria-hidden="true" />}
               <span className={i === partes.length - 1 ? "font-medium text-text" : ""}>{p}</span>
             </span>
           ))}
@@ -214,16 +214,16 @@ function renderInner(block: Block, ctx: Ctx): ReactNode {
               <span className="size-2.5 rounded-full bg-amber-500/80" />
               <span className="size-2.5 rounded-full bg-emerald-500/80" />
               {filename && (
-                <span className="ml-2 font-mono text-xs text-brand-gray-400">{filename}</span>
+                <span className="ml-2 font-mono text-xs text-text-muted">{filename}</span>
               )}
             </div>
             {lang && (
-              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-brand-gray-500">
+              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-text-muted">
                 {lang}
               </span>
             )}
           </div>
-          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !bg-transparent !p-4 font-mono text-[13px] leading-[1.6] !text-brand-gray-100">
+          <pre className="slim-scroll relative !my-0 !rounded-none !border-0 !bg-transparent !p-4 font-mono text-ui leading-[1.6] !text-brand-gray-100">
             <CodeCopy code={code} />
             {html ? (
               <code className="hljs text-brand-gray-100" dangerouslySetInnerHTML={{ __html: html }} />
@@ -738,6 +738,49 @@ function renderEmbed(block: Extract<Block, { type: "embed" }>): ReactNode {
 // ── entrypoints ──────────────────────────────────────────────────────────────
 
 /**
+ * O DESLOCAMENTO DE TÍTULOS, calculado em vez de fixo.
+ *
+ * A leitura contínua empilha vários artigos sob um título de página, e cada
+ * artigo tem os próprios títulos internos. Para a escada não quebrar, o MENOR
+ * título do conteúdo precisa cair exatamente um degrau abaixo do título do
+ * artigo — e um `headingShift` constante não garante isso: ele assume que todo
+ * artigo começa em `h1`.
+ *
+ * Os que começam em `h2` (comuns em conteúdo importado) caíam em `h4` com o
+ * artigo em `h2`, deixando o `h3` vazio no meio. Quem navega por títulos lê o
+ * buraco como um nível que existe e não foi alcançado.
+ *
+ * Devolve `null` quando não há título nenhum — aí qualquer deslocamento serve.
+ */
+export function menorNivelDeHeading(blocks: Block[]): number | null {
+  let menor: number | null = null;
+  const anda = (bs: Block[]) => {
+    for (const b of bs) {
+      if (b.type === "heading") {
+        const n = b.data.level;
+        if (menor === null || n < menor) menor = n;
+      }
+      if ("children" in b && Array.isArray(b.children)) anda(b.children);
+    }
+  };
+  anda(blocks);
+  return menor;
+}
+
+/**
+ * Quanto deslocar para que o menor título do conteúdo vire `nivelAlvo`.
+ *
+ * `nivelAlvo` é sempre "um abaixo do título do artigo". Nunca negativo: um
+ * conteúdo que já começa fundo não deve SUBIR e passar por cima do título que
+ * o contém — só o buraco no meio da escada é defeito, empurrar para baixo não.
+ */
+export function deslocamentoDeHeading(blocks: Block[], nivelAlvo: number): number {
+  const menor = menorNivelDeHeading(blocks);
+  if (menor === null) return 0;
+  return Math.max(0, nivelAlvo - menor);
+}
+
+/**
  * Extrai H2/H3 para o índice da página (MESMA slugificação do render — passe o
  * mesmo `idPrefix` usado em <RenderBlocks> para as âncoras baterem).
  */
@@ -795,7 +838,7 @@ export function FileCardView({ url, name, size }: { url: string; name: string; s
         {/* No hover do CARTÃO o botão inverte: borda+fundo primários, seta branca. */}
         <span
           aria-hidden
-          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-brand-gray-400 transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-fg"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-text-muted transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-fg"
         >
           <Download className="size-4" />
         </span>

@@ -9,14 +9,25 @@ import { cn } from "@/lib/utils";
  * estado por extenso ("Rascunho", "Publicado"), então quem não distingue as
  * cores continua entendendo.
  */
+/**
+ * Os quatro tons de estado vêm de TOKEN, não da escala crua do Tailwind.
+ *
+ * Eram `emerald`, `sky`, `amber` e `rose` com uma variante `dark:` escrita à
+ * mão em cada um. Três problemas de uma vez: matiz de outro produto ao lado do
+ * roxo da marca, contraste nunca medido, e a mesma decisão repetida em mais 60
+ * arquivos porque não havia token para reaproveitar.
+ *
+ * Com token, o `dark:` some do call site — a variável já muda de valor no tema
+ * escuro. Era exatamente o `dark:` esquecido que quebrava telas em silêncio.
+ */
 const TONES = {
   neutral: "bg-surface-2 text-text-muted",
-  success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+  success: "bg-success-soft text-success",
   primary: "bg-brand-purple-50 text-primary dark:bg-brand-purple-950/40 dark:text-brand-purple-200",
   accent: "bg-brand-pink-50 text-accent dark:bg-brand-pink-950/40 dark:text-brand-pink-200",
-  info: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
-  warning: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  danger: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
+  info: "bg-info-soft text-info",
+  warning: "bg-warning-soft text-warning",
+  danger: "bg-danger-soft text-danger",
 } as const;
 
 export type BadgeTone = keyof typeof TONES;
