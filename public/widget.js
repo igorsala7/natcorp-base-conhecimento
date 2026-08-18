@@ -56,14 +56,14 @@
   // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
   // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
   var I18N = {
-    pt: { placeholder: "Escreva ou fale sua pergunta…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada." },
-    en: { placeholder: "Type or speak your question…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected." },
-    es: { placeholder: "Escribe o habla tu pregunta…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada." },
-    fr: { placeholder: "Écrivez ou dites votre question…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté." },
-    de: { placeholder: "Schreiben oder sprechen Sie Ihre Frage…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt." },
-    it: { placeholder: "Scrivi o pronuncia la tua domanda…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato." },
-    ja: { placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。" },
-    zh: { placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。" },
+    pt: { toqueAssunto: "Toque num assunto para começar", placeholder: "Escreva ou fale…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada." },
+    en: { toqueAssunto: "Tap a topic to start", placeholder: "Type or speak…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected." },
+    es: { toqueAssunto: "Toca un tema para empezar", placeholder: "Escribe o habla…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada." },
+    fr: { toqueAssunto: "Touchez un sujet pour commencer", placeholder: "Écrivez ou parlez…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté." },
+    de: { toqueAssunto: "Tippen Sie auf ein Thema", placeholder: "Schreiben oder sprechen…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt." },
+    it: { toqueAssunto: "Tocca un argomento per iniziare", placeholder: "Scrivi o parla…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato." },
+    ja: { toqueAssunto: "トピックをタップして開始", placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。" },
+    zh: { toqueAssunto: "点击一个主题开始", placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。" },
   };
   function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
   // LS_CLEARED e LS_DRAFT também são declarados ADIANTE, junto do LS_SID: os
@@ -3796,7 +3796,10 @@
       ".hd [data-expand]{display:none}" +
       ".panel.full{max-width:none;max-height:100dvh;border-radius:0;border:none;box-shadow:none}" +
       ".panel.full .hd{padding:calc(12px + env(safe-area-inset-top)) 10px 14px;gap:8px;cursor:default;touch-action:auto}" +
-      ".panel.full .hd button{width:36px;height:36px}" +
+      /* No CELULAR os botões precisam ser MAIORES, não menores: é onde o dedo
+         substitui o cursor e onde a lixeira fica ao lado do minimizar. Este
+         override existia para 36 e anulava o 38 do desktop — invertia a regra. */
+      ".panel.full .hd button{width:40px;height:40px}" +
       // Alvo de toque de 44px no minimizar — é o único caminho de sair da tela cheia.
       ".panel.full .hd [data-close]{width:44px;height:44px;font-size:26px}" +
       // Sem isto o gesto de rolar o chat "vaza" e arrasta a página do sistema host
@@ -3819,7 +3822,11 @@
       ".hd .ti{flex:1;min-width:0}" +
       ".hd .t{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
       ".hd .s{font-size:12px;opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
-      ".hd button{background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;flex:none}" +
+      /* 38px, não 30: numa tela de toque o cabeçalho tem a LIXEIRA ao lado do
+         minimizar, e errar o alvo aqui apaga a conversa. O mínimo confortável é
+         44 — não cabe com quatro botões e o título, então 38 é o teto real, e a
+         separação entre eles faz o resto. */
+      ".hd button{background:rgba(255,255,255,.16);border:none;color:#fff;cursor:pointer;width:38px;height:38px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;flex:none}" +
       ".hd button:hover{background:rgba(255,255,255,.32)}" +
       ".hd button svg{width:15px;height:15px;display:block}" +
       // Mensagens
@@ -3829,7 +3836,9 @@
       ".msgs::-webkit-scrollbar{width:8px}.msgs::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
       // Linha do assistente (avatar + balão)
       ".arow{display:flex;gap:9px;align-items:flex-start;max-width:92%}" +
-      ".cpbtn{opacity:.45;transition:opacity .15s ease;border:0;background:transparent;cursor:pointer;color:#8a8496;font-size:15px;line-height:1;padding:4px;margin-top:6px;flex:none}" +
+      /* Era 20x23 — alvo de mira, não de dedo. `padding` maior sem mudar o
+         ícone: a área cresce, o visual não. */
+      ".cpbtn{opacity:.45;transition:opacity .15s ease;border:0;background:transparent;cursor:pointer;color:#8a8496;font-size:15px;line-height:1;padding:11px;margin-top:0;flex:none}" +
       ".arow:hover .cpbtn,.cpbtn:hover,.cpbtn:focus-visible{opacity:1}" +
       ".arow .av{width:30px;height:30px;border-radius:var(--ash,50%);flex:none;background:var(--av-bg,linear-gradient(135deg,var(--pc),var(--pc2,var(--pc))));border:var(--av-bw,0px) solid var(--av-bc,transparent);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 12px rgba(40,20,80,.28)}" +
       ".arow .av svg{width:16px;height:16px;color:#fff}" +
@@ -3889,8 +3898,9 @@
       ".fbk-btn{background:none;border:none;cursor:pointer;font-size:15px;line-height:1;padding:3px;border-radius:8px;opacity:.7;transition:.15s}" +
       ".fbk-btn:hover{opacity:1;background:#efe8f8}.fbk-btn.on{opacity:1;transform:scale(1.15)}" +
       // Chips de sugestão / desambiguação (pílulas contornadas)
+      ".suggh{padding-left:39px;margin:2px 0 7px;font-size:12px;color:#6b6577}" +
       ".sugg{display:flex;flex-wrap:wrap;gap:8px;padding-left:39px}" +
-      ".sugg button{font-size:13px;font-weight:500;color:var(--pc);border:1.5px solid;border-color:color-mix(in srgb,var(--pc) 38%,#fff);background:#fff;border-radius:999px;padding:8px 14px;cursor:pointer;text-align:left;line-height:1.35;transition:border-color .15s,background .15s,transform .1s;box-shadow:0 2px 7px rgba(60,40,100,.05)}" +
+      ".sugg button{min-height:44px;font-size:13.5px;font-weight:500;color:var(--pc);border:1.5px solid;border-color:color-mix(in srgb,var(--pc) 38%,#fff);background:#fff;border-radius:999px;padding:8px 14px;cursor:pointer;text-align:left;line-height:1.35;transition:border-color .15s,background .15s,transform .1s;box-shadow:0 2px 7px rgba(60,40,100,.05)}" +
       ".sugg button:hover{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 8%,#fff)}" +
       ".sugg button:active{transform:scale(.97)}" +
       // Opções de desambiguação = CARTÕES (nome do artigo + resumo), como no portal.
@@ -3942,6 +3952,13 @@
       ".opts .go:hover{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));filter:brightness(1.08)}" +
       // Rodapé / entrada
       ".ft{border-top:1px solid #efe9f6;padding:12px;display:flex;gap:9px;align-items:flex-end;background:#fff}" +
+      /* O placeholder é CURTO de propósito. O campo é `rows="1"` com
+         `overflow-y:hidden`, e o auto-crescimento só roda quando há VALOR — com
+         placeholder ele fica em uma linha. Num celular de 390px, "Escreva ou
+         fale sua pergunta…" quebrava em duas e a segunda sumia cortada. Campo
+         que parece quebrado afasta justamente quem tem menos repertório para
+         supor que ainda funciona. O que não podia sair é o "fale": para quem
+         escreve com dificuldade, saber que dá para falar é a porta de entrada. */
       ".ft textarea{flex:1;resize:none;border:1.5px solid #e6ddf1;border-radius:16px;padding:11px 14px;font-size:14px;line-height:1.4;outline:none;overflow-y:hidden;background:#faf8fd;transition:border-color .15s,background .15s;min-height:44px}" +
       ".ft textarea:focus{border-color:var(--pc);background:#fff}" +
       ".ft button{background:linear-gradient(135deg,var(--pc),var(--pc2,var(--pc)));color:#fff;border:none;border-radius:50%;width:44px;height:44px;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s,box-shadow .15s,opacity .15s;box-shadow:0 8px 18px rgba(60,30,110,.3)}" +
@@ -5382,7 +5399,7 @@
       '<button class="attb" data-attach aria-label="Anexar arquivo" title="Anexar documento ou imagem (PDF, Word, Excel, CSV, PNG, JPG…)">' + ICON_CLIP + "</button>" +
       '<button class="attb" data-mic aria-label="Gravar áudio" title="Falar (gravar áudio)">' + ICON_MIC + "</button>" +
       '<input type="file" data-file hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp">' +
-      '<textarea rows="1" placeholder="Escreva ou fale sua pergunta…"></textarea>' +
+      '<textarea rows="1" placeholder="Escreva ou fale…"></textarea>' +
       '<button data-send aria-label="Enviar">' + ICON_SEND + "</button></div>" +
       '<div class="disc">Sou uma IA e posso cometer enganos — sempre valide as informações.</div>' +
       '<div class="pw">Powered by Natcorp</div>';
@@ -6429,7 +6446,26 @@
    * investigar, e um botão que reenvia a MESMA pergunta sem redigitar.
    */
   function mostrarErroComSaida(detalhe) {
-    var el = addMsg("assistant", "Não consegui responder agora. Isso costuma ser temporário.");
+    /**
+     * DIZER A CAUSA QUANDO ELA É SABIDA.
+     *
+     * "Isso costuma ser temporário" é honesto e serve para quase tudo — menos
+     * para o caso mais comum e mais fácil de resolver: a internet caiu. Quem
+     * não sabe disso toca "Tentar de novo" três vezes, falha três vezes e
+     * conclui que o assistente está quebrado.
+     *
+     * `navigator.onLine` só afirma que existe interface de rede, não que a
+     * internet funciona — por isso ele NÃO decide se dá para enviar. Ele só
+     * explica uma falha que JÁ aconteceu, que é onde acerta quase sempre.
+     */
+    var semRede = false;
+    try { semRede = navigator.onLine === false; } catch (e) { }
+    var el = addMsg(
+      "assistant",
+      semRede
+        ? "Você está sem internet. Sua pergunta continua guardada — toque em Tentar de novo quando a conexão voltar."
+        : "Não consegui responder agora. Isso costuma ser temporário.",
+    );
     try {
       var acoes = document.createElement("div");
       acoes.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;";
@@ -6571,6 +6607,22 @@
   function renderWelcome() {
     if (cfg.welcome) addMsg("assistant", cfg.welcome);
     if (cfg.suggestions && cfg.suggestions.length) {
+      /**
+       * A INSTRUÇÃO ACIMA DOS BOTÕES.
+       *
+       * As sugestões são títulos de assunto ("Requisição de Treinamento").
+       * Quem lê bem entende sozinho que dá para tocar. Quem lê com dificuldade
+       * vê três frases soltas e não sabe que são botões nem o que acontece ao
+       * tocar — e essa dúvida basta para ele não tocar em nada e fechar.
+       *
+       * Uma linha resolve, e ajuda os dois públicos: diz o GESTO ("toque") e o
+       * RESULTADO ("para começar"). Custa uma linha de 12px e remove a única
+       * suposição que a abertura ainda exigia.
+       */
+      var dica = document.createElement("div");
+      dica.className = "suggh";
+      dica.textContent = wt("toqueAssunto");
+      messagesEl.appendChild(dica);
       var box = document.createElement("div");
       box.className = "sugg";
       cfg.suggestions.forEach(function (q) {
