@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { hasAiKey } from "@/lib/ai/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeTrackDetalhado, type TrackFields } from "@/lib/tracking/resolve";
-import { widgetLiberado } from "@/lib/widget/disponibilidade";
+import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
 import { montarAbertura, publicoDaAbertura } from "@/lib/widget/abertura";
 import {
   resolveWidgetKey,
@@ -34,27 +34,62 @@ export async function GET(req: NextRequest) {
   // desenha a bolha. Bloquear só no /chat deixaria a bolha na tela para abrir e
   // receber uma recusa, o que é pior que não existir.
   const track = req.nextUrl.searchParams.get("track");
-  let liberado = true;
-  // O mesmo token que decide a exibição também diz PARA QUEM estamos abrindo.
-  // Decodificar uma vez e reaproveitar evita um segundo decode só para a abertura.
+  /**
+   * NEGAR na dúvida — a postura mudou em 18/08.
+   *
+   * Antes toda a verificação morava dentro de `if (track)`, e sem token o widget
+   * aparecia. Medido em produção: com token de base inativa a rota devolvia
+   * `{"desativado":true}`; SEM token devolvia a config inteira. Desativar a base
+   * não tinha efeito nenhum numa tela que não gera o token.
+   *
+   * Regra do Igor: "Se não tiver token, também não disponibiliza."
+   *
+   * O motivo é registrado no corpo porque quem investiga precisa distinguir "a
+   * tela não põe `data-token`" de "o token não decodifica" — são consertos em
+   * lugares diferentes, e sem o motivo os dois chegam como "o widget sumiu".
+   */
   let campos: TrackFields = {};
+  let decodificou = false;
   if (track) {
-    ({ campos } = await decodeTrackDetalhado(key.space_id, track));
+    const r = await decodeTrackDetalhado(key.space_id, track);
+    campos = r.campos;
+    decodificou = r.motivo === null;
+  }
+  const motivoIdentidade = bloqueioPorIdentidade({
+    temToken: !!track,
+    decodificou,
+    baseCode: campos.p_base,
+  });
+
+  let liberado = motivoIdentidade === null;
+  let motivo: string | null = motivoIdentidade;
+  if (liberado) {
     const baseCode = String(campos.p_base ?? "").trim();
-    if (baseCode) {
-      const db = createAdminClient();
-      const { data: base } = await db
-        .from("ai_bases")
-        .select("active, widget_paineis")
-        .ilike("base_code", baseCode.replace(/([\\%_])/g, "\\$1"))
-        .maybeSingle();
-      // Base que não existe no catálogo não é motivo para sumir com o widget:
-      // instalação sem integração é um caso legítimo.
-      if (base) liberado = widgetLiberado(base.widget_paineis, campos.p_portal, base.active);
+    const db = createAdminClient();
+    const { data: base } = await db
+      .from("ai_bases")
+      .select("active, widget_paineis")
+      .ilike("base_code", baseCode.replace(/([\\%_])/g, "\\$1"))
+      .maybeSingle();
+    /**
+     * Base que o token cita mas o catálogo não conhece: BLOQUEIA.
+     *
+     * Antes liberava, com a justificativa de que "instalação sem integração é um
+     * caso legítimo". Isso deixou de valer quando o token virou obrigatório: um
+     * token válido apontando para uma base que não existe é erro de cadastro, e
+     * liberar por causa dele reabriria o buraco pelo lado de dentro.
+     */
+    if (!base) {
+      liberado = false;
+      motivo = "base_desconhecida";
+    } else if (!widgetLiberado(base.widget_paineis, campos.p_portal, base.active)) {
+      liberado = false;
+      motivo = base.active ? "painel_bloqueado" : "base_inativa";
     }
   }
+
   if (!liberado) {
-    return Response.json({ desativado: true }, { headers: { ...cors, "Cache-Control": "no-store" } });
+    return Response.json({ desativado: true, motivo }, { headers: { ...cors, "Cache-Control": "no-store" } });
   }
 
   // Abertura por público (PO / PG / colaborador / candidato). Entra como
