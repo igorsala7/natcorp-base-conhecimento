@@ -1540,7 +1540,11 @@
         if (jumpBtn) jumpBtn.hidden = false;
         return;
       }
-      rolarChat();
+      // A linha que de fato ROLA. Na refatoração de 17/08 ela virou
+      // `rolarChat()` — a função chamando a si mesma. Recursão infinita, pilha
+      // estourada, `RangeError` engolido pelo `catch` vazio: a rolagem nunca
+      // acontecia e NADA aparecia no console. O bug tinha silenciador embutido.
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) { }
   }
   function scrollChatFim() { try { rolarChat(true); } catch (e) { } }
