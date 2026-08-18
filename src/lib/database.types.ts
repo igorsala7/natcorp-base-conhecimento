@@ -4786,6 +4786,12 @@ export type Database = {
           views: number
         }[]
       }
+      // Soma pública de visualizações — SECURITY DEFINER com o filtro de
+      // publicado/visível dentro. Ver 20260817231000_views_dos_nos.sql.
+      views_dos_nos: {
+        Args: { p_ids: string[] }
+        Returns: number
+      }
       analises_chat: {
         Args: { p_dias?: number }
         Returns: {

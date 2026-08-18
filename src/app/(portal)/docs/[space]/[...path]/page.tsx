@@ -245,14 +245,20 @@ export default async function DocsPage({
     Math.round(artigoSections.reduce((n, s) => n + wordCount(blocksToText(s.blocks)), 0) / 200),
   );
 
-  // Total de visualizações dos artigos desta página (RLS pública já filtra).
-  const { data: viewsRows } = artigoSections.length
-    ? await db
-        .from("article_views")
-        .select("views")
-        .in("node_id", artigoSections.map((s) => s.node.id))
-    : { data: [] as { views: number }[] };
-  const totalViews = (viewsRows ?? []).reduce((n, r) => n + r.views, 0);
+  /**
+   * Total de visualizações desta página, somado no BANCO.
+   *
+   * Trazia todo o histórico DIÁRIO de cada artigo (uma linha por nó por dia,
+   * sem recorte de data) para somar em JS. Um diretório com 12 artigos vistos
+   * ao longo de um ano são ~4.400 linhas — acima do teto de 1.000 do PostgREST,
+   * e o número mostrado ao leitor ficaria menor que a realidade, em silêncio.
+   * É a única métrica que o LEITOR vê; um número que só encolhe é pior que
+   * número nenhum. Ver `20260817231000_views_dos_nos.sql`.
+   */
+  const { data: somaViews } = artigoSections.length
+    ? await db.rpc("views_dos_nos", { p_ids: artigoSections.map((s) => s.node.id) })
+    : { data: 0 };
+  const totalViews = Number(somaViews ?? 0);
 
   // Paginação: o diretório de 1º NÍVEL seguinte/anterior que tenha conteúdo.
   const temArtigo = (n: (typeof tree)[number]): boolean =>

@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 /**
  * Copia os DADOS DE BUSCA já prontos (embeddings + ontologia) de uma
@@ -10,6 +11,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
  */
 
 export type ArtPair = { srcNodeId: string; destNodeId: string; destArticleId: string };
+
+/** As colunas de `chunks` que a cópia carrega (o vetor é o que economiza tokens). */
+type ChunkOrigem = {
+  node_id: string | null;
+  heading_path: string | null;
+  content: string;
+  token_count: number | null;
+  /** `vector(1536)` chega e volta pelo PostgREST como texto — é o que a inserção espera. */
+  embedding: string | null;
+  embedding_provider: string | null;
+  embedding_model: string | null;
+  embedded_at: string | null;
+  embedded_by: string | null;
+};
 
 /**
  * Copia os `chunks` dos artigos, REMAPEANDO `node_id`/`article_id` para os nós
@@ -24,14 +39,33 @@ export async function copyChunksForArticles(pairs: ArtPair[], destSpaceId: strin
   let copiados = 0;
   for (let i = 0; i < srcIds.length; i += 100) {
     const slice = srcIds.slice(i, i + 100);
-    const { data: chunks } = await admin
-      .from("chunks")
-      .select(
-        "node_id, heading_path, content, token_count, embedding, embedding_provider, embedding_model, embedded_at, embedded_by",
-      )
-      .in("node_id", slice);
+    /**
+     * PAGINADO — o lote de 100 nós não limita o número de TRECHOS.
+     *
+     * Fatiar por `node_id` de 100 em 100 dá a impressão de que o volume está
+     * sob controle, mas cada artigo vira dezenas de `chunks`: 100 nós × 15
+     * trechos já passa do teto de 1.000 linhas do PostgREST. E aqui truncar
+     * não deixa rastro nenhum — a documentação copiada nasce com metade dos
+     * vetores, a busca semântica responde pior do que deveria, e não há erro,
+     * aviso ou contagem que denuncie. O propósito INTEIRO desta função é a doc
+     * nova chegar com a busca pronta.
+     *
+     * A ordenação precisa ser total e estável (`node_id` + `heading_path`),
+     * senão as fatias pulam ou repetem linhas na fronteira.
+     */
+    const chunks = await fetchAllPaged<ChunkOrigem>((from, to) =>
+      admin
+        .from("chunks")
+        .select(
+          "node_id, heading_path, content, token_count, embedding, embedding_provider, embedding_model, embedded_at, embedded_by",
+        )
+        .in("node_id", slice)
+        .order("node_id")
+        .order("heading_path")
+        .range(from, to),
+    );
     const rows = [];
-    for (const c of chunks ?? []) {
+    for (const c of chunks) {
       const p = c.node_id ? bySrc.get(c.node_id) : null;
       if (!p) continue;
       rows.push({
