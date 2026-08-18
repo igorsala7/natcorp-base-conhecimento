@@ -4788,6 +4788,13 @@ export type Database = {
       }
       // Soma pública de visualizações — SECURITY DEFINER com o filtro de
       // publicado/visível dentro. Ver 20260817231000_views_dos_nos.sql.
+      // Assuntos de partida do widget para o público não identificado: títulos
+      // publicados VISÍVEIS naquele espaço (respeitando a herança por overlay),
+      // ordenados por leitura. Ver 20260817234500_titulos_de_partida.sql.
+      titulos_de_partida: {
+        Args: { p_space_id: string; p_limit?: number }
+        Returns: { title: string }[]
+      }
       views_dos_nos: {
         Args: { p_ids: string[] }
         Returns: number

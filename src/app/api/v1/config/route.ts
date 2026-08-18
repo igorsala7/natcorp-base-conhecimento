@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { hasAiKey } from "@/lib/ai/config";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
+import { decodeTrackDetalhado, type TrackFields } from "@/lib/tracking/resolve";
 import { widgetLiberado } from "@/lib/widget/disponibilidade";
+import { montarAbertura, publicoDaAbertura } from "@/lib/widget/abertura";
 import {
   resolveWidgetKey,
   originAllowed,
@@ -34,8 +35,11 @@ export async function GET(req: NextRequest) {
   // receber uma recusa, o que é pior que não existir.
   const track = req.nextUrl.searchParams.get("track");
   let liberado = true;
+  // O mesmo token que decide a exibição também diz PARA QUEM estamos abrindo.
+  // Decodificar uma vez e reaproveitar evita um segundo decode só para a abertura.
+  let campos: TrackFields = {};
   if (track) {
-    const { campos } = await decodeTrackDetalhado(key.space_id, track);
+    ({ campos } = await decodeTrackDetalhado(key.space_id, track));
     const baseCode = String(campos.p_base ?? "").trim();
     if (baseCode) {
       const db = createAdminClient();
@@ -52,8 +56,60 @@ export async function GET(req: NextRequest) {
   if (!liberado) {
     return Response.json({ desativado: true }, { headers: { ...cors, "Cache-Control": "no-store" } });
   }
+
+  // Abertura por público (PO / PG / colaborador / candidato). Entra como
+  // sobreposição da config da chave porque o widget já funde o que vem daqui
+  // por cima dos padrões dele — nenhuma mudança de cliente é necessária.
+  //
+  // `tela` fica de fora por enquanto: no bootstrap o widget ainda não varreu a
+  // página do APEX, então esse sinal só existiria num segundo momento. Melhor
+  // ausente que adivinhado.
+  const cfgAtual = (key.config ?? {}) as Record<string, unknown>;
+  const abertura = montarAbertura({
+    publico: publicoDaAbertura({
+      painel: campos.p_portal,
+      matricula: campos.p_matricula,
+      codCandidato: campos.p_cod_candidato,
+    }),
+    base: campos.p_base,
+    configuradas: cfgAtual.suggestions,
+  });
+
+  /**
+   * NINGUÉM ABRE O WIDGET NUM VAZIO.
+   *
+   * Quando o público não é identificado, o catálogo de atalhos é vazio de
+   * propósito: sem identidade, "Ver meu último holerite" só levaria a uma
+   * recusa. O argumento vale — e ele supõe que a pessoa sabe formular e
+   * escrever a pergunta que quer. Parte do público deste widget não sabe:
+   * compor e digitar É a barreira, e o campo em branco é onde ela desiste.
+   *
+   * Então, em vez de nada, os assuntos mais LIDOS daquela documentação. Não
+   * exigem identidade (é conteúdo publicado), não podem estar errados (saem do
+   * que já existe e já foi lido), e ainda dizem "é sobre isto que eu sei
+   * responder" — que é a pergunta real de quem abre o widget pela primeira vez.
+   *
+   * Só entra quando não há NADA: sugestão configurada à mão e atalho por
+   * público continuam vencendo, nessa ordem.
+   */
+  if (!abertura.suggestions.length) {
+    try {
+      const db = createAdminClient();
+      const { data: titulos } = await db.rpc("titulos_de_partida", {
+        p_space_id: key.space_id,
+        p_limit: 3,
+      });
+      const partida = (titulos ?? []).map((t) => t.title).filter(Boolean);
+      if (partida.length) abertura.suggestions = partida;
+    } catch {
+      // Documentação vazia, instalação nova ou banco fora do ar: a saudação
+      // sozinha volta a ser a resposta. Nunca derruba o widget por causa de
+      // uma sugestão.
+    }
+  }
+
   return Response.json(
-    { config: key.config, aiEnabled: await hasAiKey() },
+    { config: { ...cfgAtual, ...abertura }, aiEnabled: await hasAiKey() },
     // no-store: mudança de config (ícone/cor/título) reflete no próximo load,
     // sem o navegador servir uma versão cacheada da config.
     { headers: { ...cors, "Cache-Control": "no-store" } },
