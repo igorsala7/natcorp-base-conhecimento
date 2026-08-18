@@ -140,6 +140,19 @@ function AskAiPanelInner({
     // Identidade da visita (URL `p_*` ou o que ficou salvo desta sessão).
     const ident = readPortalIdentity();
     trackRef.current = ident;
+    /**
+     * A identidade vem da URL e do `localStorage` — fonte EXTERNA, legível só
+     * depois da montagem. É o mesmo caso legítimo que o projeto já marca em
+     * dez outros arquivos.
+     *
+     * A regra não reclamava aqui até agora, e não porque o código mudou: as
+     * regras do React Compiler desistem da análise de um componente ao topar
+     * com certos construtos, e passam a reportar quando ele volta a ser
+     * analisável. Uma alteração noutro ponto desta função tornou o componente
+     * legível para o analisador, e ele acusou um padrão que já estava aqui.
+     * Vale registrar: "o lint passou ontem" não significa "o lint olhou".
+     */
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTrack(ident);
     // Relê o histórico desta identidade (respeitando o "Limpar" anterior).
     let cleared: string | null = null;

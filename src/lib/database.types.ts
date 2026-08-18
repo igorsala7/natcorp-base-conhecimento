@@ -4774,6 +4774,56 @@ export type Database = {
           util_pct: number | null
         }[]
       }
+      // Agregação da tela Desempenho no banco — ver 20260817220000_analises_agregado.sql.
+      // `total_views` se repete em toda linha (é o total da janela, não da linha).
+      analises_leitura: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total_views: number
+          node_id: string
+          title: string
+          space_id: string
+          views: number
+        }[]
+      }
+      analises_chat: {
+        Args: { p_dias?: number }
+        Returns: {
+          respostas: number
+          uteis: number
+          nao_uteis: number
+          recusas: number
+          latencia_media: number
+        }[]
+      }
+      // Totais repetidos por linha; `termo` nulo quando não há busca na janela.
+      // `achou` separa os dois rankings: `true` = mais buscados, `false` = lacunas.
+      analises_busca: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total: number
+          sem_resultado: number
+          termo: string | null
+          vezes: number
+          achou: boolean | null
+        }[]
+      }
+      analises_serie: {
+        Args: { p_dias?: number }
+        Returns: { day: string; space_id: string; views: number }[]
+      }
+      // Os dois totais se repetem em toda linha; `node_id` é nulo quando não há
+      // nenhum artigo sem visita (o `left join lateral` devolve a contagem sozinha).
+      analises_sem_visita: {
+        Args: { p_dias?: number; p_top?: number }
+        Returns: {
+          total_publicados: number
+          total_sem_visita: number
+          node_id: string | null
+          title: string | null
+          space_id: string | null
+        }[]
+      }
       embeddings_report: {
         Args: { p_space_id?: string | null }
         Returns: {

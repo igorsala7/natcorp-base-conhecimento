@@ -88,32 +88,57 @@ export default async function AnalisesPage({
   // eslint-disable-next-line react-hooks/purity
   const corte90d = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
 
-  const [{ data: searches }, { data: msgs }, { count: convCount }, { data: fb }, { data: views }, { data: quality }, { data: spacesList }] =
+  const [{ data: busca }, { data: chat }, { count: convCount }, { data: fb }, { data: leitura }, { data: serie }, { data: semVisitaRows }, { data: quality }, { data: spacesList }] =
     await Promise.all([
-      // Idem: lacuna de documentação é o que o LEITOR não achou.
-      supabase.from("search_logs").select("query, results_count").eq("origin", "portal").order("created_at", { ascending: false }).limit(3000),
-      supabase.from("messages").select("role, feedback, latency_ms, content").eq("role", "assistant").order("created_at", { ascending: false }).limit(2000),
+      /**
+       * CHAT E BUSCA AGREGADOS — ver 20260817223000_analises_chat_busca.sql.
+       *
+       * Eram `.limit(3000)` e `.limit(2000)` com o TAMANHO DA AMOSTRA exibido
+       * como total: o cartão "Respostas" mostrava `msgRows.length`, então a
+       * partir de 2.000 assistentes ele travaria em 2.000 para sempre. E os
+       * rankings saíam de uma amostra ordenada por data — eram o topo do que é
+       * recente, não o topo do período; um termo muito buscado há dois meses
+       * sumia.
+       */
+      supabase.rpc("analises_busca", { p_dias: 90, p_top: 8 }),
+      supabase.rpc("analises_chat", { p_dias: 90 }),
       supabase.from("conversations").select("id", { count: "exact", head: true }),
       supabase.from("article_feedback").select("node_id, helpful").order("created_at", { ascending: false }).limit(2000),
-      // Últimos 90 dias de contadores diários (node_id, day, views).
-      supabase.from("article_views").select("node_id, day, views").gte("day", corte90d),
-      supabase.from("quality_reports").select("node_id, space_id, issues, score, run_at").order("score", { ascending: false }),
+      /**
+       * LEITURA AGREGADA NO BANCO — ver 20260817220000_analises_agregado.sql.
+       *
+       * Aqui vinham `(nó, dia, views)` crus, SEM limite, somados em JS. Duas
+       * consequências: o teto silencioso de 1.000 linhas do PostgREST, e uma
+       * linha por ARTIGO por DIA trafegando só para desenhar um gráfico de
+       * 90 pontos por documentação — com 1.392 publicados, teto teórico de
+       * ~125 mil linhas. A série agregada tem 22 pontos hoje.
+       */
+      supabase.rpc("analises_leitura", { p_dias: 90, p_top: 8 }),
+      supabase.rpc("analises_serie", { p_dias: 90 }),
+      supabase.rpc("analises_sem_visita", { p_dias: 90, p_top: 8 }),
+      // `quality_reports` também estava sem limite; o teto vale igual.
+      supabase.from("quality_reports").select("node_id, space_id, issues, score, run_at").order("score", { ascending: false }).limit(2000),
       supabase.from("spaces").select("id, name").order("name"),
     ]);
 
-  const searchRows = searches ?? [];
-  const totalSearches = searchRows.length;
-  const zeroSearches = searchRows.filter((s) => s.results_count === 0);
-  const topQueries = topBy(searchRows, (s) => s.query);
-  const topGaps = topBy(zeroSearches, (s) => s.query);
+  // Busca: totais e rankings contados sobre a janela inteira, no banco.
+  const buscaRows = busca ?? [];
+  const totalSearches = Number(buscaRows[0]?.total ?? 0);
+  const zeroCount = Number(buscaRows[0]?.sem_resultado ?? 0);
+  const topQueries: [string, number][] = buscaRows
+    .filter((r) => r.achou === true && r.termo)
+    .map((r) => [r.termo!, Number(r.vezes)]);
+  const topGaps: [string, number][] = buscaRows
+    .filter((r) => r.achou === false && r.termo)
+    .map((r) => [r.termo!, Number(r.vezes)]);
 
-  const msgRows = msgs ?? [];
-  const answers = msgRows.length;
-  const up = msgRows.filter((m) => m.feedback === 1).length;
-  const down = msgRows.filter((m) => m.feedback === -1).length;
-  const refusals = msgRows.filter((m) => (m.content ?? "").startsWith("Não encontrei")).length;
-  const latencies = msgRows.map((m) => m.latency_ms).filter((n): n is number => typeof n === "number");
-  const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
+  // Chat: contagens e média de latência calculadas pelo Postgres.
+  const chatRow = chat?.[0];
+  const answers = Number(chatRow?.respostas ?? 0);
+  const up = Number(chatRow?.uteis ?? 0);
+  const down = Number(chatRow?.nao_uteis ?? 0);
+  const refusals = Number(chatRow?.recusas ?? 0);
+  const avgLatency = Number(chatRow?.latencia_media ?? 0);
 
   const fbRows = fb ?? [];
   const helpful = fbRows.filter((f) => f.helpful).length;
@@ -121,12 +146,17 @@ export default async function AnalisesPage({
   // Artigos com mais "não ajudou".
   const negByNode = topBy(fbRows, (f) => f.node_id, (f) => !f.helpful, 6);
 
-  // Leitura (últimos 90 dias): total, mais vistos, e publicados sem visita.
-  const viewRows = views ?? [];
-  const totalViews = viewRows.reduce((n, v) => n + v.views, 0);
-  const viewsByNode = new Map<string, number>();
-  for (const v of viewRows) viewsByNode.set(v.node_id, (viewsByNode.get(v.node_id) ?? 0) + v.views);
-  const topViewed = [...viewsByNode.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  // Leitura (últimos 90 dias) — tudo já somado pelo Postgres.
+  const leituraRows = leitura ?? [];
+  const totalViews = Number(leituraRows[0]?.total_views ?? 0);
+  /** Top já vem ordenado e COM título: não depende mais da lista de publicados. */
+  const topViewed: [string, number, string][] = leituraRows
+    .filter((r) => r.node_id)
+    .map((r) => [r.node_id, Number(r.views), r.title]);
+  const semVisitaTotal = Number(semVisitaRows?.[0]?.total_sem_visita ?? 0);
+  const publicadosTotal = Number(semVisitaRows?.[0]?.total_publicados ?? 0);
+  const artigosVistos = publicadosTotal - semVisitaTotal;
+  const semVisita = (semVisitaRows ?? []).filter((r) => r.node_id);
 
   // Mais bem avaliados: % de "útil" com um mínimo de votos — o critério da
   // região "Mais úteis" da home (a HubSpot chama de highest-rated).
@@ -149,25 +179,26 @@ export default async function AnalisesPage({
     .eq("status", "published")
     .is("deleted_at", null)
     .limit(2000);
-  const semVisita = (publicados ?? []).filter((n) => !viewsByNode.has(n.id)).slice(0, 8);
 
-  const idsComTitulo = [
-    ...new Set([...negByNode.map(([id]) => id), ...topViewed.map(([id]) => id), ...bestRated.map(([id]) => id)]),
-  ];
-  const titleById = new Map<string, string>((publicados ?? []).map((n) => [n.id, n.title]));
+  // O top de leitura já vem com título da RPC; só os agregados de FEEDBACK
+  // (que ainda saem de uma amostra) precisam resolver nome por id.
+  const idsComTitulo = [...new Set([...negByNode.map(([id]) => id), ...bestRated.map(([id]) => id)])];
+  const titleById = new Map<string, string>(topViewed.map(([id, , titulo]) => [id, titulo]));
   const faltando = idsComTitulo.filter((id) => !titleById.has(id));
   if (faltando.length) {
     const { data: nodes } = await supabase.from("nodes").select("id, title").in("id", faltando);
     for (const n of nodes ?? []) titleById.set(n.id, n.title);
   }
 
-  // Série do gráfico: (dia, documentação, views). Nó que saiu do ar entre a
-  // visita e agora fica de fora — o gráfico é sobre o portal como ele está.
-  const spaceByNode = new Map((publicados ?? []).map((n) => [n.id, n.space_id]));
-  const pontosGrafico = viewRows.flatMap((v) => {
-    const spaceId = spaceByNode.get(v.node_id);
-    return spaceId ? [{ day: v.day, spaceId, views: v.views }] : [];
-  });
+  // Série do gráfico: já agregada por (dia, documentação) no banco. O cruzamento
+  // com a lista de nós — que só existia para descobrir a documentação de cada
+  // visita — deixou de ser necessário, e com ele foi embora a dependência de
+  // `publicados` estar completo.
+  const pontosGrafico = (serie ?? []).map((r) => ({
+    day: r.day,
+    spaceId: r.space_id,
+    views: Number(r.views),
+  }));
 
   // Qualidade: agregados da última varredura (issues por impacto).
   const qualityRows = quality ?? [];
@@ -207,10 +238,10 @@ export default async function AnalisesPage({
         <h2 className={`mb-3 ${eyebrowLabel}`}>Busca</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Buscas registradas" value={totalSearches} />
-          <StatCard label="Sem resultado" value={zeroSearches.length} hint="lacunas na documentação" />
+          <StatCard label="Sem resultado" value={zeroCount} hint="lacunas na documentação" />
           <StatCard
             label="Taxa sem resultado"
-            value={totalSearches ? `${Math.round((zeroSearches.length / totalSearches) * 100)}%` : "—"}
+            value={totalSearches ? `${Math.round((zeroCount / totalSearches) * 100)}%` : "—"}
           />
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -254,10 +285,10 @@ export default async function AnalisesPage({
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Visualizações" value={totalViews} hint="1× por artigo por sessão" />
-          <StatCard label="Artigos vistos" value={viewsByNode.size} />
+          <StatCard label="Artigos vistos" value={artigosVistos} />
           <StatCard
             label="Publicados sem visita"
-            value={(publicados ?? []).length ? (publicados ?? []).length - viewsByNode.size : "—"}
+            value={publicadosTotal ? semVisitaTotal : "—"}
             hint="lacunas de descoberta"
           />
         </div>
@@ -276,11 +307,11 @@ export default async function AnalisesPage({
             empty="Ainda sem artigos com votos suficientes."
           />
         </div>
-        {semVisita.length > 0 && viewsByNode.size > 0 && (
+        {semVisita.length > 0 && artigosVistos > 0 && (
           <div className="mt-3">
             <RankList
-              title="Publicados que ninguém abriu nos últimos 90 dias"
-              rows={semVisita.map((n) => [n.title, 0])}
+              title={`Publicados que ninguém abriu nos últimos 90 dias — ${semVisitaTotal} de ${publicadosTotal}`}
+              rows={semVisita.map((n) => [n.title ?? "—", 0])}
               empty=""
               accent
             />

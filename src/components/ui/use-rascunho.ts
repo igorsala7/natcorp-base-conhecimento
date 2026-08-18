@@ -52,10 +52,19 @@ export function useRascunho<T>(
   const ativo = opts?.ativo ?? true;
   const k = `kb.rascunho.${chave}`;
   const [recuperado, setRecuperado] = useState(false);
-  // A restauração não pode entrar nas dependências do efeito de gravar, senão
-  // repor o formulário dispararia uma gravação do que acabou de ser reposto.
+  /**
+   * A restauração não pode entrar nas dependências do efeito de gravar, senão
+   * repor o formulário dispararia uma gravação do que acabou de ser reposto.
+   *
+   * A sincronização do ref vai num EFEITO, não no corpo do componente: escrever
+   * em ref durante o render é efeito colateral em fase de render — no modo
+   * concorrente o React pode render... e descartar, deixando o ref apontando
+   * para um closure de uma árvore que nunca existiu.
+   */
   const restaurarRef = useRef(restaurar);
-  restaurarRef.current = restaurar;
+  useEffect(() => {
+    restaurarRef.current = restaurar;
+  }, [restaurar]);
   const montou = useRef(false);
 
   useEffect(() => {
@@ -69,6 +78,13 @@ export function useRascunho<T>(
         return;
       }
       restaurarRef.current(g.valor);
+      /**
+       * `localStorage` só existe depois da montagem, então a leitura não tem
+       * como acontecer durante o render — e a bandeira que avisa a pessoa
+       * depende dessa leitura. É o caso legítimo da regra: estado derivado de
+       * uma fonte EXTERNA, não de props.
+       */
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRecuperado(true);
     } catch {
       // JSON corrompido ou storage indisponível (aba anônima, cota cheia):
