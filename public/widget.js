@@ -1507,7 +1507,43 @@
   // tutorial vem seguido do destaque do campo (scrollIntoView no host) e do balão,
   // cujos reflows podem reposicionar a lista de mensagens — sem esta reafirmação,
   // o chat às vezes ficava preso no topo em vez de acompanhar o passo atual.
-  function scrollChatFim() { try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { } }
+  // ── Rolagem que respeita quem está lendo ────────────────────────────────
+  // Um status de ferramenta não pode arrastar de volta quem subiu para reler um
+  // número — e num turno de ~21s com 3 chamadas de ferramenta isso acontecia
+  // várias vezes por resposta.
+  //
+  // O estado vem do SCROLL DO USUÁRIO, não de medir em volta do append: depois
+  // de anexar, o scrollHeight já cresceu e um elemento alto faria todo mundo
+  // parecer "longe do fim", inclusive quem estava colado nele.
+  var LIMIAR_FIM = 80; // px de folga para contar como "no fim"
+  var _leitorSubiu = false;
+  // Houve conteúdo novo enquanto a pessoa lia mais acima? É o que justifica o
+  // aviso — sem ele, "não arrastar de volta" vira "a tela não fez nada".
+  var _novasEnquantoLia = false;
+  function marcarPosicaoLeitura() {
+    try {
+      _leitorSubiu =
+        messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight > LIMIAR_FIM;
+      if (jumpBtn) jumpBtn.hidden = !_leitorSubiu || !_novasEnquantoLia;
+      if (!_leitorSubiu) _novasEnquantoLia = false;
+    } catch (e) { _leitorSubiu = false; }
+  }
+  /**
+   * @param forcar true SÓ quando a ação foi do usuário (mandou mensagem, abriu
+   * o painel). Aí ele quer ver o fim, e a leitura anterior deixa de valer.
+   */
+  function rolarChat(forcar) {
+    try {
+      if (forcar) { _leitorSubiu = false; _novasEnquantoLia = false; }
+      if (_leitorSubiu) {
+        _novasEnquantoLia = true;
+        if (jumpBtn) jumpBtn.hidden = false;
+        return;
+      }
+      rolarChat();
+    } catch (e) { }
+  }
+  function scrollChatFim() { try { rolarChat(true); } catch (e) { } }
   function scrollChatFimSoon() {
     scrollChatFim();
     try { requestAnimationFrame(function () { scrollChatFim(); requestAnimationFrame(scrollChatFim); }); } catch (e) { }
@@ -2158,7 +2194,7 @@
       "margin:6px 0 6px 40px;padding:8px 12px;border-radius:14px;max-width:88%;font-size:12.5px;font-weight:700;" +
       "color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
     d.textContent = txt;
-    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.appendChild(d); rolarChat();
     return d;
   }
   // Status COM animação de "digitando" (dots), para fases EM ANDAMENTO (busca/análise).
@@ -2173,7 +2209,7 @@
     var dots = document.createElement("span"); dots.className = "dots";
     dots.innerHTML = "<span></span><span></span><span></span>";
     d.appendChild(t); d.appendChild(dots); d._txt = t;
-    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.appendChild(d); rolarChat();
     return d;
   }
   // Slot ÚNICO de status de processo (busca → análise): substitui/limpa o anterior.
@@ -2196,7 +2232,7 @@
     d.style.cssText = "margin:6px 0 6px 40px;padding:8px 12px;border-radius:14px;max-width:88%;font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:9px;color:" + (cor || pc) + ";border:1px solid " + pc + "40;background:" + pc + "0d;";
     d.appendChild(spinnerEl(cor || pc, 14));
     var t = document.createElement("span"); t.textContent = txt; d.appendChild(t);
-    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.appendChild(d); rolarChat();
     return d;
   }
   // Disclaimer CONTEXTUAL: reflete a fonte REAL da resposta (relatório da tela × base
@@ -2232,7 +2268,7 @@
     var d = document.createElement("div");
     d.style.cssText = "margin:2px 0 8px 40px;max-width:88%;font-size:11.5px;font-style:italic;color:#6b7280;";
     d.textContent = "ℹ️ " + txt;
-    messagesEl.appendChild(d); messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.appendChild(d); rolarChat();
   }
   // Trilha curta da ação (para a nota de continuação enviada à IA).
   function labelExec(a) {
@@ -2430,7 +2466,7 @@
     box.appendChild(limpar); box.appendChild(manter);
     card.appendChild(box);
     messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
   // Processa as ações da IA EM ORDEM. Preencher/marcar e cliques de VISUALIZAÇÃO
   // rodam direto; só cliques que GRAVAM/NAVEGAM pedem confirmação.
@@ -2694,7 +2730,7 @@
     });
     acts.appendChild(sim); acts.appendChild(nao);
     card.appendChild(acts);
-    messagesEl.appendChild(card); messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.appendChild(card); rolarChat();
   }
   function pickField(a) {
     addMsg("assistant", "Clique no campo da tela onde você quer que eu escreva.");
@@ -2972,7 +3008,7 @@
     save.addEventListener("click", function () { salvarArquivo(href, filename); });
     rowf.appendChild(save);
     messagesEl.appendChild(rowf);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
     return rowf;
   }
   // Reexibe a mídia persistida do assistente ao recarregar o histórico.
@@ -2988,7 +3024,7 @@
     _charts.push(spec);
     var built = construirCardGrafico(spec, { salvar: true });
     messagesEl.appendChild(built.card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
   // Constrói o card interativo do gráfico (idêntico ao do chat). opts: { salvar, emModal }.
   // Navegação de MUITOS pontos (scroll + zoom por JANELA de categorias). Devolve a barra
@@ -3700,7 +3736,7 @@
   try { expanded = localStorage.getItem("kb.widget.exp") === "1"; } catch { }
   var _animT = null;
   var _closeT = null;
-  var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput, micBtn;
+  var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput, micBtn, jumpBtn;
   // Anexos pendentes deste turno: {id?,name,mime?,size?,uploading?}.
   var pendingAtts = [];
   // Estado da gravação de voz: "idle" | "recording" | "transcribing".
@@ -3741,7 +3777,7 @@
       ".bubble .bimg{width:100%;height:100%;object-fit:var(--bub-fit,cover);border-radius:var(--bub-r,50%)}" +
       // Painel
       ".panel{position:fixed;z-index:2147483647;width:440px;max-width:calc(100vw - 20px);height:680px;" +
-      "max-height:calc(100vh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
+      "max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px);background:#fff;border-radius:22px;overflow:hidden;display:none;flex-direction:column;" +
       "box-shadow:0 26px 72px rgba(30,15,60,.34);border:1px solid rgba(120,90,180,.14)}" +
       // Abrir/minimizar: cresce/encolhe a partir do canto da bolha (scale+fade).
       ".panel.open{display:flex;animation:kbin .34s cubic-bezier(.2,.8,.2,1)}" +
@@ -3788,9 +3824,13 @@
       ".hd button svg{width:15px;height:15px;display:block}" +
       // Mensagens
       ".msgs{flex:1;overflow-y:auto;padding:18px 15px 8px;background:#f6f4fb;display:flex;flex-direction:column;gap:14px}" +
+      ".jump{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;z-index:3;border:0;cursor:pointer;padding:7px 14px;border-radius:999px;background:var(--pc);color:#fff;font-size:12.5px;font-weight:600;box-shadow:0 6px 18px rgba(30,15,60,.28)}" +
+      ".jump[hidden]{display:none}" +
       ".msgs::-webkit-scrollbar{width:8px}.msgs::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
       // Linha do assistente (avatar + balão)
       ".arow{display:flex;gap:9px;align-items:flex-start;max-width:92%}" +
+      ".cpbtn{opacity:.45;transition:opacity .15s ease;border:0;background:transparent;cursor:pointer;color:#8a8496;font-size:15px;line-height:1;padding:4px;margin-top:6px;flex:none}" +
+      ".arow:hover .cpbtn,.cpbtn:hover,.cpbtn:focus-visible{opacity:1}" +
       ".arow .av{width:30px;height:30px;border-radius:var(--ash,50%);flex:none;background:var(--av-bg,linear-gradient(135deg,var(--pc),var(--pc2,var(--pc))));border:var(--av-bw,0px) solid var(--av-bc,transparent);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 12px rgba(40,20,80,.28)}" +
       ".arow .av svg{width:16px;height:16px;color:#fff}" +
       ".arow .av img{width:100%;height:100%;object-fit:var(--av-fit,cover)}" +
@@ -4544,7 +4584,7 @@
           }
           statusEl.innerHTML = mdToHtml(texto);
           avisarMensagem();
-          try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { }
+          try { rolarChat(); } catch (e) { }
           return;
         }
         if (r.status === "error") { statusEl.innerHTML = mdToHtml("A análise falhou: " + (r.error || "erro desconhecido") + "."); return; }
@@ -5335,6 +5375,7 @@
       '<button aria-label="Expandir" title="Expandir para o centro" data-expand>' + ICON_EXPAND + "</button>" +
       '<button aria-label="Minimizar" data-close>&minus;</button></div>' +
       '<div class="msgs"></div>' +
+      '<button class="jump" type="button" hidden aria-label="Ir para a mensagem mais recente">&darr; Novas mensagens</button>' +
       '<div class="pbar"></div>' +
       '<div class="attz"></div>' +
       '<div class="ft">' +
@@ -5351,6 +5392,26 @@
     root.appendChild(wrap);
 
     messagesEl = panel.querySelector(".msgs");
+    // ACESSIBILIDADE: sem isto, uma resposta de ~21s chegava em SILÊNCIO para
+    // quem usa leitor de tela — a pessoa perguntava e tinha de navegar à mão
+    // para descobrir que já havia resposta.
+    //
+    // `aria-relevant="additions"` (e não "additions text") é deliberado: o
+    // streaming reescreve o texto do MESMO nó dezenas de vezes por resposta, e
+    // anunciar cada reescrita transformaria a leitura em ruído. Anuncia-se o
+    // que ENTRA na lista; o balão em construção fica `aria-busy` até o fim.
+    messagesEl.setAttribute("role", "log");
+    messagesEl.setAttribute("aria-live", "polite");
+    messagesEl.setAttribute("aria-relevant", "additions");
+    messagesEl.setAttribute("aria-atomic", "false");
+    messagesEl.addEventListener("scroll", marcarPosicaoLeitura, { passive: true });
+    jumpBtn = panel.querySelector(".jump");
+    if (jumpBtn) {
+      jumpBtn.addEventListener("click", function () {
+        rolarChat(true);
+        jumpBtn.hidden = true;
+      });
+    }
     inputEl = panel.querySelector("textarea");
     if (inputEl && widgetLang !== "pt") inputEl.placeholder = wt("placeholder");
     sendBtn = panel.querySelector("[data-send]");
@@ -6131,7 +6192,7 @@
         _vvRaf = 0;
         if (!open || !ehMobile()) return;
         setGeom(geomCanto());
-        try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { } // última mensagem acima do teclado
+        try { rolarChat(); } catch (e) { } // última mensagem acima do teclado
       });
     }
     try {
@@ -6335,7 +6396,7 @@
       // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
       // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
       setTimeout(function () {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        rolarChat();
         inputEl.focus();
       }, 50);
     } else {
@@ -6354,6 +6415,54 @@
 
   // ==== Mensagens ====
   // Linha do assistente: avatar (brilho/foto) + balão. Retorna a LINHA.
+  // Última pergunta enviada — só existe para o "Tentar de novo" do erro.
+  var _ultimaPergunta = "";
+  /**
+   * Estado de ERRO com saída.
+   *
+   * Antes: `"Desculpe, houve um erro: " + err.message`. Isso jogava o texto do
+   * provedor ("fetch failed", "429 Too Many Requests") na cara de quem só queria
+   * saber o saldo de férias, e não oferecia ação nenhuma — beco sem saída. Quem
+   * mais sofre com isso é o colaborador, que muitas vezes já chega tenso.
+   *
+   * Agora: frase em português comum, o detalhe técnico recolhido para quem for
+   * investigar, e um botão que reenvia a MESMA pergunta sem redigitar.
+   */
+  function mostrarErroComSaida(detalhe) {
+    var el = addMsg("assistant", "Não consegui responder agora. Isso costuma ser temporário.");
+    try {
+      var acoes = document.createElement("div");
+      acoes.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Tentar de novo";
+      btn.style.cssText =
+        "border:1px solid var(--pc);color:var(--pc);background:#fff;border-radius:999px;" +
+        "padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;";
+      btn.addEventListener("click", function () {
+        if (!_ultimaPergunta) { try { inputEl.focus(); } catch (e) { } return; }
+        inputEl.value = _ultimaPergunta;
+        btn.disabled = true;
+        btn.textContent = "Reenviando…";
+        submit();
+      });
+      acoes.appendChild(btn);
+      if (detalhe) {
+        var det = document.createElement("details");
+        var sum = document.createElement("summary");
+        sum.textContent = "Detalhe técnico";
+        sum.style.cssText = "cursor:pointer;font-size:11.5px;color:#8a8496;";
+        var corpo = document.createElement("div");
+        corpo.textContent = String(detalhe);
+        corpo.style.cssText = "font-size:11.5px;color:#8a8496;margin-top:4px;word-break:break-word;";
+        det.appendChild(sum);
+        det.appendChild(corpo);
+        acoes.appendChild(det);
+      }
+      el.appendChild(acoes);
+    } catch (e) { }
+    return el;
+  }
   function botRow(bubbleEl) {
     var row = document.createElement("div");
     row.className = "arow";
@@ -6362,7 +6471,56 @@
     av.innerHTML = cfg.avatarUrl ? '<img src="' + esc(cfg.avatarUrl) + '" alt="">' : ICON_BOT;
     row.appendChild(av);
     row.appendChild(bubbleEl);
+    row.appendChild(botaoCopiar(bubbleEl));
     return row;
+  }
+  /**
+   * Copiar a resposta.
+   *
+   * Quem trabalha com RH copia matrícula, valor e data o tempo todo, e até aqui
+   * isso era seleção manual dentro de um painel que rola sozinho. Copia o TEXTO
+   * RENDERIZADO (não o markdown cru): é o que a pessoa está vendo e o que ela
+   * espera colar.
+   */
+  function botaoCopiar(bolha) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "cpbtn";
+    b.title = "Copiar resposta";
+    b.setAttribute("aria-label", "Copiar resposta");
+    b.textContent = "⧉";
+    b.addEventListener("click", function () {
+      var txt = (bolha.innerText || bolha.textContent || "").trim();
+      if (!txt) return;
+      function confirmou() {
+        b.textContent = "✓";
+        b.setAttribute("aria-label", "Resposta copiada");
+        setTimeout(function () {
+          b.textContent = "⧉";
+          b.setAttribute("aria-label", "Copiar resposta");
+        }, 1400);
+      }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).then(confirmou, function () { });
+          return;
+        }
+      } catch (e) { }
+      // Sem Clipboard API (contexto não seguro, iframe sem permissão): o
+      // caminho antigo ainda funciona, e um botão que falha calado seria pior
+      // que não ter botão.
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = txt;
+        ta.style.cssText = "position:fixed;top:-1000px;opacity:0;";
+        root.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        confirmou();
+      } catch (e) { }
+    });
+    return b;
   }
   // Data/hora local da mensagem: "DD/MM/AAAA HH:MM" (usa o ISO se vier do histórico).
   function fmtHora(iso) {
@@ -6405,7 +6563,9 @@
       messagesEl.appendChild(botRow(el)); // assistente ganha avatar ao lado
     }
     addTimestamp(role, iso);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    // Mandar mensagem é ação do usuário: ele quer ver o fim. Resposta do
+    // assistente respeita onde ele parou de ler.
+    rolarChat(role === "user");
     return el;
   }
   function renderWelcome() {
@@ -6485,7 +6645,7 @@
       }
       history.push({ role: m.role, content: m.content });
     });
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
 
   // "Limpar" VISUAL: esvazia a tela e recomeça; grava o instante para o histórico
@@ -6663,12 +6823,12 @@
         s.tipo = t[0];
         renderChart(s);
         persistirEscolha(pergunta, t[1], s); // pergunta + tipo escolhido + o gráfico resultante
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        rolarChat();
       });
       box.appendChild(b);
     });
     messagesEl.appendChild(box);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
   /**
    * CARTÃO DE AÇÃO — a lista vira clicável.
@@ -6775,7 +6935,7 @@
     });
     box.appendChild(barra);
     messagesEl.appendChild(box);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
 
   /** Resultado POR ITEM: 4 selecionados, 2 podem falhar — e a pessoa precisa saber quais. */
@@ -6796,7 +6956,7 @@
       res.appendChild(l);
     });
     box.appendChild(res);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
   function normFonte(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
   function renderClarify(question, options, multiSelect, outros) {
@@ -6915,7 +7075,7 @@
       });
       box.appendChild(conf);
       messagesEl.appendChild(box);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      rolarChat();
       return;
     }
     (options || []).forEach(function (o) {
@@ -6946,7 +7106,7 @@
       box.appendChild(b);
     });
     messagesEl.appendChild(box);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
 
   // Auto-cresce a caixa de texto conforme as linhas, até 5 linhas; depois rola.
@@ -7054,7 +7214,7 @@
       row.appendChild(chip);
     });
     messagesEl.appendChild(row);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
 
   // ==== Voz: gravação estilo WhatsApp (onda ao vivo, tempo, ouvir, enviar/apagar) ====
@@ -7217,6 +7377,7 @@
     if (!text && !atts.length) return;
     // Anexo sem texto: dá uma instrução padrão para o modelo ter o que fazer.
     if (!text && atts.length) text = "Pode analisar o(s) arquivo(s) que anexei e me ajudar?";
+    _ultimaPergunta = text; // o "Tentar de novo" do estado de erro reenvia isto
     inputEl.value = "";
     try { localStorage.removeItem(LS_DRAFT); } catch { } // enviou → limpa o rascunho
     autoGrow();
@@ -7260,7 +7421,7 @@
     typingBubble.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
     var typing = botRow(typingBubble); // avatar + balão de "digitando"
     messagesEl.appendChild(typing);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
 
     var answerEl = null;
     var full = ""; // texto completo já recebido do servidor
@@ -7299,7 +7460,7 @@
       if (answerEl) {
         shown = full.length;
         answerEl.innerHTML = mdToHtml(full);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        rolarChat();
       }
       if (stopped) finalizarReveal();
     }
@@ -7320,7 +7481,7 @@
         var restante = full.length - shown;
         shown += Math.min(restante, Math.max(2, Math.ceil(restante / 12)));
         answerEl.innerHTML = mdToHtml(full.slice(0, shown));
-        if (perto) messagesEl.scrollTop = messagesEl.scrollHeight;
+        if (perto) rolarChat();
       }
       if (shown < full.length) agendarReveal();
       else if (stopped && !feito) finalizarReveal();
@@ -7500,7 +7661,7 @@
         if (typing.parentNode) typing.remove();
         // PARAR: aborto do usuário não é erro — só encerra o turno em silêncio.
         if (_parando || (err && err.name === "AbortError")) { done(); return; }
-        addMsg("assistant", "Desculpe, houve um erro: " + err.message);
+        mostrarErroComSaida(err && err.message);
         done();
       });
 
@@ -7542,7 +7703,12 @@
       } else if (evt.type === "token") {
         if (typing.parentNode) typing.remove();
         limparProcStatus(); // a resposta começou → tira o status "Analisando…"
-        if (!answerEl) answerEl = addMsg("assistant", "");
+        if (!answerEl) {
+          answerEl = addMsg("assistant", "");
+          // Segura o anúncio até a resposta estar inteira: um leitor de tela não
+          // deve ouvir um balão vazio e depois o texto em pedaços.
+          try { answerEl.setAttribute("aria-busy", "true"); } catch (e) { }
+        }
         avisarMensagem(); // resposta chegando com o widget minimizado → badge + som (1×/resposta)
         full += evt.value;
         agendarReveal(); // exibe suave, no ritmo do rAF (não em blocos)
@@ -7550,7 +7716,7 @@
         if (evt.conversationId) conversationId = evt.conversationId;
       } else if (evt.type === "error") {
         if (typing.parentNode) typing.remove();
-        addMsg("assistant", evt.message || "Erro ao gerar a resposta.");
+        mostrarErroComSaida(evt.message || null);
       } else if (evt.type === "file") {
         // Arquivo retornado por uma API (holerite, recibo…) ou gerado pela IA
         // (relatório/planilha/documento) → link de download.
@@ -7658,6 +7824,8 @@
     }
     function done() {
       _chatAbort = null;
+      // Resposta pronta: libera o anúncio para o leitor de tela.
+      try { if (answerEl) answerEl.setAttribute("aria-busy", "false"); } catch (e) { }
       setBusyUI(false); // botão volta a "Enviar"
     }
   }
@@ -7689,7 +7857,7 @@
       row.appendChild(b);
     });
     messagesEl.appendChild(row);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    rolarChat();
   }
 
   // Constrói a sanfona de FONTES e a RETORNA (o Histórico reusa este bloco).
@@ -7759,7 +7927,7 @@
       // Liga o [n] do texto ao cartão: a ligação era só visual, e conferir a
       // terceira fonte de seis era trabalho manual de quem lê.
       ligarCitacoes(det, cites);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      rolarChat();
     }
   }
 
@@ -8045,7 +8213,7 @@
       box.appendChild(b);
     });
     messagesEl.appendChild(box);
-    try { messagesEl.scrollTop = messagesEl.scrollHeight; } catch (e) { }
+    try { rolarChat(); } catch (e) { }
   }
 
   // O popup do consentimento avisa quem o abriu (ver `pagina.tsx`). Recarrega o
