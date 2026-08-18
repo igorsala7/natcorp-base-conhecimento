@@ -2,6 +2,7 @@ import { tool, type ToolSet } from "ai";
 import { notaColunasOmitidas, recortarLinha, selecionarColunas } from "./column-select";
 import { z } from "zod";
 import { registrarTabelaTela, type DatasetRegistry } from "./datasets";
+import { celulaDataset } from "./dataset-sanitize";
 import { parseNumBR } from "./num-br";
 
 /**
@@ -546,9 +547,12 @@ export function buildHarvestTool(sink: UiAction[]): ToolSet {
 
 /** Saneia as tabelas estruturadas da tela vindas do widget. */
 function parseScreenTable(o: Record<string, unknown>): { nome: string; tipo: string; colunas: string[]; linhas: string[][]; paginado: boolean; coletaCompleta: boolean; total: number; incompleto: boolean } | null {
-  const colunas = Array.isArray(o.colunas) ? o.colunas.slice(0, MAX_REPORT_COLS).map((c) => String(c).slice(0, 80)) : [];
+  // `celulaDataset` ANTES do corte: relatório montado sobre tela APEX devolve a
+  // célula renderizada (`"• Salário: R$ 19.541,50<br>• Férias no Mês: …"`), e com o
+  // corte primeiro a marcação ainda comeria parte dos 300 caracteres úteis.
+  const colunas = Array.isArray(o.colunas) ? o.colunas.slice(0, MAX_REPORT_COLS).map((c) => celulaDataset(c).slice(0, 80)) : [];
   const linhasRaw = Array.isArray(o.linhas) ? o.linhas.slice(0, 200000) : [];
-  const linhas = linhasRaw.map((r) => (Array.isArray(r) ? r.slice(0, MAX_REPORT_COLS).map((c) => String(c ?? "").slice(0, 300)) : []));
+  const linhas = linhasRaw.map((r) => (Array.isArray(r) ? r.slice(0, MAX_REPORT_COLS).map((c) => celulaDataset(c).slice(0, 300)) : []));
   if (colunas.length === 0 || linhas.length === 0) return null;
   return {
     nome: String(o.nome ?? "Relatório").slice(0, 120),

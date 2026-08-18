@@ -40,9 +40,13 @@ export function pareceHtml(s: string): boolean {
 /**
  * Texto limpo de UMA string. Devolve a original quando não há tag, quando é longa
  * demais (conteúdo) ou quando a limpeza não sobra nada além de espaço.
+ *
+ * `maxValor` existe porque a regra "string longa é conteúdo, não mexe" vale para o
+ * retorno de uma API, que pode ser um documento — e NÃO vale para uma célula de
+ * tabela, que nunca é. Quem chama pelo caminho de célula passa um teto solto.
  */
-export function limparValorHtml(valor: string): string {
-  if (valor.length > MAX_VALOR || !pareceHtml(valor)) return valor;
+export function limparValorHtml(valor: string, maxValor = MAX_VALOR): string {
+  if (valor.length > maxValor || !pareceHtml(valor)) return valor;
   let texto = valor.replace(TAG, " ");
   for (const [ent, ch] of Object.entries(ENTIDADES)) texto = texto.split(ent).join(ch);
   texto = texto.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
