@@ -23,6 +23,7 @@ import { AskAiChart } from "./ask-ai-chart";
 import type { ChartSpec } from "@/lib/chat/chart-spec";
 import type { ClarifyOption, ClarifyScope } from "@/lib/ai/disambiguation";
 import { comBase } from "@/lib/base-path";
+import { ehFalhaDeRede } from "@/components/ui/use-online";
 
 /** Espelha `RetrievedSource` do servidor. `url` é nulo quando a fonte é um
  *  arquivo da base de conhecimento, que não tem página no portal. */
@@ -51,6 +52,8 @@ type Msg = {
   files?: { filename: string; mimeType: string; dataUrl: string }[];
   /** Gráficos montados pela IA — cards interativos (trocar tipo + exportar). */
   charts?: ChartSpec[];
+  /** Esta bolha é um AVISO DE FALHA, não uma resposta: não pede avaliação. */
+  falhou?: boolean;
 };
 
 /** Painel "Perguntar à IA" do leitor — responde com base na doc do espaço. */
@@ -269,6 +272,13 @@ function AskAiPanelInner({
   async function ask(question: string, scope?: ClarifyScope, atts?: AttMeta[]) {
     if (streaming) return;
     let history: Msg[];
+    /**
+     * O texto enviado, para poder devolvê-lo ao campo se a rede cair.
+     *
+     * Fica vazio no caminho do `scope` (a pessoa clicou num botão de
+     * desambiguação, não digitou nada) — e aí não há o que restaurar.
+     */
+    let perguntaEnviada = "";
     if (scope) {
       const semClarify = messages[messages.length - 1]?.options ? messages.slice(0, -1) : messages;
       if (!semClarify.some((m) => m.role === "user")) return;
@@ -281,6 +291,8 @@ function AskAiPanelInner({
       if (!content) return;
       history = [...messages, { role: "user", content, ...(atts && atts.length ? { attachments: atts } : {}) }];
       setMessages([...history, { role: "assistant", content: "" }]);
+      // Guardado ANTES de limpar o campo: se a rede cair, é isto que volta.
+      perguntaEnviada = content;
       setInput("");
     }
     setStreaming(true);
@@ -310,7 +322,7 @@ function AskAiPanelInner({
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({}));
-        updateLast((m) => ({ ...m, content: err.error ?? "Falha ao responder." }));
+        updateLast((m) => ({ ...m, falhou: true, content: err.error ?? "Falha ao responder." }));
         return;
       }
       const reader = res.body.getReader();
@@ -380,7 +392,30 @@ function AskAiPanelInner({
       // Interrupção pedida pela pessoa não é falha: o texto que já chegou fica
       // (é o que ela leu), e um "Erro: AbortError" no lugar dele seria mentira.
       if (!(e instanceof DOMException && e.name === "AbortError")) {
-        updateLast((m) => ({ ...m, content: "Erro: " + (e instanceof Error ? e.message : String(e)) }));
+        /**
+         * QUEDA DE CONEXÃO NÃO É "Erro: Failed to fetch".
+         *
+         * Era exatamente isso que aparecia: a mensagem interna do navegador,
+         * em inglês, sem dizer o que houve nem o que fazer. E pior — a
+         * pergunta que a pessoa acabou de digitar já tinha sido apagada do
+         * campo (`setInput("")` acontece antes do envio), então ela perdia o
+         * texto E não sabia por quê.
+         *
+         * Agora a pergunta VOLTA para o campo. Rede é a falha mais transitória
+         * que existe: quase sempre a ação certa é tentar de novo em dez
+         * segundos, e para isso o texto precisa estar lá.
+         */
+        const deRede = ehFalhaDeRede(e);
+        if (deRede) setInput((atual) => atual || perguntaEnviada);
+        updateLast((m) => ({
+          ...m,
+          falhou: true,
+          content: deRede
+            ? typeof navigator !== "undefined" && !navigator.onLine
+              ? "Você está sem conexão. Sua pergunta continua no campo abaixo — é só enviar de novo quando a internet voltar."
+              : "Não consegui falar com o servidor. Sua pergunta continua no campo abaixo — tente enviar de novo."
+            : "Não consegui responder agora. Tente de novo em instantes.",
+        }));
       }
     } finally {
       abortRef.current = null;
@@ -617,7 +652,17 @@ function AskAiPanelInner({
                       </div>
                     </details>
                   )}
-                  {m.role === "assistant" && m.content && i === messages.length - 1 && !streaming && (
+                  {/**
+                   * Não pergunta "Útil?" embaixo de uma FALHA.
+                   *
+                   * Com a rede caída, a bolha do assistente carrega um aviso de
+                   * conexão — e logo abaixo aparecia o par de polegares. Duas
+                   * coisas erradas ao mesmo tempo: pedir avaliação de uma
+                   * resposta que não houve, e registrar o 👎 como resposta ruim
+                   * da IA. O feedback alimenta a análise de qualidade; uma
+                   * queda de Wi-Fi entraria lá como falha do modelo.
+                   */}
+                  {m.role === "assistant" && m.content && !m.falhou && i === messages.length - 1 && !streaming && (
                     <div className="mt-2 flex items-center gap-1">
                       <span className="text-xs text-text-muted">Útil?</span>
                       <button
