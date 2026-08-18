@@ -8735,7 +8735,16 @@
     // O rastreio vai junto: é ele que diz a BASE e o PAINEL, e o servidor
     // responde se o widget está liberado para essa combinação.
     var u = API + "/api/v1/config?key=" + encodeURIComponent(KEY);
-    if (track) u += "&track=" + encodeURIComponent(track);
+    // `track` é um OBJETO ({token}). Nas chamadas POST ele vai dentro do JSON e o
+    // servidor entende; aqui, que é GET, precisa ser a STRING do token — sem o
+    // `.token`, `encodeURIComponent` serializa o objeto e manda literalmente
+    // "[object Object]".
+    //
+    // Era o motivo de desativar uma base não surtir efeito: o bootstrap NUNCA
+    // entregou um token decodificável, então o servidor não sabia de qual cliente
+    // era a tela e liberava por falta de informação. Valia para todas as bases,
+    // desde que o parâmetro existe.
+    if (track && track.token) u += "&track=" + encodeURIComponent(track.token);
     fetch(u)
       .then(function (r) {
         return r.ok ? r.json() : null;
