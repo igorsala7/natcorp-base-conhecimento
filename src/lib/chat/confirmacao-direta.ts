@@ -5,6 +5,7 @@ import { runGuard } from "@/lib/integrations/guards";
 import { escopoDoPainel, aplicarEscopoParams } from "@/lib/integrations/panel-scope";
 import type { Identity } from "@/lib/integrations/params";
 import type { PendenciaConfirmada } from "@/lib/integrations/confirmations";
+import { logToolRun } from "@/lib/integrations/run-log";
 
 /**
  * O "sim" executa NO SERVIDOR — o modelo só redige o resultado.
@@ -35,6 +36,8 @@ export async function executarConfirmacao(
   pend: PendenciaConfirmada,
   identity: Identity,
   portal: string,
+  /** Conversa do turno — sem ela a execução fica órfã no log. */
+  conversationId?: string | null,
 ): Promise<ResultadoConfirmacao | null> {
   const ctx = await loadBaseContext(baseCode);
   const bt = ctx?.tools.find((t) => t.tool.key === pend.tool);
@@ -65,16 +68,41 @@ export async function executarConfirmacao(
     if (!g.ok) return { tool: pend.tool, nome: bt.tool.name, ok: false, erro: g.erro };
   }
 
+  /**
+   * ESTE CAMINHO PRECISA DE LOG COMO NENHUM OUTRO.
+   *
+   * Aqui não passa `wrapTool` — quem chama `executeTool` é o servidor, direto. O
+   * resultado era que justamente as ações de ESCRITA confirmadas pelo usuário
+   * (enviar e-mail, criar férias) eram as únicas sem uma linha em `ai_tool_runs`.
+   * Ao investigar por que o modelo dizia que um e-mail enviado não tinha sido
+   * enviado, não havia o que ler: nenhuma execução registrada (19/08/2026).
+   */
+  const params = aplicarEscopoParams(bt.tool.params, escopo);
+  const t0 = Date.now();
   try {
     const r = await executeTool({
-      tool: { ...bt.tool, params: aplicarEscopoParams(bt.tool.params, escopo) },
+      tool: { ...bt.tool, params },
       baseUrl: bt.baseUrl,
       credential,
       modelArgs: pend.args,
       identity,
     });
+    void logToolRun({
+      baseCode, conversationId, toolKey: pend.tool, stepIndex: 0,
+      input: pend.args, params: params as never,
+      status: r.status ?? null, ok: r.ok, output: r.ok ? r.data : null,
+      files: 0, cached: false, durationMs: Date.now() - t0,
+      error: r.ok ? null : `HTTP ${r.status}`,
+    });
     return { tool: pend.tool, nome: bt.tool.name, ok: r.ok, data: r.ok ? r.data : undefined, erro: r.ok ? undefined : `HTTP ${r.status}` };
   } catch (e) {
-    return { tool: pend.tool, nome: bt.tool.name, ok: false, erro: e instanceof Error ? e.message : String(e) };
+    const erro = e instanceof Error ? e.message : String(e);
+    void logToolRun({
+      baseCode, conversationId, toolKey: pend.tool, stepIndex: 0,
+      input: pend.args, params: params as never,
+      status: null, ok: false, output: null, files: 0, cached: false,
+      durationMs: Date.now() - t0, error: erro,
+    });
+    return { tool: pend.tool, nome: bt.tool.name, ok: false, erro };
   }
 }

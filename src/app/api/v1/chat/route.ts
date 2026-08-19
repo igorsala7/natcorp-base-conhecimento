@@ -481,6 +481,17 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // mapa de campos: NÃO é análise pura. Verbos de análise (analise, resuma, quais, conte,
   // ranqueie…) e "filtrar/contar os dados" (que usam as tools de cálculo) NÃO casam aqui.
   const ehPedidoDeAcao = /\b(preench\w*|marqu\w*|desmarqu\w*|clic\w*|cliqu\w*|acion\w*|apert\w*)/i.test(question);
+  /**
+   * O usuário está OPERANDO a tela — e isso não é um palpite lexical.
+   *
+   * Um campo EM FOCO é o sinal mais forte que existe: o cursor está dentro dele.
+   * Sem isto, `Informe a empresa 700 e matrícula 205818` digitado com o campo
+   * Empresa selecionado não casava com nenhum verbo do regex acima ("informe"
+   * fica de fora de propósito — "me informe os dados do Tony" é consulta), e o
+   * turno era tratado como pergunta de dado.
+   */
+  const temCampoFoco = !!(payload.focusedField && typeof payload.focusedField === "object");
+  const operandoATela = ehPedidoDeAcao || temCampoFoco;
   // "Base de Dados": fontes selecionadas (relatórios salvos + uploads da sessão) e o
   // MODO. exclusiva = só as fontes + a tela, SEM RAG/ontologia (mantém a tela). Só vale
   // como exclusiva quando há de fato fontes selecionadas.
@@ -718,6 +729,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
           pend,
           idc,
           String(track.p_portal ?? ""),
+          convId ? String(convId) : null,
         );
         // `null` = a ferramenta sumiu do catálogo entre o pedido e o "sim".
         // Segue pelo caminho normal (modelo decide) em vez de executar às cegas.
@@ -1360,7 +1372,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // ATIVAS) e NÃO é operação de tela (coletar/filtrar relatório, tutorial). Aí as tools
   // de TELA (preencher/marcar/clicar/tutorial) são ruído — cortá-las reduz tokens e
   // passos do loop agêntico (ex.: "quais os colaboradores da minha equipe" não mexe na tela).
-  const turnoDadosPuro = temIntegTools && !cortaIntegracao && !operacaoDeTela && !modoTutorial && !relatorioVazioParaFiltrar;
+  // `!operandoATela` NÃO é refinamento: sem ele o prompt se contradizia. O bloco
+  // CAMPO EM FOCO manda "use preencher_campo com o ref" (form-fields.ts) e a poda
+  // abaixo tirava justamente essa ferramenta — o modelo recebia a ordem e não a
+  // ferramenta, e respondia "não posso preencher campos". Medido em 3 dos 42
+  // cenários do eval (19/08/2026).
+  const turnoDadosPuro = temIntegTools && !cortaIntegracao && !operacaoDeTela && !modoTutorial && !relatorioVazioParaFiltrar && !operandoATela;
   // Análise pura OU dados puros: corta as tools de AÇÃO (preencher/marcar/clicar/tutorial)
   // — mantém só `destacar_tela` (realce, read-only). As de cálculo/visual/consulta seguem
   // via queryTools/visualTools (então NÃO fica "prompt com tools e zero ferramentas").
