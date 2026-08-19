@@ -85,6 +85,26 @@ sozinho não distingue. Antes de perguntar, ler o verbo:
 Só perguntar quando o verbo **de fato** não separa os dois. `"quando eu vou
 tirar"` separa — perguntar ali é o caso óbvio que a regra acima proíbe.
 
+### Sair da tela para a ferramenta: avisar, e herdar o filtro da página
+
+A tela aberta é a primeira fonte. Se a coluna pedida **está** no relatório da
+tela, responder dali — mesmo que exista uma ferramenta do assunto.
+
+Se **não** está, sair da tela é uma decisão que o usuário precisa ver:
+
+1. Dizer que a informação não aparece no relatório da tela.
+2. Oferecer **continuar / cancelar** — não sair calado.
+3. Ao continuar, **ler os filtros da página** e passá-los como parâmetros da
+   ferramenta, confirmando o recorte: *"vou buscar na empresa X, filial Y"*.
+
+O passo 3 é o que evita o erro silencioso mais caro: a tela está filtrada por
+um centro de custo, a ferramenta é chamada sem filtro, e o número que volta é
+o da base inteira — plausível, apresentável, e errado.
+
+Medido: `"Qual o colaborador com maior quantidade de benefícios?"` com 380
+colaboradores e as colunas de benefício **na tela** gastou 349.851 tokens em
+quatro chamadas ao sistema.
+
 ## Continuação: o sujeito atravessa, o pedido não
 
 Variação do mesmo pedido (outro mês, outra pessoa) repete a **mesma
