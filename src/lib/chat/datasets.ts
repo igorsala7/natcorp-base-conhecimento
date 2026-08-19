@@ -17,6 +17,17 @@ export type DatasetRow = Record<string, unknown>;
 export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[]; headers?: string[] };
 export type DatasetRegistry = {
   list: Dataset[];
+  /**
+   * Próximo número de `dsN` — o que faz o id sobreviver à CONVERSA.
+   *
+   * Sem isto, todo turno recomeça em `ds1`. Numa conferência longa (o uso real:
+   * 20 mensagens ainda citando o resultado da quinta), o turno 20 criaria um
+   * `ds1` novo enquanto o agente ainda se refere ao `ds1` do turno 5 — ele
+   * pediria uma tabela e receberia outra, em silêncio, com números errados.
+   *
+   * Ausente = começa em 1 (registro montado à mão, testes, portal).
+   */
+  proximoId?: number;
   /** Ids EFETIVAMENTE consultados pelas ferramentas de dados neste turno.
    *
    *  Existir na lista não é usar: o widget manda as tabelas da tela em todo
@@ -28,8 +39,21 @@ export type DatasetRegistry = {
   usados: Set<string>;
 };
 
-export function newRegistry(): DatasetRegistry {
-  return { list: [], usados: new Set() };
+export function newRegistry(proximoId = 1): DatasetRegistry {
+  return { list: [], usados: new Set(), proximoId };
+}
+
+/**
+ * O próximo número livre, avançando o contador.
+ *
+ * Usa `proximoId` quando existe e o tamanho da lista como piso — assim um
+ * registro reidratado com `ds3` e `ds7` não devolve `ds3` de novo, e um registro
+ * montado à mão (sem contador) continua se comportando como antes.
+ */
+function proximoNumero(reg: DatasetRegistry): number {
+  const n = Math.max(reg.proximoId ?? 1, reg.list.length + 1);
+  reg.proximoId = n + 1;
+  return n;
 }
 
 /** Resolve o id E registra o uso — todo consumo de dataset passa por aqui. */
@@ -54,7 +78,15 @@ export function usouDadosDaTela(reg: DatasetRegistry): boolean {
  * As linhas são indexadas por `c0..cN` e os cabeçalhos de exibição ficam em
  * `headers` (usados por `expandirTabela` quando o modelo não passa `colunas`).
  */
-export function registrarTabelaTela(reg: DatasetRegistry, colunas: string[], linhas: string[][]): { id: string; total: number } {
+export function registrarTabelaTela(
+  reg: DatasetRegistry,
+  colunas: string[],
+  linhas: string[][],
+  /** Id EXPLÍCITO — só na reidratação, para a tabela voltar com o nome que tinha.
+   *  Sem ele o `ds3` de um turno anterior voltaria como `ds1` e o agente pediria
+   *  uma tabela recebendo outra. */
+  idExplicito?: string,
+): { id: string; total: number } {
   const nomes = colunas.map((c) => String(c).trim());
   // Indexa cada célula por DUAS chaves — o índice `cN` E o NOME da coluna — para
   // funcionar independentemente de o modelo passar `campos` por índice ou por nome
@@ -68,7 +100,7 @@ export function registrarTabelaTela(reg: DatasetRegistry, colunas: string[], lin
     });
     return o;
   });
-  const id = "tela" + (reg.list.length + 1);
+  const id = idExplicito ?? "tela" + proximoNumero(reg);
   // colunas = NOMES (fallback quando o modelo não passa `campos`); headers = idem.
   reg.list.push({ id, rows, colunas: nomes, headers: nomes });
   return { id, total: rows.length };
@@ -136,7 +168,7 @@ export function registrarDataset(reg: DatasetRegistry, data: unknown): { id: str
     });
     return o;
   });
-  const id = "ds" + (reg.list.length + 1);
+  const id = "ds" + proximoNumero(reg);
   reg.list.push({ id, rows, colunas, headers: colunas });
   return { id, total: rows.length, colunas };
 }

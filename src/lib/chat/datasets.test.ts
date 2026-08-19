@@ -806,3 +806,45 @@ describe("textoDatasetsDisponiveis", () => {
     expect(t).toContain("Cargo");
   });
 });
+
+/**
+ * O ID SOBREVIVE À CONVERSA.
+ *
+ * "Em 20 mensagens que ele enviou, ainda está citando o resultado da quinta"
+ * (Igor, 19/08/2026). Se todo turno recomeça em `ds1`, o turno 20 cria um `ds1`
+ * novo enquanto o agente ainda se refere ao `ds1` do turno 5 — ele pede uma
+ * tabela e recebe outra, sem erro nenhum, com os números trocados.
+ */
+describe("numeração entre turnos", () => {
+  const linhas = [{ a: "1" }, { a: "2" }];
+
+  it("registro novo começa em ds1, como sempre", () => {
+    const reg = newRegistry();
+    expect(registrarDataset(reg, linhas)?.id).toBe("ds1");
+    expect(registrarDataset(reg, linhas)?.id).toBe("ds2");
+  });
+
+  it("continuando uma conversa, os ids seguem de onde pararam", () => {
+    const reg = newRegistry(4); // turno anterior foi até ds3
+    expect(registrarDataset(reg, linhas)?.id).toBe("ds4");
+    expect(registrarDataset(reg, linhas)?.id).toBe("ds5");
+  });
+
+  it("id reidratado NÃO é reemitido — é o defeito que isto evita", () => {
+    // Turno anterior deixou ds3 e ds7 vivos; o novo não pode virar ds3.
+    const reg = newRegistry(8);
+    reg.list.push({ id: "ds3", rows: [], colunas: [], headers: [] });
+    reg.list.push({ id: "ds7", rows: [], colunas: [], headers: [] });
+    const novo = registrarDataset(reg, linhas)!.id;
+    expect(novo).toBe("ds8");
+    expect(["ds3", "ds7"]).not.toContain(novo);
+  });
+
+  it("tabela de tela compartilha o mesmo contador", () => {
+    // `ds` e `tela` são o mesmo espaço de nomes para quem consulta: dois
+    // contadores independentes reabririam a colisão por outro caminho.
+    const reg = newRegistry();
+    expect(registrarDataset(reg, linhas)?.id).toBe("ds1");
+    expect(registrarTabelaTela(reg, ["c"], [["x"]]).id).toBe("tela2");
+  });
+});

@@ -53,7 +53,7 @@ import { instrumentarTools } from "@/lib/chat/tool-trace";
 import { CircuitOpenError } from "@/lib/ai/circuit-breaker";
 import { buildInviteTool, pedeConvite, inviteDirective } from "@/lib/chat/invite-tools";
 import { buildIcs, type InviteSpec } from "@/lib/calendar/ics";
-import { listarDatasets, newRegistry, usouDadosDaTela, type Filtro } from "@/lib/chat/datasets";
+import { listarDatasets, usouDadosDaTela, type Filtro } from "@/lib/chat/datasets";
 import { classificarAnalise, estimarCustoB, filtrarSubconjunto, avgCharsColuna } from "@/lib/chat/analysis-router";
 import { enqueueSemanticAnalyze } from "@/lib/jobs/boss";
 import { buildQueryTool } from "@/lib/chat/query-tools";
@@ -66,6 +66,7 @@ import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { idsParaProcedencia } from "@/lib/chat/procedencia";
 import { resolverEscolha } from "@/lib/chat/escolha-numerada";
+import { reidratarDatasets, salvarDatasetsDaConversa } from "@/lib/chat/dataset-conversa";
 import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
@@ -677,7 +678,17 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const querTutorial = formAssist && !continuation && pareceTutorial(question);
   // Datasets do turno: as ferramentas registram as listas completas aqui e o
   // relatório referencia por id — o PDF sai com TODAS as linhas (#4).
-  const datasets = newRegistry();
+  /**
+   * O registro começa com as tabelas da CONVERSA, não vazio.
+   *
+   * "Em 20 mensagens ele ainda está citando o resultado da quinta" — o texto
+   * atravessava os turnos, as linhas não. O agente tentava `dados_de: "ds1"`,
+   * recebia "nenhuma tabela carregada neste turno" e refazia a chamada à API
+   * (19/08/2026). Com a reidratação, `ds1` do turno 5 ainda é `ds1` no turno 20,
+   * e a numeração continua de onde parou — `ds1` nunca renasce com outro
+   * conteúdo.
+   */
+  const datasets = await reidratarDatasets(supabase, convId);
   // Pula a análise-LLM de módulos de tools (~1s) quando as tools de integração serão
   // cortadas de qualquer forma — mantendo a persona/capacidades: (a) sugestão de filtro
   // de relatório vazio (continuation pós-coleta); (b) MODO RELATÓRIO cedo (relatório
@@ -2853,6 +2864,17 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       // Fotografia do REGISTRO de datasets no fim do turno: quais ids existiram, com
       // quantas linhas e quais colunas. É o que permite ler no log por que um
       // `dados_de` foi recusado — antes só dava para adivinhar.
+      // As tabelas do turno ficam disponíveis para as PRÓXIMAS mensagens.
+      // Sem `await` bloqueante no caminho da resposta: a pessoa já está lendo,
+      // e perder a persistência degrada para o comportamento de antes (o agente
+      // reconsulta) — nunca derruba o turno.
+      if (convId) {
+        void salvarDatasetsDaConversa(
+          supabase,
+          { conversationId: convId, spaceId: key.space_id, userRef, widgetKeyId: key.id },
+          datasets,
+        );
+      }
       passoFinal("dataset:registro", {
         total: datasets.list.length,
         itens: listarDatasets(datasets).map((d) => ({ id: d.id, linhas: d.total, cols: d.colunas.slice(0, 8) })),

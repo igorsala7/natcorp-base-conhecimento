@@ -4540,10 +4540,13 @@ export type Database = {
         Row: {
           client_key: string
           columns: Json
+          conversation_id: string | null
           created_at: string
           id: string
           rows: Json | null
           source_name: string | null
+          seq: number | null
+          expires_at: string | null
           space_id: string
           storage_path: string | null
           total: number
@@ -4553,6 +4556,7 @@ export type Database = {
         Insert: {
           client_key: string
           columns?: Json
+          conversation_id?: string | null
           created_at?: string
           id?: string
           rows?: Json | null
@@ -4566,10 +4570,13 @@ export type Database = {
         Update: {
           client_key?: string
           columns?: Json
+          conversation_id?: string | null
           created_at?: string
           id?: string
           rows?: Json | null
           source_name?: string | null
+          seq?: number | null
+          expires_at?: string | null
           space_id?: string
           storage_path?: string | null
           total?: number
