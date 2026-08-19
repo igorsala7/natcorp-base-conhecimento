@@ -133,3 +133,53 @@ describe("filtrarProprioDosResultados (exclude_self)", () => {
     expect(filtrarProprioDosResultados(dados, "")).toBe(dados);
   });
 });
+
+/**
+ * GESTOR DE EQUIPE — o painel decide, o cadastro não pode baixar.
+ *
+ * A mesma pessoa pode ser gestora de equipe E fazer parte do RH: acessa o
+ * Painel do Operador com `gestor=SIM`, e o perfil pode ser GESTOR ou FOLHA
+ * (regra do Igor, 18/08/2026). Caso real: "Minha Equipe" tinha `PO="nenhum"` e
+ * sumia do catálogo para quem justamente tem equipe — o modelo então pegava a
+ * ferramenta vizinha e parecia erro de escolha da IA.
+ */
+describe("escopoDoPainel — gestor de equipe", () => {
+  const minhaEquipe = { PO: "nenhum", PG: "equipe", PC: "nenhum" } as const;
+
+  it("gestor no PO tem alcance TOTAL, mesmo com a tool marcada 'nenhum'", () => {
+    expect(escopoDoPainel(minhaEquipe, "PO", false, false)).toBe("nenhum");
+    expect(escopoDoPainel(minhaEquipe, "PO", false, true)).toBe("todos");
+  });
+
+  it("gestor no PG vê a equipe; no PC, só os próprios", () => {
+    expect(escopoDoPainel(minhaEquipe, "PG", false, true)).toBe("equipe");
+    expect(escopoDoPainel(minhaEquipe, "PC", false, true)).toBe("proprios");
+  });
+
+  it("quem NÃO é gestor segue exatamente o cadastro", () => {
+    for (const p of ["PO", "PG", "PC"] as const) {
+      expect(escopoDoPainel(minhaEquipe, p, false, false)).toBe(minhaEquipe[p]);
+    }
+  });
+
+  it("ser gestor NUNCA reduz o alcance", () => {
+    // Uma tool liberada como "todos" no PG não pode virar "equipe" só porque
+    // quem consulta é gestor — seria menos acesso por ter mais responsabilidade.
+    const ampla = { PO: "todos", PG: "todos", PC: "todos" } as const;
+    for (const p of ["PO", "PG", "PC"] as const) {
+      expect(escopoDoPainel(ampla, p, false, true)).toBe("todos");
+    }
+  });
+
+  it("candidato não é afetado — silêncio continua sendo NÃO", () => {
+    // A inversão do candidato é deliberada: sem ela, o catálogo de RH inteiro
+    // passaria a valer para alguém de fora da empresa por omissão.
+    expect(escopoDoPainel(minhaEquipe, "PO", true, true)).toBe("nenhum");
+    expect(escopoDoPainel({ PCAND: "proprios" }, "PO", true, true)).toBe("proprios");
+  });
+
+  it("sem panel_scope nenhum continua 'todos', com ou sem gestor", () => {
+    expect(escopoDoPainel(null, "PO", false, true)).toBe("todos");
+    expect(escopoDoPainel(undefined, "PC", false, true)).toBe("todos");
+  });
+});

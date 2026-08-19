@@ -340,6 +340,16 @@ export async function buildIntegrationTools(
 
   let ident = identity;
   let profileNote = "";
+  /**
+   * Gestor de equipe — o campo `gestor` do cadastro, que responde por um centro
+   * de custo. Vem do login do ORDS, não do token.
+   *
+   * Fica FORA do bloco de identidade porque o filtro de escopo (mais abaixo)
+   * precisa dele: a mesma pessoa pode ser gestora e fazer parte do RH, acessando
+   * o Painel do Operador. Sem isto, "Minha Equipe" (`PO="nenhum"`) sumia do
+   * catálogo justamente para quem tem equipe.
+   */
+  let gestorDeEquipe = false;
   const primary = ctx.tools.find((t) => t.credentialId && t.baseUrl);
   // O login do ORDS valida uma MATRÍCULA. O candidato não tem uma — chamar
   // ali devolveria "usuário não encontrado" e derrubaria as ferramentas dele
@@ -391,6 +401,7 @@ export async function buildIntegrationTools(
         }
       } else {
         ident = res.identity;
+        gestorDeEquipe = res.profile?.gestorDeEquipe === true;
         if (res.profile?.nome) {
           profileNote =
             `Usuário identificado: ${res.profile.nome}` +
@@ -519,9 +530,9 @@ export async function buildIntegrationTools(
     // reescrevem empresa/matrícula para a IDENTIDADE (a IA nem vê esses campos, então não
     // há como pedir os dados de outra pessoa). "próprios" sem matrícula do usuário FALHA
     // FECHADO — nunca cai para "todos".
-    const escopo = escopoDoPainel(bt.tool.panel_scope, portalAcesso, candidato);
+    const escopo = escopoDoPainel(bt.tool.panel_scope, portalAcesso, candidato, gestorDeEquipe);
     if (escopo === "nenhum") {
-      onPasso?.("integracoes:escopo", { tool: bt.tool.key, painel: portalAcesso ?? "?", resultado: "bloqueada" });
+      onPasso?.("integracoes:escopo", { tool: bt.tool.key, painel: portalAcesso ?? "?", gestor: gestorDeEquipe, resultado: "bloqueada" });
       continue;
     }
     // "próprios" precisa de QUEM é o próprio: matrícula para colaborador, código

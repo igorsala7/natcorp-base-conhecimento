@@ -54,12 +54,48 @@ export function escopoDoPainel(
   ps: PanelScopeMap | null | undefined,
   portal: string | undefined,
   candidato = false,
+  gestorDeEquipe = false,
 ): EscopoPainel {
   if (candidato) return ps?.PCAND ?? "nenhum";
   if (!ps) return "todos";
   let p = String(portal ?? "").trim().toUpperCase();
   if (p !== "PO" && p !== "PG" && p !== "PC") p = "PC";
-  return ps[p as "PO" | "PG" | "PC"] ?? "todos";
+  const doCadastro = ps[p as "PO" | "PG" | "PC"] ?? "todos";
+  // Gestor: o PAINEL decide o alcance, e o cadastro não pode baixar dele.
+  return gestorDeEquipe ? maisAmplo(doCadastro, ESCOPO_DE_GESTOR[p as "PO" | "PG" | "PC"]) : doCadastro;
+}
+
+/**
+ * O ALCANCE DE QUEM É GESTOR, POR PAINEL.
+ *
+ * A mesma pessoa pode ser gestora de equipe E fazer parte do RH: nesse caso ela
+ * acessa o Painel do Operador com `gestor=SIM`, e as combinações reais incluem
+ * `perfil=GESTOR` e `perfil=FOLHA` (regra do Igor, 18/08/2026). Decidir o escopo
+ * só pelo `panel_scope` da ferramenta bloqueava essa pessoa: "Minha Equipe"
+ * tinha `PO="nenhum"`, então sumia do catálogo e o modelo pegava a vizinha mais
+ * parecida — parecia erro de escolha da IA, era cardápio.
+ *
+ * Quem manda aqui é o painel, não o cadastro da tool. É a MESMA hierarquia que o
+ * guard `escopo_pessoa` já aplica por chamada (`decisaoEscopoPessoa`) — antes
+ * disto, filtro de catálogo e guard discordavam sobre a mesma pessoa.
+ *
+ * O perfil (GESTOR/FOLHA/MASTER…) não entra: fica para a etapa de acessos por
+ * perfil. Hoje só `gestor=SIM` decide.
+ */
+const ESCOPO_DE_GESTOR: Record<"PO" | "PG" | "PC", EscopoPainel> = {
+  PO: "todos",
+  PG: "equipe",
+  PC: "proprios",
+};
+
+/**
+ * O mais amplo entre dois escopos. Ser gestor NUNCA reduz o que a pessoa já
+ * tinha — só levanta o piso. Sem isso, uma tool com `PO="todos"` daria "equipe"
+ * a um gestor no Operador: menos acesso por ser gestor, que é o oposto da regra.
+ */
+function maisAmplo(a: EscopoPainel, b: EscopoPainel): EscopoPainel {
+  // ESCOPOS vai do mais amplo ("todos") ao mais restrito ("nenhum").
+  return ESCOPOS.indexOf(a) <= ESCOPOS.indexOf(b) ? a : b;
 }
 
 const semUser = (nome: string) => !/_user\b|_user$|usuario/i.test(nome);
