@@ -33,6 +33,31 @@ Casos que definem a fronteira, do gabarito:
 | "Agora eu quero as informações do 205818" | acabou de ver o próprio cadastro | **não perguntar** — mesmo dado, outra pessoa |
 | "Quais são os dados do Tony Oliveira?" | primeira mensagem | **não perguntar** — "dados de" + nome é cadastro |
 
+### O que NÃO é motivo para perguntar
+
+| sinal | por quê |
+|---|---|
+| Mensagem curta | `"15 15, início 01/10 e depois 01/11"` tem duas palavras úteis e é inequívoco no contexto de parcelamento |
+| Repetição do pedido | `"requisição de férias"` logo após `"quero criar a requisição de férias"` é INSISTÊNCIA, não incerteza — o sistema tratava repetição como dúvida |
+| Pronome com antecedente claro | `"Agora eu quero as informações do 205818"` depois de ver o próprio cadastro |
+
+O que decide é se falta **algo que altera o resultado**, não o tamanho da
+frase. `"eventos de apuração da matrícula 205818"` é uma frase completa e
+merece pergunta — porque omite o PERÍODO, e o agente escolheu um sozinho,
+trazendo 114 eventos.
+
+### Ambiguidade de ENTREGA, não de assunto
+
+Caso recorrente e de causa própria: o agente decide sozinho entre responder no
+chat e gerar arquivo, e erra nos dois sentidos.
+
+| mensagem | erro |
+|---|---|
+| `"traga a lista completa"` (96 registros) | gerou Excel; você queria ver |
+| `"crie em colunas apenas o nome, matrícula…"` | gerou Excel sem perguntar |
+
+Não é ambiguidade de assunto — é de formato de entrega. Merece regra própria.
+
 ## Continuação: o sujeito atravessa, o pedido não
 
 Variação do mesmo pedido (outro mês, outra pessoa) repete a **mesma
