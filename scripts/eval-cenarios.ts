@@ -45,6 +45,7 @@ import { z } from "zod";
 import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
+import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -59,6 +60,10 @@ const N = Number(arg("n", "99"));
 const BASE = arg("base", "natcorp");
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
+// `--diretiva 1` acrescenta DIRETIVA_PERGUNTAR ao prompt. Existe para medir a
+// diretiva A/B no MESMO conjunto antes de ela entrar na produção — mudar prompt
+// sem antes/depois é o erro que este eval existe para não repetir.
+const DIRETIVA = arg("diretiva", "0") === "1";
 const MODELOS = arg(
   "modelos",
   ["google:gemini-3.5-flash", "anthropic:claude-haiku-4-5", "anthropic:claude-sonnet-5", "openai:gpt-5.6-terra"].join(","),
@@ -151,7 +156,7 @@ async function main() {
   console.log(`\n${amostra.length} casos medíveis · ${MODELOS.length} modelos`);
   if (semGabarito.length) console.log(`${semGabarito.length} ainda sem gabarito — fora do placar`);
   if (doFunil.length) console.log(`${doFunil.length} são falha de FUNIL (a ferramenta certa não chegou ao modelo) — fora do placar`);
-  console.log("mesmo histórico, mesma tela, mesmas ferramentas — só o modelo muda\n");
+  console.log(`mesmo histórico, mesma tela, mesmas ferramentas — só o modelo muda${DIRETIVA ? "\nCOM a diretiva de perguntar" : ""}\n`);
 
   type Placar = {
     tOk: number; tMed: number;             // ferramenta
@@ -196,7 +201,7 @@ async function main() {
         });
       }
 
-      const sistema = [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela)]
+      const sistema = [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela), DIRETIVA ? DIRETIVA_PERGUNTAR : ""]
         .filter(Boolean).join("\n\n");
       // Mensagem de conteúdo vazio existe no histórico real (turno que morreu antes
       // de escrever) e a Anthropic RECUSA o payload inteiro por causa dela — o que
