@@ -20,7 +20,7 @@ function safeHref(href: string): string {
  * citação e o link viraria texto solto.
  */
 const INLINE =
-  /(\[\d{1,2}\](?!\())|(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))|(\*[^*]+\*)|(_[^_]+_)/g;
+  /(<br\s*\/?>)|(\[\d{1,2}\](?!\())|(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))|(\*[^*]+\*)|(_[^_]+_)/g;
 
 /** Como a citação é desenhada — quem sabe se o número EXISTE é quem chama. */
 export type CitacaoProps = {
@@ -40,6 +40,15 @@ function renderInline(text: string, keyBase: string, cit?: CitacaoProps): React.
   while ((m = INLINE.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const tok = m[0];
+    // `<br>` vem do relatório do ERP, que quebra a lista de verbas de propósito
+    // (uma verba por linha). É a ÚNICA tag interpretada; nada mais aqui lê HTML,
+    // e este renderizador devolve elementos React — não existe caminho de HTML
+    // cru por onde outra tag pudesse entrar.
+    if (/^<br/i.test(tok)) {
+      out.push(<br key={`${keyBase}-${k++}`} />);
+      last = INLINE.lastIndex;
+      continue;
+    }
     const numero = /^\[(\d{1,2})\]$/.exec(tok);
     if (numero) {
       const n = Number(numero[1]);

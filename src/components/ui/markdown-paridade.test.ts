@@ -66,6 +66,12 @@ const CASOS: { nome: string; md: string }[] = [
     md: "| A | B |\n|---|---|\n| 1 | 2 |\n\nIsso é tudo.",
   },
   { nome: "canos SEM separador não são tabela", md: "Ele disse | ela disse | fim" },
+  // O relatório do ERP quebra a lista de verbas de propósito. É a ÚNICA tag que
+  // os dois renderizadores interpretam em vez de escapar — e os dois têm de
+  // interpretar, senão a marcação aparece literal num deles.
+  { nome: "quebra <br> vira quebra nos dois", md: "• Salário: R$ 19.541,50<br>• Comissão: R$ 586,25" },
+  { nome: "quebra <br/> dentro de célula de tabela", md: "| Verbas |\n|---|\n| • INSS<br>• IRRF |" },
+  { nome: "toda outra tag continua ESCAPADA", md: "Isso <script>alert(1)</script> não é tag." },
 ];
 
 describe("markdown — paridade entre o portal (React) e o widget", () => {

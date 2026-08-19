@@ -5564,6 +5564,12 @@
   // Markdown mínimo e seguro (escapa primeiro; só injeta tags próprias).
   function inlineMd(t) {
     t = esc(t);
+    // `<br>` é a ÚNICA tag que volta a ser tag depois do escape. O relatório do
+    // ERP traz a lista de verbas quebrada por `<br>` de propósito (uma verba por
+    // linha), e escapar tudo fazia a marcação aparecer literal na resposta.
+    // Liberar uma tag sem atributo e sem conteúdo não abre XSS: o resto — inclusive
+    // `<script>`, `<img onerror>` e qualquer atributo — continua escapado por `esc`.
+    t = t.replace(/&lt;br\s*\/?&gt;/gi, "<br>");
     t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
     t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_, lab, url) {

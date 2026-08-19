@@ -60,26 +60,25 @@ describe("celulaDataset — marcação HTML da tela", () => {
     "• Salário: R$ 19.541,50<br>• Férias no Mês: R$ 4.299,13<br>• 1/3 de Férias: R$ 1.433,07" +
     "<br>• Adição Tempo de Serviço: R$ 1.954,15<br>• Comissão: R$ 586,25";
 
-  it("tira o <br> da lista de verbas sem perder verba nenhuma", () => {
+  it("PRESERVA o <br> — é quebra que o autor do relatório escreveu, não enfeite", () => {
+    // A lista de verbas vem quebrada de propósito, uma verba por linha. Quem
+    // transforma em quebra visível é o renderizador do chat (widget e React);
+    // aqui ela só precisa CHEGAR. Vira `\n` seria pior: o modelo monta a
+    // resposta em tabela markdown, e a quebra parte a linha da tabela ao meio.
     const limpo = celulaDataset(recibo);
-    expect(limpo).not.toContain("<br>");
-    // O `•` já separa os itens: vira espaço, não quebra de linha — quebra dentro
-    // de célula estouraria a tabela markdown que o modelo monta na resposta.
-    expect(limpo).toBe(
-      "• Salário: R$ 19.541,50 • Férias no Mês: R$ 4.299,13 • 1/3 de Férias: R$ 1.433,07" +
-        " • Adição Tempo de Serviço: R$ 1.954,15 • Comissão: R$ 586,25",
-    );
-    for (const verba of ["Salário", "Férias no Mês", "1/3 de Férias", "Adição Tempo de Serviço", "Comissão"])
-      expect(limpo).toContain(verba);
-    for (const valor of ["19.541,50", "4.299,13", "1.433,07", "1.954,15", "586,25"]) expect(limpo).toContain(valor);
+    expect(limpo).toBe(recibo);
+    expect(limpo.match(/<br>/g)).toHaveLength(4);
   });
 
-  it("célula LONGA também é limpa — o teto de 500 é para documento de API, não para célula", () => {
+  it("célula LONGA também mantém o <br> — o teto de 500 é para documento de API", () => {
     // Recibo com muitas verbas passa de 500 caracteres. Sob o teto antigo a
-    // célula seria devolvida crua justamente no caso que mais precisa.
-    const longo = Array.from({ length: 20 }, (_, i) => `• Verba ${i}: R$ 1.000,00`).join("<br>");
+    // célula era devolvida sem tratamento nenhum, justamente no caso que mais
+    // carrega marcação.
+    const longo = Array.from({ length: 20 }, (_, i) => `<b>• Verba ${i}</b>: R$ 1.000,00`).join("<br>");
     expect(longo.length).toBeGreaterThan(500);
-    expect(celulaDataset(longo)).not.toContain("<br>");
+    const limpo = celulaDataset(longo);
+    expect(limpo.match(/<br>/g)).toHaveLength(19);
+    expect(limpo).not.toContain("<b>");
   });
 
   it("o ícone renderizado vira só o texto", () => {

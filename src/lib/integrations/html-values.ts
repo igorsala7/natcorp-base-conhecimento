@@ -22,6 +22,19 @@ const MAX_VALOR = 500;
 const MAX_NIVEL = 8;
 
 const TAG = /<\/?[a-z][^>]*>/gi;
+/**
+ * `<br>` é a única tag que sobrevive — porque é a única que é CONTEÚDO.
+ *
+ * Quem montou o relatório no ERP escreveu a quebra de propósito: a lista de
+ * verbas de um recibo chega como `"• Salário: R$ …<br>• Férias no Mês: R$ …"`,
+ * uma verba por linha. Todo o resto (`<span class="fa …">`) é enfeite de tela.
+ *
+ * Fica como `<br>`, e não como quebra de linha de verdade, porque o modelo monta
+ * a resposta em tabela markdown: uma quebra dentro da célula parte a linha da
+ * tabela ao meio. Quem transforma em quebra visível é o renderizador do chat,
+ * que escapa todo o resto e libera só esta.
+ */
+const EH_BR = /^<br\s*\/?>$/i;
 const ENTIDADES: Record<string, string> = {
   "&nbsp;": " ",
   "&amp;": "&",
@@ -47,10 +60,13 @@ export function pareceHtml(s: string): boolean {
  */
 export function limparValorHtml(valor: string, maxValor = MAX_VALOR): string {
   if (valor.length > maxValor || !pareceHtml(valor)) return valor;
-  let texto = valor.replace(TAG, " ");
+  let texto = valor.replace(TAG, (t) => (EH_BR.test(t) ? "<br>" : " "));
   for (const [ent, ch] of Object.entries(ENTIDADES)) texto = texto.split(ent).join(ch);
   texto = texto.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   texto = texto.replace(/\s+/g, " ").trim();
+  // O espaço que rodeava a tag original não vira espaço em volta da quebra, e
+  // `<br>` na ponta (lista terminada com quebra) sai.
+  texto = texto.replace(/\s*<br>\s*/g, "<br>").replace(/^(?:<br>)+|(?:<br>)+$/g, "");
   // Só ícone, sem texto: devolve vazio (honesto) em vez do embrulho — mas se a
   // limpeza comeu tudo E a original tinha texto visível, algo saiu errado: mantém.
   return texto;
