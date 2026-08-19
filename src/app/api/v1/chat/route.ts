@@ -25,7 +25,7 @@ import {
 } from "@/lib/widget/auth";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
 import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
-import { ehConversaSocial, separarSocial } from "@/lib/ai/social";
+import { separarSocial, ehTurnoSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
 import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
@@ -419,12 +419,27 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // NÃO é turno social: era engolido inteiro e desligava RAG, glossário e todos os
   // gates — o agente respondia "de nada!" e ignorava a pergunta. Frequência altíssima
   // num chat de RH. Aqui a cortesia vira uma nota curta e o pedido segue o fluxo normal.
+  //
+  // E o RESTO também é testado. `separarSocial` responde "sobrou alguma coisa?",
+  // mas a pergunta que decide é "sobrou algo que precise de DADOS?". Em
+  // "Olá, como você pode me ajudar?" o resto é `"como você pode me ajudar?"` —
+  // que isolado é social, e a mesma frase SEM o "Olá," já pegava o atalho. A
+  // palavra de cortesia na frente custava RAG, ontologia e varredura de tela:
+  // 30.426 tokens e 12,5 s num turno medido (18/08/2026).
+  //
+  // O classificador que responde isso já existe e já acerta a frase isolada —
+  // ele só nunca tinha sido aplicado ao próprio resto que o separador produz.
   const _sep = separarSocial(question);
-  const social = ehConversaSocial(question) && !_sep.resto;
-  const notaCortesia = _sep.saudacao && _sep.resto
+  const social = ehTurnoSocial(question);
+  // A nota de cortesia só faz sentido quando há PEDIDO REAL a responder depois
+  // dela. Com o resto também social, mandar "responda ao pedido dele" apontaria
+  // para um pedido que não existe.
+  const _cortesiaComPedido = !!_sep.saudacao && !!_sep.resto && !social;
+  const notaCortesia = _cortesiaComPedido
     ? "O usuário abriu a mensagem com uma cortesia. Retribua em UMA linha curta e responda ao pedido dele normalmente — não trate a mensagem como conversa social."
     : "";
-  if (_sep.saudacao && _sep.resto) passo("social", { abertura: _sep.saudacao, pedido: _sep.resto.slice(0, 120) });
+  if (_cortesiaComPedido) passo("social", { abertura: _sep.saudacao, pedido: _sep.resto.slice(0, 120) });
+  else if (social && _sep.resto) passo("social", { abertura: _sep.saudacao, resto_tambem_social: _sep.resto.slice(0, 120) });
   // Pedido de passo a passo/guia → busca MAIS trechos (conteúdo completo) e reforça
   // a completude no prompt; perguntas comuns seguem enxutas. Enumeração ("todos os
   // X") também amplia (limite/tokens) e traz a lista inteira dos arquivos.

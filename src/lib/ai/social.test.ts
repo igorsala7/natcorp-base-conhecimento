@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ehConversaSocial, separarSocial } from "./social";
+import { ehConversaSocial, separarSocial, ehTurnoSocial } from "./social";
 
 describe("ehConversaSocial", () => {
   it("reconhece saudações e conversa social", () => {
@@ -109,5 +109,43 @@ describe("abertura social + pedido real", () => {
 
   it("cauda curta demais não vira pedido", () => {
     expect(separarSocial("obrigado :)").resto).toBe("");
+  });
+});
+
+/**
+ * A palavra de cortesia na frente não pode custar o turno inteiro.
+ *
+ * `"Olá, como você pode me ajudar?"` gastava 30.426 tokens e 12,5 s (medido em
+ * 18/08/2026) porque a saudação deixava um "resto", e a existência do resto —
+ * sozinha — desligava o atalho social.
+ */
+describe("ehTurnoSocial", () => {
+  it("saudação + pergunta que também é social continua social", () => {
+    expect(ehTurnoSocial("Olá, como você pode me ajudar?")).toBe(true);
+    expect(ehTurnoSocial("Oi, tudo bem?")).toBe(true);
+    // A MESMA frase sem a saudação sempre foi social — era a incoerência.
+    expect(ehConversaSocial("como você pode me ajudar?")).toBe(true);
+  });
+
+  it("saudação + PEDIDO REAL não é social — o caso que a separação existe para pegar", () => {
+    expect(ehTurnoSocial("obrigado! agora me diz quantos estão de férias")).toBe(false);
+    expect(ehTurnoSocial("Olá, preciso dos dados da minha equipe")).toBe(false);
+    expect(ehTurnoSocial("bom dia, qual o meu saldo de férias?")).toBe(false);
+  });
+
+  it("cortesia pura continua social", () => {
+    for (const s of ["Olá", "oi", "bom dia", "obrigado", "valeu!"]) {
+      expect(ehTurnoSocial(s)).toBe(true);
+    }
+  });
+
+  it("pergunta de trabalho sem cortesia nenhuma não é social", () => {
+    expect(ehTurnoSocial("quantos colaboradores estão de férias?")).toBe(false);
+    expect(ehTurnoSocial("jornada")).toBe(false);
+  });
+
+  it("vazio não quebra", () => {
+    expect(ehTurnoSocial("")).toBe(false);
+    expect(ehTurnoSocial("   ")).toBe(false);
   });
 });

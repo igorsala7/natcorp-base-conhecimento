@@ -100,3 +100,34 @@ export function separarSocial(texto: string): { saudacao: string; resto: string 
   if (resto.replace(/[^a-zà-ú0-9]/gi, "").length < 3) return { saudacao: bruto, resto: "" };
   return { saudacao: bruto.slice(0, corte).trim(), resto };
 }
+
+/**
+ * O TURNO É SOCIAL? — a decisão inteira, num lugar só.
+ *
+ * `separarSocial` responde "sobrou alguma coisa depois da saudação?". Mas a
+ * pergunta que decide o turno é outra: **sobrou algo que precise de dados?**
+ *
+ * Em `"Olá, como você pode me ajudar?"` o resto é `"como você pode me ajudar?"`
+ * — que, isolado, é social. A mesma frase SEM o "Olá," já pegava o atalho; com
+ * ele, o turno ia inteiro para RAG, ontologia e varredura de tela. Custo medido
+ * de uma palavra de cortesia: **30.426 tokens e 12,5 s** (18/08/2026).
+ *
+ * O classificador que resolve isso é o `ehConversaSocial` logo acima — ele já
+ * acertava a frase isolada; só nunca tinha sido aplicado ao resto que o próprio
+ * separador produz.
+ *
+ * Continua NÃO social quando o resto é um pedido de verdade
+ * (`"obrigado! agora me diz quantos estão de férias"`) — que é o caso para o
+ * qual a separação foi criada, e o que este atalho não pode reintroduzir.
+ */
+export function ehTurnoSocial(texto: string): boolean {
+  const t = String(texto ?? "").trim();
+  if (!t) return false;
+  // Parte do SEPARADOR, não de `ehConversaSocial(t)`: a frase inteira
+  // ("Olá, como você pode me ajudar?") não é social — é a soma de duas partes
+  // que são. Testar o todo primeiro devolvia `false` antes de olhar as partes,
+  // que é exatamente o defeito original com outro nome.
+  const { saudacao, resto } = separarSocial(t);
+  if (!saudacao) return false;
+  return !resto || ehConversaSocial(resto);
+}
