@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reescritaDivergente, reescritaCopiouATela } from "./rewrite-divergence";
+import { reescritaDivergente } from "./rewrite-divergence";
 
 describe("reescritaDivergente", () => {
   // O caso real (natcorp, 12/08/2026): a reescrita trocou a pergunta por uma
@@ -35,36 +35,5 @@ describe("reescritaDivergente", () => {
   it("texto sem conteúdo não vira divergência (nada a preservar)", () => {
     expect(reescritaDivergente("oi", "saudação")).toBe(false);
     expect(reescritaDivergente("", "qualquer coisa")).toBe(false);
-  });
-});
-
-/**
- * Os quatro casos reais da simulação de 19/08/2026, em que a reescrita copiou o
- * título da tela e o agente pareceu "burro e confuso" para quem usava.
- */
-describe("reescritaCopiouATela", () => {
-  it("pega os quatro casos que quebraram a conversa", () => {
-    expect(reescritaCopiouATela("Mas eu quero no geral", "Linha do tempo dos funcionários", "Linha do Tempo — /rh/linha-tempo")).toBe(true);
-    expect(reescritaCopiouATela("E o Tony Oliveira?", "Folha de Pagamento", "Folha de Pagamento — /rh/folha")).toBe(true);
-    expect(reescritaCopiouATela("Então faça pelo total da remuneração", "Folha de Pagamento", "Folha de Pagamento — /rh/folha")).toBe(true);
-    expect(reescritaCopiouATela("Ele está na minha equipe?", "Cadastro de Funcionário", "Cadastro de Funcionário — /rh/cadastro")).toBe(true);
-  });
-
-  it("TRADUÇÃO de vocabulário continua valendo — é para isso que a reescrita existe", () => {
-    // Diverge por inteiro e está CERTA: nada disso veio do título da tela.
-    expect(reescritaCopiouATela("quanto ganho?", "salário do colaborador", "Folha de Pagamento — /rh/folha")).toBe(false);
-    expect(reescritaCopiouATela("bater ponto", "marcação de frequência", "Cadastro de Funcionário")).toBe(false);
-  });
-
-  it("reescrita que preserva a pergunta nunca é contaminação", () => {
-    expect(reescritaCopiouATela("colaboradores da equipe", "colaboradores ativos da equipe", "Colaboradores — /rh/lista")).toBe(false);
-  });
-
-  it("sem título de tela, não há o que copiar", () => {
-    expect(reescritaCopiouATela("Mas eu quero no geral", "Linha do tempo dos funcionários", "")).toBe(false);
-  });
-
-  it("casa pelo radical — 'funcionários' na reescrita × 'Funcionário' no título", () => {
-    expect(reescritaCopiouATela("e agora?", "consulta de funcionários", "Cadastro de Funcionário")).toBe(true);
   });
 });

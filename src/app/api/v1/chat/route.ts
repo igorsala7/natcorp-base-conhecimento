@@ -24,7 +24,7 @@ import {
   rateLimitOk,
 } from "@/lib/widget/auth";
 import { interpretarConsulta } from "@/lib/ai/query-understanding";
-import { reescritaDivergente, reescritaCopiouATela } from "@/lib/ai/rewrite-divergence";
+import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
 import { separarSocial, ehTurnoSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
@@ -522,41 +522,12 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     temTelaAtiva, perguntaComposta, modoRelatorioCedo,
   });
   const pularRewrite = _gate.pular;
-  const _tituloTela = pageContextHint(page);
-  const _reescritaCrua = pularRewrite
+  const consultaRag = pularRewrite
     ? question
-    : await interpretarConsulta(key.space_ids, question, messages, _tituloTela);
-  /**
-   * REESCRITA QUE COPIOU O TÍTULO DA TELA É DESCARTADA.
-   *
-   * A reescrita recebe o título da tela como contexto e, diante de uma frase
-   * curta ou de continuação, agarra o título em vez da conversa. Medido numa
-   * simulação de uso real (19/08/2026): 4 de 13 turnos.
-   *
-   *   "Mas eu quero no geral"  →  "Linha do tempo dos funcionários"
-   *
-   * O estrago não fica na busca: a consulta reescrita alimenta o ROTEADOR.
-   * Nesse turno ele travou em `linha_tempo` (0.73, `roteou_direto`), o conjunto
-   * colapsou para 4 ferramentas, `listar_colaboradores_resumo` — que tinha
-   * acabado de responder o turno anterior — foi cortada, e o agente disse à
-   * pessoa que estava "com acesso limitado às ferramentas nesta sessão". Para
-   * quem usava, o agente ficou "burro e confuso"; ele estava respondendo uma
-   * pergunta que ninguém fez.
-   *
-   * Só o caso COMPROVADO de cópia: divergir por inteiro continua permitido
-   * ("quanto ganho?" → "salário do colaborador" é tradução, e é o propósito).
-   * O que se descarta é a reescrita que não guarda nada da pergunta E guarda
-   * algo do título da tela.
-   */
-  const _copiouTela = !pularRewrite && reescritaCopiouATela(question, _reescritaCrua, _tituloTela);
-  const consultaRag = _copiouTela ? question : _reescritaCrua;
+    : await interpretarConsulta(key.space_ids, question, messages, pageContextHint(page));
   const _tRewrite = Date.now();
   console.log(`[chat-timing] rewrite=${_tRewrite - _tPrep0}ms (${pularRewrite ? "pulado" : "ok"})`);
-  passo("query_rewrite", {
-    pulado: pularRewrite, motivo: _gate.motivo, precisa_contexto: _gate.precisaContexto,
-    consulta: String(consultaRag).slice(0, 120),
-    ...(_copiouTela ? { descartada: String(_reescritaCrua).slice(0, 80), motivo_descarte: "copiou o título da tela" } : {}),
-  });
+  passo("query_rewrite", { pulado: pularRewrite, motivo: _gate.motivo, precisa_contexto: _gate.precisaContexto, consulta: String(consultaRag).slice(0, 120) });
   // NB: o RAG (retrievePublicContext + webSources + `sources`) roda MAIS ABAIXO, logo
   // DEPOIS do roteador de fonte — assim, quando a mensagem é roteada DIRETO a uma tool,
   // reduzimos os trechos de documentação (peso morto). Nada entre aqui e lá usa `sources`.
