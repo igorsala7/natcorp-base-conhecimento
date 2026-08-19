@@ -164,7 +164,9 @@ async function main() {
         portal: t.p_portal,
         // Colunas e contagem — o conteúdo das células não está no trace.
         tela: tela.map((d) => ({ id: d.id, linhas: d.linhas, colunas: (d.cols ?? []).slice(0, 12) })),
-        ofertadas: ofertadas.slice(0, 20),
+        // Sem corte: a produção chega a entregar 104 ferramentas num turno, e cortar
+        // aqui inventaria "falha de funil" onde o funil não falhou.
+        ofertadas,
 
         // ── ANOTAR: o que DEVERIA acontecer ───────────────────────────────
         espera_tool: ant ? ant.espera_tool : (chamadas[0] ?? null),
