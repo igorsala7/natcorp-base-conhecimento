@@ -287,7 +287,17 @@ export function integUsageDirective(toolForcado?: string): string {
     "EFICIÊNCIA (menos passos): se a ferramenta já devolveu a lista COMPLETA (vem o marcador `_completo`, e NÃO " +
     "`_amostra`/`_nota`), você JÁ tem TODAS as linhas — se o pedido é só LISTAR/MOSTRAR/APRESENTAR, responda DIRETO com " +
     "esses dados, SEM chamar consultar_registros/agregar/estatísticas de novo. Use as ferramentas de dados apenas quando o " +
-    "resultado veio como AMOSTRA (`_nota`) ou para FILTRAR/CONTAR/SOMAR/analisar um recorte específico.";
+    "resultado veio como AMOSTRA (`_nota`) ou para FILTRAR/CONTAR/SOMAR/analisar um recorte específico.\n" +
+    // A descrição do parâmetro lista as opções ("A - Ativos, D - Desligados,
+    // T - Todos") sem dizer qual preferir, e diante disso "Todos" é uma escolha
+    // defensável. Foi o que aconteceu: "quais os colaboradores do meu centro de
+    // custo" trouxe 40 registros incluindo desligados (19/08/2026) — a resposta
+    // não estava errada segundo a ferramenta, estava errada segundo a pergunta.
+    // A regra vale para as tools de hoje e para as que forem cadastradas depois.
+    "SITUAÇÃO DO COLABORADOR (padrão): quando a ferramenta tiver um parâmetro de SITUAÇÃO/status funcional, use SEMPRE o " +
+    "valor de ATIVOS. Pessoa desligada só entra quando o usuário PEDIR explicitamente (\"desligados\", \"demitidos\", " +
+    "\"quem saiu\", \"histórico incluindo quem não está mais\") — e aí use o valor de desligados ou de todos, conforme o " +
+    "pedido. Na dúvida, ATIVOS: uma lista com ex-funcionários no meio parece certa e não é.";
   return toolForcado
     ? `FONTE ESCOLHIDA: o usuário quer a informação via a ferramenta "${toolForcado}". Chame-a com os parâmetros do CONTEXTO da conversa (não use os dados da tela). ${regra}`
     : regra;

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildChartTool, buildReportTool, buildTrocaFonteTool, escopoRelatorioDirective, intencaoVisual, type ArquivoGerado } from "./report-tools";
+import { buildChartTool, buildReportTool, buildTrocaFonteTool, escopoRelatorioDirective, intencaoVisual, type ArquivoGerado,
+  integUsageDirective,
+} from "./report-tools";
 import { newRegistry, registrarTabelaTela } from "./datasets";
 import type { ChartSpec } from "./chart-spec";
 import type { ReportSpec } from "@/lib/reports/report-spec";
@@ -298,5 +300,37 @@ describe("o vocabulário de layout chega ao arquivo", () => {
         expect("nota" in ultimo ? ultimo.nota : null).toBe("o que isto mostra");
         expect("titulo" in ultimo ? ultimo.titulo : null).toBe("Leitura");
       });
+  });
+});
+
+/**
+ * SITUAÇÃO PADRÃO = ATIVOS.
+ *
+ * "Quais são os colaboradores do meu centro de custo?" foi consultado com
+ * `p_situacao: "T"` e trouxe 40 registros, com desligados no meio
+ * (produção, 19/08/2026). A descrição do parâmetro lista as opções
+ * ("A - Ativos, D - Desligados, T - Todos") sem dizer qual preferir — e diante
+ * disso "Todos" é uma escolha defensável.
+ *
+ * A resposta não estava errada segundo a ferramenta; estava errada segundo a
+ * pergunta. Quem pergunta "quem trabalha no meu centro de custo" não está
+ * pedindo quem trabalhava.
+ */
+describe("integUsageDirective — situação do colaborador", () => {
+  it("manda usar ATIVOS por padrão", () => {
+    const d = integUsageDirective();
+    expect(d).toMatch(/SITUAÇÃO DO COLABORADOR/);
+    expect(d).toMatch(/SEMPRE o valor de ATIVOS/);
+  });
+
+  it("abre exceção quando o usuário PEDE desligados", () => {
+    const d = integUsageDirective();
+    expect(d).toMatch(/desligad/i);
+    expect(d).toMatch(/PEDIR explicitamente/);
+  });
+
+  it("a regra também vale com ferramenta forçada", () => {
+    // O prefixo de fonte escolhida não pode engolir as regras que vêm depois.
+    expect(integUsageDirective("relatorio_recibo_pagamento")).toMatch(/SEMPRE o valor de ATIVOS/);
   });
 });
