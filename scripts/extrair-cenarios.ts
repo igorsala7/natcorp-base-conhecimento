@@ -139,12 +139,21 @@ async function main() {
           order by created_at desc limit 6`,
         [t.conversation_id, t.created_at],
       );
-      const historico = msgs.reverse().map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, 700) }));
+      // A mensagem do usuário é gravada ANTES de o trace fechar, então ela entra
+      // como "anterior" e a pergunta aparece duplicada dentro do próprio
+      // histórico. Medir assim entregaria a resposta ao modelo junto do enunciado.
+      const historico = msgs
+        .reverse()
+        .map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, 700) }))
+        .filter((m, i, arr) => !(i === arr.length - 1 && m.role === "user" && m.content.trim() === pergunta.trim()));
 
       const reg = (passo(t, "dataset:registro")?.itens ?? []) as { id: string; linhas: number; cols: string[] }[];
       const tela = reg.filter((d) => String(d.id).startsWith("tela"));
       const chamadas = todos(t, "tool_call").map((x) => String(x?.tool ?? "")).filter(Boolean);
       const ofertadas = (passo(t, "ferramentas")?.tools ?? []) as string[];
+      // Desabafo e agradecimento não medem roteamento: não há fonte certa para
+      // "desisto, você está me atrapalhando". Ficam fora do conjunto.
+      if (/^\s*(bom,?\s*)?(desisto|obrigad|valeu|nada a ver|voc[êe] (est[áa]|n[ãa]o))/i.test(pergunta) && pergunta.length > 40) continue;
       const ant = anteriores.get(pergunta);
       if (ant) preservados++;
 
