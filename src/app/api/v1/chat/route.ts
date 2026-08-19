@@ -1285,7 +1285,28 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const formToolsFinal: ToolSet = modoAnalisePura || turnoDadosPuro
     ? (formTools.destacar_tela ? { destacar_tela: formTools.destacar_tela } : {})
     : formTools;
-  const allToolsCru: ToolSet = { ...integNoTurno, ...formToolsFinal, ...visualTools, ...inviteTools, ...harvestTools, ...queryTools, ...trocaFonteTools };
+  /**
+   * ORDEM DAS FERRAMENTAS: as ESTÁVEIS primeiro, as de integração por último.
+   *
+   * `tools` é o PRIMEIRO bloco do payload. O que muda ali invalida o cache de
+   * tools, do system e das mensagens — tudo de uma vez. E as de integração são
+   * remontadas a CADA pergunta por top-K semântico: com elas na frente, o
+   * prefixo quebrava em todo turno, por construção.
+   *
+   * As locais são as mesmas de um turno para o outro e não são pouca coisa: só
+   * `query-tools` tem ~21 mil caracteres, `gerar_relatorio` ~1.900 tokens,
+   * `montar_grafico` ~1.050. Estavam no FIM, fora de qualquer prefixo
+   * aproveitável.
+   *
+   * Trocar a ordem invalida o cache uma vez, na virada. Depois dela o prefixo
+   * passa a sobreviver entre turnos, que é o que 21%–38% de leitura de cache
+   * (contra ~70% esperado) estava dizendo que não acontecia.
+   *
+   * A ordem DENTRO do bloco estável vai da mais presente para a mais rara, para
+   * o prefixo comum ser o maior possível quando uma delas falta.
+   */
+  const toolsEstaveis: ToolSet = { ...queryTools, ...visualTools, ...formToolsFinal, ...harvestTools, ...inviteTools, ...trocaFonteTools };
+  const allToolsCru: ToolSet = { ...toolsEstaveis, ...integNoTurno };
   // RASTRO UNIVERSAL: decora o `execute` de TODAS as ferramentas (integração e locais)
   // com `tool_call`/`tool_fim`. É o que garante nome + parâmetros + desfecho no
   // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que
@@ -1295,7 +1316,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // tool de integração — ver marcarCacheDeTools). `instrumentarTools` faz
   // `{...def, execute}` e PRESERVA `providerOptions`, então a ordem das duas
   // operações é indiferente.
-  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru, integ.essenciais), passo);
+  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru, Object.keys(toolsEstaveis)), passo);
   const temTools = Object.keys(allTools).length > 0;
   // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
   // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem

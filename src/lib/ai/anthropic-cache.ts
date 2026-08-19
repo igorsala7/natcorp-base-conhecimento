@@ -85,18 +85,24 @@ export function marcarCacheDeTools<T>(
    * a lista ser reordenada: `tools` é o primeiro bloco do payload, e mexer na
    * ordem invalidaria o cache de tools, de system E de mensagens de uma vez.
    */
-  essenciais?: readonly string[],
+  estaveis?: readonly string[],
 ): Record<string, T> {
   const chaves = Object.keys(tools);
   if (chaves.length === 0) return tools;
 
   const marcar = new Set<string>([chaves[chaves.length - 1]!]);
 
-  const ess = new Set((essenciais ?? []).filter((k) => k in tools));
-  if (ess.size > 0 && ess.size < chaves.length) {
-    // Prefixo contínuo? As `ess.size` primeiras chaves têm de ser exatamente as essenciais.
-    const prefixoContinuo = chaves.slice(0, ess.size).every((k) => ess.has(k));
-    if (prefixoContinuo) marcar.add(chaves[ess.size - 1]!);
+  // Segundo breakpoint no FIM DO BLOCO ESTÁVEL — o pedaço que se repete entre
+  // turnos. Antes isto olhava as ferramentas ESSENCIAIS e exigia que elas
+  // formassem prefixo contínuo; como a lista era montada na ordem do catálogo,
+  // elas nunca formavam, e o breakpoint era omitido em silêncio. Agora quem
+  // chama garante o prefixo (ver a ordem em `allToolsCru`), e a verificação
+  // continua aqui porque um breakpoint no meio de um bloco que muda não cacheia
+  // nada — só gasta um dos quatro que a Anthropic permite.
+  const est = new Set((estaveis ?? []).filter((k) => k in tools));
+  if (est.size > 0 && est.size < chaves.length) {
+    const prefixoContinuo = chaves.slice(0, est.size).every((k) => est.has(k));
+    if (prefixoContinuo) marcar.add(chaves[est.size - 1]!);
   }
 
   const out: Record<string, T> = {};

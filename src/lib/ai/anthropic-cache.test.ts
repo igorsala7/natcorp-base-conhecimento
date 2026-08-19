@@ -187,3 +187,53 @@ describe("IDENTIDADE DE PAYLOAD — a prova de que o modelo le a mesma coisa", (
     expect(JSON.stringify(payload)).toBe(antes);
   });
 });
+
+/**
+ * A ORDEM É O CACHE.
+ *
+ * `tools` é o primeiro bloco do payload: o que muda ali invalida tools, system
+ * e mensagens de uma vez. As de integração são remontadas a cada pergunta por
+ * top-K semântico — com elas na frente, o prefixo quebrava em TODO turno, por
+ * construção. Medido: 21%–38% de leitura de cache, contra ~70% esperado.
+ */
+describe("marcarCacheDeTools — breakpoint do bloco estável", () => {
+  const t = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, { d: i }]));
+  const marcada = (o: Record<string, unknown>, k: string) =>
+    !!(o[k] as { providerOptions?: unknown } | undefined)?.providerOptions;
+
+  it("marca o fim do bloco estável E o fim da lista", () => {
+    const out = marcarCacheDeTools(t(6), ["t0", "t1", "t2"]);
+    expect(marcada(out, "t2")).toBe(true); // fim do estável
+    expect(marcada(out, "t5")).toBe(true); // fim da lista
+    for (const k of ["t0", "t1", "t3", "t4"]) expect(marcada(out, k)).toBe(false);
+  });
+
+  it("bloco estável que NÃO é prefixo contínuo não ganha breakpoint", () => {
+    // Um breakpoint no meio de um bloco que muda não cacheia nada — só queima um
+    // dos quatro que a Anthropic permite. Era o caso ANTES da reordenação.
+    const out = marcarCacheDeTools(t(6), ["t0", "t4"]);
+    expect(marcada(out, "t4")).toBe(false);
+    expect(marcada(out, "t1")).toBe(false);
+    expect(marcada(out, "t5")).toBe(true); // o do fim continua
+  });
+
+  it("tudo estável: só o breakpoint do fim (seriam dois no mesmo lugar)", () => {
+    const out = marcarCacheDeTools(t(3), ["t0", "t1", "t2"]);
+    expect(marcada(out, "t2")).toBe(true);
+    expect(marcada(out, "t1")).toBe(false);
+  });
+
+  it("chave estável que não está na lista é ignorada", () => {
+    const out = marcarCacheDeTools(t(4), ["t0", "t1", "nao_existe"]);
+    expect(marcada(out, "t1")).toBe(true);
+    expect(marcada(out, "t3")).toBe(true);
+  });
+
+  it("não muta a entrada nem troca a ordem das chaves", () => {
+    const entrada = t(4);
+    const antes = JSON.stringify(entrada);
+    const out = marcarCacheDeTools(entrada, ["t0", "t1"]);
+    expect(JSON.stringify(entrada)).toBe(antes);
+    expect(Object.keys(out)).toEqual(["t0", "t1", "t2", "t3"]);
+  });
+});
