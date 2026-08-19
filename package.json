@@ -33,6 +33,7 @@
     "gen:descricao-usuario": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/gen-descricao-usuario.ts",
     "migrate:blocks": "tsx --env-file=.env.local scripts/migrate-blocks.ts",
     "eval:extrair": "tsx --env-file=.env.local scripts/extrair-casos.ts",
+    "eval:cenarios": "tsx --env-file=.env.local scripts/extrair-cenarios.ts",
     "tools:situacao": "tsx --env-file=.env.local scripts/padrao-situacao-ativo.ts",
     "tools:loop-opcional": "tsx --env-file=.env.local scripts/loop-param-opcional.ts",
     "eval:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-tools.ts",
