@@ -1104,7 +1104,22 @@ export async function buildIntegrationTools(
           const divergencia = question?.trim() ? conferirTitular(question, _bruto) : null;
           if (divergencia) {
             onPasso?.("titular_divergente", { ...marca, tool: bt.tool.key, pedido: divergencia.pedido, veio: divergencia.veio });
-            const base = _bruto && typeof _bruto === "object" && !Array.isArray(_bruto) ? (_bruto as Record<string, unknown>) : { dados: _bruto };
+            /**
+             * O AVISO NÃO PODE PULAR A PODA.
+             *
+             * Este ramo devolvia `_bruto` direto, escapando de
+             * `injetarDatasetComRelato` — sem amostragem, sem registro de
+             * dataset e sem a rede de 400 KB. Em produção (19/08/2026) uma
+             * consulta de empresa inteira voltou com **92.736.823 bytes** e o
+             * provedor derrubou o turno com "exceeded your current quota".
+             *
+             * A divergência de titular é exatamente o caso em que a consulta
+             * saiu larga demais — o ramo que mais precisa de poda era o único
+             * sem ela.
+             */
+            const { saida: podada, relato } = injetarDatasetComRelato(datasets, _bruto);
+            if (relato) onPasso?.("tool_result", { ...marca, tool: bt.tool.key, ...relato });
+            const base = podada && typeof podada === "object" && !Array.isArray(podada) ? (podada as Record<string, unknown>) : { dados: podada };
             return { ...base, _titular_divergente: avisoDivergencia(divergencia) };
           }
           // APRENDIZADO: registra que ESTA ferramenta resolveu ESTA pergunta.

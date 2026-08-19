@@ -155,3 +155,42 @@ describe("idsParaProcedencia", () => {
     expect(idsParaProcedencia(linhas, 50)).toHaveLength(50);
   });
 });
+
+/**
+ * LISTA NUM PARÂMETRO SÓ.
+ *
+ * Várias APIs aceitam matrículas separadas por vírgula num campo único, e o
+ * loop `batch` monta exatamente isso. `normalizarId` tira o que não é dígito,
+ * então a lista virava UM número gigante e nunca casava.
+ *
+ * Produção (19/08/2026): 40 matrículas legítimas recusadas em bloco → o modelo
+ * caiu para "empresa inteira, todas as situações" → 92 MB de resposta → o
+ * provedor derrubou o turno com "exceeded your current quota". O guard estava
+ * certo em existir e errado em ler.
+ */
+describe("procedência com lista num campo", () => {
+  const fonte = { linhas: [{ m: "16519" }, { m: "19127" }, { m: "1864" }], identidade: [], texto: "" };
+
+  it("lista separada por vírgula é verificada item a item", () => {
+    expect(temProcedencia("16519,19127,1864", fonte)).toBe(true);
+  });
+
+  it("um item SEM procedência reprova o conjunto — o rigor não afrouxou", () => {
+    expect(temProcedencia("16519,269084", fonte)).toBe(false);
+  });
+
+  it("ponto e vírgula também separa, e espaço em volta não atrapalha", () => {
+    expect(temProcedencia("16519; 19127 ;1864", fonte)).toBe(true);
+  });
+
+  it("valor único continua como antes", () => {
+    expect(temProcedencia("16519", fonte)).toBe(true);
+    expect(temProcedencia("269084", fonte)).toBe(false);
+  });
+
+  it("CPF com pontuação não é confundido com lista", () => {
+    // Ponto e hífen não separam — só vírgula e ponto e vírgula.
+    const f = { linhas: [{ cpf: "12345678901" }], identidade: [], texto: "" };
+    expect(temProcedencia("123.456.789-01", f)).toBe(true);
+  });
+});

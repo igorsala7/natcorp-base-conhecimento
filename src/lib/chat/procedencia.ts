@@ -69,7 +69,32 @@ export type FonteDeIds = {
  * número pode ter vindo de `cod_candidato` numa consulta anterior e ser
  * legítimo. O que se quer barrar é o número que não veio de lugar nenhum.
  */
+/**
+ * Separa lista em UM parâmetro: `"16519,19127,1864"` são três matrículas.
+ *
+ * Várias APIs aceitam a lista por vírgula num campo só, e o loop `batch` do
+ * `tool-builder` monta exatamente isso. `normalizarId` tira tudo que não é
+ * dígito, então a lista inteira virava UM número gigante — que nunca casa com
+ * célula nenhuma, e a chamada era barrada mesmo com todas as matrículas tendo
+ * procedência legítima.
+ *
+ * Visto em produção (19/08/2026): 40 matrículas vindas da tabela da tela foram
+ * recusadas em bloco; o modelo caiu para "empresa inteira, todas as situações",
+ * a resposta veio com 92 MB e o provedor derrubou o turno. O guard estava
+ * certo em existir e errado em ler.
+ */
+export function separarValores(valor: unknown): unknown[] {
+  if (Array.isArray(valor)) return valor;
+  const s = String(valor ?? "");
+  return /[,;]/.test(s) ? s.split(/[,;]/).map((x) => x.trim()).filter(Boolean) : [valor];
+}
+
 export function temProcedencia(valor: unknown, fonte: FonteDeIds): boolean {
+  // Lista num campo só: CADA item precisa de procedência, e um item sem ela
+  // reprova o conjunto — é o mesmo rigor de antes, agora lendo certo.
+  const partes = separarValores(valor);
+  if (partes.length > 1) return partes.every((v) => temProcedencia(v, fonte));
+
   const alvo = normalizarId(valor);
   if (!alvo || alvo.length < 3) return true; // curto demais para ser invenção perigosa
 
