@@ -2685,12 +2685,30 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
               .map((l) => ({ coluna: String(l.coluna), valor: String(l.valor) }))
           : [],
       );
-      await supabase.from("messages").insert({
+      /**
+       * O RETORNO DO INSERT É CONFERIDO.
+       *
+       * `.insert()` do PostgREST não lança: devolve `{ error }`. Sem olhar, uma
+       * recusa some — e sumiu. A coluna `payload` foi usada aqui em 3ab8bb3 sem
+       * a migration correspondente, o PostgREST recusou a linha inteira com
+       * PGRST204, e TODA resposta do assistente deixou de ser gravada por um dia
+       * enquanto o trace logo abaixo continuava marcando o turno como
+       * "resposta". Para quem usa, apareceu como "o chat perde as mensagens ao
+       * atualizar a página" — três camadas longe da causa.
+       *
+       * Não interrompe o turno: a resposta já foi entregue por SSE e o usuário a
+       * está lendo. Mas o erro vai para o log E para o trace, que é onde se
+       * procura quando alguém diz que perdeu conversa.
+       */
+      const { error: erroGravacao } = await supabase.from("messages").insert({
         conversation_id: convId!,
         role: "assistant",
         content: full,
         citations: citations as never,
-        payload: (destacadas.length ? { destacadas } : null) as never,
+        // Sem `as never`: a coluna existe nos tipos agora, então o compilador
+        // volta a conferir esta linha — foi o cast que deixou passar a coluna
+        // inexistente, porque `never` é atribuível a `never`.
+        payload: destacadas.length ? { destacadas } : null,
         media: (media.length ? media : null) as never,
         latency_ms: Date.now() - started,
         tokens: totalTokensTurno,
@@ -2702,6 +2720,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         // consumiu de verdade, sem depender de janela de tempo.
         turn_id: ctxConsumo.turnId,
       });
+      if (erroGravacao) {
+        console.error("[chat] resposta NÃO gravada:", erroGravacao.code, erroGravacao.message);
+        passoFinal("resposta_nao_gravada", { code: erroGravacao.code, message: erroGravacao.message });
+      }
       // Fotografia do REGISTRO de datasets no fim do turno: quais ids existiram, com
       // quantas linhas e quais colunas. É o que permite ler no log por que um
       // `dados_de` foi recusado — antes só dava para adivinhar.

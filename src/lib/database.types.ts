@@ -3340,6 +3340,7 @@ export type Database = {
           latency_ms: number | null
           media: Json | null
           output_tokens: number | null
+          payload: Json | null
           role: string
           tokens: number | null
           turn_id: string | null
@@ -3356,6 +3357,7 @@ export type Database = {
           latency_ms?: number | null
           media?: Json | null
           output_tokens?: number | null
+          payload?: Json | null
           role: string
           tokens?: number | null
           turn_id?: string | null
@@ -3372,6 +3374,7 @@ export type Database = {
           latency_ms?: number | null
           media?: Json | null
           output_tokens?: number | null
+          payload?: Json | null
           role?: string
           tokens?: number | null
           turn_id?: string | null
