@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { avisoDeColuna, newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, injetarDatasetComRelato, explicarColuna, listarDatasets, resolverColunaInfo, textoDatasetsDisponiveis, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie } from "./datasets";
+import { avisoDeColuna, newRegistry, registrarDataset, registrarTabelaTela, injetarDataset, injetarDatasetComRelato, explicarColuna, listarDatasets, resolverColunaInfo, textoDatasetsDisponiveis, expandirTabela, consultarDataset, agregarDataset, estatisticasColuna, agruparDataset, derivarColuna, classificarColuna, projetarSerie, colunaMaisProxima } from "./datasets";
 
 /** Célula guardada (valor com precisão total) do dataset `id`, linha × índice de coluna. */
 const celG = (reg: ReturnType<typeof newRegistry>, id: string, linha: number, colIdx: number) =>
@@ -846,5 +846,35 @@ describe("numeração entre turnos", () => {
     const reg = newRegistry();
     expect(registrarDataset(reg, linhas)?.id).toBe("ds1");
     expect(registrarTabelaTela(reg, ["c"], [["x"]]).id).toBe("tela2");
+  });
+});
+
+/**
+ * ESCAPE UNICODE LITERAL VINDO DO MODELO.
+ *
+ * Produção, 19/08/2026: o modelo pediu `agrupar` pela coluna
+ * `"Competência"` — quinze caracteres, com a barra invertida de verdade,
+ * não o `ê`. Recebeu "a coluna não existe — colunas reais: Competência…",
+ * tentou de novo com `"Competõncia"` (que nem é a letra certa) e desistiu.
+ * Duas chamadas queimadas e um "não consegui" numa coluna que estava lá.
+ */
+describe("coluna com escape unicode literal", () => {
+  const reg = newRegistry();
+  registrarTabelaTela(reg, ["Competência", "Valor"], [["2025-03", "100"], ["2025-04", "200"]]);
+  const id = reg.list[0]!.id;
+
+  it("resolve a coluna mesmo com o escape literal", () => {
+    expect(colunaMaisProxima(reg, id, "Compet\\u00eancia")).toBe("Competência");
+  });
+
+  it("o nome correto continua funcionando", () => {
+    expect(colunaMaisProxima(reg, id, "Competência")).toBe("Competência");
+    expect(colunaMaisProxima(reg, id, "competencia")).toBe("Competência");
+  });
+
+  it("texto com barra invertida que NÃO é escape passa intacto", () => {
+    // `\uXXXX` exige quatro hexadecimais — "\usuario" não vira caractere nenhum.
+    expect(colunaMaisProxima(reg, id, "Valor")).toBe("Valor");
+    expect(colunaMaisProxima(reg, id, "\\usuario")).not.toBe("Competência");
   });
 });

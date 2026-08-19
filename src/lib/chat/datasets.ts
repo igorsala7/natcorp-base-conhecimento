@@ -491,8 +491,32 @@ export type ConsultaResultado = {
 };
 
 /** Normaliza texto para comparação: sem acento, minúsculo, sem espaços nas pontas. */
+/**
+ * Escape unicode LITERAL vindo do modelo: `"Compet\\u00eancia"` como 15
+ * caracteres, com a barra invertida de verdade — não o `ê`.
+ *
+ * Acontece quando o modelo serializa o argumento uma vez a mais do que devia.
+ * Visto em produção (19/08/2026): ele pediu `agrupar` por
+ * `"Compet\\u00eancia"`, recebeu "a coluna não existe — colunas reais:
+ * Competência…", tentou de novo com `"Compet\\u00f5ncia"` (que nem é a letra
+ * certa) e desistiu. Duas chamadas queimadas e um "não consegui" numa coluna
+ * que estava lá.
+ *
+ * Decodificar aqui resolve o casamento inteiro de uma vez: nome de coluna,
+ * valor de filtro e agrupamento passam todos por `norm`.
+ */
+function decodificarEscapes(s: string): string {
+  return s.includes("\\u")
+    ? s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    : s;
+}
+
 function norm(s: unknown): string {
-  return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return decodificarEscapes(String(s ?? ""))
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 /**

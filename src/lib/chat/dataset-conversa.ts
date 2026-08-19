@@ -78,6 +78,15 @@ export async function salvarDatasetsDaConversa(db: DbClient, escopo: Escopo, reg
     for (const d of reg.list) {
       const seq = numeroDoId(d.id);
       if (seq == null || !d.rows.length) continue;
+      // SÓ resultado de FERRAMENTA (`dsN`). A tabela da TELA (`telaN`) chega do
+      // widget em TODA mensagem — persistir é guardar o que já vem de graça.
+      //
+      // Pior: ela era regravada a cada turno com um id novo, e em 26 mensagens
+      // consumiu 7 das 10 vagas com cópias das MESMAS 132 linhas (19/08/2026).
+      // As vagas que sobraram não deram conta dos resultados de API, e o modelo
+      // pedia `ds30` recebendo "não encontrei — disponível: tela47". O recurso
+      // que existe para ele lembrar estava fazendo ele esquecer.
+      if (!d.id.startsWith("ds")) continue;
       const colunas = d.headers ?? d.colunas;
       const linhas = linhasParaStore(d.rows as unknown as Record<string, unknown>[], colunas);
       const clientKey = `conv:${escopo.conversationId}:${seq}`;

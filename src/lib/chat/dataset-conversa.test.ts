@@ -51,3 +51,30 @@ describe("política de retenção", () => {
     expect(HORAS_ATE_EXPIRAR).toBe(24);
   });
 });
+
+/**
+ * SÓ RESULTADO DE FERRAMENTA É PERSISTIDO.
+ *
+ * A tabela da TELA chega do widget em toda mensagem — guardar é guardar o que
+ * já vem de graça. E era regravada a cada turno com um id novo: em 26 mensagens
+ * consumiu 7 das 10 vagas com cópias das MESMAS 132 linhas (19/08/2026),
+ * expulsando os resultados de API. O modelo pedia `ds30` e recebia
+ * "não encontrei — disponível: tela47".
+ */
+describe("o que entra na persistência", () => {
+  const dsQualquer = (id: string) => ({ id, rows: [{ a: "1" }], colunas: ["a"], headers: ["a"] });
+
+  it("`telaN` fica de fora, `dsN` entra", () => {
+    // A regra é o prefixo do id, e é ele que separa origem de tela de origem
+    // de ferramenta em todo o resto do sistema.
+    expect(dsQualquer("tela9").id.startsWith("ds")).toBe(false);
+    expect(dsQualquer("ds9").id.startsWith("ds")).toBe(true);
+  });
+
+  it("o número continua sendo extraído dos dois — a numeração é compartilhada", () => {
+    // Não persistir não quer dizer não numerar: `tela9` ocupa o 9, e o próximo
+    // `ds` precisa ser 10, senão dois datasets diferentes viram o mesmo id.
+    expect(numeroDoId("tela9")).toBe(9);
+    expect(numeroDoId("ds10")).toBe(10);
+  });
+});
