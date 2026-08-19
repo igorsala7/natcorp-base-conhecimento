@@ -58,6 +58,33 @@ chat e gerar arquivo, e erra nos dois sentidos.
 
 Não é ambiguidade de assunto — é de formato de entrega. Merece regra própria.
 
+### Escopo organizacional em branco: perguntar COM as opções na mão
+
+Quando o pedido é agregado (relatório, painel, conformidade) e **nenhuma
+mensagem anterior fixou empresa, filial, centro de custo ou cargo**, confirmar
+antes de buscar — mas a pergunta tem forma obrigatória: dizer que o padrão é a
+empresa inteira e **já listar os recortes disponíveis** (filiais, centros de
+custo, cargos), buscando-os se preciso.
+
+Perguntar em aberto ("qual escopo você quer?") transfere ao usuário o trabalho
+de saber o que existe. Isso é pergunta ruim, não cautela.
+
+Medido: `"Opção 2"` (relatório de riscos × NRs) recebeu três perguntas de
+escopo em texto corrido e nenhuma busca.
+
+### O verbo decide a ferramenta: consultar ≠ solicitar
+
+Ver dados e criar uma solicitação são ferramentas diferentes, e o assunto
+sozinho não distingue. Antes de perguntar, ler o verbo:
+
+| mensagem | intenção | ferramenta |
+|---|---|---|
+| "Quando é que eu vou tirar férias?" | consultar programação | `consultar_ferias` |
+| "Quero marcar minhas férias para dezembro" | solicitar | criação de férias |
+
+Só perguntar quando o verbo **de fato** não separa os dois. `"quando eu vou
+tirar"` separa — perguntar ali é o caso óbvio que a regra acima proíbe.
+
 ## Continuação: o sujeito atravessa, o pedido não
 
 Variação do mesmo pedido (outro mês, outra pessoa) repete a **mesma
