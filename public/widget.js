@@ -5574,8 +5574,16 @@
     t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_, lab, url) {
       var u = url.trim();
-      var safe = /^(https?:|mailto:|\/|#)/i.test(u) ? u : "#";
-      return '<a href="' + safe + '" target="_blank" rel="noopener">' + lab + "</a>";
+      // Destino que não é URL vira TEXTO, não link para "#".
+      //
+      // O modelo escreve `[Baixar Relatório](relatorio-auditoria.pdf)` — só o
+      // nome do arquivo. Isso não casa como URL, e o `#` de antes fazia o
+      // clique NAVEGAR para a própria página: o widget recarregava e a conversa
+      // sumia da tela. Um link que parece funcionar e leva a lugar nenhum é pior
+      // que texto: o arquivo de verdade já está ali ao lado, no chip de download
+      // que o servidor entrega por `media`, e é nele que a pessoa precisa clicar.
+      if (!/^(https?:|mailto:|\/)/i.test(u)) return lab;
+      return '<a href="' + u + '" target="_blank" rel="noopener">' + lab + "</a>";
     });
     t = t.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
     return t;

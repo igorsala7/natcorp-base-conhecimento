@@ -7,9 +7,10 @@ import { medianOf, linReg } from "@/lib/chat/chart-spec";
 import { chartSvg } from "./chart-svg";
 import { parseMarkdown, type MdRun } from "./markdown";
 import { tokenizarRuns } from "./tokens";
-import { winAnsiSafe } from "./winansi";
+import { winAnsiSafe, specParaWinAnsi } from "./winansi";
 import { MARCA, CORES_GRAFICO, degrade, paraUnidade, ROSA, ROXO as ROXO_MARCA, clarear } from "./marca";
 import { LOGO_BRANCO, logoPng } from "./assets/logo";
+
 
 /**
  * Gera o PDF do relatório com pdf-lib (fontes-padrão embutidas → texto sempre
@@ -860,7 +861,19 @@ function nomeArquivo(titulo: string): string {
 }
 
 /** Monta o PDF do relatório e devolve como OutFile (base64) para o canal entregar. */
-export async function renderReportPdf(spec: ReportSpec, brand: BrandInfo): Promise<OutFile> {
+export async function renderReportPdf(specOriginal: ReportSpec, brand: BrandInfo): Promise<OutFile> {
+  /**
+   * TODO o texto passa pela tabela da fonte ANTES de qualquer `drawText`.
+   *
+   * A fonte base do PDF é WinAnsi (cp1252) e `drawText` LANÇA no primeiro
+   * caractere de fora — não desenha um quadradinho, mata o relatório inteiro.
+   * O modelo escreve `−` (menos matemático) em número negativo e em intervalo,
+   * e o arquivo não saía: para quem usa, "o download não funciona".
+   *
+   * Aqui, e não em cada `drawText`: são vinte pontos de desenho, e a próxima
+   * chamada acrescentada esqueceria a conversão. O texto entra limpo.
+   */
+  const spec = specParaWinAnsi(specOriginal);
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);

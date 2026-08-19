@@ -7,11 +7,17 @@ import React from "react";
  * (nunca HTML cru), é imune a XSS; hrefs são validados.
  */
 
-/** Só permite esquemas seguros; caso contrário, vira link inerte. */
-function safeHref(href: string): string {
+/**
+ * Só permite esquemas seguros — e quando não é URL, NÃO vira link.
+ *
+ * O `#` de antes não era inerte: clicar navegava para a própria página. O modelo
+ * escreve `[Baixar Relatório](relatorio-auditoria.pdf)`, só o nome do arquivo,
+ * e o leitor clicava achando que baixaria — a página recarregava e a conversa
+ * saía da tela. O arquivo de verdade vem separado, no chip de download.
+ */
+function safeHref(href: string): string | null {
   const h = href.trim();
-  if (/^(https?:|mailto:|\/|#)/i.test(h)) return h;
-  return "#";
+  return /^(https?:|mailto:|\/)/i.test(h) ? h : null;
 }
 
 /**
@@ -80,11 +86,12 @@ function renderInline(text: string, keyBase: string, cit?: CitacaoProps): React.
       out.push(<strong key={`${keyBase}-${k++}`}>{tok.slice(2, -2)}</strong>);
     } else if (tok.startsWith("[")) {
       const label = tok.slice(1, tok.indexOf("]"));
-      const href = tok.slice(tok.indexOf("(") + 1, -1);
+      const href = safeHref(tok.slice(tok.indexOf("(") + 1, -1));
+      if (!href) { out.push(label); last = INLINE.lastIndex; continue; }
       out.push(
         <a
           key={`${keyBase}-${k++}`}
-          href={safeHref(href)}
+          href={href}
           target="_blank"
           rel="noreferrer"
           className="font-medium text-primary hover:underline"

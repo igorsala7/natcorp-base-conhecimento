@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { winAnsiSafe } from "./winansi";
+import { winAnsiSafe, specParaWinAnsi } from "./winansi";
 
 describe("winAnsiSafe", () => {
   it("mantém ASCII puro intacto (caminho rápido)", () => {
@@ -43,5 +43,45 @@ describe("winAnsiSafe", () => {
 
   it("não quebra em string vazia", () => {
     expect(winAnsiSafe("")).toBe("");
+  });
+});
+
+/**
+ * O caractere que derrubou um relatório real (18/08/2026).
+ *
+ * `gerar_relatorio` falhou com `WinAnsi cannot encode "−" (0x2212)` e o usuário
+ * viu "o download não funciona" — o arquivo nunca chegou a existir.
+ */
+describe("o menos matemático não derruba nem inverte o número", () => {
+  it("− (0x2212) vira hífen, e NÃO some", () => {
+    // Descartar seria pior que falhar: "−1.234" viraria "1.234", um relatório
+    // financeiro com o sinal trocado e nada indicando isso.
+    expect(winAnsiSafe("Saldo: −1.234,56")).toBe("Saldo: -1.234,56");
+    expect(winAnsiSafe("R$ 1.200 − R$ 900")).toBe("R$ 1.200 - R$ 900");
+  });
+
+  it("os outros matemáticos que o modelo escreve também sobrevivem", () => {
+    expect(winAnsiSafe("≤ 10")).toBe("<= 10");
+    expect(winAnsiSafe("≥ 5")).toBe(">= 5");
+    expect(winAnsiSafe("≠ 0")).toBe("!= 0");
+    // `±` é Latin-1: a fonte escreve, então ele fica como está.
+    expect(winAnsiSafe("± 2")).toBe("± 2");
+  });
+
+  it("o saneamento alcança a estrutura inteira, não só os campos de texto solto", () => {
+    // Foi por uma célula de tabela que o caractere passou: `winAnsiSafe` estava
+    // em três pontos do pdf.ts e o desenho acontece em vinte.
+    const spec = {
+      titulo: "Auditoria − 2025",
+      blocos: [{ tipo: "tabela", linhas: [["Diferença", "−1.234"]] }],
+      n: 7,
+      nulo: null,
+    };
+    expect(specParaWinAnsi(spec)).toEqual({
+      titulo: "Auditoria - 2025",
+      blocos: [{ tipo: "tabela", linhas: [["Diferença", "-1.234"]] }],
+      n: 7,
+      nulo: null,
+    });
   });
 });
