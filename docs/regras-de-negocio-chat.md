@@ -1,0 +1,67 @@
+# Regras de negócio do assistente — ditadas pelo dono
+
+Regras que o Igor enunciou durante a avaliação e que **não estão no código**.
+Ficam aqui porque foram ditas uma vez, em conversa, e conversa não sobrevive:
+sem registro, a próxima pessoa a mexer no prompt desfaz sem saber que existia.
+
+Cada uma vira gabarito em `eval/cenarios.jsonl` antes de virar código — foi
+essa a ordem que a sessão de 19/08/2026 provou necessária: três correções de
+prompt propostas naquele dia foram derrubadas pela medição.
+
+---
+
+## Situação funcional: ATIVOS por padrão
+
+Toda consulta assume colaboradores **ativos**. Desligados só entram quando a
+pessoa pedir explicitamente ("desligados", "demitidos", "quem saiu").
+
+*Já implementada* — `integUsageDirective` (`report-tools.ts`) e a descrição do
+parâmetro nas duas ferramentas que mapeiam A/D/T.
+
+## Quando perguntar, e quando não
+
+Perguntar em **termo ambíguo** ou quando a mensagem sai claramente do assunto
+em curso. **Não** perguntar no óbvio — "agir como uma pessoa normal agiria".
+
+Casos que definem a fronteira, do gabarito:
+
+| mensagem | contexto | comportamento |
+|---|---|---|
+| "Quero enviar um e-mail" | conversa era sobre Requisição de Benefícios | **perguntar** — mudou de escopo |
+| "crie em colunas apenas o nome…" | acabou de listar 25 desligados | **perguntar** — arquivo ou no chat? |
+| "Pode" | ele ofereceu criar solicitação de férias | **perguntar** — é ESCRITA: autoriza a ação, não os valores que ele escolheu |
+| "Agora eu quero as informações do 205818" | acabou de ver o próprio cadastro | **não perguntar** — mesmo dado, outra pessoa |
+| "Quais são os dados do Tony Oliveira?" | primeira mensagem | **não perguntar** — "dados de" + nome é cadastro |
+
+## Continuação: o sujeito atravessa, o pedido não
+
+Variação do mesmo pedido (outro mês, outra pessoa) repete a **mesma
+ferramenta**, trocando só o parâmetro. Pergunta nova sobre os mesmos dados
+escolhe a fonte pelo que ela pede — outra ferramenta, a documentação, ou as
+duas.
+
+*Já implementada* — `integUsageDirective`.
+
+## Risco trabalhista: documentação E dados
+
+Perguntas do tipo "quais os riscos de desligar Fulano" são respondidas com:
+
+1. **A documentação** — CLT, política interna, com as fontes citadas;
+2. **Os dados que indicam risco** — banco de horas, último histórico
+   financeiro, salário, tempo de casa, avaliações.
+
+Não é só consulta de dado nem só consulta de norma: é a combinação. Um agente
+que responde só com os dados deixa de fora a parte que o gestor precisa para
+decidir, e só com a norma responde uma pergunta genérica que ele não fez.
+
+*Não implementada.* Codificada no gabarito
+(`"Eu quero o histórico de salários e cargos… riscos para desligá-lo"`), que é
+o passo anterior a virar regra de prompt.
+
+## Escopo do gestor
+
+`gestor = SIM` define o alcance pelo PAINEL, não pelo cadastro da ferramenta:
+PO → todos · PG → equipe · PC → próprios. A mesma pessoa pode ser gestora de
+equipe e fazer parte do RH, acessando o Painel do Operador.
+
+*Já implementada* — `escopoDoPainel` (`panel-scope.ts`).
