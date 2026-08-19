@@ -35,8 +35,31 @@
  *   npm run eval:extrair -- --dias 30
  */
 import pg from "pg";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
+
+/**
+ * Anotação feita à mão é a coisa mais cara deste conjunto — reextrair não pode
+ * destruí-la. Casos já anotados são preservados pela PERGUNTA; só os campos
+ * `foi_*` (o que o sistema fez) são atualizados.
+ *
+ * Sem isto, um `npm run eval:extrair` distraído jogaria fora horas de trabalho
+ * humano em silêncio, e o eval voltaria a não existir.
+ */
+function anotacoesExistentes(caminho: string): Map<string, Record<string, unknown>> {
+  const mapa = new Map<string, Record<string, unknown>>();
+  if (!existsSync(caminho)) return mapa;
+  for (const linha of readFileSync(caminho, "utf8").split("\n")) {
+    if (!linha.trim()) continue;
+    try {
+      const c = JSON.parse(linha) as Record<string, unknown>;
+      if (typeof c.pergunta === "string") mapa.set(c.pergunta, c);
+    } catch {
+      // Linha corrompida não pode derrubar a extração inteira — as outras valem.
+    }
+  }
+  return mapa;
+}
 
 type PassoTrace = { passo: string; info?: Record<string, unknown> | null };
 type Turno = {
@@ -127,6 +150,8 @@ async function main() {
     if (f) porFaixa.get(f.nome)!.push(t);
   }
 
+  const jaAnotados = anotacoesExistentes(SAIDA);
+  let preservados = 0;
   const casos: Record<string, unknown>[] = [];
   for (const f of FAIXAS) {
     const pool = porFaixa.get(f.nome)!;
@@ -143,18 +168,29 @@ async function main() {
       const rag = passo(t, "rag");
       const resp = passo(t, "resposta");
       const perfil = (rag?.perfil as Array<{ score?: number }> | undefined) ?? [];
+      // GESTOR DE EQUIPE do turno — sem ele o placar julga o escopo pela regra
+      // errada: a mesma ferramenta é bloqueada para um Operador comum e liberada
+      // para um Operador que também é gestor.
+      const ident = passo(t, "identidade");
+      const pergunta = String(t.pergunta).slice(0, 400);
+      const anterior = jaAnotados.get(pergunta);
+      if (anterior) preservados++;
       casos.push({
-        pergunta: String(t.pergunta).slice(0, 400),
+        pergunta,
         faixa: f.nome,
-        palavras: palavras(String(t.pergunta)),
+        palavras: palavras(pergunta),
         portal: t.p_portal,
+        gestor: (ident?.gestor_equipe as boolean | undefined) ?? false,
 
         // ── ANOTAR AQUI: o que DEVERIA acontecer ──────────────────────────
-        espera_tool: chamadas[0] ?? null,
-        espera_params: chamadas.length ? {} : null,
-        espera_clarify: String(t.desfecho ?? "").startsWith("clarify"),
-        espera_nos: [] as string[],
-        revisar: true,
+        // Anotação anterior VENCE — reextrair atualiza os fatos, nunca o gabarito.
+        espera_tool: anterior ? anterior.espera_tool : (chamadas[0] ?? null),
+        espera_params: anterior ? anterior.espera_params : chamadas.length ? {} : null,
+        espera_clarify: anterior
+          ? anterior.espera_clarify
+          : String(t.desfecho ?? "").startsWith("clarify"),
+        espera_nos: anterior ? anterior.espera_nos : ([] as string[]),
+        ...(anterior && !anterior.revisar ? {} : { revisar: true }),
 
         // ── O QUE ACONTECEU: referência, NÃO gabarito ─────────────────────
         foi_tools: chamadas,
@@ -172,7 +208,9 @@ async function main() {
   if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(SAIDA, casos.map((x) => JSON.stringify(x)).join("\n") + "\n", "utf8");
 
-  console.log(`\n${rows.length} turnos · ${limpos.length} perguntas únicas · ${casos.length} casos\n`);
+  console.log(`\n${rows.length} turnos · ${limpos.length} perguntas únicas · ${casos.length} casos`);
+  if (preservados) console.log(`${preservados} caso(s) já anotados — gabarito PRESERVADO, fatos atualizados`);
+  console.log();
   console.log("Distribuição (espelha produção):");
   for (const f of FAIXAS) {
     const real = porFaixa.get(f.nome)!.length;

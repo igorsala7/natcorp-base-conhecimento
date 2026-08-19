@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 import type { Database } from "../src/lib/database.types";
 import { simTools } from "../src/lib/integrations/tool-catalog";
 import { selecionarTopK } from "../src/lib/integrations/tool-narrow";
+import { escopoDoPainel, normalizarPanelScope } from "../src/lib/integrations/panel-scope";
 
 // O Node 20 não traz `WebSocket` nativo e o cliente do Supabase instancia o
 // Realtime no construtor — mesmo polyfill de `simular-selecao.ts`.
@@ -48,6 +49,8 @@ type Caso = {
   espera_params: Record<string, unknown> | null;
   espera_clarify: boolean;
   revisar?: boolean;
+  /** Era gestor de equipe no turno — muda o escopo efetivo, não só o painel. */
+  gestor?: boolean;
   foi_tools: string[];
 };
 
@@ -176,17 +179,27 @@ async function main() {
       continue;
     }
     // (b) Inativa ou barrada no painel deste caso → não podia acertar.
-    const escopo = (meta.panel_scope ?? {}) as Record<string, string>;
-    const noPainel = c.portal ? escopo[c.portal] : undefined;
+    //
+    // Chama `escopoDoPainel`, a MESMA função que o `tool-builder` usa. Aqui havia
+    // uma cópia da regra (`panel_scope[portal] === "nenhum"`), e cópia de regra é
+    // o modo de falha dominante deste código: ela não conhecia a elevação do
+    // gestor e reprovaria casos que a produção libera. Um eval com regra própria
+    // mede o eval, não o sistema.
     if (meta.active === false) {
       linhas.push({ caso: c, ok: false, motivo: "CONFIG: ferramenta inativa", posicao: null });
       continue;
     }
-    if (noPainel === "nenhum") {
+    const escopo = escopoDoPainel(
+      normalizarPanelScope(meta.panel_scope),
+      c.portal ?? undefined,
+      false,
+      c.gestor === true,
+    );
+    if (escopo === "nenhum") {
       linhas.push({
         caso: c,
         ok: false,
-        motivo: `CONFIG: panel_scope.${c.portal}="nenhum"`,
+        motivo: `CONFIG: escopo "nenhum" em ${c.portal}${c.gestor ? " (mesmo sendo gestor)" : ""}`,
         posicao: null,
       });
       continue;
