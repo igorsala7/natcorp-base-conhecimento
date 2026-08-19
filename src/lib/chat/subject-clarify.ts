@@ -154,9 +154,26 @@ export function montarOpcoesSujeito(dec: SujeitoDecisao, temRelatorio: boolean):
   const opcoes: Array<Record<string, unknown>> = [];
   if (dec.candidatos.length) {
     const amostra = dec.candidatos.slice(0, 3).join(", ");
+    /**
+     * SEM CONTAGEM quando não são todos — o número não é conhecível.
+     *
+     * O rótulo dizia "Os 7 listados" para uma lista de 14 (visto em produção,
+     * 19/08/2026). Os candidatos vêm de o modelo LER o histórico truncado em
+     * 900 caracteres por mensagem: ele contou o que coube, não o que existe.
+     *
+     * E aumentar o truncamento não resolve — só adia para listas maiores.
+     * Nenhuma fonte sabe esse número: o dataset daquele turno tinha 40 linhas,
+     * a resposta mostrava 14 (o agente filtrou os ativos na prosa) e o
+     * histórico truncado dava 7. Três números, todos defensáveis, nenhum "o"
+     * número.
+     *
+     * Afirmar precisão que a fonte não sustenta custa mais confiança do que
+     * admitir o vago: quem lê "os 7" e conta 14 para de acreditar no resto.
+     * Até 3 candidatos os nomes cabem no rótulo e não há o que estimar.
+     */
     opcoes.push({
       id: "listados",
-      label: dec.candidatos.length <= 3 ? `👥 ${amostra}` : `👥 Os ${dec.candidatos.length} listados`,
+      label: dec.candidatos.length <= 3 ? `👥 ${amostra}` : "👥 Os que você listou",
       ...(dec.candidatos.length > 3 ? { sublabel: `${amostra}…` } : {}),
       scope: { referente: "listados" },
     });

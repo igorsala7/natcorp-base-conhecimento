@@ -39,7 +39,38 @@ describe("montarOpcoesSujeito", () => {
     const dec = { ambiguo: true, candidatos: ["Ana", "Bia", "Cid", "Dan", "Eva"], refereRelatorio: true };
     const ops = montarOpcoesSujeito(dec, true);
     expect(ops.map((o) => o.id)).toEqual(["listados", "relatorio", "geral"]);
-    expect(String(ops[0]!.label)).toContain("Os 5 listados");
+    expect(String(ops[0]!.label)).toBe("👥 Os que você listou");
+    expect(String(ops[0]!.sublabel)).toBe("Ana, Bia, Cid…");
+  });
+
+  /**
+   * O rótulo NÃO afirma quantos são.
+   *
+   * Dizia "Os 7 listados" para uma lista de 14 (produção, 19/08/2026). Os
+   * candidatos vêm de o modelo LER o histórico truncado em 900 caracteres por
+   * mensagem — ele conta o que coube, não o que existe. E nenhuma fonte sabe o
+   * número: naquele turno o dataset tinha 40 linhas, a resposta mostrava 14 e o
+   * histórico truncado dava 7.
+   */
+  it("não inventa contagem — o número não é conhecível", () => {
+    const cinco = montarOpcoesSujeito(
+      { ambiguo: true, candidatos: ["Ana", "Bia", "Cid", "Dan", "Eva"], refereRelatorio: false },
+      false,
+    );
+    expect(String(cinco[0]!.label)).not.toMatch(/\d/);
+
+    // O rótulo é o MESMO para 5 e para 12: ele não promete quantidade nenhuma.
+    const doze = montarOpcoesSujeito(
+      { ambiguo: true, candidatos: Array.from({ length: 12 }, (_, i) => `P${i}`), refereRelatorio: false },
+      false,
+    );
+    expect(doze[0]!.label).toBe(cinco[0]!.label);
+  });
+
+  it("até 3 candidatos os nomes cabem — aí não há o que estimar", () => {
+    const ops = montarOpcoesSujeito({ ambiguo: true, candidatos: ["Ana", "Bia", "Cid"], refereRelatorio: false }, false);
+    expect(String(ops[0]!.label)).toBe("👥 Ana, Bia, Cid");
+    expect(ops[0]!.sublabel).toBeUndefined();
   });
   it("sem relatório → só listados + geral", () => {
     const ops = montarOpcoesSujeito({ ambiguo: true, candidatos: ["Ana"], refereRelatorio: false }, false);
