@@ -8763,24 +8763,56 @@
     // era a tela e liberava por falta de informação. Valia para todas as bases,
     // desde que o parâmetro existe.
     if (track && track.token) u += "&track=" + encodeURIComponent(track.token);
-    fetch(u)
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
-      .then(function (data) {
-        // Desligado para esta base/painel: não monta NADA. Sem bolha, sem
-        // atalho de teclado — desenhar para depois recusar seria pior.
-        if (data && data.desativado) return;
-        if (data && data.config) {
-          for (var k in data.config) {
-            if (data.config[k] != null) cfg[k] = data.config[k];
+
+    /**
+     * SEM CONFIG, NÃO MONTA — e tenta de novo antes de desistir.
+     *
+     * Isto respondia à falha montando com os PADRÕES: "se o config falhar, pelo
+     * menos mostra o widget". Dentro do ERP de um cliente a conta se inverte —
+     * montar com a marca errada é pior que não montar. O usuário final vê cor,
+     * avatar e título de outra empresa e conclui que o produto está quebrado,
+     * sem nenhum sinal do que houve.
+     *
+     * Visto em 19/08/2026: o servidor devolveu 500 por alguns minutos (cache de
+     * build corrompido), `r.ok` foi falso, `data` virou null, e o widget montou
+     * cru — o Igor percebeu pelo estilo, não por uma mensagem.
+     *
+     * Falha TRANSITÓRIA não pode custar o widget, então tenta 3 vezes com espera
+     * crescente. Falha persistente não monta, e diz por quê no console: é o
+     * mesmo critério da regra de disponibilidade, que já falha fechada.
+     */
+    var tentativas = 0;
+    function carregarConfig() {
+      tentativas++;
+      fetch(u)
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          // Desligado para esta base/painel: não monta NADA. Sem bolha, sem
+          // atalho de teclado — desenhar para depois recusar seria pior.
+          if (data && data.desativado) return;
+          if (data && data.config) {
+            for (var k in data.config) {
+              if (data.config[k] != null) cfg[k] = data.config[k];
+            }
           }
-        }
-        mount();
-      })
-      .catch(function () {
-        mount(); // usa defaults mesmo se o config falhar
-      });
+          mount();
+        })
+        .catch(function (e) {
+          if (tentativas < 3) {
+            setTimeout(carregarConfig, tentativas * 1500);
+            return;
+          }
+          // Não monta. Uma bolha sem a identidade do cliente é pior que bolha
+          // nenhuma — e o console é o único lugar onde isso pode ser visto.
+          try {
+            console.warn("[widget] configuração não carregou (" + (e && e.message) + "). O widget não será exibido.");
+          } catch { }
+        });
+    }
+    carregarConfig();
   }
 
   if (document.readyState === "loading") {
