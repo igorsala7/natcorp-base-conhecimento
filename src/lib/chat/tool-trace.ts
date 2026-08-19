@@ -133,6 +133,46 @@ export function resumoDoRetorno(r: unknown): Record<string, unknown> | undefined
 }
 
 /**
+ * A FORMA do retorno — a rede que fecha o ponto cego.
+ *
+ * `resumoDoRetorno` só fala quando o retorno traz uma das chaves conhecidas
+ * (`total`, `dataset`, `linhas`…), e `tool_result` só é gravado quando o
+ * resultado vira dataset. Um retorno fora desses dois moldes não deixava
+ * NENHUM rastro do que voltou: em 10 dias foram 576 `tool_fim` para 241
+ * `tool_result` (18/08/2026) — na maioria das chamadas não dava para saber se a
+ * ferramenta devolveu vazio, demais, ou num formato que o modelo não relaciona
+ * ao pedido.
+ *
+ * Foi esse cego que impediu de explicar um caso real: seis chamadas seguidas de
+ * `relatorio_recibo_pagamento`, todas `ok:true` e `ms:0`, sem `curl` e sem
+ * `tool_result` — o agente repetindo a mesma chamada até bater o teto de passos,
+ * e nada no trace dizendo o que ele recebeu.
+ *
+ * Guarda o BARATO e o diagnóstico: tamanho, tipo e as chaves de topo. Nunca o
+ * conteúdo — o retorno carrega dado de pessoa, e o trace é lido no admin.
+ */
+export function formaDoRetorno(r: unknown): Record<string, unknown> | undefined {
+  if (r === undefined) return { tipo: "undefined" };
+  if (r === null) return { tipo: "null" };
+  if (typeof r !== "object") return { tipo: typeof r, bytes: String(r).length };
+  let bytes = 0;
+  try {
+    bytes = JSON.stringify(r)?.length ?? 0;
+  } catch {
+    bytes = -1; // cíclico: registra que não deu para medir, em vez de omitir
+  }
+  if (Array.isArray(r)) return { tipo: "array", itens: r.length, bytes };
+  // Só os NOMES das chaves de topo. "vazio" é a informação mais acionável:
+  // um `{}` de volta é indistinguível de sucesso para quem lê "ok:true".
+  const chaves = Object.keys(r as Record<string, unknown>);
+  return {
+    tipo: "objeto",
+    bytes,
+    ...(chaves.length ? { chaves: chaves.slice(0, 12) } : { vazio: true }),
+  };
+}
+
+/**
  * Erro DECLARADO no retorno. Várias saídas do motor devolvem `{ erro }` em vez
  * de lançar (guard recusado, teto de chamadas, endpoint não configurado) — para
  * o modelo é dado, para o log é falha, e é justamente o que hoje some.
@@ -194,6 +234,9 @@ export function instrumentarTools<T extends ToolsRecord>(tools: T, onPasso?: Emi
             ok: !erro,
             ...(erro ? { erro } : {}),
             ...(resumoDoRetorno(r) ? { resumo: resumoDoRetorno(r) } : {}),
+            // Sempre — é o que garante que NENHUMA chamada termine sem rastro do
+            // que voltou, inclusive as que não viram dataset nem trazem chave conhecida.
+            forma: formaDoRetorno(r),
           });
           return r;
         } catch (e) {

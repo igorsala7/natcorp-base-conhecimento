@@ -211,11 +211,17 @@ incluídos.
 
 ## 8. Lacunas conhecidas (18/08/2026)
 
-- **`tool_result` só em 42% das chamadas** (241 de 576 `tool_fim` em 10 dias). Os
-  ramos de *loop* do `tool-builder` (`month`, `values`, `batch`) montam retorno
-  próprio e não passam pelo ponto que registra o resultado. Sem isso não dá para
-  saber o que a ferramenta devolveu — e o agente pode não reconhecer o retorno e
-  repetir a chamada até o teto.
+- ~~`tool_result` só em 42% das chamadas~~ — **fechado em 18/08/2026.** Eram 241
+  `tool_result` para 576 `tool_fim`: nas outras 335 não havia rastro do que a
+  ferramenta devolveu. Agora todo `tool_fim` carrega `forma` (tipo, bytes,
+  chaves de topo, `vazio: true`), gravado no invólucro que embrulha TODA
+  ferramenta — e não em cada ramo de loop, que é o que deixaria o próximo ramo
+  novo descoberto. Nunca o conteúdo: o retorno tem dado de pessoa e o trace é
+  lido no admin.
+
+  Como usar: um `forma: {tipo:"objeto", vazio:true}` ao lado de `ok:true` explica
+  na hora um agente que repete a mesma chamada — ele recebeu `{}` e não teve
+  como saber que aquilo era a resposta.
 - **Cache de prompt entre 21% e 38%**, contra ~70% esperado com prefixo estável.
 - **Nenhum eval set.** Assertividade não é medida; só custo e sinal de confusão.
   Enquanto isso, toda mudança de prompt ou de seleção é irreversível na prática:

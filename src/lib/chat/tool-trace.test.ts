@@ -6,6 +6,7 @@ import {
   erroDoRetorno,
   resumoDoRetorno,
   MAX_PARAMS_CHARS,
+  formaDoRetorno,
 } from "./tool-trace";
 
 type Passo = { passo: string; info?: Record<string, unknown> };
@@ -146,5 +147,57 @@ describe("erroDoRetorno / resumoDoRetorno", () => {
     expect(resumoDoRetorno({ total: 10, itens: [1, 2, 3], tipo: "barra" })).toEqual({ total: 10, tipo: "barra" });
     expect(resumoDoRetorno({ itens: [1, 2] })).toBeUndefined();
     expect(resumoDoRetorno([1, 2])).toBeUndefined();
+  });
+});
+
+/**
+ * O PONTO CEGO: chamada que termina sem rastro do que voltou.
+ *
+ * Em 10 dias houve 576 `tool_fim` para 241 `tool_result` (18/08/2026). Nas
+ * outras 335 não dava para saber se a ferramenta devolveu vazio, devolveu
+ * demais, ou devolveu num formato que o modelo não relaciona ao pedido — e foi
+ * exatamente isso que impediu de explicar um agente repetindo a mesma chamada
+ * seis vezes, todas `ok:true`.
+ */
+describe("formaDoRetorno", () => {
+  it("objeto VAZIO é dito explicitamente — é o que 'ok:true' escondia", () => {
+    expect(formaDoRetorno({})).toEqual({ tipo: "objeto", bytes: 2, vazio: true });
+  });
+
+  it("objeto sem chave conhecida deixa rastro pelas chaves de topo", () => {
+    // `resumoDoRetorno` fica calado aqui: nenhuma das chaves está no catálogo.
+    expect(resumoDoRetorno({ periodo: "03/2025 a 04/2025", meses: [] })).toBeUndefined();
+    const f = formaDoRetorno({ periodo: "03/2025 a 04/2025", meses: [] });
+    expect(f).toMatchObject({ tipo: "objeto", chaves: ["periodo", "meses"] });
+  });
+
+  it("lista diz quantos itens, sem copiar nenhum", () => {
+    expect(formaDoRetorno([{ a: 1 }, { a: 2 }])).toMatchObject({ tipo: "array", itens: 2 });
+  });
+
+  it("não vaza CONTEÚDO — o trace é lido no admin e o retorno tem dado de pessoa", () => {
+    const f = formaDoRetorno({ nome: "FERNANDO MATTOS TORRES", cpf: "12345678901", salario: 19541.5 });
+    expect(JSON.stringify(f)).not.toContain("FERNANDO");
+    expect(JSON.stringify(f)).not.toContain("12345678901");
+    expect(JSON.stringify(f)).not.toContain("19541");
+    expect(f).toMatchObject({ chaves: ["nome", "cpf", "salario"] });
+  });
+
+  it("nulo, indefinido e primitivo não derrubam nem somem", () => {
+    expect(formaDoRetorno(null)).toEqual({ tipo: "null" });
+    expect(formaDoRetorno(undefined)).toEqual({ tipo: "undefined" });
+    expect(formaDoRetorno("texto")).toEqual({ tipo: "string", bytes: 5 });
+  });
+
+  it("estrutura cíclica registra que não deu para medir, em vez de lançar", () => {
+    const ciclo: Record<string, unknown> = { a: 1 };
+    ciclo.self = ciclo;
+    expect(() => formaDoRetorno(ciclo)).not.toThrow();
+    expect(formaDoRetorno(ciclo)).toMatchObject({ bytes: -1 });
+  });
+
+  it("muitas chaves são cortadas — o trace é jsonb, não despejo", () => {
+    const largo = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`c${i}`, i]));
+    expect((formaDoRetorno(largo) as { chaves: string[] }).chaves).toHaveLength(12);
   });
 });
