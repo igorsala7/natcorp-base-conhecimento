@@ -198,11 +198,16 @@ async function main() {
 
       const sistema = [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela)]
         .filter(Boolean).join("\n\n");
+      // Mensagem de conteúdo vazio existe no histórico real (turno que morreu antes
+      // de escrever) e a Anthropic RECUSA o payload inteiro por causa dela — o que
+      // derrubava dois modelos e viraria "sem medição" em vez de comparação.
       const messages: ModelMessage[] = [
-        ...caso.historico.map((h) => ({
-          role: h.role === "assistant" ? ("assistant" as const) : ("user" as const),
-          content: h.content,
-        })),
+        ...caso.historico
+          .filter((h) => String(h.content ?? "").trim().length > 0)
+          .map((h) => ({
+            role: h.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: h.content.trim(),
+          })),
         { role: "user", content: caso.pergunta },
       ];
 

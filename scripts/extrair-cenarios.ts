@@ -172,6 +172,11 @@ async function main() {
         espera_tool: ant ? ant.espera_tool : (chamadas[0] ?? null),
         espera_fonte: ant ? ant.espera_fonte : cen,
         espera_clarify: ant ? ant.espera_clarify : String(t.desfecho ?? "").startsWith("clarify"),
+        // A NOTA é a parte cara: é o RACIOCÍNIO do gabarito, não um enfeite. Uma
+        // reextração que a descarta apaga por que cada caso foi decidido daquele
+        // jeito — e sem isso ninguém revisa a decisão depois. (Perdido uma vez em
+        // 19/08/2026 e recuperado do git.)
+        ...(ant?.nota ? { nota: ant.nota } : {}),
         ...(ant && !ant.revisar ? {} : { revisar: true }),
 
         // ── O QUE ACONTECEU: referência, não gabarito ─────────────────────
