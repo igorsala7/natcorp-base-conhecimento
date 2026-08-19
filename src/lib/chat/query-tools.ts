@@ -46,8 +46,11 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
   return {
     consultar_registros: tool({
       description:
-        "FILTRA/conta registros de uma tabela JÁ COLETADA sobre 100% das linhas (não a amostra). Use para SUBCONJUNTO ou " +
-        "CONTAGEM: 'só os que...', 'quantos têm...', 'filtre por...', 'liste os...'. Retorna `total` (contagem EXATA), " +
+        "FILTRA/ORDENA/conta registros de uma tabela JÁ COLETADA sobre 100% das linhas (não a amostra). Use para " +
+        "SUBCONJUNTO, CONTAGEM ou RANKING: 'só os que...', 'quantos têm...', 'filtre por...', 'liste os...', " +
+        "'os 10 MAIORES salários', 'quem tem MENOS faltas', 'os 5 com mais horas extras'. Para ranking passe " +
+        "`ordenar_por` (a coluna) — as primeiras linhas da amostra passam a ser o TOPO REAL de todas as linhas, e " +
+        "aí sim dá para listá-las. Retorna `total` (contagem EXATA), " +
         "`amostra` (conferência) e `resultado_em` (id do subconjunto). NUNCA conte/filtre pela amostra/TOP — é PARCIAL e " +
         "dá número errado. Para exportar só os filtrados, passe esse `resultado_em` em `gerar_relatorio` (tabela.dados_de). " +
         "Informe o `total` real.",
@@ -71,13 +74,27 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           .enum(["E", "OU"])
           .optional()
           .describe("E = todas as condições precisam bater (padrão); OU = qualquer uma."),
+        ordenar_por: z
+          .string()
+          .optional()
+          .describe(
+            "Coluna para ORDENAR o resultado (ex.: 'salario'). Use em 'os N maiores/menores': com ela, as primeiras " +
+              "linhas da amostra são o topo REAL de todos os registros — sem ela, a amostra é só um pedaço qualquer.",
+          ),
+        ordem: z
+          .enum(["desc", "asc"])
+          .optional()
+          .describe("desc = maiores primeiro (padrão); asc = menores primeiro."),
       }),
-      execute: async ({ dados_de, filtros, combinacao }) => {
+      execute: async ({ dados_de, filtros, combinacao, ordenar_por, ordem }) => {
         const r = consultarDataset(
           datasets,
           dados_de,
           (filtros ?? []) as Filtro[],
           combinacao === "OU" ? "OU" : "E",
+          50,
+          ordenar_por ?? null,
+          ordem === "asc" ? "asc" : "desc",
         );
         if (!r) return { erro: erroDatasetInexistente(datasets, dados_de) };
         if (r.colunaNaoEncontrada)
@@ -88,6 +105,10 @@ export function buildQueryTool(datasets: DatasetRegistry): ToolSet {
           colunas: r.colunas,
           amostra: r.amostra,
           nota: comAviso(
+            (r.ordenadoPor
+              ? `Ordenado por "${r.ordenadoPor}" sobre TODOS os ${r.total} registros: a AMOSTRA abaixo é o TOPO REAL — ` +
+                "pode listá-la direto. "
+              : "") +
             `Filtro aplicado sobre TODOS os registros: ${r.total} correspondência(s). ` +
             (r.total === 0
               ? "Nenhum registro bate — reveja o critério com o usuário; não invente linhas."

@@ -488,6 +488,8 @@ export type ConsultaResultado = {
   colunas: string[];
   amostra: string[][];   // primeiras N correspondências (para o modelo mostrar/conferir)
   colunaNaoEncontrada?: string;
+  /** Coluna usada na ordenação — presente só quando houve. */
+  ordenadoPor?: string;
 };
 
 /** Normaliza texto para comparação: sem acento, minúsculo, sem espaços nas pontas. */
@@ -779,6 +781,9 @@ export function consultarDataset(
   filtros: Filtro[],
   modo: "E" | "OU" = "E",
   amostraMax = 50,
+  /** Coluna pela qual ordenar antes de cortar a amostra — é o que torna "os N maiores" exato. */
+  ordenarPor?: string | null,
+  ordem: "desc" | "asc" = "desc",
 ): ConsultaResultado | null {
   const ds = acharDataset(reg, datasetId);
   if (!ds) return null;
@@ -795,9 +800,37 @@ export function consultarDataset(
     const ok = res.length === 0 ? true : modo === "OU" ? res.some(Boolean) : res.every(Boolean);
     if (ok) linhas.push(row);
   }
+  // ORDENAÇÃO: é o que faltava para "os 10 maiores".
+  //
+  // Sem isto não havia ferramenta para "os 10 colaboradores com maior salário":
+  // `agrupar` ordena GRUPOS agregados, `agregar_valores` devolve UM número, e
+  // `consultar_registros` filtrava sem ordenar. O modelo tentava os três, não
+  // conseguia, e redigia a lista a partir da AMOSTRA — que é parcial.
+  //
+  // Aconteceu em produção (19/08/2026): ele descobriu que o maior salário era
+  // R$ 31.733,10 e entregou uma tabela começando em R$ 21.263,28, tirada das 43
+  // linhas da amostra em vez das 10.149 reais. O usuário percebeu na hora
+  // ("por que Fulano não está no top 10?") e a conversa não se recuperou.
+  //
+  // Com ordenação, as N primeiras linhas SÃO a resposta — completa, não amostra.
+  if (ordenarPor) {
+    const idx = resolverColuna(ds, ordenarPor, { tipo: "numerico" });
+    if (idx == null) return { id: "", total: 0, colunas: nomes, amostra: [], colunaNaoEncontrada: ordenarPor };
+    const desc = ordem !== "asc";
+    linhas.sort((a, b) => {
+      const na = parseNumBR(a[idx] ?? ""), nb = parseNumBR(b[idx] ?? "");
+      // Sem número em uma das pontas, compara como TEXTO — ordenar por nome é
+      // pedido legítimo, e devolver ordem aleatória seria pior que a alfabética.
+      if (na == null || nb == null) {
+        const c = String(a[idx] ?? "").localeCompare(String(b[idx] ?? ""), "pt-BR");
+        return desc ? -c : c;
+      }
+      return desc ? nb - na : na - nb;
+    });
+  }
   // Registra o subconjunto como novo dataset (mesmas colunas) para exportar exato.
   const { id } = registrarTabelaTela(reg, nomes, linhas);
-  return { id, total: linhas.length, colunas: nomes, amostra: linhas.slice(0, amostraMax) };
+  return { id, total: linhas.length, colunas: nomes, amostra: linhas.slice(0, amostraMax), ...(ordenarPor ? { ordenadoPor: ordenarPor } : {}) };
 }
 
 export type Agregacao =

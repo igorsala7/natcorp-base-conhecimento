@@ -878,3 +878,70 @@ describe("coluna com escape unicode literal", () => {
     expect(colunaMaisProxima(reg, id, "\\usuario")).not.toBe("Competência");
   });
 });
+
+/**
+ * "OS 10 COLABORADORES COM MAIOR SALÁRIO" NÃO TINHA FERRAMENTA.
+ *
+ * `agrupar` ordena GRUPOS agregados, `agregar_valores` devolve UM número e
+ * `consultar_registros` filtrava sem ordenar. Em produção (19/08/2026) o modelo
+ * tentou os três, não conseguiu, e redigiu a lista a partir da AMOSTRA: achou
+ * que o maior salário era R$ 31.733,10 e entregou uma tabela começando em
+ * R$ 21.263,28, tirada de 43 linhas em vez de 10.149. O usuário viu na hora
+ * ("por que Fulano não está no top 10?") e a conversa não se recuperou.
+ */
+describe("consultarDataset — ordenação", () => {
+  const montar = () => {
+    const reg = newRegistry();
+    registrarTabelaTela(
+      reg,
+      ["nome", "salario"],
+      [["Ana", "3.000,00"], ["Bia", "21.263,28"], ["Cid", "31.733,10"], ["Dan", "1.200,50"]],
+    );
+    return { reg, id: reg.list[0]!.id };
+  };
+
+  it("traz o MAIOR primeiro — o topo real, não a ordem de chegada", () => {
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [], "E", 50, "salario")!;
+    expect(r.amostra.map((l) => l[0])).toEqual(["Cid", "Bia", "Ana", "Dan"]);
+    expect(r.ordenadoPor).toBe("salario");
+  });
+
+  it("`asc` inverte", () => {
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [], "E", 50, "salario", "asc")!;
+    expect(r.amostra[0]![0]).toBe("Dan");
+  });
+
+  it("entende número em pt-BR — 31.733,10 é maior que 3.000,00", () => {
+    // Ordenar como texto poria "3.000,00" na frente de "31.733,10".
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [], "E", 50, "salario")!;
+    expect(r.amostra[0]![1]).toBe("31.733,10");
+  });
+
+  it("coluna de texto ordena alfabeticamente, não aleatoriamente", () => {
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [], "E", 50, "nome", "asc")!;
+    expect(r.amostra.map((l) => l[0])).toEqual(["Ana", "Bia", "Cid", "Dan"]);
+  });
+
+  it("ordena o RECORTE, não a tabela toda", () => {
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [{ coluna: "salario", operador: "maior", valor: "2000" }], "E", 50, "salario")!;
+    expect(r.total).toBe(3);
+    expect(r.amostra.map((l) => l[0])).toEqual(["Cid", "Bia", "Ana"]);
+  });
+
+  it("coluna inexistente é recusada, não ignorada em silêncio", () => {
+    const { reg, id } = montar();
+    expect(consultarDataset(reg, id, [], "E", 50, "remuneracao_total")!.colunaNaoEncontrada).toBe("remuneracao_total");
+  });
+
+  it("sem `ordenar_por` o comportamento é o de antes", () => {
+    const { reg, id } = montar();
+    const r = consultarDataset(reg, id, [], "E", 50)!;
+    expect(r.amostra.map((l) => l[0])).toEqual(["Ana", "Bia", "Cid", "Dan"]);
+    expect(r.ordenadoPor).toBeUndefined();
+  });
+});
