@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { temProcedencia, ehParamDePessoa, normalizarId, recusaSemProcedencia, resolvedoraDeNome } from "./procedencia";
+import { temProcedencia, ehParamDePessoa, normalizarId, recusaSemProcedencia, resolvedoraDeNome, idsParaProcedencia } from "./procedencia";
 
 /** O caso real: 269084 não existia em nenhum campo de nenhum dos 96 registros. */
 const fonte = {
@@ -95,5 +95,63 @@ describe("normalizarId", () => {
     expect(normalizarId("345.845.796-87")).toBe("34584579687");
     expect(normalizarId("000123")).toBe("123");
     expect(normalizarId(123)).toBe("123");
+  });
+});
+
+/**
+ * ENCADEAR ENTRE TURNOS.
+ *
+ * "Quais colaboradores do meu centro de custo" trazia 15 matrículas; "quais
+ * deles estão de férias" era RECUSADA, porque os datasets são por turno. Visto
+ * em produção (19/08/2026): o agente foi barrado, tentou de novo com lista
+ * vazia, e o loop preencheu com a matrícula de quem perguntava — a resposta
+ * trouxe uma pessoa em vez de quinze, e para quem usava ele "se perdeu".
+ */
+describe("procedência entre turnos", () => {
+  const base = { linhas: [], identidade: ["365785"], texto: "" };
+
+  it("id de turno ANTERIOR passa", () => {
+    const fonte = { ...base, idsAnteriores: new Set(["183547", "219363"]) };
+    expect(temProcedencia("183547", fonte)).toBe(true);
+    expect(temProcedencia("219363", fonte)).toBe(true);
+  });
+
+  it("id que nunca passou por lugar nenhum continua BARRADO", () => {
+    // 269084 foi o número inventado que criou este guard.
+    const fonte = { ...base, idsAnteriores: new Set(["183547"]) };
+    expect(temProcedencia("269084", fonte)).toBe(false);
+  });
+
+  it("sem `idsAnteriores` o comportamento é o de antes", () => {
+    expect(temProcedencia("183547", base)).toBe(false);
+    expect(temProcedencia("365785", base)).toBe(true); // é a própria identidade
+  });
+});
+
+describe("idsParaProcedencia", () => {
+  it("pega identificador de QUALQUER coluna, não só as com cara de matrícula", () => {
+    const linhas = [{ nome: "TONY OLIVEIRA", cod: "183547", ref_externa: 219363 }];
+    expect(idsParaProcedencia(linhas).sort()).toEqual(["183547", "219363"]);
+  });
+
+  it("descarta texto — nome e endereço não são identificador", () => {
+    const linhas = [{ nome: "MARIA 2 SILVA", cidade: "São Paulo", cargo: "Analista II" }];
+    expect(idsParaProcedencia(linhas)).toEqual([]);
+  });
+
+  it("descarta o que é curto ou longo demais para ser matrícula", () => {
+    const linhas = [{ a: "12", b: "1234567890123456789", c: "183547" }];
+    expect(idsParaProcedencia(linhas)).toEqual(["183547"]);
+  });
+
+  it("normaliza: 000123 e 123 são o mesmo número, guardado uma vez", () => {
+    expect(idsParaProcedencia([{ a: "000123" }, { b: 123 }])).toEqual(["123"]);
+  });
+
+  it("respeita o teto — metadado não pode virar arquivo", () => {
+    // 400 linhas × 20 colunas seriam 8 mil valores em `messages.payload`, em
+    // TODA mensagem: o metadado ficaria maior que a mensagem.
+    const linhas = Array.from({ length: 500 }, (_, i) => ({ m: String(100000 + i) }));
+    expect(idsParaProcedencia(linhas, 50)).toHaveLength(50);
   });
 });

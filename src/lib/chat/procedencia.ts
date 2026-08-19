@@ -44,6 +44,22 @@ export type FonteDeIds = {
   identidade: (string | null | undefined)[];
   /** Texto que a pessoa escreveu neste turno e nos anteriores. */
   texto: string;
+  /**
+   * Identificadores que passaram por TURNOS ANTERIORES desta conversa.
+   *
+   * Sem isto, encadear era impossível: "quais colaboradores do meu centro de
+   * custo" trazia 15 matrículas, e "quais deles estão de férias" era RECUSADA —
+   * os datasets são por turno, então na pergunta seguinte aqueles números já não
+   * tinham procedência. Visto em produção (19/08/2026): o agente foi barrado,
+   * tentou de novo com lista vazia e respondeu com os dados de uma pessoa só.
+   * Para quem usava, ele "se perdeu".
+   *
+   * Vem de `idsParaProcedencia`, que extrai dos DADOS (resultado de API, tabela
+   * da tela) — nunca do texto da resposta anterior. A distinção é o guard
+   * inteiro: o incidente que o criou foi o modelo ESCREVER uma matrícula
+   * inventada e consultá-la. Texto que o modelo produziu não é procedência.
+   */
+  idsAnteriores?: ReadonlySet<string>;
 };
 
 /**
@@ -72,7 +88,47 @@ export function temProcedencia(valor: unknown, fonte: FonteDeIds): boolean {
       if (normalizarId(v) === alvo) return true;
     }
   }
-  return false;
+  // Turnos anteriores da MESMA conversa — só o que veio de dados reais.
+  return fonte.idsAnteriores?.has(alvo) === true;
+}
+
+/** Teto de identificadores guardados por turno. Metadado, não arquivo. */
+const MAX_IDS_TURNO = 400;
+/** Comprimento plausível de matrícula/CPF, já normalizado (só dígitos). */
+const MIN_DIGITOS = 3;
+const MAX_DIGITOS = 14;
+
+/**
+ * Os identificadores de um turno, para a conversa seguinte poder encadear.
+ *
+ * Varre TODOS os valores das linhas, como `temProcedencia` faz — restringir às
+ * colunas com cara de matrícula deixaria de fora justamente o caso real, em que
+ * o número aparece numa coluna de nome inesperado.
+ *
+ * Guarda só o que TEM FORMA de identificador de pessoa (3 a 14 dígitos): sem
+ * esse filtro, um dataset de 400 linhas × 20 colunas viraria 8 mil valores em
+ * `messages.payload`, em toda mensagem — o metadado ficaria maior que a
+ * mensagem.
+ */
+export function idsParaProcedencia(
+  linhas: Record<string, unknown>[],
+  max = MAX_IDS_TURNO,
+): string[] {
+  const out = new Set<string>();
+  for (const linha of linhas) {
+    for (const v of Object.values(linha)) {
+      if (v == null) continue;
+      const t = typeof v;
+      if (t !== "string" && t !== "number") continue;
+      // Texto com letras não é identificador — evita guardar nome e endereço.
+      if (t === "string" && /[a-zA-ZÀ-ÿ]/.test(v as string)) continue;
+      const id = normalizarId(v);
+      if (id.length < MIN_DIGITOS || id.length > MAX_DIGITOS) continue;
+      out.add(id);
+      if (out.size >= max) return [...out];
+    }
+  }
+  return [...out];
 }
 
 /**

@@ -64,6 +64,7 @@ import type { ReportSpec } from "@/lib/reports/report-spec";
 import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
+import { idsParaProcedencia } from "@/lib/chat/procedencia";
 import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
@@ -565,6 +566,42 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     if (!existing) convId = undefined;
     else prevPage = pageContextFields(existing.page);
   }
+
+  /**
+   * IDs que passaram por turnos ANTERIORES desta conversa.
+   *
+   * Os datasets são por turno: sem isto, "quais colaboradores do meu centro de
+   * custo" trazia 15 matrículas e "quais deles estão de férias" era RECUSADA
+   * pelo guard de procedência. Medido em produção (19/08/2026).
+   *
+   * Vêm de `messages.payload.ids`, gravado a partir dos DADOS (resultado de API,
+   * tabela da tela) — nunca do texto que o modelo escreveu. É essa distinção que
+   * mantém o guard de pé: o incidente que o criou foi o modelo narrar uma
+   * matrícula inventada e consultar com ela.
+   *
+   * Só as últimas mensagens: a conversa inteira não é um índice de gente.
+   * Falha vira conjunto vazio — perder o encadeamento é degradação aceitável;
+   * derrubar o turno não é.
+   */
+  const idsAnteriores = convId
+    ? await supabase
+        .from("messages")
+        .select("payload")
+        .eq("conversation_id", convId)
+        .eq("role", "assistant")
+        .order("created_at", { ascending: false })
+        .limit(6)
+        .then(
+          (r) =>
+            new Set(
+              (r.data ?? []).flatMap((m) => {
+                const ids = (m.payload as { ids?: unknown } | null)?.ids;
+                return Array.isArray(ids) ? ids.map(String) : [];
+              }),
+            ),
+          () => new Set<string>(),
+        )
+    : new Set<string>();
   // Só há "troca" se havia tela anterior: a primeira mensagem não trocou de nada.
   mudouPagina = !!(page && prevPage && !mesmaPagina(prevPage, page));
   // Escopo do usuário (isolamento) — reusado p/ datasets persistidos e fontes salvas.
@@ -749,7 +786,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * Turno seguinte não é afetado — cada turno monta as suas.
    */
   const integ = track.p_base && !querTutorial && !soRedigir && !social
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
   // única pendência que o próprio usuário resolve, e por isso a única que vira
@@ -2767,7 +2804,16 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
         // Sem `as never`: a coluna existe nos tipos agora, então o compilador
         // volta a conferir esta linha — foi o cast que deixou passar a coluna
         // inexistente, porque `never` é atribuível a `never`.
-        payload: destacadas.length ? { destacadas } : null,
+        // `ids`: os identificadores que passaram por este turno, para a PRÓXIMA
+        // pergunta poder encadear ("quais DELES estão de férias?"). Só o que veio
+        // de dado real; ver `idsParaProcedencia`.
+        payload: ((): Record<string, unknown> | null => {
+          const ids = idsParaProcedencia(datasets.list.flatMap((d) => d.rows as unknown as Record<string, unknown>[]));
+          const p: Record<string, unknown> = {};
+          if (destacadas.length) p.destacadas = destacadas;
+          if (ids.length) p.ids = ids;
+          return Object.keys(p).length ? p : null;
+        })() as never,
         media: (media.length ? media : null) as never,
         latency_ms: Date.now() - started,
         tokens: totalTokensTurno,

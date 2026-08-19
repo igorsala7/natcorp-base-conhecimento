@@ -174,6 +174,14 @@ export async function buildIntegrationTools(
    *  `sim` onde se espera `anexarArquivo` e o compilador só reclamaria por
    *  sorte de os tipos não baterem. */
   anexarArquivo?: (arq: { filename: string; mimeType: string; bytes: Buffer }) => Promise<string>,
+  /**
+   * Identificadores vistos em turnos ANTERIORES desta conversa, vindos de DADOS
+   * reais (nunca do texto do modelo). Sem eles, encadear era impossível: os
+   * datasets morrem no fim do turno, então "quais DELES estão de férias" era
+   * recusada pelo guard de procedência. Também no FIM, pelo mesmo motivo
+   * posicional explicado acima.
+   */
+  idsAnteriores?: ReadonlySet<string>,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -788,6 +796,8 @@ export async function buildIntegrationTools(
               linhas,
               identidade: [ident.matricula, ident.cod_empresa, ident.usuario, ident.cpf, ident.cod_candidato],
               texto: question ?? "",
+              // Turnos anteriores da MESMA conversa — dado real, nunca texto do modelo.
+              idsAnteriores,
             };
             for (const [k, v] of alvos) {
               const valores = Array.isArray(v) ? v : [v];
