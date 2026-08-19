@@ -201,3 +201,32 @@ describe("formaDoRetorno", () => {
     expect((formaDoRetorno(largo) as { chaves: string[] }).chaves).toHaveLength(12);
   });
 });
+
+/**
+ * A RECUSA REGISTRADA COMO SUCESSO.
+ *
+ * `recusaSemProcedencia` devolve `{_recusado, _erro}` — com sublinhado, como os
+ * demais metadados que o modelo lê. O detector olhava só `erro`, então a
+ * chamada barrada saía com `ok: true`. Visto em produção (19/08/2026): o agente
+ * foi recusado, tentou de novo, e o trace registrou duas ferramentas
+ * bem-sucedidas — enquanto o usuário via "parece que se perdeu".
+ */
+describe("erroDoRetorno — recusa com `_erro`", () => {
+  it("pega a recusa por procedência", () => {
+    const recusa = { _recusado: true, _erro: 'O valor "205818" não veio de nenhuma consulta deste turno.' };
+    expect(erroDoRetorno(recusa)).toContain("não veio de nenhuma consulta");
+  });
+
+  it("continua pegando o `erro` sem sublinhado", () => {
+    expect(erroDoRetorno({ erro: "A API retornou HTTP 500." })).toBe("A API retornou HTTP 500.");
+  });
+
+  it("`erro` vence `_erro` quando os dois existem", () => {
+    expect(erroDoRetorno({ erro: "principal", _erro: "secundário" })).toBe("principal");
+  });
+
+  it("retorno normal continua sem erro", () => {
+    expect(erroDoRetorno({ items: [1, 2], _total: 2 })).toBeUndefined();
+    expect(erroDoRetorno({ erro: "   " })).toBeUndefined();
+  });
+});

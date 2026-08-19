@@ -179,7 +179,14 @@ export function formaDoRetorno(r: unknown): Record<string, unknown> | undefined 
  */
 export function erroDoRetorno(r: unknown): string | undefined {
   if (!r || typeof r !== "object") return undefined;
-  const e = (r as Record<string, unknown>).erro;
+  const o = r as Record<string, unknown>;
+  // `erro` E `_erro`. A recusa por PROCEDÊNCIA devolve `{_recusado, _erro}` —
+  // com sublinhado, porque os campos que o modelo lê como metadado usam esse
+  // prefixo. O detector olhava só `erro`, então toda recusa era gravada como
+  // `ok: true`: o trace dizia que a ferramenta tinha funcionado enquanto ela
+  // recusava a chamada. Visto em produção (19/08/2026) num turno em que o
+  // agente foi barrado duas vezes e o log não registrou nenhuma.
+  const e = typeof o.erro === "string" && o.erro.trim() ? o.erro : o._erro;
   if (typeof e !== "string" || !e.trim()) return undefined;
   return e.length > MAX_ERRO_CHARS ? e.slice(0, MAX_ERRO_CHARS) + "…" : e;
 }
