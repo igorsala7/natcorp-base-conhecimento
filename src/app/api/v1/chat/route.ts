@@ -737,7 +737,18 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // pergunta original de novo não custa nada e evita que o recorte por módulo
   // corte justamente a ferramenta do que foi perguntado.
   const consultaClassificador = divergiu ? `${question.trim()}\n${consultaTools}` : consultaTools;
-  const integ = track.p_base && !querTutorial && !soRedigir
+  /**
+   * CUMPRIMENTO NÃO PRECISA DE FERRAMENTA NENHUMA.
+   *
+   * `social` desligava só o RAG. Medido depois de corrigir a detecção de
+   * cortesia (19/08/2026): um "Olá" ainda custava 22 mil tokens — 14 mil de
+   * schemas de ferramenta, 2.255 de uma chamada de modelo só para o
+   * classificador concluir "não precisa de dados", e ~5 mil de varredura de
+   * tela. O RAG economizado eram 2.264: 8% do turno.
+   *
+   * Turno seguinte não é afetado — cada turno monta as suas.
+   */
+  const integ = track.p_base && !querTutorial && !soRedigir && !social
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
@@ -766,8 +777,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const telaTemCampos = oQueTemNaTela ? oQueTemNaTela.campos === true : true;
   const telaTemTabela = oQueTemNaTela ? oQueTemNaTela.tabela === true || oQueTemNaTela.relatorio === true : true;
 
-  const scanBlock = formAssist ? pageContentBlock(payload.pageContent) : "";
-  const screenFields = formAssist ? parseFields(payload.fields) : [];
+  // Cumprimento não lê a tela: `scan` custava 2.067 tokens e `formAssist` 2.855
+  // para responder "Olá! Como posso ajudar?" — nada disso chega à resposta.
+  const scanBlock = formAssist && !social ? pageContentBlock(payload.pageContent) : "";
+  const screenFields = formAssist && !social ? parseFields(payload.fields) : [];
   // Loop autônomo do assistente de tela: o widget executou uma ação, re-varreu a
   // tela e pede que a IA CONTINUE (não é nova pergunta do usuário). (`continuation`
   // já foi resolvido acima, junto do gate de tutorial.)
@@ -1306,7 +1319,17 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * o prefixo comum ser o maior possível quando uma delas falta.
    */
   const toolsEstaveis: ToolSet = { ...queryTools, ...visualTools, ...formToolsFinal, ...harvestTools, ...inviteTools, ...trocaFonteTools };
-  const allToolsCru: ToolSet = { ...toolsEstaveis, ...integNoTurno };
+  /**
+   * Turno social não recebe ferramenta NENHUMA — nem as locais.
+   *
+   * Cortar só as de integração deixou 10 ferramentas de pé (as 8 de consulta de
+   * dados e as 2 visuais), ~8 mil tokens, num turno cuja resposta tem 96
+   * caracteres. Medido em produção: "Olá" saiu de 20.282 para 11.617 tokens, e
+   * o que sobrou eram essas.
+   *
+   * Não afeta o turno seguinte: cada um monta as suas.
+   */
+  const allToolsCru: ToolSet = social ? {} : { ...toolsEstaveis, ...integNoTurno };
   // RASTRO UNIVERSAL: decora o `execute` de TODAS as ferramentas (integração e locais)
   // com `tool_call`/`tool_fim`. É o que garante nome + parâmetros + desfecho no
   // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que
