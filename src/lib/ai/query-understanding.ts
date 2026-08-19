@@ -25,6 +25,15 @@ export async function interpretarConsulta(
   historico?: { role: string; content: string }[],
   /** Tela onde o usuário está (Fase 4) — ajuda a resolver perguntas vagas. */
   contextoTela?: string,
+  /**
+   * Modelo alternativo, SÓ para medição (`scripts/eval-rewrite.ts`).
+   *
+   * A reescrita decide qual pergunta o sistema vai responder, e hoje roda no
+   * menor modelo do conjunto. Saber se um modelo melhor acerta mais exige rodar
+   * o MESMO prompt nos dois — e trocar a atribuição no banco para medir mexeria
+   * na produção. Em produção este parâmetro nunca é passado.
+   */
+  modeloMedicao?: Parameters<typeof generateText>[0]["model"],
 ): Promise<string> {
   const p = (pergunta ?? "").trim();
   if (p.length < 3) return pergunta;
@@ -43,7 +52,7 @@ export async function interpretarConsulta(
     const vocab = await vocabularioProximo(supabase, ids, `${p}\n${recentes}`).catch(() => "");
 
     const { text } = await generateText({
-      model: await languageModel("query_rewrite"), // finalidade própria: atribua um modelo RÁPIDO na tela (fallback → Chat)
+      model: modeloMedicao ?? (await languageModel("query_rewrite")), // finalidade própria: atribua um modelo RÁPIDO na tela (fallback → Chat)
       abortSignal: aiTimeout("query_rewrite"), // curto: está no caminho crítico
       prompt: `Você normaliza a CONSULTA DE BUSCA de um sistema de documentação, em português do Brasil. O usuário pode escrever mal: gíria, erro de digitação, vago, ou dependente do contexto da conversa. Produza UMA consulta de busca curta e clara que capture a real INTENÇÃO, no vocabulário da documentação.
 

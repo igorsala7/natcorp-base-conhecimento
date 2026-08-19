@@ -37,6 +37,7 @@
     "tools:loop-opcional": "tsx --env-file=.env.local scripts/loop-param-opcional.ts",
     "eval:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-tools.ts",
     "eval:rewrite": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-rewrite.ts",
+    "eval:rewrite-modelo": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-rewrite-modelo.ts",
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",
     "test:e2e": "playwright test",
