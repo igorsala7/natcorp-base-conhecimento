@@ -334,3 +334,27 @@ describe("integUsageDirective — situação do colaborador", () => {
     expect(integUsageDirective("relatorio_recibo_pagamento")).toMatch(/SEMPRE o valor de ATIVOS/);
   });
 });
+
+/**
+ * Duas confusões medidas em produção (19/08/2026), ambas de instrução ausente.
+ */
+describe("integUsageDirective — continuidade entre turnos", () => {
+  it("proíbe inventar nome de tabela de turno anterior", () => {
+    // Pediu `dados_de: "_resultado_colaboradores_cc"` — nome inventado para a
+    // tabela do turno anterior. Duas chamadas queimadas, 138 mil tokens e 4
+    // passos numa pergunta de um passo.
+    const d = integUsageDirective();
+    expect(d).toMatch(/TABELAS SÃO DO TURNO ATUAL/);
+    expect(d).toMatch(/PROIBIDO inventar um nome/);
+    expect(d).toMatch(/CHAME a ferramenta de novo/);
+  });
+
+  it("manda repetir a MESMA ferramenta numa variação do pedido", () => {
+    // "histórico financeiro da Tania de março" → historico_financeiro, 34 regs.
+    // "compara com o mês de Abril" → relatorio_recibo_pagamento, ZERO regs.
+    const d = integUsageDirective();
+    expect(d).toMatch(/MESMO PEDIDO, MESMA FERRAMENTA/);
+    expect(d).toMatch(/compara com/);
+    expect(d).toMatch(/trocando só o parâmetro/);
+  });
+});

@@ -294,6 +294,21 @@ export function integUsageDirective(toolForcado?: string): string {
     // custo" trouxe 40 registros incluindo desligados (19/08/2026) — a resposta
     // não estava errada segundo a ferramenta, estava errada segundo a pergunta.
     // A regra vale para as tools de hoje e para as que forem cadastradas depois.
+    // O modelo pediu `dados_de: "_resultado_colaboradores_cc"` — nome inventado
+    // para a tabela do turno ANTERIOR (19/08/2026). Queimou duas chamadas até
+    // se recuperar: 138 mil tokens e 4 passos numa pergunta de um passo. Ele
+    // não estava confuso; estava sem saber que aquilo tinha expirado.
+    "TABELAS SÃO DO TURNO ATUAL: os identificadores `dsN`/`telaN` valem só nesta mensagem. Os da mensagem anterior NÃO " +
+    "existem mais — é PROIBIDO inventar um nome para eles. Se precisa de dados que apareceram antes, CHAME a ferramenta de " +
+    "novo (com os parâmetros que já deram certo) e use o `dsN` que voltar agora. A lista do que existe neste turno vem " +
+    "junto das ferramentas de dados; se ela está vazia, não há tabela para consultar.\n" +
+    // "Quero o histórico financeiro da Tania de março" → `historico_financeiro`,
+    // 34 registros. "Compara com o mês de Abril" → `relatorio_recibo_pagamento`,
+    // ZERO registros. Mesma pergunta, outro mês, outra ferramenta, e o usuário
+    // não recebeu comparação nenhuma.
+    "MESMO PEDIDO, MESMA FERRAMENTA: quando a mensagem é uma VARIAÇÃO da anterior — outro mês, outra pessoa, outro " +
+    "período, \"compara com…\", \"e em abril?\" — repita a MESMA ferramenta que respondeu antes, trocando só o parâmetro " +
+    "que mudou. Trocar de ferramenta no meio de uma comparação devolve números que não se comparam.\n" +
     "SITUAÇÃO DO COLABORADOR (padrão): quando a ferramenta tiver um parâmetro de SITUAÇÃO/status funcional, use SEMPRE o " +
     "valor de ATIVOS. Pessoa desligada só entra quando o usuário PEDIR explicitamente (\"desligados\", \"demitidos\", " +
     "\"quem saiu\", \"histórico incluindo quem não está mais\") — e aí use o valor de desligados ou de todos, conforme o " +
