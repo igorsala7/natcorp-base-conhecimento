@@ -1018,7 +1018,7 @@ export async function buildIntegrationTools(
               // (a API aceita o filtro em branco = todos) → faz uma chamada única e a API decide.
               // Só EXIGE valor quando o param é marcado obrigatório. Ex.: listar colaboradores por
               // cargo numa tool cujo loop é sobre matrícula (opcional).
-              if (pLoop?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+              if (pLoop?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}. Esta ferramenta EXIGE o filtro — NÃO tente contornar buscando a lista completa em outra ferramenta para depois iterar aqui: isso consome o turno inteiro e costuma estourar o limite. Se você não tem o valor, PERGUNTE ao usuário.` };
               return await runOnce(modelArgs, 0);
             }
             const max = loop.max ?? 20;
@@ -1044,7 +1044,7 @@ export async function buildIntegrationTools(
               // Idem "values": só exige o param do loop quando ele é `obrigatorio`. Opcional e
               // sem valor → uma chamada única sem ele (a API decide); com valores → segue o batch.
               const pLoopB = bt.tool.params.find((pp) => pp.nome === loop.param);
-              if (pLoopB?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}.` };
+              if (pLoopB?.obrigatorio) return { erro: `Informe ao menos um valor em ${loop.param}. Esta ferramenta EXIGE o filtro — NÃO tente contornar buscando a lista completa em outra ferramenta para depois iterar aqui: isso consome o turno inteiro e costuma estourar o limite. Se você não tem o valor, PERGUNTE ao usuário.` };
               return await runOnce(modelArgs, 0);
             }
             const size = Math.max(1, loop.max ?? 20);
