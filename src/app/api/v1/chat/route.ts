@@ -65,6 +65,7 @@ import { type BrandInfo } from "@/lib/reports/pdf";
 import { renderReport } from "@/lib/reports/exporters";
 import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/tool-builder";
 import { idsParaProcedencia } from "@/lib/chat/procedencia";
+import { resolverEscolha } from "@/lib/chat/escolha-numerada";
 import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
@@ -266,7 +267,26 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const idioma = idiomaValido(payload.lang as string) && String(payload.lang).toLowerCase() !== "pt"
     ? String(payload.lang).toLowerCase()
     : null;
-  const question = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const _perguntaCrua = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  /**
+   * "1" É UMA RESPOSTA, NÃO UMA PERGUNTA.
+   *
+   * O agente perguntou "você quer: 1. todos da empresa 2. de um grupo 3. alguns
+   * em particular?" e a pessoa respondeu "1". A partir daí tudo desandou: a
+   * reescrita ignora mensagem de menos de 3 caracteres, então "1" foi cru para
+   * o RAG (que trouxe NR-15, mergulho e descompressão), a seleção de ferramentas
+   * não casou com nada, e o agente concluiu que a ferramenta de ponto "não
+   * estava disponível" — a mesma que ele havia chamado no turno anterior
+   * (19/08/2026).
+   *
+   * Resolver aqui, ANTES de tudo: a pergunta efetiva passa a ser o texto da
+   * opção escolhida, e RAG, roteamento e seleção voltam a ter com o que
+   * trabalhar. Sem menu na resposta anterior, `resolverEscolha` devolve null e
+   * nada muda — forçar reescrita sem menu seria inventar intenção.
+   */
+  const _ultimaAssistente = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  const _escolha = resolverEscolha(_perguntaCrua, _ultimaAssistente);
+  const question = _escolha ?? _perguntaCrua;
   if (!question.trim()) return json({ error: "Mensagem vazia." }, 400);
 
   const supabase = createAdminClient();
@@ -390,6 +410,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     });
   };
   passo("mensagem", { pergunta: question.slice(0, 300), caracteres: question.length });
+  if (_escolha) passo("escolha_numerada", { respondeu: _perguntaCrua.trim().slice(0, 12), virou: _escolha.slice(0, 120) });
   const started = Date.now();
 
   // Persona: a da chave vence a da documentação dona. As regras absolutas são
