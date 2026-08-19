@@ -306,9 +306,19 @@ export function integUsageDirective(toolForcado?: string): string {
     // 34 registros. "Compara com o mês de Abril" → `relatorio_recibo_pagamento`,
     // ZERO registros. Mesma pergunta, outro mês, outra ferramenta, e o usuário
     // não recebeu comparação nenhuma.
-    "MESMO PEDIDO, MESMA FERRAMENTA: quando a mensagem é uma VARIAÇÃO da anterior — outro mês, outra pessoa, outro " +
-    "período, \"compara com…\", \"e em abril?\" — repita a MESMA ferramenta que respondeu antes, trocando só o parâmetro " +
-    "que mudou. Trocar de ferramenta no meio de uma comparação devolve números que não se comparam.\n" +
+    // Continuação NÃO quer dizer mesma ferramenta. O sujeito atravessa o turno;
+    // o pedido, não. Distinguir os dois é o que separa "e em abril?" (mesma
+    // consulta, outro parâmetro) de "e como isso fica diante da CLT?" (mesmo
+    // assunto, resposta que está na documentação).
+    "MESMO PEDIDO, MESMA FERRAMENTA: quando a mensagem repete o MESMO pedido mudando só um parâmetro — outro mês, outra " +
+    "pessoa, outro período, \"compara com…\", \"e em abril?\" — repita a MESMA ferramenta que respondeu antes, trocando " +
+    "só o que mudou. Trocar de ferramenta no meio de uma comparação devolve números que não se comparam.\n" +
+    "PEDIDO NOVO SOBRE OS MESMOS DADOS: se a mensagem faz uma pergunta DIFERENTE — mesmo que sobre as pessoas ou " +
+    "registros que acabaram de aparecer — escolha a fonte pelo que ela PEDE, não pela que respondeu antes. Pode ser outra " +
+    "ferramenta, pode ser a DOCUMENTAÇÃO (norma, regra, como fazer, em que tela), e pode ser as DUAS na mesma resposta. " +
+    "Ex.: depois de listar as marcações de ponto, \"houve atrasos, como isso fica diante da CLT? em qual aplicação eu faço " +
+    "o abono?\" quer a NORMA e o CAMINHO no sistema — está na documentação —, e não a ferramenta de ponto outra vez. " +
+    "Responda as duas partes: o que os dados mostram e o que a documentação diz.\n" +
     "SITUAÇÃO DO COLABORADOR (padrão): quando a ferramenta tiver um parâmetro de SITUAÇÃO/status funcional, use SEMPRE o " +
     "valor de ATIVOS. Pessoa desligada só entra quando o usuário PEDIR explicitamente (\"desligados\", \"demitidos\", " +
     "\"quem saiu\", \"histórico incluindo quem não está mais\") — e aí use o valor de desligados ou de todos, conforme o " +

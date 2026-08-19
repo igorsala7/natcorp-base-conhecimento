@@ -349,12 +349,34 @@ describe("integUsageDirective — continuidade entre turnos", () => {
     expect(d).toMatch(/CHAME a ferramenta de novo/);
   });
 
-  it("manda repetir a MESMA ferramenta numa variação do pedido", () => {
+  it("manda repetir a MESMA ferramenta quando muda só um parâmetro", () => {
     // "histórico financeiro da Tania de março" → historico_financeiro, 34 regs.
     // "compara com o mês de Abril" → relatorio_recibo_pagamento, ZERO regs.
     const d = integUsageDirective();
     expect(d).toMatch(/MESMO PEDIDO, MESMA FERRAMENTA/);
     expect(d).toMatch(/compara com/);
-    expect(d).toMatch(/trocando só o parâmetro/);
+    expect(d).toMatch(/trocando\s+só o que mudou/);
+  });
+
+  /**
+   * CONTINUAÇÃO NÃO É MESMA FERRAMENTA.
+   *
+   * O sujeito atravessa o turno; o pedido, não. Exemplo do Igor (19/08/2026):
+   *
+   *   "Quais colaboradores marcaram o ponto hoje?"        → ferramenta de ponto
+   *   "Houve atrasos, como isso fica diante da CLT?
+   *    Em qual aplicação eu faço o abono dessas horas?"   → DOCUMENTAÇÃO
+   *
+   * Mesmo assunto, mesmo sujeito, e a resposta está na norma e no caminho do
+   * sistema — não em consultar o ponto de novo. Uma regra que mandasse repetir
+   * a ferramenta anterior daria a resposta errada com convicção.
+   */
+  it("pedido NOVO sobre os mesmos dados escolhe a fonte pelo que pede", () => {
+    const d = integUsageDirective();
+    expect(d).toMatch(/PEDIDO NOVO SOBRE OS MESMOS DADOS/);
+    expect(d).toMatch(/DOCUMENTAÇÃO/);
+    expect(d).toMatch(/CLT/);
+    // E as duas podem valer na mesma resposta.
+    expect(d).toMatch(/as DUAS na mesma resposta/);
   });
 });
