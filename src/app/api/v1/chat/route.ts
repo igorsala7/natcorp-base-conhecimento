@@ -41,6 +41,7 @@ import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { temSinalDePeriodo } from "@/lib/chat/periodo";
+import { podarPassosAnteriores, economiaDaPoda } from "@/lib/chat/podar-passos";
 import { DIRETIVA_PERGUNTAR, devePerguntarDiretiva } from "@/lib/ai/perguntar";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
@@ -2565,7 +2566,35 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     // resultado e responder. `stopWhen` trava o loop.
     // Teto de passos maior quando há geração de arquivos: o usuário pode pedir
     // vários formatos (Word + PPT + PDF) numa tacada = uma chamada por formato.
-    ...(temTools ? { tools: allTools, stopWhen: stepCountIs(maxPassos) } : {}),
+    ...(temTools
+      ? {
+          tools: allTools,
+          stopWhen: stepCountIs(maxPassos),
+          /**
+           * PODA ENTRE PASSOS — o maior item da conta, medido.
+           *
+           * O SDK reenvia todos os resultados acumulados a cada passo. Por
+           * chamada em `chat_ferramentas`: 44.601 tokens de entrada, dos quais
+           * ~7.779 de ferramentas e ~3.319 de prompt de sistema. Os ~33.503
+           * restantes são histórico e resultados — e o histórico está travado em
+           * 24.000 caracteres (média real 4.535), então é quase tudo resultado.
+           * Com a amostra no teto de 60.000 caracteres, um retorno viaja ~15.000
+           * tokens POR PASSO.
+           *
+           * O ÚLTIMO retorno passa intacto: é dele que o modelo está redigindo.
+           * Os anteriores viram resumo com o identificador do dataset — os dados
+           * seguem íntegros no servidor e as 8 ferramentas de consulta operam
+           * sobre 100% das linhas.
+           */
+          prepareStep: ({ messages: msgs }: { messages: unknown[] }) => {
+            const podadas = podarPassosAnteriores(msgs as { role?: string; content?: unknown }[]);
+            if (podadas === msgs) return undefined;
+            const ganho = economiaDaPoda(msgs, podadas);
+            if (ganho > 0) passo("poda_passos", { chars_economizados: ganho });
+            return { messages: podadas as never };
+          },
+        }
+      : {}),
   });
 
   const stream = new ReadableStream({
