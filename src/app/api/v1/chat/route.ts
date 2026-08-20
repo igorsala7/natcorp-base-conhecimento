@@ -70,6 +70,7 @@ import { buildIntegrationTools, identityFromTrack } from "@/lib/integrations/too
 import { idsParaProcedencia } from "@/lib/chat/procedencia";
 import { resolverEscolha } from "@/lib/chat/escolha-numerada";
 import { reidratarDatasets, salvarDatasetsDaConversa } from "@/lib/chat/dataset-conversa";
+import { carregarFatos, salvarFatos, extrairFatos, mesclarFatos, blocoDeFatos, temPeriodoFixado } from "@/lib/chat/fatos-conversa";
 import type { CartaoAcao } from "@/lib/integrations/acao-lista";
 import { NOME_PROVEDOR } from "@/lib/integrations/user-key";
 import { ehAfirmacao } from "@/lib/integrations/guards";
@@ -852,6 +853,15 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // A conversa já teve resposta do agente? (a versão tardia, `conversaEmAndamento`,
   // só existe depois dos gates de fonte — aqui é o mesmo teste, mais cedo.)
   const conversaEmAndamentoCedo = messages.some((m) => m.role === "assistant");
+  /**
+   * O QUE ESTA CONVERSA JÁ FIXOU — ver fatos-conversa.ts.
+   *
+   * Vem do banco antes de qualquer decisão do turno, porque decide duas: se o
+   * portão de período ainda precisa perguntar, e o que o modelo vê de contexto
+   * resolvido. Falha em silêncio para lista vazia: sem fatos, o turno se comporta
+   * exatamente como antes desta mudança.
+   */
+  const fatosDaConversa = await carregarFatos(supabase, convId);
   const periodoInformado =
     !!payload.scope?.periodo?.de ||
     temSinalDePeriodo(question) ||
@@ -872,7 +882,15 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
      * de histórico resolveria esses dois e perderia um disparo legítimo; este
      * sinal separa as duas situações em vez de trocar uma pela outra.
      */
-    (conversaEmAndamentoCedo && _gate.precisaContexto);
+    (conversaEmAndamentoCedo && _gate.precisaContexto) ||
+    /**
+     * A conversa já consultou algo com período, e deu certo.
+     *
+     * Foi a falha mais cara de 20/08: FEV e MAR/2025 estabelecidos no turno 19, e
+     * no 23 o portão bloqueou catorze chamadas porque a janela de três mensagens
+     * não alcançava mais. O quadro de fatos alcança.
+     */
+    temPeriodoFixado(fatosDaConversa);
 
   const integ = track.p_base && !querTutorial && !soRedigir && !social
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores, periodoInformado)
@@ -2440,6 +2458,15 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * Fora de turno social e de turno já resolvido no servidor: ali não há decisão a
    * tomar, e a diretiva só convidaria a perguntar onde não há o que perguntar.
    */
+  // O que a conversa já fixou entra ANTES da diretiva de perguntar: boa parte do
+  // que o agente perguntaria já está aqui, resolvido.
+  if (!social && !soRedigir) {
+    const bloco = blocoDeFatos(fatosDaConversa);
+    if (bloco) {
+      systemPrompt += `\n\n${bloco}`;
+      passo("fatos_conversa", { total: fatosDaConversa.length, chaves: fatosDaConversa.map((f) => f.chave) });
+    }
+  }
   if (devePerguntarDiretiva({ social, soRedigir, temFerramentas: temIntegTools })) {
     systemPrompt += `\n\n${DIRETIVA_PERGUNTAR}`;
   }
@@ -3078,6 +3105,26 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
           { conversationId: convId, spaceId: key.space_id, userRef, widgetKeyId: key.id },
           datasets,
         );
+        /**
+         * Os fatos deste turno somam-se aos anteriores, o mais recente vencendo.
+         * A fonte são as chamadas que DERAM CERTO: se a API recusou, o parâmetro
+         * pode ter sido o motivo, e fixá-lo seria propagar o erro.
+         */
+        const novos = extrairFatos(
+          trace.passos
+            .filter((p) => p.passo === "tool_fim" && p.info?.ok === true)
+            .map((p) => {
+              const id = p.info?.id;
+              const chamada = trace.passos.find((q) => q.passo === "tool_call" && q.info?.id === id);
+              return {
+                tool: String(p.info?.tool ?? ""),
+                ok: true,
+                params: (chamada?.info as { params?: unknown } | undefined)?.params,
+              };
+            })
+            .filter((c) => c.tool && c.params),
+        );
+        if (novos.length) salvarFatos(supabase, convId, mesclarFatos(fatosDaConversa, novos));
       }
       passoFinal("dataset:registro", {
         total: datasets.list.length,

@@ -2469,6 +2469,7 @@ export type Database = {
           p_portal: string | null
           p_usuario: string | null
           page: Json | null
+          fatos: Json
           rag_memoria: Json
           session_id: string | null
           space_id: string
@@ -2489,6 +2490,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          fatos?: Json
           rag_memoria?: Json
           session_id?: string | null
           space_id: string
@@ -2509,6 +2511,7 @@ export type Database = {
           p_portal?: string | null
           p_usuario?: string | null
           page?: Json | null
+          fatos?: Json
           rag_memoria?: Json
           session_id?: string | null
           space_id?: string

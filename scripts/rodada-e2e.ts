@@ -156,6 +156,19 @@ const CONVERSAS: { nome: string; cenario: string; relatorio?: boolean; turnos: T
         espera: (t) => t.length > 120 && !/confirm(a|e)\b|posso (buscar|prosseguir|seguir)|deseja que eu/i.test(t),
         exige: "executar, não pedir confirmação de novo",
       },
+      {
+        /**
+         * O turno que prova o quadro de fatos.
+         *
+         * "E o mês anterior?" não diz período, não diz pessoa e não diz empresa —
+         * tudo isso ficou fixado nos turnos de cima. Sem o quadro, este é
+         * exatamente o turno em que o portão de período dispara e a conversa
+         * volta à estaca zero, que foi o que aconteceu em 20/08.
+         */
+        pergunta: "E o mês anterior?",
+        espera: (t) => t.length > 80 && !/qual (per[íi]odo|m[êe]s)|informe o per[íi]odo|de qual per[íi]odo/i.test(t),
+        exige: "usar o período e a pessoa já fixados, sem perguntar de novo",
+      },
     ],
   },
   {
