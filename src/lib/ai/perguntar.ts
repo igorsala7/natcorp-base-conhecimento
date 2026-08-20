@@ -22,6 +22,19 @@
  * pergunta, autorizar a dúvida produz um agente que interroga o usuário — que
  * é o defeito oposto, e igualmente medido no eval (5 perguntas a mais num dos
  * modelos).
+ *
+ * ── O que ela entrega, medido ───────────────────────────────────────────────
+ * Sozinha, quase nada: o "perguntou de menos" ficou em 10→8, 9→9, 10→10. Texto
+ * não vence o instinto de agir. Somada à checagem de período do servidor
+ * (`periodo.ts`), os três modelos melhoraram nos DOIS eixos, sem nenhum passar a
+ * perguntar demais:
+ *
+ *   gemini-3.5-flash        ferramenta 50→51%   pergunta 72→81%
+ *   gemini-3.5-flash-lite   ferramenta 58→62%   pergunta 61→65%
+ *   claude-haiku-4-5        ferramenta 53→57%   pergunta 72→76%
+ *
+ * A lição para as próximas: onde a regra é enumerável, um portão no servidor; a
+ * diretiva cobre o resto e dá ao modelo o vocabulário para conduzir a pergunta.
  */
 
 /** Diretiva de esclarecimento. Vai no fim do prompt, com as regras. */

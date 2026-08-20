@@ -41,6 +41,7 @@ import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { temSinalDePeriodo } from "@/lib/chat/periodo";
+import { DIRETIVA_PERGUNTAR, devePerguntarDiretiva } from "@/lib/ai/perguntar";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
@@ -2353,6 +2354,26 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       "uma única agregação agrupada já traz vários recortes de uma vez (agrupe por todas as dimensões pedidas e peça todas as métricas juntas) — " +
       "não dispare uma chamada por mês nem por métrica. Deixe passos de sobra para REDIGIR: não gaste todo o orçamento só consultando. " +
       "Na resposta, diga em quais dados ela se baseia (períodos, agrupamentos e nº de registros considerados).";
+  }
+  /**
+   * QUANDO PERGUNTAR — os dois lados, porque um sem o outro produz o defeito oposto.
+   *
+   * Medido em `eval/cenarios.jsonl` (37 turnos reais, três modelos), somando esta
+   * diretiva à checagem de período no servidor, contra a linha de base:
+   *
+   *   gemini-3.5-flash        ferramenta 50→51%   pergunta 72→81%
+   *   gemini-3.5-flash-lite   ferramenta 58→62%   pergunta 61→65%
+   *   claude-haiku-4-5        ferramenta 53→57%   pergunta 72→76%
+   *
+   * Os três melhoraram nos dois eixos e nenhum passou a perguntar DEMAIS — que era
+   * o risco real: autorizar a dúvida sem a lista do que NÃO a justifica produz um
+   * agente que interroga o usuário.
+   *
+   * Fora de turno social e de turno já resolvido no servidor: ali não há decisão a
+   * tomar, e a diretiva só convidaria a perguntar onde não há o que perguntar.
+   */
+  if (devePerguntarDiretiva({ social, soRedigir, temFerramentas: temIntegTools })) {
+    systemPrompt += `\n\n${DIRETIVA_PERGUNTAR}`;
   }
   // AÇÃO JÁ EXECUTADA pelo servidor (confirmação): o modelo não decide nada neste
   // turno, só conta o que aconteceu. Vai por último para ser a instrução mais forte.
