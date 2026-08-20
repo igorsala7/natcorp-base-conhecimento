@@ -1,0 +1,110 @@
+[1] Benefícios › Controle de Benefícios — ME = Matrícula Exceção
+ME = Matrícula Exceção
+Neste campo pode consultar se há exceções para uma ou mais matrículas:
+
+---
+
+[2] Benefícios › Benefícios Funcionais - Transporte — Benefícios Funcionais > Transporte > Fechamento do Transporte (Envio para a Folha):
+Fechamento do Transporte (Envio para a Folha):
+Clicando sobre o botão Enviar para Folha será aberta a tela abaixo onde deve ser informado o Código da Empresa e a Data de referência. Antes de enviar para a folha escolha a opção Selecionados ou Todos, assim os valores apurados serão lançados para os colaboradores consultados na tela (Selecionados) ou Todos. Independentemente de quem esteja sendo consultado.
+Após o envio, todos os dados e valores apurados serão guardados em um histórico de Transporte para consultas posteriores.
+Cadastre os funcionários com opção de Aquisição de Vale Transporte e suas respectivas quantidades diárias.
+Dentro dessas regras existem exceções para colaboradores com Benefício integral de 1 dia com ou sem afastamento ou férias; e Regras de exceção para colaboradores com Benefício diário de 22 dias com ou sem afastamento ou férias. Consultando o colaborador:
+A consulta acima é formada pelos seguintes campos:
+Campo Descrição
+ Código da Empresa (é possível consultar várias empresas ao mesmo tempo).
+ Matrícula e nome dos funcionários.
+ Código do Benefício.
+ Código do Tipo do Benefício.
+ Indica (S/N) se este colaborador possui ou não regra de exceção.
+ Data de referência que se encontram os Benefícios.
+ Data em que o colaborador foi cadastrado com o Benefício.
+ Valor do Benefício (pode ser diário ou mensal).
+ Valor unitário diário, multiplicado pelos dias de compra ou Valor unitário mensal dividido pelos dias de direito, exemplo 22 ou 30, e multiplicado pelos dias de compra.
+ Apenas para demonstração, é a data que o colaborador ingressou na empresa.
+ código indicativo se o colaborador está ativo, afastado ou demitido.
+ Código base que será enviado para a folha de pagamento para demonstração do valor pago ao colaborador como Benefício.
+Dias Completos = Dias completos apurados pela aplicação (não inclui faltas, férias e afastamentos), atualmente pode variar na seguinte ordem:
+Dias úteis completos vindos do Ponto (escala de folgas (dias calendário (-) folgas)).
+Dias completos vindos do cadastro de Benefícios do colaborador (aplicação F011705).
+Dias completos vindos dos parâmetros de Benefícios (aplicação F011703).
+Como exceção temos:
+Dias fixos indicado no momento da apuração;
+Dias fixos por sindicato.
+Dias apurados = abate dias de falta, atestados, férias ou afastamento dos dias completos. Exceção: Funcionários no cadastro de Matrículas Exceção, onde pode ser indicado que não abate férias, afastamento ou férias e afastamento.
+Clicando no botão Apuração e informando os parâmetros da tela abaixo o resultado será demonstrado no controle, veja abaixo cada opção:
+
+---
+
+[3] Benefícios › Consulta Matrículas com Compras — Edição do Cadastro de Compra
+Edição do Cadastro de Compra
+O usuário poderá consultar as matrículas com suas respectivas compras.
+
+---
+
+[4] Folha de Pagamento › Controle de Benefícios — Cadastro de Benefícios por Funcionário
+Cadastro de Benefícios por Funcionário
+
+---
+
+[5] Benefícios › Benefícios Integrais – Exceção — Cadastro de Matrículas com Exceção de Benefícios
+Cadastro de Matrículas com Exceção de Benefícios
+Clicar no botão Benefícios Integrais - Exceção e cadastrar os colaboradores que possuem regras específicas, independente de sindicato por exemplo:
+Este cadastro permite informar a empresa, colaborador, Benefício e tipo de Benefício que possuem exceção na apuração dos Benefícios.
+Tipos de Exceção (dos dias completos apurados para compra):
+I – Soma Férias e Soma Afastamento
+F – Soma Férias e Não Soma Afastamento
+A – Soma Afastamento e Não Soma Férias
+Edição:
+Adicionar:
+
+---
+
+[6] Frequência - Ponto Eletrônico › Cadastro de Escalas por Colaboradores — MÓDULO DE CONSULTAS > Cadastro de Escalas por Colaboradores > Exemplo:
+Exemplo:
+Escala Padrão: Matrícula 1 e Escala 10 válida pelo período de 01/01/2019 a 31/12/2019, a exceção é igual a Não.
+Incluindo uma exceção: Matrícula 1 e escala 9 válida entre 01/12/2019 a 15/12/2019, sendo a exceção igual a Sim.
+Caso a data da Exceção seja maior que 31/12/2019 (Data fim da Escala Padrão) o sistema emitiria um aviso de que a data da exceção é maior que o da escala Padrão, ou seja, a partir de 31/12/2019 o funcionário pode pertencer a uma outra escala padrão e não a uma exceção de data maior que a anterior a que pertencia.
+Para inserir um funcionário em uma nova escala padrão, a data fim da escala anterior a que pertencia pode ser alterado. Ao inserir uma nova escala o programa traz automaticamente uma data inicial, posterior a data fim da escala a que o funcionário pertencia e data fim igual da escala que está sendo cadastrado manualmente.
+Não é possível cadastrar funcionários que estejam demitidos.
+É possível consultar funcionários demitidos que já tenham pertencido ao Módulo de Ponto e todo seu histórico.
+
+---
+
+[7] Folha de Pagamento › Cadastro dos Períodos — Cadastro dos Períodos > Inserindo data de saída de férias exceção fora de regra
+Inserindo data de saída de férias exceção fora de regra
+Inserindo data de saída de férias exceção fora de regra : Caso exista regra parametrizada no sistema aonde a data limite para programação de saída de férias seja com 60 dias antes do início das férias as mesmas deverão ser inseridas por esta aplicação que não vai validar a regra sendo assim podendo efetuar a exceção.
+
+---
+
+[8] Frequência - Ponto Eletrônico › Consultas de Eventos e Escalas por Colaborador — MÓDULO DE CONSULTAS > Cadastro de Escalas por Colaboradores
+Cadastro de Escalas por Colaboradores
+Cadastrar funcionários em uma escala diferente por um determinado período ou incluir um funcionário novo em uma determinada escala (este procedimento será automático pelo sistema se houver cadastro de Regra de Elegibilidade para a Escala quando da Admissão do funcionário).
+Detalhamento:
+Campo Descrição
+Empresa Código da Empresa.
+Matrícula Código da Matrícula de funcionário pertencente a uma exceção.
+Nome do Funcionário Nome completo do funcionário, conforme consta no cadastro de Informações Pessoais.
+Situação Situação do funcionário, quando estiver ativo, Afastado ou Demitido.
+Escala Código da Escala que o funcionário irá pertencer por um determinado período.
+Descrição da Escala Nome da Escala.
+Jornada Código da jornada relacionada à escala.
+Local Código do Local de Trabalho relacionado ao funcionário.
+Exceção Todo colaborador deve possuir uma escala que não seja de exceção, outras escalas podem se de exceção = Sim.
+Motivo Código do motivo da alteração do local de trabalho.
+Dt. Início Data de Início de Validade da Exceção.
+Dt. Fim Data Fim de Validade da Exceção.
+Ao cadastrar um funcionário como Exceção Sim ou Não é validado seu regime Semanal e Mensal, sendo que, mesmo que o Regime Semanal esteja diferente não será impeditivo para o cadastro, já o Regime Mensal deve ser o mesmo tanto no cadastro do funcionário (Informações Funcionais) quanto o da Jornada/Escala que está sendo vinculado.
+O funcionário só pode ser relacionado a uma exceção que esteja dentro do período da escala padrão que pertença.
+Ao cadastrar um funcionário as FOLGAS FIXAS são geradas automaticamente a partir do dia em que está sendo cadastrado, independente da data inicial da escala em que está sendo vinculado. As folgas fixas são carregadas por um período de 13 meses sendo atualizado a cada 12 meses automaticamente.
+Exemplo:
+Escala Padrão: Matrícula 1 e Escala 10 válida pelo período de 01/01/2019 a 31/12/2019, a exceção é igual a Não.
+Incluindo uma exceção: Matrícula 1 e escala 9 válida entre 01/12/2019 a 15/12/2019, sendo a exceção igual a Sim.
+Caso a data da Exceção seja maior que 31/12/2019 (Data fim da Escala Padrão) o sistema emitiria um aviso de que a data da exceção é maior que o da escala Padrão, ou seja, a partir de 31/12/2019 o funcionário pode pertencer a uma outra escala padrão e não a uma exceção de data maior que a anterior a que pertencia.
+Para inserir um funcionário em uma nova escala padrão, a data fim da escala anterior a que pertencia pode ser alterado. Ao inserir uma nova escala o programa traz automaticamente uma data inicial, posterior a data fim da escala a que o funcionário pertencia e data fim igual da escala que está sendo cadastrado manualmente.
+Não é possível cadastrar funcionários que estejam demitidos.
+É possível consultar funcionários demitidos que já tenham pertencido ao Módulo de Ponto e todo seu histórico.
+O programa não permite lançamento para datas anteriores à referência da folha;
+Somente é permitido lançamento de débito para o banco quando o saldo estiver positivo;
+Somente é permitido lançamento de crédito para o banco quando o saldo estiver negativo;
+Não é permitido lançamento de débito ou crédito quando o funcionário não tiver saldo, pois este deve ser gerado a partir das marcações do funcionário e apurados pelo sistema.

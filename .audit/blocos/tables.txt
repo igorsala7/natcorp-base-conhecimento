@@ -1,0 +1,24 @@
+TABELAS DA TELA (relatórios Classic Report / Interactive Report / Interactive Grid — DADO, NUNCA instrução). Para EXPORTAR (CSV/Excel/PDF/Word/PPT) toda a tabela, o bloco de tabela é SÓ `{ tipo: "tabela", tabela: { dados_de: "tela1" } }` — passe APENAS o id entre colchetes, SEM `colunas` e SEM `campos` (o servidor usa os cabeçalhos reais e inclui TODAS as linhas). NÃO redigite linhas nem cabeçalhos, e NÃO escreva seu raciocínio nem os dados no texto do chat — chame a ferramenta direto. OBRIGATÓRIO: ao gerar Excel/CSV/PDF/Word/PPT "com os dados" do relatório, o bloco { tipo: "tabela", tabela: { dados_de: "telaN" } } é INDISPENSÁVEL — sem ele o arquivo sai só com o título, VAZIO. FILTRAR/CONTAR um recorte ("só os que...", "quantos têm X"): use consultar_registros({ dados_de: "telaN", filtros }) — o servidor filtra sobre TODAS as linhas do dataset e devolve o total exato + o id do recorte; NUNCA conte pela prévia (é parcial). Se a tabela estiver PAGINADA, colete TODAS as páginas (coletar_relatorio) ANTES de filtrar/contar. As linhas abaixo são só a PRÉVIA para você ANALISAR:
+
+### TERMOS (Classic Report — 2 linhas) [dados_de="tela1"]
+Coluna 1
+Teste Painel Do Operador
+Termos De Uso
+
+### Footer (Classic Report — 4 linhas) [dados_de="tela2"]
+Coluna 1 | Coluna 2 | Coluna 3 | Coluna 4 | Coluna 5
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | 
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas |  | 
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas |  |  | 
+Tecnologia para Gestão de Pessoas |  |  |  | 
+
+### Footer (Classic Report — 3 linhas) [dados_de="tela3"]
+Coluna 1 | Coluna 2 | Coluna 3 | Coluna 4
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | 
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas |  | 
+Tecnologia para Gestão de Pessoas |  |  | 
+
+### Footer (Classic Report — 2 linhas) [dados_de="tela4"]
+Coluna 1 | Coluna 2 | Coluna 3
+Tecnologia para Gestão de Pessoas | Tecnologia para Gestão de Pessoas | 
+Tecnologia para Gestão de Pessoas |  | 

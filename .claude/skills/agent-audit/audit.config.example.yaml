@@ -1,0 +1,71 @@
+# Copie para audit.config.yaml na raiz do projeto e ajuste ao seu schema.
+# audit.config.yaml deve entrar no .gitignore se as queries revelarem estrutura sensivel.
+
+# files | supabase | both
+source: both
+
+supabase:
+  # Um agente por linha. Colunas obrigatorias: name, system_prompt
+  agents_query: |
+    select
+      nome            as name,
+      system_prompt
+    from agentes
+    where ativo = true
+    order by nome
+
+  # Uma tool por linha. Colunas obrigatorias: agent, name, description, input_schema
+  # ORDER BY estavel e importante: ordem instavel de tools quebra o cache de prompt.
+  tools_query: |
+    select
+      a.nome          as agent,
+      t.nome          as name,
+      t.descricao     as description,
+      t.input_schema
+    from tools t
+    join agentes a on a.id = t.agente_id
+    where t.ativo = true
+    order by a.nome, t.nome
+
+  # Uma CHAMADA ao modelo por linha (nao um turno por linha).
+  # Se voce ainda nao loga isso, veja references/instrumentation.md.
+  traces_query: |
+    select
+      turn_id,
+      agente                        as agent,
+      seq,
+      input_tokens,
+      output_tokens,
+      cache_read_input_tokens,
+      cache_creation_input_tokens,
+      n_tools_offered,
+      tool_calls
+    from llm_calls
+    where created_at > now() - interval '7 days'
+    order by turn_id, seq
+
+files:
+  agents:
+    - name: financeiro
+      system_prompt: src/agents/financeiro/prompt.md
+      tools_glob:
+        - src/agents/financeiro/tools/*.json
+    - name: cadastral
+      system_prompt: src/agents/cadastral/prompt.md
+      tools_glob:
+        - src/agents/cadastral/tools/*.json
+
+# Amostras reais de contexto dinamico. Sem isso voce mede o prompt estatico,
+# nao o turno. Pegue de uma execucao real, nao invente.
+samples:
+  financeiro:
+    ontology_block: .audit/samples/ontologia_resolvida.txt
+    rag_chunk: .audit/samples/rag_chunk.txt
+    tool_result: .audit/samples/tool_result.json
+
+limiares:
+  turno_minimo_tokens: 25000     # prompt + schemas antes de qualquer conteudo
+  tools_por_agente: 12
+  overlap_score: 0.40
+  chamadas_por_turno: 3
+  taxa_cache_minima: 0.70

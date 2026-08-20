@@ -1,0 +1,22 @@
+DADOS DO USUÁRIO QUE ESTÁ FALANDO COM VOCÊ (já consultados; não chame ferramenta para obtê-los):
+- Nome: FERNANDO MATTOS TORRES
+- Matrícula: 365785
+- Empresa (código): 700
+- Empresa: NATCORP DO BRASIL
+- Filial (código): 97
+- Filial: LOJA 97 - ESCRITÓRIO RH/MG
+- Centro de custo (código): 10970101
+- Unidade administrativa (código): 97
+- Unidade administrativa: LOJA 97 - ESCRITÓRIO RH/MGG
+- Sindicato: SECBHRM-MG
+- Situação funcional: ATIVO
+- Admissão: 09/11/2009
+- CPF: 070.386.368-12
+- Nascimento: 30/09/1963
+- Sexo: Masculino
+- E-mail funcional: igor@natcorpbr.onmicrosoft.com
+- E-mail pessoal: igorsala7@gmail.com
+- Celular funcional: +55(11)91234-5678
+- Celular pessoal: +55(11)98266-4699
+- CNPJ da empresa: 01.111.075/0001-08
+Use para responder direto sobre o cadastro DELE e para preencher empresa/matrícula quando o pedido for sobre ele mesmo. NÃO use como filtro em pedido amplo ("todos", "da empresa", contagens) — ali o filtro fica em branco. Para qualquer dado que NÃO esteja nesta lista, use a ferramenta.
