@@ -1360,7 +1360,30 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     !modoTutorial && !soRedigir &&
     (!!reportBloco || !!tablesBloco || !!anexoTabelaBloco ||
       (temIntegTools && (intencaoVis || pedeAnalise(question))));
-  const queryTools = temDadosTabulares ? buildQueryTool(datasets) : {};
+  /**
+   * PREFIXO FIXO (experimento, atrás de `CHAT_LOCAIS_FIXAS=1`).
+   *
+   * `temDadosTabulares` é falso no turno 1 de toda conversa — ainda não há
+   * dataset — e verdadeiro do turno 2 em diante. O bloco de consulta some e
+   * aparece, e como ele é o COMEÇO da lista, o prefixo de cache quebra
+   * exatamente entre o primeiro e o segundo turno, que é onde ele mais valeria.
+   * Medido na rodada de ponta a ponta de 19/08/2026: prefixo comum ZERO em 18 de
+   * 22 pares consecutivos, com o conjunto oscilando entre 5 e 22 ferramentas.
+   *
+   * MEDIDO E REJEITADO (19/08/2026), A/B na rota real, 15 turnos cada:
+   *
+   *              cache    reuso    tokens/turno    US$/turno
+   *   desligado   25%     0,68×       35.817        0,0571
+   *   ligado      30%     1,02×       38.928        0,0603   ← +5,6% de CUSTO
+   *
+   * O cache melhora e a conta piora: os ~6.600 tokens a mais no turno 1 de cada
+   * conversa custam mais do que a leitura barata devolve. A chave fica no código,
+   * desligada, para que a ideia não volte sem o número junto.
+   */
+  const LOCAIS_FIXAS = process.env.CHAT_LOCAIS_FIXAS === "1";
+  const queryTools = temDadosTabulares || (LOCAIS_FIXAS && !social && !modoTutorial && !soRedigir)
+    ? buildQueryTool(datasets)
+    : {};
   // Roteador de fonte (2º passo): se o usuário escolheu uma TOOL específica (ou o 1º
   // passo só encontrou uma candidata), força só ela — a IA consulta essa integração
   // com os parâmetros do contexto, sem usar os dados da tela.
@@ -2086,9 +2109,24 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     return sseResponse(stream, cors);
   }
 
-  // Desambiguação por botões (sem escolha explícita e fora do contexto atual).
-  // Pulada em turnos sociais — não se "desambigua" um "oi".
-  if (!payload.scope && !social && webSources.length === 0 && attach.ids.length === 0 && !scanBlock && !temToolsDeConteudo && process.env.CLARIFY_TEMA_OFF !== "1") {
+  /**
+   * Desambiguação por botões (sem escolha explícita e fora do contexto atual).
+   * Pulada em turnos sociais — não se "desambigua" um "oi".
+   *
+   * E pulada também quando a mensagem CONTINUA a anterior. `precisaContexto` é o
+   * mesmo sinal que manda reescrever a consulta: ele diz que a frase é um
+   * fragmento e o assunto está no turno de trás. Perguntar "sobre qual tema?" a
+   * quem acabou de escrever "E o período de gozo, como funciona?" — logo depois
+   * de perguntar sobre período aquisitivo de férias — é o caso óbvio que a regra
+   * de negócio proíbe. Medido na rodada de ponta a ponta de 19/08/2026: o turno
+   * morreu em `clarify_tema` com resposta vazia, no meio de uma conversa que
+   * estava indo bem.
+   *
+   * A desambiguação continua valendo para a PRIMEIRA pergunta de um assunto, que
+   * é onde ela foi feita para servir.
+   */
+  const continuaAssunto = _gate.precisaContexto && conversaEmAndamento;
+  if (!payload.scope && !social && !continuaAssunto && webSources.length === 0 && attach.ids.length === 0 && !scanBlock && !temToolsDeConteudo && process.env.CLARIFY_TEMA_OFF !== "1") {
     const dis =
       analyzeAmbiguity(ragSources, payload.contextScope ?? null) ??
       analyzeConfidence(ragSources, payload.contextScope ?? null);
