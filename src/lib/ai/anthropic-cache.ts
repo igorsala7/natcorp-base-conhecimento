@@ -86,11 +86,31 @@ export function marcarCacheDeTools<T>(
    * ordem invalidaria o cache de tools, de system E de mensagens de uma vez.
    */
   estaveis?: readonly string[],
+  /**
+   * NÚCLEO: o sub-bloco MAIS estável de todos, no começo da lista.
+   *
+   * Com dois breakpoints (fim do bloco estável e última ferramenta), qualquer
+   * variação dentro do bloco estável zerava o reaproveitamento entre turnos —
+   * tudo ou nada. Medido em 808 pares consecutivos dentro do TTL: as 8
+   * ferramentas de consulta são idênticas em 85% dos pares, contra 74% do bloco
+   * visual. Um terceiro breakpoint logo depois delas preserva ~5.300 tokens de
+   * prefixo mesmo quando o resto do bloco estável muda.
+   *
+   * A Anthropic aceita 4 breakpoints; aqui usamos no máximo 3.
+   */
+  nucleo?: readonly string[],
 ): Record<string, T> {
   const chaves = Object.keys(tools);
   if (chaves.length === 0) return tools;
 
   const marcar = new Set<string>([chaves[chaves.length - 1]!]);
+
+  // Núcleo: mesma exigência de prefixo contínuo — um breakpoint no meio de um
+  // bloco que muda não cacheia nada e ainda gasta um dos quatro disponíveis.
+  const nuc = new Set((nucleo ?? []).filter((k) => k in tools));
+  if (nuc.size > 0 && nuc.size < chaves.length && chaves.slice(0, nuc.size).every((k) => nuc.has(k))) {
+    marcar.add(chaves[nuc.size - 1]!);
+  }
 
   // Segundo breakpoint no FIM DO BLOCO ESTÁVEL — o pedaço que se repete entre
   // turnos. Antes isto olhava as ferramentas ESSENCIAIS e exigia que elas

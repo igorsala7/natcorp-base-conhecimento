@@ -237,3 +237,42 @@ describe("marcarCacheDeTools — breakpoint do bloco estável", () => {
     expect(Object.keys(out)).toEqual(["t0", "t1", "t2", "t3"]);
   });
 });
+
+describe("marcarCacheDeTools — núcleo (terceiro breakpoint)", () => {
+  const marcado = (t: Record<string, unknown>, k: string) =>
+    !!(t[k] as { providerOptions?: unknown } | undefined)?.providerOptions;
+
+  const tools = { q1: {}, q2: {}, f1: {}, v1: {}, i1: {}, i2: {} };
+  const NUCLEO = ["q1", "q2"];
+  const ESTAVEIS = ["q1", "q2", "f1", "v1"];
+
+  it("marca núcleo, fim do bloco estável e a última — três pontos", () => {
+    const r = marcarCacheDeTools(tools, ESTAVEIS, NUCLEO);
+    expect(marcado(r, "q2")).toBe(true);  // fim do núcleo
+    expect(marcado(r, "v1")).toBe(true);  // fim do bloco estável
+    expect(marcado(r, "i2")).toBe(true);  // última
+    expect(marcado(r, "f1")).toBe(false);
+    // Nunca mais de 3: a Anthropic aceita 4, e o quarto fica de reserva.
+    expect(Object.keys(r).filter((k) => marcado(r, k))).toHaveLength(3);
+  });
+
+  it("omite o núcleo quando ele não é prefixo contínuo", () => {
+    // Reordenar para forçar o prefixo invalidaria tools + system + mensagens.
+    const fora = { f1: {}, q1: {}, q2: {}, i1: {} };
+    const r = marcarCacheDeTools(fora, ["f1", "q1", "q2"], NUCLEO);
+    expect(marcado(r, "q2")).toBe(true);   // fim do bloco estável, ainda vale
+    expect(marcado(r, "q1")).toBe(false);  // núcleo não é prefixo → sem breakpoint
+  });
+
+  it("sem núcleo, o comportamento anterior é preservado", () => {
+    const r = marcarCacheDeTools(tools, ESTAVEIS);
+    expect(Object.keys(r).filter((k) => marcado(r, k))).toEqual(["v1", "i2"]);
+  });
+
+  it("não muta a entrada", () => {
+    const orig = { a: {}, b: {} };
+    marcarCacheDeTools(orig, ["a"], ["a"]);
+    expect(marcado(orig, "a")).toBe(false);
+    expect(marcado(orig, "b")).toBe(false);
+  });
+});

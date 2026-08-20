@@ -1427,10 +1427,18 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * passa a sobreviver entre turnos, que é o que 21%–38% de leitura de cache
    * (contra ~70% esperado) estava dizendo que não acontecia.
    *
-   * A ordem DENTRO do bloco estável vai da mais presente para a mais rara, para
-   * o prefixo comum ser o maior possível quando uma delas falta.
+   * ── A ordem DENTRO do bloco estável, medida ────────────────────────────────
+   * O critério não é "mais presente": é ser IDÊNTICO ao turno anterior, que é o
+   * que o cache exige. Medido em 808 pares consecutivos dentro do TTL de 5 min:
+   *
+   *   query   85% idêntico      form  84%      visual  74%
+   *   harvest, invite, troca: NUNCA apareceram em 20 dias (0 turnos)
+   *
+   * A ordem anterior era query → visual → form, e punha o bloco MENOS estável no
+   * meio: nos 26% de pares em que o visual muda, o prefixo quebrava na posição 9
+   * e levava junto o `form`, que era idêntico em 84% das vezes.
    */
-  const toolsEstaveis: ToolSet = { ...queryTools, ...visualTools, ...formToolsFinal, ...harvestTools, ...inviteTools, ...trocaFonteTools };
+  const toolsEstaveis: ToolSet = { ...queryTools, ...formToolsFinal, ...visualTools, ...harvestTools, ...inviteTools, ...trocaFonteTools };
   /**
    * Turno social não recebe ferramenta NENHUMA — nem as locais.
    *
@@ -1451,7 +1459,10 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // tool de integração — ver marcarCacheDeTools). `instrumentarTools` faz
   // `{...def, execute}` e PRESERVA `providerOptions`, então a ordem das duas
   // operações é indiferente.
-  const allTools: ToolSet = instrumentarTools(marcarCacheDeTools(allToolsCru, Object.keys(toolsEstaveis)), passo);
+  const allTools: ToolSet = instrumentarTools(
+    marcarCacheDeTools(allToolsCru, Object.keys(toolsEstaveis), Object.keys(queryTools)),
+    passo,
+  );
   const temTools = Object.keys(allTools).length > 0;
   // DADOS × SISTEMA: `temTools` virou sempre-true quando as visuais passaram a ser
   // sempre injetadas, e com isso a recusa honesta e o clarify de tema (que exigem
