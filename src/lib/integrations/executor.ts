@@ -293,7 +293,31 @@ export async function executeTool(input: ExecInput): Promise<ExecResult> {
     try {
       data = JSON.parse(text);
     } catch {
-      /* resposta não-JSON: devolve o texto cru */
+      /**
+       * SEGUNDA TENTATIVA sem os caracteres de controle CRUS.
+       *
+       * O JSON proíbe CR, LF e TAB literais DENTRO de uma string — eles têm de
+       * vir escapados (`\n`, dois caracteres). O Oracle gera o base64 do PDF
+       * quebrado a cada 64 caracteres e embute as quebras sem escapar, então o
+       * corpo é JSON inválido por um detalhe de formatação.
+       *
+       * O efeito não era um erro visível: `JSON.parse` falhava, o retorno inteiro
+       * ficava sendo uma STRING, o extrator de documentos (que procura um OBJETO
+       * com mimetype + base64) passava direto, e a resposta saía com zero
+       * arquivos. A ferramenta reportava `ok: true`, o modelo dizia "gerei o PDF"
+       * e o usuário não recebia nada. Medido numa conversa real de 20/08: oito
+       * turnos seguidos pedindo o espelho de ponto, com "Não recebi o PDF",
+       * "Não está", "Não gerou" e "Desisto".
+       *
+       * Remover CR/LF/TAB CRUS é seguro: entre tokens eles são espaço em branco
+       * insignificante, e dentro de string só existem em JSON malformado. O `\n`
+       * ESCAPADO é a sequência barra-n e não é tocado.
+       */
+      try {
+        data = JSON.parse(text.replace(/[\r\n\t]/g, ""));
+      } catch {
+        /* resposta realmente não-JSON: devolve o texto cru */
+      }
     }
 
     // PAGINAÇÃO do ORDS: `{ items, hasMore }`. Sem seguir as páginas, a consulta

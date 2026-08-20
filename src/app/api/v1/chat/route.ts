@@ -849,12 +849,30 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * atravessa daqui é o FATO — a pessoa disse um período? — e a decisão acontece
    * no `execute`, onde a ferramenta já é conhecida. Ver `tool-builder.ts`.
    */
+  // A conversa já teve resposta do agente? (a versão tardia, `conversaEmAndamento`,
+  // só existe depois dos gates de fonte — aqui é o mesmo teste, mais cedo.)
+  const conversaEmAndamentoCedo = messages.some((m) => m.role === "assistant");
   const periodoInformado =
     !!payload.scope?.periodo?.de ||
     temSinalDePeriodo(question) ||
     temSinalDePeriodo(
       messages.filter((m) => m.role === "user").slice(-3).map((m) => m.content).join(" "),
-    );
+    ) ||
+    /**
+     * FRAGMENTO QUE CONTINUA O PEDIDO ANTERIOR não recomeça a negociação.
+     *
+     * `precisaContexto` é o mesmo sinal que manda reescrever a consulta: a
+     * mensagem é curta ou anafórica e o assunto está no turno de trás. Quem
+     * escreve "Não gerou" está reclamando do que pediu, não abrindo pedido novo —
+     * e a regra que o dono ditou é explícita: repetição é INSISTÊNCIA, não dúvida.
+     *
+     * Medido numa conversa real de 20/08: o portão disparou em "Não está" e "Não
+     * gerou" no meio de oito turnos tentando gerar um espelho de ponto, pedindo o
+     * período que a pessoa já tinha dado cinco mensagens antes. Alargar a janela
+     * de histórico resolveria esses dois e perderia um disparo legítimo; este
+     * sinal separa as duas situações em vez de trocar uma pela outra.
+     */
+    (conversaEmAndamentoCedo && _gate.precisaContexto);
 
   const integ = track.p_base && !querTutorial && !soRedigir && !social
     ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores, periodoInformado)
