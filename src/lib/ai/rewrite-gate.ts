@@ -58,3 +58,46 @@ export function comAntecedente(question: string, ultimaDoUsuario: string | undef
   if (!ant) return question;
   return `${question}\n${ant.slice(0, max)}`;
 }
+
+/** Palavras que não distinguem assunto nenhum — fora da comparação. */
+const VAZIAS = new Set([
+  "o", "a", "os", "as", "de", "do", "da", "dos", "das", "e", "em", "no", "na", "nos", "nas",
+  "um", "uma", "para", "por", "com", "que", "qual", "quais", "me", "meu", "minha", "meus",
+  "minhas", "ao", "aos", "à", "às", "se", "eu", "ele", "ela", "isso", "esse", "essa", "este",
+  "esta", "mais", "mes", "mês", "ano", "dia", "quero", "traga", "mostre", "faca", "faça",
+]);
+
+const conteudo = (t: string): Set<string> =>
+  new Set(
+    String(t ?? "")
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase().split(/[^a-z0-9]+/)
+      .filter((p) => p.length >= 4 && !VAZIAS.has(p)),
+  );
+
+/**
+ * A REESCRITA SUBSTITUIU A PERGUNTA, em vez de esclarecê-la?
+ *
+ * Reescrever "quanto ganho" como "remuneração" é o que a reescrita existe para
+ * fazer. Reescrever "Compara com o mês de Abril" como "Recibo de Pagamento" —
+ * o TÍTULO DA TELA — é outra coisa: a pergunta desapareceu.
+ *
+ * Medido: a reescrita troca a pergunta por completo em 34% dos turnos, quase
+ * sempre pelo título da tela. Isso não é fatal onde ela só amplia a busca, e por
+ * isso descartá-la em bloco foi medido e REJEITADO (custou mais casos do que
+ * salvou, 19/08). É fatal onde uma ÚNICA ferramenta é forçada a partir dela:
+ * numa conversa real, "Compara com o mês de Abril" virou "Recibo de Pagamento",
+ * o roteador viu 0,71 contra 0,62 e mandou só `relatorio_recibo_pagamento` ao
+ * modelo — descartando `historico_financeiro`, que o top-K tinha mantido.
+ *
+ * A assimetria é o que justifica ser conservador só aqui: não forçar custa o
+ * modelo chamar duas ferramentas parecidas; forçar errado custa a resposta.
+ */
+export function reescritaPerdeuAPergunta(original: string, reescrita: string): boolean {
+  const o = conteudo(original);
+  const r = conteudo(reescrita);
+  // Sem palavra de conteúdo de um dos lados não há o que comparar — não bloqueia.
+  if (o.size === 0 || r.size === 0) return false;
+  for (const p of r) if (o.has(p)) return false;
+  return true;
+}
