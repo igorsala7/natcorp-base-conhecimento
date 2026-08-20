@@ -38,6 +38,21 @@ export type UsageMeta = {
   origem?: "widget" | "portal" | "admin" | "sistema";
   turnId?: string;
   conversationId?: string;
+  /**
+   * RÓTULO CONTÁBIL, quando ele difere da finalidade que escolhe o modelo.
+   *
+   * `languageModel("chat")` significa duas coisas hoje: "use o modelo
+   * configurado para chat" E "grave isto como chat na fatura". Só que a
+   * varredura de ontologia, a tradução da interface, o scan de ícones e o
+   * chunking também querem o modelo de chat — e viravam 4.248 linhas de
+   * `purpose='chat'` em 20 dias (13,3M tokens), misturadas com a conversa do
+   * usuário no relatório de Consumo. Olhando o custo por finalidade, era
+   * impossível saber o que era atendimento e o que era trabalho de importador.
+   *
+   * Com o rótulo, a escolha do modelo continua em "chat" e a contabilidade
+   * recebe o nome verdadeiro. Ausente, nada muda.
+   */
+  rotulo?: string;
 } & Partial<Record<TrackingKey, string>>;
 
 /**
@@ -265,7 +280,8 @@ async function logUsage(row: {
     const { error } = await supabase.from("ai_usage").insert({
       provider: row.provider,
       model: row.model,
-      purpose: row.purpose,
+      // O rótulo contábil vence a finalidade que escolheu o modelo — ver `rotulo`.
+      purpose: row.meta?.rotulo?.trim() || row.purpose,
       input_tokens: row.input,
       output_tokens: row.output,
       total_tokens: row.input + row.output,

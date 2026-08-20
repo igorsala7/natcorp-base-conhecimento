@@ -44,7 +44,7 @@ async function documentContext(
   try {
     const contexto = await promptField("embeddings", "contexto");
     const { text } = await generateText({
-      model: await languageModel("chat"),
+      model: await languageModel("chat", { rotulo: "chunking" }),
       prompt: contexto + "\n\nDOCUMENTO:\n" + texto.slice(0, 12_000),
       // Timeout curto: a varredura roda também na publicação; não pode travar.
       abortSignal: AbortSignal.timeout(20_000),

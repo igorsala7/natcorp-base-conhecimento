@@ -25,7 +25,7 @@ export async function sugerirRecorte(bytes: Uint8Array, mime: string): Promise<C
   if (!(await hasAiKey("chat"))) return null;
   try {
     const { object } = await generateObject({
-      model: await languageModel("chat"),
+      model: await languageModel("chat", { rotulo: "extensao_recorte" }),
       schema,
       abortSignal: aiTimeout("chat"),
       messages: [

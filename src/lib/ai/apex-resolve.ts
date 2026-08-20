@@ -19,7 +19,7 @@ export async function resolverColunasRegiao(
 ): Promise<Map<string, { table: string | null; column: string | null }>> {
   const out = new Map<string, { table: string | null; column: string | null }>();
   if (!entradas.length || !(await hasAiKey("chat"))) return out;
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "apex_resolve" });
   const prompt =
     `Você mapeia colunas/aliases de uma REGIÃO Oracle APEX para a TABELA e COLUNA reais do banco, a partir ` +
     `da consulta SQL da região. Para cada ENTRADA (um alias de coluna de relatório, ou o nome de coluna de um ` +

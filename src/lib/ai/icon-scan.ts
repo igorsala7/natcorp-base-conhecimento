@@ -32,7 +32,7 @@ export async function escolherIcones(
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!itens.length || !(await hasAiKey("chat"))) return out;
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "icones" });
   // A lista de chaves válidas (vocabulário fechado) é SEMPRE anexada aqui — não
   // vive no texto editável, para que uma edição não possa quebrar o vocabulário.
   const PROMPT =

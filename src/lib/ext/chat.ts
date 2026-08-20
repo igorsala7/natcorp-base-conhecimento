@@ -52,7 +52,7 @@ ${material || "(ainda sem capturas — oriente o autor a capturar as primeiras t
 
   try {
     const { text } = await generateText({
-      model: await languageModel("chat"),
+      model: await languageModel("chat", { rotulo: "extensao" }),
       abortSignal: aiTimeout("chat"),
       system,
       messages: messages.slice(-16).map((m) => ({ role: m.role, content: m.content })),

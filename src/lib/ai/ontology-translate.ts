@@ -32,7 +32,7 @@ export type TermoTraduzido = { id: string; term: string; description: string | n
 export async function traduzirTermos(termos: TermoParaTraduzir[], lang: string): Promise<TermoTraduzido[]> {
   const alvo = idiomaNome(lang);
   if (!alvo || !termos.length || !(await hasAiKey("chat"))) return [];
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ontologia_traducao" });
 
   const lista = termos
     .map((t) => {

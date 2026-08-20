@@ -30,7 +30,7 @@ export type TermoExtraido = {
 /** Extrai termos+sinônimos de um lote de texto. `[]` se não há IA de Chat. */
 export async function extrairTermos(texto: string): Promise<TermoExtraido[]> {
   if (!texto.trim() || !(await hasAiKey("chat"))) return [];
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ontologia_scan" });
   const prompt = await promptField("ontologia", "prompt");
   const { object } = await generateObject({
     model,
@@ -62,7 +62,7 @@ export async function sinonimosDeTermos(
     .map((e) => ({ term: e.term.trim(), aliases: [...new Set(e.aliases.map((a) => a.trim()).filter(Boolean))] }))
     .filter((e) => e.term.length >= 2);
   if (!limpos.length || !(await hasAiKey("chat"))) return [];
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ontologia_scan" });
 
   const lista = limpos
     .map((e) => (e.aliases.length ? `- ${e.term} (sinônimos dados: ${e.aliases.join(", ")})` : `- ${e.term}`))

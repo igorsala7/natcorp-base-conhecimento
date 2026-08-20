@@ -14,7 +14,7 @@ const schema = z.object({ html: z.string() });
 export async function gerarDocObjetoDb(meta: DbMeta, kind: string, name: string): Promise<string | null> {
   const ctx = contextoObjetoDb(meta, kind, name);
   if (!ctx || !(await hasAiKey("chat"))) return null;
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ingestao_banco" });
   const prompt =
     `Documente TECNICAMENTE um objeto de banco Oracle a partir dos metadados abaixo, para os ANALISTAS DE ` +
     `SISTEMAS e PROGRAMADORES da Natcorp. Gere HTML SIMPLES (apenas <h2>,<h3>,<p>,<ul>,<li>,<strong>,<table>/<tr>/` +

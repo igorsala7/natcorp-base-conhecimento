@@ -22,7 +22,7 @@ export async function traduzirTextosUI(
   const out = new Map<string, string>();
   const alvo = idiomaNome(lang);
   if (!alvo || !textos.length || !(await hasAiKey("chat"))) return out;
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ui_traducao" });
   const glos = glossario.slice(0, 80).map((g) => `- "${g.pt}" → "${g.alvo}"`).join("\n");
 
   for (let i = 0; i < textos.length; i += LOTE) {

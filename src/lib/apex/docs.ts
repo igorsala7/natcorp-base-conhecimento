@@ -42,7 +42,7 @@ export function contextoPagina(meta: ApexAppMeta, page: ApexPage): string {
 
 export async function gerarDocsPagina(meta: ApexAppMeta, page: ApexPage): Promise<{ usuario: string; tecnico: string } | null> {
   if (!(await hasAiKey("chat"))) return null;
-  const model = await languageModel("chat");
+  const model = await languageModel("chat", { rotulo: "ingestao_apex" });
   const ctx = contextoPagina(meta, page);
   const prompt =
     `Você documenta uma página de uma aplicação Oracle APEX de RH a partir dos METADADOS abaixo. Gere DOIS ` +
