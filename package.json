@@ -41,6 +41,7 @@
     "eval:rewrite-modelo": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-rewrite-modelo.ts",
     "eval:modelos": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-modelos.ts",
     "eval:cenarios-modelo": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-cenarios.ts",
+    "eval:qualidade": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-qualidade.ts",
     "rodada:e2e": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/rodada-e2e.ts",
     "migrate:apply": "tsx --env-file=.env.local scripts/apply-migrations.ts",
     "migrate:apply:prod": "tsx scripts/apply-migrations.ts",
