@@ -47,6 +47,32 @@ const IDENTIDADE = {
 };
 
 /**
+ * RELATÓRIO NA TELA, com os valores CONHECIDOS.
+ *
+ * Sem isto a rodada media só "respondeu ou não". Com uma tabela gerada aqui, a
+ * soma, o maior valor e a contagem são conhecidos, e a assertividade da
+ * finalidade `report_analysis` vira verificação — não impressão.
+ */
+const OCORRENCIAS = [
+  "Salário Base", "Horas Extras 50%", "Adicional Noturno", "Vale Transporte",
+  "Vale Refeição", "Plano de Saúde", "INSS", "IRRF", "FGTS", "Adiantamento",
+];
+const REL_LINHAS = OCORRENCIAS.map((nome, i) => [
+  String(700 + (i % 3)), nome, i % 2 === 0 ? "Provento" : "Desconto",
+  (12500 + i * 1375.5).toFixed(2), String(40 + i * 3),
+]);
+const REL_SOMA = REL_LINHAS.reduce((a, l) => a + Number(l[3]), 0);
+const REL_MAIOR = REL_LINHAS.reduce((a, b) => (Number(b[3]) > Number(a[3]) ? b : a));
+const REL_PROVENTOS = REL_LINHAS.filter((l) => l[2] === "Provento").length;
+const RELATORIO = {
+  nome: "Histórico Financeiro por Ocorrência — Março/2025",
+  colunas: ["Empresa", "Ocorrência", "Tipo", "Valor", "Qtde"],
+  linhas: REL_LINHAS,
+  total: REL_LINHAS.length,
+  incompleto: false,
+};
+
+/**
  * Mapa de campos de uma tela real do painel — o widget manda algo assim em toda
  * mensagem, e é o que liga `preencher_campo`, `marcar_opcao` e `destacar_tela`.
  */
@@ -65,7 +91,8 @@ const CAMPOS_TELA = [
  *
  * TODAS de leitura. Nenhuma cria, envia ou altera nada.
  */
-const CONVERSAS: { nome: string; cenario: string; turnos: string[] }[] = [
+type TurnoSpec = string | { pergunta: string; espera: (t: string) => boolean; exige: string };
+const CONVERSAS: { nome: string; cenario: string; relatorio?: boolean; turnos: TurnoSpec[] }[] = [
   {
     nome: "social", cenario: "sem fonte",
     turnos: ["Olá", "tudo bem?", "obrigado"],
@@ -102,15 +129,44 @@ const CONVERSAS: { nome: string; cenario: string; turnos: string[] }[] = [
       "quantas pessoas apareceram nessa lista?",
     ],
   },
+  {
+    nome: "analise_relatorio", cenario: "report_analysis", relatorio: true,
+    turnos: [
+      { pergunta: "Analise este relatório e me diga o que chama atenção.",
+        espera: (t) => t.length > 200, exige: "análise com substância" },
+      { pergunta: "Qual é a soma total dos valores?",
+        espera: (t) => temNumero(t, REL_SOMA), exige: REL_SOMA.toFixed(2) },
+      { pergunta: "Qual ocorrência tem o maior valor?",
+        espera: (t) => t.includes(String(REL_MAIOR[1])), exige: String(REL_MAIOR[1]) },
+      { pergunta: "Quantas são do tipo Provento?",
+        espera: (t) => temNumero(t, REL_PROVENTOS), exige: String(REL_PROVENTOS) },
+      { pergunta: "Qual o total de horas extras noturnas pagas?",
+        espera: (t) => /não (est[áa]|h[áa]|consta|apareceo|tem|posso|consigo|é possível)|não (existe|há) (uma )?coluna|não (traz|discrimina|separa|detalha)/i.test(t),
+        exige: "admitir que a coluna não existe" },
+    ],
+  },
 ];
+
+/** Bate um número no texto, aceitando 1.234,56 e 1,234.56. */
+function temNumero(txt: string, alvo: number): boolean {
+  for (const bruto of String(txt).match(/[\d][\d.,]*/g) ?? []) {
+    for (const c of [bruto.replace(/\./g, "").replace(",", "."), bruto.replace(/,/g, "")]) {
+      const n = Number(c);
+      if (Number.isFinite(n) && Math.abs(n - alvo) < 0.5) return true;
+    }
+  }
+  return false;
+}
 
 type Turno = {
   conversa: string; cenario: string; n: number; pergunta: string;
   ms: number; ok: boolean; desfecho: string | null; erro?: string;
   convId: string | null; resposta: number;
+  /** `null` = o turno não tinha resposta verificável. */
+  acertou: boolean | null; exige?: string;
 };
 
-async function enviar(track: string, convId: string | null, historico: { role: string; content: string }[], pergunta: string) {
+async function enviar(track: string, convId: string | null, historico: { role: string; content: string }[], pergunta: string, relatorio?: unknown) {
   const t0 = Date.now();
   const r = await fetch(`${URL_BASE}/api/v1/chat`, {
     method: "POST",
@@ -131,6 +187,7 @@ async function enviar(track: string, convId: string | null, historico: { role: s
       fields: CAMPOS_TELA,
       telaTem: { relatorio: false, tabela: false, campos: true },
       tela: { titulo: "Painel do Operador", regioes: ["Consulta de Colaboradores", "Filtros"] },
+      ...(relatorio ? { reportData: relatorio } : {}),
     }),
   });
   if (!r.ok || !r.body) return { ms: Date.now() - t0, ok: false, erro: `HTTP ${r.status} ${(await r.text()).slice(0, 120)}`, texto: "", convId, desfecho: null as string | null };
@@ -178,16 +235,22 @@ async function main() {
     console.log(`── ${conv.nome} (${conv.cenario})`);
     let convId: string | null = null;
     const hist: { role: string; content: string }[] = [];
-    for (const [i, pergunta] of conv.turnos.entries()) {
-      const r = await enviar(track, convId, hist, pergunta);
+    for (const [i, spec] of conv.turnos.entries()) {
+      const pergunta = typeof spec === "string" ? spec : spec.pergunta;
+      const verifica = typeof spec === "string" ? null : spec;
+      // O relatório vai só no PRIMEIRO turno — depois ele já é dataset da conversa,
+      // como o widget faz. Reenviar mediria um fluxo que não existe.
+      const r = await enviar(track, convId, hist, pergunta, conv.relatorio && i === 0 ? RELATORIO : undefined);
       convId = r.convId;
       if (r.ok) { hist.push({ role: "user", content: pergunta }, { role: "assistant", content: r.texto }); }
+      const acertou = verifica && r.ok ? verifica.espera(r.texto ?? "") : null;
       turnos.push({
         conversa: conv.nome, cenario: conv.cenario, n: i + 1, pergunta,
         ms: r.ms, ok: r.ok, desfecho: r.desfecho, erro: r.erro, convId, resposta: r.texto?.length ?? 0,
+        acertou, exige: verifica?.exige,
       });
-      const marca = r.ok ? (r.desfecho === "clarify" ? "?" : "ok") : "ERRO";
-      console.log(`   ${String(i + 1)}. ${marca.padEnd(4)} ${(r.ms / 1000).toFixed(1)}s  ${String(r.texto?.length ?? 0).padStart(5)} chars  "${pergunta.slice(0, 46)}"${r.erro ? `  ${r.erro}` : ""}`);
+      const marca = !r.ok ? "ERRO" : acertou === false ? "ERROU" : acertou === true ? "OK" : r.desfecho === "clarify" ? "?" : "—";
+      console.log(`   ${String(i + 1)}. ${marca.padEnd(5)} ${(r.ms / 1000).toFixed(1)}s  ${String(r.texto?.length ?? 0).padStart(5)} chars  "${pergunta.slice(0, 44)}"${acertou === false ? `  ← esperava ${verifica!.exige}` : ""}${r.erro ? `  ${r.erro}` : ""}`);
     }
   }
 
@@ -244,6 +307,17 @@ async function main() {
   for (const r of tr) {
     console.log(`  "${r.pergunta.slice(0, 42).padEnd(42)}" ${String(r.desfecho ?? "?").padEnd(12)} ${String(r.tok ?? "—").padStart(7)} ${(Number(r.ms) / 1000).toFixed(1).padStart(5)}  ${(r.tools ?? []).join(", ").slice(0, 40)}`);
     md.push(`| ${r.pergunta.slice(0, 60)} | ${r.desfecho ?? "?"} | ${r.tok ?? "—"} | ${(Number(r.ms) / 1000).toFixed(1)} | ${(r.tools ?? []).join(", ") || "—"} |`);
+  }
+
+  const verificaveis = turnos.filter((t) => t.acertou !== null);
+  if (verificaveis.length) {
+    const ok = verificaveis.filter((t) => t.acertou).length;
+    console.log(`\n── ASSERTIVIDADE ${ok}/${verificaveis.length} (só os turnos de resposta verificável) `.padEnd(92, "─"));
+    md.push("", `## Assertividade: ${ok}/${verificaveis.length}`, "", "| pergunta | exigia | acertou |", "|---|---|---|");
+    for (const t of verificaveis) {
+      console.log(`  ${t.acertou ? "OK   " : "ERROU"} "${t.pergunta.slice(0, 46).padEnd(46)}" exigia: ${t.exige}`);
+      md.push(`| ${t.pergunta.slice(0, 50)} | ${t.exige} | ${t.acertou ? "✅" : "❌"} |`);
+    }
   }
 
   const falhas = turnos.filter((t) => !t.ok);

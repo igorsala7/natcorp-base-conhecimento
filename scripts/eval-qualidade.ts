@@ -28,6 +28,7 @@ import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { generateText } from "ai";
 import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
+import { avisarCusto, type Preco } from "./custo-da-rodada";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -197,6 +198,13 @@ async function main() {
   const db = createClient<Database>(url, chave, { auth: { persistSession: false } });
   const resolver = await montarProvedores(db);
   const sistema = `${PERSONA_RH}\n\n${REGRAS_ABSOLUTAS}`;
+
+  const { data: precos } = await db.from("ai_model_prices").select("provider, model, input_usd_mtok, output_usd_mtok");
+  const tabelaPrecos: Preco[] = (precos ?? []).map((p) => ({
+    provider: p.provider, model: p.model, pin: Number(p.input_usd_mtok), pout: Number(p.output_usd_mtok), mr: 0.1, mw: 1,
+  }));
+  // O prompt destes casos carrega uma tabela de 40 linhas: ~3.000 tokens por caso.
+  avisarCusto(MODELOS, CASOS.length, 3_000, tabelaPrecos);
 
   console.log(`\n${CASOS.length} casos verificáveis · ${MODELOS.length} modelos · sem juiz\n`);
   type P = { ok: number; n: number; ms: number; erros: number; falhou: string[] };

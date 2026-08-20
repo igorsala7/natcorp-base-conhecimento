@@ -47,6 +47,7 @@ import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
 import { faltaPeriodoNaChamada, temSinalDePeriodo } from "../src/lib/chat/periodo";
+import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -153,6 +154,12 @@ async function main() {
   // Gabarito exigindo ferramenta que o funil não entregou: falha de funil.
   const doFunil = todos.filter((c) => !c.revisar && c.espera_tool && !c.ofertadas.includes(c.espera_tool));
   const amostra = todos.filter((c) => !c.revisar && !doFunil.includes(c)).slice(0, N);
+
+  // Declara o custo ANTES de gastar — ver custo-da-rodada.ts.
+  const tabelaPrecos: Preco[] = (precos ?? []).map((p) => ({
+    provider: p.provider, model: p.model, pin: Number(p.input_usd_mtok), pout: Number(p.output_usd_mtok), mr: 0.1, mw: 1,
+  }));
+  avisarCusto(MODELOS, Math.min(todos.filter((c) => !c.revisar).length, N), 11_000, tabelaPrecos);
 
   console.log(`\n${amostra.length} casos medíveis · ${MODELOS.length} modelos`);
   if (semGabarito.length) console.log(`${semGabarito.length} ainda sem gabarito — fora do placar`);
@@ -307,6 +314,13 @@ async function main() {
       `${Number.isFinite(usd) ? usd.toFixed(2) : "?"} | ${(p.ms / p.tMed / 1000).toFixed(1)} |`,
     );
   }
+
+  const gasto = totalGasto(
+    [...placar.entries()].map(([spec, p]) => ({ spec, entrada: p.entrada, saida: p.saida })),
+    tabelaPrecos,
+  );
+  console.log(`\n  GASTO REAL DESTA RODADA: US$ ${gasto.toFixed(2)}`);
+  md.push("", `**Gasto real desta rodada:** US$ ${gasto.toFixed(2)}.`, "");
 
   if (doFunil.length) {
     console.log(`\n── FALHA DE FUNIL: a ferramenta certa não chegou ao modelo (${doFunil.length}) `.padEnd(96, "─"));
