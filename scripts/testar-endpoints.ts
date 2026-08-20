@@ -19,18 +19,24 @@ if (!globalThis.WebSocket) { (globalThis as unknown as { WebSocket: unknown }).W
 import { loadBaseContext, loadCredentialSecret, type BaseToolContext } from "../src/lib/integrations/resolve";
 import { executeTool, buildHttpRequest, authHeaders } from "../src/lib/integrations/executor";
 import { resolveParams } from "../src/lib/integrations/params";
+import { extractDocumentsFromResult } from "../src/lib/integrations/documents";
 import { writeFileSync } from "node:fs";
 import type { RuntimeCredential } from "../src/lib/integrations/executor";
 
 type Alvo = { base: string; usuario: string; empresa: string; matricula: string };
 
+/** `--base <code>` sonda só uma. Cinco ERPs de produção de uma vez é carga que ninguém pediu. */
+const _iBase = process.argv.indexOf("--base");
+const SO_BASE = _iBase >= 0 ? process.argv[_iBase + 1] : "";
+
 const ALVOS: Alvo[] = [
+  { base: "natcorp", usuario: "365785", empresa: "700", matricula: "205818" },
   { base: "incor", usuario: "antonio.hernandes", empresa: "600", matricula: "47265" },
   { base: "redeflex", usuario: "", empresa: "300", matricula: "7036" },
   { base: "leadec", usuario: "BATTAGR", empresa: "4", matricula: "1367" },
   { base: "saude", usuario: "darcio.freitas", empresa: "3", matricula: "57149" },
   { base: "stefanini", usuario: "jineto", empresa: "1", matricula: "57292" },
-];
+].filter((a) => !SO_BASE || a.base === SO_BASE);
 
 /** Nome do parâmetro → chave do cadastro. Só o que dá para preencher com segurança. */
 const DE_PARA: { rx: RegExp; campos: string[] }[] = [
@@ -197,10 +203,29 @@ async function main() {
         const d = r.data as { items?: unknown[] } | string | undefined;
         const n = Array.isArray((d as { items?: unknown[] })?.items) ? (d as { items: unknown[] }).items.length : null;
         const vazio = r.ok && (n === 0 || d == null || (typeof d === "string" && !d.trim()));
-        const precisaDetalhe = !r.ok || vazio;
+        /**
+         * DUAS AVARIAS QUE PASSAM POR "ok", e que custaram oito turnos ao usuário
+         * em 20/08 antes de alguém notar.
+         *
+         * 1. O corpo é JSON mas chegou como STRING — `JSON.parse` falhou. Era o
+         *    caso do espelho de ponto: o Oracle embute o base64 do PDF com CR
+         *    literais dentro da string, o que é JSON inválido. A ferramenta
+         *    reportava sucesso e o modelo dizia "gerei o PDF"; o usuário não
+         *    recebia nada.
+         * 2. O retorno ANUNCIA um documento (mimetype/base64) e o extrator não
+         *    consegue tirar arquivo nenhum dele. Mesmo sintoma, outra causa.
+         */
+        const cru = typeof d === "string" ? d.trim() : "";
+        const jsonComoTexto = r.ok && /^[[{]/.test(cru);
+        const txt = typeof d === "string" ? d : JSON.stringify(d ?? "");
+        const anunciaDoc = /mimetype|"charset"\s*:\s*"base64"|filename/i.test(txt);
+        const semArquivo = anunciaDoc && extractDocumentsFromResult(d).files.length === 0;
+        const avaria = jsonComoTexto ? "JSON NÃO PARSEADO (chegou como string)"
+          : semArquivo ? "ANUNCIA DOCUMENTO E NENHUM ARQUIVO SAI" : "";
+        const precisaDetalhe = !r.ok || vazio || !!avaria;
         linhas.push({
-          base: alvo.base, tool: bt.tool.key, status: r.status, ok: r.ok, vazio,
-          detalhe: r.ok ? (n === null ? "ok" : `${n} registro(s)`) : "erro",
+          base: alvo.base, tool: bt.tool.key, status: r.status, ok: r.ok && !avaria, vazio,
+          detalhe: avaria || (r.ok ? (n === null ? "ok" : `${n} registro(s)`) : "erro"),
           curl: precisaDetalhe ? await curlReal(bt, args, ident, cred) : undefined,
           corpo: precisaDetalhe ? mensagemDoErro(typeof d === "string" ? d : JSON.stringify(d)) : undefined,
         });
