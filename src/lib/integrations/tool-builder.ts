@@ -89,6 +89,16 @@ export type IntegrationBundle = {
   /** Ferramentas de conta pessoal cortadas do turno e por quê. Vira aviso no
    *  prompt e, no widget, o botão "Conectar conta". */
   precisaConectar?: ContaPendente[];
+  /**
+   * Parâmetros CRUS das ferramentas que sobraram no turno, por chave.
+   *
+   * `tools` é o ToolSet do AI SDK: o schema já foi montado e a obrigatoriedade
+   * de cada parâmetro não é mais legível de fora. O portão de período precisa
+   * saber se a API EXIGE data — a diferença entre um filtro opcional e um
+   * parâmetro que o modelo é obrigado a inventar. Rebuscar o catálogo na rota
+   * custaria uma consulta para uma informação que já esteve nas mãos aqui.
+   */
+  paramsPorTool?: Record<string, unknown>;
 };
 
 /**
@@ -756,6 +766,7 @@ export async function buildIntegrationTools(
 
   // ── 3) BUILD: monta o toolset do AI SDK só das ferramentas selecionadas ────────
   const essenciais: string[] = [];
+  const paramsPorTool: Record<string, unknown> = {};
   for (const { bt, escopo, paramsEscopo, loopEscopo } of selecionadas) {
     if (bt.alwaysInclude) essenciais.push(bt.tool.key);
     // Sem repetir: uma FAMÍLIA de ferramentas costuma compartilhar a mesma regra
@@ -763,6 +774,7 @@ export async function buildIntegrationTools(
     // sete vezes não a reforça — só gasta token e afoga as outras.
     const sp = bt.tool.system_prompt?.trim();
     if (sp && !promptsFerramentas.includes(sp)) promptsFerramentas.push(sp);
+    paramsPorTool[bt.tool.key] = bt.tool.params;
     tools[bt.tool.key] = tool({
       description: [bt.tool.description, bt.tool.response_hint].filter(Boolean).join(" "),
       inputSchema: buildModelSchema(paramsEscopo, loopEscopo),
@@ -1232,5 +1244,6 @@ export async function buildIntegrationTools(
     modulos: recorte.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
     meusDados,
     precisaConectar,
+    paramsPorTool,
   };
 }

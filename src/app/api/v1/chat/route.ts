@@ -40,6 +40,7 @@ import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visual
 import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
+import { precisaPerguntarPeriodo, opcoesDePeriodo } from "@/lib/chat/periodo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
@@ -1797,6 +1798,53 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     return sseResponse(stream, cors);
   }
 
+  /**
+   * PERÍODO AUSENTE — pergunta antes de o modelo inventar um intervalo.
+   *
+   * Onze ferramentas EXIGEM data do modelo (`obrigatorio: true`). Quando a pessoa
+   * não disse período nenhum, o modelo é obrigado a escolher um sozinho — e foi
+   * assim que "Quero ver os eventos de apuração da matrícula 205818" devolveu 114
+   * eventos de um intervalo que ninguém pediu.
+   *
+   * ── Por que um portão, e não uma linha no prompt ────────────────────────────
+   * A instrução foi escrita e medida (`DIRETIVA_PERGUNTAR`): cinco modelos de três
+   * provedores continuaram sem perguntar. O servidor decide igual em todo modelo.
+   *
+   * ── Por que ele quase nunca dispara, e isso é o ponto ───────────────────────
+   * Rodado contra os 20 dias de produção antes de entrar: 3 disparos em 89
+   * chamadas às ferramentas que exigem data (0,4% de todas). As outras 86 já
+   * traziam o período — na mensagem (58) ou dito pela PESSOA num turno recente
+   * (28). Três versões anteriores deste portão perguntavam em 20, 12 e 110 turnos;
+   * eram defeitos meus (data opcional contada como exigida, "deste mês" não
+   * reconhecido, e datas escritas pelo próprio agente lidas como se fossem do
+   * usuário), todos pegos por medir antes de ligar.
+   */
+  const paramsTurno = (integ.paramsPorTool ?? {}) as Record<string, unknown>;
+  const toolsDoTurno = Object.keys(integNoTurno).map((key) => ({ key, name: key, params: paramsTurno[key] }));
+  const periodoJaEscolhido = !!scopeIn?.periodo;
+  const chk = !social && !continuation && !soRedigir && !modoRelatorio && !periodoJaEscolhido
+    ? precisaPerguntarPeriodo({ pergunta: question, historico: messages, tools: toolsDoTurno })
+    : { precisa: false, tools: [] as string[] };
+  if (chk.precisa) {
+    const opcoes = opcoesDePeriodo();
+    passo("clarify_periodo", { tools: chk.tools, opcoes: opcoes.map((o) => o.id) });
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          sse({
+            type: "clarify",
+            question: "De qual período? Escolha uma opção ou me diga as datas.",
+            options: opcoes.map((o) => ({ id: o.id, label: o.label, scope: { periodo: { de: o.de, ate: o.ate, label: o.label } } })),
+          }),
+        );
+        controller.enqueue(finalizarTrace("clarify_periodo"));
+        controller.enqueue(sse({ type: "done", conversationId: convId }));
+        controller.close();
+      },
+    });
+    return sseResponse(stream, cors);
+  }
+
   // B — RELATÓRIO VAZIO: só pergunta a ORIGEM num 1º turno em que o DOM detectou vazio
   // E o roteador NÃO assumiu o relatório (caso genuinamente incerto). Quando o roteador
   // assumiu, quando é continuation (pós-coleta) ou já há fonte, o passo de OFERECER
@@ -2332,6 +2380,20 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // AÇÃO JÁ EXECUTADA pelo servidor (confirmação): o modelo não decide nada neste
   // turno, só conta o que aconteceu. Vai por último para ser a instrução mais forte.
   if (confExecutada) systemPrompt += `\n\n${blocoConfirmacaoExecutada(confExecutada)}`;
+  /**
+   * PERÍODO CONFIRMADO no portão: vai como ORDEM, não como sugestão.
+   *
+   * Sem isto o turno seguinte à escolha voltaria a inventar o intervalo — a
+   * pessoa teria respondido a pergunta à toa, que é pior do que não perguntar.
+   */
+  if (scopeIn?.periodo?.de && scopeIn.periodo.ate) {
+    systemPrompt +=
+      "\n\n## PERÍODO ESCOLHIDO PELO USUÁRIO\n" +
+      `Ele confirmou o período de ${scopeIn.periodo.de} a ${scopeIn.periodo.ate}` +
+      (scopeIn.periodo.label ? ` (${scopeIn.periodo.label})` : "") + ". " +
+      "Use EXATAMENTE estas datas nos parâmetros de data das ferramentas. Não escolha outro " +
+      "intervalo e não peça o período de novo — ele já respondeu.";
+  }
   // "OUTRA FONTE": o texto que o usuário DIGITOU quando nenhuma opção do gate servia.
   // Entra delimitado e rotulado como DADO — conteúdo do usuário nunca é instrução.
   if (outraFonte) {

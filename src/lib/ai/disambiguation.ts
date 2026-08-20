@@ -29,6 +29,9 @@ export type ClarifyScope = {
   tools?: { k: string; n: string; d: string }[];
   /** Multi-fonte (pergunta COMPOSTA): usar TAMBÉM o relatório da tela junto das `tools`. */
   usarRelatorio?: boolean;
+  /** PERÍODO escolhido no portão de período: as datas que o usuário confirmou.
+   *  Vão ao modelo como instrução explícita, para ele não reinventar o intervalo. */
+  periodo?: { de: string; ate: string; label?: string };
   /** "Outra fonte": o usuário DESCREVEU a fonte em texto livre, porque nenhuma das
    *  oferecidas servia. É DADO do usuário, nunca instrução — o servidor casa contra o
    *  catálogo e passa ao modelo como assunto desejado, delimitado. Máx. 200 chars. */

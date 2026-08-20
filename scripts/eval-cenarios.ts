@@ -46,6 +46,7 @@ import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
+import { precisaPerguntarPeriodo } from "../src/lib/chat/periodo";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -215,6 +216,29 @@ async function main() {
           })),
         { role: "user", content: caso.pergunta },
       ];
+
+      /**
+       * O PORTÃO DE PERÍODO É DO SERVIDOR, e por isso entra ANTES do modelo.
+       *
+       * Medir só a decisão do modelo mediria um sistema que não é este: em
+       * produção o turno termina em `clarify_periodo` sem nunca chegar ao
+       * provedor. Simular aqui mantém o eval fiel ao pipeline — e é de graça,
+       * porque o turno não gasta chamada nenhuma.
+       */
+      const porta = precisaPerguntarPeriodo({
+        pergunta: caso.pergunta,
+        historico: caso.historico,
+        tools: caso.ofertadas.map((k) => ({ key: k, name: k, params: catalogo.get(k)?.params })),
+      });
+      if (porta.precisa) {
+        p.tMed++;
+        // O turno para aqui: nenhuma ferramenta é chamada, e o servidor perguntou.
+        if (!caso.espera_tool) p.tOk++;
+        p.pMed++;
+        if (caso.espera_clarify) p.pOk++; else p.perguntouDemais++;
+        por[spec] = { usadas: [], perguntou: true, ok: !caso.espera_tool && caso.espera_clarify };
+        continue;
+      }
 
       const t0 = Date.now();
       try {
