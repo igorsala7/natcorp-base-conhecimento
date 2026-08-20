@@ -14,7 +14,7 @@ Pela medição de qualidade, que virou a favor dele depois das mudanças de hoje
 | `claude-haiku-4-5` | **23/37** | 28/37 | **0** | 141,46 |
 | `gemini-3.5-flash-lite` | **23/37** | 26/37 | 3 | **53,86** |
 | `gemini-3.5-flash` | 20/37 | 29/37 | 0 | 266,07 |
-| `claude-sonnet-5` | 17/36 | 28/36 | 0 | 424,38 |
+| `claude-sonnet-5` | 17/36 | 28/36 | 0 | 282,92 |
 
 Empate na escolha de ferramenta, e o haiku **não interrompe o usuário nenhuma
 vez** onde o flash-lite interrompe três. Num produto vendido por precisão,
@@ -23,6 +23,13 @@ perguntar o óbvio custa mais que a diferença de preço.
 O custo do haiku assume o cache explícito medido AQUI (33% de leitura). Gemini e
 OpenAI usam cache implícito, que neste sistema entrega 0–6% — por isso a coluna
 deles é entrada cheia. Não é estimativa de catálogo: é o que `ai_usage` registrou.
+
+> **Correção de 19/08, à noite.** A linha do `claude-sonnet-5` saiu antes por
+> US$ 424,38, com o preço errado na nossa tabela (US$ 3/15). Conferido na fonte,
+> o valor é US$ 2/10 — o preço de lançamento virou padrão e o aumento marcado
+> para 01/09 foi cancelado. O número certo é US$ 282,92 e a conclusão não muda:
+> ainda é o mais caro e o que menos acerta. Mas errar para MAIS num modelo caro
+> é o tipo de erro que ninguém confere.
 
 ## Quando reabrir
 
