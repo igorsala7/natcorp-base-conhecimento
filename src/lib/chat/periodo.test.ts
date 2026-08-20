@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { temSinalDePeriodo, ehParamDePeriodo, toolsQuePedemPeriodo, opcoesDePeriodo, precisaPerguntarPeriodo } from "./periodo";
+import { temSinalDePeriodo, ehParamDePeriodo, toolsQuePedemPeriodo, opcoesDePeriodo, precisaPerguntarPeriodo, faltaPeriodoNaChamada, respostaFaltaPeriodo } from "./periodo";
 
 const tool = (key: string, params: unknown) => ({ key, name: key, params });
 const P = (nome: string, origem = "modelo", obrigatorio = true) => ({ nome, descricao: "", origem, obrigatorio });
@@ -112,5 +112,33 @@ describe("opcoesDePeriodo", () => {
     expect(o[1]!.label).toContain("dezembro/2025");
     expect(o[1]!.de).toBe("2025-12-01");
     expect(o[1]!.ate).toBe("2025-12-31");
+  });
+});
+
+describe("faltaPeriodoNaChamada — decisão na EXECUÇÃO", () => {
+  const exige = [{ nome: "data_ini", descricao: "", origem: "modelo", obrigatorio: true }];
+  const opcional = [{ nome: "p_dt_admissao_ini", descricao: "", origem: "modelo", obrigatorio: false }];
+
+  it("barra quando a ferramenta exige data e ninguém informou período", () => {
+    expect(faltaPeriodoNaChamada(exige, false)).toBe(true);
+  });
+
+  it("deixa passar assim que a pessoa informou o período", () => {
+    expect(faltaPeriodoNaChamada(exige, true)).toBe(false);
+  });
+
+  it("nunca barra por causa de um filtro de data OPCIONAL", () => {
+    // "Traga meus colaboradores" não precisa de período, e a tool de cadastro
+    // tem quatro datas opcionais — barrar aqui era 14% de todos os turnos.
+    expect(faltaPeriodoNaChamada(opcional, false)).toBe(false);
+  });
+
+  it("a resposta traz as opções prontas, não uma pergunta em aberto", () => {
+    const r = respostaFaltaPeriodo(new Date(Date.UTC(2026, 7, 19)));
+    expect(r._erro).toBe("PERÍODO NÃO INFORMADO");
+    expect(r._perguntar).toMatch(/NÃO escolha um intervalo por conta própria/);
+    expect(r.opcoes).toHaveLength(4);
+    expect(r.opcoes[0]).toContain("agosto/2026");
+    expect(r.opcoes[0]).toContain("2026-08-01");
   });
 });

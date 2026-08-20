@@ -46,7 +46,7 @@ import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
-import { precisaPerguntarPeriodo } from "../src/lib/chat/periodo";
+import { faltaPeriodoNaChamada, temSinalDePeriodo } from "../src/lib/chat/periodo";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -177,6 +177,15 @@ async function main() {
       const p = placar.get(spec)!;
       const chamadas: string[] = [];
       const tools: ToolSet = {};
+      /**
+       * O mesmo FATO que a rota calcula: a PESSOA disse algum período? Reproduzido
+       * aqui para que a checagem de período do `execute` valha no eval — sem ela o
+       * eval mediria um pipeline que a produção não tem.
+       */
+      const periodoInformado =
+        temSinalDePeriodo(caso.pergunta) ||
+        temSinalDePeriodo(caso.historico.filter((h) => h.role === "user").slice(-3).map((h) => h.content).join(" "));
+      let barrouPorPeriodo = false;
 
       // A pergunta é uma ferramenta: medível pelo mesmo caminho da decisão.
       tools.perguntar_ao_usuario = tool({
@@ -198,7 +207,15 @@ async function main() {
         tools[key] = tool({
           description: String(t?.description ?? t?.name ?? key).slice(0, 900),
           inputSchema: z.object(campos),
-          execute: async () => { chamadas.push(key); return { items: [{ ok: true }], _total: 1, _completo: true }; },
+          execute: async () => {
+            // Mesma checagem do servidor: a ferramenta exige período e ninguém deu.
+            if (faltaPeriodoNaChamada(t?.params, periodoInformado)) {
+              barrouPorPeriodo = true;
+              return { _erro: "PERÍODO NÃO INFORMADO" };
+            }
+            chamadas.push(key);
+            return { items: [{ ok: true }], _total: 1, _completo: true };
+          },
         });
       }
 
@@ -217,29 +234,6 @@ async function main() {
         { role: "user", content: caso.pergunta },
       ];
 
-      /**
-       * O PORTÃO DE PERÍODO É DO SERVIDOR, e por isso entra ANTES do modelo.
-       *
-       * Medir só a decisão do modelo mediria um sistema que não é este: em
-       * produção o turno termina em `clarify_periodo` sem nunca chegar ao
-       * provedor. Simular aqui mantém o eval fiel ao pipeline — e é de graça,
-       * porque o turno não gasta chamada nenhuma.
-       */
-      const porta = precisaPerguntarPeriodo({
-        pergunta: caso.pergunta,
-        historico: caso.historico,
-        tools: caso.ofertadas.map((k) => ({ key: k, name: k, params: catalogo.get(k)?.params })),
-      });
-      if (porta.precisa) {
-        p.tMed++;
-        // O turno para aqui: nenhuma ferramenta é chamada, e o servidor perguntou.
-        if (!caso.espera_tool) p.tOk++;
-        p.pMed++;
-        if (caso.espera_clarify) p.pOk++; else p.perguntouDemais++;
-        por[spec] = { usadas: [], perguntou: true, ok: !caso.espera_tool && caso.espera_clarify };
-        continue;
-      }
-
       const t0 = Date.now();
       try {
         const model = await resolverModelo(spec);
@@ -248,7 +242,9 @@ async function main() {
         p.entrada += r.usage?.inputTokens ?? 0;
         p.saida += r.usage?.outputTokens ?? 0;
 
-        const perguntou = chamadas.includes("perguntar_ao_usuario");
+        // Barrar por período É o sistema perguntando — o modelo recebe as opções e
+        // repassa. Contar diferente esconderia justamente o que a checagem faz.
+        const perguntou = chamadas.includes("perguntar_ao_usuario") || barrouPorPeriodo;
         const usadas = chamadas.filter((c) => c !== "perguntar_ao_usuario");
 
         // FERRAMENTA — `espera_tool: null` significa "nenhuma ferramenta de dado".

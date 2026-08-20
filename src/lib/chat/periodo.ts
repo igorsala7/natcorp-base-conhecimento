@@ -166,3 +166,37 @@ export function precisaPerguntarPeriodo(args: {
   if (temSinalDePeriodo(recentes)) return { precisa: false, tools };
   return { precisa: true, tools };
 }
+
+/**
+ * A ferramenta EXIGE período e a pessoa não deu nenhum?
+ *
+ * Checagem feita na EXECUÇÃO, não antes do modelo escolher. Antes da escolha a
+ * rota só vê as ~20 ferramentas ofertadas, e bastava uma delas exigir data para
+ * a pergunta disparar: medido em 20 dias, 159 dos 1.176 turnos (14%) receberiam
+ * a pergunta, incluindo "Faça um PDF dessa análise" e "Hi". Aqui a ferramenta já
+ * é conhecida, e a pergunta só aparece onde ela de fato faria falta.
+ */
+export function faltaPeriodoNaChamada(params: unknown, periodoInformado: boolean): boolean {
+  if (periodoInformado) return false;
+  return (Array.isArray(params) ? (params as ParamTool[]) : []).some(ehParamDePeriodo);
+}
+
+/**
+ * O que a ferramenta devolve ao modelo quando o período falta.
+ *
+ * Não é um erro: é uma instrução com as opções prontas. O dono foi explícito —
+ * "perguntar o período mas já dando sugestões" —, e devolver só "informe o
+ * período" faria o modelo repassar uma pergunta em aberto, que é o atrito que
+ * este caminho existe para evitar.
+ */
+export function respostaFaltaPeriodo(hoje = new Date()): { _erro: string; _perguntar: string; opcoes: string[] } {
+  const o = opcoesDePeriodo(hoje);
+  return {
+    _erro: "PERÍODO NÃO INFORMADO",
+    _perguntar:
+      "Esta consulta exige um período e o usuário não disse qual. NÃO escolha um intervalo por conta " +
+      "própria e NÃO chame esta ferramenta de novo sem a resposta dele. Pergunte de qual período ele quer, " +
+      "oferecendo as opções abaixo em uma linha cada, e diga que ele também pode informar as datas.",
+    opcoes: o.map((x) => `${x.label} (${x.de} a ${x.ate})`),
+  };
+}

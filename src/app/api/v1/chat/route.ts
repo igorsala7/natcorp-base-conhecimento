@@ -40,7 +40,7 @@ import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visual
 import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
-import { precisaPerguntarPeriodo, opcoesDePeriodo } from "@/lib/chat/periodo";
+import { temSinalDePeriodo } from "@/lib/chat/periodo";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
@@ -830,8 +830,32 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    *
    * Turno seguinte não é afetado — cada turno monta as suas.
    */
+  /**
+   * PERÍODO INFORMADO PELA PESSOA? — a resposta viaja até a EXECUÇÃO da ferramenta.
+   *
+   * A primeira versão disto era um portão AQUI, antes do modelo. Estava errada, e
+   * medir contra 20 dias mostrou o tamanho: 159 dos 1.176 turnos (14%) receberiam
+   * a pergunta de período, entre eles "Faça um PDF dessa análise", "Quantas
+   * requisições estão em aberto?" e "Hi". O motivo é estrutural — antes do modelo
+   * escolher, a rota vê as ~20 ferramentas OFERTADAS, e basta uma delas exigir
+   * data para o portão disparar, mesmo que a resposta venha do cadastro.
+   *
+   * (Minha validação inicial deu 3 disparos porque eu filtrava pela ferramenta
+   * que FOI chamada — informação que a rota não tem na hora de decidir.)
+   *
+   * Só quem sabe qual ferramenta será usada é a própria chamada. Então o que
+   * atravessa daqui é o FATO — a pessoa disse um período? — e a decisão acontece
+   * no `execute`, onde a ferramenta já é conhecida. Ver `tool-builder.ts`.
+   */
+  const periodoInformado =
+    !!payload.scope?.periodo?.de ||
+    temSinalDePeriodo(question) ||
+    temSinalDePeriodo(
+      messages.filter((m) => m.role === "user").slice(-3).map((m) => m.content).join(" "),
+    );
+
   const integ = track.p_base && !querTutorial && !soRedigir && !social
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores, periodoInformado)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
   // única pendência que o próprio usuário resolve, e por isso a única que vira
@@ -1791,53 +1815,6 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       start(controller) {
         controller.enqueue(sse({ type: "clarify", question: "Sobre qual dessas você quer saber?", options: opcoesTool }));
         controller.enqueue(finalizarTrace("clarify_tool"));
-        controller.enqueue(sse({ type: "done", conversationId: convId }));
-        controller.close();
-      },
-    });
-    return sseResponse(stream, cors);
-  }
-
-  /**
-   * PERÍODO AUSENTE — pergunta antes de o modelo inventar um intervalo.
-   *
-   * Onze ferramentas EXIGEM data do modelo (`obrigatorio: true`). Quando a pessoa
-   * não disse período nenhum, o modelo é obrigado a escolher um sozinho — e foi
-   * assim que "Quero ver os eventos de apuração da matrícula 205818" devolveu 114
-   * eventos de um intervalo que ninguém pediu.
-   *
-   * ── Por que um portão, e não uma linha no prompt ────────────────────────────
-   * A instrução foi escrita e medida (`DIRETIVA_PERGUNTAR`): cinco modelos de três
-   * provedores continuaram sem perguntar. O servidor decide igual em todo modelo.
-   *
-   * ── Por que ele quase nunca dispara, e isso é o ponto ───────────────────────
-   * Rodado contra os 20 dias de produção antes de entrar: 3 disparos em 89
-   * chamadas às ferramentas que exigem data (0,4% de todas). As outras 86 já
-   * traziam o período — na mensagem (58) ou dito pela PESSOA num turno recente
-   * (28). Três versões anteriores deste portão perguntavam em 20, 12 e 110 turnos;
-   * eram defeitos meus (data opcional contada como exigida, "deste mês" não
-   * reconhecido, e datas escritas pelo próprio agente lidas como se fossem do
-   * usuário), todos pegos por medir antes de ligar.
-   */
-  const paramsTurno = (integ.paramsPorTool ?? {}) as Record<string, unknown>;
-  const toolsDoTurno = Object.keys(integNoTurno).map((key) => ({ key, name: key, params: paramsTurno[key] }));
-  const periodoJaEscolhido = !!scopeIn?.periodo;
-  const chk = !social && !continuation && !soRedigir && !modoRelatorio && !periodoJaEscolhido
-    ? precisaPerguntarPeriodo({ pergunta: question, historico: messages, tools: toolsDoTurno })
-    : { precisa: false, tools: [] as string[] };
-  if (chk.precisa) {
-    const opcoes = opcoesDePeriodo();
-    passo("clarify_periodo", { tools: chk.tools, opcoes: opcoes.map((o) => o.id) });
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(
-          sse({
-            type: "clarify",
-            question: "De qual período? Escolha uma opção ou me diga as datas.",
-            options: opcoes.map((o) => ({ id: o.id, label: o.label, scope: { periodo: { de: o.de, ate: o.ate, label: o.label } } })),
-          }),
-        );
-        controller.enqueue(finalizarTrace("clarify_periodo"));
         controller.enqueue(sse({ type: "done", conversationId: convId }));
         controller.close();
       },

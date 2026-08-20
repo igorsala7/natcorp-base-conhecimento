@@ -59,6 +59,7 @@ import { logToolRun } from "./run-log";
 import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
 import { idDaChamada } from "@/lib/chat/tool-trace";
 import { aplicarTetoTools } from "./teto-tools";
+import { faltaPeriodoNaChamada, respostaFaltaPeriodo } from "@/lib/chat/periodo";
 import { sanitizarBody } from "./run-log-sanitize";
 
 export { identityFromTrack, avisoContaPendente, type ContaPendente };
@@ -192,6 +193,15 @@ export async function buildIntegrationTools(
    * posicional explicado acima.
    */
   idsAnteriores?: ReadonlySet<string>,
+  /**
+   * A PESSOA informou algum período nesta conversa?
+   *
+   * Vem pronto da rota (só ela vê a pergunta e o histórico) e serve às ferramentas
+   * que EXIGEM data: quando é `false`, elas param antes de sair e pedem o período
+   * com opções, em vez de o modelo inventar um intervalo. `undefined` = não
+   * checar, que é o comportamento de quem chama sem saber (portal, testes).
+   */
+  periodoInformado?: boolean,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -785,6 +795,21 @@ export async function buildIntegrationTools(
         // que a tela consiga correlacioná-los mesmo com várias tools em paralelo.
         const idChamada = idDaChamada(options);
         const marca = idChamada ? { id: idChamada } : {};
+        /**
+         * PERÍODO EXIGIDO E NÃO INFORMADO — a chamada não sai.
+         *
+         * Onze ferramentas exigem data. Sem período dito pela pessoa, o modelo
+         * inventa um: foi assim que "eventos de apuração da matrícula 205818"
+         * devolveu 114 eventos de um intervalo que ninguém pediu.
+         *
+         * Aqui, e não antes do modelo escolher: naquele ponto a rota vê as ~20
+         * ferramentas ofertadas, e bastava uma exigir data para perguntar — 14%
+         * de TODOS os turnos, incluindo "Faça um PDF dessa análise" e "Hi".
+         */
+        if (periodoInformado === false && faltaPeriodoNaChamada(bt.tool.params, false)) {
+          onPasso?.("periodo_ausente", { tool: bt.tool.key, ...marca });
+          return respostaFaltaPeriodo();
+        }
         // Repetição IDÊNTICA no mesmo turno (loop do modelo) → devolve o já obtido, sem
         // rebater na API. Só leituras (GET); escrita nunca é deduplicada.
         /**
