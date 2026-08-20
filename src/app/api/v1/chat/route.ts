@@ -1435,7 +1435,36 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     || (fonteEfetiva === "ia" && scopeIn?.tools?.length === 1 ? scopeIn.tools[0]!.k : undefined)
     || (roteouDireto && topDominaClaro ? matchesCache![0]!.key : undefined);
   const toolForcado = fonteEfetiva === "ia" && toolChave && integ.tools[toolChave] ? toolChave : undefined;
-  const integTools = toolForcado ? { [toolForcado]: integ.tools[toolForcado]! } : integ.tools;
+  /**
+   * FORÇAR UMA NÃO DESCARTA AS QUE JÁ ESTAVAM FUNCIONANDO.
+   *
+   * Estreitar para uma única ferramenta acerta metade das vezes quando a decisão
+   * sai de uma reescrita que substituiu a pergunta — 5 certos e 5 errados no
+   * gabarito do dono (eval/forcadas.jsonl). Entre os erros: "Compara com o mês de
+   * Abril", numa conversa que vinha de `historico_financeiro`, foi forçada para
+   * `relatorio_recibo_pagamento`.
+   *
+   * Tentei DETECTAR quando forçar está errado, por duas vias, e as duas foram
+   * medidas e rejeitadas: pela reescrita (5/10, sorteio) e por contradição com o
+   * assunto (7/10, fraco demais para 10 casos).
+   *
+   * Aqui não se prevê nada. A ferramenta escolhida continua no turno — o
+   * roteamento segue valendo — e as que JÁ DERAM CERTO nesta conversa vão junto,
+   * em vez de serem jogadas fora. Custa uma ou duas definições de ferramenta e
+   * devolve ao modelo a opção que o roteador tinha descartado. Nos 10 casos do
+   * gabarito, recupera a ferramenta certa em 2 e não estraga nenhum dos 5 em que
+   * forçar estava correto.
+   */
+  const integTools = toolForcado
+    ? {
+        [toolForcado]: integ.tools[toolForcado]!,
+        ...Object.fromEntries(
+          [...new Set(fatosDaConversa.map((f) => f.tool))]
+            .filter((k) => k && k !== toolForcado && integ.tools[k])
+            .map((k) => [k, integ.tools[k]!]),
+        ),
+      }
+    : integ.tools;
   // No modo RELATÓRIO cortamos as tools de API (integ.tools) — a resposta sai do
   // relatório. Mantemos gráfico/arquivo (visualTools) e consulta/filtro (queryTools).
   const cortaIntegracao = modoRelatorio || relatorioVazioParaFiltrar;

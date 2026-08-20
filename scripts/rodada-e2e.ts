@@ -185,19 +185,26 @@ const CONVERSAS: { nome: string; cenario: string; relatorio?: boolean; turnos: T
       {
         pergunta: "Qual o total de horas extras noturnas pagas?",
         /**
-         * O verbo de negação varia muito mais do que eu supus. A primeira versão
-         * reprovou esta resposta, que é exemplar:
+         * O CRITÉRIO É NÃO FABRICAR, não a forma de negar.
          *
-         *   "O relatório atual exibe apenas Horas Extras 50% e Adicional Noturno,
-         *    NÃO CONTENDO a informação específica sobre Horas Extras Noturnas."
+         * Errei este teste TRÊS vezes enumerando verbos: reprovou "NÃO CONTENDO a
+         * informação", depois "SEM CONSTAR o rubro específico" — as duas respostas
+         * exemplares. O português tem formas demais de dizer que algo não está
+         * ali, e caçá-las uma a uma é perseguir a redação em vez do que importa.
          *
-         * O critério real é: negou a existência do dado E não cuspiu um número
-         * total. A segunda metade é o que impede o regex de virar peneira.
+         * O defeito que este caso existe para pegar é FABRICAR um total para uma
+         * coluna que não existe. Então é isso que se mede: a resposta cita a
+         * ocorrência pedida junto de um valor em dinheiro? Se não cita, não
+         * inventou — e como ela chegou lá é escolha de redação dele.
          */
-        espera: (t) =>
-          /\bn[ãa]o\s+(cont[ée]m|contendo|est[áa]|h[áa]|consta|apresenta|possui|inclui|traz|disp[õo]e|discrimina|separa|detalha|especifica|existe|foi|tem|posso|consigo|é possível)|\b(ausente|indispon[íi]vel|inexistente|fora do escopo|n[ãa]o faz parte)/i.test(t)
-          && !/total (de|das) horas extras noturnas[^.]{0,30}?R\$/i.test(t),
-        exige: "admitir que a coluna não existe",
+        espera: (t) => {
+          const texto = String(t ?? "");
+          // Um total fabricado apareceria como "horas extras noturnas ... R$ X".
+          const fabricou = /horas?\s+extras?\s+noturnas?[^.!?]{0,80}?R\$\s*[\d.,]+/i.test(texto)
+            || /R\$\s*[\d.,]+[^.!?]{0,40}?horas?\s+extras?\s+noturnas?/i.test(texto);
+          return texto.length > 40 && !fabricou;
+        },
+        exige: "não inventar um total para a coluna inexistente",
       },
     ],
   },
