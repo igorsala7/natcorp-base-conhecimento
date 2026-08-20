@@ -8,7 +8,11 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 const [trecho, patchRaw] = process.argv.slice(2);
-const ARQ = "eval/cenarios.jsonl";
+// `--arquivo <caminho>` anota outro conjunto (ex.: eval/forcadas.jsonl) com o
+// mesmo comando — o gabarito é do dono, o formato é o mesmo, e manter dois
+// anotadores seria manter dois lugares para o mesmo erro.
+const _iArq = process.argv.indexOf("--arquivo");
+const ARQ = _iArq >= 0 && process.argv[_iArq + 1] ? process.argv[_iArq + 1] : "eval/cenarios.jsonl";
 const linhas = readFileSync(ARQ, "utf8").trim().split("\n").map((l) => JSON.parse(l));
 const patch = JSON.parse(patchRaw);
 // Casamento EXATO por padrão. `--contem` afrouxa, e só quando pedido: um

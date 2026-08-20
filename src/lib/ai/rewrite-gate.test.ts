@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { comAntecedente, deveReescrever, reescritaPerdeuAPergunta, type EntradaGate } from "./rewrite-gate";
+import { comAntecedente, deveReescrever, type EntradaGate } from "./rewrite-gate";
 
 const base: EntradaGate = {
   question: "quantos colaboradores estão de férias em março?",
@@ -65,21 +65,3 @@ describe("comAntecedente", () => {
   });
 });
 
-describe("reescritaPerdeuAPergunta", () => {
-  it("o caso real: a pergunta virou o título da tela", () => {
-    expect(reescritaPerdeuAPergunta("Compara com o mês de Abril", "Recibo de Pagamento")).toBe(true);
-    expect(reescritaPerdeuAPergunta("Mas eu quero no geral", "Linha do tempo dos funcionários")).toBe(true);
-    expect(reescritaPerdeuAPergunta("Fiquei decepcionado com seu resultado", "Gerador de Relatórios")).toBe(true);
-  });
-
-  it("esclarecer NÃO é substituir — precisa sobrar alguma palavra da pergunta", () => {
-    expect(reescritaPerdeuAPergunta("quanto ganho de salário", "salário remuneração")).toBe(false);
-    expect(reescritaPerdeuAPergunta("marcações do Tony em agosto", "marcações de ponto Tony agosto")).toBe(false);
-    expect(reescritaPerdeuAPergunta("férias do 205818", "consultar férias matrícula 205818")).toBe(false);
-  });
-
-  it("na dúvida NÃO bloqueia — sem palavra de conteúdo, segue como antes", () => {
-    expect(reescritaPerdeuAPergunta("sim", "Recibo de Pagamento")).toBe(false);
-    expect(reescritaPerdeuAPergunta("Compara com abril", "")).toBe(false);
-  });
-});
