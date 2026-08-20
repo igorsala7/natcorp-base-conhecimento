@@ -84,7 +84,9 @@ async function curlReal(bt: BaseToolContext, args: Record<string, string>, ident
   }
 }
 
-const HOJE = "2026-08-15";
+const HOJE = new Date().toISOString().slice(0, 10);
+/** Começo da janela de sondagem: 90 dias, que é o recorte de uma consulta real. */
+const INICIO_JANELA = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * O ORDS devolve o erro dentro de uma página HTML cuja folha de estilo ocupa os
@@ -116,7 +118,16 @@ function valorPara(nome: string, cad: Record<string, unknown>, alvo: Alvo, tipo:
   if (/^p?_?matricula$/i.test(nome)) return alvo.matricula;
   // Períodos: sem eles muita consulta devolve vazio e o teste vira falso negativo.
   if (tipo === "date" || /data|dt_|periodo|mes|competencia|ano/i.test(nome)) {
-    if (/ini|inicio|de$|from|_de/i.test(nome)) return "1990-01-01";
+    /**
+     * JANELA CURTA, e não "desde sempre".
+     *
+     * Pedia de 1990 até hoje. Trinta e seis anos de ponto ou de requisições
+     * estouram os 25 s e o relatório acusava a ferramenta como quebrada —
+     * `relatorio_espelho_ponto` e `resultado_apuracao_ponto` apareceram assim,
+     * e as duas respondem em segundos com um intervalo real. O sondador tem de
+     * pedir o que um usuário pede, senão mede o timeout dele mesmo.
+     */
+    if (/ini|inicio|de$|from|_de/i.test(nome)) return INICIO_JANELA;
     if (/fim|final|ate|to$|_ate/i.test(nome)) return HOJE;
     return HOJE;
   }
@@ -230,10 +241,21 @@ async function main() {
           corpo: precisaDetalhe ? mensagemDoErro(typeof d === "string" ? d : JSON.stringify(d)) : undefined,
         });
       } catch (e) {
+        /**
+         * TEMPO ESGOTADO SEM FILTRO NENHUM não é defeito da ferramenta.
+         *
+         * `processo_seletivo_status_candidato` só aceita cod_candidato e cod_req,
+         * e o sondador não tem candidato para preencher: a chamada sai sem filtro
+         * e o endpoint varre a base inteira. Em produção o modelo informa o
+         * código. Acusar isso como falha é medir o sondador, não o produto.
+         */
+        const semFiltro = Object.keys(args).length === 0 && /abort|timeout|tempo/i.test((e as Error).message);
         linhas.push({
-          base: alvo.base, tool: bt.tool.key, status: "exceção", ok: false,
-          detalhe: (e as Error).message.slice(0, 200),
-          curl: await curlReal(bt, args, ident, cred),
+          base: alvo.base, tool: bt.tool.key, status: semFiltro ? "—" : "exceção", ok: semFiltro,
+          detalhe: semFiltro
+            ? "não testada (sem filtro disponível — varreria a base inteira)"
+            : (e as Error).message.slice(0, 200),
+          curl: semFiltro ? undefined : await curlReal(bt, args, ident, cred),
         });
       }
     }
