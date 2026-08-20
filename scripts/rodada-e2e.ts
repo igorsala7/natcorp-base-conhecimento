@@ -130,6 +130,35 @@ const CONVERSAS: { nome: string; cenario: string; relatorio?: boolean; turnos: T
     ],
   },
   {
+    /**
+     * A CONVERSA QUE DEU ERRADO EM 20/08, reproduzida.
+     *
+     * Seis turnos pedindo o FGTS por colaborador; o agente devolvia a lista de
+     * pessoas ou o total agregado. Quando finalmente entendeu e ofereceu buscar,
+     * o "Confirmado" não executou nada e o usuário escreveu "Desisto".
+     *
+     * Duas causas, as duas corrigidas: o portão de período bloqueou catorze
+     * chamadas por não reconhecer "os dois meses", e a confirmação em texto
+     * livre não virava execução.
+     */
+    nome: "fgts_por_colaborador", cenario: "regressão de 20/08",
+    turnos: [
+      "Quais colaboradores tiveram o desconto do FGTS?",
+      {
+        pergunta: "Eu estou pedindo por colaborador os valores do evento de FGTS para os dois meses. Entendeu?",
+        // O que se exige aqui é MOVIMENTO: ou ele busca, ou pergunta o que falta —
+        // o que não pode é reexplicar o relatório da tela, que foi a falha real.
+        espera: (t) => !/rel[aá]t[oó]rio (que est[áa] )?aberto.{0,60}(n[ãa]o|sem) (det|reg|disc)/i.test(t),
+        exige: "não reexplicar que a tela não tem o detalhe",
+      },
+      {
+        pergunta: "Confirmado",
+        espera: (t) => t.length > 120 && !/confirm(a|e)\b|posso (buscar|prosseguir|seguir)|deseja que eu/i.test(t),
+        exige: "executar, não pedir confirmação de novo",
+      },
+    ],
+  },
+  {
     nome: "analise_relatorio", cenario: "report_analysis", relatorio: true,
     turnos: [
       { pergunta: "Analise este relatório e me diga o que chama atenção.",

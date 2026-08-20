@@ -2443,6 +2443,37 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   if (devePerguntarDiretiva({ social, soRedigir, temFerramentas: temIntegTools })) {
     systemPrompt += `\n\n${DIRETIVA_PERGUNTAR}`;
   }
+  /**
+   * "CONFIRMADO" SEM PENDÊNCIA REGISTRADA — o modelo propôs em texto livre.
+   *
+   * A máquina de confirmação (`ai_pending_confirmations`) só existe quando a
+   * pergunta nasceu de um GUARD. Quando é o próprio modelo que escreve "posso
+   * buscar o extrato individual?", o "Confirmado" do usuário não casa com
+   * pendência nenhuma — e o turno seguinte recomeça do zero.
+   *
+   * Foi o desfecho de uma conversa real em 20/08: depois de seis turnos, o
+   * agente finalmente entendeu ("você quer o valor de FGTS por colaborador nos
+   * dois meses") e ofereceu buscar. O usuário respondeu "Confirmado". O turno
+   * seguinte não chamou ferramenta NENHUMA — voltou a explicar por que o
+   * relatório da tela não tem o detalhe. A mensagem seguinte foi "Desisto".
+   *
+   * Aqui o servidor não adivinha o que executar: ele diz ao modelo, em uma
+   * instrução curta e no fim do prompt, que a mensagem é um SIM ao que ELE
+   * mesmo propôs — e que a saída é executar, não reexplicar.
+   */
+  const confirmaSemPendencia =
+    !confExecutada && !social && ehAfirmacao(question) && messages.some((m) => m.role === "assistant");
+  if (confirmaSemPendencia) {
+    passo("confirmacao_livre", { pergunta: question.slice(0, 60) });
+    systemPrompt +=
+      "\n\n## O USUÁRIO ESTÁ CONFIRMANDO O QUE VOCÊ PROPÔS\n" +
+      "A mensagem dele é um SIM à ação que VOCÊ ofereceu na sua última resposta. " +
+      "EXECUTE agora, chamando as ferramentas necessárias, com os parâmetros que você mesmo já " +
+      "identificou (pessoa, período, evento, recorte) — eles estão na conversa acima. " +
+      "NÃO reexplique o que já foi explicado, NÃO repita a proposta e NÃO peça confirmação de novo: " +
+      "isso já aconteceu. Se a ação precisar de várias consultas, faça-as. " +
+      "Só volte a perguntar se faltar um dado que NÃO está em nenhuma mensagem anterior.";
+  }
   // AÇÃO JÁ EXECUTADA pelo servidor (confirmação): o modelo não decide nada neste
   // turno, só conta o que aconteceu. Vai por último para ser a instrução mais forte.
   if (confExecutada) systemPrompt += `\n\n${blocoConfirmacaoExecutada(confExecutada)}`;

@@ -58,7 +58,21 @@ const RX_PERIODO =
        * o período a quem acabou de dizer o período é o defeito que este portão
        * existe para não criar.
        */
-      String.raw`\b(n?[oa]?\s*)?(est[ea]|ess[ea]|nest[ea]|ness[ea]|dest[ea]|dess[ea])\s+(mes|ano|semana|periodo|dia|trimestre|semestre)\b`,
+      /**
+       * DEMONSTRATIVO + (quantificador) + UNIDADE, no singular OU no plural.
+       *
+       * A versão anterior exigia demonstrativo colado à unidade e só no
+       * singular. Numa conversa real de 20/08 isso custou caro: a pessoa
+       * escreveu "nesses DOIS MESES" e "para os DOIS MESES", com fevereiro e
+       * março já estabelecidos na conversa, e o portão bloqueou CATORZE chamadas
+       * seguidas com "PERÍODO NÃO INFORMADO". O agente tentou fazer a coisa
+       * certa e o guard impediu, até ele desistir e voltar a explicar a tela.
+       */
+      String.raw`\b(est[ea]s?|ess[ea]s?|nest[ea]s?|ness[ea]s?|dest[ea]s?|dess[ea]s?|[oa]s)\s+(\d+|dois|duas|tr[êe]s|quatro|cinco|seis|ultimos?|[úu]ltim[oa]s?)?\s*(mes|meses|ano|anos|semanas?|periodos?|dias?|trimestres?|semestres?|compet[êe]ncias?)\b`,
+      // "dois meses", "3 meses", "seis semanas" — sem demonstrativo nenhum.
+      String.raw`\b(\d+|dois|duas|tr[êe]s|quatro|cinco|seis)\s+(meses|semanas|dias|anos|trimestres|semestres|compet[êe]ncias)\b`,
+      // "fevereiro e março", "de janeiro a junho" — dois meses citados por extenso.
+      String.raw`\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b.{0,12}\b(e|a|至|ate|at[ée])\b.{0,4}\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b`,
       String.raw`\b(mes|ano|semana|periodo|trimestre|semestre) (atual|corrente|passad[oa]|anterior|que vem|vigente)\b`,
       String.raw`\bsemana passada\b|\bmes passado\b|\bano passado\b`,
       String.raw`\bultim[oa]s? \d*\s*(dia|semana|mes|ano|trimestre|semestre)`,

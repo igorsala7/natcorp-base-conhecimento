@@ -777,6 +777,8 @@ export async function buildIntegrationTools(
   // ── 3) BUILD: monta o toolset do AI SDK só das ferramentas selecionadas ────────
   const essenciais: string[] = [];
   const paramsPorTool: Record<string, unknown> = {};
+  /** O guard de período já falou neste turno? Ver a checagem no `execute`. */
+  let jaBarrouPeriodo = false;
   for (const { bt, escopo, paramsEscopo, loopEscopo } of selecionadas) {
     if (bt.alwaysInclude) essenciais.push(bt.tool.key);
     // Sem repetir: uma FAMÍLIA de ferramentas costuma compartilhar a mesma regra
@@ -806,7 +808,21 @@ export async function buildIntegrationTools(
          * ferramentas ofertadas, e bastava uma exigir data para perguntar — 14%
          * de TODOS os turnos, incluindo "Faça um PDF dessa análise" e "Hi".
          */
-        if (periodoInformado === false && faltaPeriodoNaChamada(bt.tool.params, false)) {
+        if (periodoInformado === false && !jaBarrouPeriodo && faltaPeriodoNaChamada(bt.tool.params, false)) {
+          /**
+           * UMA VEZ POR TURNO, e não uma por chamada.
+           *
+           * Em 20/08 este guard recusou CATORZE chamadas seguidas de
+           * `historico_financeiro` no mesmo turno, com "PERÍODO NÃO INFORMADO".
+           * O modelo estava fazendo a coisa certa — buscar o FGTS de cada
+           * colaborador — e cada tentativa batia na mesma parede. Gastou 92.984
+           * tokens, não entregou nada, e o usuário escreveu "Desisto".
+           *
+           * O recado só precisa ser dado uma vez: depois disso, o modelo já sabe
+           * e insistir é laço. Se ele seguir mesmo assim, é melhor devolver dados
+           * de um período que talvez não seja o pedido do que devolver nada.
+           */
+          jaBarrouPeriodo = true;
           onPasso?.("periodo_ausente", { tool: bt.tool.key, ...marca });
           return respostaFaltaPeriodo();
         }

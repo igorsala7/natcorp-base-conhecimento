@@ -142,3 +142,21 @@ describe("faltaPeriodoNaChamada — decisão na EXECUÇÃO", () => {
     expect(r.opcoes[0]).toContain("2026-08-01");
   });
 });
+
+describe("as formas que a conversa real usou", () => {
+  it("reconhece plural e quantificador — o caso que custou 14 bloqueios", () => {
+    for (const t of [
+      "A gente não está falando sobre o evento de FGTS nesses dois meses?",
+      "Eu estou pedindo por colaborador os valores para os dois meses",
+      "quero os últimos três meses", "compare fevereiro e março",
+      "de janeiro a junho", "6 meses", "nos dois meses",
+    ]) expect(temSinalDePeriodo(t), t).toBe(true);
+  });
+
+  it("e continua não sendo peneira", () => {
+    for (const t of [
+      "Quero ver os eventos de apuração da matrícula 205818",
+      "traga a lista completa", "Não gerou", "Quantos colaboradores por cargo?",
+    ]) expect(temSinalDePeriodo(t), t).toBe(false);
+  });
+});
