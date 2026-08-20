@@ -140,9 +140,23 @@ const CONVERSAS: { nome: string; cenario: string; relatorio?: boolean; turnos: T
         espera: (t) => t.includes(String(REL_MAIOR[1])), exige: String(REL_MAIOR[1]) },
       { pergunta: "Quantas são do tipo Provento?",
         espera: (t) => temNumero(t, REL_PROVENTOS), exige: String(REL_PROVENTOS) },
-      { pergunta: "Qual o total de horas extras noturnas pagas?",
-        espera: (t) => /não (est[áa]|h[áa]|consta|apareceo|tem|posso|consigo|é possível)|não (existe|há) (uma )?coluna|não (traz|discrimina|separa|detalha)/i.test(t),
-        exige: "admitir que a coluna não existe" },
+      {
+        pergunta: "Qual o total de horas extras noturnas pagas?",
+        /**
+         * O verbo de negação varia muito mais do que eu supus. A primeira versão
+         * reprovou esta resposta, que é exemplar:
+         *
+         *   "O relatório atual exibe apenas Horas Extras 50% e Adicional Noturno,
+         *    NÃO CONTENDO a informação específica sobre Horas Extras Noturnas."
+         *
+         * O critério real é: negou a existência do dado E não cuspiu um número
+         * total. A segunda metade é o que impede o regex de virar peneira.
+         */
+        espera: (t) =>
+          /\bn[ãa]o\s+(cont[ée]m|contendo|est[áa]|h[áa]|consta|apresenta|possui|inclui|traz|disp[õo]e|discrimina|separa|detalha|especifica|existe|foi|tem|posso|consigo|é possível)|\b(ausente|indispon[íi]vel|inexistente|fora do escopo|n[ãa]o faz parte)/i.test(t)
+          && !/total (de|das) horas extras noturnas[^.]{0,30}?R\$/i.test(t),
+        exige: "admitir que a coluna não existe",
+      },
     ],
   },
 ];
@@ -229,7 +243,9 @@ async function main() {
   console.log(`identidade: ${IDENTIDADE.p_base}/${IDENTIDADE.p_usuario} · painel ${IDENTIDADE.p_portal}`);
   console.log("SÓ LEITURA — nenhuma pergunta cria, envia ou altera nada.\n");
 
-  const lista = soSocial ? CONVERSAS.slice(0, 1) : CONVERSAS;
+  const soConversa = arg("conversa", "");
+  const lista = soSocial ? CONVERSAS.slice(0, 1) : soConversa ? CONVERSAS.filter((c) => c.nome === soConversa) : CONVERSAS;
+  if (!lista.length) { console.error(`Conversa "${soConversa}" não existe.`); process.exit(1); }
   const turnos: Turno[] = [];
   for (const conv of lista) {
     console.log(`── ${conv.nome} (${conv.cenario})`);
@@ -238,9 +254,18 @@ async function main() {
     for (const [i, spec] of conv.turnos.entries()) {
       const pergunta = typeof spec === "string" ? spec : spec.pergunta;
       const verifica = typeof spec === "string" ? null : spec;
-      // O relatório vai só no PRIMEIRO turno — depois ele já é dataset da conversa,
-      // como o widget faz. Reenviar mediria um fluxo que não existe.
-      const r = await enviar(track, convId, hist, pergunta, conv.relatorio && i === 0 ? RELATORIO : undefined);
+      /**
+       * O relatório vai em TODOS os turnos, porque é o que o widget faz.
+       *
+       * A primeira versão mandava só no turno 1, supondo que ele viraria dataset
+       * da conversa. Não vira: `dataset-conversa.ts` persiste apenas resultado de
+       * FERRAMENTA (`dsN`) e deixa a tabela da TELA de fora justamente porque ela
+       * chega de graça em toda mensagem. Medindo do jeito errado, os turnos 2 em
+       * diante viam `dataset:registro total=0`, o modelo não tinha o relatório na
+       * frente e ia consultar a API — e eu quase reportei isso como defeito do
+       * produto.
+       */
+      const r = await enviar(track, convId, hist, pergunta, conv.relatorio ? RELATORIO : undefined);
       convId = r.convId;
       if (r.ok) { hist.push({ role: "user", content: pergunta }, { role: "assistant", content: r.texto }); }
       const acertou = verifica && r.ok ? verifica.espera(r.texto ?? "") : null;
