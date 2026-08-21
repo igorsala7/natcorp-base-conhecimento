@@ -414,7 +414,24 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       circuito: error instanceof CircuitOpenError,
     });
   };
-  passo("mensagem", { pergunta: question.slice(0, 300), caracteres: question.length });
+  // A TELA vai no trace, por TURNO. Ela já era gravada em `conversations.page`,
+  // mas ali é por CONVERSA: guarda a última tela visitada, não a tela em que a
+  // pergunta foi feita. A diferença inviabiliza medir qualquer coisa a partir
+  // do histórico — em 21/08/2026 um teste de injetar a tela na consulta do RAG
+  // saiu 13/20 → 8/20, e o motivo foi comparar perguntas com a tela ERRADA
+  // (o caso "Adiantamento" carregava a tela "Editar: Requisição de Benefícios",
+  // para onde a conversa foi DEPOIS).
+  //
+  // Isso importa porque 4 das 6 falhas do gabarito de recuperação são perguntas
+  // cujo sujeito é a tela aberta ("me explica esse programa", "como faço o
+  // cadastro"), e o texto sozinho não tem como resolvê-las. Sem este campo a
+  // hipótese não é testável; com ele, a próxima extração já vem com o dado.
+  passo("mensagem", {
+    pergunta: question.slice(0, 300),
+    caracteres: question.length,
+    ...(page?.title ? { tela: page.title.slice(0, 120) } : {}),
+    ...(page?.path ? { tela_path: page.path.slice(0, 120) } : {}),
+  });
   if (_escolha) passo("escolha_numerada", { respondeu: _perguntaCrua.trim().slice(0, 12), virou: _escolha.slice(0, 120) });
   const started = Date.now();
 
