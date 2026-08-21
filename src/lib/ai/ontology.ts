@@ -41,15 +41,50 @@ export function casarOntologia(query: string, entradas: EntradaOntologia[]): Ent
 }
 
 /**
- * Formas (termo + sinônimos) dos conceitos CASADOS na pergunta — PURA, coberta
- * por teste. Base tanto da expansão léxica quanto da vetorial e do boost.
+ * Formas (termo + sinônimos) dos conceitos CASADOS na pergunta, ORDENADAS por
+ * relevância — PURA, coberta por teste. Base da expansão léxica, da vetorial e
+ * do boost, e todas as três CORTAM (12, 6 e 12). Quem decide o corte é esta
+ * ordem, então ela é a decisão, não um detalhe de apresentação.
+ *
+ * O defeito que isto conserta não era falta de ranking — era pior: as formas
+ * saíam achatadas CONCEITO A CONCEITO. Um conceito com 20 sinônimos comia as 12
+ * vagas inteiras e o conceito seguinte, que podia ser o relevante, não entrava
+ * nenhuma vez. Medido em 20/08/2026: 65 formas casadas truncadas para 12.
+ *
+ * Duas regras, nesta ordem:
+ *
+ * 1. CONCEITOS ordenados pelo gatilho mais LONGO que casou na pergunta. Casar
+ *    "banco de horas" é um casamento mais específico que casar "horas", e o
+ *    conceito por trás dele merece a vaga primeiro. Empate resolvido pelo termo
+ *    canônico em ordem alfabética — não por acaso: a ordem que vem do banco não
+ *    é estável, e um vetor de busca que muda sozinho entre execuções é um bug
+ *    que ninguém consegue reproduzir.
+ *
+ * 2. RODÍZIO entre eles: primeiro o termo canônico de CADA conceito, depois o
+ *    1º sinônimo de cada, e assim por diante. Assim todo conceito casado tem
+ *    representação antes de qualquer conceito ganhar o seu quinto sinônimo.
  */
 export function formasCasadas(query: string, entradas: EntradaOntologia[]): string[] {
-  const extras = new Set<string>();
-  for (const e of casarOntologia(query, entradas)) {
-    for (const f of e.forms) if (f.trim()) extras.add(f.trim());
+  return ordenarFormas(query, casarOntologia(query, entradas));
+}
+
+/** O ranking em si, para quem já pagou o `casarOntologia` (ver `expandirConsulta`). */
+function ordenarFormas(query: string, casadas: EntradaOntologia[]): string[] {
+  const q = normalizarTermo(query);
+  const conceitos = casadas
+    .map((e) => ({
+      forms: e.forms.map((f) => f.trim()).filter(Boolean),
+      peso: Math.max(0, ...e.matchNorms.filter((n) => n && contemTermo(q, n)).map((n) => n.length)),
+    }))
+    .filter((c) => c.forms.length > 0)
+    .sort((a, b) => b.peso - a.peso || (a.forms[0] ?? "").localeCompare(b.forms[0] ?? "", "pt"));
+
+  const out = new Set<string>();
+  const maisFormas = Math.max(0, ...conceitos.map((c) => c.forms.length));
+  for (let i = 0; i < maisFormas; i++) {
+    for (const c of conceitos) if (c.forms[i]) out.add(c.forms[i]!);
   }
-  return [...extras];
+  return [...out];
 }
 
 /**
@@ -323,9 +358,9 @@ export async function expandirConsulta(
     const entradas = await carregarOntologia(supabase, spaceIds, lang);
     const casadas = casarOntologia(query, entradas);
     if (!casadas.length) return vazio;
-    const formas = [
-      ...new Set(casadas.flatMap((e) => e.forms.map((f) => f.trim()).filter(Boolean))),
-    ];
+    // Mesma ordenação de `formasCasadas` — reaproveitando o `casarOntologia`
+    // que já foi pago acima, já que `responsaveis` também precisa dele.
+    const formas = ordenarFormas(query, casadas);
     const frases = formas.slice(0, 12).map((f) => `"${f.replace(/"/g, "")}"`);
     const responsaveis = [
       ...new Set(casadas.map((e) => e.nodeId).filter((x): x is string => !!x)),

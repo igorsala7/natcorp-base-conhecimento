@@ -75,3 +75,41 @@ describe("selecionarFormasOntologia", () => {
     expect(selecionarFormasOntologia(textos, [a, b]).get("t1")).toEqual(["Férias"]);
   });
 });
+
+describe("ordem das formas — o corte em `max` precisa levar as certas", () => {
+  it("gatilho RARO no catálogo entra antes do comum", () => {
+    // Medido em 20/08/2026: 248 formas casadas por ferramenta em média, teto de
+    // 40, e 84% descartado por ORDEM DE CHEGADA. Com a decisão entre a 1ª e a 2ª
+    // ferramenta acontecendo num gap mediano de 0,020 de similaridade, quais
+    // sinônimos entram no vetor decidia a escolha — e era sorteio.
+    const textos = new Map([
+      ["alvo", "consulta de sobreaviso e dados do colaborador"],
+      ["outra1", "dados do colaborador"],
+      ["outra2", "dados do colaborador"],
+      ["outra3", "dados do colaborador"],
+      ["outra4", "dados do colaborador"],
+    ]);
+    const entradas: EntradaOntologia[] = [
+      // "colaborador" está em 5 de 5 ferramentas: não distingue nada.
+      { matchNorms: ["colaborador"], forms: ["Colaborador", "funcionário", "empregado"] },
+      // "sobreaviso" está em 1 de 5: identifica ESTA ferramenta.
+      { matchNorms: ["sobreaviso"], forms: ["Sobreaviso", "plantão"] },
+    ];
+    // `max: 2` força o corte a escolher — é exatamente a situação real.
+    const r = selecionarFormasOntologia(textos, entradas, { max: 2, tetoFrequencia: 0.5 });
+    expect(r.get("alvo")).toEqual(["Sobreaviso", "plantão"]);
+  });
+
+  it("a ordem não depende de como a ontologia chegou do banco", () => {
+    // Reindexar a mesma ferramenta tem de produzir o mesmo vetor.
+    const textos = new Map([["t", "ferias e ponto eletronico"]]);
+    const a: EntradaOntologia[] = [
+      { matchNorms: ["ferias"], forms: ["Férias"] },
+      { matchNorms: ["ponto"], forms: ["Ponto"] },
+    ];
+    const b: EntradaOntologia[] = [...a].reverse();
+    expect(selecionarFormasOntologia(textos, a).get("t")).toEqual(
+      selecionarFormasOntologia(textos, b).get("t"),
+    );
+  });
+});

@@ -86,3 +86,56 @@ describe("enriquecerParaVetor (expansão do embedding pela ontologia)", () => {
     ]);
   });
 });
+
+describe("formasCasadas — a ordem É o corte", () => {
+  // Todos os consumidores cortam (12 na léxica, 6 no vetor, 12 no boost).
+  // O que sobrevive ao corte depende inteiramente desta ordem.
+
+  it("conceito verboso não come as vagas dos outros (rodízio)", () => {
+    // O defeito real: achatado conceito a conceito, "Férias" com 8 sinônimos
+    // ocupava as 6 primeiras posições e "Banco de Horas" — casado na mesma
+    // pergunta — não entrava nenhuma vez no vetor.
+    const onto: EntradaOntologia[] = [
+      {
+        matchNorms: ["ferias"],
+        forms: ["Férias", "descanso", "recesso", "folga", "afastamento", "gozo", "período aquisitivo", "abono"],
+      },
+      { matchNorms: ["banco de horas"], forms: ["Banco de Horas", "BH", "compensação"] },
+    ];
+    const formas = formasCasadas("saldo de banco de horas e ferias", onto);
+
+    // "Banco de Horas" casou por um gatilho mais longo → abre a lista.
+    expect(formas[0]).toBe("Banco de Horas");
+    expect(formas[1]).toBe("Férias");
+    // E o corte de 6 do vetor leva os DOIS conceitos, não um só.
+    expect(formas.slice(0, 6)).toContain("Banco de Horas");
+    expect(formas.slice(0, 6)).toContain("Férias");
+    // O 8º sinônimo de férias só aparece depois que o outro conceito se serviu.
+    expect(formas.indexOf("abono")).toBeGreaterThan(formas.indexOf("compensação"));
+  });
+
+  it("o gatilho mais específico decide quem vem primeiro", () => {
+    const onto: EntradaOntologia[] = [
+      { matchNorms: ["horas"], forms: ["Horas Trabalhadas"] },
+      { matchNorms: ["banco de horas"], forms: ["Banco de Horas"] },
+    ];
+    // Casar "banco de horas" é mais específico que casar "horas".
+    expect(formasCasadas("meu banco de horas", onto)[0]).toBe("Banco de Horas");
+  });
+
+  it("é estável: a mesma pergunta dá a mesma ordem, venha o banco como vier", () => {
+    // Vetor de busca que muda sozinho entre execuções é bug irreproduzível.
+    const a: EntradaOntologia[] = [
+      { matchNorms: ["ferias"], forms: ["Férias"] },
+      { matchNorms: ["folga"], forms: ["Folga"] },
+    ];
+    const b: EntradaOntologia[] = [...a].reverse();
+    expect(formasCasadas("ferias e folga", a)).toEqual(formasCasadas("ferias e folga", b));
+  });
+
+  it("não inventa nem duplica quando nada casa", () => {
+    expect(formasCasadas("qualquer coisa", [])).toEqual([]);
+    const onto: EntradaOntologia[] = [{ matchNorms: ["ferias"], forms: ["Férias", "Férias", " "] }];
+    expect(formasCasadas("ferias", onto)).toEqual(["Férias"]);
+  });
+});
