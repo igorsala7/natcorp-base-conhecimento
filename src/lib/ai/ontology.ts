@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mesclarPiso, VOCABULARIO_RH } from "./vocabulario-rh";
 import type { Database } from "@/lib/database.types";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -151,20 +152,44 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: 
     .in("id", spaceIds);
   for (const s of espacos ?? []) if (s.parent_space_id) alvos.add(s.parent_space_id);
 
-  const { data: termos } = await supabase
-    .from("ontology_terms")
-    .select("id, term, term_norm, node_id")
-    .in("space_id", [...alvos]);
-  const ids = (termos ?? []).map((t) => t.id);
+  // PAGINAR: o PostgREST devolve no máximo 1.000 linhas por resposta, em
+  // silêncio. Medido em 20/08/2026: 5.569 termos no banco, **1.014 chegando à
+  // busca** — 82% da ontologia simplesmente não existia para o chatbot, e nada
+  // no comportamento denunciava isso. O sintoma não era erro, era ausência: o
+  // sinônimo do cliente não expandia a consulta, o vínculo termo→artigo nunca
+  // disparava, e cada caso parecia um termo mal cadastrado.
+  //
+  // É a mesma armadilha que já fez artigo "subir para a raiz" na árvore de
+  // conteúdo (ver `fetchAllPaged`). A ordem precisa ser TOTAL e estável, senão
+  // as fatias pulam ou repetem linhas na fronteira.
+  const termos = await fetchAllPaged<{ id: string; term: string; term_norm: string; node_id: string | null }>(
+    (de, ate) =>
+      supabase
+        .from("ontology_terms")
+        .select("id, term, term_norm, node_id")
+        .in("space_id", [...alvos])
+        .order("id")
+        .range(de, ate),
+  );
+  const ids = termos.map((t) => t.id);
 
-  // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do PostgREST.
+  // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do
+  // PostgREST. Cada fatia também pagina: 200 termos com muitos sinônimos passam
+  // das 1.000 linhas, e o corte silencioso apagaria justamente os sinônimos dos
+  // conceitos mais ricos.
   const aliasPorTermo = new Map<string, { alias: string; alias_norm: string }[]>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data: aliases } = await supabase
-      .from("ontology_aliases")
-      .select("term_id, alias, alias_norm")
-      .in("term_id", ids.slice(i, i + 200));
-    for (const a of aliases ?? []) {
+    const fatia = ids.slice(i, i + 200);
+    const aliases = await fetchAllPaged<{ term_id: string; alias: string; alias_norm: string }>(
+      (de, ate) =>
+        supabase
+          .from("ontology_aliases")
+          .select("term_id, alias, alias_norm")
+          .in("term_id", fatia)
+          .order("id")
+          .range(de, ate),
+    );
+    for (const a of aliases) {
       const lista = aliasPorTermo.get(a.term_id) ?? [];
       lista.push({ alias: a.alias, alias_norm: a.alias_norm });
       aliasPorTermo.set(a.term_id, lista);
@@ -190,7 +215,7 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: 
     }
   }
 
-  const data: EntradaOntologia[] = (termos ?? []).map((t) => {
+  const data: EntradaOntologia[] = termos.map((t) => {
     const al = aliasPorTermo.get(t.id) ?? [];
     const matchNorms = [t.term_norm, ...al.map((a) => a.alias_norm)];
     const forms = [t.term, ...al.map((a) => a.alias)];
