@@ -189,12 +189,31 @@ async function main() {
   }
   await client.end();
 
+  /**
+   * CASO ANOTADO NUNCA SE PERDE, mesmo fora da amostra desta rodada.
+   *
+   * A amostragem é por cenário com piso: reextrair sorteia turnos diferentes, e
+   * quem já foi anotado e não caiu no novo sorteio simplesmente sumiria. Pior,
+   * some sem aviso — o arquivo continua parecendo íntegro, só menor.
+   *
+   * Custou perto: 15 casos migrados à mão de `eval/rag.jsonl` em 21/08/2026
+   * (turnos de COMPORTAMENTO, que este extrator nem procura) seriam apagados
+   * pela primeira reextração. Anotação é a parte cara do conjunto; o sorteio é
+   * a barata.
+   */
+  const novos = new Set(casos.map((c) => String(c.pergunta)));
+  const herdados = [...anteriores.values()].filter(
+    (c) => !c.revisar && !novos.has(String(c.pergunta)),
+  );
+  const finais = [...casos, ...herdados];
+
   const dir = SAIDA.slice(0, SAIDA.lastIndexOf("/"));
   if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(SAIDA, casos.map((c) => JSON.stringify(c)).join("\n") + "\n", "utf8");
+  writeFileSync(SAIDA, finais.map((c) => JSON.stringify(c)).join("\n") + "\n", "utf8");
 
-  console.log(`\n${rows.length} turnos · ${casos.length} casos extraídos`);
+  console.log(`\n${rows.length} turnos · ${casos.length} casos na amostra · ${finais.length} no arquivo`);
   if (preservados) console.log(`${preservados} já anotados — gabarito PRESERVADO`);
+  if (herdados.length) console.log(`${herdados.length} anotados FORA desta amostra — mantidos`);
   console.log("\ncenário          casos   no total de 20 dias");
   for (const cen of CENARIOS) {
     const n = casos.filter((c) => c.cenario === cen).length;

@@ -1,16 +1,17 @@
-# Cenários com contexto — 2026-08-21 17:40
+# Cenários com contexto — 2026-08-21 19:40
 
-51 casos remontados com histórico, tela e as ferramentas que o funil realmente entregou.
+74 casos remontados com histórico, tela e as ferramentas que o funil realmente entregou.
 
 | modelo | ferramenta | pergunta | perguntou demais | de menos | tok in | US$/1k | s |
 |---|---|---|---|---|---|---|---|
-| `google:gemini-3.6-flash` | 31/51 (61%) | 41/51 (80%) | 0 | 10 | 5390 | 12.50 | 4.2 |
+| `google:gemini-3.6-flash` | 41/74 (55%) | 63/74 (85%) | 1 | 10 | 5229 | 12.21 | 4.1 |
 
-**Gasto real desta rodada:** US$ 0.64.
+**Gasto real desta rodada:** US$ 0.90.
 
 
 ## Falha de funil — nenhum modelo pode passar nestes
 
+- **"Adiantamento Agosto"** precisava de `relatorio_recibo_pagamento` — Buscar o recibo ANTES de gerar o arquivo — o agente gerou o PDF direto, sem consultar. Vira FALHA DE FUNIL no placar, e é o ponto: nenhuma ferramenta de integração foi ofertada naquele turno, então ele não tinha como buscar. Segundo caso de relatorio_recibo_pagamento ausente no conjunto.
 - **"quais sao os meus dados cadastrais?"** precisava de `meus_dados` — inequívoco — perguntar aqui é o excesso que irrita
 - **"Compara com o mês de Abril"** precisava de `historico_financeiro` — 
 - **"envie um e-mail para igorsala7@gmail.com"** precisava de `ms_email_enviar` — indicar endereço é sinal de envio; executa com a conta conectada [FUNIL: ms_email_enviar não foi ofertada] — anotado pelo dono em 21/08/2026, migrado de eval/rag.jsonl
@@ -20,61 +21,77 @@
 
 ## Onde erraram ou discordaram
 
-**"Crie um template de documento de contrato de admissão de contrato dete"** — esperado `(nenhuma)` + PERGUNTAR
+**"GERE ESTE MATERIAL EXECUTIVO PARA APRESENTAR"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → requisicoes_req_vaga, requisicoes_req_pessoal
+
+**"Olá, preciso das informações dos meus liderados"** — esperado `informacoes_pessoais_funcionais`
+
+- ❌ `google:gemini-3.6-flash` → meus_dados
+
+**"Ok, me gere um pdf disso"** — esperado `gerar_relatorio`
 
 - ❌ `google:gemini-3.6-flash` → (nenhuma)
 
-**"requisição de férias"** — esperado `ferias_criar`
+**"excel"** — esperado `gerar_relatorio`
 
-- ❌ `google:gemini-3.6-flash` → (nenhuma)
+- ❌ `google:gemini-3.6-flash` → consultar_ferias
 
-**"Explique o que e o motor de blocos do editor"** — esperado `(nenhuma)` + PERGUNTAR
+**"Faz em pdf"** — esperado `gerar_relatorio`
 
-- ❌ `google:gemini-3.6-flash` → (nenhuma)
+- ❌ `google:gemini-3.6-flash` → (nenhuma) + perguntou
 
-**"Opção 2"** — esperado `(nenhuma)` + PERGUNTAR
+**"Quero ver as marcações de ponto da minha equipe"** — esperado `consultar_marcacoes` + PERGUNTAR
 
-- ❌ `google:gemini-3.6-flash` → estrutura_empresas
+- ❌ `google:gemini-3.6-flash` → (nenhuma) + perguntou
+
+**"Então faça pelo total da remuneração"** — esperado `informacoes_pessoais_funcionais`
+
+- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais_resumido
+
+**"calcule utlizando este anexo"** — esperado `(nenhuma)`
+
+- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais_resumido
 
 **"preencha esse campo com a descrição das atividades  para o cargo de co"** — esperado `preencher_campo`
 
 - ❌ `google:gemini-3.6-flash` → estrutura_cargos
 
-**"Pode"** — esperado `(nenhuma)` + PERGUNTAR
-
-- ❌ `google:gemini-3.6-flash` → ferias_situacao
-
 **"calcule total de horas extras para filial 97 ,  faca demonstrativo por"** — esperado `resultado_apuracao_ponto`
 
-- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais
+- ❌ `google:gemini-3.6-flash` → consultar_registros
+
+**"Analise este relatório e me diga o que chama atenção."** — esperado `(nenhuma)`
+
+- ❌ `google:gemini-3.6-flash` → consultar_registros
 
 **"O que seria esse evento?"** — esperado `(nenhuma)`
 
-- ❌ `google:gemini-3.6-flash` → consultar_registros
+- ❌ `google:gemini-3.6-flash` → consultar_registros, consultar_registros, consultar_registro
+
+**"oi"** — esperado `(nenhuma)`
+
+- ❌ `google:gemini-3.6-flash` → lista_opcoes
 
 **"Faça um comparativo dos valores de benefícios do histórico financeiro "** — esperado `agrupar`
 
-- ❌ `google:gemini-3.6-flash` → consultar_registros
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
 
-**"FAça a anállise dessas informações do relatório"** — esperado `(nenhuma)`
-
-- ❌ `google:gemini-3.6-flash` → consultar_registros, consultar_registros
-
-**"Quero enviar um e-mail"** — esperado `(nenhuma)` + PERGUNTAR
+**"Pegue todo o período, desde quando ela foi admitida"** — esperado `linha_tempo`
 
 - ❌ `google:gemini-3.6-flash` → (nenhuma)
 
-**"crie em colunas apenas o nome, matricula , codigo desligamento e descr"** — esperado `(nenhuma)` + PERGUNTAR
+**"como é feita esse procedimento para localizar algo?"** — esperado `(nenhuma)` + PERGUNTAR
 
-- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
 
 **"Quero ver os eventos de apuração de ponto da matrícula 205818"** — esperado `frequencia_resultado_apuracao_detalhe` + PERGUNTAR
 
-- ❌ `google:gemini-3.6-flash` → frequencia_resultado_apuracao_detalhe, resultado_apuracao_po
+- ❌ `google:gemini-3.6-flash` → frequencia_resultado_apuracao_detalhe
 
 **"Informe a empresa 700 e matrícula 205818"** — esperado `preencher_campo`
 
-- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais
+- ❌ `google:gemini-3.6-flash` → estrutura_empresas, informacoes_pessoais_funcionais
 
 **"Preencha pra mim, a empresa 700, matrícula 205818, situação de pedido "** — esperado `preencher_campo`
 
@@ -88,25 +105,65 @@
 
 - ❌ `google:gemini-3.6-flash` → consultar_registros
 
+**"Quero pedir férias"** — esperado `ferias_situacao`
+
+- ❌ `google:gemini-3.6-flash` → ferias_opcoes
+
+**"Crie um template de documento de contrato de admissão de contrato dete"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
+
+**"requisição de férias"** — esperado `ferias_criar`
+
+- ❌ `google:gemini-3.6-flash` → ferias_situacao
+
+**"Explique o que e o motor de blocos do editor"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
+
+**"Agora gere um PPT e Word"** — esperado `gerar_relatorio`
+
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
+
+**"Opção 2"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → estrutura_empresas, bi_conformidade_sesmt, bi_risco
+
+**"Tudo junto"** — esperado `linha_tempo`
+
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
+
+**"E o Tony Oliveira?"** — esperado `informacoes_pessoais_funcionais_resumido`
+
+- ❌ `google:gemini-3.6-flash` → historico_financeiro_meses
+
+**"Pode"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → ferias_situacao
+
+**"FAça a anállise dessas informações do relatório"** — esperado `(nenhuma)`
+
+- ❌ `google:gemini-3.6-flash` → agregar_valores, agregar_valores
+
+**"Quero enviar um e-mail"** — esperado `(nenhuma)` + PERGUNTAR
+
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
+
 **"Me descreva um pouco mais sobre os exames que ela realizou"** — esperado `(nenhuma)` + PERGUNTAR
 
 - ❌ `google:gemini-3.6-flash` → sesmt_procedimentos
 
 **"traga a lista completa"** — esperado `(nenhuma)` + PERGUNTAR
 
-- ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais
+- ❌ `google:gemini-3.6-flash` → (nenhuma)
 
 **"Quais foram as marcações de ponto dele nessa semana? Me retorne os dad"** — esperado `consultar_marcacoes`
 
 - ❌ `google:gemini-3.6-flash` → informacoes_pessoais_funcionais
 
-**"como é feita esse procedimento para localizar algo?"** — esperado `(nenhuma)` + PERGUNTAR
-
-- ❌ `google:gemini-3.6-flash` → (nenhuma)
-
 **"Mas eu disse 01/11 e 01/12"** — esperado `ferias_validar`
 
-- ❌ `google:gemini-3.6-flash` → ferias_opcoes
+- ❌ `google:gemini-3.6-flash` → consultar_ferias, ferias_opcoes
 
 **"Não retornou todos os 96, apenas 25"** — esperado `(nenhuma)`
 
