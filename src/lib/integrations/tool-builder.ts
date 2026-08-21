@@ -54,7 +54,7 @@ const TOOL_MEUS_DADOS = "meus_dados";
  *  chamada de 50ms. Independe do `cache_ttl` da ferramenta, que serve ao modelo. */
 const TTL_MEUS_DADOS = 900;
 import { getCachedExecMeta, cacheArgsKey, filtrarPorTermo, dedupItems } from "./tool-cache";
-import { expandirMeses } from "./loop";
+import { expandirMeses, expandirValores } from "./loop";
 import { logToolRun } from "./run-log";
 import { consolidarChamadas, type ChamadaHttp } from "./curl-step";
 import { idDaChamada } from "@/lib/chat/tool-trace";
@@ -1058,9 +1058,7 @@ export async function buildIntegrationTools(
           // no `param` e o servidor consulta cada um (ex.: várias matrículas).
           if (loop?.unit === "values") {
             const raw = modelArgs[chaveDoModelo(loop.param)];
-            let valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
-              .map((v) => String(v).trim())
-              .filter(Boolean);
+            let valores = expandirValores(raw);
             // pessoa: lista vazia = o PRÓPRIO usuário (mantém a semântica de origem=pessoa —
             // Colaborador que não informa matrícula consulta a si). O guard valida cada valor.
             const pLoop = bt.tool.params.find((pp) => pp.nome === loop.param);
@@ -1089,10 +1087,7 @@ export async function buildIntegrationTools(
           // `max` (junta cada lote com vírgula) e faz UMA chamada por lote, agregando.
           if (loop?.unit === "batch") {
             const raw = modelArgs[chaveDoModelo(loop.param)];
-            const valores = (Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [])
-              .flatMap((v) => String(v).split(","))
-              .map((v) => v.trim())
-              .filter(Boolean);
+            const valores = expandirValores(raw);
             if (valores.length === 0) {
               // Idem "values": só exige o param do loop quando ele é `obrigatorio`. Opcional e
               // sem valor → uma chamada única sem ele (a API decide); com valores → segue o batch.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expandirMeses } from "./loop";
+import { expandirMeses, expandirValores } from "./loop";
 
 describe("expandirMeses", () => {
   it("um único mês quando não há fim", () => {
@@ -48,5 +48,35 @@ describe("expandirMeses", () => {
     expect(expandirMeses("", null).lista).toHaveLength(0);
     expect(expandirMeses("mês que vem", null).lista).toHaveLength(0);
     expect(expandirMeses("2025-13", null).lista).toHaveLength(0);
+  });
+});
+
+describe("expandirValores", () => {
+  it("separa a lista por vírgula que o modelo manda como UMA string", () => {
+    // Sem isto, "205818,477" vira um valor só e o bi/v1 devolve ORA-01722.
+    expect(expandirValores("205818,477")).toEqual(["205818", "477"]);
+  });
+
+  it("aceita array e separa vírgula dentro dos itens", () => {
+    expect(expandirValores(["205818, 477", "69175"])).toEqual(["205818", "477", "69175"]);
+  });
+
+  it("deduplica preservando a ordem de chegada", () => {
+    // Requisição repetida é paga duas vezes pelo mesmo dado.
+    expect(expandirValores("477,205818,477")).toEqual(["477", "205818"]);
+  });
+
+  it("descarta vazio e espaço em branco", () => {
+    // Valor vazio viraria requisição SEM filtro: volta a base inteira com
+    // aparência de resposta filtrada.
+    expect(expandirValores("205818, ,, 477 ")).toEqual(["205818", "477"]);
+    expect(expandirValores("")).toEqual([]);
+    expect(expandirValores(null)).toEqual([]);
+    expect(expandirValores(undefined)).toEqual([]);
+  });
+
+  it("um valor só continua um valor só", () => {
+    expect(expandirValores("205818")).toEqual(["205818"]);
+    expect(expandirValores(205818)).toEqual(["205818"]);
   });
 });

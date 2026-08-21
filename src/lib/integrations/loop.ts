@@ -56,3 +56,35 @@ export function expandirMeses(
   }
   return { lista, excedeu: false };
 }
+
+/**
+ * Normaliza o que o modelo mandou no parâmetro de um laço `values`/`batch`
+ * numa lista de valores limpa.
+ *
+ * Três coisas, e cada uma corrige um defeito medido em 20/08/2026:
+ *
+ * 1. SEPARA POR VÍRGULA. O modelo escreve `"205818,477"` numa string só — é a
+ *    forma natural dele, e é o que a descrição do parâmetro pede. Sem separar,
+ *    a string inteira vira UM valor e a API recusa: `bi/v1/*` devolve
+ *    ORA-01722 ("número inválido"). O ramo `batch` já separava; o `values`,
+ *    que é o mais usado, não.
+ * 2. DEDUPLICA, preservando a ordem de chegada. Medido: 12,7% das requisições
+ *    de loop-values eram a MESMA URL, e 74 chamadas dispararam duas vezes.
+ *    Requisição repetida é dinheiro e latência por um dado que já se tem.
+ * 3. Descarta vazio, que vira requisição sem filtro — o erro silencioso caro:
+ *    volta a base inteira com cara de resposta filtrada.
+ *
+ * A vírgula nunca é parte do valor aqui: os 23 laços cadastrados iteram em
+ * `matricula` ou `cod_candidato`, códigos numéricos.
+ */
+export function expandirValores(raw: unknown): string[] {
+  const bruto = Array.isArray(raw) ? raw : raw != null && raw !== "" ? [raw] : [];
+  return [
+    ...new Set(
+      bruto
+        .flatMap((v) => String(v).split(","))
+        .map((v) => v.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
