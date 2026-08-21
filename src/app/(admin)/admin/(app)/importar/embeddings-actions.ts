@@ -113,15 +113,26 @@ export async function listSpaceNodes(
     return [];
   }
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("nodes")
-    .select("id, parent_id, title, type, position")
-    .eq("space_id", spaceId)
-    .in("type", ["folder", "article"])
-    .is("deleted_at", null)
-    .order("position");
-
-  const rows = data ?? [];
+  // Paginado pelo mesmo motivo da consulta acima, e aqui dói mais: a árvore é
+  // montada por `parent_id`, então nó cujo PAI ficou fora do lote perde a
+  // referência. `natcorp` tem 6.164 nós contra o teto de 1.000 — esta tela
+  // vinha informando cobertura de embedding sobre 16% do espaço, que é
+  // justamente a tela onde se decide se a indexação está completa.
+  // `position` é fracionária e empata: o desempate por `id` dá a ordem TOTAL
+  // que a paginação exige para não pular nem repetir linha na fronteira.
+  const rows = await fetchAllPaged<{
+    id: string; parent_id: string | null; title: string; type: string; position: string;
+  }>((de, ate) =>
+    supabase
+      .from("nodes")
+      .select("id, parent_id, title, type, position")
+      .eq("space_id", spaceId)
+      .in("type", ["folder", "article"])
+      .is("deleted_at", null)
+      .order("position")
+      .order("id")
+      .range(de, ate),
+  );
   const byParent = new Map<string | null, typeof rows>();
   for (const n of rows) {
     const list = byParent.get(n.parent_id) ?? [];

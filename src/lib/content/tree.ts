@@ -115,13 +115,21 @@ export async function embeddedNodeIds(spaceId: string): Promise<string[]> {
  */
 export async function ontologyNodeIds(spaceId: string): Promise<string[]> {
   const supabase = await createClient();
-  const { data: nodes } = await supabase
-    .from("nodes")
-    .select("id")
-    .eq("space_id", spaceId)
-    .eq("type", "article")
-    .is("deleted_at", null);
-  const nodeIds = (nodes ?? []).map((n) => n.id);
+  // Paginado: `natcorp` tem 4.314 artigos e o PostgREST corta em 1.000 sem
+  // avisar. Cortado aqui, a árvore mostraria "sem ontologia" para 3 de cada 4
+  // artigos JÁ varridos — um relatório que mente para menos, e que levaria
+  // alguém a mandar varrer tudo de novo.
+  const nodes = await fetchAllPaged<{ id: string }>((de, ate) =>
+    supabase
+      .from("nodes")
+      .select("id")
+      .eq("space_id", spaceId)
+      .eq("type", "article")
+      .is("deleted_at", null)
+      .order("id")
+      .range(de, ate),
+  );
+  const nodeIds = nodes.map((n) => n.id);
   const set = new Set<string>();
   for (let i = 0; i < nodeIds.length; i += 200) {
     const { data } = await supabase

@@ -117,16 +117,23 @@ export type ScanResumo = { artigos: number; issues: number };
 
 export async function scanSpaceQuality(db: Db, spaceId: string): Promise<ScanResumo> {
   const ctx = await buildQualityContext(db, spaceId);
-  const { data: artigos } = await db
-    .from("nodes")
-    .select("id, title, description")
-    .eq("space_id", spaceId)
-    .eq("type", "article")
-    .eq("status", "published")
-    .is("deleted_at", null);
+  // Paginado: `natcorp` tem 4.314 artigos e o corte silencioso em 1.000 faria
+  // a varredura de qualidade declarar "sem problemas" o que ela nunca abriu.
+  const artigos = await fetchAllPaged<{ id: string; title: string; description: string | null }>(
+    (de, ate) =>
+      db
+        .from("nodes")
+        .select("id, title, description")
+        .eq("space_id", spaceId)
+        .eq("type", "article")
+        .eq("status", "published")
+        .is("deleted_at", null)
+        .order("id")
+        .range(de, ate),
+  );
 
   let totalIssues = 0;
-  for (const n of artigos ?? []) {
+  for (const n of artigos) {
     const { data: art } = await db
       .from("articles")
       .select("content_json")
