@@ -41,6 +41,7 @@ import { categorizarTools } from "@/lib/chat/tool-scope";
 import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { temSinalDePeriodo } from "@/lib/chat/periodo";
+import { faltaDestinoDaEntrega, perguntaDeEntrega } from "@/lib/chat/entrega";
 import { podarPassosAnteriores, economiaDaPoda } from "@/lib/chat/podar-passos";
 import { DIRETIVA_PERGUNTAR, devePerguntarDiretiva } from "@/lib/ai/perguntar";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
@@ -2233,6 +2234,40 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       });
       return sseResponse(stream, cors);
     }
+  }
+
+  /**
+   * ONDE ENTREGAR — o portão que falta, e a segunda regra enumerável do dono.
+   *
+   * "traga a lista completa" (96 registros) virou Excel quando ele queria VER;
+   * "crie em colunas apenas o nome, matrícula…" (25) virou Excel sem perguntar.
+   * Os dois casos estão no gabarito e os dois falham hoje — o agente decide
+   * sozinho e erra nos DOIS sentidos.
+   *
+   * Vem DEPOIS da desambiguação de tema porque a ordem importa: não adianta
+   * negociar o formato de uma lista cujo assunto ainda está em aberto.
+   *
+   * Não precisa de guarda contra repetir a pergunta: as respostas possíveis
+   * ("Ver aqui no chat", "Planilha (Excel)", "PDF") declaram o destino, e
+   * destino declarado desliga o portão — a checagem se auto-limita. O guarda
+   * explícito abaixo cobre só a digitação livre que não escolha nenhuma opção.
+   */
+  const maiorConjunto = datasets.list.reduce((m, d) => Math.max(m, d.rows.length), 0);
+  const jaPerguntouEntrega = /prefere ver aqui no chat ou receber um arquivo/i.test(
+    messages.filter((m) => m.role === "assistant").slice(-1)[0]?.content ?? "",
+  );
+  if (!social && !jaPerguntouEntrega && faltaDestinoDaEntrega(question, maiorConjunto)) {
+    const p = perguntaDeEntrega(maiorConjunto);
+    passo("clarify_entrega", { linhas: maiorConjunto });
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sse({ type: "clarify", question: p._perguntar, options: p.opcoes }));
+        controller.enqueue(finalizarTrace("clarify_entrega"));
+        controller.enqueue(sse({ type: "done", conversationId: convId }));
+        controller.close();
+      },
+    });
+    return sseResponse(stream, cors);
   }
 
   // Multi-tenant (B): teto de uso diário + semáforo de concorrência POR BASE

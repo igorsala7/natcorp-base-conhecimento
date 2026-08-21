@@ -48,6 +48,7 @@ import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
 import { faltaPeriodoNaChamada, temSinalDePeriodo } from "../src/lib/chat/periodo";
+import { faltaDestinoDaEntrega } from "../src/lib/chat/entrega";
 import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
@@ -74,6 +75,11 @@ const SAIDA = arg("saida", "eval/cenarios.md");
 // diretiva A/B no MESMO conjunto antes de ela entrar na produção — mudar prompt
 // sem antes/depois é o erro que este eval existe para não repetir.
 const DIRETIVA = arg("diretiva", "0") === "1";
+// `--sem-portao-entrega 1` desliga o espelho do portão de `entrega.ts`. Existe
+// pelo mesmo motivo de `--diretiva`: medir A/B no MESMO conjunto, sem editar
+// código entre as duas rodadas — o jeito mais fácil de comparar duas coisas
+// diferentes achando que são a mesma.
+const SEM_PORTAO_ENTREGA = arg("sem-portao-entrega", "0") === "1";
 const MODELOS = arg(
   "modelos",
   ["google:gemini-3.5-flash", "anthropic:claude-haiku-4-5", "anthropic:claude-sonnet-5", "openai:gpt-5.6-terra"].join(","),
@@ -236,6 +242,18 @@ async function main() {
         temSinalDePeriodo(caso.historico.filter((h) => h.role === "user").slice(-3).map((h) => h.content).join(" "));
       let barrouPorPeriodo = false;
 
+      /**
+       * PORTÃO DE ENTREGA, espelhado do servidor (`entrega.ts`).
+       *
+       * O servidor decide ANTES do modelo — o turno nem chega a gerar. Aqui o
+       * efeito é o mesmo: se o portão dispararia, o turno conta como PERGUNTOU,
+       * porque foi isso que o usuário veria. Sem este espelho, um portão que
+       * funciona em produção não moveria o placar, e a medição diria que a
+       * correção não serviu.
+       */
+      const linhasEmJogo = caso.tela.reduce((m, t) => Math.max(m, t.linhas ?? 0), 0);
+      const barrouPorEntrega = faltaDestinoDaEntrega(caso.pergunta, linhasEmJogo);
+
       // A pergunta é uma ferramenta: medível pelo mesmo caminho da decisão.
       tools.perguntar_ao_usuario = tool({
         description:
@@ -286,15 +304,44 @@ async function main() {
       const t0 = Date.now();
       try {
         const model = await resolverModelo(spec);
-        const r = await generateText({ model, system: sistema, messages, tools, maxOutputTokens: 700 });
+        /**
+         * TEMPERATURA ZERO, e isso é decisão de instrumento, não de fidelidade.
+         *
+         * Sem fixá-la, o provedor usa o padrão (1.0) e o placar oscila SOZINHO.
+         * Medido em 21/08/2026, três rodadas do mesmo modelo sobre os mesmos 51
+         * casos: ferramenta 31, 28 e 29 — as duas últimas com código idêntico.
+         * Um eval cuja variação própria é de 2 a 3 casos não consegue julgar uma
+         * correção que move 1, e foi exatamente o que quase aconteceu: o portão
+         * de entrega pareceu DERRUBAR o eixo de ferramenta, e a repetição
+         * mostrou que era ruído.
+         *
+         * Produção roda no padrão, então isto mede um sistema levemente
+         * diferente. É o preço certo a pagar: um portão de regressão precisa
+         * distinguir sinal de acaso, e essa é a única propriedade que ele não
+         * pode negociar. O eixo PERGUNTA, aliás, já vinha estável nas três
+         * rodadas (41, 42, 42) — o ruído mora na escolha entre ferramentas
+         * parecidas, que é onde a temperatura pesa.
+         */
+        const r = await generateText({ model, system: sistema, messages, tools, maxOutputTokens: 700, temperature: 0 });
         p.ms += Date.now() - t0;
         p.entrada += r.usage?.inputTokens ?? 0;
         p.saida += r.usage?.outputTokens ?? 0;
 
         // Barrar por período É o sistema perguntando — o modelo recebe as opções e
         // repassa. Contar diferente esconderia justamente o que a checagem faz.
-        const perguntou = chamadas.includes("perguntar_ao_usuario") || barrouPorPeriodo;
-        const usadas = chamadas.filter((c) => c !== "perguntar_ao_usuario");
+        const entregaBarrou = SEM_PORTAO_ENTREGA ? false : barrouPorEntrega;
+        const perguntou = chamadas.includes("perguntar_ao_usuario") || barrouPorPeriodo || entregaBarrou;
+        /**
+         * O portão de ENTREGA encurta o turno no servidor: ele responde a
+         * pergunta e RETORNA, antes de o modelo existir. Marcar só "perguntou" e
+         * deixar as ferramentas do modelo contarem mediria um turno híbrido que
+         * não acontece em lugar nenhum — e foi assim que o portão apareceu
+         * custando um caso no eixo de ferramenta que ele não custa.
+         *
+         * O de PERÍODO é diferente e continua contando: ele age no `execute` da
+         * ferramenta, então a chamada de fato aconteceu e a escolha foi feita.
+         */
+        const usadas = entregaBarrou ? [] : chamadas.filter((c) => c !== "perguntar_ao_usuario");
 
         // FERRAMENTA — `espera_tool: null` significa "nenhuma ferramenta de dado".
         p.tMed++;

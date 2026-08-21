@@ -95,3 +95,45 @@ nome que você já tem na tela ou no histórico.`;
 export function devePerguntarDiretiva(opts: { social: boolean; soRedigir: boolean; temFerramentas: boolean }): boolean {
   return !opts.social && !opts.soRedigir && opts.temFerramentas;
 }
+
+/**
+ * ── PORTÕES: o que virou código, e o que foi MEDIDO E RECUSADO ─────────────
+ *
+ * A lição do topo deste arquivo — "onde a regra é enumerável, um portão no
+ * servidor" — não vale para toda regra. Ela vale onde as condições são
+ * verificáveis sem adivinhar a intenção. Registro aqui os dois lados, porque a
+ * tentação de reconstruir o recusado é grande e o custo já foi pago uma vez.
+ *
+ * ENTREGOU (`entrega.ts`): ambiguidade de FORMATO — "traga a lista completa"
+ * com 96 registros, sem dizer se quer ver ou baixar. As três condições são
+ * objetivas: verbo de produzir + objeto de lista, nenhum destino declarado, e
+ * volume acima do que cabe numa resposta. Os dois casos do gabarito são os dois
+ * que o dono mediu, com desfechos OPOSTOS — gerou arquivo quando queria ver, e
+ * gerou arquivo sem perguntar.
+ *
+ * RECUSADO (escopo organizacional): a regra do dono existe e é clara — pedido
+ * agregado sem empresa/filial/centro de custo fixado deve perguntar, listando
+ * os recortes. O portão foi prototipado e MEDIDO contra 1.392 turnos reais de
+ * 25 dias, refinando as condições em três passadas:
+ *
+ *   agregado, sem escopo citado na mensagem ............ 102 turnos (7,3%)
+ *   …e sem nenhum dado em jogo no turno ................  22 turnos (1,6%)
+ *   …e sem anáfora ("nessa lista", "deles") ............  16 turnos (1,1%)
+ *
+ * 1,1% seria aceitável. A precisão não é: no que sobrou, "Quantas jornadas
+ * noturnas EU POSSUO?" e "Quantos colaboradores EU TENHO com atestado?" já
+ * declaram o escopo (o próprio usuário) por uma construção que nenhuma lista de
+ * palavras captura, e "Quantos candidatos por fase no processo seletivo 57463?"
+ * traz o recorte no próprio número. Cerca de metade dos disparos seria pergunta
+ * indevida — que é o defeito OPOSTO, e o dono foi explícito sobre ele:
+ * perguntar no óbvio irrita mais que errar em silêncio.
+ *
+ * A diferença entre os dois portões não é o cuidado de quem escreveu: é que
+ * "onde entregar" se decide por FORMA (verbo, objeto, volume) e "qual escopo"
+ * se decide por INTENÇÃO. Portão serve para forma. Para intenção, a diretiva
+ * acima é o instrumento certo — mais fraca, e honesta sobre isso.
+ *
+ * O que destravaria o portão de escopo: um sinal estrutural de "escopo próprio"
+ * (o painel do usuário já restringe o alcance — PC vê só os seus), em vez de
+ * léxico. `escopoDoPainel` em `panel-scope.ts` já tem esse dado. Não medido.
+ */
