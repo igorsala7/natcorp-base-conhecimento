@@ -40,6 +40,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { familiaDaTool } from "../src/lib/chat/tool-trace";
 import { generateText, tool, type ToolSet, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { Database } from "../src/lib/database.types";
@@ -59,6 +60,13 @@ const arg = (nome: string, padrao: string): string => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : padrao;
 };
 const N = Number(arg("n", "99"));
+/**
+ * LOCAL x INTEGRAÇÃO pela fonte canônica (`familiaDaTool`), não por uma lista
+ * copiada: duas listas divergem, e a divergência aparece como defeito
+ * fantasma no placar. Tudo que não é "integracao" é local.
+ */
+const ehLocal = (chave: string): boolean => familiaDaTool(chave) !== "integracao";
+
 const BASE = arg("base", "natcorp");
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
@@ -83,6 +91,8 @@ type Caso = {
   espera_clarify: boolean;
   nota?: string;
   revisar?: boolean;
+  /** Quando o turno original aconteceu — é a IDADE da foto de `ofertadas`. */
+  foi_em?: string | null;
 };
 
 /** Mesma resolução de `eval-modelos.ts`: chave cifrada do sistema, não do ambiente. */
@@ -152,8 +162,40 @@ async function main() {
   const todos: Caso[] = readFileSync(ARQUIVO, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Caso);
   const semGabarito = todos.filter((c) => c.revisar);
   // Gabarito exigindo ferramenta que o funil não entregou: falha de funil.
-  const doFunil = todos.filter((c) => !c.revisar && c.espera_tool && !c.ofertadas.includes(c.espera_tool));
+  //
+  // Só vale para ferramenta de INTEGRAÇÃO. As LOCAIS (preencher_campo,
+  // consultar_registros, gerar_relatorio…) não passam por top-K: elas dependem
+  // do que o widget mandou na tela e das regras do turno. Chamar a ausência
+  // delas de "falha de funil" manda procurar no lugar errado — em 21/08/2026
+  // isso me fez caçar três defeitos de `preencher_campo` que já estavam
+  // consertados (o guarda `operandoATela`, de 19/08), porque o `ofertadas` do
+  // caso é uma FOTO do turno original, não o funil de hoje.
+  const doFunil = todos.filter(
+    (c) => !c.revisar && c.espera_tool && !ehLocal(c.espera_tool) && !c.ofertadas.includes(c.espera_tool),
+  );
+  // Local ausente: fica NO placar (o modelo até poderia ter agido de outro
+  // jeito), mas sai rotulado — a correção é no payload da tela, não na seleção.
+  const localAusente = todos.filter(
+    (c) => !c.revisar && c.espera_tool && ehLocal(c.espera_tool) && !c.ofertadas.includes(c.espera_tool),
+  );
   const amostra = todos.filter((c) => !c.revisar && !doFunil.includes(c)).slice(0, N);
+
+  // A FOTO ENVELHECE. `ofertadas` foi gravado no dia do turno; o funil mudou
+  // desde então. Sem este aviso, um caso antigo continua acusando um defeito já
+  // corrigido, e o placar mente para menos.
+  const idade = (c: Caso) => (c.foi_em ? (Date.now() - new Date(c.foi_em).getTime()) / 86_400_000 : 0);
+  const velhos = [...doFunil, ...localAusente].filter((c) => idade(c) > 5);
+  if (velhos.length) {
+    console.log(`\n⚠ ${velhos.length} caso(s) com a lista de ferramentas capturada há mais de 5 dias:`);
+    for (const c of velhos) {
+      console.log(`   ${Math.round(idade(c))}d  ${c.espera_tool}  "${c.pergunta.slice(0, 44)}"`);
+    }
+    console.log("  Confira se o defeito ainda existe antes de consertá-lo — o funil pode já ter mudado.");
+  }
+  if (localAusente.length) {
+    console.log(`\n${localAusente.length} caso(s) com ferramenta LOCAL ausente (corrige-se no payload da tela, não na seleção):`);
+    for (const c of localAusente) console.log(`   ${c.espera_tool}  "${c.pergunta.slice(0, 48)}"`);
+  }
 
   // Declara o custo ANTES de gastar — ver custo-da-rodada.ts.
   const tabelaPrecos: Preco[] = (precos ?? []).map((p) => ({

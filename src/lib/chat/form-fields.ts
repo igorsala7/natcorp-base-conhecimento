@@ -982,3 +982,52 @@ export function buildFormTools(fields: ScreenField[], sink: UiAction[]): ToolSet
     }),
   };
 }
+
+/**
+ * O usuário está mandando OPERAR a tela (preencher/marcar/clicar)?
+ *
+ * `route.ts` já tinha um regex de verbos e o campo EM FOCO como rede de
+ * segurança. Os dois falham juntos num caso comum, e o gabarito o pegou:
+ * `Informe a empresa 700 e matrícula 205818` na tela de requisição. O verbo
+ * "informar" ficou FORA do regex de propósito — "me informe os dados do Tony"
+ * é consulta —, e o foco não ajudou porque a pessoa abriu o chat e digitou sem
+ * antes clicar num campo. Resultado: o agente não recebia `preencher_campo` e
+ * respondia que não sabe preencher campos.
+ *
+ * Alargar o regex sozinho seria pior. Medido em 21/08/2026: das 25 perguntas
+ * reais com "inform*", a maioria é o SUBSTANTIVO ("crie um gráfico com essas
+ * informações") — `inform\w*` daria ~17 falsos positivos. E há uma armadilha
+ * própria do JS: `\b` é ASCII, então `\binforma\b` casa DENTRO de "informações"
+ * (o "ç" conta como fronteira). Daí a checagem por lookahead com acentos.
+ *
+ * A saída é cruzar dois sinais fracos: o VERBO informar/informe E o rótulo de
+ * um campo EDITÁVEL da tela citado na mensagem. "Informe a empresa 700" cita
+ * "empresa", que é campo; "me informe os dados do Tony" não cita campo nenhum.
+ * Nenhum dos dois sozinho decide.
+ *
+ * Assimetria que justifica o risco residual: um falso POSITIVO custa quatro
+ * definições de ferramenta no prompt; um falso NEGATIVO deixa a tarefa
+ * impossível — o modelo recebe a ordem de preencher e não recebe a ferramenta.
+ */
+const RX_ACAO_DIRETA = /\b(preench\w*|marqu\w*|desmarqu\w*|clic\w*|cliqu\w*|acion\w*|apert\w*)/i;
+/** Verbo "informar" nas formas de COMANDO. O lookahead barra "informações". */
+const RX_VERBO_INFORMAR = /\binform(a|e|es|ei|ar|am|em)(?![a-zà-ÿ])/i;
+
+export function pedeAcaoNaTela(msg: string, campos: readonly ScreenField[] = []): boolean {
+  const q = String(msg ?? "");
+  if (!q.trim()) return false;
+  if (RX_ACAO_DIRETA.test(q)) return true;
+  if (!RX_VERBO_INFORMAR.test(q)) return false;
+
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  const alvo = norm(q);
+  // Só campo EDITÁVEL conta: botão não se preenche, e o rótulo de um botão
+  // ("Pesquisar") aparece em pergunta de consulta o tempo todo.
+  return campos.some((c) => {
+    if (!c || c.type === "botao") return false;
+    const rot = norm(c.label ?? "");
+    // Rótulo curto demais ("UF", "Nº") casa por acidente dentro de outra palavra.
+    if (rot.length < 4) return false;
+    return alvo.includes(rot);
+  });
+}

@@ -34,7 +34,7 @@ import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
 import { loadAttachmentsForTurn, linkAttachments, withImageParts, receiveAttachment } from "@/lib/chat/attachment-store";
 import { pageContextFields, pageContextHint, pageContextNote, pageContentBlock, pageChangeNote, mesmaPagina, telaEstaEm, type PageContext } from "@/lib/chat/page-context";
-import { parseFields, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
+import { parseFields, pedeAcaoNaTela, fieldsContextBlock, formAssistDirective, entregarResultadoDirective, mensagemRelacionaTela, filtrarRelatorioVazioDirective, focusedFieldNote, comparacaoBlock, continuationNote, harvestDoneNote, buildFormTools, buildTutorialTool, buildHarvestTool, reportDataBlock, screenTablesBlock, pareceTutorial, type UiAction } from "@/lib/chat/form-fields";
 import { buildVisualTools, integUsageDirective, escopoAcessoDirective, escopoRelatorioDirective, intencaoVisual, selecaoFracaDirective, buildTrocaFonteTool, type PedidoDeFonte, RX_GERA_ARQUIVO, RX_OFERTA_ARQUIVO, type ChartChoice } from "@/lib/chat/report-tools";
 import { datasetsDirective, visualsCore, visualsExtras } from "@/lib/chat/visuals-directive";
 import { categorizarTools } from "@/lib/chat/tool-scope";
@@ -501,18 +501,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Pedido de AÇÃO na tela (preencher/marcar/clicar) → precisa das tools de ação + do
   // mapa de campos: NÃO é análise pura. Verbos de análise (analise, resuma, quais, conte,
   // ranqueie…) e "filtrar/contar os dados" (que usam as tools de cálculo) NÃO casam aqui.
-  const ehPedidoDeAcao = /\b(preench\w*|marqu\w*|desmarqu\w*|clic\w*|cliqu\w*|acion\w*|apert\w*)/i.test(question);
-  /**
-   * O usuário está OPERANDO a tela — e isso não é um palpite lexical.
-   *
-   * Um campo EM FOCO é o sinal mais forte que existe: o cursor está dentro dele.
-   * Sem isto, `Informe a empresa 700 e matrícula 205818` digitado com o campo
-   * Empresa selecionado não casava com nenhum verbo do regex acima ("informe"
-   * fica de fora de propósito — "me informe os dados do Tony" é consulta), e o
-   * turno era tratado como pergunta de dado.
-   */
-  const temCampoFoco = !!(payload.focusedField && typeof payload.focusedField === "object");
-  const operandoATela = ehPedidoDeAcao || temCampoFoco;
+  // A decisão fica em `pedeAcaoNaTela` (form-fields.ts), que cruza o verbo com
+  // os CAMPOS da tela — o porquê está lá. Aqui os campos ainda não foram lidos
+  // (`parseFields` roda depois e depende de `formAssist`), então esta avaliação
+  // usa só os verbos diretos e é REFEITA com os campos em `operandoATela`.
+  const ehPedidoDeAcaoDireto = pedeAcaoNaTela(question);
   // "Base de Dados": fontes selecionadas (relatórios salvos + uploads da sessão) e o
   // MODO. exclusiva = só as fontes + a tela, SEM RAG/ontologia (mantém a tela). Só vale
   // como exclusiva quando há de fato fontes selecionadas.
@@ -942,6 +935,23 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // para responder "Olá! Como posso ajudar?" — nada disso chega à resposta.
   const scanBlock = formAssist && !social ? pageContentBlock(payload.pageContent) : "";
   const screenFields = formAssist && !social ? parseFields(payload.fields) : [];
+  /**
+   * O usuário está OPERANDO a tela? Três sinais, do mais forte ao mais fraco.
+   *
+   * 1. CAMPO EM FOCO — o cursor está dentro dele. Não é palpite lexical.
+   * 2. VERBO DIRETO (preencher/marcar/clicar) — inequívoco sozinho.
+   * 3. VERBO "informar" + RÓTULO de campo editável citado na mensagem. Nenhum
+   *    dos dois decide sozinho: "informações" é substantivo em quase todo o
+   *    tráfego, e "empresa" aparece em pergunta de dado o tempo todo.
+   *
+   * O sinal 3 existe porque os dois primeiros falharam JUNTOS num caso real:
+   * "Informe a empresa 700 e matrícula 205818" digitado sem ter clicado em
+   * campo nenhum antes. O agente ficava sem `preencher_campo` e respondia que
+   * não sabe preencher campos — com a ordem de preencher no próprio prompt.
+   */
+  const temCampoFoco = !!(payload.focusedField && typeof payload.focusedField === "object");
+  const ehPedidoDeAcao = ehPedidoDeAcaoDireto || pedeAcaoNaTela(question, screenFields);
+  const operandoATela = ehPedidoDeAcao || temCampoFoco;
   // Loop autônomo do assistente de tela: o widget executou uma ação, re-varreu a
   // tela e pede que a IA CONTINUE (não é nova pergunta do usuário). (`continuation`
   // já foi resolvido acima, junto do gate de tutorial.)

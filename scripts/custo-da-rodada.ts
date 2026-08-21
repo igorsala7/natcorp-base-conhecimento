@@ -24,13 +24,18 @@ export function estimarCusto(
   casos: number,
   tokensEntradaPorCaso: number,
   precos: readonly Preco[],
-): { total: number; porModelo: { spec: string; usd: number }[] } {
+): { total: number; porModelo: { spec: string; usd: number; semPreco: boolean }[] } {
   const porModelo = modelos.map((spec) => {
     const [kind, ...r] = spec.split(":");
     const p = precos.find((x) => x.provider === kind && x.model === r.join(":"));
     // Saída estimada em 12% da entrada — a ordem de grandeza basta para o alerta.
     const usd = p ? (casos * tokensEntradaPorCaso * (p.pin + p.pout * 0.12)) / 1e6 : 0;
-    return { spec, usd };
+    // `semPreco` explícito, e não inferido de `usd === 0`: um modelo sem preço
+    // custa ZERO na conta e some do total — a estimativa sai baixa e o teto não
+    // aborta, que é cegueira exatamente onde a proteção deveria estar. E `usd`
+    // também é 0 quando `casos` é 0, então os dois casos são indistinguíveis
+    // pelo valor.
+    return { spec, usd, semPreco: !p };
   });
   return { total: porModelo.reduce((a, b) => a + b.usd, 0), porModelo };
 }
@@ -51,9 +56,23 @@ export function avisarCusto(
   const caros = porModelo.filter((m) => m.usd > total / modelos.length).sort((a, b) => b.usd - a.usd).slice(0, 4);
   console.log(`\nCUSTO ESTIMADO DESTA RODADA: ~US$ ${total.toFixed(2)}  (${casos} casos × ${modelos.length} modelos)`);
   if (caros.length) console.log(`  os mais caros: ${caros.map((m) => `${m.spec} ~US$ ${m.usd.toFixed(2)}`).join(" · ")}`);
-  const semPreco = porModelo.filter((m) => m.usd === 0).map((m) => m.spec);
-  if (semPreco.length) console.log(`  SEM PREÇO CADASTRADO (fora da estimativa): ${semPreco.join(", ")}`);
-  if (total > tetoUsd && !process.argv.includes("--aceito-o-custo")) {
+  const semPreco = porModelo.filter((m) => m.semPreco).map((m) => m.spec);
+  const forcado = process.argv.includes("--aceito-o-custo");
+  // Modelo sem preço ABORTA por padrão. Deixar passar seria pior que abortar:
+  // ele gasta de verdade e entra na estimativa como zero, então o teto — a única
+  // proteção que existe — deixa de valer sem ninguém perceber. Preço novo é uma
+  // linha em `ai_model_prices`; crédito derrubado custa a produção.
+  if (semPreco.length && !forcado) {
+    console.error(
+      `\nABORTADO: sem preço cadastrado para ${semPreco.join(", ")}.\n` +
+      `Um modelo sem preço conta ZERO na estimativa: o teto de US$ ${tetoUsd.toFixed(2)} deixaria de valer\n` +
+      `justamente na rodada que ninguém conseguiria prever. Cadastre em \`ai_model_prices\`\n` +
+      `ou rode com --aceito-o-custo assumindo que a previsão está incompleta.\n`,
+    );
+    process.exit(2);
+  }
+  if (semPreco.length) console.log(`  ⚠ SEM PREÇO (a estimativa acima NÃO os inclui): ${semPreco.join(", ")}`);
+  if (total > tetoUsd && !forcado) {
     console.error(
       `\nABORTADO: acima do teto de US$ ${tetoUsd.toFixed(2)}.\n` +
       `Uma rodada assim esgotou o crédito da Anthropic em 20/08 e derrubou a produção.\n` +
