@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pedeAcaoNaTela, type ScreenField } from "./form-fields";
+import { pedeAcaoNaTela, nucleoDoRotulo, type ScreenField } from "./form-fields";
 
 /**
  * Regressão do caso que o gabarito pegou em 21/08/2026: "Informe a empresa 700
@@ -9,12 +9,27 @@ import { pedeAcaoNaTela, type ScreenField } from "./form-fields";
  *
  * As frases NEGATIVAS aqui valem tanto quanto as positivas: elas vêm do tráfego
  * real, e alargar o regex de "inform*" faria o detector disparar em quase todas.
+ *
+ * ── OS RÓTULOS SÃO OS REAIS, E ISSO É O PONTO ───────────────────────────────
+ * A primeira versão deste arquivo usava rótulos idealizados — "Empresa",
+ * "Matrícula" — e passava enquanto a produção falhava. O APEX não emite
+ * "Empresa": emite "Empresa (Valor Necessário)", e como a regra casa
+ * `mensagem.includes(rótulo)`, nenhum dos 17 rótulos daquela tela era substring
+ * da mensagem. O teste dava confiança sem dar garantia.
+ *
+ * Os `CAMPOS` abaixo são cópia literal do passo `relatorio_vazio` do trace de
+ * 2026-08-17T21:30:29Z — o turno que motivou a regra. Se um dia precisar
+ * acrescentar campo, copie de um trace, não invente: rótulo inventado foi
+ * exatamente o que escondeu o defeito por um dia inteiro.
  */
 const CAMPOS: ScreenField[] = [
-  { ref: "1", label: "Empresa", type: "texto", value: "" },
-  { ref: "2", label: "Matrícula", type: "texto", value: "" },
-  { ref: "3", label: "Situação", type: "select", value: "" },
-  { ref: "4", label: "Pesquisar", type: "botao", value: "" },
+  { ref: "1", label: "Empresa (Valor Necessário)", type: "lista", value: "" },
+  { ref: "2", label: "Filial", type: "lista", value: "" },
+  { ref: "3", label: "Centro de Custo (Célula)", type: "lista", value: "" },
+  { ref: "4", label: "Matrícula (Valor Necessário)", type: "lista", value: "" },
+  { ref: "5", label: "Situação (Valor Necessário)", type: "lista", value: "" },
+  { ref: "6", label: "Justificativa (Valor Necessário)", type: "texto longo", value: "" },
+  { ref: "7", label: "Pesquisar", type: "botao", value: "" },
 ];
 
 describe("pedeAcaoNaTela", () => {
@@ -43,6 +58,22 @@ describe("pedeAcaoNaTela", () => {
 
   it("rótulo de BOTÃO não conta — botão não se preenche", () => {
     expect(pedeAcaoNaTela("informe o que o pesquisar faz", CAMPOS)).toBe(false);
+  });
+
+  it("o sufixo do APEX não pode esconder o campo", () => {
+    // O defeito exato: com o rótulo inteiro, "Empresa (Valor Necessário)" nunca
+    // é substring de mensagem nenhuma. É preciso comparar pelo NÚCLEO.
+    expect(nucleoDoRotulo("Empresa (Valor Necessário)")).toBe("Empresa");
+    expect(nucleoDoRotulo("Centro de Custo (Célula)")).toBe("Centro de Custo");
+    expect(nucleoDoRotulo("Data de Comunicação (Aviso) (Valor Necessário)")).toBe("Data de Comunicação");
+    expect(nucleoDoRotulo("Haverá Reposição?")).toBe("Haverá Reposição");
+    expect(nucleoDoRotulo("Observação")).toBe("Observação");
+  });
+
+  it("o núcleo não pode encurtar rótulo a ponto de casar por acidente", () => {
+    // "(Valor Necessário)" some, mas o piso de 4 caracteres continua valendo.
+    const curto: ScreenField[] = [{ ref: "1", label: "UF (Valor Necessário)", type: "texto", value: "" }];
+    expect(pedeAcaoNaTela("informe o uf do colaborador", curto)).toBe(false);
   });
 
   it("rótulo curto demais não conta — casaria por acidente", () => {

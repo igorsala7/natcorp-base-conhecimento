@@ -1013,6 +1013,32 @@ const RX_ACAO_DIRETA = /\b(preench\w*|marqu\w*|desmarqu\w*|clic\w*|cliqu\w*|acio
 /** Verbo "informar" nas formas de COMANDO. O lookahead barra "informações". */
 const RX_VERBO_INFORMAR = /\binform(a|e|es|ei|ar|am|em)(?![a-zà-ÿ])/i;
 
+/**
+ * O NOME do campo, sem o que o APEX pendura nele.
+ *
+ * A regra casa `mensagem.includes(rótulo)`, e o APEX não emite "Empresa": emite
+ * "Empresa (Valor Necessário)". Nenhum dos 17 rótulos da tela de desligamento é
+ * substring de "Informe a empresa 700 e matrícula 205818" — então a regra
+ * escrita para esse caso exato nunca disparou nele em produção.
+ *
+ * O teste não pegou porque usava rótulos idealizados ("Empresa", "Matrícula")
+ * que o sistema não produz. Teste com dado inventado dá confiança, não garantia:
+ * o de `pede-acao.test.ts` passou por um dia inteiro sobre uma função quebrada.
+ *
+ * Medido em 22/08/2026 sobre 100% dos 1.400 traces de 20 dias (paginado — o
+ * corte silencioso de 1.000 do PostgREST escondia o próprio caso): 12 turnos
+ * chegam a esta comparação, o núcleo muda a decisão em 1 (o alvo) e em 0 na
+ * direção errada. "informe quantidade de desligados em todas as empresas", que
+ * é consulta e não preenchimento, continua não disparando.
+ */
+export function nucleoDoRotulo(label: string): string {
+  return String(label ?? "")
+    .replace(/\s*\([^)]*\)\s*/g, " ") // "(Valor Necessário)", "(Célula)", "(Aviso)"
+    .replace(/[?:.]+\s*$/, "") // "Haverá Reposição?" → "Haverá Reposição"
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function pedeAcaoNaTela(msg: string, campos: readonly ScreenField[] = []): boolean {
   const q = String(msg ?? "");
   if (!q.trim()) return false;
@@ -1025,7 +1051,7 @@ export function pedeAcaoNaTela(msg: string, campos: readonly ScreenField[] = [])
   // ("Pesquisar") aparece em pergunta de consulta o tempo todo.
   return campos.some((c) => {
     if (!c || c.type === "botao") return false;
-    const rot = norm(c.label ?? "");
+    const rot = norm(nucleoDoRotulo(c.label ?? ""));
     // Rótulo curto demais ("UF", "Nº") casa por acidente dentro de outra palavra.
     if (rot.length < 4) return false;
     return alvo.includes(rot);
