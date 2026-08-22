@@ -162,6 +162,21 @@ async function main() {
         pergunta,
         historico,
         portal: t.p_portal,
+        // GESTOR DE EQUIPE — fato do turno, não julgamento humano, e por isso
+        // é re-derivado a cada extração em vez de preservado por `anotacoes()`.
+        //
+        // Sem ele o eval simulava `gestor=false` em 100% dos casos e
+        // `escopoDoPainel` devolvia "nenhum" para `listar_colaboradores_resumo`
+        // no Painel do Operador — duas falhas de CONFIG que a produção não tem,
+        // porque a elevação de `panel-scope.ts:65` sobe PO para "todos" quando
+        // a pessoa gerencia equipe. O simulador já chamava a função certa com o
+        // argumento certo; só nunca recebia o dado.
+        //
+        // 43 dos 130 turnos não têm o passo `identidade` (login não resolvido).
+        // Ali `=== true` devolve `false`, que é o valor CORRETO — sem identidade
+        // validada não há elevação —, ao custo de não distinguir "não era
+        // gestor" de "não deu para saber".
+        gestor: (passo(t, "identidade") as { gestor_equipe?: boolean } | null)?.gestor_equipe === true,
         // Colunas e contagem — o conteúdo das células não está no trace.
         tela: tela.map((d) => ({ id: d.id, linhas: d.linhas, colunas: (d.cols ?? []).slice(0, 12) })),
         // Sem corte: a produção chega a entregar 104 ferramentas num turno, e cortar

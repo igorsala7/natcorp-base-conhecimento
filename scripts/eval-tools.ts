@@ -51,6 +51,9 @@ type Caso = {
   revisar?: boolean;
   /** Era gestor de equipe no turno — muda o escopo efetivo, não só o painel. */
   gestor?: boolean;
+  /** Foto do que o funil entregou NO DIA do trace. Só para detectar contradição
+   *  com o veredito deste simulador — nunca para decidir o veredito. */
+  ofertadas?: string[];
   foi_tools: string[];
 };
 
@@ -196,10 +199,23 @@ async function main() {
       c.gestor === true,
     );
     if (escopo === "nenhum") {
+      // O simulador acabou de dizer que a ferramenta estava barrada. Se o turno
+      // REAL mostra ela ofertada (ou chamada), quem está errado é o simulador —
+      // e o motivo mais comum é falta de dado no caso, não bloqueio de verdade:
+      // as duas CONFIG de 22/08/2026 eram `gestor` ausente, e o eval passava
+      // `false` para uma pessoa que o trace registrava como gestora de equipe.
+      //
+      // Troca só o RÓTULO, nunca o veredito: `ofertadas` é instantâneo velho, e
+      // se um dia o cadastro passar a bloquear de verdade uma ferramenta que a
+      // foto antiga mostrava, um detector que absolvesse o caso leria bloqueio
+      // legítimo de segurança como erro de anotação.
+      const producaoTinha = c.ofertadas?.includes(alvo) === true || c.foi_tools.includes(alvo);
       linhas.push({
         caso: c,
         ok: false,
-        motivo: `CONFIG: escopo "nenhum" em ${c.portal}${c.gestor ? " (mesmo sendo gestor)" : ""}`,
+        motivo: producaoTinha
+          ? `ANOTAÇÃO: escopo calculado diz bloqueada em ${c.portal}, mas a produção ofereceu esta ferramenta no turno — provável falta do campo "gestor" no caso`
+          : `CONFIG: escopo "nenhum" em ${c.portal}${c.gestor ? " (mesmo sendo gestor)" : ""}`,
         posicao: null,
       });
       continue;
@@ -235,12 +251,14 @@ async function main() {
   const ranking = linhas.filter((l) => l.motivo.startsWith("RANKING")).length;
   const gabarito = linhas.filter((l) => l.motivo.startsWith("GABARITO")).length;
   const uso = linhas.filter((l) => l.motivo.startsWith("USO")).length;
+  const anotacao = linhas.filter((l) => l.motivo.startsWith("ANOTAÇÃO")).length;
 
   console.log("── PLACAR ".padEnd(62, "─"));
   console.log(`  acerto de ferramenta   ${acertos}/${linhas.length}  (${pct(acertos, linhas.length)})`);
   console.log(`  falha de RANKING       ${ranking}   ← ajuste de modelo/embedding/ontologia resolve`);
   console.log(`  falha de CONFIG        ${config}   ← NENHUM ajuste de modelo resolve`);
   console.log(`  falha de USO           ${uso}   ← estava disponível; o modelo não usou (prompt/descrição)`);
+  if (anotacao) console.log(`  contradiz a produção   ${anotacao}   ← o simulador diz bloqueada e o trace diz ofertada: falta dado no caso`);
   if (gabarito) console.log(`  gabarito inválido      ${gabarito}   ← corrija eval/casos.jsonl`);
 
   console.log("\n── POR FAIXA DE TAMANHO ".padEnd(62, "─"));
