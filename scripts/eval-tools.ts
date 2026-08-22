@@ -51,6 +51,8 @@ type Caso = {
   revisar?: boolean;
   /** Era gestor de equipe no turno — muda o escopo efetivo, não só o painel. */
   gestor?: boolean;
+  /** Quando o turno rodou. Serve para avisar que o veredito de USO envelheceu. */
+  foi_em?: string | null;
   /** Foto do que o funil entregou NO DIA do trace. Só para detectar contradição
    *  com o veredito deste simulador — nunca para decidir o veredito. */
   ofertadas?: string[];
@@ -159,16 +161,32 @@ async function main() {
   type Linha = { caso: Caso; ok: boolean; motivo: string; posicao: number | null };
   const linhas: Linha[] = [];
 
+  /** Idade do registro `foi_*`, em dias. Sem `foi_em`, trata como recente. */
+  const idadeDias = (c: Caso) => (c.foi_em ? (Date.now() - new Date(c.foi_em).getTime()) / 86_400_000 : 0);
+  /** Mesmo limiar de `eval-cenarios.ts`: acima de 5 dias, a foto pode ter envelhecido. */
+  const velho = (c: Caso) => idadeDias(c) > 5;
+
   for (const c of comGabarito) {
     const alvo = c.espera_tool!;
 
     // (0) Local: sempre disponível — o que se mede é o USO no turno real.
+    //
+    // ⚠ O VEREDITO AQUI É HISTÓRICO, NÃO ATUAL. `foi_tools` é o que a produção
+    // chamou NO DIA do trace; este script não reexecuta o turno. Um caso antigo
+    // continua acusando comportamento já corrigido — em 22/08/2026, 7 dos 14
+    // "USO" tinham registro anterior ao mecanismo que os endereça (o portão de
+    // ação de 22/08, a guarda `operandoATela` de 19/08, e um turno anterior à
+    // própria criação de `derivar_coluna`). O `eval-cenarios.ts` já tinha essa
+    // guarda; aqui faltava, e era onde o número mais enganava.
+    //
+    // Quem mede comportamento ATUAL é `npm run eval:cenarios-modelo`, que
+    // reexecuta o turno contra o código de hoje.
     if (LOCAIS.has(alvo)) {
       const usou = c.foi_tools.includes(alvo);
       linhas.push({
         caso: c,
         ok: usou,
-        motivo: usou ? "" : "USO: ferramenta local disponível e não usada",
+        motivo: usou ? "" : `USO: local disponível e não usada${velho(c) ? ` (registro de ${Math.round(idadeDias(c))}d — confira antes de consertar)` : ""}`,
         posicao: null,
       });
       continue;
@@ -257,7 +275,13 @@ async function main() {
   console.log(`  acerto de ferramenta   ${acertos}/${linhas.length}  (${pct(acertos, linhas.length)})`);
   console.log(`  falha de RANKING       ${ranking}   ← ajuste de modelo/embedding/ontologia resolve`);
   console.log(`  falha de CONFIG        ${config}   ← NENHUM ajuste de modelo resolve`);
+  const usoVelho = linhas.filter((l) => l.motivo.startsWith("USO") && velho(l.caso)).length;
   console.log(`  falha de USO           ${uso}   ← estava disponível; o modelo não usou (prompt/descrição)`);
+  if (usoVelho) {
+    console.log(`     dos quais ${usoVelho} com registro de mais de 5 dias — veredito HISTÓRICO.`);
+    console.log(`     Este script não reexecuta o turno; quem mede o comportamento de hoje é`);
+    console.log(`     'npm run eval:cenarios-modelo'. Confira antes de consertar.`);
+  }
   if (anotacao) console.log(`  contradiz a produção   ${anotacao}   ← o simulador diz bloqueada e o trace diz ofertada: falta dado no caso`);
   if (gabarito) console.log(`  gabarito inválido      ${gabarito}   ← corrija eval/casos.jsonl`);
 
