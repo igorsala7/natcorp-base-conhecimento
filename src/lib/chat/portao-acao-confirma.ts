@@ -116,3 +116,35 @@ export async function confirmaEmbalar(
     return indef;
   }
 }
+
+/**
+ * ── O QUE NÃO FUNCIONA: PERGUNTAR "AGIR OU RESPONDER?" AO MODELO BARATO ─────
+ *
+ * A confirmação acima resolve UMA pergunta estreita ("há conteúdo pronto para
+ * embalar?") e por isso funciona. A tentação seguinte é alargá-la para a
+ * pergunta geral — "o assistente deve consultar o sistema agora, ou responder em
+ * texto?" — e assim pegar os 14 casos de falha de USO que o portão de formato
+ * não alcança. Medido em 22/08/2026 contra o gabarito:
+ *
+ *   POSITIVOS (devia agir e não agiu) ....  3/14   recall 21%
+ *   NEGATIVOS (não devia chamar nada) .... 14/14   precisão 100%
+ *
+ * Ele diz "não agir" em 11 dos 14 — ou seja, CONCORDA com o erro do modelo
+ * principal. E a razão é estrutural, não de prompt: é o mesmo modelo com o mesmo
+ * raciocínio. Diante de "Quando é que eu vou tirar férias?" com o período
+ * aquisitivo já visível na tela, os dois concluem que dá para responder em
+ * texto. Um juiz que compartilha o viés do julgado não corrige o julgado.
+ *
+ * A diferença para a pergunta estreita é o que o classificador precisa SABER: em
+ * "há conteúdo para embalar?" a resposta está inteira na fala anterior, que ele
+ * lê. Em "deve agir?" a resposta depende de uma regra de negócio do dono — que
+ * "quando eu vou tirar férias" é consulta ao sistema e não leitura de tela — e
+ * essa regra não está em lugar nenhum que o modelo possa ler.
+ *
+ * O caminho que sobra para os 14, e que NÃO foi tentado: dar a regra ao
+ * classificador em vez de esperar que ele a deduza — o gabarito anotado é
+ * exatamente esse material, e `ai_tool_uso` já guarda vizinhança semântica de
+ * pergunta→ferramenta que resolveu. Antes disso, porém, vale medir se os 14 são
+ * mesmo 14: eles se fragmentam em subgrupos de 3 a 5 casos, e o eixo de
+ * ferramenta tem ruído de 4 — cada subgrupo isolado é indistinguível de acaso.
+ */
