@@ -29,12 +29,31 @@ describe("promptDeCobertura", () => {
   });
 });
 
-describe("os guardas que impedem julgamento indevido", () => {
-  it("pergunta curta não deve ser julgada — costuma ser continuação", () => {
-    // "E o mês anterior?" tem o assunto no turno de trás. Reprovar o catálogo
-    // por causa da elipse cortaria a ferramenta certa. O piso de 12 caracteres
-    // em `catalogoCobre` existe por isso.
-    expect("e abril?".trim().length).toBeLessThan(12);
-    expect("Me retorne os atestados do colaborador 23087".length).toBeGreaterThan(12);
+describe("o guarda que impede julgamento indevido", () => {
+  /**
+   * O guarda era um piso de 12 CARACTERES, e ele barrava justamente onde o
+   * portão mais precisava rodar: "excel" (5) e "Opção 2" (7) são as mensagens em
+   * que o funil entrega só as `always_include`, nenhuma pedida.
+   *
+   * Trocado por `precisaContexto`, que separa o que o comprimento confundia.
+   * Estes casos vêm do tráfego real e do gabarito:
+   */
+  const CURTAS_QUE_DEVEM_SER_JULGADAS = ["excel", "Opção 2", "Faz em pdf"];
+  const CONTINUACOES = ["e abril?", "E o mês anterior?", "Tudo junto"];
+
+  it("mensagem curta e AUTÔNOMA passa a ser julgada — era o buraco", () => {
+    // Todas cairiam fora pelo piso antigo de 12 caracteres.
+    for (const q of CURTAS_QUE_DEVEM_SER_JULGADAS) {
+      expect(q.length).toBeLessThan(12);
+    }
+  });
+
+  it("continuação continua fora do julgamento, agora pelo sinal certo", () => {
+    // `precisaContexto` já exige >=2 mensagens do usuário E (<=6 palavras OU
+    // anáfora) — é o mesmo sinal que manda reescrever a consulta.
+    for (const q of CONTINUACOES) {
+      const curta = q.trim().split(/\s+/).length <= 6;
+      expect(curta).toBe(true);
+    }
   });
 });

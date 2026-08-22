@@ -904,7 +904,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     temPeriodoFixado(fatosDaConversa);
 
   const integ = track.p_base && !querTutorial && !soRedigir && !social
-    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores, periodoInformado)
+    ? await buildIntegrationTools(track.p_base, identityFromTrack(track), outFiles, runMeta, consultaClassificador, formAssist, datasets, passo, pularAnaliseIntegracoes, forcarTools.length ? forcarTools : undefined, escolheuFonte, simSelecao, relaxComposto, simFacetasParaTools, anexarDaNuvem, idsAnteriores, periodoInformado, _gate.precisaContexto)
     : { tools: {}, capabilities: "", agentPrompt: "" };
   // Ferramentas de conta pessoal que ficaram de fora por falta de CONEXÃO — a
   // única pendência que o próprio usuário resolve, e por isso a única que vira

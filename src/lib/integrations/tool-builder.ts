@@ -203,6 +203,13 @@ export async function buildIntegrationTools(
    * checar, que é o comportamento de quem chama sem saber (portal, testes).
    */
   periodoInformado?: boolean,
+  /**
+   * A mensagem CONTINUA a anterior (`deveReescrever().precisaContexto`)?
+   *
+   * Só a rota sabe: depende do histórico. Alimenta a conferência de cobertura,
+   * que não pode julgar o catálogo pelo fragmento de uma elipse.
+   */
+  continuacao?: boolean,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -1289,14 +1296,19 @@ export async function buildIntegrationTools(
       .filter((b): b is (typeof ctx.tools)[number] => !!b)
       .map((b) => ({ key: b.tool.key, name: b.tool.name, description: b.tool.description }));
     if (candidatas.length) {
-      const cob = await catalogoCobre(question, candidatas);
+      const cob = await catalogoCobre(question, candidatas, continuacao === true);
       onPasso?.("integracoes:cobertura", {
         cobre: cob.cobre, qual: cob.qual, indefinido: cob.indefinido, candidatas: candidatas.length,
       });
       if (!cob.indefinido && !cob.cobre) {
-        // As ESSENCIAIS ficam: elas não foram escolhidas por similaridade, e
-        // cortá-las tiraria do turno o que a base marcou como sempre presente.
-        for (const k of _chaves) if (!essenciais.includes(k)) delete tools[k];
+        // As ESSENCIAIS saem TAMBÉM, e essa é a mudança que importa.
+        //
+        // Antes elas eram preservadas "porque não foram escolhidas por
+        // similaridade". Mas é exatamente por isso que precisam sair: quando o
+        // catálogo não cobre o assunto, as seis `always_include` são as ÚNICAS
+        // que sobram — e nenhuma foi pedida. Foi assim que "excel" recebeu
+        // `estrutura_empresas` e a chamou.
+        for (const k of _chaves) delete tools[k];
       }
     }
   }
