@@ -80,6 +80,18 @@ const DIRETIVA = arg("diretiva", "0") === "1";
 // código entre as duas rodadas — o jeito mais fácil de comparar duas coisas
 // diferentes achando que são a mesma.
 const SEM_PORTAO_ENTREGA = arg("sem-portao-entrega", "0") === "1";
+/**
+ * REPETIÇÕES. Medido em 21/08/2026: `temperature: 0` NÃO torna a rodada
+ * determinística — quatro execuções idênticas deram 41, 43, 44 e 44 no eixo de
+ * ferramenta. Provedor não é bit-determinístico (lote, hardware, roteamento
+ * interno), e o eixo de ferramenta é o que mais sente, porque a decisão entre
+ * ferramentas parecidas se dá por margens minúsculas.
+ *
+ * Sem repetir, uma diferença de 2 casos parece efeito e é acaso — e foi o que
+ * quase me fez creditar ao portão de entrega um ganho que era ruído. Com N>1 o
+ * placar imprime a FAIXA, e conclusão só vale fora dela.
+ */
+const REPETICOES = Math.max(1, Number(arg("repeticoes", "1")));
 const MODELOS = arg(
   "modelos",
   ["google:gemini-3.5-flash", "anthropic:claude-haiku-4-5", "anthropic:claude-sonnet-5", "openai:gpt-5.6-terra"].join(","),
@@ -226,7 +238,12 @@ async function main() {
   }
   const detalhe: { caso: Caso; por: Record<string, { usadas: string[]; perguntou: boolean; ok: boolean }> }[] = [];
 
-  for (const caso of amostra) {
+  /** Placar de CADA repetição, para imprimir a faixa e não só a média. */
+  const porRodada: { tOk: number; pOk: number; deMenos: number }[] = [];
+
+  for (let rep = 0; rep < REPETICOES; rep++) {
+   const marcaRep = { tOk: 0, pOk: 0, deMenos: 0 };
+   for (const caso of amostra) {
     const por: Record<string, { usadas: string[]; perguntou: boolean; ok: boolean }> = {};
     for (const spec of MODELOS) {
       const p = placar.get(spec)!;
@@ -346,13 +363,13 @@ async function main() {
         // FERRAMENTA — `espera_tool: null` significa "nenhuma ferramenta de dado".
         p.tMed++;
         const tOk = caso.espera_tool ? usadas.includes(caso.espera_tool) : usadas.length === 0;
-        if (tOk) p.tOk++;
+        if (tOk) { p.tOk++; marcaRep.tOk++; }
 
         // PERGUNTA — os dois lados contam, e cada erro tem nome próprio.
         p.pMed++;
-        if (perguntou === caso.espera_clarify) p.pOk++;
+        if (perguntou === caso.espera_clarify) { p.pOk++; marcaRep.pOk++; }
         else if (perguntou) p.perguntouDemais++;
-        else p.perguntouDeMenos++;
+        else { p.perguntouDeMenos++; marcaRep.deMenos++; }
 
         por[spec] = { usadas, perguntou, ok: tOk && perguntou === caso.espera_clarify };
       } catch (e) {
@@ -362,10 +379,24 @@ async function main() {
       }
     }
     const acertos = new Set(Object.values(por).map((v) => v.ok));
-    if (acertos.size > 1 || !acertos.has(true)) detalhe.push({ caso, por });
+    // Só a PRIMEIRA repetição alimenta a lista de falhas: repetir encheria o
+    // relatório com o mesmo caso N vezes e esconderia quantos distintos falham.
+    if (rep === 0 && (acertos.size > 1 || !acertos.has(true))) detalhe.push({ caso, por });
     process.stdout.write(".");
+   }
+   porRodada.push(marcaRep);
+   if (REPETICOES > 1) process.stdout.write(` [${rep + 1}/${REPETICOES}]`);
   }
   console.log("\n");
+
+  if (REPETICOES > 1) {
+    const faixa = (v: number[]) => `${Math.min(...v)}–${Math.max(...v)}`;
+    console.log(
+      `  FAIXA em ${REPETICOES} repetições — ferramenta ${faixa(porRodada.map((r) => r.tOk))} · ` +
+      `pergunta ${faixa(porRodada.map((r) => r.pOk))} · de menos ${faixa(porRodada.map((r) => r.deMenos))}`,
+    );
+    console.log("  Conclusão só vale FORA desta faixa: dentro dela é acaso do provedor, não efeito.\n");
+  }
 
   const md: string[] = [
     `# Cenários com contexto — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,

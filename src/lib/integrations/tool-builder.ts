@@ -19,6 +19,7 @@ import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
 import { injetarDatasetComRelato, type DatasetRegistry } from "@/lib/chat/datasets";
 import { montarCartaoAcao, ehAcaoEmLista, type CartaoAcao } from "./acao-lista";
 import { bonusDeUso, aplicarAprendizado } from "./aprendizado";
+import { catalogoCobre } from "./cobertura";
 import { conferirTitular, avisoDivergencia } from "@/lib/chat/titular";
 import { ehParamDePessoa, temProcedencia, recusaSemProcedencia } from "@/lib/chat/procedencia";
 import { registrarUsoTool, vizinhosDeUso } from "./tool-catalog";
@@ -1261,6 +1262,42 @@ export async function buildIntegrationTools(
     } catch (e) {
       // Nunca derruba o turno: sem estas duas o chat continua inteiro.
       onPasso?.("integracoes:arquivos_ms", { erro: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /**
+   * O CATÁLOGO COBRE ESTE ASSUNTO? Última conferência antes de entregar.
+   *
+   * A seleção acima é toda por similaridade, e similaridade não distingue
+   * assunto de domínio: "atestados do colaborador 23087" trazia
+   * `consultar_feedback` a 0,686 — acima do piso, portanto com confiança — num
+   * catálogo que não tem NENHUMA ferramenta de atestado. Ver `cobertura.ts`
+   * para as três heurísticas baratas que testei antes e por que nenhuma serve.
+   *
+   * Quando não cobre, a regra do dono é não anunciar nada: corta as ferramentas
+   * e deixa o RAG responder. Ele não precisa saber como o cardápio é montado —
+   * precisa da resposta que a documentação tem.
+   *
+   * Só entra em turno que de fato ganhou ferramenta de integração; e falha
+   * ABERTA (`indefinido`), porque conferência que derruba turno é pior que a
+   * falha que ela evita.
+   */
+  const _chaves = Object.keys(tools);
+  if (_chaves.length && question?.trim()) {
+    const candidatas = _chaves
+      .map((k) => ctx.tools.find((b) => b.tool.key === k))
+      .filter((b): b is (typeof ctx.tools)[number] => !!b)
+      .map((b) => ({ key: b.tool.key, name: b.tool.name, description: b.tool.description }));
+    if (candidatas.length) {
+      const cob = await catalogoCobre(question, candidatas);
+      onPasso?.("integracoes:cobertura", {
+        cobre: cob.cobre, qual: cob.qual, indefinido: cob.indefinido, candidatas: candidatas.length,
+      });
+      if (!cob.indefinido && !cob.cobre) {
+        // As ESSENCIAIS ficam: elas não foram escolhidas por similaridade, e
+        // cortá-las tiraria do turno o que a base marcou como sempre presente.
+        for (const k of _chaves) if (!essenciais.includes(k)) delete tools[k];
+      }
     }
   }
 
