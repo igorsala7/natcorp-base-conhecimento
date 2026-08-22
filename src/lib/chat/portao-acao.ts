@@ -166,54 +166,35 @@ export function decidirAcao(e: EntradaAcao): Acao {
 }
 
 /**
- * ── POR QUE ESTE MÓDULO NÃO ESTÁ LIGADO ─────────────────────────────────────
+ * ── ESTE PRÉ-FILTRO NÃO DECIDE SOZINHO ─────────────────────────────────────
  *
- * O mecanismo foi PROVADO e o gatilho foi REPROVADO. Os dois com número, num
- * painel adversarial de três lentes (22/08/2026).
+ * `decidirAcao` é a PRIMEIRA das duas etapas. Ela reconhece que a mensagem é só
+ * recipiente e que o gerador está na mesa — e isso NÃO basta para forçar.
  *
- * O QUE SOBREVIVEU. `toolChoice` não é diretiva: não disputa a atenção do modelo,
- * remove a opção de narrar a ação em vez de executá-la. A/B isolado nos 4 casos
- * que o predicado dispara, 3 repetições de cada lado, mudando só o flag:
- * ferramenta 3/12 → 12/12, com as faixas por rodada SEM sobreposição (0–2 contra
- * 4–4), e pergunta 10/12 → 12/12 sem nenhum "perguntou demais". O efeito existe.
+ * O painel adversarial de 22/08/2026 provou por quê. O caso real
+ * "Gostaria de gerar o PDF por aquu" espera `relatorio_recibo_pagamento`, não
+ * `gerar_relatorio`, e escapava daqui só por acidente de vocabulário:
  *
- * O QUE REPROVOU. `soFormato` decide por SUBTRAÇÃO de palavras vazias, e a lista
- * tem buraco de sinônimo. Verificado à mão:
+ *   soFormato("Gostaria de gerar o PDF por aquu") === false
+ *   soFormato("Queria  gerar o PDF por aqui")     === true
+ *   soFormato("Poderia gerar o PDF por aqui")     === true
  *
- *   soFormato("Gostaria de gerar o PDF por aquu")  === false
- *   soFormato("Queria  gerar o PDF por aqui")      === true
- *   soFormato("Quero   gerar o PDF por aqui")      === true
- *   soFormato("Poderia gerar o PDF por aqui")      === true
+ * "gostaria" ficou fora de `RX_SEM_ASSUNTO` enquanto "queria", "quero",
+ * "poderia", "pode" e "preciso" estão dentro. Um sinônimo, e o portão forçaria
+ * `gerar_relatorio` num turno em que o documento ainda precisa ser EMITIDO do
+ * ERP — fechando as duas saídas, porque o `toolChoice` também tira
+ * `perguntar_ao_usuario` do passo 0.
  *
- * A primeira é o caso real #126 do gabarito, e o gabarito do dono ali é
- * `relatorio_recibo_pagamento` — NÃO `gerar_relatorio`. Ele escapa do portão só
- * porque "gostaria" ficou de fora de `RX_SEM_ASSUNTO` enquanto "queria",
- * "quero", "poderia", "pode" e "preciso" estão dentro. Um sinônimo, e o portão
- * força determinANTEmente a ferramenta errada, fechando as duas saídas (o
- * `toolChoice` tira `perguntar_ao_usuario` do passo 0).
+ * Nenhuma guarda léxica conserta isso: cinco ferramentas do ERP existem para
+ * emitir PDF e estão na mesa nos quatro disparos, então "não forçar quando há
+ * emissor ofertado" custaria 4 dos 4 acertos.
  *
- * E a colisão é ESTRUTURAL, não um item faltando na lista: cinco ferramentas do
- * ERP existem para EMITIR um PDF (`relatorio_recibo_pagamento`,
- * `relatorio_informe_rendimentos`, `relatorio_espelho_ponto`,
- * `relatorio_aviso_ferias`, `relatorio_aviso_ferias_meses`), três casos do
- * gabarito as esperam, e elas estão na mesa nos quatro disparos. A guarda óbvia
- * — "não forçar quando há emissor ofertado" — custa 4 dos 4 acertos.
+ * Por isso a SEGUNDA etapa, `confirmaEmbalar` (`portao-acao-confirma.ts`), que
+ * lê a fala anterior do assistente e responde se há conteúdo pronto para
+ * embalar. Ela fecha as seis variantes de sinônimo e separa 5/5 os casos que
+ * quatro heurísticas estruturais erraram. A justificativa completa, com as
+ * quatro heurísticas medidas e descartadas, está lá.
  *
- * PIOR: o caso #126 hoje fica FORA dos 74 medidos porque
- * `relatorio_recibo_pagamento` não foi ofertada — ou seja, é uma das falhas de
- * FUNIL que o projeto está consertando. **Consertar o funil ARMA esta
- * regressão.**
- *
- * O DISCRIMINADOR QUE FALTA, e o que já foi descartado. O que separa "empacotar
- * o que está na mesa" de "emitir um documento do ERP" é o turno ANTERIOR ter
- * entregado alguma coisa. Testei o sinal mais óbvio — `dataset:registro` no
- * turno — e ele mede AO CONTRÁRIO: os quatro casos em que forçar está certo NÃO
- * têm dataset (é justamente por isso que falharam: o agente não chamou nada), e
- * o #126, onde forçar está errado, TEM. O registro reflete o que aconteceu
- * DENTRO do turno, não o que estava na mesa antes dele.
- *
- * Para ligar, é preciso um sinal do turno anterior — `reidratarDatasets`
- * (`route.ts:716`) roda antes das ferramentas do turno e é o candidato, mas não
- * está instrumentado no trace, então a hipótese não é testável contra o
- * histórico. Instrumentar primeiro; ligar depois.
+ * Consequência para quem mexer aqui: alargar `RX_SEM_ASSUNTO` é seguro (a
+ * confirmação segura o falso positivo), mas REMOVER a confirmação não é.
  */

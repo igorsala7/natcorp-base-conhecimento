@@ -49,6 +49,8 @@ import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
 import { faltaPeriodoNaChamada, temSinalDePeriodo } from "../src/lib/chat/periodo";
 import { faltaDestinoDaEntrega } from "../src/lib/chat/entrega";
+import { decidirAcao } from "../src/lib/chat/portao-acao";
+import { confirmaEmbalar } from "../src/lib/chat/portao-acao-confirma";
 import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
@@ -80,6 +82,8 @@ const DIRETIVA = arg("diretiva", "0") === "1";
 // código entre as duas rodadas — o jeito mais fácil de comparar duas coisas
 // diferentes achando que são a mesma.
 const SEM_PORTAO_ENTREGA = arg("sem-portao-entrega", "0") === "1";
+/** `--sem-portao-acao 1` desliga o espelho do portão de ação, para o A/B. */
+const SEM_PORTAO_ACAO = arg("sem-portao-acao", "0") === "1";
 /**
  * REPETIÇÕES. Medido em 21/08/2026: `temperature: 0` NÃO torna a rodada
  * determinística — quatro execuções idênticas deram 41, 43, 44 e 44 no eixo de
@@ -260,6 +264,30 @@ async function main() {
       let barrouPorPeriodo = false;
 
       /**
+       * PORTÃO DE AÇÃO, espelhado do servidor (`portao-acao.ts` + `-confirma`).
+       *
+       * Na rota ele age via `toolChoice` no passo 0: o provedor RETIRA do modelo
+       * a opção de não chamar. Aqui o efeito é o mesmo — a ferramenta conta como
+       * chamada, porque foi isso que o usuário recebeu. Sem este espelho, um
+       * portão que funciona em produção não moveria o placar.
+       *
+       * As DUAS etapas são espelhadas, inclusive a confirmação semântica: medir
+       * só o pré-filtro mediria um sistema mais afoito do que o que roda.
+       */
+      const ultimaAssist = [...caso.historico].reverse().find((h) => h.role === "assistant")?.content;
+      const _pre = SEM_PORTAO_ACAO ? { modo: "livre" as const } : decidirAcao({
+        pergunta: caso.pergunta,
+        ferramentas: caso.ofertadas,
+        conversaEmAndamento: caso.historico.length > 0,
+        social: false, tutorial: false, documental: false, continuation: false,
+      });
+      let acaoForcadaEval: string | null = null;
+      if (_pre.modo === "forcar") {
+        const conf = await confirmaEmbalar(caso.pergunta, ultimaAssist);
+        if (!conf.indefinido && conf.embalar) acaoForcadaEval = _pre.tool;
+      }
+
+      /**
        * PORTÃO DE ENTREGA, espelhado do servidor (`entrega.ts`).
        *
        * O servidor decide ANTES do modelo — o turno nem chega a gerar. Aqui o
@@ -358,7 +386,9 @@ async function main() {
          * O de PERÍODO é diferente e continua contando: ele age no `execute` da
          * ferramenta, então a chamada de fato aconteceu e a escolha foi feita.
          */
-        const usadas = entregaBarrou ? [] : chamadas.filter((c) => c !== "perguntar_ao_usuario");
+        // A forçada CONTA como chamada: em produção o provedor a executa no passo 0.
+        const base = entregaBarrou ? [] : chamadas.filter((c) => c !== "perguntar_ao_usuario");
+        const usadas = acaoForcadaEval && !base.includes(acaoForcadaEval) ? [acaoForcadaEval, ...base] : base;
 
         // FERRAMENTA — `espera_tool: null` significa "nenhuma ferramenta de dado".
         p.tMed++;

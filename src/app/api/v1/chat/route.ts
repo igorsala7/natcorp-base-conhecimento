@@ -42,6 +42,8 @@ import type { RecorteColunas } from "@/lib/chat/form-fields";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "@/lib/chat/regras-nucleo";
 import { temSinalDePeriodo } from "@/lib/chat/periodo";
 import { faltaDestinoDaEntrega, perguntaDeEntrega } from "@/lib/chat/entrega";
+import { decidirAcao } from "@/lib/chat/portao-acao";
+import { confirmaEmbalar } from "@/lib/chat/portao-acao-confirma";
 import { podarPassosAnteriores, economiaDaPoda } from "@/lib/chat/podar-passos";
 import { DIRETIVA_PERGUNTAR, devePerguntarDiretiva } from "@/lib/ai/perguntar";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
@@ -1606,6 +1608,52 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     painel: track.p_portal ?? null,
     perfil: track.p_perfil ?? null,
   });
+  /**
+   * PORTÃO DE AÇÃO — em DUAS etapas, e a segunda existe por causa de uma
+   * refutação medida.
+   *
+   * O defeito: em 18 dos 36 erros de roteamento a ferramenta certa ESTAVA na
+   * mesa e o agente não a chamou — respondeu em texto ("Vou consultar seu
+   * histórico…") sem nenhuma chamada. Onze desses turnos têm até 6 palavras.
+   *
+   * (1) `decidirAcao` é o pré-filtro barato: a mensagem é só recipiente
+   *     ("excel", "Faz em pdf") e o gerador está na mesa. Dispara em 14 turnos
+   *     em 25 dias.
+   * (2) `confirmaEmbalar` decide se HÁ o que embalar. Sem ela o portão forçava
+   *     `gerar_relatorio` em "Queria gerar o PDF por aqui" logo depois de o
+   *     assistente perguntar "qual mês?" — turno em que o PDF ainda precisa ser
+   *     EMITIDO do ERP. O caso real do gabarito escapava só porque "gostaria"
+   *     ficou fora da lista de palavras vazias enquanto "queria", "quero",
+   *     "poderia" e "pode" estão dentro. Quatro heurísticas estruturais foram
+   *     medidas e nenhuma separa os dois casos (ver `portao-acao-confirma.ts`);
+   *     o modelo barato separa 5/5, e fecha as seis variantes de sinônimo.
+   *
+   * Falha ABERTA nas duas etapas: na dúvida o modelo segue livre. Forçar errado
+   * é pior que não forçar, porque o `toolChoice` também tira do turno a saída de
+   * perguntar.
+   */
+  const _acao = decidirAcao({
+    pergunta: question,
+    ferramentas: Object.keys(allTools),
+    conversaEmAndamento: conversaEmAndamentoCedo,
+    social,
+    tutorial: modoTutorial || querTutorial,
+    documental: perguntaComposta,
+    continuation,
+  });
+  let acaoForcada: string | null = null;
+  if (_acao.modo === "forcar") {
+    const ultimaAssistente = [...messages].reverse().find((m) => m.role === "assistant")?.content;
+    const conf = await confirmaEmbalar(question, ultimaAssistente);
+    if (!conf.indefinido && conf.embalar) acaoForcada = _acao.tool;
+    passo("portao_acao", {
+      regra: _acao.regra,
+      tool: _acao.tool,
+      embalar: conf.indefinido ? null : conf.embalar,
+      forcou: acaoForcada !== null,
+    });
+  }
+
   // Ontologia: glossário do domínio (termos canônicos + sinônimos) para o modelo
   // entender o vocabulário do usuário e acertar as ferramentas/parâmetros.
   // Busca as fontes salvas escolhidas (escopo do usuário) e monta um bloco de contexto.
@@ -2791,7 +2839,13 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
            * seguem íntegros no servidor e as 8 ferramentas de consulta operam
            * sobre 100% das linhas.
            */
-          prepareStep: ({ messages: msgs }: { messages: unknown[] }) => {
+          prepareStep: ({ messages: msgs, stepNumber }: { messages: unknown[]; stepNumber?: number }) => {
+            // PASSO 0 e só ele: tira do modelo a opção de NARRAR a ação em vez
+            // de executá-la. Não é diretiva — é o provedor removendo a escolha.
+            // Os passos seguintes voltam livres para ele redigir a resposta.
+            if (acaoForcada && stepNumber === 0) {
+              return { toolChoice: { type: "tool", toolName: acaoForcada } as never };
+            }
             const podadas = podarPassosAnteriores(msgs as { role?: string; content?: unknown }[]);
             if (podadas === msgs) return undefined;
             const ganho = economiaDaPoda(msgs, podadas);
