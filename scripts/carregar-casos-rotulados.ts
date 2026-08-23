@@ -42,9 +42,19 @@ const LOCAIS = new Set([
   "destacar_tela", "tutorial_tela", "preencher_campo", "marcar_opcao", "clicar_elemento",
 ]);
 
-/** O espaço em que as conversas de chat da base vivem (349 de 413 recentes). */
-const SPACE = process.env.CASOS_SPACE_ID ?? "a5e69064-8584-4327-9116-726b717ea604";
-const BASE = "natcorp";
+/**
+ * Espaço e base NÃO são constantes: vêm do TRACE de cada caso.
+ *
+ * A primeira versão fixou `space` e `base_code = "natcorp"` para os 138. Medido
+ * depois, casando cada caso com `ai_chat_traces` (138/138 casaram): **18 casos
+ * estão em outro espaço** (painel-do-colaborador, painel-do-gestor) e **33 são
+ * de outro CLIENTE** — stefanini, incor, leadec, saude, TESTE_FATURA.
+ *
+ * Isso importa muito além da carga: o gabarito mistura clientes, e cada cliente
+ * tem catálogo de ferramentas próprio. Rotular um caso da stefanini como
+ * natcorp faz o rótulo apontar para uma ferramenta que talvez nem exista na base
+ * dele.
+ */
 const SECO = process.argv.includes("--seco");
 
 type Caso = {
@@ -73,9 +83,17 @@ export function vereditoDe(c: Caso): string {
   if (!esperada) return chamou.length ? "nao_devia_chamar" : "certo";
   if (chamou.includes(esperada)) return "certo";
   if (chamou.length) return "tool_errada";
-  // Não chamou nada. Se a certa era de TELA, o defeito é não ter olhado a tela;
-  // se era de integração, é simplesmente não ter chamado.
-  return LOCAIS.has(esperada) ? "devia_usar_tela" : "devia_chamar";
+  // Não chamou NADA. `devia_usar_tela` significa "a resposta estava na tela
+  // aberta e ele não olhou" — então depende de TER HAVIDO TELA, não de a
+  // ferramenta ser local.
+  //
+  // A primeira versão decidia por `LOCAIS.has(esperada)` e marcou 8 casos como
+  // `devia_usar_tela` em turnos SEM tela nenhuma — entre eles "Ok, me gere um
+  // pdf disso" e "excel", onde não havia o que olhar. Rótulo humano errado é
+  // pior que rótulo faltando, porque é justamente o material que a tabela
+  // existe para guardar.
+  const tinhaTela = (c.tela?.length ?? 0) > 0;
+  return LOCAIS.has(esperada) && tinhaTela ? "devia_usar_tela" : "devia_chamar";
 }
 
 async function main() {
@@ -88,30 +106,79 @@ async function main() {
     .trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Caso);
   const anotados = casos.filter((c) => !c.revisar);
 
-  const linhas = anotados.map((c) => ({
-    space_id: SPACE,
-    pergunta: c.pergunta.slice(0, 4000),
-    base_code: BASE,
-    p_portal: c.portal,
-    // A tabela quer o NOME da tela; o gabarito guarda id/linhas/colunas. O que
-    // importa para o rótulo é se HAVIA tela e de que tamanho.
-    tela: c.tela?.length
-      ? c.tela.map((t) => `${t.id ?? "?"}:${t.linhas ?? 0}l`).join(" ").slice(0, 500)
-      : null,
-    // Sem similaridade: o gabarito só guarda as chaves. Marcado com a data para
-    // ninguém confundir com o cardápio de hoje.
-    oferecidas: { em: c.foi_em ?? null, chaves: c.ofertadas ?? [], nota: "histórico do trace, sem similaridade" },
-    tool_escolhida: (c.foi_tools ?? [])[0] ?? null,
-    veredito: vereditoDe(c),
-    tool_correta: c.espera_tool,
-    observacao: c.nota || null,
-    rotulado_em: new Date().toISOString(),
-  }));
+  // ── O TRACE DE CADA CASO ──────────────────────────────────────────────────
+  // É de lá que saem espaço, base, perfil, conversa e o id do próprio trace —
+  // o elo que permite, depois, recomputar o veredito contra uma rodada nova.
+  // Paginado: o PostgREST corta em 1000 sem avisar.
+  type Trace = {
+    id: string; pergunta: string; space_id: string; base_code: string | null;
+    p_perfil: string | null; p_portal: string | null; conversation_id: string | null; created_at: string;
+  };
+  const traces: Trace[] = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await db
+      .from("ai_chat_traces")
+      .select("id, pergunta, space_id, base_code, p_perfil, p_portal, conversation_id, created_at")
+      .range(de, de + 999);
+    if (error) { console.error("falhou ao ler os traces:", error.message); process.exit(1); }
+    traces.push(...((data ?? []) as unknown as Trace[]));
+    if (!data || data.length < 1000) break;
+  }
+
+  /** O trace do caso: mesma pergunta e, quando houver, mesmo instante. */
+  const traceDe = (c: Caso): Trace | null => {
+    const iguais = traces.filter((t) => t.pergunta === c.pergunta);
+    if (!iguais.length) return null;
+    if (!c.foi_em) return iguais[0]!;
+    const alvo = new Date(c.foi_em).getTime();
+    return iguais.find((t) => Math.abs(new Date(t.created_at).getTime() - alvo) < 3000) ?? iguais[0]!;
+  };
+
+  const orfaos: string[] = [];
+  const linhas = anotados.map((c) => {
+    const t = traceDe(c);
+    if (!t) orfaos.push(c.pergunta.slice(0, 46));
+    return {
+      // Sem trace não há espaço, e `space_id` é NOT NULL. Cai no espaço do chat.
+      space_id: t?.space_id ?? "a5e69064-8584-4327-9116-726b717ea604",
+      pergunta: c.pergunta.slice(0, 4000),
+      // Minúsculas: o mesmo cliente aparece como "natcorp" e "NATCORP" nos
+      // traces, e duas grafias viram dois clientes na hora de agrupar.
+      base_code: (t?.base_code ?? "natcorp").trim().toLowerCase(),
+      p_perfil: t?.p_perfil ?? null,
+      p_portal: c.portal ?? t?.p_portal ?? null,
+      conversation_id: t?.conversation_id ?? null,
+      trace_id: t?.id ?? null,
+      // A tabela quer o NOME da tela; o gabarito guarda id/linhas/colunas. O que
+      // importa para o rótulo é se HAVIA tela e de que tamanho.
+      tela: c.tela?.length
+        ? c.tela.map((x) => `${x.id ?? "?"}:${x.linhas ?? 0}l`).join(" ").slice(0, 500)
+        : null,
+      // ARRAY, como a coluna declara (`default '[]'::jsonb`). A primeira versão
+      // gravou um objeto aqui — funciona em jsonb e quebra quem for ler.
+      // Sem similaridade porque o gabarito só guarda as chaves; a data vai junto
+      // para ninguém confundir com o cardápio de hoje.
+      oferecidas: (c.ofertadas ?? []).map((k) => ({ tool: k, sim: null, em: c.foi_em ?? null })),
+      tool_escolhida: (c.foi_tools ?? [])[0] ?? null,
+      veredito: vereditoDe(c),
+      tool_correta: c.espera_tool,
+      observacao: c.nota || null,
+      origem: "gabarito",
+      rotulado_em: new Date().toISOString(),
+    };
+  });
 
   const cont: Record<string, number> = {};
-  for (const l of linhas) cont[l.veredito] = (cont[l.veredito] ?? 0) + 1;
-  console.log(`${casos.length} casos no gabarito · ${anotados.length} anotados\n`);
+  const porBase: Record<string, number> = {};
+  for (const l of linhas) {
+    cont[l.veredito] = (cont[l.veredito] ?? 0) + 1;
+    porBase[l.base_code] = (porBase[l.base_code] ?? 0) + 1;
+  }
+  console.log(`${casos.length} casos no gabarito · ${anotados.length} anotados · ${traces.length} traces lidos`);
+  if (orfaos.length) console.log(`⚠ ${orfaos.length} sem trace (espaço e base no palpite): ${orfaos.slice(0, 3).join(" | ")}`);
+  console.log();
   for (const [k, n] of Object.entries(cont).sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(3)}  ${k}`);
+  console.log(`\n  clientes: ${Object.entries(porBase).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}=${n}`).join(" · ")}`);
   if (SECO) { console.log("\n--seco: nada foi gravado."); return; }
 
   // ── IDEMPOTÊNCIA SEM ATROPELAR A PRODUÇÃO ─────────────────────────────────
@@ -134,18 +201,26 @@ async function main() {
   // apagada, o insert seguinte a recriou, e o script só percebeu porque a
   // conferência final contava. Um DELETE que casa 137 de 138 e não reclama é o
   // pior formato de defeito. UUID não tem esse problema.
-  const alvo = new Set(linhas.map((l) => l.pergunta));
+  // `origem = 'gabarito'` é o que este script possui. Nada mais é tocado — e é
+  // por isso que a coluna existe: `conversation_id is null` não serve mais de
+  // bandeira porque agora as linhas do gabarito TÊM conversa (é o elo que
+  // permite recomputar o veredito depois), e `rotulado_em` também não, porque um
+  // caso capturado e depois rotulado por gente teria os dois preenchidos.
   const { data: existentes, error: erroSel } = await db
-    .from("ai_tool_casos").select("id, pergunta")
-    .eq("space_id", SPACE).eq("base_code", BASE).is("conversation_id", null);
+    .from("ai_tool_casos").select("id").eq("origem", "gabarito");
   if (erroSel) { console.error("falhou ao ler os existentes:", erroSel.message); process.exit(1); }
-  const idsRepor = (existentes ?? [])
-    .filter((r) => alvo.has((r as { pergunta: string }).pergunta))
-    .map((r) => (r as { id: string }).id);
-  if (idsRepor.length) {
-    const { error } = await db.from("ai_tool_casos").delete().in("id", idsRepor);
-    if (error) { console.error("falhou ao limpar os antigos:", error.message); process.exit(1); }
-    console.log(`\n${idsRepor.length} já existiam — regravados com o rótulo atual (turnos de produção intactos).`);
+  const ids = (existentes ?? []).map((r) => (r as { id: string }).id);
+  if (ids.length) {
+    // Apaga por ID, nunca pelo TEXTO. O filtro `in.()` do PostgREST é lista
+    // separada por vírgula e o valor precisa ser escapado — pergunta de usuário
+    // tem aspas e vírgulas. Custou uma duplicata para descobrir: `Mas eu desde o
+    // início estou pedindo "Quais", não pedi consolidado` não era apagada, o
+    // insert seguinte a recriava, e o script só percebeu porque conferia a conta.
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await db.from("ai_tool_casos").delete().in("id", ids.slice(i, i + 100));
+      if (error) { console.error("falhou ao limpar os antigos:", error.message); process.exit(1); }
+    }
+    console.log(`\n${ids.length} do gabarito regravados com o rótulo atual (capturas de produção intactas).`);
   }
 
   for (let i = 0; i < linhas.length; i += 50) {
@@ -153,16 +228,13 @@ async function main() {
     if (error) { console.error(`falhou no lote ${i}:`, error.message); process.exit(1); }
   }
 
-  // A conferência mede o GABARITO, não o espaço. Contar o espaço inteiro faria
-  // este script abortar na primeira linha gravada pela rota de chat — em 100%
-  // das execuções, não só quando houvesse colisão de pergunta.
+  // A conferência mede o GABARITO, não a tabela. Contar tudo faria este script
+  // abortar na primeira linha gravada pela rota de chat — em 100% das execuções.
   const { count } = await db
-    .from("ai_tool_casos").select("id", { count: "exact", head: true })
-    .eq("space_id", SPACE).eq("base_code", BASE).is("conversation_id", null);
-  const { count: deProducao } = await db
-    .from("ai_tool_casos").select("id", { count: "exact", head: true })
-    .eq("space_id", SPACE).not("conversation_id", "is", null);
-  console.log(`\ngravados. gabarito: ${count} casos · vindos da produção: ${deProducao ?? 0} (não tocados).`);
+    .from("ai_tool_casos").select("id", { count: "exact", head: true }).eq("origem", "gabarito");
+  const { count: deRuntime } = await db
+    .from("ai_tool_casos").select("id", { count: "exact", head: true }).eq("origem", "runtime");
+  console.log(`\ngravados. gabarito: ${count} casos · capturados em produção: ${deRuntime ?? 0} (não tocados).`);
   if ((count ?? 0) !== linhas.length) {
     console.error(`ESPERADO ${linhas.length} do gabarito — confira antes de confiar no conjunto.`);
     process.exit(1);
