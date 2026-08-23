@@ -52,6 +52,46 @@ import { faltaDestinoDaEntrega } from "../src/lib/chat/entrega";
 import { decidirAcao } from "../src/lib/chat/portao-acao";
 import { confirmaEmbalar } from "../src/lib/chat/portao-acao-confirma";
 import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
+import { buildQueryTool } from "../src/lib/chat/query-tools";
+import { buildFormTools, buildTutorialTool } from "../src/lib/chat/form-fields";
+import { buildVisualTools } from "../src/lib/chat/report-tools";
+
+/**
+ * AS FERRAMENTAS LOCAIS, COM A DEFINIÇÃO REAL DO PRODUTO.
+ *
+ * `consultar_registros`, `agrupar`, `preencher_campo` e as outras não existem
+ * em `ai_tools` — são montadas em código a partir do payload da tela. O arreio
+ * as recriava a partir do catálogo do banco, não achava, e entregava ao modelo
+ * o NOME da ferramenta como descrição.
+ *
+ * Aqui elas são construídas pelos builders DE PRODUÇÃO, com sinks vazios: o
+ * que interessa é `description` e `inputSchema`, que é o que o modelo lê para
+ * decidir. O `execute` é trocado por um registrador — este arreio mede ESCOLHA,
+ * não execução.
+ *
+ * Passar `fields: []` deixa o schema de `preencher_campo` genérico, porque o
+ * trace não guarda os campos da tela. É menos fiel que a produção e mais fiel
+ * que uma palavra solta; onde isso pesar, o caso é de anotação, não de placar.
+ */
+const LOCAIS_REAIS: Record<string, { description: string; inputSchema: unknown }> = (() => {
+  const registry = { list: [] as never[] };
+  const juntar = (ts: Record<string, unknown>) => {
+    for (const [k, v] of Object.entries(ts)) {
+      const d = v as { description?: string; inputSchema?: unknown };
+      if (d?.description && d.inputSchema) out[k] = { description: d.description, inputSchema: d.inputSchema };
+    }
+  };
+  const out: Record<string, { description: string; inputSchema: unknown }> = {};
+  try {
+    juntar(buildQueryTool(registry as never) as never);
+    juntar(buildFormTools([], []) as never);
+    juntar(buildTutorialTool([], []) as never);
+    juntar(buildVisualTools({ charts: [], reports: [] }, registry as never) as never);
+  } catch (e) {
+    console.error("[eval] não consegui montar as ferramentas locais reais:", e);
+  }
+  return out;
+})();
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -62,7 +102,19 @@ const arg = (nome: string, padrao: string): string => {
   const i = process.argv.indexOf(`--${nome}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : padrao;
 };
-const N = Number(arg("n", "99"));
+/**
+ * Quantos casos entram no placar. Era 99 — de um conjunto que cresceu para 130.
+ *
+ * O corte é um `.slice(0, N)` DEPOIS de tirar os de funil, então os 19 últimos
+ * casos com gabarito nunca eram medidos. Entre eles estava o idx 113 ("Quais
+ * são os dados do Tony Oliveira?"), o único que teria pegado a regressão de uma
+ * proposta de descrição avaliada em 23/08/2026 — a rodada padrão do projeto
+ * aprovaria a mudança sem ver o caso que ela quebrava.
+ *
+ * Amostra que esconde o contraexemplo não é amostra, é seleção. Mede tudo; o
+ * `--n` continua existindo para rodada rápida de conferência.
+ */
+const N = Number(arg("n", "0")) || Number.MAX_SAFE_INTEGER;
 /**
  * LOCAL x INTEGRAÇÃO pela fonte canônica (`familiaDaTool`), não por uma lista
  * copiada: duas listas divergem, e a divergência aparece como defeito
@@ -153,7 +205,27 @@ function blocoDaTela(tela: Caso["tela"]): string {
   return [
     "TABELAS ABERTAS NA TELA DO USUÁRIO AGORA:",
     ...linhas,
-    "(as células não estão neste contexto de avaliação; use as ferramentas de consulta para lê-las)",
+    // A frase anterior era "use as ferramentas de consulta para lê-las" — uma
+    // ordem INCONDICIONAL, escrita pelo próprio arreio, presente em 43 dos 99
+    // casos pontuados. Ela mandava chamar e o gabarito depois punia a chamada:
+    // 8 das 11 chamadas erradas de `consultar_registros` caíam nesses turnos.
+    //
+    // O conserto NÃO é esvaziar. Produção instrui MAIS, não menos
+    // (`screenTablesBlock`, form-fields.ts:629-632) — só que CONDICIONALMENTE:
+    // a prévia serve para ANALISAR, e a ferramenta serve para FILTRAR/CONTAR.
+    // Medido: tirar todo o empurrão dá +10/129 no agregado mas REGRIDE 4 casos,
+    // e os 4 são exatamente os de filtrar/contar/exportar — onde produção tem a
+    // diretiva que o esvaziamento removeria. Um arreio sem células E sem
+    // orientação é um estado que produção nunca tem.
+    //
+    // Daí a redação abaixo: a mesma divisão condicional de produção, com a
+    // ressalva honesta de que aqui as células não existem (o trace não as
+    // guarda). Isto é RESET DE LINHA DE BASE, não ganho — nenhum cliente vê
+    // diferença; só a régua mudou. Comparar com rodada anterior a 23/08/2026 é
+    // comparar réguas diferentes.
+    "(o conteúdo das células não está neste contexto de avaliação — em produção o modelo recebe uma PRÉVIA das linhas)",
+    "Para ANALISAR/interpretar o que está na tabela, responda pela própria tabela. Para FILTRAR ou CONTAR um recorte " +
+      '("só os que...", "quantos têm X"), a conta pela prévia é PARCIAL — aí sim use a ferramenta de consulta com dados_de.',
   ].join("\n");
 }
 
@@ -309,6 +381,24 @@ async function main() {
       });
 
       for (const key of caso.ofertadas) {
+        // FERRAMENTA LOCAL: a definição REAL, importada do produto.
+        //
+        // `catalogo` vem de `ai_tools`, e nenhuma local existe lá — então o
+        // ramo abaixo caía no `?? key` e entregava ao modelo a string
+        // "consultar_registros" (19 chars) no lugar dos 719 reais, com
+        // inputSchema VAZIO. Medido em 23/08/2026: acontecia em 94 dos 118
+        // casos mensuráveis, e as locais são 8 das 11 ferramentas mais
+        // chamadas erradamente no placar. Cobrar do modelo uma escolha que ele
+        // fez com uma palavra e nenhum parâmetro mede o arreio, não o produto.
+        const real = LOCAIS_REAIS[key];
+        if (real) {
+          tools[key] = tool({
+            description: real.description,
+            inputSchema: real.inputSchema,
+            execute: async () => { chamadas.push(key); return { ok: true }; },
+          } as never);
+          continue;
+        }
         const t = catalogo.get(key);
         const campos: Record<string, z.ZodTypeAny> = {};
         for (const par of (Array.isArray(t?.params) ? t!.params : []) as { nome?: string; descricao?: string; origem?: string }[]) {
