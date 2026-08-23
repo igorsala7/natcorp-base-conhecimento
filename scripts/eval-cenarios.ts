@@ -250,7 +250,15 @@ async function main() {
   const catalogo = new Map<string, T>();
   for (const r of vinculos ?? []) {
     const t = (r as unknown as { tool: T | null }).tool;
-    if (t?.active) catalogo.set(t.key, t);
+    // SEM o filtro `active`, de propósito. Quem decide o que foi ofertado é o
+    // `ofertadas` do caso — o turno real já aconteceu. O que se busca aqui é só
+    // o TEXTO da ferramenta, e desativá-la depois não muda o que o modelo leu.
+    //
+    // Com o filtro, `bi_headcount`, `selecao_vagas` e `frequencia_justificativas`
+    // — que têm descrição real (466/730/336 chars) e estão habilitadas na
+    // natcorp — caíam no `?? key` e chegavam ao modelo como o próprio nome.
+    // Mesmo defeito das ferramentas locais, por outro caminho.
+    if (t?.key) catalogo.set(t.key, t);
   }
 
   const todos: Caso[] = readFileSync(ARQUIVO, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Caso);
