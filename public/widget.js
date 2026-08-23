@@ -7149,6 +7149,15 @@
       return;
     }
     (options || []).forEach(function (o) {
+      // NORMALIZA a opção. Os gates emitem em dois formatos: objeto {label, ...} e
+      // STRING pura (`entrega.ts` manda ["Ver aqui no chat", "Planilha (Excel)", "PDF"];
+      // `periodo.ts` idem). Lendo `o.label` direto, a string vira `undefined` e o botão
+      // sai SEM TEXTO — o usuário vê três retângulos vazios e não tem como escolher.
+      // Aconteceu 3× na sessão de 23/08 e ele reclamou duas vezes ("os botões estão sem
+      // informação, está em branco" · "os botões vieram em branco novamente"), e o turno
+      // morria ali porque clicar num botão sem rótulo não diz nada ao servidor.
+      // Normalizar aqui cobre todos os gates, inclusive os que ainda vão existir.
+      if (typeof o === "string") o = { label: o, value: o };
       var b = document.createElement("button");
       if (o.sublabel) {
         // Cartão: nome do artigo em destaque + resumo abaixo (igual ao portal).
@@ -7170,6 +7179,20 @@
           // [Outro]: em vez de enviar, deixa o usuário detalhar melhor o pedido.
           if (inputEl) { inputEl.focus(); inputEl.placeholder = "Descreva com mais detalhes o que você precisa…"; }
         } else {
+          // A ESCOLHA PRECISA ENTRAR NO HISTÓRICO. `ask()` envia `{ messages: history }`,
+          // e até aqui o clique não empurrava nada — o servidor recebia o histórico
+          // IDÊNTICO ao do turno anterior. Duas consequências, ambas vistas em produção:
+          //
+          //  · o gate de entrega reperguntava, porque `jaPerguntouEntrega` procura a
+          //    pergunta na última mensagem do ASSISTENTE e ela não estava lá. O usuário
+          //    escreveu "De novo??? Eu estou falando que é só da minha equipe!";
+          //  · o modelo não ficava sabendo o que foi escolhido — clicar em "PDF" chegava
+          //    como se ninguém tivesse respondido nada.
+          //
+          // Os gates que carregam `scope` (roteador de fonte) continuam mandando o scope;
+          // o texto no histórico é complementar e é o que a pessoa de fato disse.
+          if (question) history.push({ role: "assistant", content: question });
+          history.push({ role: "user", content: o.value || o.label });
           ask(o.scope);
         }
       });
