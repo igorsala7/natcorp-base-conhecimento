@@ -114,15 +114,38 @@ async function main() {
   for (const [k, n] of Object.entries(cont).sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(3)}  ${k}`);
   if (SECO) { console.log("\n--seco: nada foi gravado."); return; }
 
-  // Idempotência por (space_id, pergunta): apaga o que já está e regrava.
-  const { data: existentes } = await db
-    .from("ai_tool_casos").select("id, pergunta").eq("space_id", SPACE).eq("base_code", BASE);
-  const jaTem = new Set((existentes ?? []).map((r) => (r as { pergunta: string }).pergunta));
-  const repor = linhas.filter((l) => jaTem.has(l.pergunta)).map((l) => l.pergunta);
-  if (repor.length) {
-    const { error } = await db.from("ai_tool_casos").delete().eq("space_id", SPACE).in("pergunta", repor);
+  // ── IDEMPOTÊNCIA SEM ATROPELAR A PRODUÇÃO ─────────────────────────────────
+  //
+  // `conversation_id IS NULL` é o que separa o gabarito do runtime, e não é
+  // convenção: as 138 linhas deste carregador não têm conversa nenhuma, e o
+  // gravador da rota de chat sempre tem (`convId`, route.ts:602). Sem esse
+  // filtro o DELETE abaixo apaga turnos REAIS cuja pergunta calhe de ser igual
+  // à de um caso do gabarito — e em silêncio, porque a linha impressa conta as
+  // perguntas do arquivo, não as linhas levadas junto.
+  //
+  // Não é hipótese remota. Medido em 1.402 turnos de 20 dias: 574 (41%) repetem
+  // exatamente alguma pergunta anterior, e 48 das 138 do gabarito já apareceram
+  // de novo, somando 126 turnos — "Olá" 19×, "obrigado" 9×, "Quero ver as
+  // marcações de ponto da minha equipe" 8×.
+  // Apaga por ID, nunca pelo TEXTO DA PERGUNTA. O filtro `in.()` do PostgREST é
+  // uma lista separada por vírgula, e o valor precisa ser escapado — pergunta de
+  // usuário tem aspas e vírgulas à vontade. Custou uma duplicata para descobrir:
+  // `Mas eu desde o início estou pedindo "Quais", não pedi consolidado` não foi
+  // apagada, o insert seguinte a recriou, e o script só percebeu porque a
+  // conferência final contava. Um DELETE que casa 137 de 138 e não reclama é o
+  // pior formato de defeito. UUID não tem esse problema.
+  const alvo = new Set(linhas.map((l) => l.pergunta));
+  const { data: existentes, error: erroSel } = await db
+    .from("ai_tool_casos").select("id, pergunta")
+    .eq("space_id", SPACE).eq("base_code", BASE).is("conversation_id", null);
+  if (erroSel) { console.error("falhou ao ler os existentes:", erroSel.message); process.exit(1); }
+  const idsRepor = (existentes ?? [])
+    .filter((r) => alvo.has((r as { pergunta: string }).pergunta))
+    .map((r) => (r as { id: string }).id);
+  if (idsRepor.length) {
+    const { error } = await db.from("ai_tool_casos").delete().in("id", idsRepor);
     if (error) { console.error("falhou ao limpar os antigos:", error.message); process.exit(1); }
-    console.log(`\n${repor.length} já existiam — regravados com o rótulo atual.`);
+    console.log(`\n${idsRepor.length} já existiam — regravados com o rótulo atual (turnos de produção intactos).`);
   }
 
   for (let i = 0; i < linhas.length; i += 50) {
@@ -130,11 +153,18 @@ async function main() {
     if (error) { console.error(`falhou no lote ${i}:`, error.message); process.exit(1); }
   }
 
+  // A conferência mede o GABARITO, não o espaço. Contar o espaço inteiro faria
+  // este script abortar na primeira linha gravada pela rota de chat — em 100%
+  // das execuções, não só quando houvesse colisão de pergunta.
   const { count } = await db
-    .from("ai_tool_casos").select("id", { count: "exact", head: true }).eq("space_id", SPACE);
-  console.log(`\ngravados. ai_tool_casos agora tem ${count} registros neste espaço.`);
+    .from("ai_tool_casos").select("id", { count: "exact", head: true })
+    .eq("space_id", SPACE).eq("base_code", BASE).is("conversation_id", null);
+  const { count: deProducao } = await db
+    .from("ai_tool_casos").select("id", { count: "exact", head: true })
+    .eq("space_id", SPACE).not("conversation_id", "is", null);
+  console.log(`\ngravados. gabarito: ${count} casos · vindos da produção: ${deProducao ?? 0} (não tocados).`);
   if ((count ?? 0) !== linhas.length) {
-    console.error(`ESPERADO ${linhas.length} — confira antes de confiar no conjunto.`);
+    console.error(`ESPERADO ${linhas.length} do gabarito — confira antes de confiar no conjunto.`);
     process.exit(1);
   }
 }
