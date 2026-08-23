@@ -57,6 +57,19 @@ export class ChatTrace {
 }
 
 export type TraceMeta = {
+  /**
+   * Id do trace, GERADO NO SERVIDOR antes de gravar.
+   *
+   * `ai_chat_traces.id` tem `default gen_random_uuid()`, e este insert é
+   * disparado com `void` e sem `.select()` — o servidor nunca soube qual linha
+   * gravou. Isso bastava enquanto o trace era só log, e deixou de bastar quando
+   * `ai_tool_casos` passou a precisar apontar para ele: sem o id, o caso
+   * rotulado não consegue recuperar o cardápio, as similaridades e os passos
+   * que produziram a decisão que se está julgando.
+   *
+   * Ausente = o banco gera, como antes.
+   */
+  id?: string | null;
   conversationId?: string | null;
   spaceId?: string | null;
   base?: string | null;
@@ -78,6 +91,7 @@ export async function persistirTrace(
 ): Promise<void> {
   try {
     await supabase.from("ai_chat_traces").insert({
+      ...(meta.id ? { id: meta.id } : {}),
       conversation_id: meta.conversationId ?? null,
       space_id: meta.spaceId ?? null,
       base_code: meta.base ?? null,

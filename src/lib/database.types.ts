@@ -744,6 +744,84 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_tool_casos: {
+        Row: {
+          id: string
+          space_id: string
+          pergunta: string
+          base_code: string | null
+          p_perfil: string | null
+          p_portal: string | null
+          tela: string | null
+          oferecidas: Json
+          cortadas: Json
+          tool_escolhida: string | null
+          parametros: Json | null
+          curl: string | null
+          justificativa: string | null
+          veredito: string | null
+          tool_correta: string | null
+          parametros_corretos: Json | null
+          observacao: string | null
+          origem: string
+          conversation_id: string | null
+          trace_id: string | null
+          rotulado_por: string | null
+          rotulado_em: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          space_id: string
+          pergunta: string
+          base_code?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          tela?: string | null
+          oferecidas?: Json
+          cortadas?: Json
+          tool_escolhida?: string | null
+          parametros?: Json | null
+          curl?: string | null
+          justificativa?: string | null
+          veredito?: string | null
+          tool_correta?: string | null
+          parametros_corretos?: Json | null
+          observacao?: string | null
+          origem?: string
+          conversation_id?: string | null
+          trace_id?: string | null
+          rotulado_por?: string | null
+          rotulado_em?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          space_id?: string
+          pergunta?: string
+          base_code?: string | null
+          p_perfil?: string | null
+          p_portal?: string | null
+          tela?: string | null
+          oferecidas?: Json
+          cortadas?: Json
+          tool_escolhida?: string | null
+          parametros?: Json | null
+          curl?: string | null
+          justificativa?: string | null
+          veredito?: string | null
+          tool_correta?: string | null
+          parametros_corretos?: Json | null
+          observacao?: string | null
+          origem?: string
+          conversation_id?: string | null
+          trace_id?: string | null
+          rotulado_por?: string | null
+          rotulado_em?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       ai_tool_uso: {
         Row: {
           id: string

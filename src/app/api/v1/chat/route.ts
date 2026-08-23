@@ -51,6 +51,7 @@ import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simTools
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { dividirFacetas } from "@/lib/integrations/facets";
 import { ChatTrace, persistirTrace } from "@/lib/chat/trace";
+import { registrarCasoTool } from "@/lib/chat/caso-treino";
 import { passosPublicos } from "@/lib/chat/trace-limits";
 import { pedidoComposto } from "@/lib/chat/pedido-composto";
 import { intencaoDocumental } from "@/lib/chat/intencao-documental";
@@ -1264,9 +1265,14 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
   const finalizarTrace = (desfecho: string) => {
     passoFinal("fim", { desfecho });
+    // Id do trace gerado AQUI, para o caso de treino poder apontar para ele. O
+    // insert do trace é `void` e sem `.select()`, então sem isto o servidor
+    // nunca soube qual linha gravou.
+    const traceId = crypto.randomUUID();
     void persistirTrace(
       supabase,
       {
+        id: traceId,
         conversationId: convId ?? null,
         spaceId: key.space_id,
         base: track.p_base ?? null,
@@ -1281,6 +1287,19 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       },
       trace,
     );
+    // CASO PARA ROTULAR (desligado por padrão, `CASOS_CAPTURA=1`). Mesmo ponto
+    // do trace porque é o único funil por onde passam os 12 desfechos do turno.
+    // Não muda comportamento nenhum: só acumula material para uma pessoa julgar.
+    void registrarCasoTool(supabase, {
+      spaceId: key.space_id,
+      pergunta: question,
+      baseCode: track.p_base ?? null,
+      perfil: track.p_perfil ?? null,
+      portal: track.p_portal ?? null,
+      conversationId: convId ?? null,
+      traceId,
+      passos: trace.passos,
+    });
     // O trace vai para o CONSOLE do navegador do usuário final (widget.js). O cURL não
     // pode ir junto: carrega o endereço interno da API, os parâmetros e os nomes dos
     // cabeçalhos, e esta rota é pública — autenticada por uma chave `pk_` que está no
