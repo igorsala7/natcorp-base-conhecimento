@@ -764,6 +764,7 @@ export type Database = {
           parametros_corretos: Json | null
           observacao: string | null
           origem: string
+          sinal_seguinte: string | null
           conversation_id: string | null
           trace_id: string | null
           rotulado_por: string | null
@@ -789,6 +790,7 @@ export type Database = {
           parametros_corretos?: Json | null
           observacao?: string | null
           origem?: string
+          sinal_seguinte?: string | null
           conversation_id?: string | null
           trace_id?: string | null
           rotulado_por?: string | null
@@ -814,6 +816,7 @@ export type Database = {
           parametros_corretos?: Json | null
           observacao?: string | null
           origem?: string
+          sinal_seguinte?: string | null
           conversation_id?: string | null
           trace_id?: string | null
           rotulado_por?: string | null

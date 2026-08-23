@@ -28,6 +28,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
 import type { TracePasso } from "./trace";
+import { sinalDoTurnoSeguinte } from "./correcao";
 
 /**
  * LIGADA POR ESCOLHA, não por padrão.
@@ -131,6 +132,36 @@ export async function registrarCasoTool(
 ): Promise<void> {
   if (!capturaLigada()) return;
   if (!c.spaceId || !String(c.pergunta ?? "").trim()) return;
+  // ── O TURNO SEGUINTE JULGA O ANTERIOR ─────────────────────────────────────
+  // Antes de gravar o caso de agora: se ESTA mensagem corrige o agente, quem
+  // errou foi o turno passado. Marca o caso anterior desta conversa.
+  //
+  // Roda mesmo quando o turno atual NÃO vira caso (o filtro abaixo pode barrá-lo):
+  // "Você não fez o word" pode não ter ferramenta de integração na mesa e ainda
+  // assim ser a prova de que o turno anterior falhou.
+  const sinal = sinalDoTurnoSeguinte(c.pergunta, !!c.conversationId);
+  if (sinal && c.conversationId) {
+    try {
+      const { data: anterior } = await supabase
+        .from("ai_tool_casos")
+        .select("id")
+        .eq("conversation_id", c.conversationId)
+        .is("sinal_seguinte", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (anterior?.id) {
+        const { error } = await supabase
+          .from("ai_tool_casos")
+          .update({ sinal_seguinte: sinal } as never)
+          .eq("id", (anterior as { id: string }).id);
+        if (error) console.error("[ai_tool_casos] sinal recusado:", error.message);
+      }
+    } catch (e) {
+      console.error("[ai_tool_casos] falha ao marcar o anterior:", e instanceof Error ? e.message : e);
+    }
+  }
+
   if (!temDecisaoParaRotular(c.passos)) return;
   // Amostragem por sorteio: o turno é a unidade, e não há estado entre turnos
   // para amostrar de outro jeito.
