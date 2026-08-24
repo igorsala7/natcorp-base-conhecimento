@@ -1,0 +1,14 @@
+[
+  {
+    "key": "linha_tempo",
+    "description": "Histórico/linha do tempo do colaborador na empresa, de dados históricos da história da vida do colaborador dentro da empresa (alterações de cargo, função, salário, filiais, centro de custo e etc de acordo com a tool linha_tempo_fato, no histórico do colaborador). DEPENDÊNCIA OBRIGATÓRIA: o `fato` a passar aqui é um valor retornado por `linha_tempo_fato` — SEMPRE chame `linha_tempo_fato` ANTES (mesma matrícula) para descobrir o `fato` EXATO e escolha o que corresponde ao pedido (ex.: cargos → o fato de cargo); NUNCA invente o `fato`."
+  },
+  {
+    "key": "meus_dados",
+    "description": "Dados cadastrais e funcionais do PRÓPRIO usuário: identificação e contatos, admissão e situação, lotação completa (empresa, filial, centro de custo, unidade, local de trabalho), cargo e função, vínculo e sindicato, modalidade de trabalho, SALÁRIO, REMUNERAÇÃO VARIÁVEL E TOTAL, dados bancários e chave PIX, e o link do painel do colaborador. Use quando a pergunta for sobre os dados DELE MESMO. Fica em cache — não repita a consulta a cada mensagem."
+  },
+  {
+    "key": "informacoes_pessoais_funcionais_resumido",
+    "description": "Lista de colaboradores com os 52 campos do dia a dia: nome, CPF, contato, admissão, situação, lotação (filial, centro de custo, unidade, local), cargo, função, salário, vínculo e sindicato. É a PADRÃO para LISTAR, CONTAR, AGRUPAR ou FILTRAR colaboradores — de qualquer quantidade. Aceita filtro por empresa, filial, centro de custo, unidade, atividade, cargo, situação e faixas de data de admissão e de situação. Só use a versão completa quando pedirem um documento ou dado cadastral que NÃO esteja nesta lista."
+  }
+]
