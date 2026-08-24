@@ -17,6 +17,24 @@
  * curto e rotulado como leitura DO SISTEMA — nunca substitui a fala da pessoa,
  * que continua indo íntegra para o banco e para o histórico.
  *
+ * ── O QUE A MEDIÇÃO SUSTENTA, E O QUE NÃO ──────────────────────────────────
+ * 125 casos, gemini-3.5-flash, `--funil`, duas rodadas por braço:
+ *
+ *                 ferramenta   pergunta   perguntou demais
+ *   baseline        59 · 60    111 · 113       5 · 3
+ *   com antecedente 59 · 59    113 · 115       1 · 2
+ *
+ * · FERRAMENTA: plano. A hipótese do plano de 21/08 (18 casos de ferramenta)
+ *   NÃO se confirmou, e é preciso dizer isso — este bloco foi construído para
+ *   aquele eixo.
+ * · PERGUNTA: as faixas SE SOBREPÕEM (113 aparece nos dois braços). Não dá para
+ *   reivindicar ganho aqui.
+ * · PERGUNTOU DEMAIS: 3–5 contra 1–2, faixas SEM sobreposição. É o único efeito
+ *   que sobrevive à repetição — o agente para de pedir contexto que já está na
+ *   mesa. Ganho de experiência (menos ida e volta), não de assertividade.
+ *
+ * Custo: +14 tok por turno na média (11.680 → 11.694), 0,1%.
+ *
  * ── PURO DE PROPÓSITO ──────────────────────────────────────────────────────
  * Sem `server-only`, sem IO. É o que permite ao eval espelhar exatamente o que a
  * rota faz, como já acontece com `portao-acao` e `entrega`. Diretiva que a
