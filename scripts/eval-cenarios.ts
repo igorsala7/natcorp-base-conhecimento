@@ -274,8 +274,11 @@ const USAR_RAG = process.argv.includes("--rag");
  *    documentação vence a ferramenta" — coerente com a hipótese que eu vinha
  *    perseguindo. Nos 138 a perda é EQUILIBRADA. O agente não abandona uma
  *    fonte em favor de outra.
- * 2. `sobrou = 0` em 78 casos: ele NUNCA usa mais fonte do que devia. Não há
- *    excesso, só falta.
+ * 2. `sobrou = 0` em 78 casos, e EU LI ISSO ERRADO — como "o agente nunca faz
+ *    demais". Era propriedade do CONTADOR: o ramo de `faltou` vinha primeiro, e
+ *    quem TROCOU de fonte (deixou a esperada, usou outra) caía nele. `sobrou=0`
+ *    só provava que ninguém usou SUPERCONJUNTO ESTRITO. Corrigido: agora são
+ *    três desfechos e a troca tem contador próprio.
  *
  * O defeito não é de PREFERÊNCIA entre fontes — é de SUBENTREGA uniforme, nos
  * três caminhos ao mesmo tempo. Bate com a razão 3,3:1 do gabarito.
@@ -307,6 +310,8 @@ const fonteConferida = (c: { espera_fonte?: string | null; cenario?: string | nu
 const citacaoInventada: string[] = [];
 /** Qual LADO faltou quando a resposta usou menos fontes que o esperado. */
 const faltaPorLado: Record<string, number> = {};
+/** Qual TROCA foi feita — "esperado→usado". Diagnóstico diferente de falta. */
+const trocaPorLado: Record<string, number> = {};
 /** Casos em que a documentação de hoje diverge da que o turno recebeu. */
 const derivaCorpus: string[] = [];
 /** Falhas da recuperação — se sumirem em silêncio, o eixo documental mente. */
@@ -511,12 +516,12 @@ async function main() {
     tOk: number; tMed: number;             // ferramenta
     pOk: number; pMed: number;             // pergunta
     perguntouDemais: number; perguntouDeMenos: number;
-    fonteMed: number; fonteExata: number; fonteFaltou: number; fonteSobrou: number;
+    fonteMed: number; fonteExata: number; fonteFaltou: number; fonteSobrou: number; fonteTrocou: number;
     entrada: number; saida: number; erros: number; ms: number;
   };
   const placar = new Map<string, Placar>();
   for (const spec of MODELOS) {
-    placar.set(spec, { tOk: 0, tMed: 0, pOk: 0, pMed: 0, perguntouDemais: 0, perguntouDeMenos: 0, fonteMed: 0, fonteExata: 0, fonteFaltou: 0, fonteSobrou: 0, entrada: 0, saida: 0, erros: 0, ms: 0 });
+    placar.set(spec, { tOk: 0, tMed: 0, pOk: 0, pMed: 0, perguntouDemais: 0, perguntouDeMenos: 0, fonteMed: 0, fonteExata: 0, fonteFaltou: 0, fonteSobrou: 0, fonteTrocou: 0, entrada: 0, saida: 0, erros: 0, ms: 0 });
   }
   const detalhe: { caso: Caso; por: Record<string, { usadas: string[]; perguntou: boolean; ok: boolean }> }[] = [];
 
@@ -835,9 +840,29 @@ async function main() {
           } else {
             const faltou = [...esperado].filter((x) => !obtido.has(x));
             const sobrou = [...obtido].filter((x) => !esperado.has(x));
+            /**
+             * TRÊS DESFECHOS, NÃO DOIS — e a versão anterior os misturava.
+             *
+             * O ramo de `faltou` vinha PRIMEIRO, então um turno que TROCOU de
+             * fonte (deixou a esperada e usou outra) tinha os dois conjuntos
+             * preenchidos e era contado só como falta. `sobrou = 0` provava
+             * apenas que ninguém usou um SUPERCONJUNTO ESTRITO — e eu li isso
+             * como "o agente nunca faz demais, só de menos", que é conclusão
+             * sobre o AGENTE tirada de propriedade do CONTADOR.
+             *
+             * Trocar é diagnóstico próprio: quem responde "Me ensina a usar"
+             * chamando `tutorial_tela` em vez da documentação não subentregou —
+             * foi para a fonte errada. Misturar os dois esconde exatamente a
+             * diferença entre "agiu de menos" e "agiu no lugar errado".
+             */
             if (!faltou.length && !sobrou.length) p.fonteExata++;
-            else if (faltou.length) { p.fonteFaltou++; for (const f of faltou) faltaPorLado[f] = (faltaPorLado[f] ?? 0) + 1; }
-            else p.fonteSobrou++;
+            else if (faltou.length && sobrou.length) {
+              p.fonteTrocou++;
+              for (const f of faltou) trocaPorLado[`${f}→${sobrou.join("/")}`] = (trocaPorLado[`${f}→${sobrou.join("/")}`] ?? 0) + 1;
+            } else if (faltou.length) {
+              p.fonteFaltou++;
+              for (const f of faltou) faltaPorLado[f] = (faltaPorLado[f] ?? 0) + 1;
+            } else p.fonteSobrou++;
           }
           p.fonteMed++;
         }
@@ -887,7 +912,9 @@ async function main() {
     console.log(`  os outros ${amostra.length - conferidos} herdaram o cenário e NÃO são pontuados —`);
     console.log(`  pontuá-los premiaria o comportamento atual por construção.`);
     if (p0?.fonteMed) {
-      console.log(`\n  exata ${p0.fonteExata}/${p0.fonteMed} · faltou ${p0.fonteFaltou} · sobrou ${p0.fonteSobrou}`);
+      console.log(`\n  exata ${p0.fonteExata}/${p0.fonteMed} · faltou ${p0.fonteFaltou} · TROCOU ${p0.fonteTrocou} · sobrou ${p0.fonteSobrou}`);
+      const trocas = Object.entries(trocaPorLado).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      if (trocas.length) console.log(`  trocas mais comuns: ${trocas.map(([k, n]) => `${k} (${n})`).join(" · ")}`);
       const lados = Object.entries(faltaPorLado).sort((a, b) => b[1] - a[1]);
       // Qual LADO perde é o número que testa a hipótese: nos casos que esperam
       // documentação E ferramenta, o agente larga qual dos dois? A média
