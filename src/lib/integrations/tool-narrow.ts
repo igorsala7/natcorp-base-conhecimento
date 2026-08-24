@@ -142,6 +142,35 @@ export function pisoAdaptativo(
 }
 
 /** Diagnóstico da seleção semântica — alimenta o trace e a diretriz de baixa confiança. */
+/**
+ * Quantas colocações do ranking vão ao trace.
+ *
+ * ── POR QUE ISTO EXISTE ────────────────────────────────────────────────────
+ * O trace registra QUAIS ferramentas foram ofertadas e qual foi chamada. Não
+ * registra em que POSIÇÃO cada uma ficou, nem com que nota — a similaridade
+ * morre dentro desta função. Sem ela, "o agente escolheu a ferramenta errada"
+ * é um fato sem diagnóstico, e os dois diagnósticos possíveis pedem consertos
+ * OPOSTOS:
+ *
+ *   · a errada veio em 1º e a certa em 2º  → descrição / desempate / rerank
+ *   · a certa veio em 40º                  → embedding / ontologia / termos
+ *
+ * Medido em 24/08/2026: `ai_tool_casos` tem 138 casos rotulados à mão e os 138
+ * gravam `sim: null` (`carregar-casos-rotulados.ts:160`, `caso-treino.ts:112`).
+ * O gabarito diz qual era a certa e não diz onde ela estava — então toda
+ * proposta sobre o funil vinha sendo escolhida por intuição.
+ *
+ * ── POR QUE 20, E NÃO O CATÁLOGO INTEIRO ───────────────────────────────────
+ * São ~88 ferramentas. O ranking completo seria ~2.500 chars por turno num
+ * campo que `podarInfo` corta em 300 (`trace-limits.ts:25`) — cortado no meio,
+ * viraria ruído. E 20 basta para o diagnóstico: se a certa NÃO aparece aqui,
+ * isso por si só responde a pergunta (ficou abaixo da 20ª → é embedding).
+ *
+ * As `always_include` ficam DE FORA: entram no turno de qualquer jeito, com
+ * similaridade de ruído (0.46–0.62), e ocupariam vagas do que se quer medir.
+ */
+const TOP_RANKING = 20;
+
 export type InfoSelecao = {
   topSim: number;
   piso: number;
@@ -150,6 +179,27 @@ export type InfoSelecao = {
   fraco: boolean;
   keys: string[];
 };
+
+/**
+ * O ranking por similaridade das NÃO-forçadas, `[chave, nota]`, decrescente e
+ * truncado em `TOP_RANKING` — **incluindo as que foram cortadas**. É esse
+ * "incluindo" que carrega o diagnóstico: as ofertadas já estão em `keys`; o que
+ * faltava era saber quem ficou de fora, e por quanto.
+ */
+export type RankingSelecao = [string, number][];
+
+/**
+ * Monta o ranking a partir do mapa de similaridade do turno.
+ *
+ * Separado de `selecionarTopK` porque ele é calculado ANTES de qualquer
+ * bifurcação de caminho — ver o `onRanking` lá dentro.
+ */
+function rankingDe(naoForcadas: ToolLite[], sim: Map<string, number>): RankingSelecao {
+  return naoForcadas
+    .map((t) => [t.key, Number((sim.get(t.key) ?? 0).toFixed(3))] as [string, number])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, TOP_RANKING);
+}
 
 // ── Seleção MULTI-FACETA (pergunta com várias intenções) ─────────────────────
 const POR_FACETA = 3; // quantas ferramentas cada faceta garante para si
@@ -330,6 +380,8 @@ export function selecionarTopK(
     regras?: RegraDesempate[];
     onCorte?: (cortes: CorteDesempate[]) => void;
     onSelecao?: (info: InfoSelecao) => void;
+    /** O ranking com as notas — ver `RankingSelecao` e a chamada abaixo. */
+    onRanking?: (rank: RankingSelecao) => void;
   },
   /**
    * MULTI-FACETA: um Map de similaridade POR INTENÇÃO da pergunta (ver facets.ts).
@@ -340,6 +392,24 @@ export function selecionarTopK(
 ): Set<string> {
   const forcada = (t: ToolLite) => t.alwaysInclude || sempreIncluir?.has(t.key) === true;
   const qs = new Set(termos(question));
+  /**
+   * RANKING PARA O TRACE — antes de qualquer bifurcação, de propósito.
+   *
+   * Há três saídas daqui (multi-faceta, semântica, lexical) e o `onSelecao` só
+   * é chamado numa delas. Medido em 24/08/2026 sobre 1.389 turnos com
+   * ferramenta na mesa: **só 4% gravam alguma nota hoje** (e só quando a
+   * seleção é fraca), enquanto 15% saem pelo caminho multi-faceta — que é
+   * justamente o caso DIFÍCIL, o da pergunta com várias intenções.
+   *
+   * Pendurar o ranking numa saída específica repetiria o defeito: quem passa
+   * pela outra continua sem diagnóstico, e a próxima saída que alguém escrever
+   * nasce cega. Calculado aqui, vale para as três — e para a quarta.
+   *
+   * É o único sinal que não depende do caminho: qual a nota de cada ferramenta
+   * para esta pergunta. O que cada caminho FEZ com essas notas já está em
+   * `keys`.
+   */
+  if (sim?.size) desempate?.onRanking?.(rankingDe(tools.filter((t) => !forcada(t)), sim));
   /** Roda o desempate sobre as candidatas e avisa o trace. */
   const desempatar = (cand: ToolLite[], simDe: ((t: ToolLite) => number) | null): ToolLite[] => {
     const { manter, cortes } = aplicarDesempate(cand, simDe, desempate?.regras, forcada);

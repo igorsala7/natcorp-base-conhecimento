@@ -50,6 +50,37 @@ describe("linhaDoCaso", () => {
     expect(l.conversation_id).toBe("c1");
   });
 
+  /**
+   * A NOTA E A POSIÇÃO — o que a tabela previa desde 17/08 e nunca recebeu.
+   *
+   * Um caso rotulado `tool_errada` sem isto não diz qual conserto aplicar: a
+   * certa pode ter perdido por 0,01 (desempate) ou estar em 40º (embedding).
+   */
+  it("oferecidas levam nota e posição; cortadas viram registro próprio", () => {
+    const l = linhaDoCaso({
+      ...base,
+      passos: [
+        passo("ferramentas", { tools: ["bi_avaliacoes", "gerar_relatorio"] }),
+        passo("integracoes:ranking", { rank: [["bi_avaliacoes", 0.81], ["consultar_feedback", 0.74], ["consultar_ferias", 0.4]] }),
+      ],
+    });
+    expect(l.oferecidas).toEqual([
+      { tool: "bi_avaliacoes", sim: 0.81, pos: 1 },
+      // Local: não disputa vaga por similaridade, então NULO — não zero.
+      { tool: "gerar_relatorio", sim: null, pos: null },
+    ]);
+    expect(l.cortadas).toEqual([
+      { tool: "consultar_feedback", sim: 0.74, pos: 2 },
+      { tool: "consultar_ferias", sim: 0.4, pos: 3 },
+    ]);
+  });
+
+  it("turno sem ranking (modo lexical) não inventa nota nem cortadas", () => {
+    const l = linhaDoCaso({ ...base, passos: [passo("ferramentas", { tools: ["linha_tempo"] })] });
+    expect(l.oferecidas).toEqual([{ tool: "linha_tempo", sim: null, pos: null }]);
+    expect(l.cortadas).toEqual([]);
+  });
+
   it("normaliza a base para minúsculas — 'NATCORP' e 'natcorp' são o mesmo cliente", () => {
     expect(linhaDoCaso({ ...base, passos: [] }).base_code).toBe("natcorp");
   });

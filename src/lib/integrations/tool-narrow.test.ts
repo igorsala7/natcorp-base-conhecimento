@@ -108,6 +108,72 @@ describe("selecionarTopK — modo SEMÂNTICO (sim)", () => {
     expect(info!.adaptativo).toBe(true);
   });
 
+  /**
+   * O RANKING É O DIAGNÓSTICO — e ele só serve se trouxer quem foi CORTADO.
+   *
+   * As ofertadas o trace já sabia (`keys`). O que faltava é a posição e a nota
+   * de quem ficou de fora: é a diferença entre "a certa veio em 2º" (conserta
+   * com desempate) e "a certa veio em 40º" (conserta com embedding). Um
+   * ranking só das ofertadas não responderia nem uma nem outra.
+   */
+  it("ranking registra as CORTADAS, não só as ofertadas", () => {
+    const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie"), T("t4", "Delta")];
+    const sim = new Map([["t1", 0.8], ["t2", 0.75], ["t3", 0.4], ["t4", 0.2]]);
+    let rank: [string, number][] | null = null;
+    const keep = selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onRanking: (r) => { rank = r; } });
+    // O piso corta t3 e t4 — elas NÃO vão ao modelo…
+    expect(keep).toEqual(new Set(["t1", "t2"]));
+    // …mas VÃO ao ranking, com a nota, que é o ponto do campo.
+    expect(rank).toEqual([["t1", 0.8], ["t2", 0.75], ["t3", 0.4], ["t4", 0.2]]);
+  });
+
+  it("ranking sai em ordem decrescente de nota", () => {
+    const tools = [T("baixa", "Baixa"), T("alta", "Alta"), T("media", "Media")];
+    const sim = new Map([["baixa", 0.3], ["alta", 0.9], ["media", 0.6]]);
+    let rank: [string, number][] | null = null;
+    selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onRanking: (r) => { rank = r; } });
+    expect(rank!.map(([k]) => k)).toEqual(["alta", "media", "baixa"]);
+  });
+
+  /**
+   * As `always_include` entram no turno de qualquer jeito e com similaridade de
+   * ruído (0.46–0.62 medido). Se ocupassem vagas do teto de 20, empurrariam
+   * para fora justamente a ferramenta cuja posição se quer descobrir.
+   */
+  it("ranking IGNORA as sempre-incluídas — elas não competem por vaga", () => {
+    const tools = [T("essencial", "Essencial", "", true), T("pedida", "Pedida")];
+    const sim = new Map([["essencial", 0.55], ["pedida", 0.9]]);
+    let rank: [string, number][] | null = null;
+    let info: { keys: string[] } | null = null;
+    selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onSelecao: (i) => { info = i; }, onRanking: (r) => { rank = r; } });
+    expect(info!.keys).toContain("essencial"); // foi ao modelo…
+    expect(rank!.map(([k]) => k)).toEqual(["pedida"]); // …mas não ao ranking
+  });
+
+  /**
+   * O CAMINHO MULTI-FACETA É 15% DO TRÁFEGO — e é o caso difícil.
+   *
+   * Ele sai de `selecionarTopK` por um `return` próprio, sem passar pelo
+   * `onSelecao`. Se o ranking dependesse daquele callback, a pergunta de várias
+   * intenções — justamente a que mais erra — seguiria sem diagnóstico nenhum.
+   */
+  it("ranking também sai no caminho MULTI-FACETA, que não chama onSelecao", () => {
+    const tools = [T("a", "Alpha"), T("b", "Bravo"), T("c", "Charlie")];
+    const sim = new Map([["a", 0.8], ["b", 0.7], ["c", 0.3]]);
+    const facetas = [new Map([["a", 0.8]]), new Map([["b", 0.7]])];
+    let rank: [string, number][] | null = null;
+    let info: unknown = null;
+    selecionarTopK(tools, "zzz", 12, undefined, sim, false, { onSelecao: (i) => { info = i; }, onRanking: (r) => { rank = r; } }, facetas);
+    expect(info).toBeNull(); // confirma que este caminho realmente não reporta seleção
+    expect(rank).toEqual([["a", 0.8], ["b", 0.7], ["c", 0.3]]);
+  });
+
+  it("sem similaridade (modo lexical) não inventa ranking", () => {
+    let rank: [string, number][] | null = null;
+    selecionarTopK([T("a", "Alpha"), T("b", "Bravo")], "alpha", 1, undefined, null, false, { onRanking: (r) => { rank = r; } });
+    expect(rank).toBeNull();
+  });
+
   it("turno SAUDÁVEL não muda nada — prova de não-regressão do piso adaptativo", () => {
     const tools = [T("t1", "Alpha"), T("t2", "Bravo"), T("t3", "Charlie")];
     const sim = new Map([["t1", 0.75], ["t2", 0.68], ["t3", 0.61]]);

@@ -156,8 +156,22 @@ async function main() {
         : null,
       // ARRAY, como a coluna declara (`default '[]'::jsonb`). A primeira versão
       // gravou um objeto aqui — funciona em jsonb e quebra quem for ler.
-      // Sem similaridade porque o gabarito só guarda as chaves; a data vai junto
-      // para ninguém confundir com o cardápio de hoje.
+      //
+      // ── `sim: null` AQUI É PERMANENTE, E NÃO É PENDÊNCIA ──────────────────
+      // A captura de runtime passou a gravar nota e posição (24/08,
+      // `caso-treino.ts` lendo `integracoes:ranking`). Estes 138 são de ANTES:
+      // o ranking não existia quando aconteceram, e não está nos traces.
+      //
+      // Recomputar agora é tentador — `eval-tools.ts` faz isso e imprime "ficou
+      // em 23º de 88". A diferença é o que cada número AFIRMA: no eval a
+      // pergunta é "como o funil de HOJE se sai?", e recomputar é o método
+      // certo. Aqui a linha afirma "foi isto que aconteceu naquele turno" — e
+      // 106 dos 138 têm mais de 5 dias, 22 mais de 15, com catálogo, embeddings
+      // e ontologia mudados no meio. Nota de hoje colada em caso de 15 dias
+      // atrás é hindsight com cara de registro.
+      //
+      // A data (`em`) vai junto justamente como aviso: isto é história, não
+      // cardápio de hoje.
       oferecidas: (c.ofertadas ?? []).map((k) => ({ tool: k, sim: null, em: c.foi_em ?? null })),
       tool_escolhida: (c.foi_tools ?? [])[0] ?? null,
       veredito: vereditoDe(c),

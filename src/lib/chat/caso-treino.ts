@@ -98,6 +98,24 @@ export function linhaDoCaso(c: CasoDoTurno): Record<string, unknown> {
   const chamadas = todosDo(c.passos, "tool_call")
     .map((i) => String(i?.tool ?? "")).filter(Boolean);
   const tabelas = (infoDo(c.passos, "dataset:registro")?.itens as { id?: string; linhas?: number }[] | undefined) ?? [];
+  /**
+   * A SIMILARIDADE, QUE ANTES MORRIA NO CAMINHO.
+   *
+   * O esquema de `ai_tool_casos` (17/08) já previa isto por escrito — *"as
+   * ferramentas oferecidas ao modelo, COM A SIMILARIDADE de cada uma… é o que
+   * permite distinguir 'escolheu errado' de 'a certa nem foi oferecida'"* — e
+   * `cortadas` nasceu junto, com default `[]`. As duas ficaram vazias sete dias
+   * porque a nota não saía de `selecionarTopK`. Agora sai, no passo
+   * `integracoes:ranking`.
+   *
+   * `pos` é a posição no ranking do turno, e é ela que separa os dois consertos:
+   * a certa em 2º pede desempate; a certa em 40º pede embedding. Sem a posição,
+   * a nota sozinha não diz — 0,58 é alto ou baixo depende de onde ficou o topo.
+   */
+  const rank = (infoDo(c.passos, "integracoes:ranking")?.rank as [string, number][] | undefined) ?? [];
+  const notaDe = new Map(rank);
+  const posDe = new Map(rank.map(([k], i) => [k, i + 1]));
+  const foiOfertada = new Set(ofertadas);
   return {
     space_id: c.spaceId,
     pergunta: String(c.pergunta ?? "").slice(0, 4000),
@@ -105,9 +123,19 @@ export function linhaDoCaso(c: CasoDoTurno): Record<string, unknown> {
     p_perfil: c.perfil ?? null,
     p_portal: c.portal ?? null,
     tela: tabelas.length ? tabelas.map((t) => `${t.id ?? "?"}:${t.linhas ?? 0}l`).join(" ").slice(0, 500) : null,
-    // Array, como a coluna declara. Sem similaridade: ela morre dentro do
-    // tool-builder e não sai nos passos — quando sair, entra aqui.
-    oferecidas: ofertadas.map((k) => ({ tool: k })) as unknown as Json,
+    // `sim`/`pos` ficam NULOS para as locais e as `always_include`: elas não
+    // disputam vaga por similaridade, então não estão no ranking. Nulo é o
+    // registro honesto de "não competiu" — zero seria "competiu e perdeu".
+    oferecidas: ofertadas.map((k) => ({
+      tool: k,
+      sim: notaDe.get(k) ?? null,
+      pos: posDe.get(k) ?? null,
+    })) as unknown as Json,
+    // O QUE FICOU DE FORA — a metade que faltava. Sem isto, um caso rotulado
+    // como `tool_errada` não diz se a certa perdeu por pouco ou nem apareceu.
+    cortadas: rank
+      .filter(([k]) => !foiOfertada.has(k))
+      .map(([k, s]) => ({ tool: k, sim: s, pos: posDe.get(k) ?? null })) as unknown as Json,
     tool_escolhida: chamadas[0] ?? null,
     // Todas as chamadas, porque um turno chama várias e a coluna é singular.
     parametros: (chamadas.length > 1 ? { todas_as_chamadas: chamadas } : null) as unknown as Json,

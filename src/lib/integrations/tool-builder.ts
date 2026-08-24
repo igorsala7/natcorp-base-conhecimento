@@ -27,7 +27,7 @@ import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { ehCandidato } from "@/lib/chat/tipo-acesso";
-import { type InfoSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
+import { type InfoSelecao, type RankingSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/meus-dados";
 
@@ -611,7 +611,7 @@ export async function buildIntegrationTools(
   const cortesDesempate: CorteDesempate[] = [];
   // QUALIDADE da seleção: sem isto o modelo recebia ferramentas a 0.5x sem nenhum
   // sinal de que eram fracas — e respondia como se fossem as certas.
-  const diag: { selecao: InfoSelecao | null } = { selecao: null };
+  const diag: { selecao: InfoSelecao | null; ranking: RankingSelecao | null } = { selecao: null, ranking: null };
   // EXCLUSIVO: a escolha já foi feita (pela pessoa, no gate de fontes). O top-K
   // não tem o que decidir, e rodá-lo só acrescentaria ferramentas que ninguém pediu.
   // APRENDIZADO: perguntas parecidas já resolvidas puxam para a ferramenta que
@@ -645,7 +645,7 @@ export async function buildIntegrationTools(
     sempreIncluir?.length ? new Set(sempreIncluir) : undefined,
     simFinal,
     relaxComposto,
-    { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs), onSelecao: (i) => { diag.selecao = i; } },
+    { regras: ctx.regrasDesempate, onCorte: (cs) => cortesDesempate.push(...cs), onSelecao: (i) => { diag.selecao = i; }, onRanking: (r) => { diag.ranking = r; } },
     multiFaceta ? facetasSim.map((f) => f.sim) : null,
   );
   if (cortesDesempate.length) {
@@ -1335,6 +1335,36 @@ export async function buildIntegrationTools(
   onPasso?.("integracoes", { resultado: "tools montadas", tools: Object.keys(tools), recorte: recorte.map((m) => m.modulo) });
   const _sel = diag.selecao;
   if (_sel?.fraco) onPasso?.("integracoes:selecao_fraca", { top_sim: Number(_sel.topSim.toFixed(3)), piso: Number(_sel.piso.toFixed(3)), tools: _sel.keys });
+  /**
+   * O RANKING COM AS NOTAS — sempre, não só quando a seleção é fraca.
+   *
+   * `selecao_fraca` acima só dispara quando nem a melhor ferramenta alcançou o
+   * piso absoluto. Mas o erro que mais interessa acontece no turno SAUDÁVEL:
+   * `topSim` alto, piso satisfeito, e mesmo assim a ferramenta certa ficou
+   * atrás da errada. Esse turno nunca gravou nota nenhuma.
+   *
+   * `ranking` traz as cortadas junto com as ofertadas (ver `TOP_RANKING` em
+   * `tool-narrow.ts`), que é o que permite responder, depois, contra o
+   * gabarito: a certa estava em 2º (conserta com desempate) ou em 40º
+   * (conserta com embedding)?
+   *
+   * O passo é próprio, e não um campo de `integracoes`, porque `podarInfo`
+   * corta CAMPO a campo por tamanho (`trace-limits.ts:59`): pendurado no passo
+   * gordo, o ranking seria o primeiro a ser podado — justamente por ser o
+   * maior. Sozinho, cabe com folga (915 chars contra teto de 4.000).
+   *
+   * `piso` só existe quando a seleção passou pelo caminho semântico; no
+   * multi-faceta o corte é por faceta e não há um piso único. Vai `null` em vez
+   * de um número inventado — o ranking é o que vale nos dois casos.
+   */
+  if (diag.ranking?.length) {
+    onPasso?.("integracoes:ranking", {
+      rank: diag.ranking,
+      piso: _sel ? Number(_sel.piso.toFixed(3)) : null,
+      adaptativo: _sel?.adaptativo ?? null,
+      ofertadas: Object.keys(tools).length,
+    });
+  }
   return {
     tools,
     capabilities,
