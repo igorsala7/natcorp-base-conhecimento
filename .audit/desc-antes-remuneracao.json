@@ -1,0 +1,10 @@
+[
+  {
+    "key": "informacoes_pessoais_funcionais",
+    "description": "Cadastro COMPLETO de UM colaborador — 226 campos, incluindo filiação, endereço, todos os documentos (RG, CTPS, título de eleitor, PIS, CNH, reservista), dados bancários e histórico. Use SOMENTE quando pedirem um documento ou dado cadastral específico que não esteja no resumo. Para LISTAR, CONTAR ou AGRUPAR colaboradores use informacoes_pessoais_funcionais_resumido: esta aqui é 4× mais pesada por registro e enche o contexto sem acrescentar o que foi perguntado."
+  },
+  {
+    "key": "informacoes_pessoais_funcionais_resumido",
+    "description": "Lista de colaboradores com os 52 campos do dia a dia: nome, CPF, contato, admissão, situação, lotação (filial, centro de custo, unidade, local), cargo, função, salário, vínculo e sindicato. É a PADRÃO para LISTAR, CONTAR, AGRUPAR ou FILTRAR colaboradores — de qualquer quantidade. Aceita filtro por empresa, filial, centro de custo, unidade, atividade, cargo, situação e faixas de data de admissão e de situação. Só use a versão completa quando pedirem um documento ou dado cadastral que NÃO esteja nesta lista."
+  }
+]
