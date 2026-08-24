@@ -264,6 +264,29 @@ const USAR_RAG = process.argv.includes("--rag");
  * documental só pontuaria quem NÃO chamou nada — exatamente o lado que não
  * interessa. A produção usa `stepCountIs(2)` no próprio caminho de rewrite, então
  * não é invenção; e continua NÃO sendo o `maxPassos` do laço real.
+ *
+ * ── O QUE ELE MEDIU NOS 138, e as duas leituras minhas que caem ───────────
+ *
+ *     exata 52/78 · faltou 26 · SOBROU 0
+ *     quando faltou, o lado perdido: tool=10 · rag=9 · tela=8
+ *
+ * 1. Numa amostra de 20 o lado perdido era rag=3 · tool=2, e eu li como "a
+ *    documentação vence a ferramenta" — coerente com a hipótese que eu vinha
+ *    perseguindo. Nos 138 a perda é EQUILIBRADA. O agente não abandona uma
+ *    fonte em favor de outra.
+ * 2. `sobrou = 0` em 78 casos: ele NUNCA usa mais fonte do que devia. Não há
+ *    excesso, só falta.
+ *
+ * O defeito não é de PREFERÊNCIA entre fontes — é de SUBENTREGA uniforme, nos
+ * três caminhos ao mesmo tempo. Bate com a razão 3,3:1 do gabarito.
+ *
+ * Consequência prática: empurrar o modelo da documentação para a ferramenta
+ * TROCARIA DE BALDE sem reduzir o erro — e era exatamente o que a análise do
+ * system prompt sugeria (mover a diretiva para a posição vencedora). Este número
+ * desaconselha.
+ *
+ * Teto do eixo: 47 dos 125 não são pontuados porque `espera_fonte` herdou o
+ * cenário e ninguém conferiu. Ele enxerga 62% do conjunto.
  */
 const USAR_FONTE = process.argv.includes("--fonte");
 /**
