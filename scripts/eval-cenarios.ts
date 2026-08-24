@@ -46,6 +46,7 @@ import { z } from "zod";
 import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH, resolveRegras } from "../src/lib/ai/prompt-cascade";
 import { composeSystemPrompt } from "../src/lib/ai/system-prompt";
+import { retrievePublicContext, buildContextBlock } from "../src/lib/ai/rag";
 import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "../src/lib/chat/regras-nucleo";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
@@ -212,6 +213,37 @@ const USAR_ANTECEDENTE = process.argv.includes("--antecedente");
  * aconteceu quando as ferramentas locais passaram a ter a definição real.
  */
 const PROMPT_REAL = process.argv.includes("--prompt-real");
+/**
+ * ── `--rag`: traz o lado da DOCUMENTAÇÃO, que nunca esteve na bancada ──────
+ *
+ * O gabarito tem `espera_fonte` em 138/138, e 52 casos (38%) esperam
+ * documentação — sozinha ou combinada com ferramenta e tela. O eval nunca teve
+ * bloco documental: pedia que o modelo respondesse pelo manual sem lhe dar o
+ * manual. A hipótese central desta rodada é a COMPETIÇÃO entre manual e
+ * ferramenta, e um dos dois lados simplesmente não existia.
+ *
+ * ── A DOSE VEM DO TURNO, não é fixa ───────────────────────────────────────
+ * `rag_limite` e `rag_lexico` são gravados por `enriquecer-cenarios.ts` a partir
+ * do `passo("rag")`. Medido no conjunto: a dose varia 0·1·2·3·4·6·8·18 — 41
+ * casos receberam 8 trechos, 34 receberam 2, 7 receberam 18. E 66 rodaram
+ * `lexicalOnly`, porque em modo relatório ou roteado a tool a produção PULA o
+ * embedding. Recomputar com limite fixo, ou híbrido onde a produção foi léxica,
+ * mediria uma competição que aquele turno nunca teve.
+ *
+ * ── O CORPUS PODE TER DERIVADO ────────────────────────────────────────────
+ * O turno é de agosto e o corpus mudou (110 documentos entraram em 16/08). O
+ * eval imprime quantas fontes vieram agora contra `rag_fontes` do trace: se
+ * divergir muito, o caso está sendo julgado com outra documentação, e isso sai
+ * no relatório em vez de ficar como suposição.
+ *
+ * Custo: 1 embedding por caso não-léxico, mais ~4.800 tok de entrada por turno
+ * com documentação. Orçar 2 a 3× a rodada sem a flag.
+ */
+const USAR_RAG = process.argv.includes("--rag");
+/** Casos em que a documentação de hoje diverge da que o turno recebeu. */
+const derivaCorpus: string[] = [];
+/** Falhas da recuperação — se sumirem em silêncio, o eixo documental mente. */
+const erroRag: string[] = [];
 const TOP_FUNIL = Number(arg("top", "12"));
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
@@ -252,6 +284,12 @@ type Caso = {
   ofertadas: string[];
   /** Cliente do turno. Preenchido por `enriquecer-cenarios.ts` a partir do trace. */
   base_code?: string | null;
+  space_id?: string | null;
+  /** A DOSE de documentação que o turno real recebeu — não é constante. */
+  rag_limite?: number | null;
+  rag_lexico?: boolean;
+  /** Quantas fontes o turno real trouxe; serve para detectar deriva do corpus. */
+  rag_fontes?: number | null;
   espera_tool: string | null;
   espera_fonte: string;
   espera_clarify: boolean;
@@ -572,6 +610,30 @@ async function main() {
        * A montagem HISTÓRICA fica como padrão para os relatórios já gravados
        * continuarem comparáveis; `--prompt-real` usa o compositor de produção.
        */
+      // ── DOCUMENTAÇÃO DO TURNO ─────────────────────────────────────────
+      let blocoRagDoCaso = "";
+      if (USAR_RAG && caso.space_id && (caso.rag_limite ?? 0) > 0) {
+        try {
+          const fontes = await retrievePublicContext(
+            caso.space_id,
+            caso.pergunta,
+            caso.rag_limite ?? 8,
+            null,
+            null,
+            { lexicalOnly: caso.rag_lexico === true },
+          );
+          blocoRagDoCaso = buildContextBlock(fontes);
+          // Deriva do corpus: o turno é de agosto e 110 documentos entraram em
+          // 16/08. Divergência grande = o caso está sendo julgado com outra
+          // documentação, e isso precisa sair no relatório, não virar suposição.
+          const antes = caso.rag_fontes ?? 0;
+          if (antes && Math.abs(fontes.length - antes) > Math.max(2, antes * 0.5)) {
+            derivaCorpus.push(`${caso.pergunta.slice(0, 40)} — trouxe ${fontes.length}, o turno tinha ${antes}`);
+          }
+        } catch (e) {
+          erroRag.push(`${caso.pergunta.slice(0, 40)}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       const temDataTools = Object.keys(tools).some((k) => ehLocal(k) && k !== "perguntar_ao_usuario");
       const sistema = PROMPT_REAL
         ? composeSystemPrompt(
@@ -592,7 +654,8 @@ async function main() {
             // RAG entra quando `--rag` for construído. Enquanto isso, o bloco
             // documental está AUSENTE e os 52 casos que o esperam não são
             // julgáveis — está dito no cabeçalho da flag.
-            blocoDaTela(caso.tela) || "(sem contexto recuperado neste turno)",
+            [blocoRagDoCaso, blocoDaTela(caso.tela)].filter(Boolean).join("\n\n") ||
+              "(sem contexto recuperado neste turno)",
           ) + (DIRETIVA ? `\n\n${DIRETIVA_PERGUNTAR}` : "")
         : [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela), DIRETIVA ? DIRETIVA_PERGUNTAR : ""]
             .filter(Boolean).join("\n\n");
@@ -715,6 +778,20 @@ async function main() {
   ];
 
   console.log("── PLACAR ".padEnd(96, "─"));
+  if (USAR_RAG) {
+    const comDoc = amostra.filter((c) => (c.rag_limite ?? 0) > 0).length;
+    console.log(`\n── DOCUMENTAÇÃO ` + "─".repeat(46));
+    console.log(`  casos com documentação recuperada: ${comDoc} de ${amostra.length}`);
+    if (derivaCorpus.length) {
+      console.log(`  ⚠ ${derivaCorpus.length} com DERIVA do corpus (julgados com outra documentação):`);
+      for (const d of derivaCorpus.slice(0, 5)) console.log(`     ${d}`);
+    }
+    if (erroRag.length) {
+      console.log(`  ⚠ ${erroRag.length} falha(s) na recuperação:`);
+      for (const e of erroRag.slice(0, 3)) console.log(`     ${e}`);
+    }
+    console.log();
+  }
   console.log(
     "  modelo".padEnd(32) + "ferramenta".padStart(12) + "pergunta".padStart(11) +
     "demais".padStart(9) + "de menos".padStart(10) + "tok in".padStart(9) + "US$/1k".padStart(9) + "s".padStart(7),

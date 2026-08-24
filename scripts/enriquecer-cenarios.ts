@@ -27,6 +27,7 @@ const SECO = process.argv.includes("--seco");
 type Trace = {
   id: string; pergunta: string; space_id: string; base_code: string | null;
   p_perfil: string | null; conversation_id: string | null; created_at: string;
+  passos: { passo?: string; info?: Record<string, unknown> }[] | null;
 };
 
 async function main() {
@@ -40,7 +41,7 @@ async function main() {
   for (let de = 0; ; de += 1000) {
     const { data, error } = await db
       .from("ai_chat_traces")
-      .select("id, pergunta, space_id, base_code, p_perfil, conversation_id, created_at")
+      .select("id, pergunta, space_id, base_code, p_perfil, conversation_id, created_at, passos")
       .range(de, de + 999);
     if (error) { console.error("falhou ao ler os traces:", error.message); process.exit(1); }
     traces.push(...((data ?? []) as unknown as Trace[]));
@@ -66,7 +67,29 @@ async function main() {
     // e duas grafias viram dois catálogos na hora de simular.
     const base = (t.base_code ?? "").trim().toLowerCase() || null;
     if (base) porBase[base] = (porBase[base] ?? 0) + 1;
-    return { ...c, base_code: base, space_id: t.space_id, p_perfil: t.p_perfil, trace_id: t.id };
+    /**
+     * A DOSE DO RAG É PARTE DA HIPÓTESE, não detalhe de execução.
+     *
+     * `ragLimit` varia 0/1/2/3/4/6/8/18 conforme o turno (`route.ts:1163`):
+     * pergunta de dado recebe 4 trechos, documental recebe 8-18. Recomputar com
+     * limite FIXO mediria uma competição documentação × ferramenta que aquele
+     * turno nunca teve.
+     *
+     * `lexico` idem: em modo relatório ou roteado a tool, a produção PULA o
+     * embedding. Recomputar híbrido ali inventaria qualidade de recuperação.
+     */
+    const passoRag = (t.passos ?? []).find((p) => p?.passo === "rag")?.info ?? {};
+    return {
+      ...c,
+      base_code: base,
+      space_id: t.space_id,
+      p_perfil: t.p_perfil,
+      trace_id: t.id,
+      rag_limite: typeof passoRag.limite === "number" ? passoRag.limite : null,
+      rag_lexico: passoRag.lexico === true,
+      rag_motivo: typeof passoRag.motivo === "string" ? passoRag.motivo : null,
+      rag_fontes: typeof passoRag.fontes === "number" ? passoRag.fontes : null,
+    };
   });
 
   console.log(`${casos.length} casos · ${traces.length} traces · casaram ${casou}`);
