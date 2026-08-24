@@ -1247,6 +1247,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       supabase,
       {
         id: traceId,
+        // Liga este rastreio ao consumo do MESMO turno em `ai_usage`. O id já
+        // existe desde o começo do POST, então aqui é só repassar.
+        turnId: ctxConsumo.turnId ?? null,
         conversationId: convId ?? null,
         spaceId: key.space_id,
         base: track.p_base ?? null,
@@ -2883,6 +2886,19 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       erroGeracao = error;
       registrarErroGeracao("resposta", error);
       console.error("[chat] falha ao gerar resposta:", error);
+    },
+    /**
+     * Fecha o balde da GERAÇÃO. Sem este passo o tempo do modelo não tem onde
+     * cair e escorre para o passo seguinte — que hoje é `dataset:registro`,
+     * um registro de log que aparecia respondendo por 30% da latência do chat
+     * (p50 de 4,8s) sem gastar praticamente nada.
+     *
+     * Medir errado o que otimizar é pior que não medir: mandaria alguém
+     * caçar desempenho num `insert` de diagnóstico enquanto o tempo real está
+     * na geração, que se resolve por modelo e por tamanho de saída.
+     */
+    onFinish: () => {
+      passo("modelo:fim");
     },
     model: modeloTurno,
     // Teto de saída generoso: passo a passo/guia pode ser longo — não deixar o

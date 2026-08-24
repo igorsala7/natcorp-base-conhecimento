@@ -1272,6 +1272,7 @@ export type Database = {
           desfecho: string | null
           duracao_ms: number | null
           passos: Json
+          turn_id: string | null
         }
         Insert: {
           id?: string
@@ -1290,6 +1291,7 @@ export type Database = {
           desfecho?: string | null
           duracao_ms?: number | null
           passos?: Json
+          turn_id?: string | null
         }
         Update: {
           id?: string
@@ -1308,6 +1310,97 @@ export type Database = {
           desfecho?: string | null
           duracao_ms?: number | null
           passos?: Json
+          turn_id?: string | null
+        }
+        Relationships: []
+      }
+      ai_eval_runs: {
+        Row: {
+          id: string
+          created_at: string
+          eixo: string
+          script: string
+          git_sha: string | null
+          git_sujo: boolean
+          flags: Json
+          gabarito_arquivo: string | null
+          gabarito_sha: string | null
+          gabarito_casos: number | null
+          casos_total: number
+          casos_mediveis: number
+          acertos: number
+          placar: Json
+          nota: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          eixo: string
+          script: string
+          git_sha?: string | null
+          git_sujo?: boolean
+          flags?: Json
+          gabarito_arquivo?: string | null
+          gabarito_sha?: string | null
+          gabarito_casos?: number | null
+          casos_total?: number
+          casos_mediveis?: number
+          acertos?: number
+          placar?: Json
+          nota?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          eixo?: string
+          script?: string
+          git_sha?: string | null
+          git_sujo?: boolean
+          flags?: Json
+          gabarito_arquivo?: string | null
+          gabarito_sha?: string | null
+          gabarito_casos?: number | null
+          casos_total?: number
+          casos_mediveis?: number
+          acertos?: number
+          placar?: Json
+          nota?: string | null
+        }
+        Relationships: []
+      }
+      ai_eval_results: {
+        Row: {
+          id: string
+          run_id: string
+          ordem: number | null
+          pergunta: string | null
+          esperado: string | null
+          obtido: string | null
+          ok: boolean | null
+          motivo: string | null
+          detalhe: Json
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          ordem?: number | null
+          pergunta?: string | null
+          esperado?: string | null
+          obtido?: string | null
+          ok?: boolean | null
+          motivo?: string | null
+          detalhe?: Json
+        }
+        Update: {
+          id?: string
+          run_id?: string
+          ordem?: number | null
+          pergunta?: string | null
+          esperado?: string | null
+          obtido?: string | null
+          ok?: boolean | null
+          motivo?: string | null
+          detalhe?: Json
         }
         Relationships: []
       }

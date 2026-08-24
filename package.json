@@ -36,6 +36,8 @@
     "eval:cenarios": "tsx --env-file=.env.local scripts/extrair-cenarios.ts",
     "tools:situacao": "tsx --env-file=.env.local scripts/padrao-situacao-ativo.ts",
     "tools:loop-opcional": "tsx --env-file=.env.local scripts/loop-param-opcional.ts",
+    "perf:latencia": "tsx --env-file=.env.local scripts/perf-latencia.ts",
+    "eval:comparar": "tsx --env-file=.env.local scripts/eval-comparar.ts",
     "eval:tools": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-tools.ts",
     "eval:rewrite": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-rewrite.ts",
     "eval:rewrite-modelo": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-rewrite-modelo.ts",

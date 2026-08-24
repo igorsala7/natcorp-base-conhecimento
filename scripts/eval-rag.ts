@@ -29,6 +29,8 @@ if (!globalThis.WebSocket) {
 }
 import { readFileSync, writeFileSync } from "node:fs";
 import { retrievePublicContext } from "../src/lib/ai/rag";
+import { registrarRodada, type ResultadoCaso } from "./lib/registro-eval";
+import { createClient } from "@supabase/supabase-js";
 
 const arg = (nome: string, padrao: string): string => {
   const i = process.argv.indexOf(`--${nome}`);
@@ -37,6 +39,9 @@ const arg = (nome: string, padrao: string): string => {
 const K = Number(arg("k", "8"));
 const JANELA = Number(arg("janela", "4"));
 const SAIDA = arg("saida", "");
+/** Rótulo humano da rodada, para achá-la depois na série. */
+const NOTA = arg("nota", "");
+const ARQUIVO_CASOS = arg("casos", "eval/rag.jsonl");
 
 type Caso = {
   tipo: string;
@@ -67,6 +72,7 @@ async function main() {
   }
 
   const linhas: string[] = [];
+  const resultados: ResultadoCaso[] = [];
   let em1 = 0, naJanela = 0, emK = 0, fora = 0;
   let somaReciproco = 0;
   const porTipo = new Map<string, { n: number; janela: number }>();
@@ -89,6 +95,16 @@ async function main() {
 
     const marca = pos < 0 ? "✗ fora" : pos < JANELA ? `✓ ${pos + 1}º` : `~ ${pos + 1}º`;
     linhas.push(`| ${marca} | ${c.tipo} | ${c.pergunta.slice(0, 62)} |`);
+    resultados.push({
+      pergunta: c.pergunta,
+      esperado: [...esperados].join(", ") || null,
+      obtido: fontes[0]?.node_id ?? fontes[0]?.document_id ?? null,
+      ok: pos >= 0 && pos < JANELA,
+      // Família da falha: "não veio de jeito nenhum" e "veio fora da janela"
+      // têm consertos diferentes — indexação/chunking × ranking.
+      motivo: pos < 0 ? "AUSENTE" : pos < JANELA ? null : "JANELA",
+      detalhe: { posicao: pos < 0 ? null : pos + 1, tipo: c.tipo },
+    });
   }
 
   const n = pontuaveis.length;
@@ -107,6 +123,32 @@ async function main() {
 
   console.log(`\n── CASO A CASO ───────────────────────────────────────────`);
   for (const l of linhas) console.log("  " + l.replace(/\|/g, "").trim());
+
+  /**
+   * A rodada vira registro. O placar acima continua sendo a saída principal —
+   * isto garante que ele seja comparável com o de amanhã, junto do código
+   * medido (git_sha) e do checksum do gabarito.
+   *
+   * `casos_mediveis` = os PONTUÁVEIS, não o total do arquivo: descartado e
+   * comportamento não tinham como ser julgados aqui, e somá-los ao denominador
+   * produziria um número que parece completo e não é.
+   */
+  const urlSb = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const keySb = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (urlSb && keySb) {
+    await registrarRodada(createClient(urlSb, keySb, { auth: { persistSession: false } }), {
+      eixo: "rag",
+      script: "eval-rag",
+      gabaritoArquivo: ARQUIVO_CASOS,
+      flags: { k: K, janela: JANELA },
+      casosTotal: todos.length,
+      casosMediveis: n,
+      acertos: naJanela,
+      placar: { em_1o: em1, ate_k: emK, fora, mrr: Number((somaReciproco / n).toFixed(3)) },
+      nota: NOTA || null,
+      resultados,
+    });
+  }
 
   if (SAIDA) {
     const md = [

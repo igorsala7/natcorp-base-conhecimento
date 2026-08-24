@@ -32,6 +32,7 @@ import type { Database } from "../src/lib/database.types";
 import { simTools } from "../src/lib/integrations/tool-catalog";
 import { selecionarTopK } from "../src/lib/integrations/tool-narrow";
 import { escopoDoPainel, normalizarPanelScope } from "../src/lib/integrations/panel-scope";
+import { registrarRodada } from "./lib/registro-eval";
 
 // O Node 20 não traz `WebSocket` nativo e o cliente do Supabase instancia o
 // Realtime no construtor — mesmo polyfill de `simular-selecao.ts`.
@@ -78,6 +79,8 @@ const BASE = arg("base", "natcorp");
  */
 const TOP = Number(arg("top", "12"));
 const ARQUIVO = arg("casos", "eval/casos.jsonl");
+/** Rótulo humano da rodada, para achá-la depois na série: `--nota "antes do rerank"`. */
+const NOTA = arg("nota", "");
 
 /**
  * Ferramentas LOCAIS: não vêm de `ai_tools`, não passam por top-K, estão sempre
@@ -347,6 +350,37 @@ async function main() {
       if (l.caso.foi_tools.length) console.log(`      chamou:   ${l.caso.foi_tools.join(", ")}`);
     }
   }
+
+  /**
+   * A rodada vira registro. O placar acima continua sendo a saída principal —
+   * isto só garante que ele possa ser comparado com o de amanhã.
+   *
+   * `casos_mediveis` vai SEPARADO de `casos_total` de propósito: é a distinção
+   * que este script já fazia na tela e que um "score" solto jogaria fora.
+   */
+  await registrarRodada(db, {
+    eixo: "ferramenta",
+    script: "eval-tools",
+    gabaritoArquivo: ARQUIVO,
+    flags: { base: BASE, top: TOP },
+    casosTotal: linhas.length,
+    casosMediveis: medivel,
+    acertos,
+    placar: { ranking, config, uso, gabarito, anotacao, sem_catalogo: semCatalogo },
+    nota: NOTA || null,
+    resultados: linhas.map((l, i) => ({
+      ordem: i,
+      pergunta: l.caso.pergunta,
+      esperado: l.caso.espera_tool,
+      obtido: l.caso.foi_tools.join(", ") || null,
+      ok: l.ok,
+      // Só a FAMÍLIA da falha (RANKING/CONFIG/USO/…), sem o texto variável da
+      // posição: é isso que agrupa entre rodadas. O detalhe vai no jsonb.
+      motivo: l.ok ? null : (l.motivo.split(":")[0] ?? null),
+      detalhe: { motivo: l.motivo, posicao: l.posicao, faixa: l.caso.faixa },
+    })),
+  });
+
   console.log();
 }
 

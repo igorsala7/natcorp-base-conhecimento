@@ -70,6 +70,19 @@ export type TraceMeta = {
    * Ausente = o banco gera, como antes.
    */
   id?: string | null;
+  /**
+   * Turno do chat, o mesmo valor que vai para `ai_usage.turn_id` e
+   * `messages.turn_id`.
+   *
+   * É o que liga O QUE o turno fez (aqui) a QUANTO ele custou (lá). Sem isto dá
+   * para somar o custo total do período e contar os turnos de um recorte, mas
+   * não para cruzar os dois — e toda decisão de custo é por recorte, não pelo
+   * total.
+   *
+   * Nasce em `POST` (`ctxConsumo.turnId`) antes de qualquer chamada de IA,
+   * justamente para já estar pronto quando o trace for gravado no fim.
+   */
+  turnId?: string | null;
   conversationId?: string | null;
   spaceId?: string | null;
   base?: string | null;
@@ -92,6 +105,7 @@ export async function persistirTrace(
   try {
     await supabase.from("ai_chat_traces").insert({
       ...(meta.id ? { id: meta.id } : {}),
+      turn_id: meta.turnId ?? null,
       conversation_id: meta.conversationId ?? null,
       space_id: meta.spaceId ?? null,
       base_code: meta.base ?? null,
