@@ -17,13 +17,13 @@ export async function runTraducaoOntologia(
   supabase: DbClient,
   jobId: string,
   onProgress?: (done: number, total: number) => Promise<void> | void,
-): Promise<{ traduzidos: number }> {
+): Promise<{ traduzidos: number; naoTraduzidos: number }> {
   const { data: job } = await supabase
     .from("ontology_translation_jobs")
     .select("space_id, lang")
     .eq("id", jobId)
     .single();
-  if (!job) return { traduzidos: 0 };
+  if (!job) return { traduzidos: 0, naoTraduzidos: 0 };
   const spaceId = job.space_id;
   const lang = job.lang;
 
@@ -66,7 +66,7 @@ export async function runTraducaoOntologia(
     .eq("id", jobId);
   if (!total) {
     await supabase.from("ontology_translation_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
-    return { traduzidos: 0 };
+    return { traduzidos: 0, naoTraduzidos: 0 };
   }
 
   // Sinônimos (aliases) dos pendentes, para a IA traduzir junto.
@@ -86,6 +86,7 @@ export async function runTraducaoOntologia(
 
   let done = 0;
   let traduzidos = 0;
+  let naoTraduzidos = 0;
   for (let i = 0; i < pendentes.length; i += LOTE) {
     const lote: TermoParaTraduzir[] = pendentes.slice(i, i + LOTE).map((t) => ({
       id: t.id,
@@ -96,9 +97,17 @@ export async function runTraducaoOntologia(
     let out: Awaited<ReturnType<typeof traduzirTermos>> = [];
     try {
       out = await traduzirTermos(lote, lang);
-    } catch {
+    } catch (e) {
+      // O lote inteiro se perde. Antes isso sumia calado e o progresso avançava
+      // igual — o job dizia 100% tendo pulado lotes inteiros. Medido em 23/08:
+      // 3.383 traduzidos de 3.424 "concluídos", 61 termos sem tradução num job
+      // marcado como done/100%.
       out = [];
+      console.error(`[ontologia] lote ${i}-${i + lote.length} falhou:`, e instanceof Error ? e.message : e);
     }
+    // O modelo pode devolver MENOS itens do que recebeu. Sem contar isso, a
+    // diferença some do mesmo jeito que a exceção sumia.
+    naoTraduzidos += lote.length - out.length;
     if (out.length) {
       const rows = out.map((tr) => ({
         term_id: tr.id,
@@ -122,6 +131,17 @@ export async function runTraducaoOntologia(
     if (onProgress) await onProgress(done, total);
   }
 
-  await supabase.from("ontology_translation_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
-  return { traduzidos };
+  // "done" só quando REALMENTE acabou. Um job que perdeu lotes precisa dizer
+  // isso: senão quem olha a tela conclui que a ontologia está completa, e o
+  // próximo a mexer descobre pelo número redondo — que foi como este defeito
+  // apareceu.
+  await supabase
+    .from("ontology_translation_jobs")
+    .update({
+      status: naoTraduzidos ? "done_parcial" : "done",
+      progress: 100,
+      error: naoTraduzidos ? `${naoTraduzidos} termo(s) sem tradução — rode de novo` : null,
+    })
+    .eq("id", jobId);
+  return { traduzidos, naoTraduzidos };
 }

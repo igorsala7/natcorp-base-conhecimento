@@ -1559,8 +1559,13 @@ async function main() {
       const { jobId } = job.data as { jobId: string };
       console.log(`Tradução de ontologia (job ${jobId})`);
       try {
-        const { traduzidos } = await runTraducaoOntologia(supabase, jobId);
-        console.log(`Tradução de ontologia ${jobId} concluída (${traduzidos} termos)`);
+        const { traduzidos, naoTraduzidos } = await runTraducaoOntologia(supabase, jobId);
+        // A perda vai para o log do worker. Um job que pulou lotes marcado como
+        // "concluído" faz quem olha a tela achar que a ontologia está completa.
+        console.log(
+          `Tradução de ontologia ${jobId} concluída (${traduzidos} termos)` +
+            (naoTraduzidos ? ` — ATENÇÃO: ${naoTraduzidos} sem tradução, rode de novo` : ""),
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`Tradução de ontologia ${jobId} falhou:`, msg);

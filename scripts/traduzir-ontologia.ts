@@ -58,12 +58,17 @@ async function main() {
 
   console.log(`\njob ${(job as { id: string }).id} — traduzindo…`);
   const t0 = Date.now();
-  const { traduzidos: n } = await runTraducaoOntologia(db as never, (job as { id: string }).id, (done, total) => {
+  const { traduzidos: n, naoTraduzidos } = await runTraducaoOntologia(db as never, (job as { id: string }).id, (done, total) => {
     if (done % 200 === 0 || done === total) {
       console.log(`   ${done}/${total} (${Math.round((done / Math.max(1, total)) * 100)}%) · ${Math.round((Date.now() - t0) / 1000)}s`);
     }
   });
   console.log(`\ntraduzidos: ${n} em ${Math.round((Date.now() - t0) / 1000)}s`);
+  if (naoTraduzidos) {
+    console.error(`ATENÇÃO: ${naoTraduzidos} termo(s) ficaram sem tradução (lote que falhou ou resposta curta do modelo).`);
+    console.error("Rode de novo — é idempotente e pega só o que faltou.");
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
