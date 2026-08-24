@@ -59,83 +59,10 @@ async function documentContext(
   }
 }
 
-export type Chunk = { heading_path: string; content: string };
+export type { Chunk } from "./chunk-split";
+export { chunkArticle } from "./chunk-split";
+import { type Chunk, chunkArticle, CHUNK_MAX, fatiar } from "./chunk-split";
 
-// Tamanho-alvo do chunk (chars). ~500 tokens: bom para embedding (fica MUITO
-// abaixo do limite do modelo) e para precisão da busca. Uma seção grande SEM
-// heading (ex.: um artigo com milhares de parágrafos) era virava 1 chunk gigante
-// que estourava o modelo e era inútil na busca — por isso o corte por tamanho.
-const CHUNK_MAX = 2000;
-
-/** Fatia um texto longo em pedaços de até `max`, cortando em espaço quando dá. */
-function fatiar(s: string, max: number): string[] {
-  const out: string[] = [];
-  let i = 0;
-  while (i < s.length) {
-    let end = Math.min(i + max, s.length);
-    if (end < s.length) {
-      const sp = s.lastIndexOf(" ", end);
-      if (sp > i + max * 0.6) end = sp; // corta numa palavra, se razoável
-    }
-    const p = s.slice(i, end).trim();
-    if (p) out.push(p);
-    i = end;
-  }
-  return out;
-}
-
-/**
- * Particiona o documento por headings: cada H1/H2/H3 inicia um chunk, cujo
- * conteúdo é o texto até o próximo heading. heading_path acumula a trilha.
- * Seções grandes são ainda sub-divididas por TAMANHO (~CHUNK_MAX). Aceita
- * BlockDoc v2 ou TipTap legado (normalizeDoc converte na leitura).
- */
-export function chunkArticle(docInput: unknown): Chunk[] {
-  const { blocks } = normalizeDoc(docInput);
-  const chunks: Chunk[] = [];
-  let trail: { level: number; text: string }[] = [];
-  let current: { heading_path: string; parts: string[] } = {
-    heading_path: "",
-    parts: [],
-  };
-
-  const push = (texto: string) => {
-    const content = texto.replace(/\s+\n/g, "\n").trim();
-    if (content) chunks.push({ heading_path: current.heading_path, content });
-  };
-  const flush = () => {
-    let buf = "";
-    for (const p of current.parts) {
-      if (p.length > CHUNK_MAX) {
-        // parágrafo isolado maior que o limite → fecha o buffer e fatia por tamanho
-        if (buf) { push(buf); buf = ""; }
-        for (const pedaco of fatiar(p, CHUNK_MAX)) push(pedaco);
-        continue;
-      }
-      if (buf && buf.length + 1 + p.length > CHUNK_MAX) { push(buf); buf = ""; }
-      buf = buf ? buf + "\n" + p : p;
-    }
-    if (buf) push(buf);
-  };
-
-  for (const block of blocks) {
-    if (block.type === "heading") {
-      flush();
-      const level = block.data.level;
-      const text = richToText(block.text).trim();
-      trail = trail.filter((t) => t.level < level);
-      trail.push({ level, text });
-      current = {
-        heading_path: trail.map((t) => t.text).join(" > "),
-        parts: text ? [text] : [],
-      };
-    } else {
-      current.parts.push(blocksToText([block]));
-    }
-  }
-  flush();
-  return chunks;
-}
 
 /**
  * Texto que VIRA o vetor: o conteúdo prefixado por onde ele vive
@@ -297,9 +224,28 @@ export function chunkExtracted(
   let heading = "";
   let parts: string[] = [];
 
+  /**
+   * Piso de contexto. Abaixo disto o trecho não se sustenta sozinho na busca:
+   * casa por semelhança de letras com quase qualquer pergunta curta e ganha de
+   * conteúdo de verdade. Medido no acervo: 58 chunks vindos deste caminho têm
+   * menos de 120 caracteres — um deles é só "resistência do talabarte.".
+   */
+  const MIN_CONTEXTO = 120;
+
   const flush = () => {
     const content = parts.join("\n").trim();
-    if (content) chunks.push({ heading_path: heading, content });
+    if (content) {
+      /**
+       * Trecho curto demais leva a trilha de títulos JUNTO do conteúdo.
+       *
+       * Não é fundir com a seção vizinha — em manual importado isso misturaria
+       * assuntos que só estão perto por acidente de diagramação. É dar ao
+       * trecho o mínimo de contexto para ele significar alguma coisa, que é
+       * exatamente o que `chunkArticle` já faz em toda seção.
+       */
+      const texto = content.length < MIN_CONTEXTO && heading ? `${heading}\n${content}` : content;
+      chunks.push({ heading_path: heading, content: texto });
+    }
     parts = [];
   };
 
