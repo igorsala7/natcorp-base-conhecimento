@@ -14,6 +14,13 @@ temperatura 0, duas rodadas do haiku.
 | usou fonte demais | 0 | 2 · 1 |
 | **tokens de entrada** | **14.373** | 20.239 · 20.249 |
 
+> **Nota de 24/08, depois desta tabela:** o eixo de fonte ainda contava 8 casos
+> ESTRUTURALMENTE IMPOSSÍVEIS (rótulo cobra tela que o caso não tem, ou
+> documentação que o turno não recuperou). Excluídos, o gemini fica em **52/70
+> (74%)**, com 15 subentregas e 3 trocas. A comparação entre modelos acima não
+> muda de sentido — os dois foram medidos com a mesma régua —, mas os números
+> absolutos do gemini melhoram. Refaça os dois lados antes de citar valores.
+
 ## As duas leituras
 
 **A escolha de FERRAMENTA não depende do modelo.** 64 contra 64–65, dois modelos
