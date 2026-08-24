@@ -230,3 +230,33 @@ describe("erroDoRetorno — recusa com `_erro`", () => {
     expect(erroDoRetorno({ erro: "   " })).toBeUndefined();
   });
 });
+
+/**
+ * O RETORNO DAS FERRAMENTAS DE DADO USA SUBLINHADO.
+ *
+ * `datasets.ts:276` devolve `{ _dataset, _total, _amostra, ... }`. A lista de
+ * chaves de resumo procurava "total" e "dataset" SEM sublinhado, então nunca
+ * casava: medido em 24/08, só 73 de 955 `tool_fim` registravam quanto voltou.
+ *
+ * Este teste existe porque o defeito era invisível — o log parecia completo,
+ * com `ok: true`, e "ok" não distingue "trouxe 3.412 linhas" de "trouxe zero".
+ */
+describe("resumoDoRetorno captura o tamanho do retorno", () => {
+  it("as chaves com sublinhado das ferramentas de dado", () => {
+    const r = resumoDoRetorno({ _dataset: "ds3", _total: 3412, _amostra: 50, _completo: false, itens: [] });
+    expect(r).toMatchObject({ _dataset: "ds3", _total: 3412, _amostra: 50, _completo: false });
+  });
+
+  it("distingue retorno cheio de retorno vazio — que é o ponto", () => {
+    expect(resumoDoRetorno({ _total: 0, itens: [] })).toMatchObject({ _total: 0 });
+    expect(resumoDoRetorno({ _total: 138, itens: [] })).toMatchObject({ _total: 138 });
+  });
+
+  it("as chaves sem sublinhado continuam valendo", () => {
+    expect(resumoDoRetorno({ total: 7, formato: "pdf" })).toMatchObject({ total: 7, formato: "pdf" });
+  });
+
+  it("retorno sem chave conhecida continua devolvendo undefined", () => {
+    expect(resumoDoRetorno({ qualquer: 1 })).toBeUndefined();
+  });
+});

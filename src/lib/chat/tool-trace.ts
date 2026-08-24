@@ -79,7 +79,25 @@ const MAX_ERRO_CHARS = 300;
  * Chaves de resumo do RETORNO que valem no log. Sem isto o `tool_fim` seria só
  * "ok:true" — e "ok" não distingue "trouxe 3.412 linhas" de "trouxe zero".
  */
-const CHAVES_RESUMO = ["total", "dataset", "dados_de", "linhas", "tipo", "formato", "ref", "campo", "arquivo"];
+const CHAVES_RESUMO = [
+  "total", "dataset", "dados_de", "linhas", "tipo", "formato", "ref", "campo", "arquivo",
+  // ── AS CHAVES COM SUBLINHADO, que faltavam ────────────────────────────────
+  //
+  // As ferramentas de dado devolvem `_total`, `_dataset`, `_amostra` e
+  // `_completo` (`datasets.ts:276` e `:389`) — com sublinhado. A lista acima
+  // procurava "total" e "dataset" SEM ele, então nunca casavam.
+  //
+  // Medido em 24/08/2026: de 955 `tool_fim` gravados, só 73 (8%) registram
+  // quanto a ferramenta devolveu. Nos outros 92% o log diz que a chamada
+  // aconteceu e não diz o que voltou.
+  //
+  // Isso fecha a classe de defeito mais cara de medir do produto: "a ferramenta
+  // devolveu M registros e a resposta afirmou N". Com `_total` no trace, isso
+  // vira comparação aritmética contra o texto da resposta — exata, automática e
+  // sem juiz. Sem ele, a única saída seria `ai_tool_runs.output`, que joga fora
+  // 61,6% do retorno (payload médio de 447 KB).
+  "_total", "_dataset", "_amostra", "_completo",
+];
 
 /**
  * Redação de segredos nos args do modelo. Os args vêm do LLM (origem='modelo'),
