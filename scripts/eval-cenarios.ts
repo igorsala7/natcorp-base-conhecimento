@@ -41,7 +41,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { familiaDaTool } from "../src/lib/chat/tool-trace";
-import { generateText, tool, type ToolSet, type ModelMessage } from "ai";
+import { generateText, tool, stepCountIs, type ToolSet, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH, resolveRegras } from "../src/lib/ai/prompt-cascade";
@@ -240,6 +240,50 @@ const PROMPT_REAL = process.argv.includes("--prompt-real");
  * com documentação. Orçar 2 a 3× a rodada sem a flag.
  */
 const USAR_RAG = process.argv.includes("--rag");
+/**
+ * ── `--fonte`: pontua DE ONDE a resposta veio ──────────────────────────────
+ *
+ * `espera_fonte` está preenchido em 138/138 e nunca foi pontuado. Distribuição:
+ * tool 59 · tela+rag+tool 20 · tela 19 · rag 17 · tela+rag 13 · social 7 ·
+ * rag+tool 2 · tela+tool 1.
+ *
+ * ── A RESSALVA QUE TORNA METADE DELE INÚTIL, e como contorno ───────────────
+ * `extrair-cenarios.ts:188` faz `espera_fonte` cair no cenário OBSERVADO quando
+ * não há anotação anterior, e `revisar` está zerado em 138/138. Medido: 52 casos
+ * têm `espera_fonte === cenario` — indistinguíveis de "herdado sem ninguém
+ * conferir". Pontuá-los faria o eixo PREMIAR O COMPORTAMENTO ATUAL por
+ * construção, que é o defeito mais insidioso que uma régua pode ter.
+ *
+ * Regra adotada: divergir do cenário PROVA que alguém tocou; ser igual não prova
+ * nada. Então o eixo pontua os 86 provados e reporta os 52 à parte, para o dono
+ * conferir quando quiser. Nada de inventar confirmação.
+ *
+ * ── DOIS PASSOS, senão o eixo mede o lado errado ──────────────────────────
+ * Detectar citação exige o TEXTO final, e num `generateText` de um passo o turno
+ * que chama ferramenta não produz texto nenhum. Sem `stepCountIs(2)`, o eixo
+ * documental só pontuaria quem NÃO chamou nada — exatamente o lado que não
+ * interessa. A produção usa `stepCountIs(2)` no próprio caminho de rewrite, então
+ * não é invenção; e continua NÃO sendo o `maxPassos` do laço real.
+ */
+const USAR_FONTE = process.argv.includes("--fonte");
+/**
+ * O `espera_fonte` deste caso foi CONFERIDO por gente?
+ *
+ * `extrair-cenarios.ts:188` faz o campo herdar o cenário OBSERVADO quando não há
+ * anotação anterior, e `revisar` está zerado em 138/138. Então:
+ *   · DIVERGIR do cenário PROVA que alguém tocou — pontua;
+ *   · ser IGUAL não prova nada — fica de fora e é reportado.
+ *
+ * Medido: 86 provados, 52 indeterminados. Pontuar os 52 faria o eixo premiar o
+ * comportamento atual por construção, que é o pior defeito que uma régua pode ter.
+ */
+const fonteConferida = (c: { espera_fonte?: string | null; cenario?: string | null }): boolean =>
+  !!c.espera_fonte && c.espera_fonte !== c.cenario;
+
+/** Citou `[n]` que não existe entre as fontes entregues — defeito próprio. */
+const citacaoInventada: string[] = [];
+/** Qual LADO faltou quando a resposta usou menos fontes que o esperado. */
+const faltaPorLado: Record<string, number> = {};
 /** Casos em que a documentação de hoje diverge da que o turno recebeu. */
 const derivaCorpus: string[] = [];
 /** Falhas da recuperação — se sumirem em silêncio, o eixo documental mente. */
@@ -444,11 +488,12 @@ async function main() {
     tOk: number; tMed: number;             // ferramenta
     pOk: number; pMed: number;             // pergunta
     perguntouDemais: number; perguntouDeMenos: number;
+    fonteMed: number; fonteExata: number; fonteFaltou: number; fonteSobrou: number;
     entrada: number; saida: number; erros: number; ms: number;
   };
   const placar = new Map<string, Placar>();
   for (const spec of MODELOS) {
-    placar.set(spec, { tOk: 0, tMed: 0, pOk: 0, pMed: 0, perguntouDemais: 0, perguntouDeMenos: 0, entrada: 0, saida: 0, erros: 0, ms: 0 });
+    placar.set(spec, { tOk: 0, tMed: 0, pOk: 0, pMed: 0, perguntouDemais: 0, perguntouDeMenos: 0, fonteMed: 0, fonteExata: 0, fonteFaltou: 0, fonteSobrou: 0, entrada: 0, saida: 0, erros: 0, ms: 0 });
   }
   const detalhe: { caso: Caso; por: Record<string, { usadas: string[]; perguntou: boolean; ok: boolean }> }[] = [];
 
@@ -707,7 +752,12 @@ async function main() {
          * rodadas (41, 42, 42) — o ruído mora na escolha entre ferramentas
          * parecidas, que é onde a temperatura pesa.
          */
-        const r = await generateText({ model, system: sistema, messages, tools, maxOutputTokens: 700, temperature: 0 });
+        const r = await generateText({
+          model, system: sistema, messages, tools, maxOutputTokens: 700, temperature: 0,
+          // Um passo basta para medir a DECISÃO; o eixo de FONTE precisa do TEXTO,
+          // que só existe depois do resultado da ferramenta voltar.
+          ...(USAR_FONTE ? { stopWhen: stepCountIs(2) } : {}),
+        });
         p.ms += Date.now() - t0;
         p.entrada += r.usage?.inputTokens ?? 0;
         p.saida += r.usage?.outputTokens ?? 0;
@@ -740,6 +790,34 @@ async function main() {
         if (perguntou === caso.espera_clarify) { p.pOk++; marcaRep.pOk++; }
         else if (perguntou) p.perguntouDemais++;
         else { p.perguntouDeMenos++; marcaRep.deMenos++; }
+
+        // ── FONTE: de ONDE a resposta veio ────────────────────────────────
+        if (USAR_FONTE && fonteConferida(caso)) {
+          const esperado = new Set(String(caso.espera_fonte ?? "").split("+").map((x) => x.trim()).filter(Boolean));
+          const obtido = new Set<string>();
+          // DOCUMENTAÇÃO: citação [n] válida. `[7]` com 4 fontes é citação
+          // INVENTADA — conta como defeito próprio, não como uso da doc.
+          const nFontes = (blocoRagDoCaso.match(/^\[\d+\]/gm) ?? []).length;
+          const citados = [...String(r.text ?? "").matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
+          if (citados.some((n) => n >= 1 && n <= nFontes)) obtido.add("rag");
+          if (nFontes && citados.some((n) => n > nFontes)) citacaoInventada.push(caso.pergunta.slice(0, 44));
+          // TELA: ferramenta local com `dados_de` apontando para um dataset da
+          // tela. Só é detectável porque os ARGUMENTOS passaram a ser guardados.
+          if (argsPorChamada.some((c) => /^tela|^ds/i.test(String(c.args?.dados_de ?? "")))) obtido.add("tela");
+          // FERRAMENTA: chamada de integração.
+          if (usadas.some((k) => !ehLocal(k))) obtido.add("tool");
+          if (esperado.has("social")) {
+            // Esperado = nada: acerto é não citar e não chamar.
+            if (!obtido.size) p.fonteExata++; else p.fonteSobrou++;
+          } else {
+            const faltou = [...esperado].filter((x) => !obtido.has(x));
+            const sobrou = [...obtido].filter((x) => !esperado.has(x));
+            if (!faltou.length && !sobrou.length) p.fonteExata++;
+            else if (faltou.length) { p.fonteFaltou++; for (const f of faltou) faltaPorLado[f] = (faltaPorLado[f] ?? 0) + 1; }
+            else p.fonteSobrou++;
+          }
+          p.fonteMed++;
+        }
 
         por[spec] = { usadas, perguntou, ok: tOk && perguntou === caso.espera_clarify };
       } catch (e) {
@@ -778,6 +856,27 @@ async function main() {
   ];
 
   console.log("── PLACAR ".padEnd(96, "─"));
+  if (USAR_FONTE) {
+    const p0 = [...placar.values()][0];
+    const conferidos = amostra.filter(fonteConferida).length;
+    console.log(`\n── FONTE ` + "─".repeat(53));
+    console.log(`  conferidos (espera_fonte ≠ cenário observado): ${conferidos} de ${amostra.length}`);
+    console.log(`  os outros ${amostra.length - conferidos} herdaram o cenário e NÃO são pontuados —`);
+    console.log(`  pontuá-los premiaria o comportamento atual por construção.`);
+    if (p0?.fonteMed) {
+      console.log(`\n  exata ${p0.fonteExata}/${p0.fonteMed} · faltou ${p0.fonteFaltou} · sobrou ${p0.fonteSobrou}`);
+      const lados = Object.entries(faltaPorLado).sort((a, b) => b[1] - a[1]);
+      // Qual LADO perde é o número que testa a hipótese: nos casos que esperam
+      // documentação E ferramenta, o agente larga qual dos dois? A média
+      // apagaria justamente isso.
+      if (lados.length) console.log(`  quando faltou, o lado perdido foi: ${lados.map(([k, n]) => `${k}=${n}`).join(" · ")}`);
+    }
+    if (citacaoInventada.length) {
+      console.log(`  ⚠ ${citacaoInventada.length} com CITAÇÃO INVENTADA (citou [n] fora das fontes entregues)`);
+      for (const c of citacaoInventada.slice(0, 3)) console.log(`     ${c}`);
+    }
+    console.log();
+  }
   if (USAR_RAG) {
     const comDoc = amostra.filter((c) => (c.rag_limite ?? 0) > 0).length;
     console.log(`\n── DOCUMENTAÇÃO ` + "─".repeat(46));
