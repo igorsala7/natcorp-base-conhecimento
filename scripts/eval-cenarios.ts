@@ -293,6 +293,22 @@ const USAR_RAG = process.argv.includes("--rag");
  */
 const USAR_FONTE = process.argv.includes("--fonte");
 /**
+ * ── `--passos N`: quantos passos o modelo pode dar ────────────────────────
+ *
+ * A bancada rodava com UM passo (`generateText` sem `stopWhen`) e a producao usa
+ * `stepCountIs(maxPassos)`, que e adaptativo — 3, 5, 6 ou 9 conforme o turno
+ * (`route.ts`). Medido em 938 turnos instrumentados: a mediana real e de 2
+ * passos, com folga media de 3,5 a 5,7.
+ *
+ * O que isso custou de leitura: entre a rodada de 1 passo e a de 2, o eixo de
+ * FERRAMENTA subiu de 56 para 64 nos mesmos 125 casos. OITO casos que eu vinha
+ * contando como "o modelo nao agiu" eram "a regua so deixou agir uma vez".
+ *
+ * Padrao 1 mantem o historico comparavel; `--fonte` sobe para 2 porque o eixo
+ * documental precisa do TEXTO, que so existe depois do resultado voltar.
+ */
+const PASSOS = Number(arg("passos", USAR_FONTE ? "2" : "1"));
+/**
  * O `espera_fonte` deste caso foi CONFERIDO por gente?
  *
  * `extrair-cenarios.ts:188` faz o campo herdar o cenário OBSERVADO quando não há
@@ -782,9 +798,9 @@ async function main() {
          */
         const r = await generateText({
           model, system: sistema, messages, tools, maxOutputTokens: 700, temperature: 0,
-          // Um passo basta para medir a DECISÃO; o eixo de FONTE precisa do TEXTO,
-          // que só existe depois do resultado da ferramenta voltar.
-          ...(USAR_FONTE ? { stopWhen: stepCountIs(2) } : {}),
+          // Um passo mede a DECISÃO; mais passos medem o TURNO. A produção dá
+          // 3 a 9 — ver o comentário de `--passos`.
+          ...(PASSOS > 1 ? { stopWhen: stepCountIs(PASSOS) } : {}),
         });
         p.ms += Date.now() - t0;
         p.entrada += r.usage?.inputTokens ?? 0;
