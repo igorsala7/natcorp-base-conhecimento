@@ -1172,7 +1172,6 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
           : completo
             ? 18
             : 8;
-  const _tRagStart = Date.now();
   // Modo relatório / roteado a tool: doc é reduzida e de baixo valor semântico → busca
   // LÉXICA (pula o embedding da pergunta, que custa ~15s no pior caso com cache frio).
   // Tutorial MANTÉM a busca híbrida (semântica): é ela que acha a documentação DESTA
@@ -1212,55 +1211,29 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     : null;
   const _memoria = lerMemoria(_memoriaRaw);
   const _continuidade = nosParaBoost(_memoria, _turnoAtual);
-  const ragSources = social || baseExclusiva || soRedigir || ragLimit === 0 ? [] : await retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined, continuidade: _continuidade });
-  const _tRag = Date.now();
-  console.log(`[chat-timing] rag=${_tRag - _tRagStart}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? (docNoRelatorio ? " (modo_relatorio_doc)" : " (modo_relatorio_reduzido)") : ""}`);
-  passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, // Motivos DISTINTOS para medir o efeito do corte: `modo_relatorio_cortado` é o
-    // turno que antes carregava 3 trechos e agora não carrega nenhum.
-    motivo: operacaoDeTela
-      ? "operacao_tela"
-      : ragParaTool
-        ? "roteado_tool"
-        : modoRelatorioCedo
-          ? (docNoRelatorio ? "modo_relatorio_doc" : "modo_relatorio_reduzido")
-          : soRedigir
-            ? "confirmacao_executada"
-            : perguntaDeDado
-              ? "pergunta_de_dado"
-              : "normal", ms: _tRag - _tRagStart,
-    // PERFIL DA RECUPERAÇÃO (item 2 da auditoria): score RRF e tamanho de cada
-    // trecho, na ordem em que vieram. Sem isto não há como responder "os últimos
-    // trechos são sinal ou ruído?" — e essa é a única economia que anda junto
-    // com a assertividade: tirar ruído reduz token E melhora a resposta.
-    // `forced` marca o trecho que entrou pelo vínculo termo→artigo da ontologia,
-    // não pela fusão — o score dele não é comparável com os demais.
-    perfil: ragSources.map((s, i) => ({
-      pos: i + 1,
-      score: Math.round((s.score ?? 0) * 1e4) / 1e4,
-      tok: Math.round((s.content ?? "").length / 4),
-      forced: s.forced === true,
-    })),
-    // Queda do 1º ao último: recuperação saudável cai pouco; queda grande
-    // significa que a cauda entrou só para preencher o limite.
-    queda: ragSources.length > 1
-      ? Math.round((1 - (ragSources[ragSources.length - 1]!.score ?? 0) / (ragSources[0]!.score || 1)) * 100)
-      : null,
-  });
-  // Grava a memória para o próximo turno. Sem await: o turno não espera por
-  // isto, e uma falha aqui só custa continuidade — nunca a resposta.
-  if (convId && ragSources.length) {
-    const _nova = atualizarMemoria(
-      _memoria,
-      ragSources.map((r) => ({ node_id: r.node_id, document_id: r.document_id })),
-      _turnoAtual,
-    );
-    void supabase.from("conversations").update({ rag_memoria: _nova }).eq("id", convId)
-      .then(() => undefined, () => undefined);
-  }
-
-  // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
-  const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
-  const sources = [...ragSources, ...webSources];
+  // O RAG DISPARA AQUI E SÓ É COBRADO LÁ EMBAIXO.
+  //
+  // Antes ele era esperado nesta linha, e dois portões que NÃO leem o resultado
+  // vêm depois: `clarify_fonte_inicial` e `clarify_tool`. Quando um deles fecha o
+  // turno, a pessoa esperou a recuperação inteira para receber uma pergunta.
+  // Medido em 20 dias: 137 turnos, 407 s de espera jogada fora — e em 98 de 106
+  // casos a pessoa reenviou a mesma pergunta em menos de 10 min, pagando duas vezes.
+  //
+  // Não dá para mover depois de TODOS os portões: `clarify_tema` (mais abaixo) usa
+  // `ragSources` para decidir. O ponto de cobrança é o primeiro consumidor real.
+  //
+  // Efeito colateral bom: entre disparar e cobrar roda o preparo das ferramentas,
+  // que antes esperava o RAG terminar. Vira paralelo em TODOS os turnos.
+  // O tempo do RAG é cronometrado DENTRO da promessa. Medir no `await` somaria o
+  // que roda entre o disparo e a cobrança (os dois portões, o preparo de
+  // ferramentas) e o `ms` do trace passaria a dizer outra coisa — o instrumento
+  // que mede a latência viraria mentira sobre si mesmo.
+  let _ragMs = 0;
+  const _cronometrar = async <T,>(p: Promise<T>): Promise<T> => {
+    const t0 = Date.now();
+    try { return await p; } finally { _ragMs = Date.now() - t0; }
+  };
+  const _ragPromise = social || baseExclusiva || soRedigir || ragLimit === 0 ? Promise.resolve([]) : _cronometrar(retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined, continuidade: _continuidade }));
   // Fecha o rastreio: adiciona o passo final, PERSISTE (página de log, best-effort)
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
   const finalizarTrace = (desfecho: string) => {
@@ -1793,13 +1766,6 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     await linkAttachments(attach.ids, convId!, key.space_id);
   }
 
-  const citations = sources.map((s) => ({
-    n: s.n,
-    title: s.title,
-    url: s.url,
-    image: s.image,
-    heading_path: s.heading_path,
-  }));
   const encoder = new TextEncoder();
   const sse = (obj: unknown) => encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
 
@@ -2241,6 +2207,65 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     });
     return sseResponse(stream, cors);
   }
+
+  // Cobrança do RAG disparado lá em cima. Daqui para baixo `ragSources` existe;
+  // os dois portões que não o leem já rodaram e já podem ter fechado o turno.
+  const ragSources = await _ragPromise;
+  console.log(`[chat-timing] rag=${_ragMs}ms fontes=${ragSources.length} limite=${ragLimit}${operacaoDeTela ? " (operacao_tela)" : ragParaTool ? " (roteado_tool)" : modoRelatorioCedo ? (docNoRelatorio ? " (modo_relatorio_doc)" : " (modo_relatorio_reduzido)") : ""}`);
+  passo("rag", { fontes: ragSources.length, limite: ragLimit, lexico: ragLexicalOnly, // Motivos DISTINTOS para medir o efeito do corte: `modo_relatorio_cortado` é o
+    // turno que antes carregava 3 trechos e agora não carrega nenhum.
+    motivo: operacaoDeTela
+      ? "operacao_tela"
+      : ragParaTool
+        ? "roteado_tool"
+        : modoRelatorioCedo
+          ? (docNoRelatorio ? "modo_relatorio_doc" : "modo_relatorio_reduzido")
+          : soRedigir
+            ? "confirmacao_executada"
+            : perguntaDeDado
+              ? "pergunta_de_dado"
+              : "normal", ms: _ragMs,
+    // PERFIL DA RECUPERAÇÃO (item 2 da auditoria): score RRF e tamanho de cada
+    // trecho, na ordem em que vieram. Sem isto não há como responder "os últimos
+    // trechos são sinal ou ruído?" — e essa é a única economia que anda junto
+    // com a assertividade: tirar ruído reduz token E melhora a resposta.
+    // `forced` marca o trecho que entrou pelo vínculo termo→artigo da ontologia,
+    // não pela fusão — o score dele não é comparável com os demais.
+    perfil: ragSources.map((s, i) => ({
+      pos: i + 1,
+      score: Math.round((s.score ?? 0) * 1e4) / 1e4,
+      tok: Math.round((s.content ?? "").length / 4),
+      forced: s.forced === true,
+    })),
+    // Queda do 1º ao último: recuperação saudável cai pouco; queda grande
+    // significa que a cauda entrou só para preencher o limite.
+    queda: ragSources.length > 1
+      ? Math.round((1 - (ragSources[ragSources.length - 1]!.score ?? 0) / (ragSources[0]!.score || 1)) * 100)
+      : null,
+  });
+  // Grava a memória para o próximo turno. Sem await: o turno não espera por
+  // isto, e uma falha aqui só custa continuidade — nunca a resposta.
+  if (convId && ragSources.length) {
+    const _nova = atualizarMemoria(
+      _memoria,
+      ragSources.map((r) => ({ node_id: r.node_id, document_id: r.document_id })),
+      _turnoAtual,
+    );
+    void supabase.from("conversations").update({ rag_memoria: _nova }).eq("id", convId)
+      .then(() => undefined, () => undefined);
+  }
+
+  // Fontes da web (leitor citou uma URL permitida): numeradas após a documentação.
+  const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
+  const sources = [...ragSources, ...webSources];
+
+  const citations = sources.map((s) => ({
+    n: s.n,
+    title: s.title,
+    url: s.url,
+    image: s.image,
+    heading_path: s.heading_path,
+  }));
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
   // Com anexo, NÃO recusa: o usuário trouxe o próprio conteúdo para a resposta.
