@@ -48,6 +48,8 @@ type Caso = {
   espera_tool: string | null;
   espera_params: Record<string, unknown> | null;
   espera_clarify: boolean;
+  /** Cliente do turno, vindo do trace via `enriquecer-cenarios.ts`. */
+  base_code?: string | null;
   revisar?: boolean;
   /** Era gestor de equipe no turno — muda o escopo efetivo, não só o painel. */
   gestor?: boolean;
@@ -123,16 +125,17 @@ async function main() {
   // As ferramentas HABILITADAS nesta base — o mesmo conjunto que o chat monta
   // (`simular-selecao.ts` faz idêntico). Sem o vínculo, o top-K rodaria sobre um
   // catálogo que a base não tem.
-  const { data: base } = await db.from("ai_bases").select("id").eq("base_code", BASE).maybeSingle();
-  if (!base) {
-    console.error(`Base "${BASE}" não encontrada.`);
-    process.exit(1);
-  }
-  const { data: vinculos } = await db
-    .from("ai_base_tools")
-    .select("tool:ai_tools(key, name, description, search_terms, always_include, active)")
-    .eq("base_id", base.id)
-    .eq("enabled", true);
+  /**
+   * CATÁLOGO POR BASE, carregado sob demanda.
+   *
+   * Era uma base só, vinda de `--base` e aplicada aos 138 casos. Medido em
+   * 24/08: 33 casos (24%) são de OUTRO cliente, e rodavam contra o catálogo da
+   * natcorp. Isso vale para as simulações que já aprovaram e reprovaram
+   * mudanças — não é um erro futuro, é medição já tomada como verdade.
+   *
+   * `ilike` porque o mesmo cliente aparece com caixas diferentes nos traces.
+   */
+  type Ferramenta = { key: string; name: string; description: string; searchTerms: string; alwaysInclude: boolean };
   type T = {
     key: string;
     name: string;
@@ -141,7 +144,23 @@ async function main() {
     always_include: boolean | null;
     active: boolean;
   };
-  const tools = (vinculos ?? [])
+  const catalogoPorBase = new Map<string, Ferramenta[]>();
+  const catalogoDe = async (b: string): Promise<Ferramenta[]> => {
+    const chave = b.trim().toLowerCase();
+    if (catalogoPorBase.has(chave)) return catalogoPorBase.get(chave)!;
+    const { data: base } = await db.from("ai_bases").select("id").ilike("base_code", chave).maybeSingle();
+    if (!base) { catalogoPorBase.set(chave, []); return []; }
+    const { data: vinculos } = await db
+      .from("ai_base_tools")
+      .select("tool:ai_tools(key, name, description, search_terms, always_include, active)")
+      .eq("base_id", base.id)
+      .eq("enabled", true);
+    const lista = montar(vinculos ?? []);
+    catalogoPorBase.set(chave, lista);
+    return lista;
+  };
+
+  const montar = (vinculos: unknown[]): Ferramenta[] => (vinculos ?? [])
     .map((r) => (r as unknown as { tool: T | null }).tool)
     .filter((t): t is T => !!t && t.active)
     .map((t) => ({
@@ -151,8 +170,9 @@ async function main() {
       searchTerms: t.search_terms ?? "",
       alwaysInclude: t.always_include === true,
     }));
-  const habilitadas = new Set(tools.map((t) => t.key));
-  console.log(`base ${BASE} · ${tools.length} ferramentas habilitadas · teto do top-K: ${TOP}`);
+  const habilitadasDe = async (b: string) => new Set((await catalogoDe(b)).map((t) => t.key));
+  const clientes = [...new Set(casos.map((c) => (c.base_code ?? BASE).trim().toLowerCase()))];
+  console.log(`${clientes.length} cliente(s) no conjunto: ${clientes.join(", ")} · teto do top-K: ${TOP}`);
 
   console.log(`\n${casos.length} casos · ${comGabarito.length} com ferramenta esperada`);
   if (naoAnotados) console.log(`⚠ ${naoAnotados} ainda com "revisar": true — o placar conta só o que foi conferido`);
@@ -238,18 +258,22 @@ async function main() {
       });
       continue;
     }
-    if (!habilitadas.has(alvo)) {
-      linhas.push({ caso: c, ok: false, motivo: `CONFIG: não habilitada na base ${BASE}`, posicao: null });
+    // A base é a DO CASO. Fixá-la em `--base` fazia 33 dos 138 (24%) rodarem
+    // contra o catálogo de outro cliente — e foi assim que rodaram as
+    // simulações que já aprovaram e reprovaram mudanças.
+    const baseDoCaso = (c.base_code ?? BASE).trim().toLowerCase();
+    if (!(await habilitadasDe(baseDoCaso)).has(alvo)) {
+      linhas.push({ caso: c, ok: false, motivo: `CONFIG: não habilitada na base ${baseDoCaso}`, posicao: null });
       continue;
     }
 
     // (c) Disponível: o ranking a traz?
-    const sim = await simTools(db, BASE, c.pergunta);
+    const sim = await simTools(db, baseDoCaso, c.pergunta);
     if (sim.size === 0) {
       linhas.push({ caso: c, ok: false, motivo: "EMBEDDING: falhou ou catálogo vazio", posicao: null });
       continue;
     }
-    const escolhidas = selecionarTopK(tools, c.pergunta, TOP, undefined, sim);
+    const escolhidas = selecionarTopK(await catalogoDe(baseDoCaso), c.pergunta, TOP, undefined, sim);
     // A posição no ranking bruto explica QUÃO longe ficou: 7º de 87 é ajuste
     // fino; 60º é a descrição da ferramenta não falar a língua da pergunta.
     const ranking = [...sim.entries()].sort((a, b) => b[1] - a[1]);
@@ -271,8 +295,29 @@ async function main() {
   const uso = linhas.filter((l) => l.motivo.startsWith("USO")).length;
   const anotacao = linhas.filter((l) => l.motivo.startsWith("ANOTAÇÃO")).length;
 
+  /**
+   * CATÁLOGO VAZIO NÃO É ERRO DO FUNIL — é caso IMENSURÁVEL.
+   *
+   * `simTools` passa por `loadCatalogo`, que filtra `ai_bases.active = true`.
+   * Quatro clientes foram DESATIVADOS em 18/08 (incor, leadec, saude,
+   * stefanini), e os casos deles devolvem catálogo vazio.
+   *
+   * Enquanto a base era fixa em `--base natcorp`, esses casos eram avaliados
+   * contra o catálogo de OUTRO cliente e entravam no placar como acerto ou
+   * falha de ranking. Com a base do caso, eles aparecem pelo que são.
+   *
+   * O balde existia e NÃO SAÍA no placar — só nas linhas de detalhe. Somar
+   * imensurável ao denominador é o mesmo defeito que este projeto vem achando
+   * em outras réguas: um número que parece completo e não é.
+   */
+  const semCatalogo = linhas.filter((l) => l.motivo.startsWith("EMBEDDING")).length;
+  const medivel = linhas.length - semCatalogo;
+
   console.log("── PLACAR ".padEnd(62, "─"));
-  console.log(`  acerto de ferramenta   ${acertos}/${linhas.length}  (${pct(acertos, linhas.length)})`);
+  console.log(`  acerto de ferramenta   ${acertos}/${medivel}  (${pct(acertos, medivel)})`);
+  if (semCatalogo) {
+    console.log(`  SEM CATÁLOGO           ${semCatalogo}   ← base do cliente inativa; fora do denominador`);
+  }
   console.log(`  falha de RANKING       ${ranking}   ← ajuste de modelo/embedding/ontologia resolve`);
   console.log(`  falha de CONFIG        ${config}   ← NENHUM ajuste de modelo resolve`);
   const usoVelho = linhas.filter((l) => l.motivo.startsWith("USO") && velho(l.caso)).length;

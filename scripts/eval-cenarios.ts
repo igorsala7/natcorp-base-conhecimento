@@ -211,6 +211,8 @@ type Caso = {
   portal: string | null;
   tela: { id: string; linhas: number; colunas: string[] }[];
   ofertadas: string[];
+  /** Cliente do turno. Preenchido por `enriquecer-cenarios.ts` a partir do trace. */
+  base_code?: string | null;
   espera_tool: string | null;
   espera_fonte: string;
   espera_clarify: boolean;
@@ -379,7 +381,22 @@ async function main() {
   for (let rep = 0; rep < REPETICOES; rep++) {
    const marcaRep = { tOk: 0, pOk: 0, deMenos: 0 };
    // Catálogo da base, uma vez só — `--funil` precisa dele por caso.
-  const toolsDaBase = USAR_FUNIL ? await listBaseTools(db as never, BASE) : null;
+  /**
+   * CATÁLOGO POR CASO, não global.
+   *
+   * `--base natcorp` era aplicado a todos os 138. Medido em 24/08: 33 casos
+   * (24%) são de OUTRO cliente — stefanini, leadec, incor, saude. Eles rodavam
+   * contra o catálogo da natcorp, e isso vale para as simulações que já
+   * aprovaram e reprovaram mudanças nesta e na sessão anterior.
+   *
+   * Cacheado por base: são 7 clientes em 138 casos, e `listBaseTools` bate no
+   * banco a cada chamada.
+   */
+  const catalogoPorBase = new Map<string, Awaited<ReturnType<typeof listBaseTools>>>();
+  const catalogoDe = async (b: string) => {
+    if (!catalogoPorBase.has(b)) catalogoPorBase.set(b, await listBaseTools(db as never, b));
+    return catalogoPorBase.get(b)!;
+  };
   if (USAR_FUNIL) console.log(`--funil: recomputando a oferta de integração com o código de hoje (top ${TOP_FUNIL})\n`);
 
   for (const caso of amostra) {
@@ -388,8 +405,10 @@ async function main() {
      * as de integração são decididas agora e as locais vêm do caso.
      */
     let ofertadasEfetivas = caso.ofertadas;
-    if (USAR_FUNIL && toolsDaBase) {
-      const sim = await simTools(db as never, BASE, caso.pergunta);
+    if (USAR_FUNIL) {
+      const baseDoCaso = (caso.base_code ?? BASE).trim().toLowerCase();
+      const toolsDaBase = await catalogoDe(baseDoCaso);
+      const sim = await simTools(db as never, baseDoCaso, caso.pergunta);
       const escolhidas = sim.size
         ? selecionarTopK(toolsDaBase as never, caso.pergunta, TOP_FUNIL, undefined, sim)
         : new Set<string>();
@@ -399,6 +418,19 @@ async function main() {
     for (const spec of MODELOS) {
       const p = placar.get(spec)!;
       const chamadas: string[] = [];
+      /**
+       * OS ARGUMENTOS DA CHAMADA, não só o nome dela.
+       *
+       * Eram descartados (`execute: async () => { chamadas.push(key) }`), e com
+       * eles se perdiam duas medições que o resto do sistema já espera:
+       *   · `dados_de` — é o que distingue "usou a TELA" de "usou a API", e o
+       *     eixo de FONTE não existe sem essa distinção;
+       *   · o veredito `parametro_errado`, que `ai_tool_casos` aceita desde
+       *     17/08 e que o eval nunca pôde produzir, porque não via parâmetro.
+       *
+       * Guardar não muda placar nenhum hoje. Destrava os dois.
+       */
+      const argsPorChamada: { tool: string; args: Record<string, unknown> }[] = [];
       const tools: ToolSet = {};
       /**
        * O mesmo FATO que a rota calcula: a PESSOA disse algum período? Reproduzido
@@ -470,7 +502,7 @@ async function main() {
           tools[key] = tool({
             description: real.description,
             inputSchema: real.inputSchema,
-            execute: async () => { chamadas.push(key); return { ok: true }; },
+            execute: async (input: unknown) => { chamadas.push(key); argsPorChamada.push({ tool: key, args: (input ?? {}) as Record<string, unknown> }); return { ok: true }; },
           } as never);
           continue;
         }
@@ -484,13 +516,14 @@ async function main() {
         tools[key] = tool({
           description: String(t?.description ?? t?.name ?? key).slice(0, 900),
           inputSchema: z.object(campos),
-          execute: async () => {
+          execute: async (input: unknown) => {
             // Mesma checagem do servidor: a ferramenta exige período e ninguém deu.
             if (faltaPeriodoNaChamada(t?.params, periodoInformado)) {
               barrouPorPeriodo = true;
               return { _erro: "PERÍODO NÃO INFORMADO" };
             }
             chamadas.push(key);
+            argsPorChamada.push({ tool: key, args: (input ?? {}) as Record<string, unknown> });
             return { items: [{ ok: true }], _total: 1, _completo: true };
           },
         });
