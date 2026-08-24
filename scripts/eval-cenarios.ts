@@ -44,7 +44,9 @@ import { familiaDaTool } from "../src/lib/chat/tool-trace";
 import { generateText, tool, type ToolSet, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { Database } from "../src/lib/database.types";
-import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
+import { REGRAS_ABSOLUTAS, PERSONA_RH, resolveRegras } from "../src/lib/ai/prompt-cascade";
+import { composeSystemPrompt } from "../src/lib/ai/system-prompt";
+import { regraAgirOuPerguntar, regraNumerosExatos, regraMatriculaComFonte } from "../src/lib/chat/regras-nucleo";
 import { integUsageDirective } from "../src/lib/chat/report-tools";
 import { DIRETIVA_PERGUNTAR } from "../src/lib/ai/perguntar";
 import { faltaPeriodoNaChamada, temSinalDePeriodo } from "../src/lib/chat/periodo";
@@ -173,6 +175,43 @@ const USAR_FUNIL = process.argv.includes("--funil");
  * `rewrite-gate.ts:37` de fato testa nos casos deste conjunto.
  */
 const USAR_ANTECEDENTE = process.argv.includes("--antecedente");
+/**
+ * ── `--prompt-real`: monta pelo compositor da PRODUÇÃO ─────────────────────
+ *
+ * Sem a flag, a bancada usa a montagem histórica:
+ *   [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), tela, DIRETIVA]
+ *
+ * Ela mede ~20% do que o modelo recebe (9.950 chars contra mediana de 49.694 em
+ * produção) e — o que mais importa para a hipótese em teste — **em outra ordem**:
+ * ali as REGRAS vêm ANTES da diretiva de ferramentas; em produção vêm DEPOIS, e
+ * o CONTEXTO vem depois delas. A premissa do projeto é "o que vem por último
+ * manda mais" (`prompt-cascade.ts:125`), então a bancada estava medindo o
+ * arranjo oposto ao que se quer avaliar.
+ *
+ * Com a flag, usa `composeSystemPrompt` — a MESMA função da rota — com:
+ *   persona → (especialização) → USO DAS FERRAMENTAS → REGRAS → CONTEXTO
+ *
+ * ── O QUE É FIEL E O QUE É APROXIMAÇÃO, declarado ─────────────────────────
+ * FIEL: a ordem das seções, `resolveRegras` (que reanexa `regraRotulosColuna`,
+ * 647 chars que a montagem antiga perdia), o núcleo de regras, e a cláusula
+ * `RECONCILIACAO_FERRAMENTAS` quando há ferramenta de dados.
+ *
+ * APROXIMADO, e o viés é conhecido:
+ *  · `capabilities` (o bloco que ENUNCIA a competição documentação × ferramenta)
+ *    depende do catálogo do turno; aqui entra a diretiva de uso, que é o núcleo
+ *    dele. Falta o `profileNote`, que é PII.
+ *  · `blocoFormAssist` (até 18k chars) depende de `screenFields`, que o caso não
+ *    guarda. Ausente. É o bloco que mais empurra a operar a TELA — logo o eval
+ *    subestima a atração pela tela, e mudança que faça o modelo preferi-la vai
+ *    parecer melhor aqui do que em produção.
+ *  · a persona é a de fábrica; `widget_keys.system_prompt` é por chave e o trace
+ *    não guarda a chave.
+ *
+ * ESPERE RESET DE LINHA DE BASE, NÃO GANHO. A primeira rodada com a flag produz
+ * números que NÃO são comparáveis com nenhuma rodada anterior — igual ao que já
+ * aconteceu quando as ferramentas locais passaram a ter a definição real.
+ */
+const PROMPT_REAL = process.argv.includes("--prompt-real");
 const TOP_FUNIL = Number(arg("top", "12"));
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
@@ -529,8 +568,34 @@ async function main() {
         });
       }
 
-      const sistema = [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela), DIRETIVA ? DIRETIVA_PERGUNTAR : ""]
-        .filter(Boolean).join("\n\n");
+      /**
+       * A montagem HISTÓRICA fica como padrão para os relatórios já gravados
+       * continuarem comparáveis; `--prompt-real` usa o compositor de produção.
+       */
+      const temDataTools = Object.keys(tools).some((k) => ehLocal(k) && k !== "perguntar_ao_usuario");
+      const sistema = PROMPT_REAL
+        ? composeSystemPrompt(
+            {
+              persona: PERSONA_RH,
+              // Os 3 do `blocoNucleo`, na ordem da rota (`regras-nucleo.ts`),
+              // mais a diretiva de uso — que é o núcleo do `capabilities`.
+              usoFerramentas: [
+                regraAgirOuPerguntar(),
+                regraNumerosExatos(),
+                regraMatriculaComFonte(),
+                integUsageDirective(),
+              ].filter(Boolean).join("\n\n"),
+              regras: resolveRegras(null),
+              comTools: temDataTools,
+            },
+            // O CONTEXTO da produção traz RAG + tela. Aqui só a tela existe; o
+            // RAG entra quando `--rag` for construído. Enquanto isso, o bloco
+            // documental está AUSENTE e os 52 casos que o esperam não são
+            // julgáveis — está dito no cabeçalho da flag.
+            blocoDaTela(caso.tela) || "(sem contexto recuperado neste turno)",
+          ) + (DIRETIVA ? `\n\n${DIRETIVA_PERGUNTAR}` : "")
+        : [PERSONA_RH, REGRAS_ABSOLUTAS, integUsageDirective(), blocoDaTela(caso.tela), DIRETIVA ? DIRETIVA_PERGUNTAR : ""]
+            .filter(Boolean).join("\n\n");
       // Mensagem de conteúdo vazio existe no histórico real (turno que morreu antes
       // de escrever) e a Anthropic RECUSA o payload inteiro por causa dela — o que
       // derrubava dois modelos e viraria "sem medição" em vez de comparação.
