@@ -322,6 +322,33 @@ const PASSOS = Number(arg("passos", USAR_FONTE ? "2" : "1"));
 const fonteConferida = (c: { espera_fonte?: string | null; cenario?: string | null }): boolean =>
   !!c.espera_fonte && c.espera_fonte !== c.cenario;
 
+/**
+ * O CASO CARREGA O QUE O RÓTULO EXIGE?
+ *
+ * Medido em 24/08: dos 86 conferidos, 5 esperam TELA e o caso não tem tela
+ * nenhuma (`tela: []`), e 3 esperam DOCUMENTAÇÃO num turno em que o RAG não
+ * recuperou nada (`rag_fontes: 0`). São oito casos que o modelo NÃO TEM COMO
+ * acertar — a fonte que o gabarito cobra não está no payload.
+ *
+ * Eles contavam como falha do agente e empurravam o eixo de tela para baixo: com
+ * eles, "tela" acerta 42%; sem eles a leitura é outra. Régua que cobra o que não
+ * entregou mede a própria lacuna e chama de defeito do medido.
+ *
+ * A causa é a extração, não a anotação: `extrair-cenarios.ts` grava `tela` a
+ * partir do passo `dataset:registro`, que só existe quando o turno registrou
+ * tabela — mas o dono rotulou olhando a CONVERSA, onde a tela estava visível.
+ */
+const casoTemAFonte = (c: {
+  espera_fonte?: string | null;
+  tela?: unknown[];
+  rag_fontes?: number | null;
+}): boolean => {
+  const f = String(c.espera_fonte ?? "");
+  if (f.includes("tela") && !(c.tela ?? []).length) return false;
+  if (f.includes("rag") && !(c.rag_fontes ?? 0)) return false;
+  return true;
+};
+
 /** Citou `[n]` que não existe entre as fontes entregues — defeito próprio. */
 const citacaoInventada: string[] = [];
 /** Qual LADO faltou quando a resposta usou menos fontes que o esperado. */
@@ -836,7 +863,7 @@ async function main() {
         else { p.perguntouDeMenos++; marcaRep.deMenos++; }
 
         // ── FONTE: de ONDE a resposta veio ────────────────────────────────
-        if (USAR_FONTE && fonteConferida(caso)) {
+        if (USAR_FONTE && fonteConferida(caso) && casoTemAFonte(caso)) {
           const esperado = new Set(String(caso.espera_fonte ?? "").split("+").map((x) => x.trim()).filter(Boolean));
           const obtido = new Set<string>();
           // DOCUMENTAÇÃO: citação [n] válida. `[7]` com 4 fontes é citação
@@ -925,8 +952,14 @@ async function main() {
     const conferidos = amostra.filter(fonteConferida).length;
     console.log(`\n── FONTE ` + "─".repeat(53));
     console.log(`  conferidos (espera_fonte ≠ cenário observado): ${conferidos} de ${amostra.length}`);
+    const impossiveis = amostra.filter((c) => fonteConferida(c) && !casoTemAFonte(c)).length;
     console.log(`  os outros ${amostra.length - conferidos} herdaram o cenário e NÃO são pontuados —`);
     console.log(`  pontuá-los premiaria o comportamento atual por construção.`);
+    if (impossiveis) {
+      console.log(`  ${impossiveis} conferidos ficam de fora por IMPOSSIBILIDADE: o rótulo cobra tela`);
+      console.log(`  ou documentação que o CASO não carrega. Régua que cobra o que não entregou`);
+      console.log(`  mede a própria lacuna e chama de defeito do medido.`);
+    }
     if (p0?.fonteMed) {
       console.log(`\n  exata ${p0.fonteExata}/${p0.fonteMed} · faltou ${p0.fonteFaltou} · TROCOU ${p0.fonteTrocou} · sobrou ${p0.fonteSobrou}`);
       const trocas = Object.entries(trocaPorLado).sort((a, b) => b[1] - a[1]).slice(0, 5);
