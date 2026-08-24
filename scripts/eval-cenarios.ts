@@ -54,6 +54,7 @@ import { confirmaEmbalar } from "../src/lib/chat/portao-acao-confirma";
 import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
 import { simTools, listBaseTools } from "../src/lib/integrations/tool-catalog";
 import { selecionarTopK } from "../src/lib/integrations/tool-narrow";
+import { antecedenteDoTurno } from "../src/lib/chat/antecedente";
 import { buildQueryTool } from "../src/lib/chat/query-tools";
 import { buildFormTools, buildTutorialTool } from "../src/lib/chat/form-fields";
 import { buildVisualTools } from "../src/lib/chat/report-tools";
@@ -157,6 +158,21 @@ const BASE = arg("base", "natcorp");
  * TELA, não do catálogo — recomputá-las mediria uma tela que não existe mais.
  */
 const USAR_FUNIL = process.argv.includes("--funil");
+/**
+ * ── `--antecedente`: espelha o que a rota passou a mandar ao modelo ─────────
+ *
+ * A rota injeta, como bloco `dado_pergunta`, o assunto do turno anterior quando
+ * `precisaContexto` (`route.ts:2518`, `antecedente.ts`). Sem espelhar aqui, a
+ * mudança fica INVISÍVEL para a medição — o mesmo motivo pelo qual esta bancada
+ * já espelha `portao-acao` e `portao-entrega`.
+ *
+ * A aproximação está declarada: a rota decide por `_gate.precisaContexto`, que
+ * depende de sinais que o caso não guarda (`baseExclusiva`, `perguntaComposta`,
+ * `modoRelatorioCedo`). Aqui o gatilho é o núcleo do predicado — histórico com
+ * ≥2 falas do usuário E mensagem curta ou anafórica —, que é o que
+ * `rewrite-gate.ts:37` de fato testa nos casos deste conjunto.
+ */
+const USAR_ANTECEDENTE = process.argv.includes("--antecedente");
 const TOP_FUNIL = Number(arg("top", "12"));
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
@@ -494,6 +510,20 @@ async function main() {
           })),
         { role: "user", content: caso.pergunta },
       ];
+      // Espelho do bloco `antecedente` da rota: prefixado à ÚLTIMA mensagem,
+      // exatamente como `comDadosNaUltimaPergunta` faz em produção.
+      if (USAR_ANTECEDENTE) {
+        const falasDoUsuario = caso.historico.filter((h) => h.role === "user").length;
+        const palavras = caso.pergunta.trim().split(/\s+/).length;
+        const curtaOuAnafora = palavras <= 6 || /\b(dele|dela|deles|delas|isso|esse|essa|esses|essas|mesmo|ai|la)\b/i.test(caso.pergunta);
+        if (falasDoUsuario >= 1 && curtaOuAnafora) {
+          const bloco = antecedenteDoTurno(caso.pergunta, messages as { role: string; content: string }[]);
+          if (bloco) {
+            const i = messages.length - 1;
+            messages[i] = { role: "user", content: `${bloco}\n\n---\n\n${caso.pergunta}` };
+          }
+        }
+      }
 
       const t0 = Date.now();
       try {

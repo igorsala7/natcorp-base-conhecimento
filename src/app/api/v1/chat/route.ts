@@ -47,6 +47,7 @@ import { confirmaEmbalar } from "@/lib/chat/portao-acao-confirma";
 import { podarPassosAnteriores, economiaDaPoda } from "@/lib/chat/podar-passos";
 import { DIRETIVA_PERGUNTAR, devePerguntarDiretiva } from "@/lib/ai/perguntar";
 import { comAntecedente, deveReescrever } from "@/lib/ai/rewrite-gate";
+import { antecedenteLigado, antecedenteDoTurno } from "@/lib/chat/antecedente";
 import { casarToolsComResgate, listBaseTools, matchBaseTools, simTools, simToolsMulti, type ToolMatch } from "@/lib/integrations/tool-catalog";
 import { pareceComposta } from "@/lib/integrations/module-match";
 import { dividirFacetas } from "@/lib/integrations/facets";
@@ -2516,6 +2517,38 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const blocosContexto: BlocoContexto[] = [
     { rotulo: "data", texto: notaDataAtual(), classe: "diretriz" },
     { rotulo: "cortesia", texto: notaCortesia, classe: "diretriz" },
+    // ── O QUE O SERVIDOR ENTENDEU DO PEDIDO ─────────────────────────────────
+    //
+    // O funil enxergava o contexto e o modelo não. `comAntecedente` tinha UM
+    // único call site — `consultaTools` (:789), que SELECIONA a ferramenta — e
+    // ao modelo chegava `question` cru. Em "Tudo junto", "Ao tony mesmo",
+    // "excel", o funil sabe do que se fala e quem decide, não.
+    //
+    // Pior no menu: `question = _escolha ?? _perguntaCrua` (:297). Quem clica
+    // "1" tem a escolha resolvida para o RAG, para o classificador e para a
+    // seleção — e o MODELO continua recebendo "1". Ali não chamar ferramenta
+    // não é desobediência: é a decisão correta de quem leu "1".
+    //
+    // Isto NÃO reescreve a fala da pessoa: o `messages.insert` (:1758) continua
+    // fiel, e o texto entra como leitura DO SISTEMA, rotulada. O ganho
+    // pretendido é SALIÊNCIA — o histórico já traz a informação; o que falta é
+    // dizer qual é o antecedente em vez de esperar que ele o encontre.
+    //
+    // Medido antes de ligar: `precisaContexto` é verdadeiro em 477 de 1.424
+    // turnos (33%). Não é cirúrgico. Por isso o interruptor.
+    {
+      rotulo: "escolha_resolvida",
+      texto: antecedenteLigado() && _escolha ? `O USUÁRIO ESCOLHEU UMA OPÇÃO DO MENU QUE VOCÊ OFERECEU: «${_escolha}»` : "",
+      classe: "dado_pergunta",
+    },
+    {
+      rotulo: "antecedente",
+      texto:
+        antecedenteLigado() && !_escolha && _gate.precisaContexto
+          ? antecedenteDoTurno(question, messages)
+          : "",
+      classe: "dado_pergunta",
+    },
     { rotulo: "referente", texto: diretrizReferente(scopeIn?.referente), classe: "diretriz" },
     { rotulo: "destacado", texto: refDestacado.tipo === "destacados" ? refDestacado.diretriz : "", classe: "diretriz" },
     { rotulo: "enumeracao", texto: enumera ? notaEnumeracao() : compl ? notaCompletude() : "", classe: "diretriz" },
