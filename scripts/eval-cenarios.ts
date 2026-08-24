@@ -52,6 +52,8 @@ import { faltaDestinoDaEntrega } from "../src/lib/chat/entrega";
 import { decidirAcao } from "../src/lib/chat/portao-acao";
 import { confirmaEmbalar } from "../src/lib/chat/portao-acao-confirma";
 import { avisarCusto, totalGasto, type Preco } from "./custo-da-rodada";
+import { simTools, listBaseTools } from "../src/lib/integrations/tool-catalog";
+import { selecionarTopK } from "../src/lib/integrations/tool-narrow";
 import { buildQueryTool } from "../src/lib/chat/query-tools";
 import { buildFormTools, buildTutorialTool } from "../src/lib/chat/form-fields";
 import { buildVisualTools } from "../src/lib/chat/report-tools";
@@ -123,6 +125,39 @@ const N = Number(arg("n", "0")) || Number.MAX_SAFE_INTEGER;
 const ehLocal = (chave: string): boolean => familiaDaTool(chave) !== "integracao";
 
 const BASE = arg("base", "natcorp");
+/**
+ * ── `--funil`: MEDE A SELEÇÃO JUNTO COM A ESCOLHA ──────────────────────────
+ *
+ * Sem a flag (padrão), este eval reproduz `caso.ofertadas` — a lista que o funil
+ * entregou NO DIA do turno. É deliberado: isola o MODELO da seleção, que é o que
+ * permite dizer "o modelo errou" sem confundir com "a ferramenta não chegou".
+ *
+ * O preço disso apareceu em 24/08/2026: nenhum eval do projeto conseguia avaliar
+ * uma mudança de FUNIL ponta a ponta. Baixar o piso `MIN_SEM` de 0,60 para 0,50
+ * entrega +4 casos (medido em `eval:tools`) e põe 4 ferramentas a mais na mesa
+ * (5,9 → 9,9) — e não havia como saber se isso melhora ou piora a ESCOLHA. O A/B
+ * dava resultado idêntico byte a byte, porque a lista vinha do trace.
+ *
+ * Com `--funil`, as ferramentas de INTEGRAÇÃO são recomputadas agora, com o
+ * código de hoje.
+ *
+ * ── A PRIMEIRA COISA QUE ELE MEDIU ─────────────────────────────────────────
+ * O piso `MIN_SEM`, em 24/08/2026, duas repetições por braço, reprodução exata:
+ *
+ *              ferramenta   momento   tokens
+ *   0,60 (hoje)   14/32      28/32     11.379
+ *   0,50          14/32      27/32     12.144   (+6,7%)
+ *
+ * `eval:tools` dizia que baixar o piso entregava +4 casos (73→77 de 97). Ponta a
+ * ponta o ganho NÃO APARECE: as ferramentas chegam à mesa e o modelo não as
+ * converte. Custo real, benefício nenhum — a mudança ficou de fora.
+ *
+ * É a diferença que este modo existe para mostrar: ENTREGAR não é ESCOLHER, e
+ * durante meses só havia instrumento para o primeiro. As LOCAIS são preservadas do caso: elas vêm do payload da
+ * TELA, não do catálogo — recomputá-las mediria uma tela que não existe mais.
+ */
+const USAR_FUNIL = process.argv.includes("--funil");
+const TOP_FUNIL = Number(arg("top", "12"));
 const ARQUIVO = arg("casos", "eval/cenarios.jsonl");
 const SAIDA = arg("saida", "eval/cenarios.md");
 // `--diretiva 1` acrescenta DIRETIVA_PERGUNTAR ao prompt. Existe para medir a
@@ -327,7 +362,23 @@ async function main() {
 
   for (let rep = 0; rep < REPETICOES; rep++) {
    const marcaRep = { tOk: 0, pOk: 0, deMenos: 0 };
-   for (const caso of amostra) {
+   // Catálogo da base, uma vez só — `--funil` precisa dele por caso.
+  const toolsDaBase = USAR_FUNIL ? await listBaseTools(db as never, BASE) : null;
+  if (USAR_FUNIL) console.log(`--funil: recomputando a oferta de integração com o código de hoje (top ${TOP_FUNIL})\n`);
+
+  for (const caso of amostra) {
+    /**
+     * A oferta EFETIVA deste turno. Sem `--funil` é a foto do trace; com a flag,
+     * as de integração são decididas agora e as locais vêm do caso.
+     */
+    let ofertadasEfetivas = caso.ofertadas;
+    if (USAR_FUNIL && toolsDaBase) {
+      const sim = await simTools(db as never, BASE, caso.pergunta);
+      const escolhidas = sim.size
+        ? selecionarTopK(toolsDaBase as never, caso.pergunta, TOP_FUNIL, undefined, sim)
+        : new Set<string>();
+      ofertadasEfetivas = [...caso.ofertadas.filter(ehLocal), ...escolhidas];
+    }
     const por: Record<string, { usadas: string[]; perguntou: boolean; ok: boolean }> = {};
     for (const spec of MODELOS) {
       const p = placar.get(spec)!;
@@ -357,7 +408,7 @@ async function main() {
       const ultimaAssist = [...caso.historico].reverse().find((h) => h.role === "assistant")?.content;
       const _pre = SEM_PORTAO_ACAO ? { modo: "livre" as const } : decidirAcao({
         pergunta: caso.pergunta,
-        ferramentas: caso.ofertadas,
+        ferramentas: ofertadasEfetivas,
         conversaEmAndamento: caso.historico.length > 0,
         social: false, tutorial: false, documental: false, continuation: false,
       });
@@ -388,7 +439,7 @@ async function main() {
         execute: async () => { chamadas.push("perguntar_ao_usuario"); return { aguardando: true }; },
       });
 
-      for (const key of caso.ofertadas) {
+      for (const key of ofertadasEfetivas) {
         // FERRAMENTA LOCAL: a definição REAL, importada do produto.
         //
         // `catalogo` vem de `ai_tools`, e nenhuma local existe lá — então o
