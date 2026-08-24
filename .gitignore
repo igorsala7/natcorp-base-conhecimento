@@ -64,3 +64,15 @@ APIs.sql
 
 # Fixture de teste de endpoints (contém PII — não versionar)
 scripts/endpoint-test/fixture.json
+
+# Backups do env — o padrão .env*.local NÃO pega ".env.local.bak-1801",
+# e um deles carrega a service_role. Já quase entrou num commit.
+.env*.bak*
+
+# Rascunhos de auditoria: instrumentos de uma rodada, não código do produto.
+.audit/*.mjs
+.audit/*.json
+
+# O projeto usa npm; estes aparecem por engano.
+pnpm-lock.yaml
+pnpm-workspace.yaml
