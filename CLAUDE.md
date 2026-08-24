@@ -7,6 +7,92 @@
 
 ---
 
+# PARTE 0 — LEIA ANTES DE TUDO (estado real, ago/2026)
+
+**As Partes 1 a 9 descrevem a plataforma de documentação, e ela está PRONTA** —
+fases 0 a 8 entregues. Aquele texto continua valendo como referência de stack,
+modelo de dados e direção de UI. Mas ele descreve **metade** do que este
+repositório é hoje, e quem ler só aquilo vai tomar decisão errada.
+
+## A outra metade: o assistente de IA com integrações
+
+Além do portal de documentação, este repositório roda um **chatbot que responde
+sobre o ERP da Natcorp** — não só com a documentação, mas chamando **APIs reais**
+(férias, folha, cadastro, relatórios) através de um catálogo de ~88 ferramentas.
+
+O trabalho dos últimos meses é quase todo aí, e o objetivo é um só:
+
+> **ASSERTIVIDADE ACIMA DE TUDO.** O chat precisa escolher a ferramenta certa, a
+> fonte certa e responder com o dado certo. Velocidade e custo importam depois
+> disso.
+
+Dois eixos que **falham por motivos diferentes** e não devem ser misturados:
+
+| eixo | pergunta | depende do modelo? |
+|---|---|---|
+| **FERRAMENTA** | chamou a API certa? | **não** — é catálogo, embedding, ontologia |
+| **FONTE** | usou documentação, API ou tela? | **sim**, e muito |
+
+## Antes de mexer, MEÇA — e não é conselho, é regra
+
+Este sistema não se melhora por raciocínio. Em uma única sessão de 24/08, sete
+hipóteses plausíveis caíram na medição: alargar o top-K era inerte; o índice GIN
+*era* usado (o custo estava no recheck); a reescrita de consulta *não* resgatava
+o caso perdido; um passo que parecia custar 30% da latência era rótulo errado.
+
+**Nenhum defeito real dos últimos meses estava no prompt ou no modelo.** Estavam
+em dado (18% dos chunks eram fragmentos), em catálogo (33 de 138 casos avaliados
+contra o cliente errado) e no próprio instrumento (contador que perdia troca de
+fonte). Mexer em prompt é quase sempre a resposta errada.
+
+### Os instrumentos, e o que cada um responde
+
+| comando | responde |
+|---|---|
+| `npm run eval:tools` | a ferramenta certa chega ao modelo? |
+| `npx tsx --env-file=.env.local scripts/eval-rag.ts` | o documento certo entra nas 4 vagas? |
+| `npm run eval:comparar` | **o que mudou entre duas rodadas**, caso a caso |
+| `npm run perf:latencia` | onde o tempo vai (p50/p95, por dia, por passo) |
+| `.audit/sql.ts` | SELECT read-only no banco real |
+
+Toda rodada é gravada em **`ai_eval_runs` / `ai_eval_results`** com `git_sha`,
+flags e o **checksum do gabarito**. Isso existe porque o instrumento se corrigiu
+quatro vezes em duas noites: sem saber qual régua produziu um número, dois
+placares de datas diferentes não se comparam. `eval:comparar` recusa a
+comparação quando o gabarito mudou, e grita `CHURN` quando o saldo é pequeno e a
+troca é grande — ganhar 4 e perder 3 não é melhora, é o sistema sacudindo.
+
+### Armadilhas que já custaram caro
+
+- **O gabarito é pequeno.** ~138 casos de ferramenta, **20** de RAG. O próprio
+  `eval-rag` avisa que abaixo de 30 ele acha defeito mas **não conclui melhora**.
+  Crescer o gabarito destrava mais coisa do que qualquer ajuste de modelo.
+- **Teto de 1.000 linhas do PostgREST.** Varredura que pagina errado lê 1.014 de
+  5.569 achando que leu tudo. Varra por CONSULTA, com `range()`, ou use SQL.
+- **Nulo não é zero.** Em `ai_chat_traces.turn_id` e em `ai_tool_casos`, nulo quer
+  dizer "não sei". Somar imensurável ao denominador produz número que parece
+  completo e não é — separe sempre `casos_mediveis` de `casos_total`.
+- **Não ajuste a régua ao resultado.** Se um caso do gabarito parece errado,
+  isso é decisão de domínio **do dono**, nunca sua.
+
+## Onde está o resto
+
+- **`docs/estado-e-proximos-passos.md`** — o estado corrente, o que está aberto e
+  o que depende de decisão do Igor. **Comece por aí a cada sessão.**
+- `docs/arquitetura-ia.md`, `docs/mapas/` — RAG, ontologia, composição do prompt.
+- `docs/regras-de-negocio-chat.md` — o que o chat pode e não pode dizer.
+
+## Duas regras de operação
+
+1. **Nenhuma alteração de schema fora de migration** (vale igual para o chat).
+   Aplique com `npm run migrate:apply -- <arquivo>`; não há ledger, então a
+   migration precisa ser idempotente e re-rodável.
+2. **Ao mudar superfície medida** (funil de ferramentas, RAG, chunker, prompt),
+   meça antes e depois e diga o número. A CI avisa o que foi tocado; ela não
+   mede por você.
+
+---
+
 ## PARTE 1 — CONTEXTO E PAPEL
 
 Você é um engenheiro de software sênior especializado em produtos SaaS, com forte domínio de Next.js, PostgreSQL/Supabase, RAG e design de interfaces. Você está construindo, junto comigo, uma plataforma de base de conhecimento (documentação) de nível profissional — referência de qualidade: **Notion, Linear Docs, Mintlify, GitBook, Intercom Help Center**.

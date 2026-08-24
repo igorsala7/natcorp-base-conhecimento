@@ -43,6 +43,70 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: http://localhost:3008
 
+  # AVISO DE SUPERFÍCIE MEDIDA.
+  #
+  # Nem tudo neste repositório tem o mesmo risco. Mexer num botão do admin um
+  # teste pega; mexer numa descrição de ferramenta, num prompt ou no chunker
+  # muda a assertividade do chat e NENHUM teste pega — o efeito só aparece no
+  # eval, que precisa do banco e por isso roda agendado, não a cada PR.
+  #
+  # Este job não bloqueia. Ele diz o que foi tocado e qual comando mede aquilo,
+  # porque o defeito recorrente aqui não é gente contrariando a medição: é gente
+  # (eu inclusive) esquecendo que aquele arquivo era medido.
+  #
+  # `BASE` é um SHA vindo do evento, passado por env e usado entre aspas —
+  # nunca interpolar `${{ }}` dentro de `run:`, que é como texto de terceiro
+  # vira comando.
+  superficie-medida:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: O que este PR toca
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          mudou() { git diff --name-only "$BASE"...HEAD | grep -qE "$1"; }
+          aviso() { echo "::warning title=Superficie medida::$1"; echo "  -> $1"; }
+
+          echo "Arquivos alterados:"
+          git diff --name-only "$BASE"...HEAD | sed 's/^/  /'
+          echo
+
+          tocou=0
+          if mudou '^src/lib/integrations/(tool-narrow|tool-catalog|tool-builder|panel-scope)\.ts$'; then
+            aviso "Funil de ferramentas alterado. Meca: npm run eval:tools"
+            tocou=1
+          fi
+          if mudou '^src/lib/(ai/rag|content/chunk)'; then
+            aviso "Recuperacao ou fatiamento alterado. Meca: npx tsx --env-file=.env.local scripts/eval-rag.ts"
+            tocou=1
+          fi
+          if mudou '^supabase/migrations/.*hybrid_search'; then
+            aviso "Busca hibrida alterada. Meca recall E tempo: eval-rag + EXPLAIN ANALYZE"
+            tocou=1
+          fi
+          if mudou '^src/lib/ai/(prompts|prompt-split)'; then
+            aviso "Prompt alterado. Meca os dois eixos: eval:tools e eval-rag"
+            tocou=1
+          fi
+          if mudou '^eval/.*\.jsonl$'; then
+            aviso "GABARITO alterado: placares novos NAO sao comparaveis com os antigos. O checksum em ai_eval_runs vai divergir, e eval:comparar avisa."
+            tocou=1
+          fi
+
+          if [ "$tocou" -eq 0 ]; then
+            echo "Nenhuma superficie medida foi tocada."
+          else
+            echo
+            echo "Depois de medir, a rodada fica gravada em ai_eval_runs."
+            echo "Compare com a anterior: npm run eval:comparar"
+          fi
+
   e2e:
     runs-on: ubuntu-latest
     steps:

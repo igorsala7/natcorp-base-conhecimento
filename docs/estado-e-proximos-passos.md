@@ -1,26 +1,216 @@
 # Estado do projeto e próximos passos
 
-> Gravado em 16/08/2026, atualizado às 23h antes de um reinício do VSCode. Contém o que
-> foi feito, o que está em curso e o que depende de decisão sua.
->
-> **Duas frentes abertas:** a Parte 2 (o chat não pode citar tabela/campo) e a Parte 4
-> (os arquivos gerados com a identidade Natcorp). A Parte 4 é onde eu estava trabalhando
-> quando você parou.
+> **Atualizado em 24/08/2026, 15h, antes de um reinício do notebook.**
+> A rodada corrente é a de **assertividade e custo do chat**, aberta pelo guia técnico
+> externo de 107 seções. O que está abaixo da linha "HISTÓRICO" é de 16/08 e já foi
+> superado — leia como registro, não como tarefa.
 
 ## AO VOLTAR, FAÇA ISTO PRIMEIRO
 
-1. `git pull` · **reiniciar o worker** se for mexer em ingestão.
-2. **Teste o arquivo gerado pelo chat** — é o único passo que eu não consigo fazer daqui.
-   Peça um relatório em `formatos: ["pdf","docx","pptx"]` e veja se o modelo usa os blocos
-   novos (`secao`, `destaques`, `cards`, `nota`). Testei a mecânica, não o comportamento
-   do modelo: se ele continuar despejando texto+tabela, o problema é a redação da
-   instrução em `visuals-directive.ts` e eu reforço.
-3. Para olhar os arquivos sem passar pelo chat: `npm run relatorio:amostra -- <pasta>`.
+1. **O disco está em 99% (150 MB livres).** Encheu duas vezes durante o trabalho de 24/08,
+   e com ele cheio o Bash para de funcionar por inteiro — nem a saída dos comandos grava.
+   Limpe antes de qualquer coisa: `~/Library/Caches`, `~/.npm`, e as transcrições em
+   `~/.claude/projects/`. O Bloco 2 roda `EXPLAIN ANALYZE` e comparações de RAG; sem
+   espaço, não sai do lugar.
+2. **Nada foi commitado.** Oito arquivos modificados no disco, todos verdes
+   (2.339 testes, typecheck limpo). Ver "O que está no disco" abaixo.
+3. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
 
-**Estado das duas frentes abertas:** a Parte 2 (chat não cita tabela/campo) tem a regra no
-ar, três caminhos ainda vazando e — desde 16/08 23h — **os rótulos no banco**, o que
-inverteu o desenho: a tradução virou o caminho principal e a supressão, a exceção. A
-Parte 4 (arquivos gerados) está nas fases 1→3 de 6.
+---
+
+## RODADA DE 24/08 — guia técnico externo × o que o projeto já é
+
+### O que aconteceu
+
+O dono trouxe um guia de 4.177 linhas e 107 seções propondo uma arquitetura alvo para
+este chatbot. Três agentes estudaram o documento inteiro contra o código
+(§9–33 ferramentas/RAG, §36–57+66–69 custo/latência, §58–65+70–107 medição/governança).
+
+**Conclusão do estudo:** a maior parte do guia **já está implementada**, e em vários
+pontos em versão melhor. O valor esteve em separar o que falta de verdade do que já foi
+medido e reprovado.
+
+### O achado que decidiu o plano
+
+Duas medições de frentes diferentes se encaixaram:
+
+- ontem, para **reprovar** uma proposta: alargar o teto do top-K de 12 para 88 é
+  **inerte** — 73/97 em todos os valores;
+- hoje, a maior despesa do sistema: o bloco `tools` ocupa a **posição 0** do payload e é
+  remontado a cada pergunta, dando **5,8% de identidade entre turnos** — o cache
+  praticamente nunca casa, e junto com ele caem persona, regras e núcleo.
+
+Se alargar o corte não muda o acerto, alargar para o conjunto do módulo é seguro — e é
+isso que estabiliza a posição 0. **~9.451 tokens-equivalentes por turno**, e a inércia
+medida é a licença para tentar.
+
+### O que já foi feito e verificado (Bloco 1, item 1)
+
+**A similaridade parou de morrer dentro do funil.** `selecionarTopK` calculava a nota de
+cada ferramenta e descartava; agora ela sai no passo `integracoes:ranking` — **incluindo
+as cortadas**, que é a metade que carrega o diagnóstico.
+
+Por que importa: "o agente escolheu a ferramenta errada" é um fato sem conserto. A certa
+em 2º pede desempate; a certa em 40º pede embedding. São remédios opostos, e o trace não
+distinguia os dois casos.
+
+Uma decisão que a medição mudou no meio do trabalho: o ranking estava pendurado no
+`onSelecao`, que já existia — mas ele só é chamado num dos **três** caminhos de saída, e o
+multi-faceta são **15% do tráfego**, justamente a pergunta de várias intenções. O cálculo
+foi movido para **antes de qualquer bifurcação**. Há teste que prova que o multi-faceta
+realmente não reporta seleção.
+
+**Cobertura de nota no trace: 4% → 85%.** Antes só gravava quando a seleção era fraca — e
+o erro que mais interessa acontece no turno *saudável*, com topo alto e a certa atrás da
+errada.
+
+**A cadeia fechou até o rótulo humano.** `ai_tool_casos.cortadas` existe desde 17/08, com
+o comentário do esquema descrevendo exatamente este uso, e estava vazia sete dias porque a
+nota não chegava. Agora `oferecidas` leva `{tool, sim, pos}` e `cortadas` recebe quem
+ficou de fora.
+
+**Provas:** 2.339 testes passando · typecheck limpo · e a saída de `npm run eval:tools`
+**byte a byte idêntica** antes e depois (stash → roda → pop → `diff`), que é o que
+demonstra que a instrumentação não toca a seleção.
+
+### O que está no disco, não commitado
+
+| arquivo | o quê |
+|---|---|
+| `src/lib/integrations/tool-narrow.ts` | `RankingSelecao`, `rankingDe`, `onRanking` antes da bifurcação, `TOP_RANKING=20` |
+| `src/lib/integrations/tool-builder.ts` | coleta em `diag.ranking`, emite o passo `integracoes:ranking` |
+| `src/lib/chat/caso-treino.ts` | preenche `oferecidas` com `{tool,sim,pos}` e `cortadas` |
+| `scripts/carregar-casos-rotulados.ts` | **só comentário** — por que os 138 históricos ficam com `sim: null` para sempre |
+| `*.test.ts` (2 arquivos) | 5 testes novos, inclusive o do caminho multi-faceta |
+| `package.json` · `package-lock.json` | **NÃO são meus** — `@tanstack/ai*`, origem não confirmada. Commit seletivo. |
+
+### A armadilha que ficou documentada, e não "consertada"
+
+Os 138 casos do gabarito continuam com `sim: null`, **e isso é permanente**. Recomputar
+hoje é tentador — `eval-tools.ts` faz e imprime *"ficou em 23º de 88"*. Mas os dois
+números afirmam coisas diferentes: no eval a pergunta é "como o funil de HOJE se sai?", e
+recomputar é o método certo; na linha do caso a afirmação é "foi isto que aconteceu
+naquele turno" — e 106 dos 138 têm mais de 5 dias, com catálogo e embeddings mudados no
+meio. Seria hindsight com cara de registro. O motivo está escrito no próprio arquivo.
+
+### O que vem a seguir, na ordem
+
+**Bloco 1 — instrumento (0 tok, 0 ms, destrava o resto). COMPLETO em 24/08.**
+
+1. ✅ Ranking das ferramentas no trace (`integracoes:ranking`), com as cortadas.
+2. ✅ **`turn_id` em `ai_chat_traces`.** Liga O QUE o turno fez a QUANTO custou.
+   Backfill 1:1 de 828 turnos por texto da pergunta — ver a armadilha na migration
+   `20260824153000`. Já responde: turno com fonte `ia` custa **75.566 tokens** (7,1
+   chamadas de IA), contra 20.494 do `relatorio`.
+3. ✅ **`ai_eval_runs` / `ai_eval_results`** + `npm run eval:comparar`. A rodada guarda
+   `git_sha`, `git_sujo`, flags e o **checksum do gabarito** — a guarda que impede
+   comparar placares medidos com réguas diferentes. O comparador mostra quais casos
+   viraram para cada lado e grita `CHURN` quando o saldo é pequeno e a troca é grande.
+4. ✅ **`npm run perf:latencia`** — p50/p90/p95/p99, série por dia e **tempo por passo**.
+
+**O que o item 4 revelou logo de cara** (e não estava no plano): `dataset:registro`
+aparecia com **30,4% do tempo bloqueante**, p50 de 4,8s. Não era custo dele — era a
+geração do modelo escorrendo para o passo seguinte, porque nada era registrado quando o
+`streamText` terminava. Corrigido com um `onFinish` que fecha o balde (`modelo:fim`), e o
+instrumento avisa sozinho enquanto a janela pegar turnos antigos.
+
+Latência hoje, 20 dias: **p50 13,7s · p95 40,5s · p99 62,5s**, pior caso 150,5s.
+
+**Bloco 2 — performance. Trigram de conteúdo REMOVIDO em 24/08** (migration
+`20260824170000`). Função inteira, braço léxico: **~2.752 ms → 18,8 ms (146×)**.
+
+O diagnóstico anotado antes estava **simplificado demais**. O índice GIN É usado — e é
+quase inútil: uma pergunta qualquer tem trigramas comuns do português, o índice devolve
+**9.020 candidatos de 10.333 chunks (87%)** e o RECHECK recomputa a similaridade sobre
+documentos inteiros para descartar 8.727. Sobram 4 linhas, por 2,47 s. O mesmo ramo sobre
+`nodes.title` custa **2,6 ms** e devolve 19 linhas — fica, é ele que tolera typo.
+
+**Custo: recall@4 caiu de 13/20 para 12/20.** O instrumento é determinístico (duas
+execuções idênticas dão o mesmo número), então a queda é real, não ruído. O caso perdido é
+`"preencha o campo"` — e vale saber COMO ele passava: por um chunk de **22 caracteres**
+contendo só `"Campo de Preenchimento"`, cabeçalho de coluna de tabela. Era artefato de
+chunking, não recuperação. **365 chunks (3,5%) têm menos de 40 caracteres** — defeito
+separado, ainda aberto.
+
+Três saídas testadas e **descartadas com medição**:
+- filtrar por tamanho da consulta — não adianta: consulta de 10 chars custa 2.406 ms igual
+  (8.923 candidatos). O custo é do corpus, não da pergunta;
+- `word_similarity` (`<%`), feito para consulta curta × documento longo — 1.451 ms, ainda
+  inaceitável;
+- reescrita da consulta com histórico resgataria o caso? **Não.** Testado com três
+  reescritas: o nó não volta nem em 8º.
+
+O índice `chunks_content_trgm` **não foi derrubado**: se a decisão for revista, o caminho
+de volta não passa por reindexar 10 mil chunks.
+
+### Chunks-fragmento — o defeito de verdade por trás do caso perdido
+
+O caso `"preencha o campo"` passava por um chunk de 22 caracteres. Fui medir a extensão:
+**815 de 4.526 chunks de artigo (18%) tinham menos de 120 caracteres**, o menor com **3**.
+Destes, **437 eram só o título de uma seção sem corpo** — um heading seguido direto de
+outro heading virava um chunk com o título e nada mais.
+
+Por que importa mais do que o tamanho sugere: com `ragLimit` em torno de 4, cada fragmento
+premiado ocupa **uma das quatro vagas** que o modelo vai ler.
+
+**Corrigido nos dois caminhos de fatiamento:**
+- `chunkArticle` — título órfão **viaja para o próximo chunk** (um título anuncia o que vem
+  depois). Trecho ainda curto leva a trilha dos ancestrais junto.
+- `chunkExtracted` (arquivos importados) — trecho abaixo do piso leva a trilha junto.
+  **Não funde seções**: em manual importado isso misturaria assuntos que só estão perto
+  por acidente de diagramação.
+
+`chunkArticle` foi extraído para **`chunk-split.ts`**, puro. O módulo antigo importa
+`@/lib/ai/config` (que lê env na carga) e `server-only` — é por isso que a função mais
+importante da busca **não tinha um único teste**. Agora tem 10.
+
+**Reindexação:** `npx tsx --env-file=.env.local scripts/reindexar-fragmentos.ts --seco`
+roda o chunker novo em memória sobre o acervo real e **prevê** o resultado antes de
+escrever. Previsão medida: **815 → 261 fragmentos (−68%)**.
+
+Fora de escopo: os 58 fragmentos vindos de **arquivos importados** (15 documentos).
+Refazê-los exige rebaixar e reparsear o arquivo do Storage — os blocos extraídos não ficam
+guardados. Corrigem-se sozinhos no próximo reprocessamento.
+
+Ainda aberto no bloco: paralelizar o preparo (estimativa antiga, até −3.970 ms) — agora
+mensurável de verdade com `npm run perf:latencia`.
+
+**Bloco 3 — assertividade** (`ferramenta 64/125`). Quatro mudanças de **ORDEM**, uma por
+vez: módulo no texto embedado (a mais barata) · fusão léxico+vetor no funil · rerank
+condicional reusando `selecionarToolsAderentes` · roteador de fonte extraído como módulo
+puro.
+
+**Bloco 4 — robustez.** Evidence Validator (o único componente da arquitetura alvo que não
+existe) · segurança, que tem **cobertura zero** — começar pela metade determinística
+(`tool-scope`, `panel-scope`, `escopo-identidade`), que roda na CI sem modelo.
+
+### Decisões que são suas, não minhas
+
+- **A bifurcação de custo.** haiku + estabilizar `tools` (**9.451 tok-eq/turno**) e gemini
+  (2.786 tok/turno) **se excluem** — só o haiku honra `cacheControl`. Dá para medir sem
+  refatorar nada: atribuir `chat_ferramentas` a um e `chat` ao outro em Sistema→IA.
+  Recomendo o haiku: é 3,4× maior.
+- **`CASOS_CAPTURA=1` não está no contêiner de produção**, só no `.env.local`. Sem isso a
+  instrumentação nova roda e não grava caso nenhum.
+- **As três chaves expostas no repositório público** (`SUPABASE_SERVICE_ROLE_KEY`,
+  `SUPABASE_DB_URL` com senha, `APP_ENCRYPTION_KEY`) seguem sem rotação.
+- **47 rótulos `espera_fonte` não confirmados.** O eixo FERRAMENTA é ouro em 138; o de
+  FONTE, em ~78.
+
+### Duas lacunas de governança que o estudo achou
+
+1. **`CLAUDE.md` tem 407 linhas sobre OUTRO produto** — é o prompt-mestre da plataforma de
+   documentação. Não menciona o chatbot, as ferramentas, o RAG do chat nem os evals. Quem
+   lê hoje não fica sabendo que existem 138 casos rotulados e 12 instrumentos de medição.
+2. **A CI não roda eval nenhum.** Nada impede um PR que muda descrição de ferramenta ou
+   prompt sem prova.
+
+---
+
+# HISTÓRICO — 16/08/2026
+
+> O que segue é o estado de 16/08 e **já foi superado**. Mantido como registro do que
+> estava aberto naquela data; não é lista de tarefas.
 
 ---
 

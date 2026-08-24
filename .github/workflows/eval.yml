@@ -1,0 +1,89 @@
+name: Eval
+
+# SÉRIE HISTÓRICA DE ASSERTIVIDADE.
+#
+# O problema que isto resolve: até 24/08 nenhuma medição era comparável à
+# seguinte. O placar saía no terminal e, quando alguém lembrava, era colado num
+# `.md` datado à mão. E o instrumento se corrigiu QUATRO VEZES em duas noites —
+# denominador que somava caso imensurável, contador que perdia troca de fonte,
+# catálogo do cliente errado em 33 casos, gabarito com 52 rótulos não
+# confirmados. Cada correção mudou o número sem mudar o sistema, e um "73/97"
+# solto não diz qual régua o produziu.
+#
+# Agora a rodada é gravada em `ai_eval_runs` com o código medido (git_sha), as
+# flags e o CHECKSUM DO GABARITO. `npm run eval:comparar` faz o diff.
+#
+# POR QUE AGENDADO, E NÃO A CADA PR: o eval precisa do banco real e gasta
+# chamada de embedding. Rodar a cada push cobraria crédito por commit e
+# deixaria o PR lento, sem responder nada que a série diária não responda —
+# a pergunta aqui é "para onde o número está indo", não "este commit quebrou".
+#
+# SEGREDOS NECESSÁRIOS no repositório (Settings → Secrets → Actions):
+#   NEXT_PUBLIC_SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY · AI_API_KEY
+# Sem eles o job é PULADO em silêncio, não falha: CI vermelha por falta de
+# configuração vira ruído que se aprende a ignorar.
+
+on:
+  schedule:
+    # 06:00 UTC = 03:00 em Brasília, fora do horário de uso.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      nota:
+        description: "Rótulo da rodada (ex.: 'depois do rerank')"
+        required: false
+        type: string
+
+jobs:
+  medir:
+    runs-on: ubuntu-latest
+    # O rótulo vem de quem dispara o workflow: NUNCA interpolar `inputs.*`
+    # dentro de `run:`, senão o texto vira comando. Vai por env, sempre.
+    env:
+      NOTA: ${{ inputs.nota || 'agendado' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+      NODE_OPTIONS: --conditions=react-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar configuração
+        id: cfg
+        run: |
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] || [ -z "$AI_API_KEY" ]; then
+            echo "pronto=nao" >> "$GITHUB_OUTPUT"
+            echo "::notice::Segredos ausentes — eval pulado. Configure NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY e AI_API_KEY."
+          else
+            echo "pronto=sim" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Eixo FERRAMENTA: a escolha de ferramenta NÃO depende do modelo, então
+      # este eixo é estável e barato — é o que pega regressão de catálogo,
+      # descrição e embedding.
+      - name: Eval — ferramenta
+        if: steps.cfg.outputs.pronto == 'sim'
+        run: npx tsx scripts/eval-tools.ts --nota "CI $NOTA"
+
+      # Eixo RAG: recuperação de documentação. Roda mesmo se o de ferramenta
+      # falhar — são perguntas independentes, e perder as duas por causa de uma
+      # esconde metade do diagnóstico.
+      - name: Eval — recuperação (RAG)
+        if: always() && steps.cfg.outputs.pronto == 'sim'
+        run: npx tsx scripts/eval-rag.ts --nota "CI $NOTA"
+
+      # O diff contra a rodada anterior. É ele que separa ganho real de churn:
+      # +1 de saldo com 7 casos virando não é melhora, é o sistema sacudindo.
+      - name: Comparar com a rodada anterior
+        if: always() && steps.cfg.outputs.pronto == 'sim'
+        run: npx tsx scripts/eval-comparar.ts
