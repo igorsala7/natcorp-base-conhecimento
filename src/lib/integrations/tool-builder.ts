@@ -1219,7 +1219,8 @@ export async function buildIntegrationTools(
     .filter((a) => (links ?? []).some((l) => l.agent_id === a.id && curated.has(l.tool_id)))
     .map((a) => `- ${a.name}: ${a.description}`)
     .join("\n");
-  const capabilities =
+  // `let` porque o corte de cobertura abaixo precisa zerá-lo junto com as tools.
+  let capabilities =
     profileNote +
     "Você tem FERRAMENTAS para consultar dados reais do sistema do usuário. Decida sozinho a melhor fonte: " +
     "use as FERRAMENTAS para dados/registros específicos (nunca invente valores) e a DOCUMENTAÇÃO para " +
@@ -1309,6 +1310,24 @@ export async function buildIntegrationTools(
         // que sobram — e nenhuma foi pedida. Foi assim que "excel" recebeu
         // `estrutura_empresas` e a chamou.
         for (const k of _chaves) delete tools[k];
+        // ── E O TEXTO SAI COM ELAS ────────────────────────────────────────
+        //
+        // `capabilities` diz "Você tem FERRAMENTAS para consultar dados reais…
+        // CHAME a ferramenta". Deixá-lo depois de apagar as ferramentas entrega
+        // ao modelo uma instrução que o PRÓPRIO PAYLOAD desmente: ele lê a
+        // lista de tools e vê que está vazia.
+        //
+        // É a única contradição do prompt que o modelo consegue verificar
+        // sozinho dentro do turno — e instrução desmentida pelo payload é
+        // instrução desacreditada. Medido em 24/08: em 19 turnos sem NENHUMA
+        // chamada a resposta afirma ter consultado o sistema ("fiz a consulta
+        // diretamente na nossa ferramenta de integração"), que é exatamente o
+        // comportamento que um prompt assim convida.
+        //
+        // O aviso de conta pendente SOBREVIVE: quando as únicas ferramentas do
+        // assunto eram as pessoais, é aqui que a pessoa precisa ouvir que basta
+        // conectar. É o mesmo critério da linha 1207.
+        capabilities = avisoContaPendente(precisaConectar);
       }
     }
   }
