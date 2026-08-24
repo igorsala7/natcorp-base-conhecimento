@@ -1,0 +1,10 @@
+[
+  {
+    "key": "consultar_marcacoes",
+    "description": "Consulta das marcações ou batidas de ponto eletrônico / frequência (batidas de ponto) do próprio colaborador em um período (data inicial e final). Retorna as marcações de ponto por posição, contendo os dados de empresa, matrícula, data de marcação, hora de batida, posição da marcação e etc."
+  },
+  {
+    "key": "consultar_ferias",
+    "description": "Consulta de férias dos colaboradores, tanto pendentes, gozados, programadas, etc. Períodos de férias do próprio colaborador (aquisitivo, gozo, saldo e programação). Tem dados de empresa, matrícula, data de período aquisitivo, data de limite de férias, datas de saída, datas de retorno, abono, 13º para cada parcela de férias, 1, 2 ou 3."
+  }
+]
