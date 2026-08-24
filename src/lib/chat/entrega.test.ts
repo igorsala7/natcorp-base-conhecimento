@@ -75,3 +75,22 @@ describe("perguntaDeEntrega", () => {
     expect(p.opcoes.join(" ").toLowerCase()).toContain("chat");
   });
 });
+
+/**
+ * O caso de 23/08, 22:17. A pessoa pediu um GRÁFICO — que é uma forma de
+ * entrega — e o portão perguntou "chat ou arquivo?" sobre uma tabela de 10.149
+ * linhas carregada quinze minutos antes, de outro assunto. O turno morreu ali.
+ */
+describe("gráfico é destino declarado", () => {
+  it("o caso real que quebrou", () => {
+    expect(faltaDestinoDaEntrega("Agora faça um gráfico da evolução salarial comparando todos eles", 10149)).toBe(false);
+  });
+  it("as outras formas visuais", () => {
+    expect(faltaDestinoDaEntrega("monte um dashboard com todos os registros", 10149)).toBe(false);
+    expect(faltaDestinoDaEntrega("faça um painel com a lista completa", 96)).toBe(false);
+  });
+  it("mas continua perguntando quando NÃO há forma declarada", () => {
+    // O portão não pode virar letra morta: sem destino, com volume, ele pergunta.
+    expect(faltaDestinoDaEntrega("me traga a lista completa de todos os registros", 10149)).toBe(true);
+  });
+});

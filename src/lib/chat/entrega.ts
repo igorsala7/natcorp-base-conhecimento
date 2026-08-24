@@ -64,6 +64,20 @@ const RX_OBJETO_LISTA =
 const RX_DESTINO_ARQUIVO =
   /\b(arquivo|documento|planilha|excel|xlsx|csv|pdf|word|docx?|ppt|pptx|apresentacao|slides?|anexo|baixar|download|exportar?)\b/;
 /** Destino DECLARADO como a própria conversa. */
+/**
+ * GRÁFICO TAMBÉM É DESTINO DECLARADO.
+ *
+ * Quem pede "faça um gráfico da evolução salarial" já disse a forma de entrega —
+ * perguntar "chat ou arquivo?" ali é o defeito que este arquivo chama de oposto.
+ * Aconteceu em produção (23/08, 22:17): a pessoa pediu o gráfico e recebeu
+ * "São 10149 registros. Você prefere ver aqui no chat ou receber um arquivo?",
+ * sobre uma tabela carregada quinze minutos antes, de outro assunto.
+ *
+ * Fica separado de ARQUIVO e de CHAT porque não é nenhum dos dois: o gráfico é
+ * renderizado NO chat, mas é um artefato próprio, com tipo e exportação.
+ */
+const RX_DESTINO_VISUAL = /\b(grafico|graficos|dashboard|painel|chart)\b/;
+
 const RX_DESTINO_CHAT =
   /\b(aqui|no chat|na tela|em tela|me mostre|me mostra|mostra ai|na conversa|por aqui|em texto|escrit[oa])\b/;
 
@@ -79,7 +93,7 @@ export function faltaDestinoDaEntrega(pergunta: string, linhas: number): boolean
   const q = normalizar(pergunta);
   if (!q) return false;
   // Formato já declarado, dos dois lados: a pessoa decidiu, não se pergunta.
-  if (RX_DESTINO_ARQUIVO.test(q) || RX_DESTINO_CHAT.test(q)) return false;
+  if (RX_DESTINO_ARQUIVO.test(q) || RX_DESTINO_CHAT.test(q) || RX_DESTINO_VISUAL.test(q)) return false;
   return RX_PRODUZIR_LISTA.test(q) && RX_OBJETO_LISTA.test(q);
 }
 
