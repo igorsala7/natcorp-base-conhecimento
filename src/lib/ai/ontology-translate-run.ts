@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { traduzirTermos, type TermoParaTraduzir } from "./ontology-translate";
 import { normalizarTermo } from "./ontology";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 
 type DbClient = SupabaseClient<Database>;
 const LOTE = 20; // termos por chamada de IA
@@ -26,11 +27,25 @@ export async function runTraducaoOntologia(
   const spaceId = job.space_id;
   const lang = job.lang;
 
-  const { data: termos } = await supabase
-    .from("ontology_terms")
-    .select("id, term, description")
-    .eq("space_id", spaceId);
-  const todos = termos ?? [];
+  // PAGINADO. Sem isto o PostgREST corta em 1000 SEM AVISAR e o job traduz os
+  // 1000 primeiros termos como se fossem todos — depois se declara concluído.
+  //
+  // Não é hipótese: medido em 23/08/2026, `ontology_translations` tinha
+  // EXATAMENTE 1000 linhas num espaço com 4.424 termos. Um número redondo numa
+  // tabela de contagem natural é a assinatura desse corte.
+  //
+  // O caminho do RAG (`ontology.ts:165`) já usa `fetchAllPaged`; este ficou para
+  // trás. A ordem precisa ser TOTAL e estável (`id` de desempate), senão as
+  // fatias pulam ou repetem linhas na fronteira.
+  const todos = await fetchAllPaged<{ id: string; term: string; description: string | null }>(
+    (de, ate) =>
+      supabase
+        .from("ontology_terms")
+        .select("id, term, description")
+        .eq("space_id", spaceId)
+        .order("id", { ascending: true })
+        .range(de, ate),
+  );
   const ids = todos.map((t) => t.id);
 
   // Já traduzidos neste idioma → pular (idempotente / auto-migração).
