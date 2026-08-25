@@ -365,6 +365,42 @@ export function dependenciasCitadas(
   return out;
 }
 
+/**
+ * O atalho "não precisa de dados" pode cortar TODAS as ferramentas?
+ *
+ * `precisaDados: false` faz o builder devolver `tools: {}`. No primeiro turno
+ * isso é certo: "como faço X?" é documentação e montar 17 ferramentas seria
+ * desperdício. Depois que o agente já respondeu, a mesma classificação vira
+ * armadilha — o classificador lê a mensagem ISOLADA e não vê que ela repete um
+ * pedido que ele acabou de falhar.
+ *
+ * Medido em 20 dias sobre 1.171 turnos classificados:
+ *   183 saem com `precisaDados: false`
+ *   144 (79%) são seguimento de um turno que precisou de dados
+ *
+ * O sinal é de ESTADO (a conversa já teve resposta), não de elipse. Testado:
+ * `continuacao` — o sinal de "mensagem não se entende sozinha" — falharia aqui,
+ * porque 7 dos 8 casos reais tinham `continuacao: false`. As mensagens são
+ * conversacionais ("essas informações", "esse valor", "a tool"), não elípticas.
+ *
+ * Não força ferramenta nenhuma: só devolve `false` para o funil normal rodar.
+ * O modelo continua livre para não chamar nada, e aí o custo é só o do bloco.
+ */
+export function podeCortarTudoPorSemDados(args: {
+  precisaDados: boolean;
+  /** A conversa já teve resposta do agente? */
+  conversaEmAndamento: boolean;
+  /** Há ferramenta forçada (ex.: confirmação pendente)? Nunca se corta por cima disso. */
+  temForcadas: boolean;
+}): boolean {
+  if (args.precisaDados) return false;
+  // Forçada manda: já era assim antes, e continua.
+  if (args.temForcadas) return false;
+  // O caso novo: no meio da conversa o atalho não vale.
+  if (args.conversaEmAndamento) return false;
+  return true;
+}
+
 export function selecionarTopK(
   tools: ToolLite[],
   question: string,

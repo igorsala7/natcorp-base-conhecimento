@@ -27,7 +27,7 @@ import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
 import { ehCandidato } from "@/lib/chat/tipo-acesso";
-import { type InfoSelecao, type RankingSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, type CorteDesempate } from "./tool-narrow";
+import { type InfoSelecao, type RankingSelecao, selecionarTopK, dependenciasCitadas, forcaLexical, podeCortarTudoPorSemDados, type CorteDesempate } from "./tool-narrow";
 import { buildConfirmDeps } from "./confirmations";
 import { recortarMeusDados, blocoAssinatura, type MeusDados } from "@/lib/chat/meus-dados";
 
@@ -210,6 +210,25 @@ export async function buildIntegrationTools(
    * que não pode julgar o catálogo pelo fragmento de uma elipse.
    */
   continuacao?: boolean,
+  /**
+   * A conversa JÁ TEVE resposta do agente? (`messages.some(role === 'assistant')`)
+   *
+   * Diferente de `continuacao`, que é o sinal de ELIPSE — mensagem que não se
+   * entende sozinha. Este é de ESTADO: a conversa está em andamento.
+   *
+   * Serve a um caso só, medido em 24/08/2026: o classificador lê a mensagem
+   * ISOLADA e devolve `precisaDados: false` para o que, em contexto, é a
+   * repetição de um pedido que ele acabou de falhar. Fora de contexto ele tem
+   * razão — "Mas você não deve buscar da tela" realmente não parece pedir dado.
+   *
+   * Medido em 20 dias: 183 turnos saem com `precisaDados: false`, e 144 (79%)
+   * são seguimento de um turno que precisou de dados. `continuacao` NÃO serve
+   * aqui — 7 dos 8 casos reais tinham `continuacao: false`, porque a mensagem é
+   * conversacional ("essas informações", "esse valor"), não elíptica.
+   *
+   * Vem pronto da rota; só ela vê o histórico.
+   */
+  conversaEmAndamento?: boolean,
 ): Promise<IntegrationBundle> {
   const ctx = await loadBaseContext(baseCode);
   if (!ctx || ctx.tools.length === 0) {
@@ -315,7 +334,34 @@ export async function buildIntegrationTools(
       precisaDados: analise.precisaDados,
       modulos: analise.modulos.map((m) => (m.submodulo ? `${m.modulo}/${m.submodulo}` : m.modulo)),
     });
-    if (!analise.precisaDados && !sempreIncluir?.length) {
+    /**
+     * O ATALHO NÃO VALE NO MEIO DA CONVERSA.
+     *
+     * `precisaDados: false` devolve ZERO ferramentas. No primeiro turno isso é
+     * certo: "como faço X?" é documentação. Depois que o agente já respondeu
+     * com dados, a mesma classificação vira armadilha — o classificador lê a
+     * mensagem isolada e não vê que ela repete um pedido que ele falhou.
+     *
+     * Caso real (24/08): "Quais são os 5 cargos com maiores salários?" foi
+     * classificada certo, mas o funil não ofertou a ferramenta com salário.
+     * As DUAS correções seguintes — "Mas você não deve buscar da tela" e "Mas
+     * tem a tool que possui essas informações" — saíram com `precisaDados:
+     * false` e nenhuma ferramenta. Três turnos para uma resposta.
+     *
+     * Não força ferramenta nenhuma: só deixa o funil normal rodar, e o modelo
+     * decide se usa. O custo medido de resgatar todos é US$ 1,27 por 20 dias.
+     */
+    const cortarTudo = podeCortarTudoPorSemDados({
+      precisaDados: analise.precisaDados,
+      conversaEmAndamento: conversaEmAndamento === true,
+      temForcadas: (sempreIncluir?.length ?? 0) > 0,
+    });
+    if (!analise.precisaDados && !cortarTudo && conversaEmAndamento) {
+      onPasso?.("integracoes:resgate_conversa", {
+        motivo: "classificador disse 'nao precisa de dados', mas a conversa ja esta em andamento",
+      });
+    }
+    if (cortarTudo) {
       onPasso?.("integracoes", { resultado: "sem tools", motivo: "classificador: pedido não precisa de dados (how-to/documentação)" });
       // A PERSONA sobrevive ao atalho. Sem isto, uma pergunta de documentação
       // (o caminho mais comum de um candidato) saía sem agente nenhum — e é

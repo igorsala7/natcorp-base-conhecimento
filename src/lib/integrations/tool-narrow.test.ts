@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selecionarTopK, selecionarPorFaceta, aplicarDesempate, dependenciasCitadas, forcaLexical, type CorteDesempate, type RegraDesempate, type ToolLite } from "./tool-narrow";
+import { selecionarTopK, selecionarPorFaceta, aplicarDesempate, dependenciasCitadas, forcaLexical, type CorteDesempate, type RegraDesempate, type ToolLite, podeCortarTudoPorSemDados } from "./tool-narrow";
 
 const T = (key: string, name: string, description = "", alwaysInclude = false): ToolLite => ({ key, name, description, alwaysInclude });
 /** Tool com desempate numérico (prioridade + grupo de ambiguidade). */
@@ -531,5 +531,35 @@ describe("forcaLexical enxerga os sinônimos", () => {
     const sim = new Map([["historico_financeiro", 0.78], ["linha_tempo", 0.42]]);
     const keep = selecionarTopK(tools, PERGUNTA, 12, undefined, sim);
     expect(keep.has("linha_tempo")).toBe(true);
+  });
+});
+
+/**
+ * O ATALHO "não precisa de dados".
+ *
+ * Ele devolve ZERO ferramentas, e é o defeito mais caro que a sessão de 24/08
+ * expôs: três turnos seguidos sem ferramenta nenhuma porque o classificador leu
+ * mensagens de CORREÇÃO como conversa fiada.
+ */
+describe("podeCortarTudoPorSemDados", () => {
+  const base = { precisaDados: false, conversaEmAndamento: false, temForcadas: false };
+
+  it("1º turno de documentação: corta tudo — é para isso que o atalho existe", () => {
+    expect(podeCortarTudoPorSemDados(base)).toBe(true);
+  });
+
+  it("O CASO QUE NÃO PODE ESCAPAR: mesma classificação, mas a conversa já começou", () => {
+    // "Mas tem a tool que possui essas informações" — precisaDados=false, e o
+    // agente acabou de responder. Cortar aqui deixa o turno sem ferramenta.
+    expect(podeCortarTudoPorSemDados({ ...base, conversaEmAndamento: true })).toBe(false);
+  });
+
+  it("precisa de dados: nunca corta, com ou sem conversa", () => {
+    expect(podeCortarTudoPorSemDados({ ...base, precisaDados: true })).toBe(false);
+    expect(podeCortarTudoPorSemDados({ precisaDados: true, conversaEmAndamento: true, temForcadas: true })).toBe(false);
+  });
+
+  it("ferramenta forçada vence o atalho — comportamento que já existia", () => {
+    expect(podeCortarTudoPorSemDados({ ...base, temForcadas: true })).toBe(false);
   });
 });
