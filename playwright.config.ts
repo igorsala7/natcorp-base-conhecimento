@@ -18,24 +18,37 @@ carregarEnv({ path: ".env.local", quiet: true });
 carregarEnv({ path: ".env", quiet: true });
 
 /**
- * O APP NEM SEMPRE MORA NA RAIZ, E O E2E PRECISA SABER DISSO.
+ * ESTA SUÍTE EXIGE O APP NA RAIZ, E O MOTIVO NÃO É PREGUIÇA.
  *
- * `NEXT_PUBLIC_BASE_PATH` faz o Next assar um prefixo em todas as rotas
- * (`/natcorp/ia` em produção, atrás do nginx — ver `next.config.ts`). E o `.env`
- * de produção é VERSIONADO, então a CI e qualquer máquina de desenvolvimento o
- * herdam: o app sobe servindo `/natcorp/ia/admin/login`, e `/admin/login` na
- * raiz devolve 404.
+ * `NEXT_PUBLIC_BASE_PATH` faz o Next assar um prefixo em TODAS as rotas
+ * (`/natcorp/ia` em produção, atrás do nginx — ver `next.config.ts`), e o `.env`
+ * de produção é VERSIONADO: a CI e qualquer máquina sem `.env.local` o herdam.
+ * Foi isso que quebrou o e2e por dez dias — o app servia
+ * `/natcorp/ia/admin/login` e o Playwright pedia `/admin/login`, levando 404 por
+ * 120 s antes de desistir com uma mensagem que culpava o servidor.
  *
- * Foi isto que quebrou o e2e por dez dias. O servidor subia em 77 ms e ficava
- * perfeito; o Playwright é que esperava a URL errada e pedia um 404 durante
- * 120 s antes de desistir — com uma mensagem ("Timed out ... from
- * config.webServer") que aponta para o servidor, o lugar onde o defeito não
- * estava.
+ * PREFIXAR O `baseURL` NÃO RESOLVE, e essa é a parte que engana: `page.goto()`
+ * com caminho ABSOLUTO descarta o caminho do baseURL. Com
+ * `baseURL = http://localhost:3008/natcorp/ia`, um `goto("/admin/conteudo")`
+ * resolve para `http://localhost:3008/admin/conteudo` — a raiz de novo. A
+ * espera do webServer (URL absoluta) passa, os testes seguem indo para 404, e o
+ * placar mente dizendo que o formulário sumiu.
  *
- * Normalizado igual ao `next.config.ts`, para os dois não divergirem.
+ * Então o e2e roda com o prefixo VAZIO, e a CI o zera explicitamente (ver
+ * `ci.yml`). O guard abaixo existe para que uma configuração prefixada falhe
+ * DIZENDO o que fazer, em vez de virar 404 disfarçado de teste quebrado.
  */
 const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/+$/, "");
 const origem = "http://localhost:3008";
+
+if (basePath && !process.env.E2E_BASE_URL) {
+  throw new Error(
+    `NEXT_PUBLIC_BASE_PATH="${basePath}" — esta suíte navega por caminho absoluto ` +
+      `(page.goto("/admin/login")) e só funciona com o app na raiz.\n` +
+      `Rode assim:  NEXT_PUBLIC_BASE_PATH= npm run build && NEXT_PUBLIC_BASE_PATH= npm run test:e2e\n` +
+      `(o build assa o prefixo, então zerar só no teste não basta)`,
+  );
+}
 
 /** E2E dos fluxos críticos. Sobe o app real (`npm run start`) e testa no Chromium. */
 export default defineConfig({
@@ -46,13 +59,14 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "list",
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? `${origem}${basePath}`,
+    // Sem prefixo: o guard acima garante que `basePath` está vazio aqui.
+    baseURL: process.env.E2E_BASE_URL ?? origem,
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: "npm run start",
-    url: `${origem}${basePath}/admin/login`,
+    url: `${origem}/admin/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     /**

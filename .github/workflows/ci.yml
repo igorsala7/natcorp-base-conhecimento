@@ -123,12 +123,23 @@ jobs:
       - name: Instalar navegadores do Playwright
         run: npx playwright install --with-deps chromium
 
+      # O `.env` DESTE REPOSITÓRIO É O DE PRODUÇÃO, e é versionado de propósito
+      # (ver a exceção no .gitignore). Logo o checkout da CI o traz, com
+      # `NEXT_PUBLIC_BASE_PATH=/natcorp/ia` — e o `next build` assa esse prefixo
+      # em todas as rotas. O e2e navega por caminho ABSOLUTO
+      # (`page.goto("/admin/login")`), que ignora prefixo, e ia bater em 404.
+      #
+      # Foi isto que manteve o e2e vermelho de 18/08 a 28/08. Zerar aqui é o que
+      # faz a CI testar o app na configuração que os testes assumem; variável de
+      # ambiente vence o `.env`, e precisa estar nos DOIS passos porque o build
+      # assa e o servidor serve.
       - name: Build
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: http://localhost:3008
+          NEXT_PUBLIC_BASE_PATH: ""
 
       - name: E2E (Playwright)
         run: npm run test:e2e
@@ -136,3 +147,4 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
           NEXT_PUBLIC_SITE_URL: http://localhost:3008
+          NEXT_PUBLIC_BASE_PATH: ""
