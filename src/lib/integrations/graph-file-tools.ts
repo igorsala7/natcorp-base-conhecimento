@@ -6,6 +6,7 @@ import { runGuard } from "./guards";
 import { buildConfirmDeps } from "./confirmations";
 import type { Identity } from "./params";
 import type { OutFile } from "./documents";
+import type { ArquivoGerado } from "@/lib/chat/arquivos-conversa-parse";
 
 /**
  * As duas ferramentas de ARQUIVO que não cabem no cadastro.
@@ -30,8 +31,20 @@ import type { OutFile } from "./documents";
  */
 
 export type CtxArquivos = {
-  /** Arquivos gerados NESTE turno (relatório, planilha, gráfico). */
+  /** Arquivos gerados NESTE turno (relatório, planilha, gráfico), com bytes. */
   gerados: OutFile[];
+  /**
+   * Arquivos gerados em turnos ANTERIORES da mesma conversa — METADADO só, os
+   * bytes vêm por `baixar` depois que o modelo escolher.
+   *
+   * Sem isto, estas ferramentas só existiam no turno em que o arquivo nasceu. E
+   * "faça um PPT" e "manda por e-mail" são sempre turnos diferentes: sobrava a
+   * ferramenta de e-mail COMUM, que não tem campo de arquivo, e o e-mail saía
+   * sem anexo relatando sucesso.
+   */
+  anteriores?: ArquivoGerado[];
+  /** Busca os bytes de um arquivo anterior pelo `path` do Storage. */
+  baixar?: (path: string) => Promise<Buffer | null>;
   /** Token pessoal da Microsoft, já resolvido e renovado. */
   token: string;
   /** Traz o conteúdo baixado para o turno e devolve o TEXTO extraído — não um
@@ -58,21 +71,62 @@ const GRAPH = "https://graph.microsoft.com/v1.0";
 /** Teto do que faz sentido trazer para dentro de um turno de chat. */
 const MAX_ANEXO = 8 * 1024 * 1024;
 
+/** Um arquivo pronto para enviar: nome, tipo e bytes já resolvidos. */
+type ArquivoPronto = { filename: string; mimeType: string; bytes: Buffer };
+
 export function graphFileTools(ctx: CtxArquivos): ToolSet {
   const fetchImpl = ctx.fetchImpl ?? fetch;
   const base = (ctx.graphBase ?? GRAPH).replace(/\/+$/, "");
   const tools: ToolSet = {};
 
+  // ── CATÁLOGO DO QUE DÁ PARA ENVIAR ──────────────────────────────────────
+  // Deste turno (bytes em memória) MAIS os da conversa (bytes no Storage). O
+  // turno vem primeiro: se o mesmo nome existe nos dois, o recém-gerado é o que
+  // a pessoa está olhando na tela.
+  const anteriores = ctx.anteriores ?? [];
+  const nomesDisponiveis = [
+    ...ctx.gerados.map((a) => a.filename),
+    ...anteriores.map((a) => a.filename).filter((n) => !ctx.gerados.some((g) => g.filename === n)),
+  ];
+  const temArquivo = nomesDisponiveis.length > 0;
+
+  /**
+   * Acha os bytes do arquivo que o modelo pediu.
+   *
+   * Casamento em três degraus, do mais estrito ao mais tolerante — o modelo
+   * escreve o nome de memória e erra a extensão ou o sufixo com frequência, e
+   * recusar por isso obrigaria a pessoa a repetir o pedido inteiro.
+   */
+  async function resolverArquivo(pedido: string): Promise<ArquivoPronto | null> {
+    const alvo = String(pedido ?? "").toLowerCase().trim();
+    const casa = (nome: string) =>
+      nome.toLowerCase() === alvo ||
+      nome.toLowerCase().includes(alvo.slice(0, 20)) ||
+      alvo.includes(nome.toLowerCase().replace(/\.[a-z0-9]+$/, ""));
+
+    const doTurno = ctx.gerados.find((a) => a.filename === pedido) ?? ctx.gerados.find((a) => casa(a.filename));
+    if (doTurno) {
+      return { filename: doTurno.filename, mimeType: doTurno.mimeType, bytes: Buffer.from(doTurno.base64, "base64") };
+    }
+    const anterior = anteriores.find((a) => a.filename === pedido) ?? anteriores.find((a) => casa(a.filename));
+    if (anterior && ctx.baixar) {
+      const bytes = await ctx.baixar(anterior.path);
+      if (bytes) return { filename: anterior.filename, mimeType: anterior.mimeType, bytes };
+    }
+    return null;
+  }
+
   // ── SALVAR ────────────────────────────────────────────────────────────
-  // Só existe quando há arquivo gerado no turno. Oferecer "salvar" sem nada
-  // para salvar faria o modelo prometer e depois se explicar.
-  if (ctx.gerados.length > 0) {
-    const nomes = ctx.gerados.map((a) => a.filename);
+  // Existe quando há arquivo gerado na CONVERSA — não só no turno. "Gera o
+  // relatório" e "salva no meu drive" são turnos diferentes pelo mesmo motivo
+  // que o e-mail: quem acabou de ver o arquivo pede a ação depois.
+  if (temArquivo) {
+    const nomes = nomesDisponiveis;
     tools.ms_arquivo_salvar = tool({
       description:
-        `Salva no OneDrive da própria pessoa (pasta ${PASTA}) um arquivo que VOCÊ acabou de gerar nesta ` +
+        `Salva no OneDrive da própria pessoa (pasta ${PASTA}) um arquivo que VOCÊ gerou nesta ` +
         `conversa — relatório, planilha ou gráfico. Use quando ela pedir para 'salvar na nuvem', 'guardar no ` +
-        `OneDrive', 'manda pro meu drive'. Arquivos disponíveis agora: ${nomes.join(", ")}. Não serve para ` +
+        `OneDrive', 'manda pro meu drive'. Arquivos disponíveis: ${nomes.join(", ")}. Não serve para ` +
         `arquivos que já estão na nuvem nem para os que a pessoa anexou.`,
       inputSchema: z.object({
         arquivo: z
@@ -80,21 +134,17 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
           .describe(`Nome exato do arquivo gerado a salvar. Um destes: ${nomes.join(" | ")}`),
       }),
       execute: async ({ arquivo }) => {
-        // Casa por nome exato e, se falhar, por conteúdo — o modelo às vezes
-        // reescreve o nome ("o relatório") em vez de copiá-lo.
-        const alvo =
-          ctx.gerados.find((a) => a.filename === arquivo) ??
-          ctx.gerados.find((a) => a.filename.toLowerCase().includes(String(arquivo).toLowerCase().slice(0, 20)));
+        const alvo = await resolverArquivo(arquivo);
         if (!alvo) {
           return {
-            erro: `Não há arquivo chamado "${arquivo}" nesta conversa. Gerados agora: ${nomes.join(", ")}.`,
+            erro: `Não há arquivo chamado "${arquivo}" nesta conversa. Disponíveis: ${nomes.join(", ")}.`,
           };
         }
         const r = await enviarParaOneDrive({
           token: ctx.token,
           nome: alvo.filename,
           mimeType: alvo.mimeType,
-          base64: alvo.base64,
+          base64: alvo.bytes.toString("base64"),
           fetchImpl,
           graphBase: base,
         });
@@ -175,27 +225,26 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
   // verdade quando cabe, link do OneDrive quando não. Deixar o modelo escolher
   // produziria "não consegui, o arquivo é grande" — que é uma desculpa, não uma
   // entrega.
-  if (ctx.gerados.length > 0 && ctx.identity && ctx.baseCode) {
-    const nomes = ctx.gerados.map((a) => a.filename);
+  if (temArquivo && ctx.identity && ctx.baseCode) {
+    const nomes = nomesDisponiveis;
     tools.ms_email_enviar_arquivo = tool({
       description:
         `Envia um e-mail COM UM ARQUIVO que você gerou nesta conversa — relatório, planilha ou gráfico. ` +
         `Use quando a pessoa pedir para "mandar por e-mail", "enviar para fulano", "encaminhar o relatório". ` +
-        `Arquivos disponíveis agora: ${nomes.join(", ")}. Se o arquivo for grande demais para anexar, o ` +
-        `sistema salva no OneDrive e manda o link automaticamente — não recuse por tamanho. Para e-mail SEM ` +
-        `arquivo, use a ferramenta de enviar e-mail comum.`,
+        `Vale para arquivos gerados AGORA e para os gerados ANTES nesta mesma conversa. ` +
+        `Arquivos disponíveis: ${nomes.join(", ")}. Se o arquivo for grande demais para anexar, o ` +
+        `sistema salva no OneDrive e manda o link automaticamente — não recuse por tamanho. Use a ferramenta ` +
+        `de e-mail comum SOMENTE quando não houver arquivo a enviar.`,
       inputSchema: z.object({
         para: z.string().describe("E-mails dos destinatários, separados por vírgula."),
         assunto: z.string().describe("Assunto, curto e específico."),
         corpo: z.string().describe("Texto do e-mail, já redigido e pronto para enviar."),
-        arquivo: z.string().describe(`Nome do arquivo gerado a enviar. Um destes: ${nomes.join(" | ")}`),
+        arquivo: z.string().describe(`Nome do arquivo a enviar. Um destes: ${nomes.join(" | ")}`),
       }),
       execute: async ({ para, assunto, corpo, arquivo }) => {
-        const alvo =
-          ctx.gerados.find((a) => a.filename === arquivo) ??
-          ctx.gerados.find((a) => a.filename.toLowerCase().includes(String(arquivo).toLowerCase().slice(0, 20)));
+        const alvo = await resolverArquivo(arquivo);
         if (!alvo) {
-          return { erro: `Não há arquivo chamado "${arquivo}" nesta conversa. Gerados: ${nomes.join(", ")}.` };
+          return { erro: `Não há arquivo chamado "${arquivo}" nesta conversa. Disponíveis: ${nomes.join(", ")}.` };
         }
 
         // CONFIRMAÇÃO — mesma do envio sem anexo. Reusa `runGuard` em vez de
@@ -213,7 +262,7 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
         });
         if (!g.ok) return { erro: g.erro };
 
-        const bytes = Buffer.from(alvo.base64, "base64");
+        const bytes = alvo.bytes;
         const destinatarios = String(para)
           .split(/[;,]/)
           .map((x) => x.trim())
@@ -231,7 +280,7 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
             "@odata.type": "#microsoft.graph.fileAttachment",
             name: alvo.filename,
             contentType: alvo.mimeType,
-            contentBytes: alvo.base64,
+            contentBytes: bytes.toString("base64"),
           }];
         } else {
           // Grande demais para anexar: sobe e manda o link. O destinatário
@@ -239,7 +288,7 @@ export function graphFileTools(ctx: CtxArquivos): ToolSet {
           via = "link";
           const up = await enviarParaOneDrive({
             token: ctx.token, nome: alvo.filename, mimeType: alvo.mimeType,
-            base64: alvo.base64, fetchImpl, graphBase: base,
+            base64: bytes.toString("base64"), fetchImpl, graphBase: base,
           });
           if (!up.ok) return { erro: `O arquivo é grande demais para anexar e não consegui salvá-lo: ${up.erro}` };
           link = up.webUrl;
