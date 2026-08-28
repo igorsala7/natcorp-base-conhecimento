@@ -35,7 +35,26 @@
         e2e agora roda na raiz: o `ci.yml` zera o prefixo nos DOIS passos (o build assa, o
         start só serve) e o `playwright.config.ts` ganhou um guard que falha explicando
         (`30f1dc2`).
-4. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
+4. **Para rodar o e2e nesta máquina: `npx playwright install chromium` primeiro.**
+   Não havia NENHUM navegador do Playwright instalado aqui — `npm run test:e2e` nunca
+   foi executável localmente, e é por isso que a quebra do e2e sobreviveu dez dias sem
+   ninguém ver: a CI era o único lugar onde a suíte rodava, e lá ela falhava com uma
+   mensagem que culpava o servidor. A CI instala o navegador explicitamente; o
+   desenvolvedor precisa fazer à mão, e isso não estava escrito em lugar nenhum (o
+   README tem três linhas).
+
+   Verificado em 28/08 num worktree limpo de `origin/main`, com o ambiente idêntico ao
+   do `ci.yml`: **3 passed**. Vale como segunda opinião independente da CI — mesmo
+   código, outro sistema operacional, outro navegador.
+
+   ```
+   npx playwright install chromium
+   NEXT_PUBLIC_BASE_PATH= npm run build && NEXT_PUBLIC_BASE_PATH= npm run test:e2e
+   ```
+
+   O `NEXT_PUBLIC_BASE_PATH=` só é necessário se o seu `.env.local` não o zerar — se
+   esquecer, o guard do `playwright.config.ts` avisa com a linha de comando pronta.
+5. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
 
 ---
 
