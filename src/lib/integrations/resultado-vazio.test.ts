@@ -113,6 +113,32 @@ describe("vizinhasDeModulo", () => {
     const orfa: ToolComModulos = { key: "x", name: "X", modules: [] };
     expect(vizinhasDeModulo(orfa, [APURACAO, ESPELHO])).toEqual([]);
   });
+
+  it("módulo e submódulo não colidem por acidente de espaçamento", () => {
+    // Os módulos deste ERP contêm espaço ("PONTO E FREQUÊNCIA"), então juntar as
+    // duas metades com espaço faria {"PONTO E","FREQUÊNCIA"} casar com
+    // {"PONTO","E FREQUÊNCIA"} — uma ferramenta virava vizinha de outra por
+    // acidente. Estes dois pares NÃO são o mesmo assunto.
+    const a: ToolComModulos = {
+      key: "a", name: "A", modules: [{ modulo: "PONTO E", submodulo: "FREQUÊNCIA" }],
+    };
+    const b: ToolComModulos = {
+      key: "b", name: "B", modules: [{ modulo: "PONTO", submodulo: "E FREQUÊNCIA" }],
+    };
+    expect(vizinhasDeModulo(a, [b])).toEqual([]);
+  });
+
+  it("submódulo nulo não colide com submódulo vazio", () => {
+    const nulo: ToolComModulos = {
+      key: "n", name: "N", modules: [{ modulo: "FOLHA", submodulo: null }],
+    };
+    const vazio: ToolComModulos = {
+      key: "v", name: "V", modules: [{ modulo: "FOLHA", submodulo: "" }],
+    };
+    // Mesmo módulo → vizinhas (1 ponto), mas pelo módulo, não pelo par fino.
+    const v = vizinhasDeModulo(nulo, [vazio]);
+    expect(v.map((t) => t.key)).toEqual(["v"]);
+  });
 });
 
 describe("recadoDeVazio", () => {
