@@ -32,6 +32,56 @@ const GRAVAR = process.argv.includes("--gravar");
 const ULTIMA_REDE = (f) => f === "src/app/global-error.tsx";
 
 /**
+ * Apaga COMENTÁRIOS antes de contar, para os padrões que pedem `semComentarios`.
+ *
+ * Comentário não renderiza. Uma regra cuja justificativa é "renderiza diferente
+ * por SO e não herda cor nem tamanho do token" não tem o que dizer sobre um
+ * emoji dentro de um bloco de comentário. Foi exatamente esse o caso que travou
+ * a CI de 18/08 a 28/08: os três emoji que levaram o contador de 64 a 67
+ * estavam os três em comentário — um deles no `copy-button.tsx`, explicando por
+ * que aquele arquivo usa `<Check>` do lucide. A catraca acusando dívida no
+ * arquivo que faz certo.
+ *
+ * É o mesmo remédio já aplicado em `title-como-tooltip` e em `select-sem-teto`:
+ * regra que acusa uso correto ensina a equipe a ignorar a catraca inteira, e aí
+ * morrem junto as ocorrências que valiam.
+ *
+ * DUAS LIMITAÇÕES CONHECIDAS, e ambas erram para MENOS (nunca inventam dívida):
+ *   - URL crua em TEXTO JSX (`Veja https://x`, fora de aspas) come o resto da
+ *     linha como se fosse `//`. Dentro de aspas não acontece, que é onde URL
+ *     mora em quase todo caso.
+ *   - Literal de expressão regular contendo aspas pode confundir o estado.
+ * Um parser de verdade custaria mais do que a catraca inteira vale — este
+ * arquivo já registra que regra AST aqui seria "cara e frágil".
+ */
+function semComentarios(src) {
+  let out = "";
+  let estado = "codigo"; // codigo | aspas | linha | bloco
+  let aspa = "";
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (estado === "codigo") {
+      if (c === "/" && d === "/") { estado = "linha"; i++; continue; }
+      if (c === "/" && d === "*") { estado = "bloco"; i++; continue; }
+      if (c === '"' || c === "'" || c === "`") { estado = "aspas"; aspa = c; }
+      out += c;
+    } else if (estado === "aspas") {
+      // Escape consome o próximo caractere: `"\""` não fecha a string.
+      if (c === "\\") { out += c + (d ?? ""); i++; continue; }
+      if (c === aspa) estado = "codigo";
+      out += c;
+    } else if (estado === "linha") {
+      if (c === "\n") { estado = "codigo"; out += c; }
+    } else {
+      if (c === "*" && d === "/") { estado = "codigo"; i++; continue; }
+      if (c === "\n") out += c; // preserva as quebras, para o texto não colar
+    }
+  }
+  return out;
+}
+
+/**
  * Cada padrão diz o que conta e POR QUE é dívida — a mensagem aparece quando o
  * contador sobe, e é o que impede o próximo a mexer de achar que é frescura.
  */
@@ -80,6 +130,8 @@ const PADROES = [
     chave: "emoji-como-icone",
     rx: /[\u{1F300}-\u{1FAFF}\u{2700}-\u{27BF}\u{2B00}-\u{2BFF}]/gu,
     ignora: (f) => f.endsWith(".test.ts") || f.endsWith(".test.tsx"),
+    // Só o que RENDERIZA conta — ver `semComentarios` lá em cima.
+    semComentarios: true,
     porque: "Use lucide-react. Emoji renderiza diferente por SO e não herda cor nem tamanho do token.",
   },
   {
@@ -156,20 +208,31 @@ const arquivos = execSync(
   .filter(Boolean);
 
 const atual = {};
-const ondePiorou = {};
+// NOME HONESTO: é onde o padrão ESTÁ, não onde ele piorou. A versão anterior
+// chamava isto de `ondePiorou` e imprimia a lista embaixo de um "✗ subiu" —
+// quem lia entendia "foi aqui que subiu" e ia consertar o arquivo errado.
+// Aconteceu: o maior contador de emoji é uma rota que não muda há semanas,
+// enquanto os 3 que subiram estavam em três outros arquivos.
+const ondeEsta = {};
+// Semeado na ordem de PADROES: como a contagem agora percorre ARQUIVOS por
+// fora (para ler cada um uma vez só), sem isto as chaves entrariam na ordem em
+// que aparecem no primeiro arquivo — e o baseline.json se reembaralharia a cada
+// gravação, sujando todo diff futuro com ruído que não é dívida.
 for (const p of PADROES) {
-  let n = 0;
-  const porArquivo = {};
-  for (const f of arquivos) {
+  atual[p.chave] = 0;
+  ondeEsta[p.chave] = {};
+}
+for (const f of arquivos) {
+  const bruto = readFileSync(f, "utf8");
+  let semCom = null; // calculado sob demanda, e uma vez só por arquivo
+  for (const p of PADROES) {
     if (p.ignora?.(f)) continue;
-    const achados = readFileSync(f, "utf8").match(p.rx);
-    if (achados) {
-      n += achados.length;
-      porArquivo[f] = achados.length;
-    }
+    const alvo = p.semComentarios ? (semCom ??= semComentarios(bruto)) : bruto;
+    const achados = alvo.match(p.rx);
+    if (!achados) continue;
+    atual[p.chave] += achados.length;
+    ondeEsta[p.chave][f] = achados.length;
   }
-  atual[p.chave] = n;
-  ondePiorou[p.chave] = porArquivo;
 }
 
 if (GRAVAR) {
@@ -200,10 +263,16 @@ for (const p of PADROES) {
     subiu = true;
     console.error(`\n✗ ${p.chave}: ${antes} → ${agora}  (+${agora - antes})`);
     console.error(`  ${p.porque}`);
-    const piores = Object.entries(ondePiorou[p.chave])
+    // O RÓTULO IMPORTA. A lista é por total, e o arquivo com maior total quase
+    // nunca é o que acabou de subir — dizer só "✗ subiu" seguido dela manda o
+    // leitor consertar o lugar errado, e depois desconfiar da catraca.
+    console.error(`  maiores TOTAIS (não necessariamente quem subiu):`);
+    const maiores = Object.entries(ondeEsta[p.chave])
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
-    for (const [f, n] of piores) console.error(`    ${String(n).padStart(4)}  ${f}`);
+    for (const [f, n] of maiores) console.error(`    ${String(n).padStart(4)}  ${f}`);
+    console.error(`  quem subiu: compare com o commit que gravou ${BASELINE}`);
+    console.error(`    git log -1 --format=%h -- ${BASELINE}`);
   } else if (agora < antes) {
     caiu = true;
     console.log(`✓ ${p.chave}: ${antes} → ${agora}  (−${antes - agora})`);

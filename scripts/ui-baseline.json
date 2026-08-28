@@ -1,12 +1,12 @@
 {
-  "button-cru": 292,
+  "button-cru": 291,
   "title-como-tooltip": 80,
   "checkbox-cru": 67,
-  "texto-arbitrario": 37,
-  "outline-none-sem-substituto": 32,
-  "emoji-como-icone": 64,
+  "texto-arbitrario": 3,
+  "outline-none-sem-substituto": 27,
+  "emoji-como-icone": 53,
   "spinner-solto": 32,
   "caixa-tracejada": 25,
-  "select-sem-teto": 48,
+  "select-sem-teto": 37,
   "hex-em-componente": 87
 }
