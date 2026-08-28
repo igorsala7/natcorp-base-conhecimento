@@ -14,20 +14,27 @@
    as transcrições em `~/.claude/projects/` e os scratchpads em `/private/tmp/claude-501/`.
    O Bloco 2 roda `EXPLAIN ANALYZE` e comparações de RAG; sem espaço, não sai do lugar.
 2. **Tudo commitado e empurrado.** Ver "O que estava no disco" abaixo.
-3. **A CI do `main` está vermelha desde 18/08, e não é do seu commit.** Eram dois
-   motivos; um foi consertado em 28/08:
-   - ~~`build` → *Dívida de UI*~~ **resolvido**: a catraca contava emoji dentro de
-     COMENTÁRIO. Os 3 que a estouraram (64→67) estavam os três em comentário — um deles
-     explicando por que o arquivo usa `<Check>` do lucide, ou seja, acusando quem faz
-     certo. `emoji-como-icone` passou a ignorar comentário; o contador **caiu** para 53 e
-     o baseline foi regravado mais apertado, sem subir teto nenhum.
-   - `e2e` → `Timed out waiting 120000ms from config.webServer`: **em aberto**. Três
-     hipóteses testadas e derrubadas — não é a porta (`next start -p 3008` bate com a
-     URL), não é o Supabase placeholder (`placeholder.supabase.co` dá NXDOMAIN em 40 ms,
-     falha rápido em vez de travar), e não há `instrumentation.ts` nem `output: standalone`.
-     O log não ajudava porque o Playwright **descarta** a saída do webServer; isso foi
-     corrigido (`stdout`/`stderr: "pipe"`). **A próxima rodada de CI deve dizer o motivo —
-     comece por ela.**
+3. **A CI ficou VERDE em 28/08 (`30f1dc2`) — a primeira das últimas 60 rodadas.**
+   Estava vermelha desde pelo menos 17/08, e em nenhum momento por causa do commit que
+   a disparava: os dois defeitos estavam nas ferramentas de verificação, não no produto.
+   - `build` → *Dívida de UI*: a catraca contava emoji dentro de COMENTÁRIO. Os 3 que a
+     estouraram (64→67) estavam os três em comentário — um deles explicando por que o
+     arquivo usa `<Check>` do lucide, isto é, acusando quem faz certo. `emoji-como-icone`
+     passou a ignorar comentário; o contador **caiu** para 53 e o baseline foi regravado
+     mais apertado, sem subir teto nenhum (`83b511a`).
+   - `e2e` → foram **três camadas**, cada uma escondendo a seguinte, e vale ler porque a
+     mesma armadilha vale para qualquer coisa que rode na CI:
+     1. o log era mudo — o Playwright DESCARTA o stdout do webServer (`c5295d6` liga o
+        `pipe`; foi o que destravou tudo);
+     2. o servidor subia em 77 ms, perfeito. Errada era a URL de espera: o `.env`
+        **versionado é o de produção** e traz `NEXT_PUBLIC_BASE_PATH=/natcorp/ia`, então
+        o build assa o prefixo e `/admin/login` na raiz é 404 (`f6a4c95`);
+     3. prefixar o `baseURL` NÃO basta — `page.goto()` com caminho absoluto descarta o
+        caminho do baseURL, então os testes voltavam para a raiz e batiam em 404. O placar
+        acusava a aplicação ("o formulário de login sumiu" era a página 404 do Next). O
+        e2e agora roda na raiz: o `ci.yml` zera o prefixo nos DOIS passos (o build assa, o
+        start só serve) e o `playwright.config.ts` ganhou um guard que falha explicando
+        (`30f1dc2`).
 4. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
 
 ---
