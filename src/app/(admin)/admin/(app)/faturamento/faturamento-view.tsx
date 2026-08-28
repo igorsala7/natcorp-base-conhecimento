@@ -7,8 +7,10 @@ import { Tabs, useAbaAtual, type Aba as AbaUI } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   agrupar,
+  custoPorMilhao,
   fracaoCacheCobrada,
   fracaoEntradaEmCache,
+  margemPorMilhao,
   precosAusentes,
   rotuloAcao,
   somar,
@@ -24,6 +26,17 @@ const nf = new Intl.NumberFormat("pt-BR");
 const usd = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+/**
+ * Preço unitário — quatro casas, e não duas.
+ *
+ * A diferença entre modelos mora na terceira casa (o embedding sai por
+ * US$ 0,150/M e o lite por US$ 0,342/M): arredondar para centavos apagaria
+ * justamente a comparação que a coluna existe para permitir.
+ */
+const usdM = (v: number | null) =>
+  v == null
+    ? "—"
+    : v.toLocaleString("pt-BR", { style: "currency", currency: "USD", minimumFractionDigits: 4 });
 
 type Aba = "cliente" | "provider" | "model" | "purpose";
 
@@ -101,7 +114,10 @@ function Tabela({
   const cobrados = (t: Totais) => (base === "ponderado" ? t.tokensPonderados : t.tokensBrutos);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1080px] border-collapse">
+      {/* 1280px: 13 colunas, duas delas em dólar com quatro casas. Com os
+          1080px de antes as duas novas espremiam o nome do cliente. O container
+          já rola na horizontal; o corpo da página, não. */}
+      <table className="w-full min-w-[1280px] border-collapse">
         <thead className="border-b border-border">
           <tr>
             <th className={th}>{rotuloChave}</th>
@@ -115,6 +131,8 @@ function Tabela({
             </th>
             <th className={thNum}>Tokens brutos</th>
             <th className={thNum}>Tokens ponderados</th>
+            <th className={thNum}>Custo real</th>
+            <th className={thNum}>US$/M pago</th>
             <th className={thNum}>A cobrar</th>
             <th className={thNum}>Valor</th>
           </tr>
@@ -131,6 +149,10 @@ function Tabela({
               <td className={tdNum}>{pct(fracaoCacheCobrada(g.totais))}</td>
               <td className={tdNum}>{nf.format(g.totais.tokensBrutos)}</td>
               <td className={tdNum}>{nf.format(g.totais.tokensPonderados)}</td>
+              <td className={tdNum}>
+                {g.totais.custoUsd == null ? "—" : usd(g.totais.custoUsd)}
+              </td>
+              <td className={tdNum}>{usdM(custoPorMilhao(g.totais, base))}</td>
               <td className={`${tdNum} font-semibold`}>{nf.format(cobrados(g.totais))}</td>
               <td className={tdNum}>{usd(valorUsd(cobrados(g.totais), usdPorMtok))}</td>
             </tr>
@@ -147,6 +169,10 @@ function Tabela({
             <td className={`${tdNum} font-semibold`}>{pct(fracaoCacheCobrada(total))}</td>
             <td className={`${tdNum} font-semibold`}>{nf.format(total.tokensBrutos)}</td>
             <td className={`${tdNum} font-semibold`}>{nf.format(total.tokensPonderados)}</td>
+            <td className={`${tdNum} font-semibold`}>
+              {total.custoUsd == null ? "—" : usd(total.custoUsd)}
+            </td>
+            <td className={`${tdNum} font-semibold`}>{usdM(custoPorMilhao(total, base))}</td>
             <td className={`${tdNum} font-semibold text-primary`}>{nf.format(cobrados(total))}</td>
             <td className={`${tdNum} font-semibold text-primary`}>
               {usd(valorUsd(cobrados(total), usdPorMtok))}
@@ -201,7 +227,9 @@ export function FaturamentoView({
       "cliente", "origem", "tipo", "provedor", "modelo", "acao", "chamadas",
       "entrada_total", "entrada_nova", "cache_lido", "cache_escrito", "saida",
       "tokens_brutos", "tokens_ponderados", "tokens_cobrados", "valor_usd",
-      "custo_usd", "preco_confirmado",
+      // Sai por linha e não só no rodapé: numa planilha o custo unitário é o
+      // que se ordena para achar o modelo ou o cliente caro.
+      "custo_usd", "custo_usd_por_milhao", "preco_confirmado",
     ];
     const linhas = faturaveis.map((l) => {
       const cob = base === "ponderado" ? l.tokens_ponderados : l.tokens_brutos;
@@ -209,7 +237,11 @@ export function FaturamentoView({
         l.cliente, l.origem, l.kind, l.provider, l.model, rotuloAcao(l.purpose), l.chamadas,
         l.entrada_total, l.entrada_nova, l.cache_read, l.cache_write, l.saida,
         l.tokens_brutos, l.tokens_ponderados, cob, valorUsd(cob, usdPorMtok).toFixed(6),
-        l.custo_usd ?? "", l.preco_confirmado ? "sim" : "nao",
+        l.custo_usd ?? "",
+        // Vazio, e não 0, quando falta preço ou não houve token: zero somaria
+        // como se fosse de graça em qualquer média feita na planilha.
+        l.custo_usd == null || cob <= 0 ? "" : (l.custo_usd / (cob / 1_000_000)).toFixed(6),
+        l.preco_confirmado ? "sim" : "nao",
       ].map(csvEscape).join(";");
     });
     // `;` e BOM: é o que o Excel em pt-BR abre em colunas sem pedir importação.
@@ -251,13 +283,21 @@ export function FaturamentoView({
             valor={usd(valorUsd(aCobrar, usdPorMtok))}
             nota={`${usd(usdPorMtok)} por milhão de tokens`}
           />
+          {/* O CUSTO UNITÁRIO fica no lugar do total em dólar, e não ao lado.
+              Custo total sobe quando se usa mais — não diz se o sistema ficou
+              mais CARO ou apenas mais movimentado. O preço por milhão separa as
+              duas coisas, e é o único número aqui comparável entre períodos e
+              entre clientes de tamanhos diferentes. O total continua visível
+              logo abaixo, junto da margem. */}
           <Kpi
-            rotulo="Custo real do provedor"
-            valor={total.custoUsd == null ? "—" : usd(total.custoUsd)}
+            rotulo="Custo por milhão pago"
+            valor={usdM(custoPorMilhao(total, base))}
             nota={
               total.custoUsd == null
                 ? "há modelo sem preço cadastrado"
-                : `margem ${usd(valorUsd(aCobrar, usdPorMtok) - total.custoUsd)}`
+                : `${usd(total.custoUsd)} no período · margem ${usdM(
+                    margemPorMilhao(total, base, usdPorMtok),
+                  )}/M`
             }
           />
           <Kpi
@@ -291,8 +331,15 @@ export function FaturamentoView({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-text">Totalizadores</h2>
+            {/* A legenda é TEXTO, não `title`: a explicação da coluna nova não pode
+                depender de passar o mouse — não existe em toque e leitor de tela não
+                anuncia. (A catraca de UI cobra isso, e o primitivo `<Tooltip>` ainda
+                não existe neste projeto.) */}
             <p className="text-sm text-text-muted">
-              Os quatro recortes saem das mesmas linhas — os subtotais sempre fecham com o total.
+              Os quatro recortes saem das mesmas linhas — os subtotais sempre fecham com o total.{" "}
+              <strong className="font-medium text-text">US$/M pago</strong> é o que você paga por
+              milhão de tokens: cai do mix de modelos e da razão entrada/saída, e é o único número
+              aqui comparável entre clientes de tamanhos diferentes.
             </p>
           </div>
           <div className="flex items-center gap-2">

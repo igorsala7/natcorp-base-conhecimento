@@ -6,6 +6,8 @@ import {
   somar,
   tokensCobrados,
   valorUsd,
+  custoPorMilhao,
+  margemPorMilhao,
   type LinhaFaturamento,
 } from "./pricing";
 
@@ -236,5 +238,70 @@ describe("agrupar", () => {
     const g = agrupar([base({ purpose: "", tokens_brutos: 10 })], (l) => l.purpose);
     expect(g).toHaveLength(1);
     expect(g[0]!.chave).toBe("—");
+  });
+});
+
+/**
+ * Os números desta seção também são REAIS: `faturamento_detalhe` sobre os 14
+ * dias encerrados em 28/08/2026, todas as origens. Foi a pergunta "quanto estou
+ * pagando por 1 milhão de tokens" que motivou a métrica.
+ */
+describe("custoPorMilhao", () => {
+  it("o número dos 14 dias: US$ 1,61 por milhão bruto", () => {
+    const t = somar([
+      base({ tokens_brutos: 74_388_986, tokens_ponderados: 58_081_240, custo_usd: 119.63 }),
+    ]);
+    expect(custoPorMilhao(t, "bruto")).toBeCloseTo(1.608, 3);
+  });
+
+  it("na base ponderada sai MAIS caro — são menos tokens para o mesmo dólar", () => {
+    // Contra-intuitivo e proposital: a ponderação desconta o cache da CONTAGEM,
+    // não do custo. Quem lê "ponderado" como "com desconto" erra o sinal.
+    const t = somar([
+      base({ tokens_brutos: 74_388_986, tokens_ponderados: 58_081_240, custo_usd: 119.63 }),
+    ]);
+    expect(custoPorMilhao(t, "ponderado")!).toBeGreaterThan(custoPorMilhao(t, "bruto")!);
+    expect(custoPorMilhao(t, "ponderado")).toBeCloseTo(2.06, 2);
+  });
+
+  it("separa o uso interno do uso do cliente — 2,92 contra 0,88", () => {
+    // O achado que o custo total em dólar escondia: `sistema` é 36% dos tokens
+    // e 65% do dinheiro.
+    const sistema = somar([base({ origem: "sistema", tokens_brutos: 26_481_549, custo_usd: 77.36 })]);
+    const widget = somar([base({ origem: "widget", tokens_brutos: 47_596_399, custo_usd: 41.71 })]);
+    expect(custoPorMilhao(sistema, "bruto")).toBeCloseTo(2.92, 2);
+    expect(custoPorMilhao(widget, "bruto")).toBeCloseTo(0.88, 2);
+  });
+
+  it("sem preço confirmado devolve null, nunca zero", () => {
+    // Custo desconhecido dividido pelo total daria um número menor que a
+    // verdade, com cara de exato.
+    const t = somar([base({ tokens_brutos: 1_000_000, custo_usd: null, preco_confirmado: false })]);
+    expect(t.custoUsd).toBeNull();
+    expect(custoPorMilhao(t, "bruto")).toBeNull();
+  });
+
+  it("período sem token não vira divisão por zero", () => {
+    expect(custoPorMilhao(somar([base({ custo_usd: 0 })]), "bruto")).toBeNull();
+  });
+});
+
+describe("margemPorMilhao", () => {
+  it("tarifa de 5,00 sobre custo de 1,61 deixa 3,39 por milhão", () => {
+    const t = somar([
+      base({ tokens_brutos: 74_388_986, tokens_ponderados: 58_081_240, custo_usd: 119.63 }),
+    ]);
+    expect(margemPorMilhao(t, "bruto", 5)).toBeCloseTo(3.39, 2);
+  });
+
+  it("margem negativa aparece como negativa, não some", () => {
+    // Um mix caro pode passar da tarifa; esconder isso seria o pior dos casos.
+    const t = somar([base({ tokens_brutos: 1_000_000, custo_usd: 8 })]);
+    expect(margemPorMilhao(t, "bruto", 5)).toBeCloseTo(-3, 5);
+  });
+
+  it("sem preço não há margem a afirmar", () => {
+    const t = somar([base({ tokens_brutos: 1_000_000, custo_usd: null, preco_confirmado: false })]);
+    expect(margemPorMilhao(t, "bruto", 5)).toBeNull();
   });
 });

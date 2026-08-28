@@ -165,6 +165,50 @@ export function valorUsd(tokens: number, usdPorMtok: number): number {
   return (tokens / 1_000_000) * usdPorMtok;
 }
 
+/**
+ * QUANTO CUSTA, DE FATO, UM MILHÃO DE TOKENS.
+ *
+ * O contrário de `usdPorMtok`, que é a tarifa que se COBRA. Este é o preço que
+ * se PAGA, e ele não é escolhido: cai do mix de modelos, da razão entre entrada
+ * e saída e do quanto o cache pegou no período.
+ *
+ * Por que a tela precisava disto: ela já mostrava o custo total em dólar e a
+ * margem, mas custo total sobe quando se usa mais — e não diz se o sistema
+ * ficou mais caro ou apenas mais movimentado. O custo POR MILHÃO separa as duas
+ * coisas, e é comparável entre clientes de tamanhos diferentes.
+ *
+ * Medido em 28/08 sobre 14 dias: US$ 1,61/Mtok na base bruta contra os US$ 5,00
+ * cobrados — e US$ 2,92 na origem `sistema` contra US$ 0,88 no `widget`, que é
+ * o tipo de diferença que o total em dólar escondia.
+ *
+ * `null` quando algum modelo do grupo não tem preço confirmado: o custo daquele
+ * grupo é DESCONHECIDO, não zero. Dividir um custo parcial pelo total de tokens
+ * produziria um número menor que a verdade, e com cara de exato — a mesma
+ * armadilha de somar imensurável ao denominador.
+ */
+export function custoPorMilhao(t: Totais, base: BaseCobranca): number | null {
+  if (t.custoUsd == null) return null;
+  const tokens = base === "ponderado" ? t.tokensPonderados : t.tokensBrutos;
+  if (tokens <= 0) return null;
+  return t.custoUsd / (tokens / 1_000_000);
+}
+
+/**
+ * Margem por milhão de tokens: o que se cobra menos o que se paga.
+ *
+ * `null` pelo mesmo motivo acima — sem preço confirmado não há margem a
+ * afirmar, e mostrar a tarifa cheia como se fosse margem seria pior que
+ * mostrar nada.
+ */
+export function margemPorMilhao(
+  t: Totais,
+  base: BaseCobranca,
+  usdPorMtok: number,
+): number | null {
+  const custo = custoPorMilhao(t, base);
+  return custo == null ? null : usdPorMtok - custo;
+}
+
 /** Um grupo do totalizador: a chave, as linhas e a soma. */
 export type Grupo = { chave: string; linhas: LinhaFaturamento[]; totais: Totais };
 
