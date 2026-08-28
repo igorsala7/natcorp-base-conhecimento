@@ -1223,8 +1223,15 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Não dá para mover depois de TODOS os portões: `clarify_tema` (mais abaixo) usa
   // `ragSources` para decidir. O ponto de cobrança é o primeiro consumidor real.
   //
-  // Efeito colateral bom: entre disparar e cobrar roda o preparo das ferramentas,
-  // que antes esperava o RAG terminar. Vira paralelo em TODOS os turnos.
+  // O QUE ROLA EM PARALELO AQUI — e o que NÃO rola. Medido em 28/08 (45 turnos):
+  // RAG real p50 913 ms, bloqueante no `await` 511 ms. A janela entre disparo e
+  // cobrança cobre ~400 ms, não o preparo inteiro.
+  //
+  // O preparo das FERRAMENTAS (`buildIntegrationTools`, ~3,7 s) roda ANTES desta
+  // linha, e não dá para trocar a ordem: `ragLimit` e `ragLexicalOnly` são
+  // decididos com `integ.modulos` (ver `_composto`, acima) — o RAG precisa saber
+  // o resultado do roteamento para escolher quantos trechos buscar. Já tentei;
+  // a dependência é real, não acidental.
   // O tempo do RAG é cronometrado DENTRO da promessa. Medir no `await` somaria o
   // que roda entre o disparo e a cobrança (os dois portões, o preparo de
   // ferramentas) e o `ms` do trace passaria a dizer outra coisa — o instrumento

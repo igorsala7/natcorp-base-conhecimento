@@ -58,6 +58,81 @@
 
 ---
 
+## RODADA DE 28/08 — os quatro defeitos da apresentação a cliente
+
+O dono apresentou o chat a um cliente em 27/08 e trouxe quatro sintomas. **Três dos quatro
+não eram o que pareciam**, e o diagnóstico só apareceu porque `ai_tool_runs` guarda
+requisição, resposta e duração de cada chamada.
+
+| sintoma relatado | causa medida |
+|---|---|
+| "não retornou a apuração do ponto" | tool CHAMADA, 200 OK, `eventos: []` — e provavelmente correta: a apuração só existe para competência FECHADA, e foi pedido o mês em curso |
+| "trouxe o cargo atual, não o histórico" | `linha_tempo` acertou (`fato: Cargo`), abortou em 15,0s, e o modelo trocou de fonte **em silêncio** |
+| "BI de avaliação não retornou" | retornou — **as avaliações de outro colaborador**: a API ignora `matricula` |
+| "e-mail sem anexo" | a ferramenta com anexo **não existia** naquele turno |
+
+### O que a medição derrubou
+
+- **Não era roteamento de ferramenta.** Nos três primeiros casos a tool certa foi chamada
+  com os parâmetros certos. `npm run eval:tools` seguiu 15/16 antes e depois.
+- **`resultado_apuracao_ponto` não está quebrada.** 100 de 112 chamadas (89%) voltam com
+  menos de 600 bytes, e o corte é o PERÍODO: `01/01→23/08/2026` traz eventos,
+  `01/03→31/03/2025` (mês fechado) traz, `01/08→27/08/2026` (mês corrente) não traz. O
+  primeiro evento das cheias é sempre `SALDO DE BANCO DE HORAS (ANTERIOR)`. Falta
+  confirmação formal da equipe ORDS — dossiê entregue em 28/08.
+- **Não existe "a ferramenta lenta".** 17 tempos esgotados em 3.807 chamadas (0,45%),
+  espalhados por SEIS endpoints. É lentidão esporádica do ORDS — defeito que retry conserta
+  e que subir o teto de uma ferramenta específica não consertaria.
+
+### O que entrou (2.391 testes · typecheck limpo · eval 15/16 com 0% de churn)
+
+| arquivo | o quê |
+|---|---|
+| `src/lib/chat/arquivos-conversa.ts` + `-parse.ts` | relê `messages.media`: a ferramenta de anexo enxerga arquivo gerado em turno ANTERIOR. Metadado só; bytes sob demanda |
+| `src/lib/integrations/retry-policy.ts` | 2ª tentativa para leitura que não responde. **Nunca** para POST/PUT/PATCH/DELETE — férias marcada duas vezes não tem quem desfaça |
+| `src/lib/integrations/resultado-vazio.ts` | detecta o envelope ORDS de miolo vazio (`count: 1` + `eventos: []`) e manda o modelo DECLARAR, nomeando a vizinha do assunto tirada de `ai_tool_modules` |
+| `graph-file-tools.ts` · `tool-builder.ts` | ligação dos três acima |
+
+**A regra que atravessa os três:** fonte que não respondeu, ou respondeu vazia, é **lacuna a
+declarar** — nunca licença para trocar de fonte em silêncio. Foi a troca calada que fez o
+chat apresentar o cargo atual como se fosse o histórico.
+
+Uma tentação evitada: cheguei a criar um mapa `ALTERNATIVA_QUANDO_VAZIO` para o dono
+preencher à mão, achando que "qual tool sugerir" era conhecimento do ERP. Não é —
+`ai_tool_modules` já responde, e a derivação acompanha o cadastro sozinha.
+
+### Latência: o que foi medido e o que foi REPROVADO
+
+Turno **sem** ferramenta está em **7,2s — o melhor patamar da série**. A degradação é toda
+do caminho **com** ferramenta (14,9s → 23,2s entre 10/08 e 24/08), e as idas ao modelo por
+turno dobraram (0,95 → 1,95).
+
+O preparo (início do turno até `prompt_blocks`) custa **p50 6.014 ms — 25% do turno**:
+`integracoes:analise` 1.648ms · `facetas` 981ms · `query_rewrite` 745ms ·
+`integracoes:cobertura` 723ms · `rag` 511ms bloqueante (913ms real).
+
+Quatro hipóteses reprovadas com número, para não voltarem:
+
+1. **o prompt cresceu** — não cresceu. 24–40k tokens frescos por chamada desde 10/08; cache
+   estável em ~30%.
+2. **`dataset:registro` custa 29%** — rótulo velho. Com `--dias 3` cai para 2,0%. Rodar
+   sempre `npm run perf:latencia -- --dias 3` até o aviso do próprio script sumir.
+3. **disparar o RAG antes de `buildIntegrationTools`** — impossível: `ragLimit` e
+   `ragLexicalOnly` são decididos com `integ.modulos`. Um comentário desatualizado no
+   `route.ts` afirmava que o preparo rodava dentro da janela do RAG; corrigido com os números.
+4. **o classificador usa modelo caro** — já usa a finalidade `query_rewrite` ("modelo rápido").
+
+**O que sobra mexe em `analise`/`cobertura`/`facetas` — a superfície de ASSERTIVIDADE.**
+Cortar ali para ganhar segundos vai contra a prioridade declarada no `CLAUDE.md`: é rodada
+própria, com `eval:tools` antes/depois, e a decisão de aceitar queda de acerto é do dono.
+
+### Aberto desta rodada
+
+- Confirmação da equipe ORDS sobre os três endpoints (dossiê entregue em 28/08).
+- Os 11 arquivos desta rodada ainda não commitados.
+
+---
+
 ## RODADA DE 24/08 — guia técnico externo × o que o projeto já é
 
 ### O que aconteceu
