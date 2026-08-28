@@ -23,6 +23,8 @@ import { catalogoCobre } from "./cobertura";
 import { conferirTitular, avisoDivergencia } from "@/lib/chat/titular";
 import { ehParamDePessoa, temProcedencia, recusaSemProcedencia } from "@/lib/chat/procedencia";
 import { registrarUsoTool, vizinhosDeUso } from "./tool-catalog";
+import { deveTentarDeNovo, ehFalhaDeEspera, recadoDeFalhaDeEspera } from "./retry-policy";
+import { pareceVazio, recadoDeVazio, vizinhasDeModulo } from "./resultado-vazio";
 import { runGuard } from "./guards";
 import { semRemuneracao } from "./remuneracao";
 import { escopoDoPainel, aplicarEscopoParams, loopSobEscopo, filtrarProprioDosResultados } from "./panel-scope";
@@ -1004,6 +1006,31 @@ export async function buildIntegrationTools(
             } catch (e) {
               threw = e instanceof Error ? e.message : String(e);
             }
+            // SEGUNDA TENTATIVA para leitura que não respondeu.
+            //
+            // Medido em 3.807 chamadas: 17 aborts (0,45%), espalhados por SEIS
+            // ferramentas — é lentidão esporádica do ORDS, não uma ferramenta
+            // doente. Em 27/08 isso derrubou as duas facetas de `linha_tempo`
+            // no mesmo segundo e o turno respondeu com dado de outra fonte.
+            //
+            // O retry mora AQUI e não no `executor` de propósito: cobre a
+            // chamada inteira (inclusive a paginação, que tem controller e teto
+            // próprios) e fica no mesmo lugar onde já se decide o que devolver
+            // ao modelo. `deveTentarDeNovo` recusa tudo que não seja GET/HEAD.
+            let tentativas = 1;
+            while (
+              threw &&
+              deveTentarDeNovo({ metodo: bt.tool.method ?? "GET", erro: threw, tentativas })
+            ) {
+              tentativas += 1;
+              onPasso?.("integracoes:retry", { tool: bt.tool.key, tentativa: tentativas, motivo: threw.slice(0, 80) });
+              threw = null;
+              try {
+                result = await doExec();
+              } catch (e) {
+                threw = e instanceof Error ? e.message : String(e);
+              }
+            }
             const durationMs = Date.now() - t0;
             // Tool ESCOLHIDA + PARÂMETROS do modelo (redigidos) + cURL da chamada (segredos
             // redigidos) para o trace do admin/logs. ACUMULA em vez de emitir: uma tool com
@@ -1037,6 +1064,14 @@ export async function buildIntegrationTools(
 
             if (threw || !result) {
               await registrar(null, false, null, 0, threw ?? "Sem resposta da API.");
+              // Uma fonte que NÃO RESPONDEU é lacuna a declarar, não licença
+              // para trocar de fonte calado. Com o erro técnico cru ("This
+              // operation was aborted"), em 27/08 o modelo foi buscar em
+              // `informacoes_pessoais_funcionais` e apresentou os dados ATUAIS
+              // do colaborador como se fossem o histórico de cargos, sem avisar.
+              if (threw && ehFalhaDeEspera(threw)) {
+                return { erro: recadoDeFalhaDeEspera(bt.tool.name || bt.tool.key) };
+              }
               return { erro: threw ?? "Falha na chamada à API." };
             }
             if (!result.ok) {
@@ -1070,6 +1105,38 @@ export async function buildIntegrationTools(
             // /documents/v1/emps) sai ANTES do log e antes do modelo.
             const seguro = redigirCredenciais(limparMarcacaoHtml(cleaned));
             await registrar(seguro, true, result.status, files.length, null);
+            // 200 OK SEM REGISTROS é ausência de dado, e o envelope do ORDS
+            // esconde isso: em 27/08 a apuração do ponto voltou com `count: 1`,
+            // `hasMore: false` e `eventos: []` — cara de resposta saudável. O
+            // assunto sumiu da resposta e o usuário só percebeu conferindo o
+            // banco. Marca no MESMO padrão do `_truncado` do executor, para o
+            // modelo declarar a lacuna em vez de omitir o assunto.
+            const veredito = pareceVazio(seguro);
+            if (veredito.vazio && seguro && typeof seguro === "object" && !Array.isArray(seguro)) {
+              // A alternativa sai do CATÁLOGO, não de um mapa escrito à mão: as
+              // ferramentas do mesmo módulo já são as vizinhas do assunto. E só
+              // as SELECIONADAS deste turno entram — sugerir fora do conjunto
+              // faz o modelo tentar chamar, falhar, e gastar mais uma ida.
+              // `modules` mora no item do catálogo (`bt`), não no `RuntimeTool`.
+              const comModulos = (b: typeof bt) => ({
+                key: b.tool.key,
+                name: b.tool.name,
+                modules: b.modules,
+              });
+              const vizinhas = vizinhasDeModulo(
+                comModulos(bt),
+                selecionadas.map((e) => comModulos(e.bt)),
+              );
+              onPasso?.("integracoes:sem_registros", {
+                tool: bt.tool.key,
+                motivo: veredito.motivo,
+                sugeridas: vizinhas.map((v) => v.key),
+              });
+              return {
+                ...(seguro as Record<string, unknown>),
+                _semRegistros: recadoDeVazio(bt.tool.name || bt.tool.key, vizinhas),
+              };
+            }
             return seguro;
           };
           // LOOP: o usuário pediu vários → o servidor itera e AGREGA num só
@@ -1306,8 +1373,19 @@ export async function buildIntegrationTools(
       });
       if (r.ok) {
         const { graphFileTools } = await import("./graph-file-tools");
+        // Os arquivos gerados em turnos ANTERIORES desta conversa. Sem eles,
+        // `ms_email_enviar_arquivo` e `ms_arquivo_salvar` só existiam no turno
+        // em que o arquivo nasceu — e "faça um PPT" e "manda por e-mail" são
+        // sempre turnos diferentes. Metadado só: os bytes vêm sob demanda,
+        // depois que o modelo escolher, para não fazer todo turno da conversa
+        // pagar o download de arquivos que ninguém vai enviar.
+        const { arquivosDaConversa, baixarArquivoDaConversa } = await import("@/lib/chat/arquivos-conversa");
+        const anteriores = runMeta?.conversationId
+          ? await arquivosDaConversa(runMeta.conversationId)
+          : [];
         const extras = graphFileTools({
           gerados: sink ?? [], token: r.token, anexar: anexarArquivo,
+          anteriores, baixar: baixarArquivoDaConversa,
           identity, baseCode,
         });
         for (const [k, v] of Object.entries(extras)) tools[k] = v;
