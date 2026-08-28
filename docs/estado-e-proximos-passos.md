@@ -1,20 +1,34 @@
 # Estado do projeto e próximos passos
 
-> **Atualizado em 24/08/2026, 15h, antes de um reinício do notebook.**
+> **Atualizado em 28/08/2026.**
 > A rodada corrente é a de **assertividade e custo do chat**, aberta pelo guia técnico
 > externo de 107 seções. O que está abaixo da linha "HISTÓRICO" é de 16/08 e já foi
 > superado — leia como registro, não como tarefa.
 
 ## AO VOLTAR, FAÇA ISTO PRIMEIRO
 
-1. **O disco está em 99% (150 MB livres).** Encheu duas vezes durante o trabalho de 24/08,
-   e com ele cheio o Bash para de funcionar por inteiro — nem a saída dos comandos grava.
-   Limpe antes de qualquer coisa: `~/Library/Caches`, `~/.npm`, e as transcrições em
-   `~/.claude/projects/`. O Bloco 2 roda `EXPLAIN ANALYZE` e comparações de RAG; sem
-   espaço, não sai do lugar.
-2. **Nada foi commitado.** Oito arquivos modificados no disco, todos verdes
-   (2.339 testes, typecheck limpo). Ver "O que está no disco" abaixo.
-3. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
+1. **O disco enche, e quando enche o Bash para por inteiro** — nem a saída dos comandos
+   grava. Aconteceu duas vezes em 24/08 e de novo em 28/08, aí chegando a **zero byte**:
+   nenhuma edição de arquivo, nenhum comando, nada. Confira `df -h /` ANTES de começar.
+   Para limpar: `~/Library/Caches`, `npm cache clean --force`, os `.next/` dos projetos,
+   as transcrições em `~/.claude/projects/` e os scratchpads em `/private/tmp/claude-501/`.
+   O Bloco 2 roda `EXPLAIN ANALYZE` e comparações de RAG; sem espaço, não sai do lugar.
+2. **Tudo commitado e empurrado.** Ver "O que estava no disco" abaixo.
+3. **A CI do `main` está vermelha desde 18/08, e não é do seu commit.** Eram dois
+   motivos; um foi consertado em 28/08:
+   - ~~`build` → *Dívida de UI*~~ **resolvido**: a catraca contava emoji dentro de
+     COMENTÁRIO. Os 3 que a estouraram (64→67) estavam os três em comentário — um deles
+     explicando por que o arquivo usa `<Check>` do lucide, ou seja, acusando quem faz
+     certo. `emoji-como-icone` passou a ignorar comentário; o contador **caiu** para 53 e
+     o baseline foi regravado mais apertado, sem subir teto nenhum.
+   - `e2e` → `Timed out waiting 120000ms from config.webServer`: **em aberto**. Três
+     hipóteses testadas e derrubadas — não é a porta (`next start -p 3008` bate com a
+     URL), não é o Supabase placeholder (`placeholder.supabase.co` dá NXDOMAIN em 40 ms,
+     falha rápido em vez de travar), e não há `instrumentation.ts` nem `output: standalone`.
+     O log não ajudava porque o Playwright **descarta** a saída do webServer; isso foi
+     corrigido (`stdout`/`stderr: "pipe"`). **A próxima rodada de CI deve dizer o motivo —
+     comece por ela.**
+4. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
 
 ---
 
@@ -73,16 +87,25 @@ ficou de fora.
 **byte a byte idêntica** antes e depois (stash → roda → pop → `diff`), que é o que
 demonstra que a instrumentação não toca a seleção.
 
-### O que está no disco, não commitado
+### O que estava no disco — commitado em 28/08
 
-| arquivo | o quê |
+Os arquivos de código desta rodada (`tool-narrow.ts`, `tool-builder.ts`,
+`caso-treino.ts`, `carregar-casos-rotulados.ts` e os 2 de teste) entraram em
+`8c51896`. O que ainda restava no disco foi para `main` em 28/08:
+
+| commit | o quê |
 |---|---|
-| `src/lib/integrations/tool-narrow.ts` | `RankingSelecao`, `rankingDe`, `onRanking` antes da bifurcação, `TOP_RANKING=20` |
-| `src/lib/integrations/tool-builder.ts` | coleta em `diag.ranking`, emite o passo `integracoes:ranking` |
-| `src/lib/chat/caso-treino.ts` | preenche `oferecidas` com `{tool,sim,pos}` e `cortadas` |
-| `scripts/carregar-casos-rotulados.ts` | **só comentário** — por que os 138 históricos ficam com `sim: null` para sempre |
-| `*.test.ts` (2 arquivos) | 5 testes novos, inclusive o do caminho multi-faceta |
-| `package.json` · `package-lock.json` | **NÃO são meus** — `@tanstack/ai*`, origem não confirmada. Commit seletivo. |
+| `ae49766` | os 5 instrumentos de auditoria do RAG (`.audit/*.ts`) — incluindo o A/B que condenou o trigram de CONTEÚDO |
+| `b37b9fd` | os 2 relatórios de 20/08 (síntese da rodada 3 · cadastro e logs das 88 ferramentas) |
+| `1435971` | o guia técnico de 4.177 linhas, na raiz |
+| `e90c8db` | `package.json` · `package-lock.json` — os `@tanstack/ai*` |
+| `cb18965` | `AGENTS.md` |
+
+**Decisão do dono sobre os `@tanstack/ai*`, que estavam marcados aqui como "não
+são meus":** ficam. Registrado com honestidade no corpo de `e90c8db` — os sete
+pacotes **não têm um único import** em `src/`, `scripts/` ou na árvore; desfazer
+é `npm uninstall` dos sete, sem código para reescrever. E o `AGENTS.md` manda
+rodar `pnpm dlx` num projeto npm; a ressalva está no corpo de `cb18965`.
 
 ### A armadilha que ficou documentada, e não "consertada"
 
