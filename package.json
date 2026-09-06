@@ -59,7 +59,8 @@
     "seed:graph:write:prod": "tsx --env-file=.env scripts/seed-graph-write.ts",
     "seed:graph:modulos": "tsx --env-file=.env.local scripts/seed-graph-modules.ts",
     "seed:graph:modulos:prod": "tsx --env-file=.env scripts/seed-graph-modules.ts",
-    "relatorio:amostra": "tsx --tsconfig worker/tsconfig.json scripts/amostra-relatorio.ts"
+    "relatorio:amostra": "tsx --tsconfig worker/tsconfig.json scripts/amostra-relatorio.ts",
+    "eval:plano": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env.local scripts/eval-plano.ts"
   },
   "repository": {
     "type": "git",
