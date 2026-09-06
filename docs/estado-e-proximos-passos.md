@@ -1,6 +1,6 @@
 # Estado do projeto e próximos passos
 
-> **Atualizado em 28/08/2026.**
+> **Atualizado em 06/09/2026.**
 > A rodada corrente é a de **assertividade e custo do chat**, aberta pelo guia técnico
 > externo de 107 seções. O que está abaixo da linha "HISTÓRICO" é de 16/08 e já foi
 > superado — leia como registro, não como tarefa.
@@ -55,6 +55,95 @@
    O `NEXT_PUBLIC_BASE_PATH=` só é necessário se o seu `.env.local` não o zerar — se
    esquecer, o guard do `playwright.config.ts` avisa com a linha de comando pronta.
 5. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
+
+---
+
+## RODADA DE 06/09 — o segundo plano externo, e o que sobrou dele
+
+O dono trouxe um **segundo** documento de arquitetura vindo de fora (1.207 linhas,
+`natcorp-files/plano-mestre-engenharia-ia-natcorp.md`; o de 24/08 tinha 4.177). As
+afirmações factuais dele conferem — `route.ts` tem 3.441 linhas, o teto de 40 é o
+`MAX_CHAMADAS_INTEGRACAO`, `maxOutputTokens` é 8192 sempre que há tool. O diagnóstico,
+não: ele lê o código e não lê as medições.
+
+Recomendei seis itens. **Três morreram na medição antes de virar código, um já existia,
+e os dois que sobraram foram entregues.** A ordem em que caíram importa mais que o placar.
+
+### O que a medição derrubou
+
+| item | veredito |
+|---|---|
+| **Estabilizar o bloco de ferramentas (posição 0)** | REPROVADO — e já tinha sido em 19/08 |
+| **`maxOutputTokens` por classe de turno** | INERTE |
+| **Portão de período lendo `conversations.fatos`** | JÁ EXISTE desde 20/08 |
+
+**Posição 0.** A nota de 24/08 dizia "~9.451 tokens-equivalentes por turno, e a inércia
+medida é a licença para tentar". A licença não existia. Refiz a auditoria (as duas de
+`.audit/*.mjs` não rodam mais — montam o `pg.Client` com `connectionString`, e a senha
+tem `@`/`#`; use `parseDbConfig`, como o `sql.ts`) e o break-even é o seguinte:
+
+- identidade do bloco entre turnos consecutivos: **11,8%** (441 pares, 20 dias);
+- ferramentas por turno: **15,4**; catálogo da base: **88**;
+- **conversa tem p50 de 3 turnos** e média de 5,74.
+
+Alargar o bloco para o catálogo custa 1,25× de escrita de cache no turno 1 e devolve
+0,1× nos seguintes: só compensa a partir de **~20 turnos**. Com p50 de 3, é perda de 2×
+a 3×. E o experimento já tinha sido feito e reprovado em 19/08, com A/B na rota real —
+está escrito em `route.ts:1442`, atrás de `CHAT_LOCAIS_FIXAS`: cache 25%→30% e **custo
++5,6%**. Duas contas independentes, mesma conclusão. A chave fica desligada.
+
+**Teto de saída.** `chat_ferramentas`, 1.574 chamadas em 30 dias: p50 de **280** tokens,
+p95 1.883, e **1 chamada** bateu os 8192. `max_tokens` é teto, não reserva — não se paga
+pelo que não sai. Baixar não economiza nada e trunca a cauda. O que a medição achou de
+verdade está em outro lugar: `origem='sistema'` (Estúdio, importador — 4.055 chamadas)
+tem p95 de 4.967 e máximo de **18.605**. É lá que os tokens de saída moram, e não é o chat.
+
+**Portão de período.** `route.ts:908` já chama `temPeriodoFixado(fatosDaConversa)`, com o
+caso do "Desisto" citado no comentário. Entregue em 20/08.
+
+### O que foi entregue
+
+**1. Compactação do resultado de ferramenta** (`compactar-linhas.ts`, `48c6f6f`).
+Medido em 30 dias de `tool_result`: 533 injeções, 12,58 MB ≈ **3,14 milhões de tokens**,
+e **56,9% dos bytes não carregam informação** — 34,4% de campo constante em todas as
+linhas, 22,5% de campo vazio em todas. `informacoes_pessoais_funcionais_resumido` e a
+irmã somam **8,09 MB dos 12,58 (64%)**, em duas ferramentas. Resultado real: **674 → 352
+bytes por linha (−47,8%)**, agindo em 100% das respostas com 3+ linhas. Não é
+`allowed_output_fields` (escolher campo é decisão de domínio, do dono); não remove em
+silêncio (`_comum` leva os valores, `_vazios` os nomes); não toca no dataset. Desliga com
+`TOOL_RESULT_COMPACTO_OFF=1`.
+
+*Hipótese minha que caiu junto:* previ que linha estreita reduziria o truncamento (48,4%
+das injeções saem `completo: false`). **Não reduz.** Nas 132 truncadas mensuráveis a média
+vai de 46,2 para 47,9 linhas e nenhuma deixa de truncar — quem corta é o teto de 50
+linhas, não o de 60 mil caracteres. Mexer em `MAX_ITENS_MODELO` é **decisão em aberto,
+do dono**, agora com folga real de ~48%.
+
+**2. Planner único, medido e desligado** (`plano-intencao.ts` + `npm run eval:plano`,
+`57a217d`). O preparo não é o que o plano supõe: são **três** idas ao modelo, não quatro
+— `dividirFacetas` é PURA, e os 981 ms do passo `facetas` são embedding (`simToolsMulti`),
+que planner nenhum elimina. E das três só duas são juntáveis: `catalogoCobre` recebe
+`candidatas`, que dependem do embedding, que depende da reescrita.
+
+Fundindo as duas juntáveis, contra 30 turnos reais: **1.242 ms contra 2.393 ms**, e
+`precisaDados` igual em 80%, **recorte de módulos igual em 30%**, consulta equivalente em
+20%. Metade do tempo e decisão diferente em 70% dos turnos, **sem gabarito que diga qual
+está certa**. Fica desligado.
+
+### Aberto, e o que destrava
+
+1. **Gabarito de INTENÇÃO** (módulo e consulta esperados por caso). É o que promove o
+   planner, e é rotulação do dono. Hoje `eval/cenarios.jsonl` só rotula ferramenta.
+2. **`MAX_ITENS_MODELO`** — subir ou não, agora que a linha encolheu 48%.
+3. Os segredos do `.env` versionado (item 0, adiado pelo dono nesta rodada).
+4. Reindexação dos fragmentos (815 → 261 previsto) segue sem aplicar.
+
+**Baseline de ferramenta nesta rodada:** `66/90 (73%)`, rodada `d772b927`, gabarito
+`8e0625a6`. Nada do que entrou toca o funil de seleção, então o placar não se move — e é
+por isso que ele não serve de prova aqui: `eval:tools` exercita `simTools` +
+`selecionarTopK` com teto próprio de 12, **não** o `buildIntegrationTools` de produção
+(`MAX_TOOLS_MODELO = 6`, teto de verdade, desempate, dependências). Quem mudar o funil
+precisa saber que este placar não o enxerga.
 
 ---
 
