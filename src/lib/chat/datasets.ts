@@ -12,6 +12,7 @@
  */
 
 import { parseNumBR } from "./num-br";
+import { compactarLinhas, notaCompactacao } from "./compactar-linhas";
 
 export type DatasetRow = Record<string, unknown>;
 export type Dataset = { id: string; rows: DatasetRow[]; colunas: string[]; headers?: string[] };
@@ -107,6 +108,17 @@ export function registrarTabelaTela(
 }
 
 const ehLinha = (x: unknown): x is DatasetRow => !!x && typeof x === "object" && !Array.isArray(x);
+
+/** Sob QUAL chave a lista de registros mora. `null` quando o topo já é a lista. */
+function chaveDaLista(data: unknown): string | null {
+  if (Array.isArray(data) || !data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  for (const k of CHAVES_LISTA) {
+    const v = o[k];
+    if (Array.isArray(v) && v.filter(ehLinha).length) return k;
+  }
+  return null;
+}
 
 /** Encontra a lista de registros dentro do resultado da ferramenta. */
 function extrairLista(data: unknown): DatasetRow[] | null {
@@ -383,26 +395,50 @@ export function injetarDatasetComRelato(
     // segunda varredura aqui, com `some` no lugar de `filter`: quando as duas
     // discordavam, `cabem` era medido sobre um array e o corte aplicado a outro.
     const listaTopo: unknown[] = extrairLista(podado) ?? [];
-    const cabem = linhasQueCabem(listaTopo);
+    /**
+     * PESO MORTO SAI ANTES DO CORTE — e é por isso que isto é assertividade.
+     *
+     * `registrarDataset` já rodou acima, então o dataset guarda as linhas
+     * INTEIRAS: `dados_de` continua enxergando 100% dos campos, e nenhuma
+     * ferramenta de análise perde coluna. O que encolhe aqui é só a AMOSTRA que
+     * o modelo lê.
+     *
+     * Medido em 30 dias: 56,9% dos bytes da amostra são campo constante (34,4%)
+     * ou campo vazio (22,5%); a linha encolhe 47,8% em resultado real. Vem antes
+     * do corte por ser o lugar certo, não porque destrave truncamento — a
+     * medição diz que NÃO destrava (ver `compactar-linhas.ts`): quem trunca é o
+     * teto de 50 linhas, e 50 linhas cabem em 60 mil caracteres com folga.
+     *
+     * Ver `compactar-linhas.ts` para por que isto não é `allowed_output_fields`.
+     */
+    const comp = process.env.TOOL_RESULT_COMPACTO_OFF === "1" ? null : compactarLinhas(listaTopo);
+    const listaModelo: unknown[] = comp ? comp.linhas : listaTopo;
+    const cabem = linhasQueCabem(listaModelo);
     enviadas = cabem;
     truncado = meta.total > cabem;
     const tag: Record<string, unknown> = { _dataset: meta.id, _total: meta.total, _colunas: meta.colunas };
+    // O que saiu da linha tem de continuar legível: `_comum` traz os VALORES e
+    // `_vazios` os NOMES. Campo vazio removido calado vira "não existe" na boca
+    // do modelo — o mesmo erro que `resultado-vazio.ts` corrigiu em 28/08.
+    if (comp) {
+      if (Object.keys(comp.comum).length) tag._comum = comp.comum;
+      if (comp.vazios.length) tag._vazios = comp.vazios;
+      tag._nota_campos = notaCompactacao(comp);
+    }
     // Truncado → é AMOSTRA (usa ferramentas de dados p/ o total). Completo → o modelo já
     // tem TODAS as linhas: marca `_completo` para ele responder direto sem re-consultar.
     if (truncado) { tag._amostra = cabem; tag._nota = notaAmostra(meta.id, meta.total, cabem); }
     else tag._completo = true;
+    // Com compactação a lista SEMPRE é substituída (mesmo inteira): as linhas que
+    // vão ao modelo são as enxutas, não as originais.
+    const recorte = listaModelo.slice(0, cabem);
     if (Array.isArray(podado)) {
-      out = { ...tag, itens: truncado ? podado.slice(0, cabem) : podado };
+      out = { ...tag, itens: truncado || comp ? recorte : podado };
     } else {
       const o = podado as Record<string, unknown>;
-      let feito = false;
-      if (truncado) {
-        for (const k of CHAVES_LISTA) {
-          const v = o[k];
-          if (Array.isArray(v) && v.some(ehLinha)) { out = { ...o, [k]: v.slice(0, cabem), ...tag }; feito = true; break; }
-        }
-      }
-      if (!feito) out = { ...o, ...tag };
+      const chave = chaveDaLista(podado);
+      if (chave && (truncado || comp)) out = { ...o, [chave]: recorte, ...tag };
+      else out = { ...o, ...tag };
     }
   }
   let semDados = false;
