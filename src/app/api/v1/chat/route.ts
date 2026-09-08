@@ -29,6 +29,7 @@ import { separarSocial, ehTurnoSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
 import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
+import { creditoDoTurno } from "@/lib/gestao/portao";
 import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } from "@/lib/chat/run-registry";
 import { resolveCategory } from "@/lib/ai/prompts";
 import { webSourcesParaLeitor } from "@/lib/ai/web-sources";
@@ -391,6 +392,28 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       return json({ error: "O assistente não está disponível neste painel.", code: "widget_desativado" }, 403);
     }
     appsSchema = baseCfg.apps_schema ?? null;
+
+    // PORTÃO DE CRÉDITOS. Depois da identidade (precisa de painel/perfil/usuário
+    // para achar a alocação) e ANTES de qualquer ida ao modelo — barrar depois
+    // de gastar token seria cobrar do cliente a mensagem que ele não recebeu.
+    //
+    // Base SEM contrato cadastrado não bloqueia: transformar "ainda não
+    // cadastrei o plano" em "cliente sem serviço" derrubaria todo mundo que
+    // ainda não passou pelo comercial.
+    const portao = await creditoDoTurno(track);
+    if (portao && !portao.permitido) {
+      return json(
+        {
+          error:
+            portao.motivo === "alocacao_sem_creditos"
+              ? "A cota de créditos do seu perfil acabou. Fale com o administrador do sistema para liberar mais."
+              : "Os créditos do assistente acabaram neste mês. O administrador pode adquirir mais na tela de gestão.",
+          code: "creditos_esgotados",
+          motivo: portao.motivo,
+        },
+        402,
+      );
+    }
   }
   // A partir daqui toda chamada de IA do turno sai atribuída a este cliente,
   // inclusive as que módulos internos disparam sem saber de quem é o turno.
