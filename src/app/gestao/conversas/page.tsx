@@ -80,11 +80,6 @@ export default async function GestaoConversasPage({
                       {m.role === "user" ? "Usuário" : "Assistente"}
                     </span>
                     <span>{fmtDataHora(m.created_at)}</span>
-                    {m.input_tokens != null || m.output_tokens != null ? (
-                      <span>
-                        {fmtNumero((m.input_tokens ?? 0) + (m.output_tokens ?? 0))} tokens
-                      </span>
-                    ) : null}
                     {m.latency_ms != null ? <span>{fmtNumero(m.latency_ms)} ms</span> : null}
                     {m.feedback === 1 ? (
                       <span className="text-success">útil</span>

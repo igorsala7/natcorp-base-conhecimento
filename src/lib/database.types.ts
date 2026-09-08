@@ -627,6 +627,53 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_cliente_plano: {
+        Row: {
+          base_code: string
+          creditos_por_ciclo: number
+          criado_em: string
+          criado_por: string | null
+          dia_inicio_ciclo: number
+          id: string
+          observacao: string | null
+          tokens_por_credito: number
+          usd_por_credito: number
+          vigente_desde: string
+        }
+        Insert: {
+          base_code: string
+          creditos_por_ciclo?: number
+          criado_em?: string
+          criado_por?: string | null
+          dia_inicio_ciclo?: number
+          id?: string
+          observacao?: string | null
+          tokens_por_credito?: number
+          usd_por_credito?: number
+          vigente_desde?: string
+        }
+        Update: {
+          base_code?: string
+          creditos_por_ciclo?: number
+          criado_em?: string
+          criado_por?: string | null
+          dia_inicio_ciclo?: number
+          id?: string
+          observacao?: string | null
+          tokens_por_credito?: number
+          usd_por_credito?: number
+          vigente_desde?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_cliente_plano_base_code_fkey"
+            columns: ["base_code"]
+            isOneToOne: false
+            referencedRelation: "ai_bases"
+            referencedColumns: ["base_code"]
+          },
+        ]
+      }
       ai_cotacao_cambio: {
         Row: {
           dia: string
@@ -695,74 +742,33 @@ export type Database = {
           },
         ]
       }
-      ai_creditos_contrato: {
-        Row: {
-          atualizado_em: string
-          base_code: string
-          creditos: number
-          criado_em: string
-          criado_por: string | null
-          id: string
-          mes_ref: string
-          usd_por_credito: number
-        }
-        Insert: {
-          atualizado_em?: string
-          base_code: string
-          creditos: number
-          criado_em?: string
-          criado_por?: string | null
-          id?: string
-          mes_ref: string
-          usd_por_credito?: number
-        }
-        Update: {
-          atualizado_em?: string
-          base_code?: string
-          creditos?: number
-          criado_em?: string
-          criado_por?: string | null
-          id?: string
-          mes_ref?: string
-          usd_por_credito?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_creditos_contrato_base_code_fkey"
-            columns: ["base_code"]
-            isOneToOne: false
-            referencedRelation: "ai_bases"
-            referencedColumns: ["base_code"]
-          },
-        ]
-      }
       ai_creditos_extra: {
         Row: {
           base_code: string
+          ciclo_inicio: string
           creditos: number
           criado_em: string
           id: string
-          mes_ref: string
           motivo: string | null
           solicitado_por: string | null
           usd_por_credito: number
         }
         Insert: {
           base_code: string
+          ciclo_inicio: string
           creditos: number
           criado_em?: string
           id?: string
-          mes_ref: string
           motivo?: string | null
           solicitado_por?: string | null
           usd_por_credito?: number
         }
         Update: {
           base_code?: string
+          ciclo_inicio?: string
           creditos?: number
           criado_em?: string
           id?: string
-          mes_ref?: string
           motivo?: string | null
           solicitado_por?: string | null
           usd_por_credito?: number
@@ -879,12 +885,13 @@ export type Database = {
         Row: {
           base_code: string
           brl_total: number | null
+          ciclo_fim: string | null
+          ciclo_inicio: string
           creditos_consumidos: number
           creditos_contratados: number
           creditos_extra: number
           fechada_em: string
           id: string
-          mes_ref: string
           observacao: string | null
           status: string
           usd_brl: number | null
@@ -893,12 +900,13 @@ export type Database = {
         Insert: {
           base_code: string
           brl_total?: number | null
+          ciclo_fim?: string | null
+          ciclo_inicio: string
           creditos_consumidos?: number
           creditos_contratados?: number
           creditos_extra?: number
           fechada_em?: string
           id?: string
-          mes_ref: string
           observacao?: string | null
           status?: string
           usd_brl?: number | null
@@ -907,12 +915,13 @@ export type Database = {
         Update: {
           base_code?: string
           brl_total?: number | null
+          ciclo_fim?: string | null
+          ciclo_inicio?: string
           creditos_consumidos?: number
           creditos_contratados?: number
           creditos_extra?: number
           fechada_em?: string
           id?: string
-          mes_ref?: string
           observacao?: string | null
           status?: string
           usd_brl?: number | null
@@ -1504,6 +1513,7 @@ export type Database = {
           params: Json
           path_template: string
           prioridade: number
+          protegida_de_bloqueio: boolean
           response_hint: string | null
           search_terms: string
           selecionavel_no_chat: boolean
@@ -1540,6 +1550,7 @@ export type Database = {
           params?: Json
           path_template?: string
           prioridade?: number
+          protegida_de_bloqueio?: boolean
           response_hint?: string | null
           search_terms?: string
           selecionavel_no_chat?: boolean
@@ -1576,6 +1587,7 @@ export type Database = {
           params?: Json
           path_template?: string
           prioridade?: number
+          protegida_de_bloqueio?: boolean
           response_hint?: string | null
           search_terms?: string
           selecionavel_no_chat?: boolean
@@ -5592,7 +5604,7 @@ export type Database = {
       }
       gc_versions: { Args: never; Returns: number }
       gestao_alocacoes: {
-        Args: { p_base: string; p_mes: string }
+        Args: { p_base: string; p_momento?: string }
         Returns: {
           alvo: string
           alvo_tipo: string
@@ -5604,19 +5616,71 @@ export type Database = {
           painel: string
         }[]
       }
+      gestao_ciclo: {
+        Args: { p_dia: number; p_momento?: string }
+        Returns: {
+          fim: string
+          inicio: string
+        }[]
+      }
+      gestao_compras: {
+        Args: { p_ate?: string; p_base: string; p_de?: string }
+        Returns: {
+          ciclo_inicio: string
+          creditos: number
+          criado_em: string
+          id: string
+          motivo: string
+          solicitado_por: string
+          usd_por_credito: number
+          usd_total: number
+        }[]
+      }
       gestao_consumo: {
-        Args: { p_base: string; p_from: string; p_to: string }
+        Args: {
+          p_base: string
+          p_empresa?: string
+          p_from: string
+          p_matricula?: string
+          p_painel?: string
+          p_perfil?: string
+          p_to: string
+          p_usuario?: string
+        }
         Returns: {
           atribuido: boolean
           chamadas: number
           conversas: number
           creditos: number
+          empresa: string
+          matricula: string
           painel: string
           perfil: string
           tokens_brutos: number
           tokens_entrada: number
           tokens_saida: number
           usuario: string
+        }[]
+      }
+      gestao_consumo_facetas: {
+        Args: { p_base: string; p_from: string; p_to: string }
+        Returns: {
+          chamadas: number
+          eixo: string
+          valor: string
+        }[]
+      }
+      gestao_plano: {
+        Args: { p_base: string; p_momento?: string }
+        Returns: {
+          base_code: string
+          ciclo_fim: string
+          ciclo_inicio: string
+          creditos_por_ciclo: number
+          dia_inicio_ciclo: number
+          tem_plano: boolean
+          tokens_por_credito: number
+          usd_por_credito: number
         }[]
       }
       gestao_portao_credito: {
@@ -5629,17 +5693,20 @@ export type Database = {
         Returns: Json
       }
       gestao_saldo: {
-        Args: { p_base: string; p_mes: string }
+        Args: { p_base: string; p_momento?: string }
         Returns: {
           base_code: string
+          ciclo_fim: string
+          ciclo_inicio: string
           creditos_consumidos: number
           creditos_contratados: number
           creditos_disponiveis: number
           creditos_extra: number
           creditos_saldo: number
-          mes_ref: string
+          tem_plano: boolean
           tokens_brutos: number
           tokens_nao_atribuidos: number
+          tokens_por_credito: number
           usd_por_credito: number
           usd_total: number
         }[]

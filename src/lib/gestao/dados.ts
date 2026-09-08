@@ -18,6 +18,8 @@ export type LinhaConsumo = {
   painel: string;
   perfil: string;
   usuario: string;
+  empresa: string;
+  matricula: string;
   chamadas: number;
   conversas: number;
   tokens_entrada: number;
@@ -27,9 +29,21 @@ export type LinhaConsumo = {
   atribuido: boolean;
 };
 
+/** Os cinco eixos de filtro do consumo. Nulo = sem filtro naquele eixo. */
+export type FiltroConsumo = {
+  painel?: string | null;
+  perfil?: string | null;
+  usuario?: string | null;
+  empresa?: string | null;
+  matricula?: string | null;
+};
+
+export type Faceta = { eixo: string; valor: string; chamadas: number };
+
 export type Saldo = {
   base_code: string;
-  mes_ref: string;
+  ciclo_inicio: string;
+  ciclo_fim: string;
   creditos_contratados: number;
   creditos_extra: number;
   creditos_disponiveis: number;
@@ -37,8 +51,23 @@ export type Saldo = {
   creditos_saldo: number;
   tokens_brutos: number;
   tokens_nao_atribuidos: number;
+  /** Lastro do crédito. INTERNO — nunca renderizar na área do cliente. */
+  tokens_por_credito: number;
   usd_por_credito: number;
   usd_total: number;
+  /** Falso quando não há plano cadastrado: nada bloqueia e a tela avisa. */
+  tem_plano: boolean;
+};
+
+export type Compra = {
+  id: string;
+  criado_em: string;
+  ciclo_inicio: string;
+  creditos: number;
+  usd_por_credito: number;
+  usd_total: number;
+  solicitado_por: string | null;
+  motivo: string | null;
 };
 
 export type Alocacao = {
@@ -52,45 +81,99 @@ export type Alocacao = {
   ativo: boolean;
 };
 
-/** Primeiro dia do mês corrente no fuso de São Paulo, em ISO. */
-export function mesCorrente(d = new Date()): string {
-  const iso = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-  return `${iso.slice(0, 7)}-01`;
-}
-
-export async function lerSaldo(baseCode: string, mes = mesCorrente()): Promise<Saldo | null> {
+/**
+ * Saldo do CICLO vigente do cliente.
+ *
+ * Não recebe mês: o ciclo sai de `ai_cliente_plano.dia_inicio_ciclo` e vira
+ * sozinho na passagem do dia. Um cliente com ciclo em 14 tem "o mês" indo de
+ * 14/09 a 13/10, e forçar isso num mês-calendário partiria o consumo em dois.
+ */
+export async function lerSaldo(baseCode: string, momento?: Date): Promise<Saldo | null> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase.rpc("gestao_saldo", { p_base: baseCode, p_mes: mes });
+  const { data, error } = await supabase.rpc("gestao_saldo", {
+    p_base: baseCode,
+    p_momento: momento?.toISOString(),
+  });
   if (error || !data || (Array.isArray(data) && data.length === 0)) return null;
   const linha = Array.isArray(data) ? data[0] : data;
-  return linha as Saldo;
+  return linha as unknown as Saldo;
+}
+
+/** Compras avulsas, do ciclo corrente ou do período informado. */
+export async function lerCompras(
+  baseCode: string,
+  de?: Date,
+  ate?: Date,
+): Promise<Compra[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("gestao_compras", {
+    p_base: baseCode,
+    p_de: de?.toISOString(),
+    p_ate: ate?.toISOString(),
+  });
+  if (error || !data) return [];
+  return data as unknown as Compra[];
 }
 
 export async function lerConsumo(
   baseCode: string,
   de: Date,
   ate: Date,
+  filtro: FiltroConsumo = {},
 ): Promise<LinhaConsumo[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.rpc("gestao_consumo", {
     p_base: baseCode,
     p_from: de.toISOString(),
     p_to: ate.toISOString(),
+    // `undefined` e não `null`: o parâmetro é omitido e a função usa o DEFAULT,
+    // que é "sem filtro". Mandar string vazia filtraria por vazio e devolveria
+    // só as linhas SEM aquele campo — o oposto do pretendido.
+    p_painel: filtro.painel || undefined,
+    p_perfil: filtro.perfil || undefined,
+    p_usuario: filtro.usuario || undefined,
+    p_empresa: filtro.empresa || undefined,
+    p_matricula: filtro.matricula || undefined,
   });
   if (error || !data) return [];
   return data as LinhaConsumo[];
 }
 
-export async function lerAlocacoes(baseCode: string, mes = mesCorrente()): Promise<Alocacao[]> {
+/**
+ * Valores que EXISTEM em cada eixo no período, para alimentar os seletores.
+ *
+ * Sai do que foi realmente usado, e não de uma lista de cadastro: oferecer um
+ * perfil que nunca conversou produz um filtro que devolve tela vazia e parece
+ * defeito do sistema.
+ */
+export async function lerFacetas(
+  baseCode: string,
+  de: Date,
+  ate: Date,
+): Promise<Record<string, { valor: string; chamadas: number }[]>> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase.rpc("gestao_alocacoes", { p_base: baseCode, p_mes: mes });
+  const { data, error } = await supabase.rpc("gestao_consumo_facetas", {
+    p_base: baseCode,
+    p_from: de.toISOString(),
+    p_to: ate.toISOString(),
+  });
+  if (error || !data) return {};
+
+  const out: Record<string, { valor: string; chamadas: number }[]> = {};
+  for (const f of data as Faceta[]) {
+    (out[f.eixo] ??= []).push({ valor: f.valor, chamadas: Number(f.chamadas) });
+  }
+  return out;
+}
+
+export async function lerAlocacoes(baseCode: string, momento?: Date): Promise<Alocacao[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("gestao_alocacoes", {
+    p_base: baseCode,
+    p_momento: momento?.toISOString(),
+  });
   if (error || !data) return [];
-  return data as Alocacao[];
+  return data as unknown as Alocacao[];
 }
 
 /**

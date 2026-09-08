@@ -112,10 +112,6 @@ export function ComprarCreditos({
       <div className="flex flex-col justify-between gap-3">
         <div className="rounded-md border border-border bg-surface-2 px-4 py-3">
           <p className="text-sm text-text">
-            {fmtCreditos(creditos)} crédito(s) ={" "}
-            <strong>{fmtCreditos(creditos)} milhão(ões) de tokens</strong>
-          </p>
-          <p className="mt-1 text-sm text-text">
             {fmtUsd(usdPorCredito)} por crédito · total <strong>{fmtUsd(totalUsd)}</strong>
             {totalBrl != null ? (
               <>
@@ -125,8 +121,8 @@ export function ComprarCreditos({
             ) : null}
           </p>
           <p className="mt-2 text-xs text-text-muted">
-            O valor em real é uma estimativa pela cotação de hoje. A cobrança usa a cotação do dia
-            do fechamento da fatura.
+            O valor em real é apenas uma referência, pela cotação de hoje. A cobrança usa a cotação
+            vigente na data de fechamento da fatura.
           </p>
         </div>
 

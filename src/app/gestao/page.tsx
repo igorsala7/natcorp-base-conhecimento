@@ -1,24 +1,32 @@
-import { abrirSessaoGestao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
-import { lerSaldo, lerConsumo, mesCorrente } from "@/lib/gestao/dados";
+import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
+import { lerSaldo, lerConsumo, lerFacetas } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
+import { ConsumoFiltros } from "@/components/gestao/consumo-filtros";
 import {
   fmtCreditos,
-  fmtNumero,
   fmtUsd,
   fmtBrl,
   fmtPercent,
-  fmtMes,
+  fmtNumero,
+  fmtPeriodo,
   nomeDoPainel,
+  soData,
 } from "@/lib/gestao/formato";
 
 /**
- * Visão geral: quanto foi consumido no mês, por quem, e quanto sobra.
+ * Visão geral: quanto foi consumido no ciclo, por quem, e quanto sobra.
  *
- * O consumo é medido em CRÉDITOS (1 crédito = 1 milhão de tokens brutos), e só
- * conta a origem `widget` — o mesmo recorte de `faturamento_detalhe`. Uso
- * interno da Natcorp (avaliações, indexação) nunca aparece aqui porque nunca é
- * cobrado.
+ * ── O que NÃO aparece aqui ─────────────────────────────────────────────
+ * Token. O cliente compra CRÉDITO, e quantos tokens lastreiam um crédito
+ * (`ai_cliente_plano.tokens_por_credito`) é negociação, não informação de
+ * produto — pode ser 1 milhão para um cliente e 2 para outro. Expor o número
+ * transformaria cada renovação numa conversa sobre o lastro dos outros.
+ *
+ * ── O período ──────────────────────────────────────────────────────────
+ * O padrão é o CICLO do contrato, que pode ir de 14/09 a 13/10. Os filtros de
+ * data recortam livremente dentro ou fora dele — mas o saldo continua sendo o
+ * do ciclo, porque é ele que a fatura cobra.
  */
 export default async function GestaoConsumoPage({
   searchParams,
@@ -31,26 +39,52 @@ export default async function GestaoConsumoPage({
   await registrarAcessoSuporte(sessao, "consumo");
 
   const base = sessao.identidade.baseCode;
-  const mes = mesCorrente();
-  const inicio = new Date(`${mes}T00:00:00-03:00`);
-  const fim = new Date(inicio);
-  fim.setMonth(fim.getMonth() + 1);
+  const saldo = await lerSaldo(base);
 
-  const [saldo, consumo, cotacao] = await Promise.all([
-    lerSaldo(base, mes),
-    lerConsumo(base, inicio, fim),
+  const um = (v: string | string[] | undefined) => {
+    const x = Array.isArray(v) ? v[0] : v;
+    return typeof x === "string" && x.trim() !== "" ? x.trim() : "";
+  };
+
+  // Janela: o ciclo por padrão; as datas da URL quando informadas. O fim ganha
+  // um dia porque o campo é inclusivo para quem preenche e exclusivo na
+  // consulta — sem isso, filtrar "até 30/09" perderia o próprio dia 30.
+  const cicloIni = saldo ? new Date(saldo.ciclo_inicio) : new Date();
+  const cicloFim = saldo ? new Date(saldo.ciclo_fim) : new Date();
+  const deTxt = um(sp.de);
+  const ateTxt = um(sp.ate);
+  const inicio = deTxt ? new Date(`${deTxt}T00:00:00-03:00`) : cicloIni;
+  const fim = ateTxt ? new Date(`${ateTxt}T00:00:00-03:00`) : cicloFim;
+  if (ateTxt) fim.setDate(fim.getDate() + 1);
+
+  const filtros = {
+    painel: um(sp.painel),
+    perfil: um(sp.perfil),
+    usuario: um(sp.usuario),
+    empresa: um(sp.empresa),
+    matricula: um(sp.matricula),
+  };
+  const temFiltro = Object.values(filtros).some(Boolean) || Boolean(deTxt || ateTxt);
+
+  const [consumo, facetas, cotacao] = await Promise.all([
+    lerConsumo(base, inicio, fim, filtros),
+    lerFacetas(base, inicio, fim),
     cotacaoDeHoje(),
   ]);
 
   const consumidos = saldo?.creditos_consumidos ?? 0;
   const disponiveis = saldo?.creditos_disponiveis ?? 0;
   const restante = saldo?.creditos_saldo ?? 0;
-  const semContrato = disponiveis === 0;
-  const estourou = !semContrato && restante < 0;
-  const perto = !semContrato && !estourou && disponiveis > 0 && consumidos / disponiveis >= 0.8;
+  const semPlano = !saldo?.tem_plano;
+  const estourou = !semPlano && restante < 0;
+  const perto = !semPlano && !estourou && disponiveis > 0 && consumidos / disponiveis >= 0.8;
 
-  // As linhas não atribuíveis somam no total da base, mas não pertencem a
-  // ninguém. Ficam separadas para não inflar o consumo de um perfil.
+  // Com filtro, as tabelas mostram um RECORTE. O total do recorte não é o
+  // consumo do ciclo, e usar um no lugar do outro faria as porcentagens somarem
+  // qualquer coisa menos 100%.
+  const consumoDoRecorte = consumo.reduce((acc, l) => acc + Number(l.creditos), 0);
+  const totalDasTabelas = temFiltro ? consumoDoRecorte : consumidos;
+
   const atribuidas = consumo.filter((l) => l.atribuido);
   const naoAtribuidas = consumo.filter((l) => !l.atribuido);
   const creditosNaoAtribuidos = naoAtribuidas.reduce((s, l) => s + Number(l.creditos), 0);
@@ -58,51 +92,67 @@ export default async function GestaoConsumoPage({
   const porPainel = agrupar(atribuidas, (l) => l.painel);
   const porPerfil = agrupar(atribuidas, (l) => l.perfil);
   const porUsuario = agrupar(atribuidas, (l) => l.usuario);
+  // Empresa e matrícula agrupam sobre TODAS as linhas: `atribuido` fala de
+  // painel/perfil/usuário, e uma conversa sem usuário pode ter empresa
+  // perfeitamente identificada.
+  const porEmpresa = agrupar(consumo, (l) => l.empresa);
+  const porMatricula = agrupar(consumo, (l) => l.matricula);
 
   return (
     <ShellGestao
       sessao={sessao}
       atual="consumo"
       titulo="Consumo do assistente"
-      descricao={`Referência de ${fmtMes(mes)}. 1 crédito equivale a 1 milhão de tokens processados.`}
+      descricao={
+        saldo
+          ? `Ciclo atual: ${fmtPeriodo(saldo.ciclo_inicio, saldo.ciclo_fim)}.`
+          : "Acompanhe o consumo de créditos do assistente."
+      }
     >
+      <ConsumoFiltros
+        acao="/gestao"
+        sessaoParams={paramsDaSessao(sessao)}
+        opcoes={facetas}
+        atuais={filtros}
+        de={deTxt}
+        ate={ateTxt}
+        placeholderDe={soData(cicloIni)}
+        placeholderAte={soData(new Date(cicloFim.getTime() - 86400000))}
+      />
+
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Indicador
           rotulo="Contratado"
-          valor={semContrato ? "—" : fmtCreditos(disponiveis)}
+          valor={semPlano ? "—" : fmtCreditos(disponiveis)}
           detalhe={
-            semContrato
-              ? "Nenhum contrato cadastrado para este mês"
+            semPlano
+              ? "Nenhum plano cadastrado"
               : `${fmtCreditos(saldo?.creditos_contratados ?? 0)} do plano + ${fmtCreditos(saldo?.creditos_extra ?? 0)} adicionais`
           }
         />
         <Indicador
-          rotulo="Consumido"
+          rotulo="Consumido no ciclo"
           valor={fmtCreditos(consumidos)}
-          detalhe={semContrato ? undefined : `${fmtPercent(consumidos, disponiveis)} do contratado`}
+          detalhe={semPlano ? undefined : `${fmtPercent(consumidos, disponiveis)} do contratado`}
           tom={estourou ? "ruim" : perto ? "atencao" : "neutro"}
         />
         <Indicador
           rotulo="Saldo"
-          valor={semContrato ? "—" : fmtCreditos(restante)}
+          valor={semPlano ? "—" : fmtCreditos(restante)}
           detalhe={estourou ? "Créditos esgotados" : undefined}
           tom={estourou ? "ruim" : perto ? "atencao" : "bom"}
         />
         <Indicador
-          rotulo="Tokens processados"
-          valor={fmtNumero(saldo?.tokens_brutos ?? 0)}
-          detalhe={
-            cotacao
-              ? `US$ ${(saldo?.usd_por_credito ?? 3.5).toFixed(2)} por crédito · câmbio ${cotacao.usdBrl.toFixed(4)}${cotacao.defasada ? " (defasado)" : ""}`
-              : `US$ ${(saldo?.usd_por_credito ?? 3.5).toFixed(2)} por crédito`
-          }
+          rotulo="Conversas no período"
+          valor={fmtNumero(consumo.reduce((s, l) => s + Number(l.conversas), 0))}
+          detalhe={temFiltro ? "Com os filtros aplicados" : "No ciclo atual"}
         />
       </div>
 
       {estourou ? (
         <div className="mb-6 rounded-lg border border-danger-line bg-danger-soft px-4 py-3">
           <p className="text-sm font-medium text-danger">
-            Os créditos deste mês acabaram e o assistente está bloqueado.
+            Os créditos deste ciclo acabaram e o assistente está bloqueado.
           </p>
           <p className="mt-1 text-sm text-text">
             Adquira créditos adicionais na aba <strong>Créditos</strong> para liberar o uso. Eles
@@ -112,22 +162,34 @@ export default async function GestaoConsumoPage({
       ) : perto ? (
         <div className="mb-6 rounded-lg border border-warning-line bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            Você já usou {fmtPercent(consumidos, disponiveis)} dos créditos do mês. Restam{" "}
+            Você já usou {fmtPercent(consumidos, disponiveis)} dos créditos do ciclo. Restam{" "}
             {fmtCreditos(restante)}.
           </p>
         </div>
       ) : null}
 
+      {temFiltro ? (
+        <p className="mb-4 rounded-md border border-info-line bg-info-soft px-4 py-2 text-sm text-info">
+          Filtro aplicado: {fmtCreditos(consumoDoRecorte)} crédito(s) no recorte, de{" "}
+          {fmtCreditos(consumidos)} consumidos no ciclo.
+        </p>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-3">
-        <TabelaResumo titulo="Por painel" linhas={porPainel} total={consumidos} rotularPainel />
-        <TabelaResumo titulo="Por perfil" linhas={porPerfil} total={consumidos} />
-        <TabelaResumo titulo="Por usuário" linhas={porUsuario} total={consumidos} />
+        <TabelaResumo titulo="Por painel" linhas={porPainel} total={totalDasTabelas} rotularPainel />
+        <TabelaResumo titulo="Por perfil" linhas={porPerfil} total={totalDasTabelas} />
+        <TabelaResumo titulo="Por usuário" linhas={porUsuario} total={totalDasTabelas} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <TabelaResumo titulo="Por empresa" linhas={porEmpresa} total={totalDasTabelas} />
+        <TabelaResumo titulo="Por matrícula" linhas={porMatricula} total={totalDasTabelas} />
       </div>
 
       {creditosNaoAtribuidos > 0 ? (
         <Bloco
           titulo="Consumo não atribuído"
-          descricao="Chamadas em que o painel, o perfil ou o usuário não vieram identificados. Contam no total da base, mas não podem ser imputadas a um recorte."
+          descricao="Conversas em que o painel, o perfil ou o usuário não vieram identificados. Contam no total, mas não podem ser imputadas a um recorte."
         >
           <p className="text-sm text-text">
             {fmtCreditos(creditosNaoAtribuidos)} crédito(s) em {fmtNumero(naoAtribuidas.length)}{" "}
@@ -137,36 +199,43 @@ export default async function GestaoConsumoPage({
       ) : null}
 
       <Bloco
-        titulo="Custo estimado"
-        descricao="Valor dos créditos contratados no mês. A conversão usa a cotação do dia; a fatura congela a cotação da data de fechamento."
+        titulo="Valor do ciclo"
+        descricao="Referente aos créditos contratados e adquiridos neste ciclo."
       >
         <dl className="grid gap-4 sm:grid-cols-3">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-text-muted">Em dólar</dt>
+            <dt className="text-xs uppercase tracking-wide text-text-muted">Por crédito</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">
+              {fmtUsd(saldo?.usd_por_credito ?? 3.5)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-text-muted">Total em dólar</dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
               {fmtUsd(saldo?.usd_total ?? 0)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-text-muted">Em real</dt>
+            <dt className="text-xs uppercase tracking-wide text-text-muted">Equivalente em real</dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
               {fmtBrl(emReais(saldo?.usd_total ?? 0, cotacao))}
             </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-text-muted">Cotação</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {cotacao ? `R$ ${cotacao.usdBrl.toFixed(4)}` : "—"}
-            </dd>
             <p className="mt-1 text-xs text-text-muted">
-              {cotacao
-                ? cotacao.defasada
-                  ? `Última cotação disponível (${cotacao.dia}). A conversão pode estar desatualizada.`
-                  : `Fonte: ${cotacao.fonte}`
-                : "Cotação indisponível no momento — o valor em real não pode ser calculado."}
+              {cotacao ? `Referência: R$ ${cotacao.usdBrl.toFixed(4)}` : "Cotação indisponível"}
             </p>
           </div>
         </dl>
+
+        {/*
+          O disclaimer fica junto do número, não no rodapé: o valor em real muda
+          todo dia, e a fatura usa a cotação do fechamento. Quem lê "R$ 1.750,00"
+          sem esta linha planeja o orçamento com um número que não vai ser cobrado.
+        */}
+        <p className="mt-4 rounded-md border border-info-line bg-info-soft px-3 py-2 text-xs text-info">
+          O valor em real é apenas uma <strong>referência</strong>, convertido pela cotação do dia.
+          A cobrança usa a cotação vigente na data de fechamento da fatura e pode ser diferente da
+          exibida aqui.
+        </p>
       </Bloco>
     </ShellGestao>
   );
@@ -203,7 +272,7 @@ function TabelaResumo({
   return (
     <Bloco titulo={titulo}>
       {linhas.length === 0 ? (
-        <Vazio>Nenhum consumo registrado neste mês.</Vazio>
+        <Vazio>Nenhum consumo no período.</Vazio>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

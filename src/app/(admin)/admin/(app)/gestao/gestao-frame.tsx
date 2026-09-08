@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PlanoForm, type PlanoLinha } from "./plano-form";
 
 /**
  * Seletor de cliente + iFrame da área de gestão.
@@ -35,7 +36,16 @@ const ABAS = [
   { id: "/conversas", rotulo: "Conversas" },
 ] as const;
 
-export function GestaoFrame({ bases, basePath }: { bases: BaseOpcao[]; basePath: string }) {
+export function GestaoFrame({
+  bases,
+  basePath,
+  planos,
+}: {
+  bases: BaseOpcao[];
+  basePath: string;
+  /** Planos por base_code — o formulário de contrato fica FORA do iframe. */
+  planos: Record<string, PlanoLinha[]>;
+}) {
   const [base, setBase] = useState(bases[0]?.base_code ?? "");
   const [aba, setAba] = useState<string>("");
   const [altura, setAltura] = useState(900);
@@ -159,6 +169,15 @@ export function GestaoFrame({ bases, basePath }: { bases: BaseOpcao[]; basePath:
             e cole o valor no bloco PL/SQL daquele cliente.
           </p>
         </div>
+      ) : null}
+
+      {escolhida ? (
+        <PlanoForm
+          key={escolhida.base_code}
+          baseCode={escolhida.base_code}
+          baseNome={escolhida.name}
+          planos={planos[escolhida.base_code] ?? []}
+        />
       ) : null}
 
       <iframe

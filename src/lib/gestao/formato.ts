@@ -83,3 +83,32 @@ export function nomeDoPainel(p: string | null | undefined): string {
   if (!p) return "Todos";
   return PAINEL_NOME[p] ?? p;
 }
+
+/** Data em ISO (YYYY-MM-DD) no fuso de São Paulo — para `<input type="date">`. */
+export function soData(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * "14/09/2026 a 13/10/2026" — o ciclo do contrato.
+ *
+ * O fim vem EXCLUSIVO das RPCs (o instante em que o próximo começa), e quem lê
+ * espera ver o último dia coberto. Daí o −1 dia: mostrar 14/10 faria o cliente
+ * achar que tem um dia a mais do que tem.
+ */
+export function fmtPeriodo(inicioIso: string, fimExclusivoIso: string): string {
+  const ini = new Date(inicioIso);
+  const fim = new Date(new Date(fimExclusivoIso).getTime() - 86400000);
+  const f = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return `${f.format(ini)} a ${f.format(fim)}`;
+}
