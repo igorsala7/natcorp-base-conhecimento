@@ -97,9 +97,31 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Tudo, MENOS o widget e o /embed: ambos rodam DENTRO do site do
-        // cliente, então não podem levar frame-ancestors/X-Frame-Options.
-        source: "/((?!widget\\.js|embed/).*)",
+        // ÁREA DE GESTÃO — embutida num iFrame de uma página do APEX, no Painel
+        // do Operador. Como /embed, não pode levar X-Frame-Options.
+        //
+        // Diferente de /embed, `frame-ancestors` NÃO é `*`: ali é documentação
+        // pública, aqui há consumo, fatura e histórico de conversas. A lista sai
+        // de GESTAO_FRAME_ANCESTORS (os hosts do APEX, separados por espaço).
+        // Sem a variável fica `self`, e a página não abre em iFrame nenhum — a
+        // falha fechada correta: melhor não abrir do que abrir em qualquer lugar.
+        source: "/gestao/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          {
+            key: "Content-Security-Policy",
+            value:
+              "frame-ancestors " +
+              (process.env.GESTAO_FRAME_ANCESTORS?.trim() || "'self'"),
+          },
+        ],
+      },
+      {
+        // Tudo, MENOS o widget, o /embed e a /gestao: os três rodam DENTRO do
+        // site do cliente, então não podem levar frame-ancestors/X-Frame-Options.
+        source: "/((?!widget\\.js|embed/|gestao).*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
