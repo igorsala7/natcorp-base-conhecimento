@@ -97,7 +97,7 @@ export async function getConsumo(input: {
     p_from: `${input.de}T00:00:00Z`,
     p_to: `${proximoDia(input.ate)}T00:00:00Z`,
     p_origens: ["widget", "portal", "admin", "sistema"],
-    pf_cliente: input.cliente?.trim() ? input.cliente.trim() : null,
+    pf_cliente: input.cliente?.trim() ? input.cliente.trim() : undefined,
   });
   if (error) return { ok: false, error: error.message };
   // O Postgres devolve `numeric` como string no driver — normalizar aqui, uma

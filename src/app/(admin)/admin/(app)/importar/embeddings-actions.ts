@@ -36,7 +36,7 @@ export async function listEmbeddingsReport(spaceId?: string): Promise<EmbeddingR
   await requirePermission("embeddings.reindex", spaceId);
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("embeddings_report", {
-    p_space_id: spaceId ?? null,
+    p_space_id: spaceId ?? undefined,
   });
   if (error || !data) return [];
 

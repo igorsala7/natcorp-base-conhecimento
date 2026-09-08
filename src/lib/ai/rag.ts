@@ -275,7 +275,12 @@ async function retrieveWith(
     p_group_limit: grupos ?? undefined,
   });
 
-  let resultados = data ?? [];
+  // `node_id` explicitamente anulável: os tipos gerados declaram toda coluna de
+  // RETURNS TABLE como não-nula, o que não é verdade — e aqui é concreto, porque
+  // os chunks vindos de `knowledge_list_chunks` (enumeração, abaixo) não têm
+  // node_id e entram com null.
+  type ChunkRag = Omit<NonNullable<typeof data>[number], "node_id"> & { node_id: string | null };
+  let resultados: ChunkRag[] = data ?? [];
   let forcadoNodeId: string | null = null;
 
   // VÍNCULO termo→artigo/diretório: garante que o "responsável" pelo termo entre

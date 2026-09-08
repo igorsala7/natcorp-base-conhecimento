@@ -296,11 +296,11 @@ export async function getAiUsageReport(input: {
     return { ok: false, error: "Sem permissão." };
   }
   const admin = createAdminClient();
-  const limpo = (s?: string) => (s && s.trim() ? s.trim() : null);
+  const limpo = (s?: string) => (s && s.trim() ? s.trim() : undefined);
   const { data, error } = await admin.rpc("ai_usage_report", {
     p_from: `${input.from}T00:00:00`,
     p_to: `${proximoDia(input.to)}T00:00:00`,
-    p_kind: input.kind ?? null,
+    p_kind: input.kind ?? undefined,
     pf_base: limpo(input.base),
     pf_usuario: limpo(input.usuario),
     pf_portal: limpo(input.portal),
