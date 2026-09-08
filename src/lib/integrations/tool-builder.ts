@@ -13,6 +13,7 @@ import { redigirCredenciais } from "./redact-fields";
 import { resolveIdentity } from "./identity-resolver";
 import { logChamadaInterna } from "./run-log";
 import { perfilAtende, acessoFerramenta } from "./gating";
+import { montarContextoDeAcesso } from "./acesso-contexto";
 import { analisarPedido, toolNoRecorte, type ModuleTag } from "./module-select";
 import { recorteTemCobertura } from "./module-match";
 import { achatarLoop, rotuloDoLoop } from "./loop-flatten";
@@ -569,6 +570,23 @@ export async function buildIntegrationTools(
   };
   let chamadasIntegracao = 0;
   const MAX_CHAMADAS_INTEGRACAO = 40;
+
+  // ── ACESSO PARAMETRIZADO (área /gestao) + PERMISSÕES DO ERP ──────────────
+  // Carregado UMA vez por turno: com ~88 tools ativas, resolver por ferramenta
+  // seriam 88 idas ao banco e 88 ao ORDS por mensagem. As duas camadas entram
+  // logo depois da allowlist de `ai_base_tools` e antes do recorte por assunto.
+  const acesso = await montarContextoDeAcesso(baseCode, {
+    painel: portalAcesso ?? null,
+    perfil: perfilAcesso ?? null,
+    usuario: identity.usuario ?? null,
+  });
+  onPasso?.("integracoes:acesso", {
+    regras: acesso.resumo.regras,
+    permissoes_apuradas: acesso.resumo.permissoesApuradas,
+    modulos_do_usuario: acesso.resumo.modulosDoUsuario,
+    taxonomia: acesso.resumo.taxonomiaConhecida,
+  });
+
   // ── 1) ELEGÍVEIS: passam curadoria + acesso + recorte por assunto + escopo de painel ──
   const elegiveisTools: Array<{
     bt: (typeof ctx.tools)[number];
@@ -591,6 +609,22 @@ export async function buildIntegrationTools(
       )
     )
       continue;
+    // ACESSO PARAMETRIZADO + PERMISSÕES DO ERP. Vem DEPOIS da allowlist e ANTES
+    // do recorte por assunto, porque é decisão de PERMISSÃO: uma tool proibida
+    // não deve ser resgatada mais adiante pelo léxico nem pelas dependências.
+    // `always_include` NÃO isenta — uma ferramenta essencial que a pessoa não
+    // pode ver continua não podendo.
+    const vereditoAcesso = acesso.permite(bt.tool.key, bt.modules);
+    if (vereditoAcesso !== true) {
+      onPasso?.("integracoes:acesso", {
+        tool: bt.tool.key,
+        resultado: "bloqueada",
+        ...(vereditoAcesso.tipo === "regra"
+          ? { motivo: "regra", alvo_tipo: vereditoAcesso.alvo_tipo, alvo: vereditoAcesso.alvo }
+          : { motivo: "sem_modulo_no_erp" }),
+      });
+      continue;
+    }
     // Recorte por assunto (Opção A): só filtra tools QUE TÊM módulo/submódulo
     // parametrizado. Tool sem tag = sempre consultada (não há assunto para
     // excluir). Essenciais também passam sempre.
