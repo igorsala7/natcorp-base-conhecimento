@@ -1,4 +1,4 @@
-import { abrirSessaoGestao } from "@/lib/gestao/sessao";
+import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { carregarDadosAcessos } from "@/lib/gestao/acessos-dados";
 import { ShellGestao, RecusaGestao, Bloco } from "@/components/gestao/shell";
 import { RegrasDeAcesso } from "@/components/gestao/acessos-form";
@@ -11,6 +11,7 @@ export default async function GestaoAcessosPage({
   const sp = await searchParams;
   const sessao = await abrirSessaoGestao(sp);
   if (!sessao.ok) return <RecusaGestao mensagem={sessao.mensagem} />;
+  await registrarAcessoSuporte(sessao, "acessos");
 
   const dados = await carregarDadosAcessos(sessao.identidade.baseCode);
   const semCobertura = dados.tools.filter((t) => !t.cobertaPelaTaxonomia);
@@ -26,7 +27,7 @@ export default async function GestaoAcessosPage({
         titulo="Regras de acesso"
         descricao="Bloqueie ou libere módulos, submódulos e consultas para um perfil, um usuário ou todos. Regra de usuário vence a de perfil, que vence a de todos."
       >
-        <RegrasDeAcesso sessao={{ key: sessao.key, kbt: sessao.token }} dados={dados} />
+        <RegrasDeAcesso sessao={paramsDaSessao(sessao)} dados={dados} />
       </Bloco>
 
       <Bloco

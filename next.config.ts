@@ -112,9 +112,16 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
           {
             key: "Content-Security-Policy",
+            // `'self'` entra SEMPRE, não só quando a variável está vazia: a
+            // mesma página é embutida por /admin/gestao para o suporte interno,
+            // que é mesma origem. Sem isto, configurar os hosts do APEX
+            // derrubaria a tela de suporte — e o sintoma seria um iframe em
+            // branco, sem erro de servidor, só uma linha no console.
             value:
-              "frame-ancestors " +
-              (process.env.GESTAO_FRAME_ANCESTORS?.trim() || "'self'"),
+              "frame-ancestors 'self'" +
+              (process.env.GESTAO_FRAME_ANCESTORS?.trim()
+                ? ` ${process.env.GESTAO_FRAME_ANCESTORS.trim()}`
+                : ""),
           },
         ],
       },

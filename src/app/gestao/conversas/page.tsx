@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { abrirSessaoGestao, linkGestao } from "@/lib/gestao/sessao";
+import { abrirSessaoGestao, linkGestao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { lerConversas, lerMensagens } from "@/lib/gestao/dados";
 import { ShellGestao, RecusaGestao, Bloco, Vazio } from "@/components/gestao/shell";
 import { fmtDataHora, fmtNumero, nomeDoPainel } from "@/lib/gestao/formato";
@@ -22,6 +22,7 @@ export default async function GestaoConversasPage({
   const sp = await searchParams;
   const sessao = await abrirSessaoGestao(sp);
   if (!sessao.ok) return <RecusaGestao mensagem={sessao.mensagem} />;
+  await registrarAcessoSuporte(sessao, "conversas");
 
   const um = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const conversaId = um(sp.c);

@@ -5,7 +5,12 @@ import { comprarCreditos, salvarAlocacao, removerAlocacao } from "@/app/gestao/a
 import { fmtCreditos, fmtUsd, fmtBrl, nomeDoPainel } from "@/lib/gestao/formato";
 import type { Alocacao } from "@/lib/gestao/dados";
 
-type Sessao = { key: string; kbt: string };
+/**
+ * Parâmetros que reabrem a MESMA sessão na Server Action — vindos de
+ * `paramsDaSessao`. Genérico de propósito: no modo cliente são `key` + `kbt`,
+ * no suporte são `suporte` + `base`, e o formulário não precisa saber qual é.
+ */
+type Sessao = Record<string, string>;
 
 const botao =
   "inline-flex items-center justify-center rounded-md px-3 py-2 text-ui font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60";

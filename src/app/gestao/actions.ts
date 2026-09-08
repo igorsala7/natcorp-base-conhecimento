@@ -25,19 +25,71 @@ import { invalidarPortao } from "@/lib/gestao/portao";
 
 export type ResultadoAcao = { ok: true } | { ok: false; erro: string };
 
-/** Campos de sessão que acompanham todo formulário da área. */
+/**
+ * Campos de sessão que acompanham todo formulário da área.
+ *
+ * Os quatro são opcionais porque existem DOIS modos: o cliente manda
+ * `key` + `kbt` (token do APEX), o suporte manda `suporte` + `base` (e a
+ * autorização vem do cookie de sessão do admin). `abrirSessaoGestao` recusa
+ * qualquer combinação que não feche.
+ */
 const sessaoSchema = z.object({
-  key: z.string().min(1),
-  kbt: z.string().min(1),
+  key: z.string().optional(),
+  kbt: z.string().optional(),
+  suporte: z.string().optional(),
+  base: z.string().optional(),
 });
 
-/** Revalida e devolve a base — ou o erro que a tela mostra. */
+type CamposSessao = z.infer<typeof sessaoSchema>;
+
+type SessaoResolvida = {
+  ok: true;
+  base: string;
+  /** Login do cliente, ou null no suporte — que não se passa por ninguém. */
+  usuario: string | null;
+  modo: "cliente" | "suporte";
+  /** Usuário interno, só no suporte. Vai para `audit_log.actor_id`. */
+  operadorId: string | null;
+  operadorEmail: string | null;
+};
+
+/**
+ * Revalida a sessão e devolve a base — ou o erro que a tela mostra.
+ *
+ * A base NUNCA vem do formulário: no modo cliente sai do token verificado, no
+ * modo suporte é conferida contra a permissão `gestao.suporte` do usuário
+ * logado. Um POST forjado com outra base não passa por aqui.
+ */
 async function baseDaSessao(
-  input: { key: string; kbt: string },
-): Promise<{ ok: true; base: string; usuario: string | null } | { ok: false; erro: string }> {
-  const s = await abrirSessaoGestao({ key: input.key, kbt: input.kbt });
+  input: CamposSessao,
+): Promise<SessaoResolvida | { ok: false; erro: string }> {
+  const s = await abrirSessaoGestao({
+    key: input.key,
+    kbt: input.kbt,
+    suporte: input.suporte,
+    base: input.base,
+  });
   if (!s.ok) return { ok: false, erro: s.mensagem };
-  return { ok: true, base: s.identidade.baseCode, usuario: s.identidade.usuario };
+  return {
+    ok: true,
+    base: s.identidade.baseCode,
+    usuario: s.identidade.usuario,
+    modo: s.modo,
+    operadorId: s.operador?.id ?? null,
+    operadorEmail: s.operador?.email ?? null,
+  };
+}
+
+/**
+ * Quem assina a ação, para o registro.
+ *
+ * No suporte, `criado_por` recebe o e-mail interno com um prefixo — quem ler a
+ * linha meses depois precisa saber que aquilo não foi o cliente que fez.
+ */
+function autorDa(s: SessaoResolvida): string | null {
+  return s.modo === "suporte"
+    ? `suporte:${s.operadorEmail ?? s.operadorId ?? "natcorp"}`
+    : s.usuario;
 }
 
 // ── Créditos adicionais ─────────────────────────────────────────────────
@@ -69,7 +121,7 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
     base_code: sessao.base,
     mes_ref: mes,
     creditos: parsed.data.creditos,
-    solicitado_por: sessao.usuario,
+    solicitado_por: autorDa(sessao),
     motivo: parsed.data.motivo ?? null,
   });
   if (error) return { ok: false, erro: "Não foi possível registrar a compra. Tente de novo." };
@@ -82,7 +134,10 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
   // actor_id aqui porque o autor é um usuário do ERP, não do nosso Supabase —
   // o login vai no `after`, que é o que permite conferir depois.
   await db.from("audit_log").insert({
-    actor_id: null,
+    // No suporte o autor é um usuário REAL do nosso Supabase, e é ele que fica
+    // registrado. No modo cliente não há actor_id — quem agiu é um usuário do
+    // ERP, e o login dele vai no `after`.
+    actor_id: sessao.operadorId,
     action: "gestao.creditos.comprar",
     entity_type: "ai_creditos_extra",
     entity_id: null,
@@ -90,7 +145,8 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
       base_code: sessao.base,
       mes_ref: mes,
       creditos: parsed.data.creditos,
-      solicitado_por: sessao.usuario,
+      solicitado_por: autorDa(sessao),
+      via_suporte: sessao.modo === "suporte",
     },
   });
 
@@ -136,7 +192,7 @@ export async function salvarAlocacao(input: unknown): Promise<ResultadoAcao> {
       alvo,
       creditos,
       ativo: true,
-      criado_por: sessao.usuario,
+      criado_por: autorDa(sessao),
       atualizado_em: new Date().toISOString(),
     },
     { onConflict: "base_code,painel,alvo_tipo,alvo" },
@@ -229,7 +285,7 @@ export async function salvarRegraAcesso(input: unknown): Promise<ResultadoAcao> 
       efeito: v.efeito,
       ativo: true,
       observacao: v.observacao ?? null,
-      criado_por: sessao.usuario,
+      criado_por: autorDa(sessao),
       atualizado_em: new Date().toISOString(),
     },
     {
@@ -244,11 +300,21 @@ export async function salvarRegraAcesso(input: unknown): Promise<ResultadoAcao> 
   invalidarRegrasAcesso(sessao.base);
 
   await db.from("audit_log").insert({
-    actor_id: null,
+    actor_id: sessao.operadorId,
     action: "gestao.acesso.regra",
     entity_type: "ai_acesso_regras",
     entity_id: null,
-    after: { base_code: sessao.base, ...v, key: undefined, kbt: undefined },
+    after: {
+      base_code: sessao.base,
+      ...v,
+      // Os campos de sessão não entram no registro: `kbt` é um token válido, e
+      // guardá-lo em texto no audit_log seria deixar a chave debaixo do tapete.
+      key: undefined,
+      kbt: undefined,
+      suporte: undefined,
+      base: undefined,
+      via_suporte: sessao.modo === "suporte",
+    },
   });
 
   revalidatePath("/gestao/acessos");

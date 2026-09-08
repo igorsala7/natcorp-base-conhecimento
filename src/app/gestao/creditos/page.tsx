@@ -1,4 +1,4 @@
-import { abrirSessaoGestao } from "@/lib/gestao/sessao";
+import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { lerSaldo, lerAlocacoes, mesCorrente } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { ShellGestao, RecusaGestao, Bloco, Indicador } from "@/components/gestao/shell";
@@ -13,6 +13,7 @@ export default async function GestaoCreditosPage({
   const sp = await searchParams;
   const sessao = await abrirSessaoGestao(sp);
   if (!sessao.ok) return <RecusaGestao mensagem={sessao.mensagem} />;
+  await registrarAcessoSuporte(sessao, "creditos");
 
   const base = sessao.identidade.baseCode;
   const mes = mesCorrente();
@@ -72,7 +73,7 @@ export default async function GestaoCreditosPage({
         descricao="Use quando os créditos do mês acabarem ou estiverem perto do fim. Ficam disponíveis na hora."
       >
         <ComprarCreditos
-          sessao={{ key: sessao.key, kbt: sessao.token }}
+          sessao={paramsDaSessao(sessao)}
           usdPorCredito={usdPorCredito}
           usdBrl={cotacao?.usdBrl ?? null}
         />
@@ -83,7 +84,7 @@ export default async function GestaoCreditosPage({
         descricao="Reserve parte do saldo para um perfil, um usuário ou um painel. Quem não tiver reserva consome do saldo geral da base."
       >
         <DistribuirCreditos
-          sessao={{ key: sessao.key, kbt: sessao.token }}
+          sessao={paramsDaSessao(sessao)}
           alocacoes={alocacoes}
           contratado={disponiveis}
         />

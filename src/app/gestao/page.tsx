@@ -1,4 +1,4 @@
-import { abrirSessaoGestao } from "@/lib/gestao/sessao";
+import { abrirSessaoGestao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { lerSaldo, lerConsumo, mesCorrente } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
@@ -28,6 +28,7 @@ export default async function GestaoConsumoPage({
   const sp = await searchParams;
   const sessao = await abrirSessaoGestao(sp);
   if (!sessao.ok) return <RecusaGestao mensagem={sessao.mensagem} />;
+  await registrarAcessoSuporte(sessao, "consumo");
 
   const base = sessao.identidade.baseCode;
   const mes = mesCorrente();

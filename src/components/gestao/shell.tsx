@@ -78,6 +78,23 @@ export function ShellGestao({
         </div>
       </nav>
 
+      {/*
+        Faixa de suporte. Existe porque a tela é IDÊNTICA nos dois modos e o
+        risco real desta página é agir no cliente errado depois de trocar a base
+        num seletor. O aviso fica no topo, fixo, e nomeia o cliente — não é
+        decoração, é o que separa "conferi o consumo da natcorp" de "comprei 100
+        créditos para a natcorp achando que era a leadec".
+      */}
+      {sessao.modo === "suporte" ? (
+        <div className="border-b border-warning-line bg-warning-soft px-4 py-2">
+          <p className="mx-auto max-w-[1400px] text-xs text-warning">
+            <strong>Modo suporte Natcorp.</strong> Você está vendo e editando a gestão de{" "}
+            <strong>{sessao.identidade.baseNome}</strong> ({sessao.identidade.baseCode}). Alterações
+            valem para o cliente e ficam registradas em seu nome.
+          </p>
+        </div>
+      ) : null}
+
       <main className="mx-auto max-w-[1400px] px-4 py-6">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>

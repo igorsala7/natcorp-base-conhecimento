@@ -3105,6 +3105,36 @@ export type Database = {
         }
         Relationships: []
       }
+      gestao_suporte_acessos: {
+        Row: {
+          actor_id: string | null
+          base_code: string
+          created_at: string
+          id: string
+          ip: string | null
+          pagina: string
+          user_agent: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          base_code: string
+          created_at?: string
+          id?: string
+          ip?: string | null
+          pagina: string
+          user_agent?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          base_code?: string
+          created_at?: string
+          id?: string
+          ip?: string | null
+          pagina?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       import_jobs: {
         Row: {
           created_at: string

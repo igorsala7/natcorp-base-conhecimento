@@ -9,6 +9,7 @@ import {
   Users,
   SlidersHorizontal,
   Activity,
+  Gauge,
 } from "lucide-react";
 
 /**
@@ -274,6 +275,19 @@ export const MAPA: Secao[] = [
     titulo: "Plataforma",
     escopo: "plataforma",
     rotas: [
+      {
+        href: "/admin/gestao",
+        rotulo: "Gestão de clientes",
+        icone: Gauge,
+        escopo: "plataforma",
+        permissao: "gestao.suporte",
+        // Separada de Conexões porque o objeto é outro: lá se CONFIGURA a
+        // integração do cliente, aqui se OBSERVA o que o cliente consome e
+        // parametriza. Quem dá suporte precisa desta sem precisar daquela — e é
+        // por isso que a permissão também é própria.
+        descricao: "Consumo, créditos, acessos e conversas de cada cliente.",
+        apelidos: ["créditos", "consumo", "tokens", "fatura", "suporte", "cliente"],
+      },
       {
         href: "/admin/integracoes",
         rotulo: "Conexões",
