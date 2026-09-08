@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { abrirSessaoGestao } from "@/lib/gestao/sessao";
-import { mesCorrente } from "@/lib/gestao/dados";
+import { lerSaldo } from "@/lib/gestao/dados";
 import { invalidarRegrasAcesso } from "@/lib/integrations/acesso-contexto";
 import { invalidarPortao } from "@/lib/gestao/portao";
 
@@ -115,12 +115,19 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
   if (!sessao.ok) return { ok: false, erro: sessao.erro };
 
   const db = createAdminClient();
-  const mes = mesCorrente();
+
+  // O ciclo e o PREÇO vêm do plano vigente, não de constantes: o cliente pode
+  // ter ciclo em 14 e crédito a outro valor por negociação. Gravar o preço na
+  // linha faz a compra continuar valendo o que valia se o plano mudar depois.
+  const saldo = await lerSaldo(sessao.base);
+  if (!saldo) return { ok: false, erro: "Não foi possível apurar o ciclo atual. Tente de novo." };
+  const cicloInicio = saldo.ciclo_inicio.slice(0, 10);
 
   const { error } = await db.from("ai_creditos_extra").insert({
     base_code: sessao.base,
-    mes_ref: mes,
+    ciclo_inicio: cicloInicio,
     creditos: parsed.data.creditos,
+    usd_por_credito: saldo.usd_por_credito,
     solicitado_por: autorDa(sessao),
     motivo: parsed.data.motivo ?? null,
   });
@@ -143,7 +150,7 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
     entity_id: null,
     after: {
       base_code: sessao.base,
-      mes_ref: mes,
+      ciclo_inicio: cicloInicio,
       creditos: parsed.data.creditos,
       solicitado_por: autorDa(sessao),
       via_suporte: sessao.modo === "suporte",
@@ -233,30 +240,52 @@ export async function removerAlocacao(input: unknown): Promise<ResultadoAcao> {
 
 // ── Regras de acesso ────────────────────────────────────────────────────
 
+/**
+ * Regra de acesso — aceita VÁRIOS perfis e VÁRIOS módulos de uma vez.
+ *
+ * O schema continua sendo uma regra por linha; a multiplicação acontece aqui,
+ * gerando o produto (alvos × escopos). Guardar "vários perfis" numa linha só
+ * exigiria array na tabela, e aí remover UM perfil viraria edição de array em
+ * vez de exclusão de linha — mais código para o mesmo resultado, e um índice
+ * único que não protege mais nada.
+ */
 const regraSchema = sessaoSchema
   .extend({
     painel: z.enum(["PO", "PG", "PC"]).nullable().optional(),
     alvo_tipo: z.enum(["base", "perfil", "usuario"]),
-    alvo: z.string().max(120).nullable().optional(),
+    /** Um ou vários perfis/usuários. Vazio quando alvo_tipo = 'base'. */
+    alvos: z.array(z.string().max(120)).max(200).default([]),
     escopo_tipo: z.enum(["tool", "modulo", "submodulo"]),
-    tool_key: z.string().max(120).nullable().optional(),
-    modulo: z.string().max(200).nullable().optional(),
+    /** Chaves de ferramenta, quando escopo_tipo = 'tool'. */
+    tool_keys: z.array(z.string().max(120)).max(200).default([]),
+    /** Módulos, quando 'modulo'. Com 'submodulo', é sempre um só. */
+    modulos: z.array(z.string().max(200)).max(200).default([]),
     submodulo: z.string().max(300).nullable().optional(),
     efeito: z.enum(["permitir", "negar"]),
     observacao: z.string().max(300).optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.alvo_tipo !== "base" && !(v.alvo ?? "").trim()) {
-      ctx.addIssue({ code: "custom", message: "Informe o perfil ou o usuário.", path: ["alvo"] });
+    const limpos = (a: string[]) => a.map((x) => x.trim()).filter(Boolean);
+    if (v.alvo_tipo !== "base" && limpos(v.alvos).length === 0) {
+      ctx.addIssue({ code: "custom", message: "Escolha ao menos um perfil ou usuário.", path: ["alvos"] });
     }
-    if (v.escopo_tipo === "tool" && !(v.tool_key ?? "").trim()) {
-      ctx.addIssue({ code: "custom", message: "Escolha a ferramenta.", path: ["tool_key"] });
+    if (v.escopo_tipo === "tool" && limpos(v.tool_keys).length === 0) {
+      ctx.addIssue({ code: "custom", message: "Escolha ao menos uma consulta.", path: ["tool_keys"] });
     }
-    if (v.escopo_tipo !== "tool" && !(v.modulo ?? "").trim()) {
-      ctx.addIssue({ code: "custom", message: "Escolha o módulo.", path: ["modulo"] });
+    if (v.escopo_tipo !== "tool" && limpos(v.modulos).length === 0) {
+      ctx.addIssue({ code: "custom", message: "Escolha ao menos um módulo.", path: ["modulos"] });
     }
-    if (v.escopo_tipo === "submodulo" && !(v.submodulo ?? "").trim()) {
-      ctx.addIssue({ code: "custom", message: "Escolha o submódulo.", path: ["submodulo"] });
+    if (v.escopo_tipo === "submodulo") {
+      if (!(v.submodulo ?? "").trim()) {
+        ctx.addIssue({ code: "custom", message: "Escolha o submódulo.", path: ["submodulo"] });
+      }
+      if (limpos(v.modulos).length !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Ao escolher um submódulo, selecione exatamente um módulo.",
+          path: ["modulos"],
+        });
+      }
     }
   });
 
@@ -271,28 +300,58 @@ export async function salvarRegraAcesso(input: unknown): Promise<ResultadoAcao> 
 
   const v = parsed.data;
   const db = createAdminClient();
+  const limpos = (a: string[]) => [...new Set(a.map((x) => x.trim()).filter(Boolean))];
 
-  const { error } = await db.from("ai_acesso_regras").upsert(
-    {
+  const alvos = v.alvo_tipo === "base" ? [null] : limpos(v.alvos);
+  const escopos =
+    v.escopo_tipo === "tool"
+      ? limpos(v.tool_keys).map((k) => ({ tool_key: k, modulo: null as string | null }))
+      : limpos(v.modulos).map((m) => ({ tool_key: null as string | null, modulo: m }));
+
+  /**
+   * BLOQUEIO em ferramenta protegida é recusado no SERVIDOR, não só escondido
+   * na tela. A UI desabilita o que não dá para bloquear, mas a ação é um
+   * endpoint — e a regra que protege as consultas de estrutura não pode
+   * depender de o botão estar cinza.
+   */
+  if (v.efeito === "negar" && v.escopo_tipo === "tool") {
+    const { data: protegidas } = await db
+      .from("ai_tools")
+      .select("key, name")
+      .in("key", escopos.map((e) => e.tool_key!).filter(Boolean))
+      .eq("protegida_de_bloqueio", true);
+    if (protegidas && protegidas.length > 0) {
+      const nomes = protegidas.map((p) => p.name).join(", ");
+      return {
+        ok: false,
+        erro: `Estas consultas não podem ser bloqueadas porque outras dependem delas: ${nomes}.`,
+      };
+    }
+  }
+
+  const linhas = alvos.flatMap((alvo) =>
+    escopos.map((e) => ({
       base_code: sessao.base,
       painel: v.painel ?? null,
       alvo_tipo: v.alvo_tipo,
-      alvo: v.alvo_tipo === "base" ? null : (v.alvo ?? "").trim(),
+      alvo,
       escopo_tipo: v.escopo_tipo,
-      tool_key: v.escopo_tipo === "tool" ? (v.tool_key ?? "").trim() : null,
-      modulo: v.escopo_tipo === "tool" ? null : (v.modulo ?? "").trim(),
+      tool_key: e.tool_key,
+      modulo: e.modulo,
       submodulo: v.escopo_tipo === "submodulo" ? (v.submodulo ?? "").trim() : null,
       efeito: v.efeito,
       ativo: true,
       observacao: v.observacao ?? null,
       criado_por: autorDa(sessao),
       atualizado_em: new Date().toISOString(),
-    },
-    {
-      onConflict:
-        "base_code,painel,alvo_tipo,alvo,escopo_tipo,tool_key,modulo,submodulo",
-    },
+    })),
   );
+
+  if (linhas.length === 0) return { ok: false, erro: "Nada a salvar." };
+
+  const { error } = await db.from("ai_acesso_regras").upsert(linhas, {
+    onConflict: "base_code,painel,alvo_tipo,alvo,escopo_tipo,tool_key,modulo,submodulo",
+  });
   if (error) return { ok: false, erro: "Não foi possível salvar a regra." };
 
   // O funil de ferramentas cacheia as regras por 60s; sem isto, a mudança só
@@ -306,13 +365,14 @@ export async function salvarRegraAcesso(input: unknown): Promise<ResultadoAcao> 
     entity_id: null,
     after: {
       base_code: sessao.base,
-      ...v,
-      // Os campos de sessão não entram no registro: `kbt` é um token válido, e
-      // guardá-lo em texto no audit_log seria deixar a chave debaixo do tapete.
-      key: undefined,
-      kbt: undefined,
-      suporte: undefined,
-      base: undefined,
+      painel: v.painel ?? null,
+      alvo_tipo: v.alvo_tipo,
+      alvos,
+      escopo_tipo: v.escopo_tipo,
+      escopos: escopos.map((e) => e.tool_key ?? e.modulo),
+      submodulo: v.submodulo ?? null,
+      efeito: v.efeito,
+      regras_criadas: linhas.length,
       via_suporte: sessao.modo === "suporte",
     },
   });

@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { listarPerfis } from "@/lib/integrations/perfis";
+import { ferramentasProtegidas } from "@/lib/integrations/acesso-contexto";
 
 /**
  * Dados da tela de acessos: o que existe para parametrizar, e o que já foi.
@@ -20,6 +22,8 @@ export type ToolDaBase = {
   modulos: { modulo: string; submodulo: string | null }[];
   /** Falso quando nenhum módulo dela existe na taxonomia do ERP. */
   cobertaPelaTaxonomia: boolean;
+  /** Consulta transversal (estrutura/menu): nenhuma regra de bloqueio a alcança. */
+  protegida: boolean;
 };
 
 export type RegraListada = {
@@ -42,6 +46,8 @@ export type DadosAcessos = {
   regras: RegraListada[];
   /** Módulos e submódulos que o ERP conhece — alimenta os seletores. */
   taxonomia: { modulo: string; submodulos: string[] }[];
+  /** Perfis do cliente, da API dele. Vazio quando o endpoint não responde. */
+  perfis: string[];
   semCobertura: number;
 };
 
@@ -49,7 +55,7 @@ export async function carregarDadosAcessos(baseCode: string): Promise<DadosAcess
   const db = createAdminClient();
   const alvo = baseCode.trim().replace(/([\\%_])/g, "\\$1");
 
-  const [baseRow, regrasRes, modulosRes] = await Promise.all([
+  const [baseRow, regrasRes, modulosRes, protegidas] = await Promise.all([
     db.from("ai_bases").select("id").ilike("base_code", alvo).maybeSingle(),
     db
       .from("ai_acesso_regras")
@@ -61,6 +67,7 @@ export async function carregarDadosAcessos(baseCode: string): Promise<DadosAcess
       .order("criado_em", { ascending: false })
       .range(0, 999),
     db.from("ai_modules").select("modulo, submodulo").ilike("base_code", alvo).range(0, 4999),
+    ferramentasProtegidas(),
   ]);
 
   // Taxonomia do ERP, agrupada. Set para o cruzamento; lista para o seletor.
@@ -74,7 +81,33 @@ export async function carregarDadosAcessos(baseCode: string): Promise<DadosAcess
 
   const baseId = baseRow.data?.id ?? null;
   if (!baseId) {
-    return { tools: [], regras: (regrasRes.data ?? []) as RegraListada[], taxonomia: [], semCobertura: 0 };
+    return {
+      tools: [],
+      regras: (regrasRes.data ?? []) as RegraListada[],
+      taxonomia: [],
+      perfis: [],
+      semCobertura: 0,
+    };
+  }
+
+  /**
+   * Perfis do cliente, da API dele (`ai_bases.perfis_endpoint`).
+   *
+   * Quando o endpoint não está configurado ou não responde, cai para os perfis
+   * que JÁ conversaram — imperfeito, mas melhor que um campo em branco: é a
+   * diferença entre "escolha na lista" e "adivinhe como se escreve".
+   */
+  let perfis = await listarPerfis(baseId).catch(() => [] as string[]);
+  if (perfis.length === 0) {
+    const { data: vistos } = await db
+      .from("ai_usage")
+      .select("p_perfil")
+      .ilike("p_base", alvo)
+      .not("p_perfil", "is", null)
+      .range(0, 4999);
+    perfis = [...new Set((vistos ?? []).map((v) => String(v.p_perfil).trim()).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b, "pt-BR"),
+    );
   }
 
   // Só as ferramentas HABILITADAS nesta base: o catálogo global tem 127, mas o
@@ -118,6 +151,7 @@ export async function carregarDadosAcessos(baseCode: string): Promise<DadosAcess
         nome: l.ai_tools.name,
         descricaoUsuario: l.ai_tools.descricao_usuario,
         modulos,
+        protegida: protegidas.has(l.ai_tools.key),
         // Sem tag nenhuma não é "descoberta": é ausência de eixo. Só conta como
         // falta de cobertura quem TEM tag e nenhuma delas existe no ERP.
         cobertaPelaTaxonomia:
@@ -129,6 +163,7 @@ export async function carregarDadosAcessos(baseCode: string): Promise<DadosAcess
 
   return {
     tools,
+    perfis,
     regras: (regrasRes.data ?? []) as RegraListada[],
     taxonomia: [...porModulo.entries()]
       .map(([modulo, subs]) => ({

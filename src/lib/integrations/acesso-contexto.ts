@@ -54,6 +54,39 @@ async function carregarRegras(baseCode: string): Promise<RegraAcesso[]> {
 /** Chamada pelas ações da tela de acessos, para a mudança valer na hora. */
 export function invalidarRegrasAcesso(baseCode: string): void {
   cacheRegras.delete(baseCode.trim().toLowerCase());
+  protegidasCache = null;
+}
+
+/**
+ * Chaves das ferramentas que nenhuma regra de bloqueio alcança
+ * (`ai_tools.protegida_de_bloqueio`). São as de ESTRUTURA e o menu de opções —
+ * tabelas de domínio que traduzem o resto, e cuja ausência quebra consultas de
+ * outros módulos.
+ *
+ * Global e não por base: a coluna é do catálogo, igual para todos os clientes.
+ * TTL longo porque muda por decisão nossa, não por uso.
+ */
+let protegidasCache: { exp: number; chaves: Set<string> } | null = null;
+const PROTEGIDAS_TTL_MS = 5 * 60_000;
+
+async function carregarProtegidas(): Promise<Set<string>> {
+  const agora = Date.now();
+  if (protegidasCache && protegidasCache.exp > agora) return protegidasCache.chaves;
+
+  const { data } = await createAdminClient()
+    .from("ai_tools")
+    .select("key")
+    .eq("protegida_de_bloqueio", true)
+    .range(0, 499);
+
+  const chaves = new Set((data ?? []).map((t) => t.key));
+  protegidasCache = { exp: agora + PROTEGIDAS_TTL_MS, chaves };
+  return chaves;
+}
+
+/** Exposta para a tela de acessos desabilitar o que não dá para bloquear. */
+export async function ferramentasProtegidas(): Promise<Set<string>> {
+  return carregarProtegidas();
 }
 
 export type MotivoCorte =
@@ -69,6 +102,7 @@ export type ContextoDeAcesso = {
     permissoesApuradas: boolean;
     modulosDoUsuario: number;
     taxonomiaConhecida: number;
+    protegidas: number;
   };
 };
 
@@ -85,7 +119,7 @@ export async function montarContextoDeAcesso(
   baseCode: string,
   ctx: ContextoAcesso,
 ): Promise<ContextoDeAcesso> {
-  const regras = await carregarRegras(baseCode);
+  const [regras, protegidas] = await Promise.all([carregarRegras(baseCode), carregarProtegidas()]);
 
   // A camada 2 só faz sentido com usuário e painel: sem eles não há o que
   // perguntar ao ERP.
@@ -99,7 +133,8 @@ export async function montarContextoDeAcesso(
 
   return {
     permite(toolKey, modulos) {
-      const d = decidirAcesso(regras, ctx, toolKey, modulos);
+      const protegida = protegidas.has(toolKey);
+      const d = decidirAcesso(regras, ctx, toolKey, modulos, protegida);
       if (d) {
         if (d.efeito === "negar") {
           return {
@@ -116,6 +151,12 @@ export async function montarContextoDeAcesso(
 
       if (!permissoes) return true; // camada 2 desligada: não sabemos, não cortamos
 
+      // Protegida também não cai pelo cruzamento automático. Se caísse, o
+      // usuário que não tem o módulo ESTRUTURA no APEX — a maioria, porque
+      // ninguém "abre a tela de sindicatos" — perderia a tradução de códigos em
+      // todas as outras consultas.
+      if (protegida) return true;
+
       return permitidoPelaTaxonomia(modulos, permissoes.modulos, taxonomia)
         ? true
         : { tipo: "taxonomia" };
@@ -125,6 +166,7 @@ export async function montarContextoDeAcesso(
       permissoesApuradas: permissoes !== null,
       modulosDoUsuario: permissoes?.modulos.length ?? 0,
       taxonomiaConhecida: taxonomia.size,
+      protegidas: protegidas.size,
     },
   };
 }

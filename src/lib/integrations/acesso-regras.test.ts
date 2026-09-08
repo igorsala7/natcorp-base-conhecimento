@@ -163,6 +163,40 @@ describe("decidirAcesso — precedência", () => {
   });
 });
 
+describe("decidirAcesso — ferramentas protegidas de bloqueio", () => {
+  const daEstrutura: ModuloDaTool[] = [{ modulo: "ESTRUTURA", submodulo: null }];
+  const ctx = { painel: "PO", perfil: "FOLHA", usuario: "joao" };
+
+  it("ignora o bloqueio por módulo numa ferramenta protegida", () => {
+    const regras = [regra({ alvo_tipo: "base", modulo: "ESTRUTURA", efeito: "negar" })];
+    expect(decidirAcesso(regras, ctx, "estrutura_centros_custo", daEstrutura, true)).toBeNull();
+    // A mesma regra derruba uma ferramenta não protegida do mesmo módulo.
+    expect(decidirAcesso(regras, ctx, "outra_qualquer", daEstrutura, false)?.efeito).toBe("negar");
+  });
+
+  it("ignora o bloqueio nominal — nem apontando a ferramenta pelo nome", () => {
+    const regras = [
+      regra({ alvo_tipo: "usuario", alvo: "joao", escopo_tipo: "tool", tool_key: "lista_opcoes", efeito: "negar" }),
+    ];
+    expect(decidirAcesso(regras, ctx, "lista_opcoes", [], true)).toBeNull();
+  });
+
+  it("liberação explícita continua valendo numa protegida", () => {
+    const regras = [
+      regra({ alvo_tipo: "perfil", alvo: "FOLHA", modulo: "ESTRUTURA", efeito: "permitir" }),
+    ];
+    expect(decidirAcesso(regras, ctx, "estrutura_cargos", daEstrutura, true)?.efeito).toBe("permitir");
+  });
+
+  it("com regras de negar E permitir, a protegida fica com a liberação", () => {
+    const regras = [
+      regra({ alvo_tipo: "base", modulo: "ESTRUTURA", efeito: "negar" }),
+      regra({ alvo_tipo: "base", escopo_tipo: "tool", tool_key: "estrutura_cargos", efeito: "permitir" }),
+    ];
+    expect(decidirAcesso(regras, ctx, "estrutura_cargos", daEstrutura, true)?.efeito).toBe("permitir");
+  });
+});
+
 describe("permitidoPelaTaxonomia — o cruzamento automático com o ERP", () => {
   const taxonomia = new Set(
     ["FREQUÊNCIA", "SEGURANÇA DO TRABALHO", "ADMINISTRAÇÃO DE PESSOAL"].map(chaveModulo),

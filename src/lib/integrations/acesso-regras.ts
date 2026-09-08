@@ -108,8 +108,20 @@ export function decidirAcesso(
   ctx: ContextoAcesso,
   toolKey: string,
   modulos: readonly ModuloDaTool[],
+  /**
+   * Ferramenta transversal (`ai_tools.protegida_de_bloqueio`): as consultas de
+   * ESTRUTURA e o menu de opções. Regras de BLOQUEIO não a alcançam.
+   *
+   * Elas quase nunca são o objetivo da pergunta — são o que traduz o resto.
+   * Bloquear "Estrutura: Centros de Custo" não esconde um dado: faz uma consulta
+   * de folha devolver um código no lugar do nome, e o defeito aparece longe da
+   * regra que o causou. Regras de LIBERAÇÃO continuam valendo (são inócuas, mas
+   * descartá-las mudaria a precedência sem motivo).
+   */
+  protegida = false,
 ): Decisao {
-  const aplicaveis = regras.filter((r) => casaAlvo(r, ctx) && casaEscopo(r, toolKey, modulos));
+  const candidatas = protegida ? regras.filter((r) => r.efeito !== "negar") : regras;
+  const aplicaveis = candidatas.filter((r) => casaAlvo(r, ctx) && casaEscopo(r, toolKey, modulos));
   if (aplicaveis.length === 0) return null;
 
   const nivel = Math.max(...aplicaveis.map((r) => PESO_ALVO[r.alvo_tipo]));
