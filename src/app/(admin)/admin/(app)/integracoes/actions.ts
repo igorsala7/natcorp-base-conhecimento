@@ -11,6 +11,13 @@ import { CREDENTIAL_FIELDS, chavesSecretas, metaKeys, requiredKeys, separarCampo
 import { syncBaseModules } from "@/lib/integrations/module-sync";
 import { passosDeConfiguracao, resumo, temFalha, type Passo, type ToolDiag } from "@/lib/integrations/base-health";
 import { getOAuthToken, invalidateOAuthToken } from "@/lib/integrations/oauth";
+import {
+  garantirChaveDaBase,
+  ehFalha,
+  montarBlocoApex,
+  widgetKeyDoEspaco,
+  siteDaGestao,
+} from "@/lib/tracking/chave-base";
 import type { Json } from "@/lib/database.types";
 
 export type IntegResult = { ok: true; id?: string } | { ok: false; error: string };
@@ -97,6 +104,22 @@ export async function createBase(input: unknown): Promise<IntegResult> {
     return { ok: false, error: `Falha ao criar: ${error?.message}` };
   }
   await syncBaseSpaces(supabase, data.id, parsed.data.space_ids);
+  /**
+   * A chave da área de gestão nasce COM a base.
+   *
+   * Antes isto era `npm run gestao:chave:prod -- <base_code>`, rodado à mão
+   * depois do cadastro — e uma base sem chave simplesmente não abre a área de
+   * gestão, com a mensagem "esta base ainda não foi habilitada". Quem cadastra
+   * não tinha como saber que faltava um passo em outro lugar.
+   *
+   * Emitir sempre é o default certo: chave que nunca for usada não custa nada,
+   * e o estado "base sem chave" deixa de existir. Falha aqui NÃO derruba o
+   * cadastro — a base é o objeto principal, a chave se resolve na própria tela.
+   */
+  const chave = await garantirChaveDaBase({ baseId: data.id });
+  if (ehFalha(chave)) {
+    console.error(`[gestao] base ${parsed.data.base_code} criada sem chave: ${chave.erro}`);
+  }
   await audit({ action: "integrations.base.create", entityType: "ai_base", entityId: data.id, spaceId: null, after: parsed.data });
   revalidatePath("/admin/integracoes");
   return { ok: true, id: data.id };
@@ -599,4 +622,81 @@ export async function testarBase(input: unknown): Promise<
   }
 
   return { ok: true, passos, resumo: resumo(passos), falhou: temFalha(passos) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ÁREA DE GESTÃO — o bloco PL/SQL que o operador cola no APEX do cliente
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BlocoGestao =
+  | { ok: true; bloco: string; criadaEm: string | null; emitidaAgora: boolean }
+  | { ok: false; error: string };
+
+const MSG_FALHA: Record<string, string> = {
+  base_nao_encontrada: "Base não encontrada.",
+  espaco_nao_encontrado:
+    'O espaço "natcorp" (Painel do Operador) não existe. A área de gestão vive nele.',
+  indecifravel:
+    "A chave gravada não abre — sinal de que APP_ENCRYPTION_KEY mudou. Use Rotacionar para emitir outra, sabendo que a área de gestão deste cliente fica fora do ar até o bloco do APEX ser atualizado.",
+  falha_ao_gravar: "Falha ao gravar a chave.",
+};
+
+/**
+ * O bloco pronto para colar. Emite a chave se a base ainda não tiver — é o que
+ * cobre as bases cadastradas ANTES desta tela existir, sem pedir nada a ninguém.
+ */
+export async function blocoGestaoAction(baseId: string): Promise<BlocoGestao> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+
+  const r = await garantirChaveDaBase({ baseId });
+  if (ehFalha(r)) return { ok: false, error: MSG_FALHA[r.erro] ?? "Falha ao obter a chave." };
+
+  return {
+    ok: true,
+    bloco: montarBlocoApex({
+      chave: r.chave,
+      widgetKey: await widgetKeyDoEspaco(),
+      site: siteDaGestao(),
+    }),
+    criadaEm: r.criadaEm,
+    emitidaAgora: r.novo,
+  };
+}
+
+/**
+ * Rotação. Separada de propósito, e destrutiva de propósito.
+ *
+ * Trocar a chave derruba a área de gestão daquele cliente até alguém abrir o
+ * APEX dele e substituir a constante. Não é reversível por aqui (a anterior não
+ * fica guardada), e o efeito é visível para o cliente final — por isso vive em
+ * outro botão, com confirmação própria, e grava em `audit_log`.
+ */
+export async function rotacionarChaveGestaoAction(baseId: string): Promise<BlocoGestao> {
+  const negado = await garantirPermissao();
+  if (negado) return { ok: false, error: negado };
+
+  const r = await garantirChaveDaBase({ baseId, forcar: true });
+  if (ehFalha(r)) return { ok: false, error: MSG_FALHA[r.erro] ?? "Falha ao rotacionar." };
+
+  // Sem `after`: o que mudou é um SEGREDO, e log de auditoria não é lugar de
+  // guardar segredo. O que importa registrar é quem trocou, de qual base, quando.
+  await audit({
+    action: "integrations.base.gestao_key.rotate",
+    entityType: "ai_base",
+    entityId: baseId,
+    spaceId: null,
+    after: { rotacionada_em: new Date().toISOString() },
+  });
+
+  return {
+    ok: true,
+    bloco: montarBlocoApex({
+      chave: r.chave,
+      widgetKey: await widgetKeyDoEspaco(),
+      site: siteDaGestao(),
+    }),
+    criadaEm: null,
+    emitidaAgora: true,
+  };
 }

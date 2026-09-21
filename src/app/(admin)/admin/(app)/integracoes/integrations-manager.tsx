@@ -21,6 +21,7 @@ import {
   chavesSecretas,
   type AuthType,
 } from "@/lib/integrations/credentials";
+import { GestaoApex } from "./gestao-apex";
 import {
   createBase,
   updateBase,
@@ -259,6 +260,8 @@ export function IntegrationsManager({
                         ))}
                       </ul>
                     )}
+
+                    <GestaoApex baseId={b.id} baseName={b.name} />
 
                     <p className="mt-4 text-xs text-text-muted">
                       As APIs/Tools desta base são ligadas/desligadas no editor de cada tool (aba{" "}

@@ -19,10 +19,15 @@
  * derruba a área de gestão daquele cliente até o APEX dele ser atualizado.
  */
 import { createAdminClient } from "../src/lib/supabase/admin";
-import { gerarChaveRastreio } from "../src/lib/tracking/token";
-import { encryptSecret, tryDecryptSecret } from "../src/lib/crypto/secrets";
+import {
+  garantirChaveDaBase,
+  ehFalha,
+  montarBlocoApex,
+  siteDaGestao,
+  ESPACO_GESTAO,
+} from "../src/lib/tracking/chave-base";
 
-const ESPACO_PADRAO = "natcorp"; // Painel do Operador, onde a gestão vive
+const ESPACO_PADRAO = ESPACO_GESTAO; // Painel do Operador, onde a gestão vive
 
 async function main() {
   const args = process.argv.slice(2);
@@ -68,42 +73,28 @@ async function main() {
     .limit(1)
     .maybeSingle();
 
-  const { data: existente } = await db
-    .from("ai_base_tracking_keys")
-    .select("key_enc, updated_at")
-    .eq("base_id", base.id)
-    .eq("space_id", espaco.id)
-    .maybeSingle();
-
-  let chave: string;
-  let novo = false;
-
-  if (existente && !forcar) {
-    const decifrada = tryDecryptSecret(existente.key_enc);
-    if (!decifrada) {
-      console.error("A chave gravada não pôde ser decifrada (APP_ENCRYPTION_KEY mudou?). Use --forcar para emitir outra.");
-      process.exit(1);
-    }
-    chave = decifrada;
-  } else {
-    chave = gerarChaveRastreio();
-    novo = true;
-    const { error } = await db.from("ai_base_tracking_keys").upsert(
-      {
-        base_id: base.id,
-        space_id: espaco.id,
-        key_enc: encryptSecret(chave),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "base_id,space_id" },
-    );
-    if (error) {
-      console.error(`Falha ao gravar: ${error.message}`);
-      process.exit(1);
-    }
+  /**
+   * A lógica da chave saiu daqui para `src/lib/tracking/chave-base.ts` quando o
+   * admin passou a emitir sozinho no cadastro. Este script continua existindo
+   * como resgate — quando a tela não abre —, mas não pode ter implementação
+   * própria: duas versões do mesmo segredo divergem sem ninguém perceber.
+   */
+  const r = await garantirChaveDaBase({ baseId: base.id, espaco: slugEspaco, forcar });
+  if (ehFalha(r)) {
+    const msg: Record<string, string> = {
+      espaco_nao_encontrado: `Espaço "${slugEspaco}" não encontrado em spaces.`,
+      indecifravel: "A chave gravada não pôde ser decifrada (APP_ENCRYPTION_KEY mudou?). Use --forcar para emitir outra.",
+      falha_ao_gravar: "Falha ao gravar a chave.",
+      base_nao_encontrada: `Base "${baseCode}" não encontrada em ai_bases.`,
+    };
+    console.error(msg[r.erro] ?? r.erro);
+    process.exit(1);
   }
+  const chave = r.chave;
+  const novo = r.novo;
+  const existente = r.criadaEm ? { updated_at: r.criadaEm } : null;
 
-  const site = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? "https://SEU-SITE";
+  const site = siteDaGestao();
 
   console.log("");
   console.log(`  Base .......... ${base.base_code}  (${base.name})${base.active ? "" : "  [INATIVA]"}`);
@@ -112,13 +103,12 @@ async function main() {
   console.log("");
   console.log("  ── Cole no bloco PL/SQL do APEX desta base ─────────────────");
   console.log("");
-  console.log(`  c_key    constant varchar2(64)  := '${chave}';`);
-  if (widget?.public_key) {
-    console.log(`  c_widget constant varchar2(80)  := '${widget.public_key}';`);
-  } else {
-    console.log("  c_widget constant varchar2(80)  := '<chave pública do widget deste painel>';");
-  }
-  console.log(`  c_site   constant varchar2(200) := '${site}';`);
+  console.log(
+    montarBlocoApex({ chave, widgetKey: widget?.public_key ?? null, site })
+      .split("\n")
+      .map((l) => `  ${l}`)
+      .join("\n"),
+  );
   console.log("");
   if (novo && existente) {
     console.log("  ATENÇÃO: a chave anterior foi substituída. A área de gestão desta base");
