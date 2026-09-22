@@ -81,6 +81,12 @@ troca é grande — ganhar 4 e perder 3 não é melhora, é o sistema sacudindo.
   o que depende de decisão do Igor. **Comece por aí a cada sessão.**
 - `docs/arquitetura-ia.md`, `docs/mapas/` — RAG, ontologia, composição do prompt.
 - `docs/regras-de-negocio-chat.md` — o que o chat pode e não pode dizer.
+- **`docs/CODEBASE_MAP.md`** — onde cada coisa mora e por que está assim: o funil
+  de ferramentas etapa por etapa, o pipeline de RAG, o modelo de dados por
+  domínio, as convenções e as dez armadilhas que mais voltaram (o teto de 1.000
+  linhas do PostgREST, o grant que sobrepõe o revoke, o eval que mede o arreio).
+  Gerado por varredura do código; **não substitui** o arquivo de estado acima —
+  aquele diz o que está aberto hoje, este diz como o código está organizado.
 
 ## Duas regras de operação
 
