@@ -72,6 +72,12 @@ scripts/endpoint-test/fixture.json
 # Rascunhos de auditoria: instrumentos de uma rodada, não código do produto.
 .audit/*.mjs
 .audit/*.json
+# ...mas o helper de conexão é infraestrutura, não rascunho. Onze scripts daqui
+# morreram juntos porque cada um montava o `pg.Client` com `connectionString`, e
+# a senha do banco tem `@`/`#` (o `#` corta a URL no fragmento e o `new URL()`
+# estoura antes de conectar). Rastreando o helper, o próximo rascunho nasce
+# certo em vez de repetir o mesmo defeito.
+!.audit/db.mjs
 
 # O projeto usa npm; estes aparecem por engano.
 pnpm-lock.yaml

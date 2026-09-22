@@ -59,7 +59,12 @@ jobs:
   # vira comando.
   superficie-medida:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Roda em PR *e* em push. Antes era só `pull_request`, e quem empurrava
+    # direto para `main` não recebia aviso nenhum — foi o que aconteceu em
+    # 06/09 com a compactação de resultado de ferramenta. Em push a base é
+    # `event.before`; num primeiro push (ou force-push) ela vem zerada, e aí o
+    # passo se declara inconclusivo em vez de comparar contra o vazio e jurar
+    # que nada foi tocado.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,9 +72,15 @@ jobs:
 
       - name: O que este PR toca
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -eu
+          VAZIO=0000000000000000000000000000000000000000
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "$VAZIO" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::warning title=Superficie medida::Sem base comparavel (primeiro push ou force-push). NAO da para dizer o que foi tocado."
+            echo "  -> rode a conferencia a mao: git diff --name-only <base>...HEAD"
+            exit 0
+          fi
           mudou() { git diff --name-only "$BASE"...HEAD | grep -qE "$1"; }
           aviso() { echo "::warning title=Superficie medida::$1"; echo "  -> $1"; }
 
@@ -78,11 +89,26 @@ jobs:
           echo
 
           tocou=0
-          if mudou '^src/lib/integrations/(tool-narrow|tool-catalog|tool-builder|panel-scope)\.ts$'; then
-            aviso "Funil de ferramentas alterado. Meca: npm run eval:tools"
+          if mudou '^src/lib/integrations/(tool-narrow|tool-catalog|tool-catalog-text|tool-builder|teto-tools|panel-scope|module-select|module-match|cobertura|facets|aprendizado|rank-resgate)\.ts$'; then
+            aviso "Funil de ferramentas alterado. Meca: npm run eval:tools -- --casos eval/cenarios.jsonl"
+            aviso "LEMBRE: eval:tools roda simTools+selecionarTopK com teto proprio de 12, NAO o buildIntegrationTools de producao (MAX_TOOLS_MODELO=6, teto de verdade, desempate, dependencias). Para o funil ponta a ponta use: npm run eval:cenarios-modelo -- --funil"
             tocou=1
           fi
-          if mudou '^src/lib/(ai/rag|content/chunk)'; then
+          # O que o modelo LE de cada resultado de ferramenta. Ficou de fora da
+          # lista ate 22/09, e foi por esse buraco que a compactacao de linhas
+          # (-47,8% por linha, mudanca de FORMA do que o modelo recebe) entrou
+          # sem nenhum aviso.
+          if mudou '^src/lib/chat/(datasets|compactar-linhas|column-select|query-tools)\.ts$'; then
+            aviso "Resultado de ferramenta que vai ao MODELO foi alterado. Meca token e truncamento: .audit/tool-result-compacto-ab.ts e .audit/tool-result-peso-morto.ts"
+            tocou=1
+          fi
+          # Portoes puros: decidem se o turno para para perguntar. Sao medidos
+          # contra turno real, nao contra o eval de ferramenta.
+          if mudou '^src/lib/chat/(periodo|entrega|portao-acao|portao-acao-confirma|procedencia)\.ts$'; then
+            aviso "Portao do chat alterado. Meca contra turno real: npm run eval:cenarios-modelo"
+            tocou=1
+          fi
+          if mudou '^src/lib/(ai/rag|ai/ontology|content/chunk)'; then
             aviso "Recuperacao ou fatiamento alterado. Meca: npx tsx --env-file=.env.local scripts/eval-rag.ts"
             tocou=1
           fi
@@ -90,7 +116,7 @@ jobs:
             aviso "Busca hibrida alterada. Meca recall E tempo: eval-rag + EXPLAIN ANALYZE"
             tocou=1
           fi
-          if mudou '^src/lib/ai/(prompts|prompt-split)'; then
+          if mudou '^src/lib/ai/(prompts|prompt-split|prompt-cascade|system-prompt|anthropic-cache)'; then
             aviso "Prompt alterado. Meca os dois eixos: eval:tools e eval-rag"
             tocou=1
           fi
