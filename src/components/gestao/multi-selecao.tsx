@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 /**
  * Seleção múltipla com busca.
@@ -109,14 +110,13 @@ export function MultiSelecao({
                 ].join(" ")}
                 title={bloqueada ? dicaDesabilitada : undefined}
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={valor.includes(o)}
                   disabled={bloqueada}
                   onChange={() => alternar(o)}
-                  className="h-4 w-4 rounded border-border-strong text-primary focus:ring-2 focus:ring-ring"
+                  label={o}
+                  className="min-w-0 flex-1"
                 />
-                <span className="min-w-0 flex-1 truncate">{o}</span>
                 {bloqueada ? (
                   <span className="shrink-0 text-2xs uppercase tracking-wide">obrigatória</span>
                 ) : null}

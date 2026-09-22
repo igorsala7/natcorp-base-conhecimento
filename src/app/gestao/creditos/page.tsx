@@ -1,4 +1,5 @@
 import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
+import { Button } from "@/components/ui/button";
 import { lerSaldo, lerAlocacoes, lerCompras } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
@@ -151,12 +152,10 @@ export default async function GestaoCreditosPage({
                 className="rounded-md border border-border-strong bg-surface px-2 py-1.5 text-ui text-text focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <button
-              type="submit"
-              className="rounded-md border border-border-strong px-3 py-1.5 text-ui text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <Button variant="secondary"
+              type="submit">
               Filtrar
-            </button>
+            </Button>
           </form>
         }
       >

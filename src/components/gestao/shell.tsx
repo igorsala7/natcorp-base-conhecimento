@@ -1,6 +1,16 @@
 import Link from "next/link";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { ReactNode } from "react";
 import { linkGestao, type SessaoGestao } from "@/lib/gestao/sessao";
+
+/**
+ * ATENÇÃO: este arquivo é SERVER component e a linha acima puxa `next/headers`
+ * por dentro de `sessao.ts`. Nenhum componente com `"use client"` pode importar
+ * daqui — o build do Turbopack quebra com "You're importing a module that
+ * depends on next/headers", e a mensagem aponta para o Pages Router, que nem
+ * existe neste projeto. Client precisa de estado vazio? Use o `EmptyState` de
+ * `@/components/ui/empty-state` direto.
+ */
 
 /**
  * Moldura da área de gestão, embutida em iFrame numa página do APEX.
@@ -184,11 +194,14 @@ export function Indicador({
   );
 }
 
-/** Estado vazio — todo lugar que lista precisa de um. */
+/**
+ * Estado vazio — todo lugar que lista precisa de um.
+ *
+ * Delega no `EmptyState` do projeto em vez de repintar a caixa tracejada. O
+ * comentário daquele arquivo diz que a caixa "era copiada em cinco telas com
+ * medidas diferentes"; aqui ela tinha sido copiada outras quatro vezes, com
+ * este componente já existindo ao lado. A API de uma linha fica como estava.
+ */
 export function Vazio({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-text-muted">
-      {children}
-    </p>
-  );
+  return <EmptyState title={String(children ?? "")} />;
 }

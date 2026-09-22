@@ -1,4 +1,5 @@
 import { fmtNumero } from "@/lib/gestao/formato";
+import { Button } from "@/components/ui/button";
 
 /**
  * Filtros do consumo — formulário GET, sem JavaScript.
@@ -137,12 +138,10 @@ export function ConsumoFiltros({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="submit"
-          className="inline-flex items-center rounded-md bg-primary px-3 py-2 text-ui font-medium text-primary-fg transition-colors duration-150 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
+        <Button
+          type="submit">
           Filtrar
-        </button>
+        </Button>
         {temFiltro ? (
           <a
             href={`${acao}?${new URLSearchParams(sessaoParams).toString()}`}

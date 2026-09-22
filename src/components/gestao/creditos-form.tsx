@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import { comprarCreditos, salvarAlocacao, removerAlocacao } from "@/app/gestao/actions";
 import { fmtCreditos, fmtUsd, fmtBrl, nomeDoPainel } from "@/lib/gestao/formato";
 import type { Alocacao } from "@/lib/gestao/dados";
@@ -12,10 +14,6 @@ import type { Alocacao } from "@/lib/gestao/dados";
  */
 type Sessao = Record<string, string>;
 
-const botao =
-  "inline-flex items-center justify-center rounded-md px-3 py-2 text-ui font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60";
-const primario = `${botao} bg-primary text-primary-fg hover:bg-primary-hover`;
-const secundario = `${botao} border border-border-strong bg-surface text-text hover:bg-surface-2`;
 const campo =
   "w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-ring";
 const rotulo = "mb-1 block text-xs font-medium text-text-muted";
@@ -69,9 +67,9 @@ export function ComprarCreditos({
         <p className="mt-1 text-sm text-text">
           Já estão disponíveis para uso e serão cobrados na próxima fatura.
         </p>
-        <button type="button" className={`${secundario} mt-3`} onClick={() => setFeito(false)}>
+        <Button className="mt-3" variant="secondary" type="button" onClick={() => setFeito(false)}>
           Adquirir mais
-        </button>
+        </Button>
       </div>
     );
   }
@@ -140,22 +138,20 @@ export function ComprarCreditos({
 
         {confirmando ? (
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className={primario} onClick={enviar} disabled={pendente}>
+            <Button type="button" onClick={enviar} disabled={pendente}>
               {pendente ? "Confirmando…" : `Confirmar ${fmtCreditos(creditos)} crédito(s)`}
-            </button>
-            <button
+            </Button>
+            <Button variant="secondary"
               type="button"
-              className={secundario}
               onClick={() => setConfirmando(false)}
-              disabled={pendente}
-            >
+              disabled={pendente}>
               Cancelar
-            </button>
+            </Button>
           </div>
         ) : (
-          <button type="button" className={primario} onClick={() => setConfirmando(true)}>
+          <Button type="button" onClick={() => setConfirmando(true)}>
             Adquirir créditos
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -276,9 +272,9 @@ export function DistribuirCreditos({
           />
         </div>
 
-        <button type="button" className={primario} onClick={salvar} disabled={pendente}>
+        <Button type="button" onClick={salvar} disabled={pendente}>
           {pendente ? "Salvando…" : "Salvar"}
-        </button>
+        </Button>
       </div>
 
       {erro ? (
@@ -297,9 +293,7 @@ export function DistribuirCreditos({
       ) : null}
 
       {alocacoes.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-text-muted">
-          Nenhuma distribuição cadastrada. Sem distribuição, todos consomem do saldo geral da base.
-        </p>
+        <EmptyState title="Nenhuma distribuição cadastrada. Sem distribuição, todos consomem do saldo geral da base." />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

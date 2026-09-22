@@ -1,4 +1,5 @@
 import { hasPermission } from "@/lib/auth/permissions";
+import { Vazio } from "@/components/gestao/shell";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageShell } from "@/components/ui/page-shell";
 import { SemPermissao } from "@/components/ui/sem-permissao";
@@ -77,9 +78,7 @@ export default async function AdminGestaoPage() {
       largura="wide"
     >
       {opcoes.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-text-muted">
-          Nenhuma base cadastrada. Cadastre um cliente em Integrações para começar.
-        </p>
+        <Vazio>Nenhuma base cadastrada. Cadastre um cliente em Integrações para começar.</Vazio>
       ) : (
         <GestaoFrame bases={opcoes} basePath={basePath} planos={planos} />
       )}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import { salvarPlano, removerPlano } from "./plano-actions";
 
 /**
@@ -27,8 +29,6 @@ export type PlanoLinha = {
 const campo =
   "w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-ring";
 const rotulo = "mb-1 block text-xs font-medium text-text-muted";
-const botao =
-  "inline-flex items-center justify-center rounded-md px-3 py-2 text-ui font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60";
 
 const N = new Intl.NumberFormat("pt-BR");
 
@@ -194,14 +194,13 @@ export function PlanoForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <Button
           type="button"
-          className={`${botao} bg-primary text-primary-fg hover:bg-primary-hover`}
           onClick={salvar}
           disabled={pendente}
         >
           {pendente ? "Salvando…" : "Salvar plano"}
-        </button>
+        </Button>
         {erro ? <p role="alert" className="text-sm text-danger">{erro}</p> : null}
         {ok ? <p className="text-sm text-success">{ok}</p> : null}
       </div>
@@ -257,9 +256,7 @@ export function PlanoForm({
           </table>
         </div>
       ) : (
-        <p className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          Nenhum plano cadastrado. Sem plano, o cliente usa o assistente sem controle de créditos.
-        </p>
+        <EmptyState title="Nenhum plano cadastrado. Sem plano, o cliente usa o assistente sem controle de créditos." />
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import { salvarRegraAcesso, removerRegraAcesso } from "@/app/gestao/actions";
 import { nomeDoPainel, fmtDataHora } from "@/lib/gestao/formato";
 import { MultiSelecao } from "./multi-selecao";
@@ -13,9 +15,6 @@ import type { DadosAcessos, RegraListada } from "@/lib/gestao/acessos-dados";
  */
 type Sessao = Record<string, string>;
 
-const botao =
-  "inline-flex items-center justify-center rounded-md px-3 py-2 text-ui font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60";
-const primario = `${botao} bg-primary text-primary-fg hover:bg-primary-hover`;
 const campo =
   "w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-ring";
 const rotulo = "mb-1 block text-xs font-medium text-text-muted";
@@ -185,7 +184,7 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
             ) : null}
           </div>
         ) : (
-          <p className="self-start rounded-md border border-dashed border-border px-4 py-6 text-sm text-text-muted">
+          <p className="self-start rounded-md bg-surface-2/60 px-4 py-3 text-sm text-text-muted">
             A regra vale para todos os usuários deste cliente.
           </p>
         )}
@@ -241,9 +240,9 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className={primario} onClick={salvar} disabled={pendente}>
+        <Button type="button" onClick={salvar} disabled={pendente}>
           {pendente ? "Salvando…" : "Adicionar regra"}
-        </button>
+        </Button>
         {erro ? (
           <p role="alert" className="text-sm text-danger">
             {erro}
@@ -268,10 +267,7 @@ function ListaDeRegras({
 }) {
   if (regras.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-text-muted">
-        Nenhuma regra cadastrada. O acesso segue apenas as permissões que cada usuário já tem no
-        sistema.
-      </p>
+      <EmptyState title="Nenhuma regra cadastrada. O acesso segue apenas as permissões que cada usuário já tem no sistema." />
     );
   }
 
