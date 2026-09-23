@@ -12,6 +12,52 @@ import type { NextConfig } from "next";
  */
 const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/+$/, "");
 
+/**
+ * OS DOIS HOSTS DO SITE — `www` e sem `www` — para a checagem anti-CSRF.
+ *
+ * O Next recusa uma Server Action quando o `Origin` do navegador não bate com
+ * o `x-forwarded-host` que o proxy manda, a não ser que o Origin esteja nesta
+ * lista. Até 23/09 ela tinha só o host de `NEXT_PUBLIC_SITE_URL`, que é
+ * `www.natcorpbr.com.br`.
+ *
+ * ── O que isso custou ────────────────────────────────────────────────
+ * O iFrame do APEX foi movido de `www.natcorpbr.com.br` para
+ * `natcorpbr.com.br` na semana de 16/09 (com `www` o navegador recusava o
+ * framing). A partir dali TODOS os botões da área de gestão pararam — comprar
+ * crédito, salvar regra de acesso, criar categoria de prompt — porque o Origin
+ * passou a ser o host sem `www`, que não estava na lista. A falha não diz isso
+ * a ninguém: o cliente vê "A aplicação não conseguiu carregar" e um digest.
+ *
+ * Medido em 23/09, reproduzindo os cabeçalhos do proxy contra o build local:
+ *
+ *   Origin sem-www + x-forwarded-host sem-www  → 200
+ *   Origin sem-www + x-forwarded-host com-www  → 500
+ *   Origin sem-www + sem x-forwarded-host      → 500
+ *   Origin com-www + x-forwarded-host sem-www  → 200  (só porque www estava na lista)
+ *
+ * E a mensagem que o servidor registra, e que produção omite:
+ *   "`x-forwarded-host` header with value `localhost:3008` does not match
+ *    `origin` header with value `natcorpbr.com.br`. Aborting the action."
+ *
+ * ── Por que os DOIS, e não trocar a variável ─────────────────────────
+ * `NEXT_PUBLIC_SITE_URL` é a URL canônica: alimenta sitemap, e-mail e OG.
+ * Trocá-la para resolver um problema de allowlist mudaria o canônico de
+ * tabela junto, o que é decisão de produto. Para o navegador, `www` e apex
+ * são a mesma origem; aceitar as duas é o que descreve a realidade.
+ */
+function hostsDoSite(): string[] {
+  const url = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!url) return [];
+  let host: string;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // URL malformada na env não pode derrubar o build inteiro.
+    return [];
+  }
+  return host.startsWith("www.") ? [host, host.slice(4)] : [host, `www.${host}`];
+}
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   ...(basePath ? { basePath } : {}),
@@ -49,11 +95,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       // Em produção atrás de proxy, o Origin é o domínio público. Sem ele na lista,
       // o Next recusa as Server Actions por CSRF e os botões do admin "não fazem nada".
-      allowedOrigins: [
-        "localhost:3008",
-        "*.trycloudflare.com",
-        ...(process.env.NEXT_PUBLIC_SITE_URL ? [new URL(process.env.NEXT_PUBLIC_SITE_URL).host] : []),
-      ],
+      allowedOrigins: ["localhost:3008", "*.trycloudflare.com", ...hostsDoSite()],
       /**
        * O padrão é 1 MB, e ele derrubava a ingestão do APEX.
        *

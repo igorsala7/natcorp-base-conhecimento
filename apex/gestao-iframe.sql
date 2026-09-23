@@ -60,7 +60,11 @@ declare
   -- +-------------------------------------------------------------------------+
   c_key    constant varchar2(64)  := '<COLE AQUI A CHAVE DESTA BASE>';
   c_widget constant varchar2(80)  := 'pk_live_77c1d31cadd25d2768ac7c93167023bf';  -- Operador
-  c_site   constant varchar2(200) := 'https://www.natcorpbr.com.br/natcorp/ia';
+  -- SEM `www`, e isso nao e detalhe: com `www` o navegador recusa o framing
+  -- ("refused to connect") porque o APEX roda em natcorpbr.com.br e as duas
+  -- formas sao ORIGENS DIFERENTES. Corrigido na tela em 16/09; aqui ficou para
+  -- tras ate 23/09, quando o mesmo desencontro derrubou as Server Actions.
+  c_site   constant varchar2(200) := 'https://natcorpbr.com.br/natcorp/ia';
 
   -- Igual ao bloco do widget: use o mesmo valor de
   -- Shared Components > Security > Session Management > Maximum Session Idle Time.
