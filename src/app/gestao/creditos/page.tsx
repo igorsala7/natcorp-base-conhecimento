@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { lerSaldo, lerAlocacoes, lerCompras } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { USD_POR_CREDITO_EXTRA, CREDITOS_POR_LOTE } from "@/lib/gestao/creditos";
-import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
+import { ShellGestao, RecusaGestao, Bloco, Vazio, FaixaResumo } from "@/components/gestao/shell";
 import { ComprarCreditos, DistribuirCreditos } from "@/components/gestao/creditos-form";
 import {
   fmtCreditos,
@@ -64,7 +64,11 @@ export default async function GestaoCreditosPage({
   */
   const usdPorCredito = saldo?.usd_por_credito ?? null;
   const semPlano = !saldo?.tem_plano;
-  const estourou = !semPlano && restante < 0;
+  const estourou = !semPlano && restante <= 0;
+  // "Perto do fim" é o mesmo limiar que dispara o aviso no painel e na faixa
+  // de 10% da regra de crédito — um segundo número aqui faria a tela avisar em
+  // momento diferente do resto do produto.
+  const perto = !semPlano && !estourou && disponiveis > 0 && restante / disponiveis <= 0.1;
 
   const sessaoParams = paramsDaSessao(sessao);
   const cicloIni = saldo ? soData(new Date(saldo.ciclo_inicio)) : "";
@@ -79,38 +83,58 @@ export default async function GestaoCreditosPage({
         saldo ? `Ciclo atual: ${fmtPeriodo(saldo.ciclo_inicio, saldo.ciclo_fim)}.` : undefined
       }
     >
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Indicador
-          rotulo="Plano do ciclo"
-          valor={fmtCreditos(contratados)}
-          detalhe="Créditos contratados"
-        />
-        <Indicador
-          rotulo="Adicionais"
-          valor={fmtCreditos(extra)}
-          detalhe={extra > 0 ? "Cobrados na próxima fatura" : "Nenhum neste ciclo"}
-        />
-        <Indicador
-          rotulo="Consumido"
-          valor={fmtCreditos(consumidos)}
-          detalhe={disponiveis > 0 ? fmtPercent(consumidos, disponiveis) : undefined}
-          tom={estourou ? "ruim" : "neutro"}
-        />
-        <Indicador
-          rotulo="Saldo"
-          valor={fmtCreditos(restante)}
-          tom={restante <= 0 ? "ruim" : restante / Math.max(disponiveis, 1) < 0.2 ? "atencao" : "bom"}
-        />
-      </div>
-
+      {/*
+        UMA RESPOSTA, NÃO QUATRO NÚMEROS.
+        Aqui havia quatro cartões de peso igual e, logo ABAIXO deles, um aviso
+        azul explicando por que três estavam zerados. Pior: o saldo zero
+        aparecia em VERMELHO enquanto o aviso dizia que estava tudo bem — dois
+        sinais opostos sobre o mesmo fato, na mesma dobra.
+        A faixa diz o estado primeiro e o vermelho só aparece quando é para
+        agir.
+      */}
       {semPlano ? (
-        <div className="mb-6 rounded-lg border border-info-line bg-info-soft px-4 py-3">
-          <p className="text-sm text-info">
-            Ainda não há plano cadastrado para este cliente. O assistente continua funcionando
-            normalmente — o controle de créditos só passa a valer quando existe um plano.
-          </p>
-        </div>
-      ) : null}
+        <FaixaResumo
+          frase={
+            <>
+              Este cliente <strong>ainda não tem plano cadastrado</strong>. O assistente funciona
+              normalmente e o consumo segue registrado — o controle de créditos passa a valer
+              quando houver contrato. Já foram consumidos {fmtCreditos(consumidos)} crédito(s)
+              neste ciclo.
+            </>
+          }
+        />
+      ) : (
+        <FaixaResumo
+          numero={fmtCreditos(restante)}
+          unidade="créditos restantes"
+          tom={estourou ? "ruim" : perto ? "atencao" : "bom"}
+          frase={
+            estourou ? (
+              <>
+                <strong>Os créditos deste ciclo acabaram.</strong> O assistente continua
+                respondendo pela documentação, mas deixou de consultar dados. Adquira adicionais
+                abaixo — eles não vencem e ficam disponíveis na hora.
+              </>
+            ) : perto ? (
+              <>
+                de {fmtCreditos(disponiveis)} disponíveis — {fmtPercent(consumidos, disponiveis)}{" "}
+                já foram usados neste ciclo. Ao zerar, o assistente deixa de consultar dados.
+              </>
+            ) : (
+              <>
+                de {fmtCreditos(disponiveis)} disponíveis neste ciclo, com{" "}
+                {fmtPercent(consumidos, disponiveis)} já consumidos. O contratado renova na
+                virada; o adicional acumula.
+              </>
+            )
+          }
+          apoio={[
+            { rotulo: "Contratado", valor: fmtCreditos(contratados) },
+            { rotulo: "Adicionais", valor: fmtCreditos(extra) },
+            { rotulo: "Consumido", valor: fmtCreditos(consumidos) },
+          ]}
+        />
+      )}
 
       <Bloco
         titulo="Adquirir créditos adicionais"

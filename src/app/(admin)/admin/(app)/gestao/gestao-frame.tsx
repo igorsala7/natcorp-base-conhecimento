@@ -30,12 +30,31 @@ export type BaseOpcao = {
   temChave: boolean;
 };
 
-const ABAS = [
-  { id: "", rotulo: "Consumo" },
-  { id: "/creditos", rotulo: "Créditos" },
-  { id: "/acessos", rotulo: "Acessos" },
-  { id: "/conversas", rotulo: "Conversas" },
+/**
+ * DUAS COISAS DIFERENTES, NÃO UMA PILHA.
+ *
+ * A tela empilhava, de cima para baixo: seletor de cliente, um segundo jogo de
+ * abas (Consumo/Créditos/Acessos/Conversas), aviso de chave, bloco de
+ * instalação, formulário de plano e, por último, o iFrame — que cresce até
+ * 4.000px. Quem entrava para VER o cliente rolava por dois formulários antes
+ * de chegar nele; quem entrava para CONFIGURAR via a tela do cliente no
+ * caminho.
+ *
+ * São duas tarefas com públicos de atenção diferentes, e agora são duas
+ * seções: "Ver como o cliente" e "Configurar".
+ *
+ * ── As abas de fora foram embora, e isso conserta um defeito ──────────
+ * Elas duplicavam a navegação que a página DE DENTRO já tem, em outro estilo,
+ * a três centímetros de distância. E a cópia envelheceu: a aba "Prompts",
+ * criada em 23/09, entrou só na de dentro — de fora, o recorte de navegação
+ * mentia sobre o que existe. Uma navegação só não tem como divergir.
+ */
+const SECOES = [
+  { id: "cliente", rotulo: "Ver como o cliente" },
+  { id: "config", rotulo: "Configurar" },
 ] as const;
+
+type Secao = (typeof SECOES)[number]["id"];
 
 export function GestaoFrame({
   bases,
@@ -48,13 +67,15 @@ export function GestaoFrame({
   planos: Record<string, PlanoLinha[]>;
 }) {
   const [base, setBase] = useState(bases[0]?.base_code ?? "");
-  const [aba, setAba] = useState<string>("");
+  const [secao, setSecao] = useState<Secao>("cliente");
   const [altura, setAltura] = useState(900);
   const ref = useRef<HTMLIFrameElement>(null);
 
+  // O iFrame abre sempre na primeira tela; daí em diante quem navega é a
+  // própria página de dentro, com os links dela.
   const src = useMemo(
-    () => `${basePath}/gestao${aba}?suporte=1&base=${encodeURIComponent(base)}`,
-    [basePath, aba, base],
+    () => `${basePath}/gestao?suporte=1&base=${encodeURIComponent(base)}`,
+    [basePath, base],
   );
 
   const escolhida = bases.find((b) => b.base_code === base);
@@ -101,12 +122,9 @@ export function GestaoFrame({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4">
-        <div className="min-w-[240px]">
-          <label
-            className="mb-1 block text-xs font-medium text-text-muted"
-            htmlFor="gestao-base"
-          >
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-border bg-surface p-4">
+        <div className="min-w-[260px] flex-1">
+          <label className="mb-1 block text-xs font-medium text-text-muted" htmlFor="gestao-base">
             Cliente
           </label>
           <select
@@ -123,75 +141,90 @@ export function GestaoFrame({
           </select>
         </div>
 
-        <div className="flex flex-wrap gap-1">
-          {ABAS.map((a) => (
+        <div
+          role="tablist"
+          aria-label="O que fazer com este cliente"
+          className="flex flex-none gap-1 rounded-lg bg-surface-2 p-1"
+        >
+          {SECOES.map((sec) => (
             <button
-              key={a.id}
+              key={sec.id}
               type="button"
-              onClick={() => setAba(a.id)}
-              aria-pressed={aba === a.id}
+              role="tab"
+              aria-selected={secao === sec.id}
+              onClick={() => setSecao(sec.id)}
               className={[
-                "rounded-md px-3 py-2 text-ui font-medium transition-colors duration-150",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                aba === a.id
-                  ? "bg-primary text-primary-fg"
-                  : "border border-border-strong text-text hover:bg-surface-2",
+                "rounded-md px-3 py-1.5 text-ui font-medium transition-colors duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                secao === sec.id
+                  ? "bg-surface text-text shadow-sm"
+                  : "text-text-muted hover:text-text",
               ].join(" ")}
             >
-              {a.rotulo}
+              {sec.rotulo}
             </button>
           ))}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <a
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-md border border-border-strong px-3 py-2 text-ui text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Abrir em nova aba
-          </a>
-        </div>
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          className="flex-none rounded-md border border-border-strong px-3 py-2 text-ui text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Abrir em nova aba
+        </a>
       </div>
 
+      {/* O aviso de chave vale nas DUAS seções: sem ela, o que se vê aqui é
+          exatamente o que o cliente NÃO consegue ver. */}
       {escolhida && !escolhida.temChave ? (
         <div className="rounded-lg border border-warning-line bg-warning-soft px-4 py-3">
           <p className="text-sm text-warning">
-            <strong>{escolhida.name}</strong> ainda não tem chave própria de rastreio. Você consegue
-            ver a gestão por aqui, mas a página <em>dentro do APEX</em> deste cliente não vai abrir
-            até a chave ser emitida.
+            <strong>{escolhida.name}</strong> ainda não tem chave própria de rastreio. Você
+            consegue ver a gestão por aqui, mas a página <em>dentro do APEX</em> deste cliente não
+            vai abrir até a chave ser emitida.
           </p>
           <p className="mt-1 text-sm text-text">
             Emita com{" "}
             <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs">
               npm run gestao:chave:prod -- {escolhida.base_code}
             </code>{" "}
-            e cole o valor no bloco PL/SQL daquele cliente.
+            e depois volte em <strong>Configurar</strong> para copiar o bloco de instalação.
           </p>
         </div>
       ) : null}
 
-      {escolhida?.temChave ? (
-        <InstalacaoApex baseCode={escolhida.base_code} baseNome={escolhida.name} />
-      ) : null}
-
-      {escolhida ? (
-        <PlanoForm
-          key={escolhida.base_code}
-          baseCode={escolhida.base_code}
-          baseNome={escolhida.name}
-          planos={planos[escolhida.base_code] ?? []}
-        />
-      ) : null}
-
-      <iframe
-        ref={ref}
-        src={src}
-        title={`Gestão de ${escolhida?.name ?? base}`}
-        className="w-full rounded-lg border border-border bg-surface"
-        style={{ height: altura }}
-      />
+      {secao === "config" ? (
+        <>
+          {escolhida?.temChave ? (
+            <InstalacaoApex baseCode={escolhida.base_code} baseNome={escolhida.name} />
+          ) : null}
+          {escolhida ? (
+            <PlanoForm
+              key={escolhida.base_code}
+              baseCode={escolhida.base_code}
+              baseNome={escolhida.name}
+              planos={planos[escolhida.base_code] ?? []}
+            />
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-text-muted">
+            Esta é a tela exata que {escolhida?.name ?? "o cliente"} vê no APEX, com a navegação
+            dela. Você entra como <strong>suporte</strong> — cada abertura fica registrada, e
+            nenhuma ação sai em nome de um usuário do cliente.
+          </p>
+          <iframe
+            ref={ref}
+            src={src}
+            title={`Gestão de ${escolhida?.name ?? base}`}
+            className="w-full rounded-lg border border-border bg-surface"
+            style={{ height: altura }}
+          />
+        </>
+      )}
     </div>
   );
 }

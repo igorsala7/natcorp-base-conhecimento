@@ -209,3 +209,89 @@ export function Indicador({
 export function Vazio({ children }: { children: ReactNode }) {
   return <EmptyState title={String(children ?? "")} />;
 }
+
+/**
+ * A FAIXA DE LEITURA — a resposta da tela, em uma frase e um número.
+ *
+ * ── O defeito que ela corrige ─────────────────────────────────────────
+ * As telas da gestão eram uma pilha de caixas brancas de peso igual: filtro,
+ * quatro indicadores, aviso, cinco tabelas. Nada dizia por onde começar, e a
+ * pergunta que leva alguém a abrir a tela ("sobrou crédito?", "quanto gastei?")
+ * ficava para o leitor montar somando cartões. Pior: quando não há plano, três
+ * dos quatro indicadores mostram zero ou travessão e o único número grande da
+ * tela é o consumo — que sozinho não responde nada.
+ *
+ * A faixa responde primeiro, em português, e só depois vêm os detalhes. Quem
+ * abre para conferir uma coisa lê uma linha e fecha; quem veio investigar
+ * continua descendo.
+ *
+ * ── Por que não é mais um cartão ──────────────────────────────────────
+ * Cartão ao lado de cartão vira lista, e lista não tem primeiro item. A faixa
+ * ocupa a largura inteira e tem fundo próprio: é a única coisa na página com
+ * esse peso, e é isso que a torna o ponto de entrada em vez de mais um item.
+ *
+ * O público aqui é operador de RH dentro do ERP, não analista. Um número
+ * grande sem frase é exatamente o que ele não sabe interpretar.
+ */
+export function FaixaResumo({
+  frase,
+  numero,
+  unidade,
+  tom = "neutro",
+  apoio,
+}: {
+  /** A frase que responde a pergunta da tela. Sempre completa, sempre afirmativa. */
+  frase: ReactNode;
+  /** O número que a frase destaca. Omita quando a resposta for só texto. */
+  numero?: string;
+  unidade?: string;
+  tom?: "neutro" | "bom" | "atencao" | "ruim";
+  /** Pares rótulo/valor de apoio, na mesma linha. Três, no máximo — além disso vira tabela. */
+  apoio?: { rotulo: string; valor: string }[];
+}) {
+  const borda =
+    tom === "ruim"
+      ? "border-danger-line bg-danger-soft"
+      : tom === "atencao"
+        ? "border-warning-line bg-warning-soft"
+        : "border-border bg-surface-2";
+  const tinta =
+    tom === "ruim"
+      ? "text-danger"
+      : tom === "atencao"
+        ? "text-warning"
+        : tom === "bom"
+          ? "text-success"
+          : "text-primary";
+
+  return (
+    <section className={`mb-6 rounded-lg border px-5 py-4 ${borda}`}>
+      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+        <div className="min-w-0 flex-1">
+          {numero ? (
+            <p className={`text-3xl font-semibold leading-none tabular-nums ${tinta}`}>
+              {numero}
+              {unidade ? (
+                <span className="ml-1.5 text-base font-medium text-text-muted">{unidade}</span>
+              ) : null}
+            </p>
+          ) : null}
+          <p className={`max-w-prose text-sm text-text ${numero ? "mt-2" : ""}`}>{frase}</p>
+        </div>
+
+        {apoio?.length ? (
+          <dl className="flex flex-none flex-wrap gap-x-8 gap-y-2">
+            {apoio.map((a) => (
+              <div key={a.rotulo}>
+                <dt className="text-2xs font-medium uppercase tracking-wide text-text-muted">
+                  {a.rotulo}
+                </dt>
+                <dd className="mt-0.5 text-base font-semibold tabular-nums text-text">{a.valor}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </div>
+    </section>
+  );
+}

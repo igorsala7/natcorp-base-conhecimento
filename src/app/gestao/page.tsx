@@ -2,7 +2,8 @@ import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib
 import { lerSaldo, lerConsumo, lerFacetas } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { CREDITOS_POR_LOTE } from "@/lib/gestao/creditos";
-import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
+import { ShellGestao, RecusaGestao, Bloco, FaixaResumo } from "@/components/gestao/shell";
+import { Facetas } from "@/components/gestao/facetas";
 import { ConsumoFiltros } from "@/components/gestao/consumo-filtros";
 import {
   fmtCreditos,
@@ -11,7 +12,6 @@ import {
   fmtPercent,
   fmtNumero,
   fmtPeriodo,
-  nomeDoPainel,
   soData,
 } from "@/lib/gestao/formato";
 
@@ -139,45 +139,86 @@ export default async function GestaoConsumoPage({
         </div>
       ) : null}
 
-      <ConsumoFiltros
-        acao="/gestao"
-        sessaoParams={paramsDaSessao(sessao)}
-        opcoes={facetas}
-        atuais={filtros}
-        de={deTxt}
-        ate={ateTxt}
-        placeholderDe={soData(cicloIni)}
-        placeholderAte={soData(new Date(cicloFim.getTime() - 86400000))}
+      {/*
+        A RESPOSTA PRIMEIRO, os detalhes depois.
+        Antes a tela abria com sete controles de filtro e quatro cartões de
+        peso igual — três deles em branco quando não há plano. Quem abre isto
+        quer saber "quanto gastei" e "sobrou?"; montar a resposta somando
+        cartões era trabalho do leitor.
+      */}
+      <FaixaResumo
+        numero={fmtCreditos(consumidos)}
+        unidade="créditos"
+        frase={
+          semPlano ? (
+            <>
+              consumidos {temFiltro ? "no recorte filtrado" : "neste ciclo"}. Este cliente ainda
+              não tem plano cadastrado — o assistente funciona normalmente e o controle de
+              créditos passa a valer quando houver contrato.
+            </>
+          ) : estourou ? (
+            <>
+              consumidos de {fmtCreditos(disponiveis)} contratados. <strong>Os créditos
+              acabaram</strong> — adquira mais na aba Créditos para o assistente voltar a
+              consultar dados.
+            </>
+          ) : (
+            <>
+              consumidos de {fmtCreditos(disponiveis)} contratados neste ciclo, ou{" "}
+              {fmtPercent(consumidos, disponiveis)} do total. Restam{" "}
+              <strong>{fmtCreditos(restante)}</strong>.
+            </>
+          )
+        }
+        tom={estourou ? "ruim" : perto ? "atencao" : "neutro"}
+        apoio={[
+          ...(semPlano
+            ? []
+            : [
+                { rotulo: "Contratado", valor: fmtCreditos(saldo?.creditos_contratados ?? 0) },
+                { rotulo: "Adicionais", valor: fmtCreditos(saldo?.creditos_extra ?? 0) },
+              ]),
+          {
+            rotulo: temFiltro ? "Conversas no recorte" : "Conversas no ciclo",
+            valor: fmtNumero(consumo.reduce((s, l) => s + Number(l.conversas), 0)),
+          },
+        ]}
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Indicador
-          rotulo="Contratado"
-          valor={semPlano ? "—" : fmtCreditos(disponiveis)}
-          detalhe={
-            semPlano
-              ? "Nenhum plano cadastrado"
-              : `${fmtCreditos(saldo?.creditos_contratados ?? 0)} do plano + ${fmtCreditos(saldo?.creditos_extra ?? 0)} adicionais`
-          }
-        />
-        <Indicador
-          rotulo="Consumido no ciclo"
-          valor={fmtCreditos(consumidos)}
-          detalhe={semPlano ? undefined : `${fmtPercent(consumidos, disponiveis)} do contratado`}
-          tom={estourou ? "ruim" : perto ? "atencao" : "neutro"}
-        />
-        <Indicador
-          rotulo="Saldo"
-          valor={semPlano ? "—" : fmtCreditos(restante)}
-          detalhe={estourou ? "Créditos esgotados" : undefined}
-          tom={estourou ? "ruim" : perto ? "atencao" : "bom"}
-        />
-        <Indicador
-          rotulo="Conversas no período"
-          valor={fmtNumero(consumo.reduce((s, l) => s + Number(l.conversas), 0))}
-          detalhe={temFiltro ? "Com os filtros aplicados" : "No ciclo atual"}
-        />
-      </div>
+      {/*
+        O FILTRO É FERRAMENTA, NÃO CONTEÚDO — então fica recolhido.
+        Sete campos abertos ocupavam a primeira dobra inteira, acima dos
+        números que eles modificam. Recolhido, abre já aberto quando HÁ filtro
+        aplicado: aí ele deixou de ser ferramenta e virou contexto do que se
+        está lendo.
+      */}
+      <details className="group mb-6 rounded-lg border border-border bg-surface" open={temFiltro}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-text hover:bg-surface-2">
+          <span>
+            Filtrar período e público
+            {temFiltro ? (
+              <span className="ml-2 rounded-full bg-brand-purple-100 px-2 py-0.5 text-2xs font-semibold text-brand-purple-800">
+                filtro aplicado
+              </span>
+            ) : null}
+          </span>
+          <span aria-hidden="true" className="text-text-muted transition-transform duration-150 group-open:rotate-180">
+            &#9662;
+          </span>
+        </summary>
+        <div className="border-t border-border p-4">
+          <ConsumoFiltros
+            acao="/gestao"
+            sessaoParams={paramsDaSessao(sessao)}
+            opcoes={facetas}
+            atuais={filtros}
+            de={deTxt}
+            ate={ateTxt}
+            placeholderDe={soData(cicloIni)}
+            placeholderAte={soData(new Date(cicloFim.getTime() - 86400000))}
+          />
+        </div>
+      </details>
 
       {estourou ? (
         <div className="mb-6 rounded-lg border border-danger-line bg-danger-soft px-4 py-3">
@@ -205,16 +246,16 @@ export default async function GestaoConsumoPage({
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <TabelaResumo titulo="Por painel" linhas={porPainel} total={totalDasTabelas} rotularPainel />
-        <TabelaResumo titulo="Por perfil" linhas={porPerfil} total={totalDasTabelas} />
-        <TabelaResumo titulo="Por usuário" linhas={porUsuario} total={totalDasTabelas} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <TabelaResumo titulo="Por empresa" linhas={porEmpresa} total={totalDasTabelas} />
-        <TabelaResumo titulo="Por matrícula" linhas={porMatricula} total={totalDasTabelas} />
-      </div>
+      <Facetas
+        totalGeral={totalDasTabelas}
+        facetas={[
+          { id: "painel", rotulo: "Painel", coluna: "Painel", linhas: porPainel, traduzirPainel: true },
+          { id: "perfil", rotulo: "Perfil", coluna: "Perfil", linhas: porPerfil },
+          { id: "usuario", rotulo: "Usuário", coluna: "Usuário", linhas: porUsuario },
+          { id: "empresa", rotulo: "Empresa", coluna: "Empresa", linhas: porEmpresa },
+          { id: "matricula", rotulo: "Matrícula", coluna: "Matrícula", linhas: porMatricula },
+        ]}
+      />
 
       {creditosNaoAtribuidos > 0 ? (
         <Bloco
@@ -298,57 +339,3 @@ function agrupar<T extends { creditos: number; chamadas: number }>(
   return [...mapa.values()].sort((a, b) => b.creditos - a.creditos);
 }
 
-function TabelaResumo({
-  titulo,
-  linhas,
-  total,
-  rotularPainel,
-}: {
-  titulo: string;
-  linhas: Linha[];
-  total: number;
-  rotularPainel?: boolean;
-}) {
-  return (
-    <Bloco titulo={titulo}>
-      {linhas.length === 0 ? (
-        <Vazio>Nenhum consumo no período.</Vazio>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <caption className="sr-only">{titulo}</caption>
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-text-muted">
-                <th scope="col" className="py-2 pr-2 font-medium">
-                  {rotularPainel ? "Painel" : "Nome"}
-                </th>
-                <th scope="col" className="py-2 pr-2 text-right font-medium">
-                  Créditos
-                </th>
-                <th scope="col" className="py-2 text-right font-medium">
-                  %
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {linhas.slice(0, 12).map((l) => (
-                <tr key={l.chave} className="border-b border-border/60 last:border-0">
-                  <td className="py-2 pr-2">{rotularPainel ? nomeDoPainel(l.chave) : l.chave}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{fmtCreditos(l.creditos)}</td>
-                  <td className="py-2 text-right tabular-nums text-text-muted">
-                    {fmtPercent(l.creditos, total)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {linhas.length > 12 ? (
-            <p className="mt-2 text-xs text-text-muted">
-              e mais {linhas.length - 12} — os 12 maiores estão listados.
-            </p>
-          ) : null}
-        </div>
-      )}
-    </Bloco>
-  );
-}
