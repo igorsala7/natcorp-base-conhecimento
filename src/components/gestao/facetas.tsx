@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Segmented } from "@/components/ui/segmented";
 import { fmtCreditos, fmtPercent, nomeDoPainel } from "@/lib/gestao/formato";
 
 export type LinhaFaceta = { chave: string; creditos: number; chamadas: number };
@@ -71,37 +72,22 @@ export function Facetas({ facetas, totalGeral }: { facetas: Faceta[]; totalGeral
             O mesmo consumo, visto por um eixo de cada vez.
           </p>
         </div>
-        <div
-          role="tablist"
-          aria-label="Recorte do consumo"
-          className="flex flex-wrap gap-1 rounded-lg bg-surface-2 p-1"
-        >
-          {facetas.map((f) => {
-            const vazia = f.linhas.length === 0;
-            return (
-              <button
-                key={f.id}
-                type="button"
-                role="tab"
-                aria-selected={f.id === atual.id}
-                onClick={() => setAtiva(f.id)}
-                className={[
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-150",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  f.id === atual.id
-                    ? "bg-surface text-text shadow-sm"
-                    : vazia
-                      ? "text-text-muted/60 hover:text-text-muted"
-                      : "text-text-muted hover:text-text",
-                ].join(" ")}
-              >
-                {f.rotulo}
-                {/* Zero à vista evita o clique que não leva a lugar nenhum. */}
-                {vazia ? <span className="ml-1 opacity-70">0</span> : null}
-              </button>
-            );
-          })}
-        </div>
+        {/*
+          `Segmented` do design system, não um controle à mão. Escrevi este
+          mesmo padrão três vezes em 23/09 sem procurar se já existia — a
+          catraca de UI acusou os botões crus e o primitivo estava lá desde
+          sempre. O "0" no rótulo continua: evita o clique que não leva a
+          lugar nenhum.
+        */}
+        <Segmented
+          value={atual.id}
+          onChange={setAtiva}
+          options={facetas.map((f) => ({
+            value: f.id,
+            label: f.linhas.length === 0 ? `${f.rotulo} 0` : f.rotulo,
+            title: f.linhas.length === 0 ? "Nenhum consumo neste recorte" : undefined,
+          }))}
+        />
       </header>
 
       <div className="p-4">

@@ -10,6 +10,7 @@ import {
   excluirCategoriaPrompt,
 } from "@/app/gestao/prompts/actions";
 import { resumoElegibilidade, avisoDeAlcance } from "@/lib/prompts/elegibilidade";
+import { Segmented } from "@/components/ui/segmented";
 import { MultiSelecao } from "./multi-selecao";
 
 type Sessao = Record<string, string>;
@@ -190,36 +191,19 @@ export function PromptsSugeridos({
   return (
     <div className="space-y-5">
       {/* Escopo: de quem é o catálogo que estou vendo. */}
-      <div role="tablist" aria-label="Catálogo" className="flex flex-wrap gap-2">
-        {(
-          [
-            ["base", `De ${baseNome}`, doCliente.length],
-            ["global", "Da Natcorp", daNatcorp.length],
-          ] as const
-        ).map(([id, texto, n]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={escopo === id}
-            onClick={() => {
-              setEscopo(id);
-              setEdicao(null);
-              setGerindoCategorias(false);
-            }}
-            className={[
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              escopo === id
-                ? "bg-primary text-primary-fg"
-                : "bg-surface-2 text-text-muted hover:text-text",
-            ].join(" ")}
-          >
-            {texto}
-            <span className="ml-1.5 opacity-70">{n}</span>
-          </button>
-        ))}
-      </div>
+      <Segmented
+        value={escopo}
+        onChange={(v) => {
+          setEscopo(v);
+          setEdicao(null);
+          setGerindoCategorias(false);
+        }}
+        options={[
+          { value: "base" as Escopo, label: `De ${baseNome} · ${doCliente.length}` },
+          { value: "global" as Escopo, label: `Da Natcorp · ${daNatcorp.length}` },
+        ]}
+        className="w-fit"
+      />
 
       {escopo === "global" ? (
         <p className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-muted">
@@ -738,15 +722,19 @@ function GerenciarCategorias({
               className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs"
             >
               <span>{c.nome}</span>
-              <button
+              {/* `Button` e não botão cru: herda foco visível, estado
+                  desabilitado e anel de foco sem repintar nada à mão. */}
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => remover(c)}
                 disabled={pendente}
                 aria-label={`Remover categoria ${c.nome}`}
-                className="text-text-muted hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-auto px-1 py-0 text-text-muted hover:text-danger"
               >
                 ×
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

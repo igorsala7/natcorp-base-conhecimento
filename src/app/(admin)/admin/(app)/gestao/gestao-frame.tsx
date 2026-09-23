@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Segmented } from "@/components/ui/segmented";
 import { InstalacaoApex } from "./instalacao-apex";
 import { PlanoForm, type PlanoLinha } from "./plano-form";
 
@@ -141,30 +142,12 @@ export function GestaoFrame({
           </select>
         </div>
 
-        <div
-          role="tablist"
-          aria-label="O que fazer com este cliente"
-          className="flex flex-none gap-1 rounded-lg bg-surface-2 p-1"
-        >
-          {SECOES.map((sec) => (
-            <button
-              key={sec.id}
-              type="button"
-              role="tab"
-              aria-selected={secao === sec.id}
-              onClick={() => setSecao(sec.id)}
-              className={[
-                "rounded-md px-3 py-1.5 text-ui font-medium transition-colors duration-150",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                secao === sec.id
-                  ? "bg-surface text-text shadow-sm"
-                  : "text-text-muted hover:text-text",
-              ].join(" ")}
-            >
-              {sec.rotulo}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          className="flex-none"
+          value={secao}
+          onChange={setSecao}
+          options={SECOES.map((sec) => ({ value: sec.id, label: sec.rotulo }))}
+        />
 
         <a
           href={src}
