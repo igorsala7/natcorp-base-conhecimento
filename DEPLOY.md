@@ -166,6 +166,55 @@ location /natcorp/ia {
 }
 ```
 
+### Cabeçalhos que o proxy NÃO pode tocar
+
+Medido em 23/09/2026: o nginx estava **reescrevendo o `Content-Security-Policy`**
+e acrescentando `X-Frame-Options: SAMEORIGIN` em toda resposta. Isso derrubou
+duas coisas, e nenhuma delas dizia o porquê:
+
+| rota | o app envia | o navegador recebia | efeito |
+|---|---|---|---|
+| `/gestao` | `frame-ancestors 'self' <hosts do APEX>` | `frame-ancestors 'self'` + XFO | iFrame recusado no APEX |
+| `/embed/*` | `frame-ancestors *` | `frame-ancestors 'self'` + XFO | incorporação em site de cliente recusada |
+
+Três rotas rodam DENTRO do site de outra pessoa e por isso o app **omite**
+`X-Frame-Options` de propósito: `/gestao`, `/embed/*` e `/widget.js`. O XFO não
+tem forma de liberar uma origem específica — `SAMEORIGIN` bloqueia, ponto. Quem
+autoriza é o `frame-ancestors`, e ele já sai correto do app.
+
+Então o proxy precisa **deixar passar**, não reforçar:
+
+```nginx
+# NÃO faça isto neste location:
+#   add_header X-Frame-Options SAMEORIGIN always;
+#   add_header Content-Security-Policy "frame-ancestors 'self'" always;
+#
+# Se o `server` de fora define esses cabeçalhos, anule-os AQUI:
+location /natcorp/ia {
+    # ... proxy_pass e demais linhas acima ...
+    proxy_hide_header X-Frame-Options;          # o app decide por rota
+    proxy_hide_header Content-Security-Policy;  # idem — não sobrescreva
+}
+```
+
+Conferir que o app está mandando o que deve, depois de subir:
+
+```bash
+curl -sI https://natcorpbr.com.br/natcorp/ia/embed/x | grep -i 'frame\|security'
+# esperado: frame-ancestors *   e NENHUM X-Frame-Options
+curl -sI https://natcorpbr.com.br/natcorp/ia/gestao | grep -i 'frame\|security'
+# esperado: frame-ancestors 'self' https://natcorpbr.com.br ...
+```
+
+### `GESTAO_FRAME_ANCESTORS` é variável de BUILD
+
+Não tem prefixo `NEXT_PUBLIC_`, mas se comporta como se tivesse: o `headers()`
+do `next.config.ts` é avaliado no build e gravado em
+`.next/routes-manifest.json`. Reiniciar o contêiner com a variável nova **não
+muda nada** — é preciso `docker compose up -d --build`.
+
+---
+
 A barra é o detalhe que quebra tudo: `proxy_pass http://127.0.0.1:3008/;` (COM barra)
 faz o nginx REMOVER o `/natcorp/ia` antes de repassar, e o app — que gera tudo com o
 prefixo — passa a receber caminhos que não existem para ele. Ou os dois usam o
