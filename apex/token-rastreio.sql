@@ -36,11 +36,25 @@ declare
   c_key    constant varchar2(64)  := 'mondnL9n6TlVgDQxNnCJW6LsprzGuKJ1Kh1QD63tm3g=';  -- Operador
   c_widget constant varchar2(80)  := 'pk_live_77c1d31cadd25d2768ac7c93167023bf';       -- Operador
   c_slug   constant varchar2(80)  := 'natcorp';                                        -- docs
-  -- SEM `www`, e isso nao e detalhe: com `www` o navegador recusa o framing
-  -- ("refused to connect") porque o APEX roda em natcorpbr.com.br e as duas
-  -- formas sao ORIGENS DIFERENTES. Corrigido na tela em 16/09; aqui ficou para
-  -- tras ate 23/09, quando o mesmo desencontro derrubou as Server Actions.
-  c_site   constant varchar2(200) := 'https://natcorpbr.com.br/natcorp/ia';  -- 'http://localhost:3008';
+  -- RELATIVO, SEM HOST — e isto conserta uma classe inteira de defeito.
+  --
+  -- O sistema atende em natcorpbr.com.br E em www.natcorpbr.com.br. Fixar um
+  -- host aqui deixa metade dos acessos CROSS-ORIGIN, porque quem abriu o APEX
+  -- pode ter digitado qualquer um dos dois. Foi o que aconteceu duas vezes:
+  --   16/09  APEX sem www + iframe com www  -> "refused to connect"
+  --   23/09  APEX com www + iframe sem www  -> "does not appear in the
+  --          frame-ancestors directive", e o script de tema do APEX ainda
+  --          batia em "Sandbox access violation" ao tentar ler o iframe.
+  -- Tirar ou por o www so troca qual metade quebra.
+  --
+  -- Com caminho relativo o navegador resolve contra a pagina ATUAL: o iframe
+  -- nasce sempre na MESMA origem do APEX. Isso satisfaz de uma vez o
+  -- frame-ancestors 'self', o X-Frame-Options: SAMEORIGIN que o proxy injeta,
+  -- e o acesso do script de tema do APEX ao documento de dentro.
+  --
+  -- So volte a usar URL absoluta se o app passar a morar em outro dominio.
+  -- Para testar fora do APEX (localhost), troque por 'http://localhost:3008'.
+  c_site   constant varchar2(200) := '/natcorp/ia';
 
   -- NOVO. Validade do token, em minutos. Use o MESMO valor de
   -- Shared Components > Security > Session Management > Maximum Session Idle Time.

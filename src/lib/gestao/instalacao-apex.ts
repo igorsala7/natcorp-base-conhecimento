@@ -44,22 +44,34 @@ function preencher(sql: string, nome: string, valor: string): string {
 }
 
 /**
- * A URL pública do app, SEM `www`.
+ * O CAMINHO do app, sem host — de propósito.
  *
- * O APEX dos clientes roda em `natcorpbr.com.br`, e `www` é outra ORIGEM para
- * o navegador: com ele o iFrame é recusado ("refused to connect"). Foi o que
- * aconteceu em 16/09. `NEXT_PUBLIC_SITE_URL` continua sendo a canônica (com
- * `www`), porque ela serve a sitemap e e-mail; aqui o que vale é de onde a
- * página vai ser ENQUADRADA.
+ * O sistema atende em `natcorpbr.com.br` E em `www.natcorpbr.com.br`, e quem
+ * abre o APEX pode ter digitado qualquer um dos dois. Um host fixo no bloco
+ * deixa metade dos acessos cross-origin, e o navegador recusa o iFrame:
+ *
+ *   16/09  APEX sem www + iframe com www → "refused to connect"
+ *   23/09  APEX com www + iframe sem www → "does not appear in the
+ *          frame-ancestors directive" (e o script de tema do APEX ainda
+ *          batia em "Sandbox access violation" ao tentar ler o iFrame)
+ *
+ * Tirar ou pôr o `www` só troca qual metade quebra. Caminho relativo o
+ * navegador resolve contra a página ATUAL: o iFrame nasce sempre na mesma
+ * origem do APEX, o que satisfaz de uma vez o `frame-ancestors 'self'`, o
+ * `X-Frame-Options: SAMEORIGIN` que o proxy injeta, e o acesso do script do
+ * APEX ao documento de dentro.
+ *
+ * Sai de `NEXT_PUBLIC_SITE_URL` porque é lá que o prefixo mora
+ * (`/natcorp/ia`); o host dela é descartado.
  */
-function siteParaOApex(): string {
+function caminhoDoApp(): string {
   const bruto = process.env.NEXT_PUBLIC_SITE_URL ?? "";
   try {
-    const u = new URL(bruto);
-    u.host = u.host.replace(/^www\./, "");
-    return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
+    return new URL(bruto).pathname.replace(/\/+$/, "");
   } catch {
-    return bruto.replace("://www.", "://").replace(/\/+$/, "");
+    // Env vazia ou malformada: `/gestao` na raiz continua sendo um caminho
+    // relativo válido — melhor que devolver bloco com host errado.
+    return "";
   }
 }
 
@@ -117,10 +129,10 @@ export async function blocoDeInstalacao(baseCode: string): Promise<ResultadoBloc
     return { ok: false, erro: `Modelo ${ARQUIVO} não encontrado no servidor.` };
   }
 
-  const site = siteParaOApex();
+  const site = caminhoDoApp();
   let bloco = preencher(sql, "c_key", segredo);
   bloco = preencher(bloco, "c_widget", wk.public_key);
-  if (site) bloco = preencher(bloco, "c_site", site);
+  bloco = preencher(bloco, "c_site", site);
 
   // Garantia de que o preenchimento pegou: se o marcador sobreviveu, o modelo
   // mudou de forma e o regex não casou. Melhor recusar que entregar um bloco
