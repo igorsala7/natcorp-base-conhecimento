@@ -2,6 +2,7 @@ import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib
 import { Button } from "@/components/ui/button";
 import { lerSaldo, lerAlocacoes, lerCompras } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
+import { USD_POR_CREDITO_EXTRA, CREDITOS_POR_LOTE } from "@/lib/gestao/creditos";
 import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
 import { ComprarCreditos, DistribuirCreditos } from "@/components/gestao/creditos-form";
 import {
@@ -55,7 +56,13 @@ export default async function GestaoCreditosPage({
   const disponiveis = saldo?.creditos_disponiveis ?? 0;
   const consumidos = saldo?.creditos_consumidos ?? 0;
   const restante = saldo?.creditos_saldo ?? 0;
-  const usdPorCredito = saldo?.usd_por_credito ?? 3.5;
+  /*
+    SEM PLANO NÃO HÁ PREÇO CONTRATADO — e o padrão anterior (3.5) era um
+    número inventado na unidade errada: US$3,50 POR CRÉDITO daria US$350 a
+    cada 100. Nulo vira travessão, como o resto da área já faz com cotação
+    ausente.
+  */
+  const usdPorCredito = saldo?.usd_por_credito ?? null;
   const semPlano = !saldo?.tem_plano;
   const estourou = !semPlano && restante < 0;
 
@@ -109,11 +116,7 @@ export default async function GestaoCreditosPage({
         titulo="Adquirir créditos adicionais"
         descricao="Use quando os créditos do ciclo acabarem ou estiverem perto do fim. Ficam disponíveis na hora."
       >
-        <ComprarCreditos
-          sessao={sessaoParams}
-          usdPorCredito={usdPorCredito}
-          usdBrl={cotacao?.usdBrl ?? null}
-        />
+        <ComprarCreditos sessao={sessaoParams} usdBrl={cotacao?.usdBrl ?? null} />
       </Bloco>
 
       <Bloco
@@ -222,22 +225,49 @@ export default async function GestaoCreditosPage({
         />
       </Bloco>
 
+      {/*
+        OS DOIS PREÇOS, LADO A LADO E NOMEADOS.
+        O contratado (US$5,00) e o adicional (US$3,50) são diferentes de
+        propósito — avulso é mais barato que compromisso mensal. Separados pela
+        tela, um no bloco de valores e outro na caixa de compra, pareciam
+        contradição; juntos e rotulados, são uma tabela de preços.
+        A unidade é o LOTE DE 100, que é como o preço é negociado e dito. Por
+        crédito daria US$0,05 e US$0,035 — e este último `fmtUsd` arredonda
+        para US$0,04, visivelmente errado.
+      */}
       <Bloco titulo="Valor do crédito">
-        <dl className="grid gap-4 sm:grid-cols-3">
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-text-muted">Por crédito</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{fmtUsd(usdPorCredito)}</dd>
+            <dt className="text-xs uppercase tracking-wide text-text-muted">
+              Contratado · {CREDITOS_POR_LOTE} créditos
+            </dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">
+              {usdPorCredito == null ? "—" : fmtUsd(usdPorCredito * CREDITOS_POR_LOTE)}
+            </dd>
             <p className="mt-1 text-xs text-text-muted">
-              {fmtBrl(emReais(usdPorCredito, cotacao))} pela cotação de hoje
+              {usdPorCredito == null
+                ? "Sem plano cadastrado."
+                : `${fmtBrl(emReais(usdPorCredito * CREDITOS_POR_LOTE, cotacao))} pela cotação de hoje`}
+            </p>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-text-muted">
+              Adicional · {CREDITOS_POR_LOTE} créditos
+            </dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">
+              {fmtUsd(USD_POR_CREDITO_EXTRA * CREDITOS_POR_LOTE)}
+            </dd>
+            <p className="mt-1 text-xs text-text-muted">
+              Compra avulsa, mais barata que o contratado.
             </p>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-text-muted">Total do ciclo</dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {fmtUsd(disponiveis * usdPorCredito)}
+              {usdPorCredito == null ? "—" : fmtUsd(disponiveis * usdPorCredito)}
             </dd>
             <p className="mt-1 text-xs text-text-muted">
-              {fmtBrl(emReais(disponiveis * usdPorCredito, cotacao))}
+              {usdPorCredito == null ? "" : fmtBrl(emReais(disponiveis * usdPorCredito, cotacao))}
             </p>
           </div>
           <div>

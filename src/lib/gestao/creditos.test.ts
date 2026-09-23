@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { calcularSaldo, modoDoSaldo, precisaAvisar, type CicloFato } from "./creditos";
+import {
+  calcularSaldo,
+  modoDoSaldo,
+  precisaAvisar,
+  precoDoAdicional,
+  USD_POR_CREDITO_EXTRA,
+  CREDITOS_POR_LOTE,
+  type CicloFato,
+} from "./creditos";
 
 const ciclo = (n: number, p: Partial<CicloFato> = {}): CicloFato => ({
   ciclo_inicio: `2026-0${n}-01T03:00:00.000Z`,
@@ -144,5 +152,33 @@ describe("modo e aviso", () => {
     const s = calcularSaldo([ciclo(1, { compras: 1000, consumo: 1800 })])!;
     expect(s.disponivel).toBe(2000);
     expect(s.pctRestante).toBe(10);
+  });
+});
+
+/**
+ * O PREÇO DO ADICIONAL, travado.
+ *
+ * Em 23/09 a tela de compra cotava 100 créditos a US$5,00 — o preço do
+ * CONTRATADO — enquanto a ação gravava US$3,50. A cotação mentia (a favor do
+ * cliente, mas mentia), porque o formulário recebia o preço por prop, vindo do
+ * plano. Agora tela e ação leem a MESMA constante, e estes testes existem para
+ * o número não voltar a divergir sem alguém ver.
+ */
+describe("preço do crédito adicional", () => {
+  it("cobra US$3,50 pelo lote de 100, que é como o dono descreve o preço", () => {
+    expect(CREDITOS_POR_LOTE).toBe(100);
+    expect(precoDoAdicional(CREDITOS_POR_LOTE)).toBeCloseTo(3.5, 10);
+  });
+
+  it("NÃO é o preço do contratado — avulso é mais barato, de propósito", () => {
+    const contratadoPorCredito = 0.05; // US$5,00 por 100 = US$5,00 por milhão
+    expect(USD_POR_CREDITO_EXTRA).toBeLessThan(contratadoPorCredito);
+    expect(precoDoAdicional(100)).not.toBeCloseTo(100 * contratadoPorCredito, 10);
+  });
+
+  it("escala linear e nunca devolve valor negativo", () => {
+    expect(precoDoAdicional(1000)).toBeCloseTo(35, 10);
+    expect(precoDoAdicional(0)).toBe(0);
+    expect(precoDoAdicional(-500)).toBe(0);
   });
 });

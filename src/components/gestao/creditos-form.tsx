@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { comprarCreditos, salvarAlocacao, removerAlocacao } from "@/app/gestao/actions";
 import { fmtCreditos, fmtUsd, fmtBrl, nomeDoPainel } from "@/lib/gestao/formato";
 import type { Alocacao } from "@/lib/gestao/dados";
+import {
+  USD_POR_CREDITO_EXTRA,
+  CREDITOS_POR_LOTE,
+  precoDoAdicional,
+} from "@/lib/gestao/creditos";
 
 /**
  * Parâmetros que reabrem a MESMA sessão na Server Action — vindos de
@@ -24,14 +29,19 @@ const rotulo = "mb-1 block text-xs font-medium text-text-muted";
  * O disclaimer não é uma nota de rodapé: fica ao lado do botão, com o valor já
  * calculado. Quem clica precisa saber quanto vai ser cobrado e quando — e a
  * cobrança é na PRÓXIMA fatura, não agora.
+ *
+ * ── O preço NÃO vem por prop ──────────────────────────────────────────
+ * Vinha, e vinha errado: a página passava o `usd_por_credito` do PLANO (o
+ * contratado, US$0,05) enquanto a ação gravava o do adicional (US$0,035). Cem
+ * créditos eram cotados a US$5,00 e cobrados a US$3,50. Importar a MESMA
+ * constante que a ação usa torna o desencontro impossível — não há segundo
+ * valor para alguém passar por engano.
  */
 export function ComprarCreditos({
   sessao,
-  usdPorCredito,
   usdBrl,
 }: {
   sessao: Sessao;
-  usdPorCredito: number;
   usdBrl: number | null;
 }) {
   const [creditos, setCreditos] = useState(100);
@@ -41,7 +51,7 @@ export function ComprarCreditos({
   const [confirmando, setConfirmando] = useState(false);
   const [pendente, iniciar] = useTransition();
 
-  const totalUsd = creditos * usdPorCredito;
+  const totalUsd = precoDoAdicional(creditos);
   const totalBrl = usdBrl != null ? totalUsd * usdBrl : null;
 
   function enviar() {
@@ -110,7 +120,8 @@ export function ComprarCreditos({
       <div className="flex flex-col justify-between gap-3">
         <div className="rounded-md border border-border bg-surface-2 px-4 py-3">
           <p className="text-sm text-text">
-            {fmtUsd(usdPorCredito)} por crédito · total <strong>{fmtUsd(totalUsd)}</strong>
+            {fmtUsd(USD_POR_CREDITO_EXTRA * CREDITOS_POR_LOTE)} a cada {CREDITOS_POR_LOTE}{" "}
+            créditos · total <strong>{fmtUsd(totalUsd)}</strong>
             {totalBrl != null ? (
               <>
                 {" "}

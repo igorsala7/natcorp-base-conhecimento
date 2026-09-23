@@ -10,19 +10,12 @@ import {
   type ResultadoAcao,
 } from "@/lib/gestao/acao";
 import { lerSaldo } from "@/lib/gestao/dados";
+// O preço do adicional mora em `creditos.ts` porque a TELA precisa do MESMO
+// número — ver o comentário da constante.
+import { USD_POR_CREDITO_EXTRA } from "@/lib/gestao/creditos";
 import { invalidarRegrasAcesso } from "@/lib/integrations/acesso-contexto";
 import { invalidarPortao } from "@/lib/gestao/portao";
 
-/**
- * Preço do crédito ADICIONAL: US$3,50 por 100 créditos.
- *
- * Fica aqui, e não no plano, porque é preço de tabela da compra avulsa — o
- * `ai_cliente_plano.usd_por_credito` é o do CONTRATADO (US$0,05), e usar aquele
- * aqui cobraria do cliente o preço cheio numa compra que é justamente mais
- * barata. O valor vai gravado em cada linha de compra, então mudar esta
- * constante não reescreve o que já foi vendido.
- */
-const USD_POR_CREDITO_EXTRA = 0.035;
 
 // ── Créditos adicionais ─────────────────────────────────────────────────
 

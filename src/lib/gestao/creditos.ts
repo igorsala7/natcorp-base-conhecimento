@@ -68,6 +68,41 @@ export type SaldoCreditos = {
   consumoSemCobertura: number;
 };
 
+/**
+ * O LOTE EM QUE O ADICIONAL É VENDIDO — e em que se fala dele.
+ *
+ * O dono descreve o preço assim: "US$3,50 cada 100 créditos". Mostrar
+ * US$0,035 por crédito seria a mesma coisa e pior de duas formas: ninguém
+ * negocia nessa unidade, e `fmtUsd` arredonda para **US$0,04**, que é
+ * visivelmente errado. O lote é a unidade honesta.
+ */
+export const CREDITOS_POR_LOTE = 100;
+
+/**
+ * Preço do crédito ADICIONAL: US$3,50 por 100 créditos.
+ *
+ * Mora aqui, e não em `actions.ts`, porque a TELA e a AÇÃO precisam do mesmo
+ * número — e foi exatamente a falta disso que produziu o defeito de 23/09: o
+ * formulário cotava pelo `usd_por_credito` do PLANO (US$0,05, o contratado) e
+ * a ação gravava US$0,035. Cem créditos apareciam como US$5,00 e eram
+ * cobrados a US$3,50. A cotação mentia — a favor do cliente, mas mentia, e uma
+ * tela de compra que erra o total não é confiável em direção nenhuma.
+ *
+ * Um arquivo `"use server"` não exporta constante (lá todo export precisa ser
+ * função assíncrona), então este é o lugar que os dois lados alcançam.
+ *
+ * NÃO sai de `ai_cliente_plano.usd_por_credito`: aquele é o preço do
+ * CONTRATADO, e o adicional é compra avulsa, 30% mais barata por ser fora do
+ * compromisso mensal. O valor vai gravado em cada linha de compra, então mudar
+ * esta constante não reescreve o que já foi vendido.
+ */
+export const USD_POR_CREDITO_EXTRA = 0.035;
+
+/** Quanto custa comprar `creditos` adicionais, em dólar. */
+export function precoDoAdicional(creditos: number): number {
+  return Math.max(0, creditos) * USD_POR_CREDITO_EXTRA;
+}
+
 /** Abaixo disto a tela e o painel avisam que está acabando. */
 export const LIMIAR_AVISO_PCT = 10;
 

@@ -1,6 +1,7 @@
 import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { lerSaldo, lerConsumo, lerFacetas } from "@/lib/gestao/dados";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
+import { CREDITOS_POR_LOTE } from "@/lib/gestao/creditos";
 import { ShellGestao, RecusaGestao, Bloco, Indicador, Vazio } from "@/components/gestao/shell";
 import { ConsumoFiltros } from "@/components/gestao/consumo-filtros";
 import {
@@ -233,9 +234,19 @@ export default async function GestaoConsumoPage({
       >
         <dl className="grid gap-4 sm:grid-cols-3">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-text-muted">Por crédito</dt>
+            {/*
+              Em LOTE DE 100, que é a unidade em que o preço é negociado e
+              dito ("US$5,00 a cada 100 créditos"). Por crédito daria
+              US$0,05 — certo e ilegível. Sem plano não há preço contratado:
+              travessão, nunca um número inventado.
+            */}
+            <dt className="text-xs uppercase tracking-wide text-text-muted">
+              Contratado · {CREDITOS_POR_LOTE} créditos
+            </dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {fmtUsd(saldo?.usd_por_credito ?? 3.5)}
+              {saldo?.usd_por_credito == null
+                ? "—"
+                : fmtUsd(saldo.usd_por_credito * CREDITOS_POR_LOTE)}
             </dd>
           </div>
           <div>

@@ -44,8 +44,16 @@ export function PlanoForm({
   const vigente = planos.find((p) => p.vigente) ?? planos[0];
 
   const [creditos, setCreditos] = useState(String(vigente?.creditos_por_ciclo ?? 500));
-  const [usd, setUsd] = useState(String(vigente?.usd_por_credito ?? 3.5));
-  const [tokens, setTokens] = useState(String(vigente?.tokens_por_credito ?? 1_000_000));
+  /*
+    PADRÕES NA UNIDADE ATUAL. Eram 3.5 e 1.000.000 — a denominação de ANTES de
+    23/09, quando 1 crédito valia 1 milhão de tokens. Deixados como estavam,
+    cadastrar o próximo cliente criaria um plano cem vezes fora da régua de
+    todos os outros, e o erro só apareceria na fatura.
+    Hoje: 1 crédito = 10.000 tokens, e o contratado custa US$0,05 por crédito
+    (US$5,00 a cada 100, que é como o preço é negociado).
+  */
+  const [usd, setUsd] = useState(String(vigente?.usd_por_credito ?? 0.05));
+  const [tokens, setTokens] = useState(String(vigente?.tokens_por_credito ?? 10_000));
   const [dia, setDia] = useState(String(vigente?.dia_inicio_ciclo ?? 1));
   const [desde, setDesde] = useState(new Date().toISOString().slice(0, 10));
   const [obs, setObs] = useState("");
@@ -112,11 +120,21 @@ export function PlanoForm({
             id="pl-usd"
             type="number"
             min={0}
-            step="0.01"
+            /* 0.001: o adicional é US$0,035 e com passo de 0,01 não se digita. */
+            step="0.001"
             className={campo}
             value={usd}
             onChange={(e) => setUsd(e.target.value)}
           />
+          {/*
+            A equivalência ao vivo, porque o campo é POR CRÉDITO e a negociação
+            é por 100. Sem ela, quem combinou "US$5,00" digita 5 aqui e cria um
+            plano cem vezes mais caro — o número fica plausível na tela e só
+            aparece na fatura.
+          */}
+          <p className="mt-1 text-2xs text-text-muted">
+            {`US$ ${(usdN * 100).toFixed(2)} a cada 100 créditos`}
+          </p>
         </div>
         <div>
           <label className={rotulo} htmlFor="pl-tokens">Tokens por crédito</label>
@@ -124,12 +142,14 @@ export function PlanoForm({
             id="pl-tokens"
             type="number"
             min={1}
-            step={100000}
+            step={1000}
             className={campo}
             value={tokens}
             onChange={(e) => setTokens(e.target.value)}
           />
-          <p className="mt-1 text-2xs text-text-muted">Padrão 1.000.000</p>
+          <p className="mt-1 text-2xs text-text-muted">
+            Padrão 10.000 — assim 100 créditos = 1 milhão de tokens.
+          </p>
         </div>
         <div>
           <label className={rotulo} htmlFor="pl-dia">Dia da virada do ciclo</label>
