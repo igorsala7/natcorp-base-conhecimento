@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { TemaClaro } from "@/components/gestao/tema-claro";
 
 /**
  * Área de gestão do cliente — servida em iFrame dentro do APEX.
@@ -17,5 +18,13 @@ export const metadata: Metadata = {
 };
 
 export default function GestaoLayout({ children }: { children: ReactNode }) {
-  return children;
+  return (
+    <>
+      {/* Tema claro fixo: a tela vive dentro do APEX, que é claro. Ver o
+          comentário do componente — são duas peças, e esta é a do primeiro
+          paint; a outra é o `forcedTheme` em Providers. */}
+      <TemaClaro />
+      {children}
+    </>
+  );
 }
