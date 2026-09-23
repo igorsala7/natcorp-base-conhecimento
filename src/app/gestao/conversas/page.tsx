@@ -1,8 +1,14 @@
 import Link from "next/link";
-import { abrirSessaoGestao, linkGestao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
-import { lerConversas, lerMensagens } from "@/lib/gestao/dados";
+import {
+  abrirSessaoGestao,
+  linkGestao,
+  paramsDaSessao,
+  registrarAcessoSuporte,
+} from "@/lib/gestao/sessao";
+import { lerConversas, lerFacetasConversas, lerMensagens } from "@/lib/gestao/dados";
 import { ShellGestao, RecusaGestao, Bloco, Vazio } from "@/components/gestao/shell";
-import { fmtDataHora, fmtNumero, nomeDoPainel } from "@/lib/gestao/formato";
+import { ConsumoFiltros } from "@/components/gestao/consumo-filtros";
+import { fmtDataHora, fmtNumero, nomeDoPainel, soData } from "@/lib/gestao/formato";
 
 const POR_PAGINA = 40;
 
@@ -26,34 +32,79 @@ export default async function GestaoConversasPage({
 
   const um = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const conversaId = um(sp.c);
-  const painel = um(sp.painel);
-  const usuario = um(sp.u);
   const pagina = Math.max(0, Number(um(sp.p) ?? 0) || 0);
 
+  /*
+    O PADRÃO É O DIA DE HOJE, e isso é decisão do dono (23/09).
+    A tela listava a base inteira desde sempre, o que para um cliente com
+    milhares de conversas significa rolar para achar a de hoje de manhã. O
+    padrão vira o dia corrente, e as datas aparecem PREENCHIDAS no formulário
+    em vez de vazias: campo vazio que na verdade filtra é a forma mais rápida
+    de alguém concluir que o histórico sumiu.
+  */
+  const hoje = soData(new Date());
+  const deTxt = um(sp.de) || hoje;
+  const ateTxt = um(sp.ate) || hoje;
+  const de = new Date(`${deTxt}T00:00:00`);
+  // Fim EXCLUSIVO no dia seguinte: `<= 23:59:59` perderia o último segundo, e
+  // com `created_at` em timestamptz essa fresta aparece de vez em quando.
+  const ate = new Date(new Date(`${ateTxt}T00:00:00`).getTime() + 86400000);
+
+  const filtros = {
+    painel: um(sp.painel) ?? "",
+    perfil: um(sp.perfil) ?? "",
+    // `u` é o nome antigo do parâmetro; links já colados em chamado continuam
+    // funcionando, e o formulário passa a escrever `usuario`.
+    usuario: um(sp.usuario) ?? um(sp.u) ?? "",
+    empresa: um(sp.empresa) ?? "",
+    matricula: um(sp.matricula) ?? "",
+  };
+
   const base = sessao.identidade.baseCode;
-  const { linhas, total } = await lerConversas(base, {
-    pagina,
-    porPagina: POR_PAGINA,
-    painel: painel || undefined,
-    usuario: usuario || undefined,
-  });
+  const [{ linhas, total }, facetas] = await Promise.all([
+    lerConversas(base, {
+      pagina,
+      porPagina: POR_PAGINA,
+      de,
+      ate,
+      painel: filtros.painel || undefined,
+      perfil: filtros.perfil || undefined,
+      usuario: filtros.usuario || undefined,
+      empresa: filtros.empresa || undefined,
+      matricula: filtros.matricula || undefined,
+    }),
+    lerFacetasConversas(base, de, ate),
+  ]);
 
   const mensagens = conversaId ? await lerMensagens(base, conversaId) : null;
   const paginas = Math.ceil(total / POR_PAGINA);
+
+  /*
+    Os links de paginação e de "voltar à lista" precisam CARREGAR o filtro.
+    Sem isto, avançar uma página descarta o recorte e a tela passa a mostrar
+    outro conjunto sem nenhum aviso — o usuário conclui que o filtro "não
+    funciona na página 2".
+  */
+  const qsFiltro = new URLSearchParams();
+  qsFiltro.set("de", deTxt);
+  qsFiltro.set("ate", ateTxt);
+  for (const [k, v] of Object.entries(filtros)) if (v) qsFiltro.set(k, v);
+  const comFiltro = (extra?: string) =>
+    `${linkGestao(sessao, "/gestao/conversas")}&${qsFiltro.toString()}${extra ?? ""}`;
 
   return (
     <ShellGestao
       sessao={sessao}
       atual="conversas"
       titulo="Conversas"
-      descricao={`${fmtNumero(total)} conversa(s) registrada(s) para esta base.`}
+      descricao="Quem conversou com o assistente, quando e sobre o quê."
     >
       {conversaId ? (
         <Bloco
           titulo="Conversa"
           acoes={
             <Link
-              href={linkGestao(sessao, "/gestao/conversas")}
+              href={comFiltro()}
               className="rounded-md px-3 py-1.5 text-ui font-medium text-primary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Voltar à lista
@@ -95,7 +146,28 @@ export default async function GestaoConversasPage({
         </Bloco>
       ) : null}
 
-      <Bloco titulo="Histórico" descricao="As conversas mais recentes primeiro.">
+      <ConsumoFiltros
+        acao="/gestao/conversas"
+        sessaoParams={paramsDaSessao(sessao)}
+        opcoes={facetas}
+        atuais={filtros}
+        de={deTxt}
+        ate={ateTxt}
+        placeholderDe={hoje}
+        placeholderAte={hoje}
+        dicaPeriodo={
+          <>
+            O padrão é o dia de hoje. Amplie as datas para ver o histórico; as listas abaixo
+            mostram só quem aparece no período escolhido.
+          </>
+        }
+        nota={<>A contagem do histórico já considera o período e os filtros escolhidos.</>}
+      />
+
+      <Bloco
+        titulo="Histórico"
+        descricao={`${fmtNumero(total)} conversa(s) no período e filtros atuais, da mais recente para a mais antiga.`}
+      >
         {linhas.length === 0 ? (
           <Vazio>Nenhuma conversa registrada com os filtros atuais.</Vazio>
         ) : (
@@ -107,6 +179,8 @@ export default async function GestaoConversasPage({
                   <th scope="col" className="py-2 pr-2 font-medium">Quando</th>
                   <th scope="col" className="py-2 pr-2 font-medium">Assunto</th>
                   <th scope="col" className="py-2 pr-2 font-medium">Usuário</th>
+                  <th scope="col" className="py-2 pr-2 font-medium">Matrícula</th>
+                  <th scope="col" className="py-2 pr-2 font-medium">Empresa</th>
                   <th scope="col" className="py-2 pr-2 font-medium">Perfil</th>
                   <th scope="col" className="py-2 font-medium">Painel</th>
                 </tr>
@@ -119,13 +193,15 @@ export default async function GestaoConversasPage({
                     </td>
                     <td className="py-2 pr-2">
                       <Link
-                        href={`${linkGestao(sessao, "/gestao/conversas")}&c=${encodeURIComponent(c.id)}`}
+                        href={comFiltro(`&c=${encodeURIComponent(c.id)}`)}
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {c.title?.trim() || "Sem título"}
                       </Link>
                     </td>
                     <td className="py-2 pr-2">{c.p_usuario ?? "—"}</td>
+                    <td className="py-2 pr-2 tabular-nums">{c.p_matricula ?? "—"}</td>
+                    <td className="py-2 pr-2 tabular-nums">{c.p_empresa ?? "—"}</td>
                     <td className="py-2 pr-2">{c.p_perfil ?? "—"}</td>
                     <td className="py-2">{c.p_portal ? nomeDoPainel(c.p_portal) : "—"}</td>
                   </tr>
@@ -143,7 +219,7 @@ export default async function GestaoConversasPage({
             <div className="flex gap-2">
               {pagina > 0 ? (
                 <Link
-                  href={`${linkGestao(sessao, "/gestao/conversas")}&p=${pagina - 1}`}
+                  href={comFiltro(`&p=${pagina - 1}`)}
                   className="rounded-md border border-border-strong px-3 py-1.5 text-ui hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   Anterior
@@ -151,7 +227,7 @@ export default async function GestaoConversasPage({
               ) : null}
               {pagina + 1 < paginas ? (
                 <Link
-                  href={`${linkGestao(sessao, "/gestao/conversas")}&p=${pagina + 1}`}
+                  href={comFiltro(`&p=${pagina + 1}`)}
                   className="rounded-md border border-border-strong px-3 py-1.5 text-ui hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   Próxima

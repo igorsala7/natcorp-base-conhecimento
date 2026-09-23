@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { fmtNumero } from "@/lib/gestao/formato";
 import { Button } from "@/components/ui/button";
 
@@ -41,6 +42,8 @@ export function ConsumoFiltros({
   ate,
   placeholderDe,
   placeholderAte,
+  dicaPeriodo,
+  nota,
 }: {
   /** Caminho para onde o form aponta (a própria página). */
   acao: string;
@@ -54,6 +57,23 @@ export function ConsumoFiltros({
   /** O ciclo vigente, mostrado como dica quando as datas estão vazias. */
   placeholderDe: string;
   placeholderAte: string;
+  /**
+   * Substitui a frase que explica o período padrão.
+   *
+   * O Consumo cai no ciclo do contrato; as Conversas caem no DIA de hoje. A
+   * frase é a única coisa que diz ao usuário qual recorte ele está lendo
+   * quando não escolheu nenhum, então precisa acompanhar a tela, não a
+   * componente.
+   */
+  dicaPeriodo?: ReactNode;
+  /**
+   * Substitui o aviso que aparece com filtro ativo.
+   *
+   * O texto padrão fala de saldo e fatura, que só existem no Consumo. Numa
+   * tela de conversas ele seria pior que ausente: manda o leitor procurar um
+   * número que aquela página não mostra.
+   */
+  nota?: ReactNode;
 }) {
   const temFiltro = EIXOS.some((e) => atuais[e.nome]) || Boolean(de || ate);
 
@@ -93,8 +113,13 @@ export function ConsumoFiltros({
           />
         </div>
         <p className="self-end pb-2 text-xs text-text-muted sm:col-span-2">
-          Em branco, o período é o do ciclo atual do contrato ({placeholderDe.split("-").reverse().join("/")}{" "}
-          a {placeholderAte.split("-").reverse().join("/")}).
+          {dicaPeriodo ?? (
+            <>
+              Em branco, o período é o do ciclo atual do contrato (
+              {placeholderDe.split("-").reverse().join("/")} a{" "}
+              {placeholderAte.split("-").reverse().join("/")}).
+            </>
+          )}
         </p>
       </div>
 
@@ -152,8 +177,12 @@ export function ConsumoFiltros({
         ) : null}
         {temFiltro ? (
           <p className="text-xs text-text-muted">
-            Os totais abaixo refletem o filtro. O saldo, não — ele é sempre do ciclo inteiro,
-            porque é ele que a fatura cobra.
+            {nota ?? (
+              <>
+                Os totais abaixo refletem o filtro. O saldo, não: ele é sempre do ciclo inteiro,
+                porque é ele que a fatura cobra.
+              </>
+            )}
           </p>
         ) : null}
       </div>

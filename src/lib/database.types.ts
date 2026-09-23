@@ -5817,6 +5817,14 @@ export type Database = {
           usuario: string
         }[]
       }
+      gestao_conversas_facetas: {
+        Args: { p_base: string; p_from: string; p_to: string }
+        Returns: {
+          conversas: number
+          eixo: string
+          valor: string
+        }[]
+      }
       gestao_consumo_facetas: {
         Args: { p_base: string; p_from: string; p_to: string }
         Returns: {

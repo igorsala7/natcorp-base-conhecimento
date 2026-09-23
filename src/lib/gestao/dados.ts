@@ -242,9 +242,23 @@ export async function lerAlocacoes(baseCode: string, momento?: Date): Promise<Al
  * varredura ingênua leria 1.014 de 5.569 achando que leu tudo. Aqui o teto é
  * explícito e a paginação é do chamador.
  */
+export type FiltroConversas = {
+  pagina?: number;
+  porPagina?: number;
+  /** Início do período, inclusivo. */
+  de?: Date;
+  /** Fim do período, EXCLUSIVO (passe o dia seguinte para incluir o dia todo). */
+  ate?: Date;
+  painel?: string;
+  perfil?: string;
+  usuario?: string;
+  empresa?: string;
+  matricula?: string;
+};
+
 export async function lerConversas(
   baseCode: string,
-  opts: { pagina?: number; porPagina?: number; painel?: string; usuario?: string } = {},
+  opts: FiltroConversas = {},
 ): Promise<{ linhas: ConversaResumo[]; total: number }> {
   const supabase = createAdminClient();
   const porPagina = Math.min(opts.porPagina ?? 50, 200);
@@ -252,18 +266,61 @@ export async function lerConversas(
 
   let q = supabase
     .from("conversations")
-    .select("id, created_at, title, p_usuario, p_perfil, p_portal, p_empresa", { count: "exact" })
+    .select("id, created_at, title, p_usuario, p_perfil, p_portal, p_empresa, p_matricula", {
+      count: "exact",
+    })
     .ilike("p_base", baseCode.replace(/([\\%_])/g, "\\$1"))
     .is("hidden_at", null)
     .order("created_at", { ascending: false })
     .range(pagina * porPagina, pagina * porPagina + porPagina - 1);
 
+  if (opts.de) q = q.gte("created_at", opts.de.toISOString());
+  if (opts.ate) q = q.lt("created_at", opts.ate.toISOString());
+
+  /*
+    IGUALDADE, não `ilike`, nos eixos que vêm de uma LISTA.
+    O valor sai do próprio relatório (ver `lerFacetasConversas`), então é
+    exato por construção. `ilike` com o valor cru abriria curinga: uma
+    matrícula "100%" filtraria tudo que começa com 100, e o número na tela
+    não bateria com o filtro escolhido.
+  */
   if (opts.painel) q = q.eq("p_portal", opts.painel);
-  if (opts.usuario) q = q.ilike("p_usuario", opts.usuario.replace(/([\\%_])/g, "\\$1"));
+  if (opts.perfil) q = q.eq("p_perfil", opts.perfil);
+  if (opts.usuario) q = q.eq("p_usuario", opts.usuario);
+  if (opts.empresa) q = q.eq("p_empresa", opts.empresa);
+  if (opts.matricula) q = q.eq("p_matricula", opts.matricula);
 
   const { data, count, error } = await q;
   if (error || !data) return { linhas: [], total: 0 };
   return { linhas: data as ConversaResumo[], total: count ?? 0 };
+}
+
+/**
+ * As opções dos filtros de Conversas, tiradas das CONVERSAS do período.
+ *
+ * Separada de `lerFacetas` (que lê `ai_usage`) porque os dois conjuntos não
+ * coincidem: há conversa sem consumo de token registrado. Oferecer no filtro
+ * um valor que não existe no relatório produz o pior tipo de filtro, o que
+ * aparece na lista e devolve zero linha.
+ */
+export async function lerFacetasConversas(
+  baseCode: string,
+  de: Date,
+  ate: Date,
+): Promise<Record<string, { valor: string; chamadas: number }[]>> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("gestao_conversas_facetas", {
+    p_base: baseCode,
+    p_from: de.toISOString(),
+    p_to: ate.toISOString(),
+  });
+  if (error || !data) return {};
+
+  const out: Record<string, { valor: string; chamadas: number }[]> = {};
+  for (const f of data) {
+    (out[f.eixo] ??= []).push({ valor: f.valor, chamadas: Number(f.conversas) });
+  }
+  return out;
 }
 
 export type ConversaResumo = {
@@ -274,6 +331,7 @@ export type ConversaResumo = {
   p_perfil: string | null;
   p_portal: string | null;
   p_empresa: string | null;
+  p_matricula: string | null;
 };
 
 export type MensagemGestao = {
