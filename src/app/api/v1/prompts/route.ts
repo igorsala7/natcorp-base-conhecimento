@@ -41,8 +41,9 @@ type Payload = {
  * ── Duas origens, uma gaveta ──────────────────────────────────────────
  * `prompts` são os que a PESSOA salvou (tabela `prompts_usuario_cliente`,
  * chaveada por space + p_base + p_usuario). `sugeridos` são os que o
- * ADMINISTRADOR escreveu, já filtrados pela RPC conforme portal, perfil e
- * usuário. O widget mostra os dois no mesmo lugar, que foi o pedido.
+ * ADMINISTRADOR escreveu, já filtrados pela RPC conforme base, portal, perfil,
+ * empresa, usuário e matrícula. O widget mostra os dois no mesmo lugar, que foi
+ * o pedido.
  *
  * ── Por que `prompts` continua sendo `prompts` ────────────────────────
  * O widget.js vive em cache no navegador dentro do ERP do cliente, e a versão
@@ -52,7 +53,7 @@ type Payload = {
  *
  * ── O corte de elegibilidade NÃO acontece aqui ────────────────────────
  * Quem decide o que cada um vê é a função `prompts_sugeridos` no banco. Este
- * arquivo só repassa (base, portal, perfil, usuário) — nada de `filter` em
+ * arquivo só repassa os seis campos que vêm do token — nada de `filter` em
  * JavaScript sobre uma lista completa que já teria trafegado.
  */
 export async function POST(req: NextRequest) {
@@ -120,11 +121,16 @@ export async function POST(req: NextRequest) {
   // Padrão: listar. As duas consultas são independentes — vão juntas.
   const [prompts, sugeridos] = await Promise.all([
     identity ? listClientePrompts(key.space_id, identity) : Promise.resolve([]),
+    // As seis dimensões saem do TOKEN, nunca do payload: o `track` é
+    // assinado, e é isso que impede alguém de pedir a lista se dizendo do
+    // portal do gestor ou da empresa 700.
     listarSugeridos({
       base: t.p_base,
       portal: t.p_portal,
       perfil: t.p_perfil,
       usuario: t.p_usuario,
+      empresa: t.p_empresa,
+      matricula: t.p_matricula,
     }),
   ]);
 

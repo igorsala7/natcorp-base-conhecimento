@@ -33,14 +33,18 @@ export type PromptSugerido = {
   categorias: string[];
 };
 
-/** Um prompt como o ADMINISTRADOR edita: com as três allowlists à mostra. */
+/** Um prompt como o ADMINISTRADOR edita: com as seis allowlists à mostra. */
 export type PromptAdmin = {
   id: string;
   label: string;
   texto: string;
+  /** Visibilidade por base. Só faz diferença no catálogo global. */
+  bases: string[];
   portais: string[];
   perfis: string[];
+  empresas: string[];
   usuarios: string[];
+  matriculas: string[];
   ativo: boolean;
   ordem: number;
   global: boolean;
@@ -110,6 +114,8 @@ export async function listarSugeridos(ident: {
   portal?: string | null;
   perfil?: string | null;
   usuario?: string | null;
+  empresa?: string | null;
+  matricula?: string | null;
 }): Promise<PromptSugerido[]> {
   const base = ident.base?.trim();
   if (!base) return [];
@@ -119,6 +125,8 @@ export async function listarSugeridos(ident: {
     portal_ref: ident.portal?.trim() || null,
     perfil_ref: ident.perfil?.trim() || null,
     usuario_ref: ident.usuario?.trim() || null,
+    empresa_ref: ident.empresa?.trim() || null,
+    matricula_ref: ident.matricula?.trim() || null,
   });
   if (error || !data) return [];
   return data.map((r) => ({
@@ -161,7 +169,9 @@ export async function listarParaAdmin(escopo: Escopo): Promise<PromptAdmin[]> {
   const base = escopoParaGravar(escopo);
   let q = supabase
     .from("prompt_sugerido")
-    .select("id, label, texto, portais, perfis, usuarios, ativo, ordem, base_code")
+    .select(
+      "id, label, texto, bases, portais, perfis, empresas, usuarios, matriculas, ativo, ordem, base_code",
+    )
     .order("ordem", { ascending: true })
     .order("label", { ascending: true })
     .limit(500);
@@ -188,9 +198,12 @@ export async function listarParaAdmin(escopo: Escopo): Promise<PromptAdmin[]> {
     id: p.id,
     label: p.label,
     texto: p.texto,
+    bases: p.bases ?? [],
     portais: p.portais ?? [],
     perfis: p.perfis ?? [],
+    empresas: p.empresas ?? [],
     usuarios: p.usuarios ?? [],
+    matriculas: p.matriculas ?? [],
     ativo: p.ativo,
     ordem: Number(p.ordem ?? 0),
     global: p.base_code === null,
@@ -202,9 +215,12 @@ export type EntradaPrompt = {
   id?: string | null;
   label: string;
   texto: string;
+  bases?: unknown;
   portais?: unknown;
   perfis?: unknown;
+  empresas?: unknown;
   usuarios?: unknown;
+  matriculas?: unknown;
   ativo?: boolean;
   ordem?: number;
   categoriaIds?: unknown;
@@ -224,9 +240,12 @@ export async function salvarPrompt(escopo: Escopo, entrada: EntradaPrompt): Prom
   const campos = {
     label,
     texto,
+    bases: listaLimpa(entrada.bases),
     portais: listaLimpa(entrada.portais),
     perfis: listaLimpa(entrada.perfis),
+    empresas: listaLimpa(entrada.empresas),
     usuarios: listaLimpa(entrada.usuarios),
+    matriculas: listaLimpa(entrada.matriculas),
     ativo: entrada.ativo !== false,
     ordem: Number.isFinite(entrada.ordem) ? Number(entrada.ordem) : 0,
   };
@@ -398,9 +417,16 @@ export async function excluirCategoria(escopo: Escopo, id: string): Promise<Resu
 
 // ── Vocabulário real, para a tela não virar campo de texto livre ──────
 
-export type Vocabulario = { portais: string[]; perfis: string[] };
+export type Vocabulario = {
+  portais: { id: string; nome: string }[];
+  perfis: string[];
+  /** Códigos de empresa (p_empresa é código no ERP: 700, 1, 2…), não nomes. */
+  empresas: string[];
+  /** Só preenchido no catálogo global — é lá que escolher base faz sentido. */
+  bases: { code: string; nome: string }[];
+};
 
-/** Os três portais do produto. Fixos: vêm do P_PAINEL do APEX. */
+/** Os três painéis do produto. Fixos: vêm do P_PAINEL do APEX. */
 export const PORTAIS: { id: string; nome: string }[] = [
   { id: "PO", nome: "Operador" },
   { id: "PG", nome: "Gestor" },
@@ -408,24 +434,44 @@ export const PORTAIS: { id: string; nome: string }[] = [
 ];
 
 /**
- * Perfis REAIS já vistos nas conversas daquela base.
+ * O que a tela oferece em cada dimensão.
  *
- * O perfil não é enum: chega do ERP como texto ('MASTER', 'PORTAL_COLAB',
- * 'FOLHA', 'CGP ADM'...). Uma lista fixa no código envelheceria calada, e um
- * campo de texto puro produziria 'Folha' onde o ERP manda 'FOLHA' — um prompt
- * que não aparece para ninguém e não dá erro em lugar nenhum.
+ * ── Quatro origens diferentes, de propósito ───────────────────────────
+ * · portal  → constante: são três, vêm do P_PAINEL.
+ * · base    → cadastro (`ai_bases`), e só no escopo global.
+ * · perfil e empresa → OBSERVAÇÃO: o que já apareceu em conversa. Nenhum
+ *   dos dois é enum — chegam do ERP como texto ('MASTER', 'PORTAL_COLAB',
+ *   '700'), e uma lista fixa no código envelheceria calada. Campo livre
+ *   produziria 'Folha' onde o ERP manda 'FOLHA': um prompt que não
+ *   aparece para ninguém e não dá erro em lugar nenhum.
  *
- * Por isso a tela oferece o que o banco JÁ VIU, e ainda assim aceita digitar:
- * perfil novo existe antes da primeira conversa dele.
+ * Usuário e matrícula NÃO têm seletor. Identificam pessoas, e no catálogo
+ * global (sem base) a consulta montaria, na tela de um administrador, a
+ * lista de logins e matrículas de todos os clientes.
  */
-export async function vocabularioDaBase(baseCode: string | null): Promise<Vocabulario> {
+export async function vocabularioDoEscopo(escopo: Escopo): Promise<Vocabulario> {
   const supabase = createAdminClient();
-  const { data } = await supabase.rpc("perfis_da_base", { base_ref: baseCode ?? undefined });
+  const base = escopoParaGravar(escopo);
+
+  const [voc, bases] = await Promise.all([
+    supabase.rpc("vocabulario_rastreio", { base_ref: base ?? undefined }),
+    base === null
+      ? supabase
+          .from("ai_bases")
+          .select("base_code, name")
+          .eq("active", true)
+          .order("base_code")
+          .limit(500)
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const por = (campo: string) =>
+    (voc.data ?? []).filter((r) => r.campo === campo).map((r) => r.valor).filter(Boolean);
+
   return {
-    portais: PORTAIS.map((p) => p.id),
-    // Já vem ordenado por frequência no banco: o perfil que o admin vai
-    // escolher quase sempre fica no topo, em vez de 'ADM_COORD_SUP' na frente
-    // de 'MASTER' porque o alfabeto quis.
-    perfis: (data ?? []).map((r) => r.perfil).filter(Boolean),
+    portais: PORTAIS,
+    perfis: por("perfil"),
+    empresas: por("empresa"),
+    bases: (bases.data ?? []).map((b) => ({ code: b.base_code, nome: b.name ?? b.base_code })),
   };
 }

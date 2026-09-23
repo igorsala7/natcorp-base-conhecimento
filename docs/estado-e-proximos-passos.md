@@ -70,8 +70,20 @@ salvou.
 | pergunta | resposta | consequência no código |
 |---|---|---|
 | quem cadastra? | **os dois** — Natcorp para todos + cada cliente o seu | uma tabela com `base_code NULL` = global |
-| como as regras combinam? | **E** — todas precisam bater | `portais` E `perfis` E `usuarios`, vazio não restringe |
+| como as regras combinam? | **E** — todas precisam bater | seis allowlists com E, vazio não restringe |
 | o usuário copia ou favorita? | **favorita** | `prompt_favorito` guarda a ORDEM, não o texto |
+| por quais dimensões? | **base, portal, usuário, empresa e matrícula** (+ perfil) | `bases`, `portais`, `perfis`, `empresas`, `usuarios`, `matriculas` |
+
+A lista de dimensões foi corrigida na mesma sessão: a primeira versão tinha só
+portal, perfil e usuário. O token de rastreio carrega os seis, e não há motivo
+para a elegibilidade enxergar metade deles — "só a empresa 700" e "só estas
+matrículas" são recortes que o cliente pede, e sem a dimensão o admin cairia em
+gambiarra (o mesmo prompt cadastrado N vezes com lista de usuário).
+
+**`bases` não é `base_code`.** `base_code` diz de QUEM É o prompt (e quem pode
+editá-lo); `bases` diz QUEM VÊ. A diferença só importa no catálogo global: é o
+que permite escrever um prompt que vale para três clientes específicos sem
+duplicá-lo três vezes.
 
 O exemplo dele é o teste: *"Me retorne os dados deste centro de custo" só no
 portal do gestor, para o perfil FOLHA*. Provado contra o banco real: com
@@ -95,8 +107,8 @@ existe no sistema. O que trafega já é só o permitido.
 2. **O teto de 1.000 linhas do PostgREST, de novo (7ª vez).** A lista de perfis
    para o seletor lia as 2.000 conversas mais recentes e deduplicava em JS.
    Contra o banco real isso achava **2** perfis na natcorp; a RPC
-   `perfis_da_base` acha **3** — o `PC` estava fora da janela. Um perfil que
-   some da tela sem nenhum sinal.
+   `vocabulario_rastreio` acha **3** — o `PC` estava fora da janela. Um perfil
+   que some da tela sem nenhum sinal.
 3. **A gaveta do widget tinha 204px de lista.** Medido na bancada: painel 592px,
    gaveta 364px, e o resto ia para aviso de IA, "Powered by" e a barra de
    botões — nada disso serve enquanto se escolhe um prompt. Escondidos, a lista
@@ -123,12 +135,19 @@ cliente e o da Natcorp. O cliente **vê** o da Natcorp e não edita (para não
 recadastrar o que já existe); editar exige modo suporte, que é `admin_tech`
 nível 80 ou owner — o nível que o dono pediu, sem permissão nova.
 
+Os seis filtros ficam em **dois grupos** — "onde o prompt aparece" (cliente,
+portal, empresa) e "para quem" (perfil, usuário, matrícula) —, não em seis
+caixas idênticas. Perfil e empresa têm seletor alimentado pelo que o banco já
+viu; **usuário e matrícula são texto livre de propósito**: identificam pessoas,
+e um seletor no catálogo global montaria, na tela de um administrador, a lista
+de logins e matrículas de todos os clientes.
+
 O campo que faz a tela funcionar é a **frase em português embaixo dos filtros**,
-viva: *"Só quem estiver no portal do Gestor e for do perfil FOLHA."* Três
+viva: *"Só quem estiver no portal do Gestor e for do perfil FOLHA."* Seis
 allowlists com E é fácil de implementar e difícil de conferir de cabeça —
 marcar Gestor e FOLHA restringe à interseção, e quem esperava "gestores OU
 folha" só descobriria o engano quando alguém reclamasse. `ou` dentro da
-dimensão, `e` entre elas; tem teste (`elegibilidade.test.ts`, 12 casos).
+dimensão, `e` entre elas; tem teste (`elegibilidade.test.ts`, 16 casos).
 
 ### Estado
 

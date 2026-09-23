@@ -4124,11 +4124,14 @@ export type Database = {
           ativo: boolean
           atualizado_em: string
           base_code: string | null
+          bases: string[]
           criado_em: string
           criado_por_id: string | null
           criado_por_ref: string | null
+          empresas: string[]
           id: string
           label: string
+          matriculas: string[]
           ordem: number
           perfis: string[]
           portais: string[]
@@ -4139,11 +4142,14 @@ export type Database = {
           ativo?: boolean
           atualizado_em?: string
           base_code?: string | null
+          bases?: string[]
           criado_em?: string
           criado_por_id?: string | null
           criado_por_ref?: string | null
+          empresas?: string[]
           id?: string
           label: string
+          matriculas?: string[]
           ordem?: number
           perfis?: string[]
           portais?: string[]
@@ -4154,11 +4160,14 @@ export type Database = {
           ativo?: boolean
           atualizado_em?: string
           base_code?: string | null
+          bases?: string[]
           criado_em?: string
           criado_por_id?: string | null
           criado_por_ref?: string | null
+          empresas?: string[]
           id?: string
           label?: string
+          matriculas?: string[]
           ordem?: number
           perfis?: string[]
           portais?: string[]
@@ -5940,16 +5949,13 @@ export type Database = {
           views: number
         }[]
       }
-      perfis_da_base: {
-        Args: { base_ref?: string }
-        Returns: {
-          conversas: number
-          perfil: string
-        }[]
-      }
       permissions_of: {
         Args: { p_space_id?: string; p_user_id: string }
         Returns: string[]
+      }
+      allowlist_casa: {
+        Args: { lista: string[]; valor: string }
+        Returns: boolean
       }
       prompt_favoritar: {
         Args: { base_ref: string; marcar: boolean; prompt_ref: string; usuario_ref: string }
@@ -5958,6 +5964,8 @@ export type Database = {
       prompts_sugeridos: {
         Args: {
           base_ref: string
+          empresa_ref?: string | null
+          matricula_ref?: string | null
           perfil_ref?: string | null
           portal_ref?: string | null
           usuario_ref?: string | null
@@ -5969,6 +5977,14 @@ export type Database = {
           id: string
           label: string
           texto: string
+        }[]
+      }
+      vocabulario_rastreio: {
+        Args: { base_ref?: string }
+        Returns: {
+          campo: string
+          conversas: number
+          valor: string
         }[]
       }
       purge_trash: { Args: { p_days?: number }; Returns: number }

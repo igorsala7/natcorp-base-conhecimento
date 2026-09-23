@@ -2,8 +2,7 @@ import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib
 import {
   listarParaAdmin,
   listarCategorias,
-  vocabularioDaBase,
-  PORTAIS,
+  vocabularioDoEscopo,
 } from "@/lib/prompts/sugeridos";
 import { ShellGestao, RecusaGestao, Bloco } from "@/components/gestao/shell";
 import { PromptsSugeridos } from "@/components/gestao/prompts-form";
@@ -32,20 +31,26 @@ export default async function GestaoPromptsPage({
   await registrarAcessoSuporte(sessao, "prompts");
 
   const base = sessao.identidade.baseCode;
-  const [doCliente, daNatcorp, categoriasBase, categoriasGlobais, vocab] = await Promise.all([
-    listarParaAdmin(base),
-    listarParaAdmin(null),
-    listarCategorias(base),
-    listarCategorias(null),
-    vocabularioDaBase(base),
-  ]);
+  // Dois vocabulários porque são dois escopos: no catálogo do cliente as
+  // opções saem das conversas DELE; no da Natcorp, de todas as bases — e é lá
+  // que a lista de bases existe, porque é o único lugar onde escolher base
+  // muda alguma coisa.
+  const [doCliente, daNatcorp, categoriasBase, categoriasGlobais, vocabBase, vocabGlobal] =
+    await Promise.all([
+      listarParaAdmin(base),
+      listarParaAdmin(null),
+      listarCategorias(base),
+      listarCategorias(null),
+      vocabularioDoEscopo(base),
+      vocabularioDoEscopo(null),
+    ]);
 
   return (
     <ShellGestao
       sessao={sessao}
       atual="prompts"
       titulo="Prompts prontos"
-      descricao="Perguntas já escritas que aparecem no assistente para quem tem dificuldade de formular o que quer. Quem vê cada uma é você que decide, por portal, perfil e usuário."
+      descricao="Perguntas já escritas que aparecem no assistente para quem tem dificuldade de formular o que quer. Quem vê cada uma é você que decide — por base, portal, empresa, perfil, usuário e matrícula."
     >
       <Bloco
         titulo="Catálogo"
@@ -59,8 +64,8 @@ export default async function GestaoPromptsPage({
           daNatcorp={daNatcorp}
           categoriasBase={categoriasBase}
           categoriasGlobais={categoriasGlobais}
-          portais={PORTAIS}
-          perfis={vocab.perfis}
+          vocabBase={vocabBase}
+          vocabGlobal={vocabGlobal}
         />
       </Bloco>
     </ShellGestao>
