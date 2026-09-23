@@ -1,4 +1,6 @@
 import "server-only";
+import { lerSaldo } from "./dados";
+import type { ModoCredito } from "./creditos";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -33,6 +35,17 @@ export type VereditoCredito = {
   creditos_consumidos?: number;
   alvo_tipo?: string;
   alvo?: string | null;
+  /**
+   * `normal` — turno completo.
+   * `somente_documentacao` — o saldo zerou: o chat continua, mas SEM nenhuma
+   * ferramenta, respondendo só pela documentação do sistema. Decisão do dono
+   * (23/09): zerar crédito não tira o atendimento, tira o acesso ao dado.
+   */
+  modo?: ModoCredito;
+  /** 0 a 100. Abaixo de 10 o painel avisa quem está usando. */
+  pct_restante?: number;
+  /** Está na faixa de aviso e ainda não zerou. */
+  avisar?: boolean;
 };
 
 type Entrada = { exp: number; veredito: VereditoCredito };
@@ -72,7 +85,34 @@ export async function creditoDoTurno(track: Track): Promise<VereditoCredito | nu
     });
     if (error || !data) return null;
 
-    const veredito = data as unknown as VereditoCredito;
+    const alocacao = data as unknown as VereditoCredito;
+
+    /**
+     * Cota do perfil estourada barra o turno inteiro — é limite que o próprio
+     * administrador do cliente impôs, e não tem nada a ver com o saldo dele
+     * acabar. Sai antes, sem pagar a leitura do saldo.
+     */
+    if (!alocacao.permitido) {
+      cache.set(k, { exp: agora + TTL_MS, veredito: { ...alocacao, modo: "normal" } });
+      return alocacao;
+    }
+
+    /**
+     * O saldo da BASE vem do fold dos dois baldes (`lerSaldo` → `calcularSaldo`),
+     * e não mais do banco: a regra mora num lugar só, com teste. Saldo zerado
+     * NÃO barra o turno — degrada para documentação.
+     */
+    const saldo = await lerSaldo(base);
+    const veredito: VereditoCredito = {
+      ...alocacao,
+      permitido: true,
+      motivo: saldo?.modo === "somente_documentacao" ? "base_sem_creditos" : alocacao.motivo,
+      modo: saldo?.modo ?? "normal",
+      pct_restante: saldo?.pct_restante,
+      avisar: saldo?.avisar ?? false,
+      creditos_disponiveis: saldo?.creditos_disponiveis ?? alocacao.creditos_disponiveis,
+      creditos_consumidos: saldo?.creditos_consumidos ?? alocacao.creditos_consumidos,
+    };
     cache.set(k, { exp: agora + TTL_MS, veredito });
     return veredito;
   } catch {

@@ -109,6 +109,35 @@ export default async function GestaoConsumoPage({
           : "Acompanhe o consumo de créditos do assistente."
       }
     >
+      {/*
+        AVISO DE CRÉDITO, antes de qualquer número.
+        Zerado é o estado que muda o produto: o assistente continua atendendo,
+        mas só pela documentação — nenhuma ferramenta, nenhum dado do sistema.
+        Dizer isso no topo evita a pergunta "por que ele parou de buscar dados?"
+        virar chamado. A faixa de 10% existe para a compra acontecer ANTES de
+        alguém perceber pela ausência de resposta.
+      */}
+      {saldo?.modo === "somente_documentacao" ? (
+        <div className="mb-4 rounded-lg border border-danger/40 bg-danger/5 px-4 py-3">
+          <p className="text-sm font-semibold text-text">Os créditos acabaram.</p>
+          <p className="mt-1 text-sm text-text-muted">
+            O assistente continua respondendo pela <strong>documentação do sistema</strong>, mas
+            deixou de consultar dados e de gerar relatórios até haver saldo. Adquira créditos na
+            aba <strong>Créditos</strong> — os adicionais não vencem e acumulam para os próximos meses.
+          </p>
+        </div>
+      ) : saldo?.avisar ? (
+        <div className="mb-4 rounded-lg border border-warning/40 bg-warning-soft px-4 py-3">
+          <p className="text-sm font-semibold text-text">
+            Restam {saldo.pct_restante}% dos créditos deste ciclo.
+          </p>
+          <p className="mt-1 text-sm text-text-muted">
+            Ao zerar, o assistente passa a responder só pela documentação do sistema, sem consultar
+            dados. O crédito adicional não vence e acumula.
+          </p>
+        </div>
+      ) : null}
+
       <ConsumoFiltros
         acao="/gestao"
         sessaoParams={paramsDaSessao(sessao)}

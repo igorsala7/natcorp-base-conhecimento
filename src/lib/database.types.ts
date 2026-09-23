@@ -745,7 +745,7 @@ export type Database = {
       ai_creditos_extra: {
         Row: {
           base_code: string
-          ciclo_inicio: string
+          comprado_em: string
           creditos: number
           criado_em: string
           id: string
@@ -755,7 +755,7 @@ export type Database = {
         }
         Insert: {
           base_code: string
-          ciclo_inicio: string
+          comprado_em: string
           creditos: number
           criado_em?: string
           id?: string
@@ -765,7 +765,7 @@ export type Database = {
         }
         Update: {
           base_code?: string
-          ciclo_inicio?: string
+          comprado_em?: string
           creditos?: number
           criado_em?: string
           id?: string
@@ -5623,10 +5623,22 @@ export type Database = {
           inicio: string
         }[]
       }
+      gestao_ciclos: {
+        Args: { p_ate?: string; p_base: string }
+        Returns: {
+          ciclo_fim: string
+          ciclo_inicio: string
+          compras: number
+          consumo: number
+          contratado: number
+          tokens: number
+          tokens_por_credito: number
+        }[]
+      }
       gestao_compras: {
         Args: { p_ate?: string; p_base: string; p_de?: string }
         Returns: {
-          ciclo_inicio: string
+          comprado_em: string
           creditos: number
           criado_em: string
           id: string
@@ -5691,25 +5703,6 @@ export type Database = {
           p_usuario?: string
         }
         Returns: Json
-      }
-      gestao_saldo: {
-        Args: { p_base: string; p_momento?: string }
-        Returns: {
-          base_code: string
-          ciclo_fim: string
-          ciclo_inicio: string
-          creditos_consumidos: number
-          creditos_contratados: number
-          creditos_disponiveis: number
-          creditos_extra: number
-          creditos_saldo: number
-          tem_plano: boolean
-          tokens_brutos: number
-          tokens_nao_atribuidos: number
-          tokens_por_credito: number
-          usd_por_credito: number
-          usd_total: number
-        }[]
       }
       hard_delete_subtree: { Args: { p_node_id: string }; Returns: number }
       has_permission: {

@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { calcularSaldo, modoDoSaldo, precisaAvisar, type CicloFato, type ModoCredito } from "./creditos";
 
 /**
  * Leitura dos dados da área de gestão.
@@ -45,10 +46,23 @@ export type Saldo = {
   ciclo_inicio: string;
   ciclo_fim: string;
   creditos_contratados: number;
+  /** Extra DISPONÍVEL: o acumulado de ciclos anteriores + o comprado neste. */
   creditos_extra: number;
   creditos_disponiveis: number;
   creditos_consumidos: number;
   creditos_saldo: number;
+  /** Quanto do contratado deste ciclo ainda não foi usado. Morre na virada. */
+  contratado_saldo: number;
+  /** Quanto do adicional sobra. Atravessa a virada e nunca vence. */
+  extra_saldo: number;
+  /** 0 a 100. Abaixo de 10 a tela e o painel avisam. */
+  pct_restante: number;
+  /** Consumo que rodou em modo documentação, depois de zerar. Não é cobrado. */
+  consumo_sem_cobertura: number;
+  /** `normal` ou `somente_documentacao`. */
+  modo: ModoCredito;
+  /** Está na faixa de aviso (≤10% e ainda não zerou). */
+  avisar: boolean;
   tokens_brutos: number;
   tokens_nao_atribuidos: number;
   /** Lastro do crédito. INTERNO — nunca renderizar na área do cliente. */
@@ -90,13 +104,58 @@ export type Alocacao = {
  */
 export async function lerSaldo(baseCode: string, momento?: Date): Promise<Saldo | null> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase.rpc("gestao_saldo", {
-    p_base: baseCode,
-    p_momento: momento?.toISOString(),
-  });
-  if (error || !data || (Array.isArray(data) && data.length === 0)) return null;
-  const linha = Array.isArray(data) ? data[0] : data;
-  return linha as unknown as Saldo;
+  /**
+   * Duas leituras e a conta fora do banco.
+   *
+   * `gestao_saldo` fazia tudo numa função só e somava `contratado + extra −
+   * consumo` num balde único — sem ordem de consumo, e filtrando o extra pelo
+   * ciclo corrente, que era o que matava a compra na virada. A regra nova é um
+   * fold com teto a cada passo; em SQL isso vira `with recursive` que ninguém
+   * relê. Aqui o banco entrega FATO por ciclo e `calcularSaldo` aplica a regra,
+   * que tem teste com o exemplo que o dono ditou.
+   */
+  const [ciclos, plano] = await Promise.all([
+    supabase.rpc("gestao_ciclos", { p_base: baseCode, p_ate: momento?.toISOString() }),
+    supabase.rpc("gestao_plano", { p_base: baseCode, p_momento: momento?.toISOString() }),
+  ]);
+  if (ciclos.error || !ciclos.data) return null;
+
+  const linhas = (Array.isArray(ciclos.data) ? ciclos.data : [ciclos.data]) as unknown as CicloFato[];
+  const s = calcularSaldo(linhas);
+  if (!s) return null;
+
+  const pl = (Array.isArray(plano.data) ? plano.data[0] : plano.data) as
+    | { tokens_por_credito: number; usd_por_credito: number; tem_plano: boolean }
+    | undefined;
+
+  const tokensBrutos = linhas.reduce(
+    (acc, c) => (c.ciclo_inicio === s.cicloInicio ? Number((c as unknown as { tokens?: number }).tokens ?? 0) : acc),
+    0,
+  );
+
+  return {
+    base_code: baseCode,
+    ciclo_inicio: s.cicloInicio,
+    ciclo_fim: s.cicloFim,
+    creditos_contratados: s.contratadoTotal,
+    creditos_extra: s.extraDisponivel,
+    creditos_disponiveis: s.disponivel,
+    creditos_consumidos: s.consumido,
+    creditos_saldo: s.saldo,
+    contratado_saldo: s.contratadoSaldo,
+    extra_saldo: s.extraSaldo,
+    pct_restante: s.pctRestante,
+    consumo_sem_cobertura: s.consumoSemCobertura,
+    modo: modoDoSaldo(s, pl?.tem_plano ?? false),
+    avisar: precisaAvisar(s, pl?.tem_plano ?? false),
+    tokens_brutos: tokensBrutos,
+    // Sem atribuição por perfil/usuário: veio do trace sem `p_*` completo.
+    tokens_nao_atribuidos: 0,
+    tokens_por_credito: Number(pl?.tokens_por_credito ?? 10000),
+    usd_por_credito: Number(pl?.usd_por_credito ?? 0.05),
+    usd_total: Math.round(s.disponivel * Number(pl?.usd_por_credito ?? 0.05) * 100) / 100,
+    tem_plano: pl?.tem_plano ?? false,
+  };
 }
 
 /** Compras avulsas, do ciclo corrente ou do período informado. */

@@ -344,6 +344,13 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // morreria junto com o `baseCfg`.
   let appsSchema: string[] | null = null;
   /**
+   * Saldo de crédito da base zerou: o turno segue SEM nenhuma ferramenta,
+   * respondendo só pela documentação do sistema. Não é bloqueio — é o
+   * atendimento continuar existindo sem dar acesso a dado que não foi pago.
+   */
+  let soDocumentacao = false;
+
+  /**
    * SESSÃO EXPIRADA vem ANTES do bloqueio por identidade.
    *
    * Os dois casos são "não consigo identificar", mas só um tem conserto que o
@@ -399,21 +406,49 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     //
     // Base SEM contrato cadastrado não bloqueia: transformar "ainda não
     // cadastrei o plano" em "cliente sem serviço" derrubaria todo mundo que
+
     // ainda não passou pelo comercial.
     const portao = await creditoDoTurno(track);
+    /**
+     * COTA DE PERFIL estourada ainda barra o turno: é limite que o próprio
+     * administrador do cliente impôs sobre um perfil, e deixar passar seria
+     * ignorar a decisão dele.
+     */
     if (portao && !portao.permitido) {
       return json(
         {
           error:
-            portao.motivo === "alocacao_sem_creditos"
-              ? "A cota de créditos do seu perfil acabou. Fale com o administrador do sistema para liberar mais."
-              : "Os créditos do assistente acabaram neste mês. O administrador pode adquirir mais na tela de gestão.",
+            "A cota de créditos do seu perfil acabou. Fale com o administrador do sistema para liberar mais.",
           code: "creditos_esgotados",
           motivo: portao.motivo,
         },
         402,
       );
     }
+    /**
+     * SALDO DA BASE zerado NÃO barra mais (decisão do dono, 23/09): o chat
+     * continua respondendo pela documentação do sistema, sem nenhuma
+     * ferramenta. Antes isto devolvia 402 e o assistente simplesmente parava
+     * de existir para o cliente até alguém comprar crédito.
+     *
+     * O consumo deste modo não desconta crédito — quem garante isso é o teto
+     * em `calcularSaldo`, que nunca deixa o gasto passar do disponível.
+     */
+    if (portao?.modo === "somente_documentacao") {
+      soDocumentacao = true;
+    }
+    /**
+     * O aviso de "está acabando" (≤10%) NÃO sai por aqui, e isso é decisão de
+     * escopo do dono (23/09), não pendência: o aviso vive na tela de gestão, na
+     * visão do CLIENTE, e só ali. Quem usa o painel é o colaborador do cliente
+     * — ele não sabe o que é crédito, e avisá-lo geraria chamado para o RH em
+     * vez de para quem pode comprar.
+     *
+     * O veredito já carrega `avisar` e `pct_restante` de graça, caso um dia a
+     * decisão mude. Se mudar, saiba que esta rota tem dez `ReadableStream`
+     * diferentes (esclarecimento de tema, de fonte, de sujeito…) e pendurar o
+     * evento em alguns é como ele passa a funcionar num caminho e falhar noutro.
+     */
   }
   // A partir daqui toda chamada de IA do turno sai atribuída a este cliente,
   // inclusive as que módulos internos disparam sem saber de quem é o turno.
@@ -1594,7 +1629,18 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    *
    * Não afeta o turno seguinte: cada um monta as suas.
    */
-  const allToolsCru: ToolSet = social ? {} : { ...toolsEstaveis, ...integNoTurno };
+  /**
+   * SÓ DOCUMENTAÇÃO cai no mesmo lugar do turno social: nenhuma ferramenta.
+   *
+   * O saldo de crédito da base zerou, e a decisão do dono é que o atendimento
+   * continua — mas sem acesso a dado. Cortar aqui, e não lá atrás no
+   * `buildIntegrationTools`, é de propósito: as LOCAIS (consulta de dataset,
+   * gráfico, relatório, tela) também precisam sair. Elas não chamam o ERP, mas
+   * operam sobre dado já coletado e são o que há de mais caro em token depois
+   * do próprio dado — deixá-las de pé daria ao cliente sem crédito justamente
+   * a parte cara do produto.
+   */
+  const allToolsCru: ToolSet = social || soDocumentacao ? {} : { ...toolsEstaveis, ...integNoTurno };
   // RASTRO UNIVERSAL: decora o `execute` de TODAS as ferramentas (integração e locais)
   // com `tool_call`/`tool_fim`. É o que garante nome + parâmetros + desfecho no
   // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que

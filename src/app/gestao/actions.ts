@@ -9,6 +9,17 @@ import { invalidarRegrasAcesso } from "@/lib/integrations/acesso-contexto";
 import { invalidarPortao } from "@/lib/gestao/portao";
 
 /**
+ * Preço do crédito ADICIONAL: US$3,50 por 100 créditos.
+ *
+ * Fica aqui, e não no plano, porque é preço de tabela da compra avulsa — o
+ * `ai_cliente_plano.usd_por_credito` é o do CONTRATADO (US$0,05), e usar aquele
+ * aqui cobraria do cliente o preço cheio numa compra que é justamente mais
+ * barata. O valor vai gravado em cada linha de compra, então mudar esta
+ * constante não reescreve o que já foi vendido.
+ */
+const USD_POR_CREDITO_EXTRA = 0.035;
+
+/**
  * Ações da área de gestão.
  *
  * ── Toda ação REVALIDA o token ─────────────────────────────────────────
@@ -116,18 +127,27 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
 
   const db = createAdminClient();
 
-  // O ciclo e o PREÇO vêm do plano vigente, não de constantes: o cliente pode
-  // ter ciclo em 14 e crédito a outro valor por negociação. Gravar o preço na
-  // linha faz a compra continuar valendo o que valia se o plano mudar depois.
+  /**
+   * O PREÇO vai gravado na linha: o cliente pode ter negociado outro valor, e
+   * a compra precisa continuar valendo o que valia se o plano mudar depois.
+   *
+   * O crédito adicional é MAIS BARATO que o contratado (US$3,50 por 100 contra
+   * US$5,00) — é compra avulsa, fora do compromisso mensal. Por isso o preço
+   * NÃO sai de `saldo.usd_por_credito`, que é o do contrato.
+   *
+   * E não se grava mais o ciclo: desde 23/09 o adicional acumula e nunca vence,
+   * então o que importa da compra é QUANDO ela foi feita, não a qual mês ela
+   * pertenceria. Era o filtro por ciclo que fazia a compra morrer na virada.
+   */
   const saldo = await lerSaldo(sessao.base);
   if (!saldo) return { ok: false, erro: "Não foi possível apurar o ciclo atual. Tente de novo." };
-  const cicloInicio = saldo.ciclo_inicio.slice(0, 10);
+  const hoje = new Date().toISOString().slice(0, 10);
 
   const { error } = await db.from("ai_creditos_extra").insert({
     base_code: sessao.base,
-    ciclo_inicio: cicloInicio,
+    comprado_em: hoje,
     creditos: parsed.data.creditos,
-    usd_por_credito: saldo.usd_por_credito,
+    usd_por_credito: USD_POR_CREDITO_EXTRA,
     solicitado_por: autorDa(sessao),
     motivo: parsed.data.motivo ?? null,
   });
@@ -150,8 +170,9 @@ export async function comprarCreditos(input: unknown): Promise<ResultadoAcao> {
     entity_id: null,
     after: {
       base_code: sessao.base,
-      ciclo_inicio: cicloInicio,
+      comprado_em: hoje,
       creditos: parsed.data.creditos,
+      usd_por_credito: USD_POR_CREDITO_EXTRA,
       solicitado_por: autorDa(sessao),
       via_suporte: sessao.modo === "suporte",
     },
