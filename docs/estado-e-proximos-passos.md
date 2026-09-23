@@ -1,6 +1,6 @@
 # Estado do projeto e próximos passos
 
-> **Atualizado em 06/09/2026.**
+> **Atualizado em 23/09/2026.**
 > A rodada corrente é a de **assertividade e custo do chat**, aberta pelo guia técnico
 > externo de 107 seções. O que está abaixo da linha "HISTÓRICO" é de 16/08 e já foi
 > superado — leia como registro, não como tarefa.
@@ -55,6 +55,66 @@
    O `NEXT_PUBLIC_BASE_PATH=` só é necessário se o seu `.env.local` não o zerar — se
    esquecer, o guard do `playwright.config.ts` avisa com a linha de comando pronta.
 5. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
+
+---
+
+## RODADA DE 23/09 — o crédito mudou de unidade, e o adicional passou a acumular
+
+Regra nova, ditada pelo dono. **Marque a data: a unidade do crédito mudou 100×.**
+Consumo apurado antes de 23/09 está na unidade velha (1 crédito = 1.000.000 de
+tokens); a partir daqui, **1 crédito = 10.000 tokens**, ou seja 100 créditos = 1
+milhão. Quem comparar um número de setembro com um de agosto sem saber disso vai
+achar que o consumo explodiu.
+
+**O preço por token NÃO mudou** — e vale repetir porque parece mudança comercial:
+era US$5,00 por crédito × 1M de tokens; é US$0,05 por crédito × 10 mil. Os dois
+dão US$5 por milhão. A leadec saiu de 500 para 50.000 créditos e continua com os
+mesmos 500 milhões de tokens e os mesmos US$2.500 por ciclo. O preço novo é o do
+**adicional**: US$0,035 (US$3,50 por 100), 30% abaixo do contratado.
+
+### As regras, como ele as ditou
+
+- contratado renova a cada ciclo e **não acumula** — o que sobra morre na virada;
+- adicional comprado **acumula e nunca vence**;
+- o consumo sai **sempre do contratado primeiro**;
+- saldo zerado **não bloqueia**: o chat segue respondendo só pela documentação do
+  sistema, sem nenhuma ferramenta — e esse consumo **não desconta crédito**;
+- o aviso (esgotado e ≤10%) vive **só na tela de gestão, na visão do cliente**.
+  Decisão de escopo: quem usa o painel é o colaborador, não sabe o que é crédito,
+  e avisá-lo geraria chamado para o RH em vez de para quem compra.
+
+### Onde a regra mora
+
+`gestao_saldo` foi **aposentada**. Ela somava tudo num balde só e filtrava o
+extra pelo ciclo — era esse filtro que fazia a compra morrer na virada.
+
+Agora: **`gestao_ciclos`** (banco) entrega FATO por ciclo e
+**`src/lib/gestao/creditos.ts`** aplica a regra, com o exemplo do dono virado em
+teste passo a passo. Mesma divisão de `pricing.ts`. O saldo do extra é um fold
+com teto a cada passo — cheguei a escrever a versão `with recursive` em SQL, li,
+e joguei fora.
+
+O `min(excedente, disponível)` é o que implementa "documentação não consome":
+sem ele, o consumo pós-zero viraria dívida e comeria a próxima compra.
+
+### Três defeitos que só apareceram testando contra o banco real
+
+1. **O portão do chat quebrou.** `gestao_portao_credito` referenciava
+   `ai_creditos_extra.ciclo_inicio`, renomeada para `comprado_em`, e passou a
+   estourar `errorMissingColumn` em toda base COM plano — a cada turno. A
+   natcorp escapava só por não ter contrato.
+2. **Quem contrata no meio do mês perdia o mês.** Eu lia o plano vigente no dia
+   1º; a leadec vigora desde 08/09 e o ciclo dela abre no dia 1º.
+3. **O pior:** base **sem plano** tem contratado 0, qualquer consumo a zera, e a
+   NATCORP cairia em modo documentação, perdendo TODAS as ferramentas. A postura
+   ("sem contrato não é sem serviço") já existia no portão em SQL e não tinha
+   atravessado junto com a regra. Virou teste de regressão.
+
+### Estado
+
+**Não está ativo nas bases** — nenhum cliente vê a tela ainda; será divulgado
+quando o dono decidir. Só a leadec tem plano cadastrado, e há **zero compras de
+adicional**, então não houve saldo retroativo para converter.
 
 ---
 
