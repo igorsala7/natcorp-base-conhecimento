@@ -4063,6 +4063,140 @@ export type Database = {
         }
         Relationships: []
       }
+      prompt_categoria: {
+        Row: {
+          ativo: boolean
+          base_code: string | null
+          criado_em: string
+          id: string
+          nome: string
+          ordem: number
+        }
+        Insert: {
+          ativo?: boolean
+          base_code?: string | null
+          criado_em?: string
+          id?: string
+          nome: string
+          ordem?: number
+        }
+        Update: {
+          ativo?: boolean
+          base_code?: string | null
+          criado_em?: string
+          id?: string
+          nome?: string
+          ordem?: number
+        }
+        Relationships: []
+      }
+      prompt_favorito: {
+        Row: {
+          criado_em: string
+          p_base: string
+          p_usuario: string
+          prompt_id: string
+        }
+        Insert: {
+          criado_em?: string
+          p_base: string
+          p_usuario: string
+          prompt_id: string
+        }
+        Update: {
+          criado_em?: string
+          p_base?: string
+          p_usuario?: string
+          prompt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prompt_favorito_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_sugerido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prompt_sugerido: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          base_code: string | null
+          criado_em: string
+          criado_por_id: string | null
+          criado_por_ref: string | null
+          id: string
+          label: string
+          ordem: number
+          perfis: string[]
+          portais: string[]
+          texto: string
+          usuarios: string[]
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          base_code?: string | null
+          criado_em?: string
+          criado_por_id?: string | null
+          criado_por_ref?: string | null
+          id?: string
+          label: string
+          ordem?: number
+          perfis?: string[]
+          portais?: string[]
+          texto: string
+          usuarios?: string[]
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          base_code?: string | null
+          criado_em?: string
+          criado_por_id?: string | null
+          criado_por_ref?: string | null
+          id?: string
+          label?: string
+          ordem?: number
+          perfis?: string[]
+          portais?: string[]
+          texto?: string
+          usuarios?: string[]
+        }
+        Relationships: []
+      }
+      prompt_sugerido_categoria: {
+        Row: {
+          categoria_id: string
+          prompt_id: string
+        }
+        Insert: {
+          categoria_id: string
+          prompt_id: string
+        }
+        Update: {
+          categoria_id?: string
+          prompt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prompt_sugerido_categoria_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_categoria"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prompt_sugerido_categoria_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "prompt_sugerido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prompts_usuario_cliente: {
         Row: {
           created_at: string
@@ -5806,9 +5940,36 @@ export type Database = {
           views: number
         }[]
       }
+      perfis_da_base: {
+        Args: { base_ref?: string }
+        Returns: {
+          conversas: number
+          perfil: string
+        }[]
+      }
       permissions_of: {
         Args: { p_space_id?: string; p_user_id: string }
         Returns: string[]
+      }
+      prompt_favoritar: {
+        Args: { base_ref: string; marcar: boolean; prompt_ref: string; usuario_ref: string }
+        Returns: boolean
+      }
+      prompts_sugeridos: {
+        Args: {
+          base_ref: string
+          perfil_ref?: string | null
+          portal_ref?: string | null
+          usuario_ref?: string | null
+        }
+        Returns: {
+          categorias: string[]
+          favorito: boolean
+          global: boolean
+          id: string
+          label: string
+          texto: string
+        }[]
       }
       purge_trash: { Args: { p_days?: number }; Returns: number }
       rate_limit_hit: {

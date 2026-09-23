@@ -27,12 +27,16 @@ import { linkGestao, type SessaoGestao } from "@/lib/gestao/sessao";
  * mínimo: onde estou, de que base, e as quatro páginas irmãs.
  */
 
-export type AbaGestao = "consumo" | "creditos" | "acessos" | "conversas";
+export type AbaGestao = "consumo" | "creditos" | "acessos" | "prompts" | "conversas";
 
 const ABAS: { id: AbaGestao; rotulo: string; href: string }[] = [
   { id: "consumo", rotulo: "Consumo", href: "/gestao" },
   { id: "creditos", rotulo: "Créditos", href: "/gestao/creditos" },
   { id: "acessos", rotulo: "Acessos", href: "/gestao/acessos" },
+  // "Prompts" entre Acessos e Conversas de propósito: as três abas do meio são
+  // as de CONFIGURAR o assistente (quanto pode gastar, quem pode o quê, o que
+  // já vem escrito), e Conversas é a de OLHAR o que aconteceu.
+  { id: "prompts", rotulo: "Prompts", href: "/gestao/prompts" },
   { id: "conversas", rotulo: "Conversas", href: "/gestao/conversas" },
 ];
 

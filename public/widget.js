@@ -3999,33 +3999,78 @@
       ".pbtn{display:inline-flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;color:#6b6577;font-size:12px;font-weight:600;padding:5px 8px;border-radius:8px;transition:background .15s,color .15s}" +
       ".pbtn:hover{background:#f2edfa;color:var(--pc)}" +
       ".pbtn svg{width:14px;height:14px}" +
-      ".ppanel{display:none;position:absolute;bottom:100%;left:12px;right:12px;margin-bottom:6px;background:#fff;border:1px solid #e9e0f4;border-radius:14px;box-shadow:0 18px 46px rgba(40,20,80,.22);padding:8px;max-height:320px;overflow:auto;z-index:5}" +
-      ".ppanel.open{display:block}" +
-      ".pph{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 6px}" +
-      ".ppt{font-size:12px;font-weight:700;color:#201d26}" +
+      /*
+        `.pdrop` é o balão que sobe a partir da barra — a "Base de Dados" usa.
+        Eram as regras de `.ppanel` até 23/09; ganharam nome próprio quando a
+        gaveta de prompts deixou de ser um balãozinho e virou folha de altura
+        inteira. Duas coisas diferentes dividindo uma classe é como uma delas
+        quebra sem ninguém tocar nela.
+      */
+      ".pdrop{display:none;position:absolute;bottom:100%;left:12px;right:12px;margin-bottom:6px;background:#fff;border:1px solid #e9e0f4;border-radius:14px;box-shadow:0 18px 46px rgba(40,20,80,.22);padding:8px;max-height:320px;overflow:auto;z-index:5}" +
+      ".pdrop.open{display:block}" +
+      /*
+        A GAVETA DE PROMPTS OCUPA A ÁREA DA CONVERSA INTEIRA.
+        Era um dropdown de 320px de altura ancorado acima da barra, com a lista
+        toda truncada em uma linha. Com prompts sugeridos do administrador
+        entrando ao lado dos salvos, aquilo virava uma janelinha com dezenas de
+        itens ilegíveis.
+        Agora `.ppanel` é IRMÃO de `.msgs` no flex do painel: quando abre, a
+        conversa se esconde e a gaveta herda exatamente o mesmo espaço. Sem
+        `position:absolute`, sem `vh`, sem altura chutada — funciona igual no
+        painel de 680px, no modo expandido e no celular em tela cheia.
+      */
+      ".ppanel{display:none;flex:1;min-height:0;flex-direction:column;background:#fff}" +
+      ".ppanel.open{display:flex}" +
+      ".pph{display:flex;align-items:center;gap:8px;padding:12px 14px 8px}" +
+      ".ppt{flex:1;font-size:14px;font-weight:700;color:#201d26;letter-spacing:-.01em}" +
       ".ppa{display:flex;gap:4px}" +
-      ".ppa button{background:none;border:none;cursor:pointer;color:#8a7ea3;padding:3px;border-radius:6px;display:flex;align-items:center;line-height:1}" +
+      ".ppa button{background:none;border:none;cursor:pointer;color:#8a7ea3;padding:4px;border-radius:7px;display:flex;align-items:center;line-height:1}" +
       ".ppa button:hover{color:var(--pc);background:#f2edfa}" +
-      ".ppa .ppx{font-size:17px}" +
-      ".ppa svg{width:15px;height:15px}" +
-      ".ppf{background:#faf8fd;border:1px solid #ece3f6;border-radius:10px;padding:8px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px}" +
-      ".ppf input,.ppf textarea{border:1.5px solid #e6ddf1;border-radius:9px;padding:7px 9px;font-size:13px;outline:none;font-family:inherit;background:#fff;width:100%}" +
-      ".ppf textarea{min-height:56px;resize:vertical}" +
+      ".ppa .ppx{font-size:19px}" +
+      ".ppa svg{width:16px;height:16px}" +
+      ".ppsearch{position:relative;margin:0 14px 8px;flex:none}" +
+      ".ppsearch svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:#a99fbe;pointer-events:none}" +
+      ".ppsearch input{width:100%;border:1.5px solid #e6ddf1;border-radius:10px;padding:8px 10px 8px 31px;font-size:13px;outline:none;font-family:inherit;background:#faf8fd;color:#201d26;box-sizing:border-box}" +
+      ".ppsearch input:focus{border-color:var(--pc);background:#fff}" +
+      ".pptabs{display:flex;gap:5px;padding:0 14px 9px;flex:none}" +
+      ".pptab{flex:1;background:#f4f0fa;border:none;border-radius:9px;padding:7px 8px;font-size:12px;font-weight:600;color:#6b6577;cursor:pointer;font-family:inherit;transition:background .15s,color .15s}" +
+      ".pptab:hover{background:#ece4f8}" +
+      '.pptab[aria-selected="true"]{background:var(--pc);color:#fff}' +
+      ".pptab b{font-weight:700;opacity:.7;margin-left:3px}" +
+      ".ppchips{display:flex;gap:6px;overflow-x:auto;padding:0 14px 9px;flex:none;scrollbar-width:none}" +
+      ".ppchips::-webkit-scrollbar{display:none}" +
+      ".ppchip{flex:none;border:1px solid #e9e0f4;background:#fff;border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:600;color:#6b6577;cursor:pointer;font-family:inherit;white-space:nowrap}" +
+      ".ppchip:hover{border-color:#d9c9f0}" +
+      '.ppchip[aria-pressed="true"]{background:#f2edfa;border-color:var(--pc);color:var(--pc)}' +
+      ".ppf{background:#faf8fd;border:1px solid #ece3f6;border-radius:12px;padding:10px;margin:0 14px 10px;flex:none;display:flex;flex-direction:column;gap:7px}" +
+      ".ppf input,.ppf textarea{border:1.5px solid #e6ddf1;border-radius:9px;padding:8px 10px;font-size:13px;outline:none;font-family:inherit;background:#fff;width:100%;box-sizing:border-box;color:#201d26}" +
+      ".ppf textarea{min-height:76px;resize:vertical;line-height:1.5}" +
       ".ppf input:focus,.ppf textarea:focus{border-color:var(--pc)}" +
       ".ppfb{display:flex;justify-content:flex-end;gap:6px}" +
-      ".ppbtn{border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;background:var(--pc);color:#fff}" +
+      ".ppbtn{border:none;border-radius:9px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;background:var(--pc);color:#fff;font-family:inherit}" +
       ".ppbtn.ghost{background:#efe9f6;color:#5b5468}" +
-      ".ppl{display:flex;flex-direction:column;gap:2px}" +
-      ".ppe{font-size:12px;color:#8a7ea3;padding:8px 6px;line-height:1.4}" +
-      ".ppi{display:flex;align-items:flex-start;gap:4px;border-radius:8px;padding:5px 6px}" +
-      ".ppi:hover{background:#f6f2fc}" +
-      ".ppuse{flex:1;min-width:0;text-align:left;background:none;border:none;cursor:pointer;padding:0;display:block}" +
-      ".ppil{display:block;font-size:12px;font-weight:600;color:#201d26;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
-      ".ppit{display:block;font-size:12px;color:#7a7088;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
-      ".ppedit,.ppdel{background:none;border:none;cursor:pointer;color:#a99fbe;padding:3px;border-radius:6px;display:flex;flex:none}" +
-      ".ppedit:hover{color:var(--pc);background:#f2edfa}" +
+      ".ppl{flex:1;min-height:0;overflow-y:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:3px}" +
+      ".ppl::-webkit-scrollbar{width:8px}.ppl::-webkit-scrollbar-thumb{background:#dcd2ec;border-radius:8px}" +
+      ".ppgrp{padding:11px 6px 3px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a99fbe}" +
+      ".ppe{font-size:12.5px;color:#8a7ea3;padding:26px 16px;line-height:1.55;text-align:center}" +
+      ".ppi{display:flex;align-items:flex-start;gap:6px;border-radius:11px;padding:9px 10px;border:1px solid transparent;transition:background .12s,border-color .12s}" +
+      ".ppi:hover{background:#faf8fd;border-color:#eee7f7}" +
+      ".ppuse{flex:1;min-width:0;text-align:left;background:none;border:none;cursor:pointer;padding:0;display:block;font-family:inherit}" +
+      ".ppil{display:block;font-size:12.5px;font-weight:600;color:#201d26;margin-bottom:2px;line-height:1.35}" +
+      // Duas linhas, não uma: o prompt pronto é uma FRASE, e meia frase
+      // truncada não diz se serve.
+      ".ppit{font-size:12px;color:#7a7088;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}" +
+      ".ppmeta{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}" +
+      ".ppcat{font-size:10px;font-weight:600;color:#8a7ea3;background:#f4f0fa;border-radius:5px;padding:2px 6px}" +
+      ".ppfav,.ppedit,.ppdel{background:none;border:none;cursor:pointer;color:#c3b9d4;padding:4px;border-radius:7px;display:flex;flex:none}" +
+      ".ppfav:hover,.ppedit:hover{color:var(--pc);background:#f2edfa}" +
+      ".ppfav.on{color:#e8a838}" +
+      ".ppfav.on svg{fill:#e8a838}" +
       ".ppdel:hover{color:#c0392b;background:#fbecea}" +
-      ".ppedit svg,.ppdel svg{width:14px;height:14px}" +
+      ".ppfav svg,.ppedit svg,.ppdel svg{width:15px;height:15px}" +
+      ".ppnew{margin:0 14px 12px;flex:none;border:1.5px dashed #ddd2ee;background:#fff;border-radius:11px;padding:10px;font-size:12.5px;font-weight:600;color:var(--pc);cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px}" +
+      ".ppnew:hover{background:#faf8fd;border-color:var(--pc)}" +
+      ".ppnew svg{width:14px;height:14px}" +
       ".urow{display:flex;justify-content:flex-end;align-items:center;gap:6px;max-width:100%}" +
       ".savep{background:none;border:none;cursor:pointer;color:#b3a9c6;padding:4px;border-radius:7px;opacity:0;transition:opacity .15s,color .15s,background .15s;flex:none}" +
       ".urow:hover .savep{opacity:1}" +
@@ -4071,6 +4116,12 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
   var ICON_PLUS =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  // Favoritar um prompt sugerido (contorno; preenche em amarelo quando ligado)
+  // e a lupa da busca da gaveta de prompts.
+  var ICON_STAR =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+  var ICON_SEARCH =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
   // Salvar resultado (disquete) e "meus relatórios" (grade/planilha).
   var ICON_SAVEREP =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
@@ -8390,7 +8441,7 @@
       promptBar.appendChild(trWrap);
     }
     basePanel = document.createElement("div");
-    basePanel.className = "ppanel";
+    basePanel.className = "pdrop";
     promptBar.appendChild(basePanel);
     baseFileInput = document.createElement("input");
     baseFileInput.type = "file"; baseFileInput.multiple = true; baseFileInput.style.display = "none";
@@ -8527,13 +8578,25 @@
     basePanel.appendChild(reset);
   }
 
-  // ==== Prompts salvos (biblioteca do visitante) ====
-  // Só existe quando a visita traz um TOKEN de rastreio; o servidor o decifra e
-  // chaveia por (space, p_base, p_usuario). O widget NUNCA pede login e não lê
-  // os p_* — só carrega o token opaco.
-  var promptBar, promptPanel;
+  // ==== Gaveta de prompts (salvos do usuário + sugeridos do administrador) ====
+  //
+  // Duas origens no MESMO lugar, que foi o pedido: "Meus" são os que a pessoa
+  // salvou; "Sugeridos" são os prontos que o administrador cadastrou. Só existe
+  // quando a visita traz um TOKEN de rastreio; o servidor o decifra e chaveia
+  // por (space, p_base, p_usuario). O widget NUNCA pede login e não lê os p_*.
+  //
+  // A ELEGIBILIDADE NÃO ESTÁ AQUI. Este arquivo é público — qualquer um o lê
+  // no navegador. O servidor já manda só o que esta pessoa pode ver; se algum
+  // dia alguém pensar em receber a lista inteira e filtrar aqui, é o mesmo que
+  // publicar os prompts restritos.
+  var promptBar, promptPanel, promptListaEl;
   var promptOpen = false, promptLoading = false, promptCache = [];
+  var promptSug = [], promptCats = [];
+  var promptTab = "sugeridos", promptTabFixada = false;
+  var promptBusca = "", promptCat = "";
   var promptForm = false, promptEditId = null, promptFormLabel = "", promptFormTexto = "";
+
+  var GERAL = "Geral"; // rótulo de quem não tem categoria; não é dado no banco
 
   function hasPromptIdentity() {
     return !!(track && track.token);
@@ -8554,26 +8617,55 @@
   }
 
   function setupPrompts() {
-    if (!hasPromptIdentity()) return; // sem identidade, sem biblioteca
-    promptBar = panel.querySelector(".pbar");
+    if (!hasPromptIdentity()) return; // sem identidade, sem gaveta
+    promptBar = promptBar || panel.querySelector(".pbar");
     promptBar.style.display = "block";
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "pbtn";
-    btn.innerHTML = ICON_BOOKMARK + "<span>Prompts salvos</span>";
-    btn.addEventListener("click", togglePrompts);
+    btn.innerHTML = ICON_BOOKMARK + "<span>Prompts</span>";
+    btn.addEventListener("click", function () {
+      togglePrompts();
+    });
     promptBar.appendChild(btn);
+
+    // A gaveta é IRMÃ da conversa, não um balão em cima dela: entra logo depois
+    // de `.msgs` no mesmo flex. É isso que lhe dá a altura inteira do painel sem
+    // nenhum valor chutado.
     promptPanel = document.createElement("div");
     promptPanel.className = "ppanel";
-    promptBar.appendChild(promptPanel);
+    panel.insertBefore(promptPanel, messagesEl.nextSibling);
   }
 
-  function togglePrompts() {
+  function togglePrompts(forcar) {
     if (!promptPanel) return;
-    promptOpen = !promptOpen;
+    promptOpen = forcar === undefined ? !promptOpen : !!forcar;
     promptPanel.classList.toggle("open", promptOpen);
-    if (promptOpen) loadPrompts();
-    else promptForm = false;
+    // A conversa cede o espaço. Ela não é destruída — volta intacta ao fechar.
+    if (messagesEl) messagesEl.style.display = promptOpen ? "none" : "";
+    var jump = panel.querySelector(".jump");
+    if (jump && promptOpen) jump.hidden = true;
+    /*
+      Enquanto a gaveta está aberta, o que não serve some — e isso não é
+      estética. Medido nesta bancada: painel de 592px, gaveta de 364px, lista
+      com 204px. O aviso de IA, o "Powered by" e a própria barra de botões
+      custavam ~78px que ninguém ia usar escolhendo um prompt; devolvidos à
+      lista, ela cresce ~38%. A barra pode sumir porque a gaveta tem o próprio
+      "×" — e o campo de escrever FICA, para a pessoa ver onde o texto cai.
+    */
+    var some = promptOpen ? "none" : "";
+    if (promptBar) promptBar.style.display = promptOpen ? "none" : "block";
+    var disc = panel.querySelector(".disc");
+    if (disc) disc.style.display = some;
+    var pw = panel.querySelector(".pw");
+    if (pw) pw.style.display = some;
+    if (promptOpen) {
+      loadPrompts();
+    } else {
+      promptForm = false;
+      promptBusca = "";
+      promptCat = "";
+    }
   }
 
   function loadPrompts() {
@@ -8582,17 +8674,29 @@
     promptApi("list")
       .then(function (r) {
         promptCache = (r && r.prompts) || [];
+        promptSug = (r && r.sugeridos) || [];
+        promptCats = (r && r.categorias) || [];
+        // Abre na aba que tem o que mostrar — quem nunca salvou nada cairia numa
+        // lista vazia tendo dezenas de prompts prontos na aba do lado. Só na
+        // PRIMEIRA carga: depois disso a escolha é da pessoa, e favoritar (que
+        // recarrega) não pode puxá-la de volta.
+        if (!promptTabFixada) {
+          promptTab = promptSug.length ? "sugeridos" : "meus";
+          promptTabFixada = true;
+        }
         promptLoading = false;
         renderPrompts();
       })
       .catch(function () {
         promptLoading = false;
         promptCache = [];
+        promptSug = [];
         renderPrompts();
       });
   }
 
   function openPromptForm(p) {
+    promptTab = "meus";
     promptForm = true;
     promptEditId = p ? p.id : null;
     promptFormLabel = p ? p.label || "" : "";
@@ -8621,10 +8725,25 @@
     });
   }
 
+  /**
+   * Favoritar é OTIMISTA: vira o estado aqui e redesenha, o que move o item
+   * para o topo na hora. A ida ao servidor acontece depois; se falhar,
+   * recarrega e a lista volta à verdade. Esperar o ida-e-volta para só então
+   * mover o item faria o clique parecer sem efeito.
+   */
+  function favoritarPrompt(p) {
+    var marcar = !p.favorito;
+    p.favorito = marcar;
+    renderLista();
+    promptApi("favoritar", { id: p.id, marcar: marcar }).then(function (r) {
+      if (!r || !r.ok) loadPrompts();
+    });
+  }
+
   function usePrompt(texto) {
     inputEl.value = inputEl.value.trim() ? inputEl.value + "\n" + texto : texto;
     autoGrow();
-    togglePrompts();
+    togglePrompts(false);
     inputEl.focus();
   }
 
@@ -8644,42 +8763,313 @@
       });
   }
 
+  /** Categorias de um prompt, com "Geral" no lugar de nenhuma. */
+  function catsDo(p) {
+    return p.categorias && p.categorias.length ? p.categorias : [GERAL];
+  }
+
+  /** Aplica busca e chip de categoria sobre a aba atual. */
+  function promptsVisiveis() {
+    var q = promptBusca.trim().toLowerCase();
+    var base = promptTab === "meus" ? promptCache : promptSug;
+    return base.filter(function (p) {
+      if (promptTab === "sugeridos" && promptCat && catsDo(p).indexOf(promptCat) === -1) {
+        return false;
+      }
+      if (!q) return true;
+      return ((p.label || "") + " " + (p.texto || "")).toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  function grupoEl(titulo) {
+    var g = document.createElement("div");
+    g.className = "ppgrp";
+    g.textContent = titulo;
+    return g;
+  }
+
+  function itemPrompt(p, sugerido) {
+    var it = document.createElement("div");
+    it.className = "ppi";
+
+    var use = document.createElement("button");
+    use.type = "button";
+    use.className = "ppuse";
+    use.title = "Usar este prompt";
+    if (p.label) {
+      var lb = document.createElement("span");
+      lb.className = "ppil";
+      lb.textContent = p.label;
+      use.appendChild(lb);
+    }
+    var tx = document.createElement("span");
+    tx.className = "ppit";
+    tx.textContent = p.texto;
+    use.appendChild(tx);
+    // As gavetas do item só aparecem quando NÃO se está filtrando por uma —
+    // repetir "Financeiro" em toda linha de uma lista já filtrada é ruído.
+    if (sugerido && !promptCat) {
+      var cats = catsDo(p);
+      if (cats.length) {
+        var meta = document.createElement("span");
+        meta.className = "ppmeta";
+        cats.forEach(function (c) {
+          var chip = document.createElement("span");
+          chip.className = "ppcat";
+          chip.textContent = c;
+          meta.appendChild(chip);
+        });
+        use.appendChild(meta);
+      }
+    }
+    use.addEventListener("click", function () {
+      usePrompt(p.texto);
+    });
+    it.appendChild(use);
+
+    if (sugerido) {
+      var fav = document.createElement("button");
+      fav.type = "button";
+      fav.className = "ppfav" + (p.favorito ? " on" : "");
+      fav.title = p.favorito ? "Remover dos favoritos" : "Favoritar (sobe para o topo)";
+      fav.setAttribute("aria-pressed", p.favorito ? "true" : "false");
+      fav.innerHTML = ICON_STAR;
+      fav.addEventListener("click", function () {
+        favoritarPrompt(p);
+      });
+      it.appendChild(fav);
+    } else {
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ppedit";
+      edit.title = "Editar";
+      edit.innerHTML = ICON_PENCIL;
+      edit.addEventListener("click", function () {
+        openPromptForm(p);
+      });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "ppdel";
+      del.title = "Excluir";
+      del.innerHTML = ICON_TRASH;
+      del.addEventListener("click", function () {
+        deletePrompt(p.id);
+      });
+      it.appendChild(edit);
+      it.appendChild(del);
+    }
+    return it;
+  }
+
+  /**
+   * Só a LISTA se redesenha ao digitar na busca.
+   *
+   * Redesenhar a gaveta inteira a cada tecla destruiria o `<input>` e o foco
+   * junto — o campo ficaria aceitando uma letra por clique.
+   */
+  function renderLista() {
+    if (!promptListaEl) return;
+    promptListaEl.innerHTML = "";
+
+    if (promptLoading) {
+      var ld = document.createElement("div");
+      ld.className = "ppe";
+      ld.textContent = "Carregando…";
+      promptListaEl.appendChild(ld);
+      return;
+    }
+
+    var itens = promptsVisiveis();
+    var sugerido = promptTab === "sugeridos";
+
+    if (!itens.length) {
+      var em = document.createElement("div");
+      em.className = "ppe";
+      em.textContent = promptBusca.trim()
+        ? "Nada encontrado para “" + promptBusca.trim() + "”."
+        : sugerido
+          ? "Nenhum prompt pronto disponível para você ainda."
+          : "Você ainda não salvou nenhum prompt. Use “Novo prompt” ou salve uma mensagem da conversa.";
+      promptListaEl.appendChild(em);
+      return;
+    }
+
+    if (!sugerido) {
+      itens.forEach(function (p) {
+        promptListaEl.appendChild(itemPrompt(p, false));
+      });
+      return;
+    }
+
+    // Filtrando por uma gaveta: lista reta, favoritos primeiro (já vêm assim
+    // do servidor, e o favoritar otimista mantém a ordem local).
+    if (promptCat) {
+      itens
+        .slice()
+        .sort(function (a, b) {
+          return (b.favorito ? 1 : 0) - (a.favorito ? 1 : 0);
+        })
+        .forEach(function (p) {
+          promptListaEl.appendChild(itemPrompt(p, true));
+        });
+      return;
+    }
+
+    // Visão "Todas": favoritos em cima, depois uma seção por gaveta. Um prompt
+    // em duas categorias aparece nas duas — é o que "o mesmo prompt pode estar
+    // em múltiplas categorias" quer dizer para quem procura por assunto.
+    var favs = itens.filter(function (p) {
+      return p.favorito;
+    });
+    if (favs.length) {
+      promptListaEl.appendChild(grupoEl("★ Favoritos"));
+      favs.forEach(function (p) {
+        promptListaEl.appendChild(itemPrompt(p, true));
+      });
+    }
+
+    var ordem = promptCats.slice();
+    if (
+      ordem.indexOf(GERAL) === -1 &&
+      itens.some(function (p) {
+        return catsDo(p).indexOf(GERAL) !== -1;
+      })
+    ) {
+      ordem.push(GERAL);
+    }
+    ordem.forEach(function (cat) {
+      var doGrupo = itens.filter(function (p) {
+        return catsDo(p).indexOf(cat) !== -1;
+      });
+      if (!doGrupo.length) return;
+      promptListaEl.appendChild(grupoEl(cat));
+      doGrupo.forEach(function (p) {
+        promptListaEl.appendChild(itemPrompt(p, true));
+      });
+    });
+  }
+
   function renderPrompts() {
     if (!promptPanel) return;
     promptPanel.innerHTML = "";
+    var temSug = promptSug.length > 0;
+    var total = promptCache.length + promptSug.length;
 
+    // Cabeçalho
     var head = document.createElement("div");
     head.className = "pph";
     var title = document.createElement("span");
     title.className = "ppt";
-    title.textContent = "Prompts salvos";
+    title.textContent = "Prompts";
     head.appendChild(title);
     var acts = document.createElement("div");
     acts.className = "ppa";
-    var addb = document.createElement("button");
-    addb.type = "button";
-    addb.title = "Novo prompt";
-    addb.innerHTML = ICON_PLUS;
-    addb.addEventListener("click", function () {
-      openPromptForm(null);
-    });
     var clb = document.createElement("button");
     clb.type = "button";
     clb.title = "Fechar";
+    clb.setAttribute("aria-label", "Fechar prompts");
     clb.className = "ppx";
     clb.textContent = "×";
-    clb.addEventListener("click", togglePrompts);
-    acts.appendChild(addb);
+    clb.addEventListener("click", function () {
+      togglePrompts(false);
+    });
     acts.appendChild(clb);
     head.appendChild(acts);
     promptPanel.appendChild(head);
 
-    if (promptForm) {
+    // Busca — só quando há volume que justifique procurar.
+    if (total > 4) {
+      var sw = document.createElement("div");
+      sw.className = "ppsearch";
+      sw.innerHTML = ICON_SEARCH;
+      var si = document.createElement("input");
+      si.type = "text";
+      si.placeholder = "Buscar prompt…";
+      si.value = promptBusca;
+      si.setAttribute("aria-label", "Buscar prompt");
+      si.addEventListener("input", function () {
+        promptBusca = si.value;
+        renderLista();
+      });
+      si.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          if (promptBusca) {
+            promptBusca = "";
+            si.value = "";
+            renderLista();
+          } else {
+            togglePrompts(false);
+          }
+        }
+      });
+      sw.appendChild(si);
+      promptPanel.appendChild(sw);
+    }
+
+    // Abas — só fazem sentido quando existem as duas origens.
+    if (temSug) {
+      var tabs = document.createElement("div");
+      tabs.className = "pptabs";
+      tabs.setAttribute("role", "tablist");
+      [
+        ["sugeridos", "Sugeridos", promptSug.length],
+        ["meus", "Meus", promptCache.length],
+      ].forEach(function (t) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "pptab";
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-selected", promptTab === t[0] ? "true" : "false");
+        b.innerHTML = "";
+        b.appendChild(document.createTextNode(t[1]));
+        if (t[2]) {
+          var n = document.createElement("b");
+          n.textContent = String(t[2]);
+          b.appendChild(n);
+        }
+        b.addEventListener("click", function () {
+          promptTab = t[0];
+          promptCat = "";
+          renderPrompts();
+        });
+        tabs.appendChild(b);
+      });
+      promptPanel.appendChild(tabs);
+    }
+
+    // Gavetas — só na aba dos sugeridos, e só se houver mais de uma.
+    if (promptTab === "sugeridos") {
+      var cats = promptCats.slice();
+      var temSemCategoria = promptSug.some(function (p) {
+        return !p.categorias || !p.categorias.length;
+      });
+      if (temSemCategoria && cats.indexOf(GERAL) === -1) cats.push(GERAL);
+      if (cats.length > 1) {
+        var chips = document.createElement("div");
+        chips.className = "ppchips";
+        [""].concat(cats).forEach(function (c) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "ppchip";
+          b.textContent = c || "Todas";
+          b.setAttribute("aria-pressed", promptCat === c ? "true" : "false");
+          b.addEventListener("click", function () {
+            promptCat = c;
+            renderPrompts();
+          });
+          chips.appendChild(b);
+        });
+        promptPanel.appendChild(chips);
+      }
+    }
+
+    // Formulário (só na biblioteca pessoal — sugerido é do administrador).
+    if (promptForm && promptTab === "meus") {
       var f = document.createElement("div");
       f.className = "ppf";
       var li = document.createElement("input");
       li.type = "text";
-      li.placeholder = "Rótulo (opcional)";
+      li.placeholder = "Título (opcional)";
       li.value = promptFormLabel;
       li.addEventListener("input", function () {
         promptFormLabel = li.value;
@@ -8713,62 +9103,23 @@
       promptPanel.appendChild(f);
     }
 
-    var listWrap = document.createElement("div");
-    listWrap.className = "ppl";
-    if (promptLoading) {
-      var ld = document.createElement("div");
-      ld.className = "ppe";
-      ld.textContent = "Carregando…";
-      listWrap.appendChild(ld);
-    } else if (!promptCache.length) {
-      var em = document.createElement("div");
-      em.className = "ppe";
-      em.textContent = "Nenhum prompt salvo ainda. Use “+” ou salve uma mensagem.";
-      listWrap.appendChild(em);
-    } else {
-      promptCache.forEach(function (p) {
-        var it = document.createElement("div");
-        it.className = "ppi";
-        var use = document.createElement("button");
-        use.type = "button";
-        use.className = "ppuse";
-        use.title = "Usar este prompt";
-        if (p.label) {
-          var lb = document.createElement("span");
-          lb.className = "ppil";
-          lb.textContent = p.label;
-          use.appendChild(lb);
-        }
-        var tx = document.createElement("span");
-        tx.className = "ppit";
-        tx.textContent = p.texto;
-        use.appendChild(tx);
-        use.addEventListener("click", function () {
-          usePrompt(p.texto);
-        });
-        var edit = document.createElement("button");
-        edit.type = "button";
-        edit.className = "ppedit";
-        edit.title = "Editar";
-        edit.innerHTML = ICON_PENCIL;
-        edit.addEventListener("click", function () {
-          openPromptForm(p);
-        });
-        var del = document.createElement("button");
-        del.type = "button";
-        del.className = "ppdel";
-        del.title = "Excluir";
-        del.innerHTML = ICON_TRASH;
-        del.addEventListener("click", function () {
-          deletePrompt(p.id);
-        });
-        it.appendChild(use);
-        it.appendChild(edit);
-        it.appendChild(del);
-        listWrap.appendChild(it);
+    promptListaEl = document.createElement("div");
+    promptListaEl.className = "ppl";
+    promptPanel.appendChild(promptListaEl);
+    renderLista();
+
+    // "Novo prompt" fica no fim, onde a ação de criar costuma estar, e só na
+    // aba de quem pode criar.
+    if (promptTab === "meus" && !promptForm) {
+      var nb = document.createElement("button");
+      nb.type = "button";
+      nb.className = "ppnew";
+      nb.innerHTML = ICON_PLUS + "<span>Novo prompt</span>";
+      nb.addEventListener("click", function () {
+        openPromptForm(null);
       });
+      promptPanel.appendChild(nb);
     }
-    promptPanel.appendChild(listWrap);
   }
 
   // ==== Init ====

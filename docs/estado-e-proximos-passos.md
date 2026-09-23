@@ -58,6 +58,86 @@
 
 ---
 
+## RODADA DE 23/09 (2) — prompts prontos: o administrador escreve, o usuário clica
+
+Pedido do dono: muita gente **não consegue formular a pergunta**, e o campo em
+branco é onde ela desiste. O administrador passa a cadastrar perguntas prontas
+que aparecem no widget **no mesmo lugar** dos prompts que o próprio usuário
+salvou.
+
+### As três decisões que moldaram tudo (do dono)
+
+| pergunta | resposta | consequência no código |
+|---|---|---|
+| quem cadastra? | **os dois** — Natcorp para todos + cada cliente o seu | uma tabela com `base_code NULL` = global |
+| como as regras combinam? | **E** — todas precisam bater | `portais` E `perfis` E `usuarios`, vazio não restringe |
+| o usuário copia ou favorita? | **favorita** | `prompt_favorito` guarda a ORDEM, não o texto |
+
+O exemplo dele é o teste: *"Me retorne os dados deste centro de custo" só no
+portal do gestor, para o perfil FOLHA*. Provado contra o banco real: com
+`PG+FOLHA` aparece; com `PG+MASTER` ou `PO+FOLHA`, não.
+
+### Onde a regra mora, e por quê
+
+O corte de elegibilidade está na função `prompts_sugeridos` **no banco**, não no
+TypeScript e muito menos no widget. `public/widget.js` é código que qualquer
+pessoa lê e edita no navegador do ERP do cliente: mandar a lista inteira para
+filtrar lá publicaria o prompt restrito — e o texto de um prompt conta o que
+existe no sistema. O que trafega já é só o permitido.
+
+### Três coisas que só apareceram MEDINDO
+
+1. **`column reference "p_base" is ambiguous`** — as colunas de
+   `prompt_favorito` se chamam `p_base`/`p_usuario` (convenção dos params de
+   rastreio). Parâmetro de função com o mesmo nome faz o Postgres recusar a
+   chamada **em execução**, não na criação: passaria pelo deploy e quebraria no
+   primeiro uso em produção. Daí o sufixo `_ref` em todos os parâmetros.
+2. **O teto de 1.000 linhas do PostgREST, de novo (7ª vez).** A lista de perfis
+   para o seletor lia as 2.000 conversas mais recentes e deduplicava em JS.
+   Contra o banco real isso achava **2** perfis na natcorp; a RPC
+   `perfis_da_base` acha **3** — o `PC` estava fora da janela. Um perfil que
+   some da tela sem nenhum sinal.
+3. **A gaveta do widget tinha 204px de lista.** Medido na bancada: painel 592px,
+   gaveta 364px, e o resto ia para aviso de IA, "Powered by" e a barra de
+   botões — nada disso serve enquanto se escolhe um prompt. Escondidos, a lista
+   vai a 282px (+38%).
+
+### O widget mudou de forma
+
+A gaveta deixou de ser um balão de 320px ancorado acima da barra e virou
+**irmã de `.msgs` no flex do painel**: quando abre, a conversa cede o espaço
+inteiro. Sem `position:absolute`, sem `vh`, sem altura chutada — funciona igual
+no painel de 680px, no modo expandido e no celular em tela cheia (medido:
+524px de gaveta num painel de 700px).
+
+Ganhou busca, abas **Sugeridos / Meus**, fichas de categoria, agrupamento por
+gaveta com **★ Favoritos** no topo, e duas linhas de prévia em vez de meia
+frase truncada. O balão genérico que a "Base de Dados" usava virou `.pdrop` —
+as duas coisas dividiam a classe `.ppanel`, e uma teria quebrado sem ninguém
+tocar nela.
+
+### A tela
+
+`/gestao/prompts`, quinta aba da gestão. Duas abas internas: o catálogo do
+cliente e o da Natcorp. O cliente **vê** o da Natcorp e não edita (para não
+recadastrar o que já existe); editar exige modo suporte, que é `admin_tech`
+nível 80 ou owner — o nível que o dono pediu, sem permissão nova.
+
+O campo que faz a tela funcionar é a **frase em português embaixo dos filtros**,
+viva: *"Só quem estiver no portal do Gestor e for do perfil FOLHA."* Três
+allowlists com E é fácil de implementar e difícil de conferir de cabeça —
+marcar Gestor e FOLHA restringe à interseção, e quem esperava "gestores OU
+folha" só descobriria o engano quando alguém reclamasse. `ou` dentro da
+dimensão, `e` entre elas; tem teste (`elegibilidade.test.ts`, 12 casos).
+
+### Estado
+
+Migrations aplicadas, banco verificado de ponta a ponta (criar → listar
+filtrado → favoritar → excluir, sem sujeira). **Zero prompts cadastrados** — o
+catálogo nasce vazio e nenhum usuário vê nada até alguém escrever o primeiro.
+
+---
+
 ## RODADA DE 23/09 — o crédito mudou de unidade, e o adicional passou a acumular
 
 Regra nova, ditada pelo dono. **Marque a data: a unidade do crédito mudou 100×.**
