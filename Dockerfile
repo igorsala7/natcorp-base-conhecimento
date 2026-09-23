@@ -67,6 +67,10 @@ COPY --from=builder /app/worker ./worker
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/supabase ./supabase
+# `apex/` vai junto porque a tela de gestão MOSTRA o bloco de instalação lido
+# deste diretório (src/lib/gestao/instalacao-apex.ts). Sem ele na imagem, a
+# tela diria "modelo não encontrado" só em produção.
+COPY --from=builder /app/apex ./apex
 # Chromium do Playwright (captura de prints por URL no worker) + libs do SO.
 RUN npx playwright install --with-deps chromium \
  && chmod -R a+rx /ms-playwright

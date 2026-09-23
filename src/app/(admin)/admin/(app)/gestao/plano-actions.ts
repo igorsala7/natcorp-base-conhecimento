@@ -108,3 +108,29 @@ export async function removerPlano(input: unknown): Promise<ResultadoPlano> {
   revalidatePath("/admin/gestao");
   return { ok: true };
 }
+
+/**
+ * O bloco PL/SQL que instala a gestão no painel daquele cliente.
+ *
+ * ── Por que sob demanda, e não junto com a página ─────────────────────
+ * O bloco contém a CHAVE DE RASTREIO da base, que é segredo: é ela que assina
+ * os tokens de identidade. Mandá-la no HTML de toda abertura da tela a
+ * colocaria no cache do navegador e no histórico de quem só queria conferir um
+ * consumo. Aqui ela sai do servidor quando alguém pede, e só para quem já tem
+ * `gestao.suporte` — a mesma permissão que abre a área.
+ */
+export type ResultadoBlocoApex =
+  | { ok: true; bloco: string; chavePublica: string; site: string }
+  | { ok: false; erro: string };
+
+export async function obterBlocoApex(baseCode: unknown): Promise<ResultadoBlocoApex> {
+  await requirePermission("gestao.suporte");
+  const codigo = typeof baseCode === "string" ? baseCode.trim() : "";
+  if (!codigo || codigo.length > 80) return { ok: false, erro: "Cliente inválido." };
+
+  const { blocoDeInstalacao } = await import("@/lib/gestao/instalacao-apex");
+  const r = await blocoDeInstalacao(codigo);
+  return r.ok
+    ? { ok: true, bloco: r.bloco, chavePublica: r.chavePublica, site: r.site }
+    : { ok: false, erro: r.erro };
+}

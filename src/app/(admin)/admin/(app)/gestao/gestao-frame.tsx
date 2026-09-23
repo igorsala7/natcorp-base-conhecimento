@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { InstalacaoApex } from "./instalacao-apex";
 import { PlanoForm, type PlanoLinha } from "./plano-form";
 
 /**
@@ -169,6 +170,10 @@ export function GestaoFrame({
             e cole o valor no bloco PL/SQL daquele cliente.
           </p>
         </div>
+      ) : null}
+
+      {escolhida?.temChave ? (
+        <InstalacaoApex baseCode={escolhida.base_code} baseNome={escolhida.name} />
       ) : null}
 
       {escolhida ? (
