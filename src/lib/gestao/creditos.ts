@@ -61,9 +61,18 @@ export type SaldoCreditos = {
   /** 0 a 100. É o número que decide o aviso de 10%. */
   pctRestante: number;
   /**
-   * Consumo que não coube em balde nenhum — o que rodou em modo
-   * documentação depois de zerar. Não é cobrado; existe para a tela poder
-   * dizer quanto foi, em vez de o número sumir.
+   * Consumo que não coube em balde nenhum — o que rodou depois de zerar. Não é
+   * cobrado do cliente, então é CUSTO DA NATCORP, e é o número que mede quanto
+   * o modo econômico está custando.
+   *
+   * Até 23/09 ele era pequeno por construção: zerar cortava as ferramentas, e
+   * sobrava uma resposta de documentação. Desde 24/09 as ferramentas ficam e
+   * só o modelo barateia — então este número passa a crescer sem teto
+   * enquanto o cliente não comprar crédito.
+   *
+   * NENHUMA TELA MOSTRA ISTO AINDA. Era tolerável quando media pouco; agora
+   * mede a sangria inteira, e onde exibi-lo (só no interno? também para o
+   * cliente?) é decisão do dono, não de quem está codando.
    */
   consumoSemCobertura: number;
 };
@@ -131,7 +140,8 @@ export function calcularSaldo(ciclos: CicloFato[]): SaldoCreditos | null {
     const contratadoConsumido = Math.min(consumo, contratado);
     const excedente = Math.max(consumo - contratado, 0);
     const extraConsumido = Math.min(excedente, extraDisponivel);
-    // O que sobra do excedente rodou em modo documentação. Não sai de balde.
+    // O que sobra do excedente rodou em modo ECONÔMICO (modelo mais barato,
+    // ferramentas todas de pé). Não sai de balde nenhum: quem paga é a Natcorp.
     const semCobertura = excedente - extraConsumido;
 
     const extraSaldo = extraDisponivel - extraConsumido;
