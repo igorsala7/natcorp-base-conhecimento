@@ -56,7 +56,18 @@ export function ShellGestao({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-bg text-text">
+    /*
+      O CANVAS DEIXA DE SER BRANCO, e esta é a correção de raiz.
+      `--color-bg` e `--color-surface` valem os DOIS `#ffffff` neste projeto,
+      então cada bloco era um cartão branco sobre página branca, separado
+      apenas por uma borda de 1px. Era exatamente o "falta de destaque para
+      separar as regiões" relatado: não havia figura e fundo, só linhas.
+      `brand.gray.100` é o neutro com o viés roxo da marca, e aqui ele é fundo,
+      não decoração — é o que faz cada superfície branca ler como superfície.
+      Vale só na gestão, que é tela embutida e já roda em tema claro fixo; o
+      resto do produto mantém o canvas branco que sempre teve.
+    */
+    <div className="min-h-screen bg-brand-gray-100 text-text">
       <nav
         aria-label="Gestão do assistente"
         className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur"
@@ -109,17 +120,27 @@ export function ShellGestao({
         </div>
       ) : null}
 
-      <main className="mx-auto max-w-[1400px] px-4 py-6">
-        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      {/*
+        O RITMO MORA AQUI, não em cada bloco.
+        Antes todo bloco carregava `mb-6` e todo espaço da página valia o
+        mesmo: 24px entre o título e o primeiro cartão, 24px entre cartões,
+        24px dentro deles. Espaçamento uniforme é a forma mais rápida de
+        deixar tudo com o mesmo peso. Agora o cabeçalho da página respira
+        (32px), as seções se separam (32px) e o conteúdo dentro de cada uma
+        fica apertado — a diferença entre "junto" e "separado" passa a
+        existir.
+      */}
+      <main className="mx-auto max-w-[1400px] px-4 pb-12 pt-6 sm:px-6">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{titulo}</h1>
             {descricao ? (
-              <p className="mt-1 max-w-prose text-sm text-text-muted">{descricao}</p>
+              <p className="mt-1.5 max-w-prose text-sm text-text-muted">{descricao}</p>
             ) : null}
           </div>
           {acoes ? <div className="flex items-center gap-2">{acoes}</div> : null}
         </header>
-        {children}
+        <div className="space-y-8">{children}</div>
       </main>
     </div>
   );
@@ -141,7 +162,28 @@ export function RecusaGestao({ mensagem }: { mensagem: string }) {
   );
 }
 
-/** Bloco de conteúdo com título — o "card" da área, sem sombra. */
+/**
+ * Uma SEÇÃO da página: o título fica FORA da superfície.
+ *
+ * ── Por que o título saiu de dentro do cartão ─────────────────────────
+ * Ele estava dentro, separado do conteúdo por uma borda interna, e isso
+ * transformava o cartão na estrutura da página: uma pilha de retângulos de
+ * peso igual, cada um com sua listinha de cabeçalho. Com o título na altura do
+ * canvas, a hierarquia fica onde deve estar — a página tem seções, e cada
+ * seção tem uma superfície de trabalho.
+ *
+ * É também o que separa "o que é isto" de "o que fazer aqui". Dentro do
+ * cartão, o rótulo competia com o conteúdo; fora, ele orienta antes de a
+ * pessoa entrar.
+ *
+ * ── Sombra em vez de só borda ─────────────────────────────────────────
+ * Com o canvas tingido, a superfície branca já se destaca; a sombra suave
+ * (`shadow-1`, que tem deslocamento e desfoque, não halo) é o que a faz
+ * parecer apoiada em vez de recortada. A borda fica, mais discreta, para
+ * garantir o contorno em tela de baixo contraste.
+ *
+ * O `mb-6` saiu: o ritmo entre seções é do `ShellGestao`, num lugar só.
+ */
 export function Bloco({
   titulo,
   descricao,
@@ -154,17 +196,19 @@ export function Bloco({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-6 rounded-lg border border-border bg-surface">
+    <section>
       {titulo ? (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold">{titulo}</h2>
-            {descricao ? <p className="mt-0.5 text-xs text-text-muted">{descricao}</p> : null}
+        <header className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">{titulo}</h2>
+            {descricao ? (
+              <p className="mt-1 max-w-prose text-xs text-text-muted">{descricao}</p>
+            ) : null}
           </div>
-          {acoes}
+          {acoes ? <div className="flex flex-none items-center gap-2">{acoes}</div> : null}
         </header>
       ) : null}
-      <div className="p-4">{children}</div>
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-1">{children}</div>
     </section>
   );
 }
@@ -249,12 +293,17 @@ export function FaixaResumo({
   /** Pares rótulo/valor de apoio, na mesma linha. Três, no máximo — além disso vira tabela. */
   apoio?: { rotulo: string; valor: string }[];
 }) {
+  /*
+    Com o canvas tingido, o neutro da faixa é a superfície BRANCA: é ela que
+    lidera. Os tons de aviso continuam com o próprio fundo, porque ali a cor
+    é o sinal, não a hierarquia.
+  */
   const borda =
     tom === "ruim"
       ? "border-danger-line bg-danger-soft"
       : tom === "atencao"
         ? "border-warning-line bg-warning-soft"
-        : "border-border bg-surface-2";
+        : "border-border bg-surface";
   const tinta =
     tom === "ruim"
       ? "text-danger"
@@ -265,7 +314,7 @@ export function FaixaResumo({
           : "text-primary";
 
   return (
-    <section className={`mb-6 rounded-lg border px-5 py-4 ${borda}`}>
+    <section className={`rounded-xl border px-6 py-5 shadow-1 ${borda}`}>
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
         <div className="min-w-0 flex-1">
           {numero ? (

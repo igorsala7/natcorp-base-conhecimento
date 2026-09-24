@@ -192,8 +192,8 @@ export default async function GestaoConsumoPage({
         aplicado: aí ele deixou de ser ferramenta e virou contexto do que se
         está lendo.
       */}
-      <details className="group mb-6 rounded-lg border border-border bg-surface" open={temFiltro}>
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-text hover:bg-surface-2">
+      <details className="group rounded-xl border border-border bg-surface shadow-1" open={temFiltro}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-5 py-4 text-sm font-medium text-text hover:bg-surface-2">
           <span>
             Filtrar período e público
             {temFiltro ? (
@@ -206,7 +206,7 @@ export default async function GestaoConsumoPage({
             &#9662;
           </span>
         </summary>
-        <div className="border-t border-border p-4">
+        <div className="border-t border-border px-5 pb-5 pt-4">
           <ConsumoFiltros
             acao="/gestao"
             sessaoParams={paramsDaSessao(sessao)}

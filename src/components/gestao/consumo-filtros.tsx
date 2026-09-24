@@ -78,11 +78,13 @@ export function ConsumoFiltros({
   const temFiltro = EIXOS.some((e) => atuais[e.nome]) || Boolean(de || ate);
 
   return (
-    <form
-      method="get"
-      action={acao}
-      className="mb-6 rounded-lg border border-border bg-surface p-4"
-    >
+    /*
+      Form NU: sem borda, sem fundo, sem margem.
+      No Consumo ele vive dentro de um `<details>` que já é superfície, e o
+      cartão próprio criava cartão dentro de cartão — duas bordas a 16px uma
+      da outra, sem nenhuma informação a mais. Quem chama decide a superfície.
+    */
+    <form method="get" action={acao}>
       {Object.entries(sessaoParams).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}

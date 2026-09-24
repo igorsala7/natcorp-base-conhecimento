@@ -146,6 +146,9 @@ export default async function GestaoConversasPage({
         </Bloco>
       ) : null}
 
+      {/* O form é nu (ver `ConsumoFiltros`); a superfície é desta tela, onde
+          o filtro é conteúdo de primeira linha e não uma gaveta. */}
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-1">
       <ConsumoFiltros
         acao="/gestao/conversas"
         sessaoParams={paramsDaSessao(sessao)}
@@ -163,6 +166,7 @@ export default async function GestaoConversasPage({
         }
         nota={<>A contagem do histórico já considera o período e os filtros escolhidos.</>}
       />
+      </div>
 
       <Bloco
         titulo="Histórico"

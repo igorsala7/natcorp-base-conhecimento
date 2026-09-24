@@ -64,11 +64,13 @@ export function Facetas({ facetas, totalGeral }: { facetas: Faceta[]; totalGeral
   const somaDoRecorte = atual.linhas.reduce((s, l) => s + l.creditos, 0);
 
   return (
-    <section className="mb-6 rounded-lg border border-border bg-surface">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold">Consumo por recorte</h2>
-          <p className="mt-0.5 text-xs text-text-muted">
+    <section>
+      {/* Mesmo padrão do `Bloco`: o título e o controle ficam na altura do
+          canvas, e a superfície branca guarda só o conteúdo. */}
+      <header className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight">Consumo por recorte</h2>
+          <p className="mt-1 text-xs text-text-muted">
             O mesmo consumo, visto por um eixo de cada vez.
           </p>
         </div>
@@ -90,7 +92,7 @@ export function Facetas({ facetas, totalGeral }: { facetas: Faceta[]; totalGeral
         />
       </header>
 
-      <div className="p-4">
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-1">
         {atual.linhas.length === 0 ? (
           <EmptyState
             title="Nenhum consumo neste recorte"

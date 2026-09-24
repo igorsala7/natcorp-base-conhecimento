@@ -64,6 +64,56 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
     [usuarios],
   );
 
+  /**
+   * O que a regra vai fazer, em português, com os valores escolhidos.
+   *
+   * Mesma ideia do resumo de elegibilidade dos prompts: a regra é uma frase, e
+   * um formulário que a fragmenta em oito controles obriga a pessoa a montá-la
+   * de cabeça antes de clicar. Aqui ela aparece pronta.
+   */
+  const resumoDaRegra = useMemo(() => {
+    const acao = efeito === "negar" ? "Bloquear" : "Liberar";
+
+    const quem =
+      alvoTipo === "base"
+        ? "todos os usuários deste cliente"
+        : alvoTipo === "perfil"
+          ? perfis.length === 0
+            ? "(escolha ao menos um perfil)"
+            : perfis.length === 1
+              ? `o perfil ${perfis[0]}`
+              : `${perfis.length} perfis`
+          : listaDeUsuarios.length === 0
+            ? "(informe ao menos um usuário)"
+            : listaDeUsuarios.length === 1
+              ? `o usuário ${listaDeUsuarios[0]}`
+              : `${listaDeUsuarios.length} usuários`;
+
+    const onde =
+      painel === "*"
+        ? "em qualquer painel"
+        : `no painel do ${nomeDoPainel(painel)}`;
+
+    const oQue =
+      escopoTipo === "tool"
+        ? toolKeys.length === 0
+          ? "(escolha ao menos uma consulta)"
+          : toolKeys.length === 1
+            ? `a consulta ${toolKeys[0]}`
+            : `${toolKeys.length} consultas`
+        : escopoTipo === "submodulo"
+          ? submodulo
+            ? `o submódulo ${submodulo}`
+            : "(escolha um submódulo)"
+          : modulos.length === 0
+            ? "(escolha ao menos um módulo)"
+            : modulos.length === 1
+              ? `o módulo ${modulos[0]}`
+              : `${modulos.length} módulos`;
+
+    return `${acao}, para ${quem}, ${onde}: ${oQue}.`;
+  }, [efeito, alvoTipo, perfis, listaDeUsuarios, painel, escopoTipo, toolKeys, submodulo, modulos]);
+
   function salvar() {
     setErro(null);
     setOk(null);
@@ -100,8 +150,21 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
   }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-6">
+      {/*
+        DOIS PASSOS NOMEADOS, não oito campos soltos.
+        A regra é uma frase: "[bloquear] para [os perfis X e Y] no [painel do
+        gestor] os [módulos SESMT e Avaliações]". Renderizada como quatro
+        seletores e duas listas de mesmo peso, a frase some e sobra um
+        formulário que exige ler todos os rótulos para entender o que vai
+        acontecer. Nomear os passos devolve a ordem de leitura, e a frase ao
+        vivo no fim confirma o que foi montado antes de gravar.
+      */}
+      <fieldset>
+        <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          1. A regra
+        </legend>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className={rotulo} htmlFor="r-efeito">Ação</label>
           <select
@@ -153,8 +216,13 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
           </select>
         </div>
       </div>
+      </fieldset>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <fieldset>
+        <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          2. Onde aplicar
+        </legend>
+        <div className="grid gap-4 lg:grid-cols-2">
         {alvoTipo === "perfil" ? (
           <MultiSelecao
             id="r-perfis"
@@ -237,7 +305,19 @@ export function RegrasDeAcesso({ sessao, dados }: { sessao: Sessao; dados: Dados
             ) : null}
           </div>
         )}
-      </div>
+        </div>
+      </fieldset>
+
+      {/*
+        A FRASE, antes de gravar.
+        Oito controles produzem uma regra cujo efeito não se lê nos controles:
+        "bloquear" + "perfis" + "todos os painéis" + "módulos" só vira sentido
+        depois de somar os quatro. A frase diz o que vai acontecer, com os
+        valores já escolhidos, no lugar onde a pessoa está prestes a clicar.
+      */}
+      <p className="rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-text">
+        {resumoDaRegra}
+      </p>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" onClick={salvar} disabled={pendente}>

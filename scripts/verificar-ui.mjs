@@ -181,6 +181,15 @@ const PADROES = [
   {
     chave: "hex-em-componente",
     rx: /["'`]#[0-9a-fA-F]{3,8}["'`]/g,
+    /*
+      Só o que RENDERIZA conta, como já vale para `emoji-como-icone`.
+      Um hex dentro de comentário não pinta nada, e contar isso acusa
+      justamente quem documenta por que um token existe: em 23/09 a catraca
+      subiu porque um comentário explicava que `--color-bg` e `--color-surface`
+      valem os dois "#ffffff". É o mesmo falso positivo que o emoji já teve, e
+      a ferramenta já tinha o flag para resolvê-lo.
+    */
+    semComentarios: true,
     // Seletor de cor, e-mail (onde CSS var não funciona) e dataviz têm paleta própria.
     //
     // `reports/marca.ts` é a DEFINIÇÃO dos tokens de documento — é o único lugar
