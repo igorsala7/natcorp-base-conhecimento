@@ -81,25 +81,65 @@ describe("prioridade do contratado", () => {
 });
 
 /**
- * A parte fácil de errar: depois de zerar, o chat continua (só documentação) e
- * continua gastando token. Esse consumo NÃO pode virar dívida, senão come a
- * próxima compra e o cliente paga 400 para receber menos.
+ * DEPOIS DE ZERAR, O CONSUMO SAI DO MÊS QUE VEM (regra do dono, 24/09).
+ *
+ * Antes este consumo não tinha dono: o `min(excedente, disponível)` impedia
+ * que virasse dívida do cliente, e a conta ficava com a Natcorp. Agora tem
+ * dono, que é a mensalidade seguinte.
+ *
+ * Duas coisas que o teste trava porque a frase do dono foi específica:
+ * a dívida é cobrada do "plano contratado do próximo mês", então adicional
+ * comprado NÃO é usado para quitá-la; e não há teto de profundidade, então
+ * uma dívida maior que a mensalidade atravessa quantos meses precisar.
  */
-describe("modo documentação não consome crédito", () => {
-  it("consumo além de tudo que havia não deixa o extra negativo", () => {
+describe("adiantamento da mensalidade seguinte", () => {
+  it("o que passa de tudo vira adiantamento, e não mais prejuízo", () => {
     const s = calcularSaldo([ciclo(1, { compras: 100, consumo: 5000 })])!;
     expect(s.extraSaldo).toBe(0);
     expect(s.saldo).toBe(0);
-    expect(s.consumoSemCobertura).toBe(3900); // 5000 − 1000 − 100
+    expect(s.adiantado).toBe(3900); // 5000 − 1000 contratados − 100 comprados
+    expect(s.consumoSemCobertura).toBe(0);
   });
 
-  it("a compra seguinte chega inteira, sem ser abatida pelo estouro anterior", () => {
+  it("o mês seguinte abre com a mensalidade já descontada", () => {
     const s = calcularSaldo([
-      ciclo(1, { consumo: 5000 }), // estourou muito, rodou em documentação
+      ciclo(1, { consumo: 1300 }), // adianta 300
+      ciclo(2, { consumo: 0 }),
+    ])!;
+    expect(s.contratadoPlano).toBe(1000);
+    expect(s.contratadoAbatido).toBe(300);
+    expect(s.contratadoTotal).toBe(700);
+    expect(s.adiantado).toBe(0);
+  });
+
+  it("encadeia sem limite: dívida maior que a mensalidade atravessa vários meses", () => {
+    // 3.500 de dívida contra plano de 1.000 consome três meses inteiros e
+    // ainda alcança o quarto. Sem teto, por decisão do dono.
+    const meses = [ciclo(1, { consumo: 4500 }), ciclo(2), ciclo(3), ciclo(4)];
+    expect(calcularSaldo(meses.slice(0, 1))!.adiantado).toBe(3500);
+    expect(calcularSaldo(meses.slice(0, 2))!.adiantado).toBe(2500);
+    expect(calcularSaldo(meses.slice(0, 3))!.adiantado).toBe(1500);
+    const quarto = calcularSaldo(meses)!;
+    expect(quarto.adiantado).toBe(500);
+    expect(quarto.contratadoTotal).toBe(0); // o mês inteiro foi para a dívida
+  });
+
+  it("base SEM plano não adianta: não existe mensalidade futura de onde tirar", () => {
+    // Sem esta guarda a NATCORP, que tinha contratado 0, acumularia dívida
+    // para sempre por um consumo que a regra nunca quis cobrar dela.
+    const s = calcularSaldo([ciclo(1, { contratado: 0, consumo: 800 })])!;
+    expect(s.adiantado).toBe(0);
+    expect(s.consumoSemCobertura).toBe(800);
+  });
+
+  it("a compra avulsa chega inteira e não quita dívida", () => {
+    const s = calcularSaldo([
+      ciclo(1, { consumo: 5000 }), // adianta 4000
       ciclo(2, { compras: 400 }),
     ])!;
     expect(s.extraDisponivel).toBe(400);
     expect(s.extraSaldo).toBe(400);
+    expect(s.adiantado).toBe(3000); // 4000 menos a mensalidade do mês 2
   });
 });
 

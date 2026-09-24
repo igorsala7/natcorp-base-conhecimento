@@ -8,10 +8,14 @@ import { salvarPlano, removerPlano } from "./plano-actions";
 /**
  * Plano contratado por cliente — tela INTERNA.
  *
- * Os quatro campos são termos de contrato, e três deles nunca aparecem para o
- * cliente: o lastro em tokens, porque é negociação; o dia do ciclo, que ele vê
- * só como período; e a vigência, que existe para uma fatura antiga continuar
- * batendo depois de um reajuste.
+ * Os campos são termos de contrato, e dois nunca aparecem para o cliente: o
+ * lastro em tokens, porque é negociação, e a vigência, que existe para uma
+ * fatura antiga continuar batendo depois de um reajuste.
+ *
+ * O "dia da virada do ciclo" saiu em 24/09. O dono fixou o ciclo em mês
+ * fechado, do dia 1 ao último, e um campo que aceita 1 a 31, grava, e não muda
+ * o relatório é pior que campo nenhum: quem o preenchesse conferiria o
+ * fechamento e encontraria um número que ignora o que acabou de configurar.
  */
 
 export type PlanoLinha = {
@@ -20,7 +24,6 @@ export type PlanoLinha = {
   creditos_por_ciclo: number;
   usd_por_credito: number;
   tokens_por_credito: number;
-  dia_inicio_ciclo: number;
   vigente_desde: string;
   observacao: string | null;
   vigente: boolean;
@@ -54,7 +57,6 @@ export function PlanoForm({
   */
   const [usd, setUsd] = useState(String(vigente?.usd_por_credito ?? 0.05));
   const [tokens, setTokens] = useState(String(vigente?.tokens_por_credito ?? 10_000));
-  const [dia, setDia] = useState(String(vigente?.dia_inicio_ciclo ?? 1));
   const [desde, setDesde] = useState(new Date().toISOString().slice(0, 10));
   const [obs, setObs] = useState("");
   const [erro, setErro] = useState<string | null>(null);
@@ -70,7 +72,6 @@ export function PlanoForm({
         creditos_por_ciclo: creditos,
         usd_por_credito: usd,
         tokens_por_credito: tokens,
-        dia_inicio_ciclo: dia,
         vigente_desde: desde,
         observacao: obs || undefined,
       });
@@ -152,21 +153,6 @@ export function PlanoForm({
           </p>
         </div>
         <div>
-          <label className={rotulo} htmlFor="pl-dia">Dia da virada do ciclo</label>
-          <input
-            id="pl-dia"
-            type="number"
-            min={1}
-            max={31}
-            className={campo}
-            value={dia}
-            onChange={(e) => setDia(e.target.value)}
-          />
-          <p className="mt-1 text-2xs text-text-muted">
-            14 = de 14/09 a 13/10. Dias 29-31 encurtam em fevereiro.
-          </p>
-        </div>
-        <div>
           <label className={rotulo} htmlFor="pl-desde">Vigente desde</label>
           <input
             id="pl-desde"
@@ -235,7 +221,6 @@ export function PlanoForm({
                 <th scope="col" className="py-2 pr-2 text-right font-medium">Créditos</th>
                 <th scope="col" className="py-2 pr-2 text-right font-medium">US$/crédito</th>
                 <th scope="col" className="py-2 pr-2 text-right font-medium">Tokens/crédito</th>
-                <th scope="col" className="py-2 pr-2 text-right font-medium">Dia</th>
                 <th scope="col" className="py-2 pr-2 font-medium">Observação</th>
                 <th scope="col" className="py-2 font-medium"><span className="sr-only">Ações</span></th>
               </tr>
@@ -258,7 +243,6 @@ export function PlanoForm({
                   <td className="py-2 pr-2 text-right tabular-nums">
                     {N.format(p.tokens_por_credito)}
                   </td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{p.dia_inicio_ciclo}</td>
                   <td className="py-2 pr-2 text-xs text-text-muted">{p.observacao ?? "—"}</td>
                   <td className="py-2 text-right">
                     <button

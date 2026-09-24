@@ -112,21 +112,24 @@ export default async function GestaoConsumoPage({
     >
       {/*
         AVISO DE CRÉDITO, antes de qualquer número.
-        Zerado é o estado que muda o produto: o assistente continua atendendo,
-        mas só pela documentação — nenhuma ferramenta, nenhum dado do sistema.
-        Dizer isso no topo evita a pergunta "por que ele parou de buscar dados?"
-        virar chamado. A faixa de 10% existe para a compra acontecer ANTES de
-        alguém perceber pela ausência de resposta.
+        Zerado não tira mais nada do produto (24/09): o assistente segue
+        inteiro, num modelo mais barato, e o consumo passa a sair da
+        mensalidade seguinte. Justamente por não doer, precisa ser dito no
+        topo — o cliente que não vê aviso nenhum descobre o adiantamento no
+        mês que vem, quando a mensalidade abrir menor.
+        A faixa de 10% continua existindo para a compra acontecer antes disso.
       */}
       {saldo?.modo === "economico" ? (
         <div className="mb-4 rounded-lg border border-warning/40 bg-warning-soft px-4 py-3">
-          <p className="text-sm font-semibold text-text">Os créditos acabaram.</p>
+          <p className="text-sm font-semibold text-text">
+            Os créditos deste mês acabaram.
+          </p>
           <p className="mt-1 text-sm text-text-muted">
             O assistente <strong>continua funcionando por inteiro</strong>, com todas as consultas
-            e relatórios, mas passou a rodar num modelo mais econômico até o saldo voltar. As
-            respostas podem ficar menos detalhadas. Adquira créditos na aba{" "}
-            <strong>Créditos</strong> para voltar ao normal; os adicionais não vencem e acumulam
-            para os próximos meses.
+            e relatórios, mas passou a rodar num modelo mais econômico e o consumo agora sai da{" "}
+            <strong>mensalidade do mês seguinte</strong>, que vai abrir com esse tanto a menos.
+            Adquira créditos na aba <strong>Créditos</strong> para interromper o adiantamento; a
+            compra entra neste mesmo ciclo, e os adicionais não vencem.
           </p>
         </div>
       ) : saldo?.avisar ? (
@@ -135,8 +138,9 @@ export default async function GestaoConsumoPage({
             Restam {saldo.pct_restante}% dos créditos deste ciclo.
           </p>
           <p className="mt-1 text-sm text-text-muted">
-            Ao zerar, o assistente passa a responder só pela documentação do sistema, sem consultar
-            dados. O crédito adicional não vence e acumula.
+            Ao zerar, nada é bloqueado: o assistente segue inteiro num modelo mais econômico e o
+            consumo passa a sair da mensalidade do mês seguinte. O crédito adicional não vence e
+            acumula.
           </p>
         </div>
       ) : null}

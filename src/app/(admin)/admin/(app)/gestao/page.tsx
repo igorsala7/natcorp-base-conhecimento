@@ -39,7 +39,7 @@ export default async function AdminGestaoPage() {
     db
       .from("ai_cliente_plano")
       .select(
-        "id, base_code, creditos_por_ciclo, usd_por_credito, tokens_por_credito, dia_inicio_ciclo, vigente_desde, observacao",
+        "id, base_code, creditos_por_ciclo, usd_por_credito, tokens_por_credito, vigente_desde, observacao",
       )
       .order("vigente_desde", { ascending: false })
       .range(0, 999),

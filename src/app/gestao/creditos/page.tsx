@@ -64,6 +64,17 @@ export default async function GestaoCreditosPage({
     ausente.
   */
   const usdPorCredito = saldo?.usd_por_credito ?? null;
+  /*
+    ADIANTAMENTO (regra do dono, 24/09): zerar não para o serviço nem gera
+    prejuízo da Natcorp — o consumo passa a sair da mensalidade seguinte. Dois
+    números diferentes, e o cliente precisa dos dois: quanto do FUTURO já foi
+    comido, e quanto da mensalidade DESTE mês já nasceu comprometida. Sem o
+    segundo, quem abre novembro com menos crédito do que contratou liga para o
+    suporte, e com razão.
+  */
+  const adiantado = saldo?.adiantado ?? 0;
+  const abatido = saldo?.contratado_abatido ?? 0;
+  const planoDoCiclo = saldo?.contratado_plano ?? 0;
   const semPlano = !saldo?.tem_plano;
   const estourou = !semPlano && restante <= 0;
   // "Perto do fim" é o mesmo limiar que dispara o aviso no painel e na faixa
@@ -113,24 +124,41 @@ export default async function GestaoCreditosPage({
             estourou ? (
               <>
                 <strong>Os créditos deste ciclo acabaram.</strong> O assistente continua
-                respondendo pela documentação, mas deixou de consultar dados. Adquira adicionais
-                abaixo — eles não vencem e ficam disponíveis na hora.
+                funcionando por inteiro, inclusive consultando dados, e o consumo passou a sair
+                da mensalidade do mês seguinte
+                {adiantado > 0 ? <> ({fmtCreditos(adiantado)} já adiantados)</> : null}. Comprar
+                adicionais abaixo interrompe isso: a compra entra neste mesmo ciclo e devolve o
+                que já foi adiantado.
               </>
             ) : perto ? (
               <>
-                de {fmtCreditos(disponiveis)} disponíveis — {fmtPercent(consumidos, disponiveis)}{" "}
-                já foram usados neste ciclo. Ao zerar, o assistente deixa de consultar dados.
+                de {fmtCreditos(disponiveis)} disponíveis, com {fmtPercent(consumidos, disponiveis)}{" "}
+                já usados neste ciclo. Ao zerar, o assistente continua funcionando e o consumo
+                passa a sair da mensalidade do mês seguinte.
               </>
             ) : (
               <>
                 de {fmtCreditos(disponiveis)} disponíveis neste ciclo, com{" "}
                 {fmtPercent(consumidos, disponiveis)} já consumidos. O contratado renova na
                 virada; o adicional acumula.
+                {abatido > 0 ? (
+                  <>
+                    {" "}
+                    Este mês abriu com <strong>{fmtCreditos(abatido)}</strong> a menos porque
+                    esse tanto foi adiantado no ciclo anterior.
+                  </>
+                ) : null}
               </>
             )
           }
           apoio={[
-            { rotulo: "Contratado", valor: fmtCreditos(contratados) },
+            {
+              // Quando o mês abriu devendo, "Contratado" sozinho contradiz o
+              // contrato: o plano dá 50.000 e a tela mostra 49.680. O rótulo
+              // passa a dizer de onde saiu a diferença.
+              rotulo: abatido > 0 ? `Contratado (de ${fmtCreditos(planoDoCiclo)})` : "Contratado",
+              valor: fmtCreditos(contratados),
+            },
             { rotulo: "Adicionais", valor: fmtCreditos(extra) },
             { rotulo: "Consumido", valor: fmtCreditos(consumidos) },
           ]}

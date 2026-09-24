@@ -639,7 +639,6 @@ export type Database = {
           creditos_por_ciclo: number
           criado_em: string
           criado_por: string | null
-          dia_inicio_ciclo: number
           id: string
           observacao: string | null
           tokens_por_credito: number
@@ -651,7 +650,6 @@ export type Database = {
           creditos_por_ciclo?: number
           criado_em?: string
           criado_por?: string | null
-          dia_inicio_ciclo?: number
           id?: string
           observacao?: string | null
           tokens_por_credito?: number
@@ -663,7 +661,6 @@ export type Database = {
           creditos_por_ciclo?: number
           criado_em?: string
           criado_por?: string | null
-          dia_inicio_ciclo?: number
           id?: string
           observacao?: string | null
           tokens_por_credito?: number
@@ -5846,7 +5843,6 @@ export type Database = {
           ciclo_fim: string
           ciclo_inicio: string
           creditos_por_ciclo: number
-          dia_inicio_ciclo: number
           tem_plano: boolean
           tokens_por_credito: number
           usd_por_credito: number

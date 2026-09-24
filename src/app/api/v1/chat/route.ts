@@ -344,13 +344,9 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // morreria junto com o `baseCfg`.
   let appsSchema: string[] | null = null;
   /**
-   * Saldo de crédito da base zerou: o turno segue SEM nenhuma ferramenta,
-   * respondendo só pela documentação do sistema. Não é bloqueio — é o
-   * atendimento continuar existindo sem dar acesso a dado que não foi pago.
-   */
-  /**
    * A base está sem crédito. NÃO corta ferramenta: troca o modelo por um mais
-   * barato (ver o bloco do portão, abaixo).
+   * barato (ver o bloco do portão, abaixo). O consumo deste turno sai da
+   * mensalidade do mês seguinte, pela regra de adiantamento em `creditos.ts`.
    */
   let semCredito = false;
 

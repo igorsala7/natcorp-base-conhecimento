@@ -7,9 +7,14 @@
  *   · o CONTRATADO renova a cada ciclo e NÃO acumula — o que sobra morre
  *     na virada;
  *   · o ADICIONAL comprado acumula e NUNCA vence;
- *   · o consumo sai SEMPRE do contratado primeiro;
- *   · com saldo zerado o chat continua, mas só com a documentação — e
- *     esse consumo NÃO desconta crédito.
+ *   · o consumo sai SEMPRE do contratado primeiro.
+ *
+ * A quinta regra mudou duas vezes em dois dias, então vale o histórico:
+ * em 23/09 saldo zerado deixava o chat só com a documentação e o consumo
+ * não descontava nada; em 24/09 as ferramentas voltaram (modelo mais
+ * barato) e o consumo passou a SAIR DA MENSALIDADE SEGUINTE, encadeando
+ * por quantos meses precisar. Quem ler só o nome `consumoSemCobertura`
+ * vai supor a regra velha.
  *
  * O exemplo que ele deu, que virou o teste principal:
  *
@@ -46,7 +51,14 @@ export type CicloFato = {
 export type SaldoCreditos = {
   cicloInicio: string;
   cicloFim: string;
-  /** Renova a cada ciclo; não acumula. */
+  /** O que o plano concede neste ciclo, antes de qualquer desconto. */
+  contratadoPlano: number;
+  /**
+   * Quanto da mensalidade deste ciclo foi embora pagando adiantamento tomado
+   * em ciclos anteriores. O cliente abre o mês devendo isto.
+   */
+  contratadoAbatido: number;
+  /** `contratadoPlano − contratadoAbatido`: o que sobrou para usar. Não acumula. */
   contratadoTotal: number;
   contratadoConsumido: number;
   contratadoSaldo: number;
@@ -61,18 +73,23 @@ export type SaldoCreditos = {
   /** 0 a 100. É o número que decide o aviso de 10%. */
   pctRestante: number;
   /**
-   * Consumo que não coube em balde nenhum — o que rodou depois de zerar. Não é
-   * cobrado do cliente, então é CUSTO DA NATCORP, e é o número que mede quanto
-   * o modo econômico está custando.
+   * MESES FUTUROS JÁ COMIDOS, em créditos, no fim deste ciclo.
    *
-   * Até 23/09 ele era pequeno por construção: zerar cortava as ferramentas, e
-   * sobrava uma resposta de documentação. Desde 24/09 as ferramentas ficam e
-   * só o modelo barateia — então este número passa a crescer sem teto
-   * enquanto o cliente não comprar crédito.
+   * Zerar contratado e adicional não para mais o consumo nem vira prejuízo da
+   * Natcorp: passa a sair da mensalidade seguinte, que abre reduzida. Se nem
+   * ela bastar, sobra para a próxima, sem limite de profundidade (decisão do
+   * dono, 24/09). É por isso que este número pode passar de uma mensalidade.
+   */
+  adiantado: number;
+  /** Parcela do `adiantado` que nasceu NESTE ciclo. */
+  adiantadoNoCiclo: number;
+  /**
+   * Consumo que não coube em balde nenhum E não pôde virar adiantamento, por
+   * não haver mensalidade futura de onde tirar (plano zerado ou inexistente).
+   * Aí sim é CUSTO DA NATCORP.
    *
-   * NENHUMA TELA MOSTRA ISTO AINDA. Era tolerável quando media pouco; agora
-   * mede a sangria inteira, e onde exibi-lo (só no interno? também para o
-   * cliente?) é decisão do dono, não de quem está codando.
+   * Com plano ativo isto é sempre zero, e é de propósito: o adiantamento
+   * existe justamente para que a sangria de quem contratou não fique sem dono.
    */
   consumoSemCobertura: number;
 };
@@ -128,21 +145,51 @@ export function calcularSaldo(ciclos: CicloFato[]): SaldoCreditos | null {
   if (!ciclos.length) return null;
 
   let extraAcumulado = 0;
+  /** Meses futuros já comidos, carregado de um ciclo para o outro. */
+  let adiantado = 0;
   let ultimo: SaldoCreditos | null = null;
 
   for (const c of ciclos) {
-    const contratado = Math.max(0, c.contratado);
+    const contratadoPlano = Math.max(0, c.contratado);
     const consumo = Math.max(0, c.consumo);
+
+    /**
+     * A DÍVIDA COBRA ANTES DO CLIENTE GASTAR.
+     *
+     * Quem adiantou no mês passado abre este devendo: a mensalidade paga o
+     * adiantamento primeiro e só o resto fica disponível. Se a dívida for
+     * maior que a mensalidade inteira, o que não coube segue para o mês
+     * seguinte, e é assim que o encadeamento sem limite acontece sem nenhum
+     * caso especial no código.
+     */
+    const contratadoAbatido = Math.min(adiantado, contratadoPlano);
+    const contratado = contratadoPlano - contratadoAbatido;
+    const dividaQueSobrou = adiantado - contratadoAbatido;
+
     // A compra do ciclo entra ANTES de calcular o gasto: foi o que o dono
-    // descreveu ("consumiu os 1000 e comprou mais 400 → saldo 400").
+    // descreveu ("consumiu os 1000 e comprou mais 400 → saldo 400"). É também
+    // o que faz uma compra feita no MESMO mês reduzir o adiantamento daquele
+    // mês, sem precisar de regra de quitação: o ciclo é recalculado do fato.
     const extraDisponivel = extraAcumulado + Math.max(0, c.compras);
 
     const contratadoConsumido = Math.min(consumo, contratado);
     const excedente = Math.max(consumo - contratado, 0);
     const extraConsumido = Math.min(excedente, extraDisponivel);
-    // O que sobra do excedente rodou em modo ECONÔMICO (modelo mais barato,
-    // ferramentas todas de pé). Não sai de balde nenhum: quem paga é a Natcorp.
-    const semCobertura = excedente - extraConsumido;
+    const descoberto = excedente - extraConsumido;
+
+    /**
+     * SÓ SE ADIANTA CONTRA UM PLANO QUE DÁ CRÉDITO.
+     *
+     * Base sem contrato tem `contratado = 0` em todo ciclo: não existe
+     * mensalidade futura de onde tirar, e tratar o consumo dela como
+     * adiantamento criaria uma dívida que nenhum mês futuro abate e que
+     * cresceria para sempre contra um cliente que nunca contratou nada. Nesse
+     * caso o consumo continua sem cobertura, que é a mesma postura de
+     * `modoDoSaldo`: sem contrato não é sem serviço.
+     */
+    const temMensalidade = contratadoPlano > 0;
+    const novoAdiantamento = temMensalidade ? descoberto : 0;
+    const semCobertura = temMensalidade ? 0 : descoberto;
 
     const extraSaldo = extraDisponivel - extraConsumido;
     const disponivel = contratado + extraDisponivel;
@@ -151,6 +198,8 @@ export function calcularSaldo(ciclos: CicloFato[]): SaldoCreditos | null {
     ultimo = {
       cicloInicio: c.ciclo_inicio,
       cicloFim: c.ciclo_fim,
+      contratadoPlano: arred(contratadoPlano),
+      contratadoAbatido: arred(contratadoAbatido),
       contratadoTotal: arred(contratado),
       contratadoConsumido: arred(contratadoConsumido),
       contratadoSaldo: arred(contratado - contratadoConsumido),
@@ -161,11 +210,16 @@ export function calcularSaldo(ciclos: CicloFato[]): SaldoCreditos | null {
       consumido: arred(consumo),
       saldo: arred(saldo),
       pctRestante: disponivel <= 0 ? 0 : arred((saldo / disponivel) * 100),
+      adiantado: arred(dividaQueSobrou + novoAdiantamento),
+      adiantadoNoCiclo: arred(novoAdiantamento),
       consumoSemCobertura: arred(semCobertura),
     };
 
-    // A VIRADA: o contratado que sobrou morre aqui. Só o extra atravessa.
+    // A VIRADA: o contratado que sobrou morre aqui. O extra atravessa, e a
+    // dívida também. Sobra não acumula, excesso acumula: a assimetria é
+    // deliberada, e é ela que protege a Natcorp de quem consome acima do plano.
     extraAcumulado = extraSaldo;
+    adiantado = dividaQueSobrou + novoAdiantamento;
   }
 
   return ultimo;

@@ -24,7 +24,6 @@ const planoSchema = z.object({
   // Lastro em tokens. Teto alto de propósito: nada impede um contrato de 50
   // milhões por crédito, e um limite apertado viraria obstáculo comercial.
   tokens_por_credito: z.coerce.number().int().positive().max(1_000_000_000),
-  dia_inicio_ciclo: z.coerce.number().int().min(1).max(31),
   vigente_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   observacao: z.string().max(300).optional(),
 });
@@ -58,7 +57,6 @@ export async function salvarPlano(input: unknown): Promise<ResultadoPlano> {
       creditos_por_ciclo: v.creditos_por_ciclo,
       usd_por_credito: v.usd_por_credito,
       tokens_por_credito: v.tokens_por_credito,
-      dia_inicio_ciclo: v.dia_inicio_ciclo,
       vigente_desde: v.vigente_desde,
       observacao: v.observacao ?? null,
       criado_por: user?.id ?? null,

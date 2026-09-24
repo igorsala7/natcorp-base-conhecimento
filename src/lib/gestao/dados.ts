@@ -57,7 +57,20 @@ export type Saldo = {
   extra_saldo: number;
   /** 0 a 100. Abaixo de 10 a tela e o painel avisam. */
   pct_restante: number;
-  /** Consumo que rodou em modo documentação, depois de zerar. Não é cobrado. */
+  /**
+   * Mensalidade FUTURA já consumida, em créditos. Zerar não para o serviço:
+   * o consumo passa a sair do mês seguinte, que abre reduzido, e encadeia
+   * sem limite se uma mensalidade não bastar.
+   */
+  adiantado: number;
+  /** Quanto da mensalidade DESTE mês já nasceu comprometido com o adiantamento. */
+  contratado_abatido: number;
+  /** O que o plano concede no ciclo, antes do abatimento. */
+  contratado_plano: number;
+  /**
+   * Consumo sem dono: só acontece em base sem plano, onde não há mensalidade
+   * futura de onde adiantar. Com contrato ativo é sempre zero.
+   */
   consumo_sem_cobertura: number;
   /** `normal` ou `economico` (sem crédito: modelo mais barato, ferramentas mantidas). */
   modo: ModoCredito;
@@ -98,9 +111,10 @@ export type Alocacao = {
 /**
  * Saldo do CICLO vigente do cliente.
  *
- * Não recebe mês: o ciclo sai de `ai_cliente_plano.dia_inicio_ciclo` e vira
- * sozinho na passagem do dia. Um cliente com ciclo em 14 tem "o mês" indo de
- * 14/09 a 13/10, e forçar isso num mês-calendário partiria o consumo em dois.
+ * Não recebe mês: o ciclo é o MÊS-CALENDÁRIO no fuso de São Paulo, do dia 1 ao
+ * último, e vira sozinho na passagem do dia. Até 24/09 cada cliente podia ter
+ * a própria virada (`dia_inicio_ciclo`); o dono unificou em mês fechado e a
+ * coluna foi removida.
  */
 export async function lerSaldo(baseCode: string, momento?: Date): Promise<Saldo | null> {
   const supabase = createAdminClient();
@@ -145,6 +159,9 @@ export async function lerSaldo(baseCode: string, momento?: Date): Promise<Saldo 
     contratado_saldo: s.contratadoSaldo,
     extra_saldo: s.extraSaldo,
     pct_restante: s.pctRestante,
+    adiantado: s.adiantado,
+    contratado_abatido: s.contratadoAbatido,
+    contratado_plano: s.contratadoPlano,
     consumo_sem_cobertura: s.consumoSemCobertura,
     modo: modoDoSaldo(s, pl?.tem_plano ?? false),
     avisar: precisaAvisar(s, pl?.tem_plano ?? false),
