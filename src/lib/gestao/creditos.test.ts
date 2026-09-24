@@ -256,3 +256,52 @@ describe("modo sem crédito", () => {
     expect(modoDoSaldo(s)).toBe("normal");
   });
 });
+
+/**
+ * OS DOIS EXEMPLOS QUE O DONO DITOU EM 24/09, com os números dele.
+ *
+ * Existem porque a regra do adiantamento mudou duas vezes em dois dias e
+ * porque as duas metades dela são fáceis de trocar de lugar: o que SOBRA do
+ * contratado morre na virada, o que FALTA atravessa. Quem inverter isso por
+ * engano faz o cliente ganhar saldo que não tem ou perder crédito que comprou,
+ * e nos dois casos a tela continua parecendo certa.
+ *
+ * Se alguém "simplificar" o fold, é aqui que tem de estourar primeiro.
+ */
+describe("os dois exemplos do dono, 24/09", () => {
+  it("exemplo 1: estourou 30.000 e o mês 2 abre com 70.000", () => {
+    const mes1 = ciclo(1, { contratado: 100_000, compras: 50_000, consumo: 180_000 });
+
+    const m1 = calcularSaldo([mes1])!;
+    expect(m1.contratadoConsumido).toBe(100_000);
+    expect(m1.extraConsumido).toBe(50_000); // o comprado foi todo usado
+    expect(m1.extraSaldo).toBe(0);
+    expect(m1.adiantado).toBe(30_000); // 180.000 − 100.000 − 50.000
+
+    const m2 = calcularSaldo([mes1, ciclo(2, { contratado: 100_000 })])!;
+    expect(m2.contratadoPlano).toBe(100_000);
+    expect(m2.contratadoAbatido).toBe(30_000);
+    expect(m2.contratadoTotal).toBe(70_000);
+    expect(m2.disponivel).toBe(70_000); // nada de extra sobrou para somar
+    expect(m2.adiantado).toBe(0); // a mensalidade cobriu a dívida inteira
+  });
+
+  it("exemplo 2: consumiu 80.000, o comprado fica intocado e o saldo do contrato morre", () => {
+    const mes1 = ciclo(1, { contratado: 100_000, compras: 50_000, consumo: 80_000 });
+
+    const m1 = calcularSaldo([mes1])!;
+    expect(m1.contratadoConsumido).toBe(80_000);
+    expect(m1.contratadoSaldo).toBe(20_000);
+    expect(m1.extraConsumido).toBe(0); // intocáveis: o consumo nem chegou neles
+    expect(m1.extraSaldo).toBe(50_000);
+    expect(m1.adiantado).toBe(0);
+
+    const m2 = calcularSaldo([mes1, ciclo(2, { contratado: 100_000 })])!;
+    expect(m2.contratadoTotal).toBe(100_000); // renovou inteiro
+    expect(m2.extraDisponivel).toBe(50_000); // o comprado atravessou
+    expect(m2.disponivel).toBe(150_000);
+    // Os 20.000 que sobraram do contrato no mês 1 NÃO aparecem em lugar nenhum.
+    expect(m2.disponivel).toBe(100_000 + 50_000);
+  });
+});
+
