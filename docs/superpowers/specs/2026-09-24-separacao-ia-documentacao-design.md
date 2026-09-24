@@ -137,9 +137,32 @@ fechar hoje, e não é óbvio que fecha.
 
 A tela oferece as doze dimensões **sempre** (decisão do dono; a alternativa de
 oferecer só o que a base envia foi recusada). Para que uma regra impossível não
-vire chamado de suporte, cada regra mostra ao lado **quantos usuários daquela
-base a alcançam hoje**, contados sobre o que já apareceu em `conversations`.
-Zero com restrição preenchida fica visível no momento de salvar.
+vire chamado de suporte, a tela mostra ao lado se aquela base **já enviou algum
+valor para a dimensão restringida**, lendo `vocabulario_rastreio(base)`, que já
+existe e devolve `(campo, valor, conversas)`.
+
+> **A primeira versão desta seção contava PESSOAS, e a simulação de 24/09
+> derrubou.** `natcorp` tem 317 conversas e apenas 4 valores distintos de
+> `p_usuario`; a maior base conhece 7 usuários. Um contador de alcance mostraria
+> 0 ou 1 para qualquer regra, e seria impossível distinguir "regra impossível" de
+> "pouca gente usou o chatbot". Presença de dimensão é diagnosticável com 7
+> usuários; contagem de pessoas não é.
+
+## Vazio na regra não pode abrir o que vazio na identidade fecha
+
+Ausência no token fecha. Mas cardinalidade zero na regra significa liberado, e a
+simulação mostrou o resultado: `{portal: [""]}` passa para qualquer um. São dois
+"vazios" com efeitos opostos, num desenho que o dono pediu para falhar fechado, e
+uma linha em branco salva por acidente transforma "restrito" em "todo mundo" sem
+nenhum erro.
+
+Três travas, porque uma só não pega:
+
+- a tela nunca salva entrada vazia numa lista;
+- a gravação recusa lista cujos itens sejam todos vazios depois do `btrim`;
+- "sem restrição" é um **interruptor explícito** por dimensão, não a ausência de
+  texto num campo. Campo em branco passa a ser estado inválido, não sinônimo de
+  liberado.
 
 ## Consumidores
 
@@ -178,10 +201,36 @@ própria.
 **Eixo:** por cliente mais painel e perfil. A documentação se liga a
 `ai_bases`, com allowlist, estruturalmente igual a `ai_base_tools`.
 
-**Forma:** abordagem A, duas junções. Nasce `ai_base_documentacoes (base_id,
-space_id, enabled, + allowlist)`. `knowledge_documents` ganha `base_id` mais
-allowlist, e `space_id` vira anulável com CHECK de "ou documentação, ou base,
-nunca os dois". `chunks.space_id` acompanha.
+**Forma:** abordagem A, duas junções, com a correção de 24/09 descrita abaixo.
+`knowledge_documents` ganha `base_id` mais allowlist, e `space_id` vira anulável
+com CHECK de "ou documentação, ou base, nunca os dois". `chunks.space_id`
+acompanha.
+
+### A correção: universal e por cliente são DUAS tabelas
+
+A primeira versão pôs a allowlist só em `ai_base_documentacoes`, que é por base.
+Isso não fecha: documentação universal, por definição, não está anexada a base
+nenhuma, então "esta documentação é só do portal do Gestor" não teria onde
+existir, e a única saída seria anexar as universais a todas as bases, o que
+destrói o sentido de universal.
+
+Duas tabelas, com nomes diferentes de propósito:
+
+- `documentacoes_universais (space_id, enabled, + allowlist)` — o conjunto que
+  toda base alcança sem configuração, com a parametrização por portal e perfil
+  morando aqui;
+- `ai_base_documentacoes (base_id, space_id, enabled, + allowlist)` — o que é
+  daquele cliente e só dele.
+
+A fronteira é explícita e não há herança para depurar. O custo aceito é uma tela
+a mais.
+
+**E isto resolve de graça um furo separado:** existem quatro espaços `global`,
+todos públicos, incluindo `manual` (o manual da própria plataforma, 60 artigos
+publicados) e `natcorp-varejo-alimenticio` (15). Se "universal" significasse
+`type='global'`, todo cliente passaria a pesquisar o manual da plataforma e a
+documentação de um segmento que não é o dele. Com a tabela, universal é uma
+linha que alguém escreveu, nunca um efeito colateral do tipo do espaço.
 
 Recusadas: tabela genérica `ai_base_recursos` com `ref_id` polimórfico
 (Postgres não põe chave estrangeira em coluna polimórfica, e apagar uma
@@ -247,6 +296,18 @@ controle de quem visualizou, painel por campanha e drilldown de quem viu e quem
 não viu. É um sistema de notificação com métricas; compartilha com os outros
 apenas o motor do projeto 0.
 
+> **BLOQUEIO encontrado na simulação de 24/09: "quem NÃO visualizou" é
+> incomputável hoje.** Não existe cadastro de usuários em nenhuma tabela; o
+> universo disponível é "quem já usou o chatbot", e a maior base conhece **7
+> usuários distintos**. Um painel de "não visualizaram" sobre esse universo
+> mediria adoção do chatbot, não alcance da campanha, e o número pareceria
+> completo sem ser.
+>
+> Duas saídas, e a escolha é do dono antes de o projeto 3 começar: buscar o
+> roster no ERP (uma consulta por campanha, não por turno), ou mudar a pergunta
+> para "entregues × visualizados", que é computável com o que existe. Não
+> começar o projeto 3 sem essa decisão.
+
 ## Projeto 4 — Rodada 2 do desacoplamento
 
 `widget_keys.space_id` vira anulável, `conversations.space_id` também (511
@@ -273,3 +334,57 @@ visível.
 **Migração de `knowledge_documents`.** Tornar `space_id` anulável mexe numa
 tabela que alimenta o RAG do portal e do widget. Precisa de teste de
 isolamento contra o banco real, no molde de `.audit/gestao-isolamento-e2e.ts`.
+
+## Achados da simulação adversarial de 24/09
+
+O predicado passou nos 18 casos, incluindo caixa, espaço nas pontas, OU dentro,
+E entre e ausência fechando. O que segue é o que estava em volta dele.
+
+**Não há cerca no banco para o caminho do widget.** O widget usa service-role,
+que ignora RLS. O isolamento entre clientes depende INTEIRAMENTE de a aplicação
+montar a lista de ids certa. Já é assim hoje, então não é regressão, mas com
+arquivo interno de cliente o custo de um erro passa de "resposta errada" para
+"documento de um cliente exposto a outro". Proposta de defesa em profundidade:
+`hybrid_search_scoped` recebe a base e recusa `document_id` que não pertença a
+ela, dentro do banco, além do teste de isolamento.
+
+**As policies precisam do ramo de `base_id`.** Verificado: `chunks_auth_read` é
+`has_permission(auth.uid(), 'content.view', space_id)`, e `has_permission` com
+espaço nulo reduz a "tem papel GLOBAL" (a cláusula é `m.space_id is null or
+m.space_id = p_space_id`). Então arquivo de cliente com `space_id` nulo fica
+legível por qualquer usuário interno com papel global e invisível para um Editor
+restrito a um espaço. Não vaza para cliente, mas as policies precisam ganhar o
+ramo de base ou as telas de admin param de ler o que acabaram de gravar.
+
+O lado bom foi confirmado por leitura da policy, não presumido:
+`chunks_public_read` exige `n.id = chunks.node_id`, então arquivo de cliente não
+alcança o portal por construção.
+
+**Quatro dimensões novas são multivaloradas na vida real.** Centro de custo,
+filial, unidade administrativa e vínculo não são singulares para todo mundo: um
+gestor responde por vários centros de custo, uma pessoa pode ter dois vínculos.
+O token carrega um valor por dimensão. Simulado: regra `centro_custo=[100]` com
+token `200` fecha, o que é certo pela regra e errado pela intenção se a pessoa
+também pertence ao 100. **Decisão pendente do dono:** `p_centro_custo` é a
+alocação PRÓPRIA da pessoa (singular, e o desenho está certo) ou o conjunto que
+ela gerencia (plural, e o parâmetro precisa aceitar lista)?
+
+**`ai_bases.active = false` em quatro clientes vivos.** `leadec`, `saude`,
+`incor` e `stefanini` estão inativas em `ai_bases` e recebendo conversa; a
+leadec é a do plano de 50.000 créditos. Filtrar documentação por base ativa,
+como seria natural escrever, daria zero documentação a esses quatro sem nenhuma
+mensagem. A consulta de documentação NÃO filtra por `active`, e fica um
+comentário dizendo por quê.
+
+**Base órfã.** `teste_fatura` aparece em conversa e não existe em `ai_bases`.
+Comportamento definido: alcança só o conjunto universal, nunca conteúdo de
+cliente, e o painel de gestão passa a listá-la como base desconhecida em vez de
+ignorá-la.
+
+**`p_base` chega em caixas diferentes para o mesmo cliente** (`NATCORP` e
+`natcorp`, `STEFANINI` e `stefanini`, `INCOR` e `incor`). O `lower(btrim())` dos
+dois lados é necessário, não estilo. Normalizado, só `teste_fatura` fica órfã.
+
+**Contexto que reduz o risco de tudo isto:** o tráfego de cliente parou em
+17/08 em todas as bases exceto `natcorp`. O chatbot não está em uso diário pelos
+clientes, então não há tráfego real para quebrar durante a reestruturação.
