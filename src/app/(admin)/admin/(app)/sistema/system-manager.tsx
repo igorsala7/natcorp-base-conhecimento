@@ -844,25 +844,6 @@ function LinhaFinalidade({
         <datalist id={`modelos-${purpose}`}>
           {sugestoes.map((m) => <option key={m} value={m} />)}
         </datalist>
-
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={pending}
-          onClick={() =>
-            run(() =>
-              assignPurpose(purpose, providerId || null, model, base, {
-                providerId: scProvider || null,
-                model: scModel,
-              }),
-            )
-          }
-        >
-          Salvar
-        </Button>
-        <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => testPurpose(purpose))} title="Faz uma chamada real ao provedor">
-          <Zap className="size-4" /> Testar
-        </Button>
       </div>
 
       {/*
@@ -908,6 +889,38 @@ function LinhaFinalidade({
           </div>
         </div>
       ) : null}
+
+      {/*
+        AÇÕES NO PÉ DO CARTÃO, e não na linha dos campos.
+        `Salvar` grava o cartão INTEIRO — modelo normal e contingência na mesma
+        chamada. Enquanto ele ficou na primeira linha, quem preenchia a
+        contingência chegava ao fim do bloco sem encontrar botão e concluía que
+        faltava um; foi a primeira pergunta do dono ao ver a tela. Ação que
+        confirma campos vem depois deles.
+      */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={pending}
+          onClick={() =>
+            run(() =>
+              assignPurpose(purpose, providerId || null, model, base, {
+                providerId: scProvider || null,
+                model: scModel,
+              }),
+            )
+          }
+        >
+          Salvar
+        </Button>
+        <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => testPurpose(purpose))} title="Faz uma chamada real ao provedor com o que já está SALVO">
+          <Zap className="size-4" /> Testar
+        </Button>
+        <span className="text-xs text-text-muted">
+          Salva o modelo e a contingência juntos.
+        </span>
+      </div>
     </div>
   );
 }
