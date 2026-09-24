@@ -37,9 +37,11 @@ export type VereditoCredito = {
   alvo?: string | null;
   /**
    * `normal` — turno completo.
-   * `somente_documentacao` — o saldo zerou: o chat continua, mas SEM nenhuma
-   * ferramenta, respondendo só pela documentação do sistema. Decisão do dono
-   * (23/09): zerar crédito não tira o atendimento, tira o acesso ao dado.
+   * `economico` — o saldo zerou: o chat continua INTEIRO, com todas as
+   * ferramentas, num modelo mais barato (Sistema → Qual IA faz o quê).
+   * Decisão do dono (24/09), substituindo a de 23/09, que cortava as
+   * ferramentas: na prática aquilo apagava o produto sem avisar, porque quem
+   * perguntava por um dado recebia um artigo sobre o assunto.
    */
   modo?: ModoCredito;
   /** 0 a 100. Abaixo de 10 o painel avisa quem está usando. */
@@ -106,7 +108,7 @@ export async function creditoDoTurno(track: Track): Promise<VereditoCredito | nu
     const veredito: VereditoCredito = {
       ...alocacao,
       permitido: true,
-      motivo: saldo?.modo === "somente_documentacao" ? "base_sem_creditos" : alocacao.motivo,
+      motivo: saldo?.modo === "economico" ? "base_sem_creditos" : alocacao.motivo,
       modo: saldo?.modo ?? "normal",
       pct_restante: saldo?.pct_restante,
       avisar: saldo?.avisar ?? false,

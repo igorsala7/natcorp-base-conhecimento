@@ -348,7 +348,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * respondendo só pela documentação do sistema. Não é bloqueio — é o
    * atendimento continuar existindo sem dar acesso a dado que não foi pago.
    */
-  let soDocumentacao = false;
+  /**
+   * A base está sem crédito. NÃO corta ferramenta: troca o modelo por um mais
+   * barato (ver o bloco do portão, abaixo).
+   */
+  let semCredito = false;
 
   /**
    * SESSÃO EXPIRADA vem ANTES do bloqueio por identidade.
@@ -426,16 +430,25 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
       );
     }
     /**
-     * SALDO DA BASE zerado NÃO barra mais (decisão do dono, 23/09): o chat
-     * continua respondendo pela documentação do sistema, sem nenhuma
-     * ferramenta. Antes isto devolvia 402 e o assistente simplesmente parava
-     * de existir para o cliente até alguém comprar crédito.
+     * SALDO ZERADO BARATEIA O MODELO, e não corta mais nada (decisão do dono,
+     * 24/09, substituindo a de 23/09).
      *
-     * O consumo deste modo não desconta crédito — quem garante isso é o teto
-     * em `calcularSaldo`, que nunca deixa o gasto passar do disponível.
+     * A regra anterior cortava TODAS as ferramentas e deixava o chat só com a
+     * documentação. A intenção era não deixar o cliente sem assistente, mas o
+     * efeito prático era quase o mesmo: quem perguntava "quantos dias de
+     * férias eu tenho" recebia um artigo explicando o que são férias. O
+     * produto sumia sem avisar que tinha sumido.
+     *
+     * Agora as ferramentas FICAM e o turno passa a rodar no modelo de
+     * contingência configurado em Sistema → Qual IA faz o quê. Sem
+     * contingência configurada, roda no modelo normal: a falta de
+     * configuração não pode reintroduzir o corte por outro caminho.
+     *
+     * O consumo continua não descontando crédito — quem garante é o teto em
+     * `calcularSaldo`, que nunca deixa o gasto passar do disponível.
      */
-    if (portao?.modo === "somente_documentacao") {
-      soDocumentacao = true;
+    if (portao?.modo === "economico") {
+      semCredito = true;
     }
     /**
      * O aviso de "está acabando" (≤10%) NÃO sai por aqui, e isso é decisão de
@@ -1630,17 +1643,21 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
    * Não afeta o turno seguinte: cada um monta as suas.
    */
   /**
-   * SÓ DOCUMENTAÇÃO cai no mesmo lugar do turno social: nenhuma ferramenta.
+   * O TURNO SOCIAL é o único que fica sem ferramenta. "Bom dia" não precisa de
+   * catálogo, e mandá-lo custa tokens à toa.
    *
-   * O saldo de crédito da base zerou, e a decisão do dono é que o atendimento
-   * continua — mas sem acesso a dado. Cortar aqui, e não lá atrás no
-   * `buildIntegrationTools`, é de propósito: as LOCAIS (consulta de dataset,
-   * gráfico, relatório, tela) também precisam sair. Elas não chamam o ERP, mas
-   * operam sobre dado já coletado e são o que há de mais caro em token depois
-   * do próprio dado — deixá-las de pé daria ao cliente sem crédito justamente
-   * a parte cara do produto.
+   * `semCredito` NÃO aparece nesta linha, e a ausência é a regra, não um
+   * esquecimento. Até 23/09 ela cortava tudo aqui — inclusive as LOCAIS
+   * (dataset, gráfico, relatório, tela), que nem chamam o ERP. O raciocínio
+   * era que elas são o mais caro em token depois do próprio dado. O que ele
+   * não pesou é que, sem elas, o cliente sem crédito não recebe um produto
+   * mais barato: recebe outro produto, que não responde sobre os dados dele.
+   *
+   * Desde 24/09 o barateamento é pelo MODELO (`semCredito` viaja até
+   * `languageModel`, mais abaixo). Quem for reintroduzir um corte aqui precisa
+   * saber que está revertendo uma decisão do dono, não otimizando custo.
    */
-  const allToolsCru: ToolSet = social || soDocumentacao ? {} : { ...toolsEstaveis, ...integNoTurno };
+  const allToolsCru: ToolSet = social ? {} : { ...toolsEstaveis, ...integNoTurno };
   // RASTRO UNIVERSAL: decora o `execute` de TODAS as ferramentas (integração e locais)
   // com `tool_call`/`tool_fim`. É o que garante nome + parâmetros + desfecho no
   // /admin/logs mesmo quando não há requisição HTTP nenhuma — e é o único caminho que
@@ -2948,8 +2965,8 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     ...track,
   };
   const modeloTurno = await (finalidadeTurno
-    ? languageModel(finalidadeTurno, metaConsumo, track.p_base ?? "")
-    : chatModel(metaConsumo, track.p_base ?? ""));
+    ? languageModel(finalidadeTurno, metaConsumo, track.p_base ?? "", semCredito)
+    : chatModel(metaConsumo, track.p_base ?? "", semCredito));
   const result = streamText({
     // PARAR: o usuário pode interromper a geração. Quando o widget aborta o fetch,
     // O sinal é o da RUN, não o da requisição: fechar a aba deixou de cancelar

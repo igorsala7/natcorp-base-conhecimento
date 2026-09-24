@@ -271,24 +271,30 @@ export type Database = {
         Row: {
           base_code: string
           model: string
+          model_sem_credito: string | null
           params: Json
           provider_id: string
+          provider_sem_credito: string | null
           purpose: string
           updated_at: string
         }
         Insert: {
           base_code?: string
           model: string
+          model_sem_credito?: string | null
           params?: Json
           provider_id: string
+          provider_sem_credito?: string | null
           purpose: string
           updated_at?: string
         }
         Update: {
           base_code?: string
           model?: string
+          model_sem_credito?: string | null
           params?: Json
           provider_id?: string
+          provider_sem_credito?: string | null
           purpose?: string
           updated_at?: string
         }

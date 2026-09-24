@@ -117,7 +117,7 @@ describe("plano versionado", () => {
 describe("modo e aviso", () => {
   it("saldo zerado manda para o modo documentação", () => {
     const s = calcularSaldo([ciclo(1, { consumo: 1000 })]);
-    expect(modoDoSaldo(s)).toBe("somente_documentacao");
+    expect(modoDoSaldo(s)).toBe("economico");
   });
 
   it("sem plano não é sem serviço", () => {
@@ -134,7 +134,7 @@ describe("modo e aviso", () => {
     const s = calcularSaldo([ciclo(1, { contratado: 0, consumo: 825 })])!;
     expect(s.saldo).toBe(0);
     expect(modoDoSaldo(s, false)).toBe("normal");
-    expect(modoDoSaldo(s, true)).toBe("somente_documentacao");
+    expect(modoDoSaldo(s, true)).toBe("economico");
     expect(precisaAvisar(s, false)).toBe(false);
   });
 
@@ -180,5 +180,39 @@ describe("preço do crédito adicional", () => {
     expect(precoDoAdicional(1000)).toBeCloseTo(35, 10);
     expect(precoDoAdicional(0)).toBe(0);
     expect(precoDoAdicional(-500)).toBe(0);
+  });
+});
+
+/**
+ * O MODO SEM CRÉDITO MUDOU DE SIGNIFICADO EM 24/09, e o teste existe para o
+ * nome não voltar a mentir.
+ *
+ * Até 23/09, `somente_documentacao`: crédito zerado cortava todas as
+ * ferramentas e o chat seguia só com a documentação. Na prática isso apagava o
+ * produto sem avisar — quem perguntava "quantos dias de férias eu tenho"
+ * recebia um artigo explicando o que são férias.
+ *
+ * Agora `economico`: as ferramentas ficam e o turno roda num modelo mais
+ * barato, configurado por finalidade em Sistema → Qual IA faz o quê. Quem
+ * mexer aqui precisa mexer junto em `resolveAi` (a cascata da contingência) e
+ * em `chat/route.ts` (que NÃO pode voltar a esvaziar `allToolsCru`).
+ */
+describe("modo sem crédito", () => {
+  it("zerado vira economico, não corte", () => {
+    const s = calcularSaldo([ciclo(1, { contratado: 100, consumo: 100 })])!;
+    expect(s.saldo).toBe(0);
+    expect(modoDoSaldo(s)).toBe("economico");
+  });
+
+  it("base sem plano nunca entra em economico", () => {
+    // Sem contrato não é sem serviço: a NATCORP não tem plano cadastrado e
+    // cairia no modo barato por um consumo qualquer.
+    const s = calcularSaldo([ciclo(1, { contratado: 0, consumo: 50 })])!;
+    expect(modoDoSaldo(s, false)).toBe("normal");
+  });
+
+  it("com saldo segue normal", () => {
+    const s = calcularSaldo([ciclo(1, { contratado: 100, consumo: 40 })])!;
+    expect(modoDoSaldo(s)).toBe("normal");
   });
 });

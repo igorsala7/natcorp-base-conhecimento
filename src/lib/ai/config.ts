@@ -159,35 +159,53 @@ function doEnv(purpose: Purpose): ResolvedAi | null {
   return { kind: ENV_CHAT_PROVIDER, model: ENV_CHAT_MODEL, apiKey, origem: "env" };
 }
 
-async function doBanco(purpose: Purpose, base: string): Promise<ResolvedAi | null> {
+/**
+ * `semCredito` lê o modelo de CONTINGÊNCIA da mesma linha.
+ *
+ * Quando a base zera o crédito, o assistente não perde ferramenta nenhuma
+ * (regra do dono, 24/09): ele bareteia. Se a finalidade não tiver
+ * contingência configurada, devolve `null` e a cascata segue para o degrau de
+ * cima — nunca para um corte. Ausência de configuração não pode reintroduzir
+ * o comportamento que a regra nova existe para remover.
+ */
+async function doBanco(
+  purpose: Purpose,
+  base: string,
+  semCredito = false,
+): Promise<ResolvedAi | null> {
   try {
     const supabase = createAdminClient();
     const { data: atrib } = await supabase
       .from("ai_assignments")
-      .select("model, provider_id")
+      .select("model, provider_id, model_sem_credito, provider_sem_credito")
       .eq("purpose", purpose)
       .eq("base_code", base)
       .maybeSingle();
     if (!atrib) return null;
 
+    const modelo = semCredito ? atrib.model_sem_credito : atrib.model;
+    const providerId = semCredito ? atrib.provider_sem_credito : atrib.provider_id;
+    // Sem contingência nesta linha: quem chama decide o degrau seguinte.
+    if (!modelo || !providerId) return null;
+
     const { data: prov } = await supabase
       .from("ai_providers")
       .select("kind, base_url, active")
-      .eq("id", atrib.provider_id)
+      .eq("id", providerId)
       .maybeSingle();
     if (!prov || !prov.active) return null;
 
     const { data: chave } = await supabase
       .from("ai_provider_keys")
       .select("api_key_enc")
-      .eq("provider_id", atrib.provider_id)
+      .eq("provider_id", providerId)
       .maybeSingle();
     const apiKey = tryDecryptSecret(chave?.api_key_enc);
     if (!apiKey) return null;
 
     return {
       kind: prov.kind as ProviderKind,
-      model: atrib.model,
+      model: modelo,
       apiKey,
       baseUrl: prov.base_url ?? undefined,
       origem: "banco",
@@ -209,16 +227,39 @@ async function doBanco(purpose: Purpose, base: string): Promise<ResolvedAi | nul
  * chat no banco funcionando e o editor falhando numa chave sem créditos).
  * Embeddings ficam de fora: modelo de chat não gera vetor.
  */
-export async function resolveAi(purpose: Purpose, base = ""): Promise<ResolvedAi | null> {
+export async function resolveAi(
+  purpose: Purpose,
+  base = "",
+  /**
+   * A base está SEM CRÉDITO. Procura o modelo de contingência antes do normal.
+   *
+   * Regra do dono (24/09): crédito zerado não corta ferramenta, bareteia o
+   * modelo. A cascata da contingência é própria e mais curta — atribuição da
+   * base, padrão global, contingência do CHAT —, e quando nenhuma existe ela
+   * CAI NA RESOLUÇÃO NORMAL. Nunca devolve `null` por falta de contingência:
+   * ficar sem modelo seria o corte de novo, por outro caminho.
+   */
+  semCredito = false,
+): Promise<ResolvedAi | null> {
   if (purpose === "embedding") base = ""; // vetores consistentes → embedding é sempre global
   const agora = Date.now();
-  const key = base + ":" + purpose;
+  const key = (semCredito ? "sc:" : "") + base + ":" + purpose;
   const hit = cache.get(key);
   if (hit && agora - hit.at < TTL_MS) return hit.valor;
+
+  const contingencia = semCredito
+    ? ((base ? await doBanco(purpose, base, true) : null) ??
+      (await doBanco(purpose, "", true)) ??
+      (purpose !== "embedding" && purpose !== "chat"
+        ? ((base ? await doBanco("chat", base, true) : null) ??
+          (await doBanco("chat", "", true)))
+        : null))
+    : null;
 
   // Override da base → padrão global (base '') → chat (base/padrão) para finalidades
   // novas sem atribuição própria → env.
   const valor =
+    contingencia ??
     (base ? await doBanco(purpose, base) : null) ??
     (await doBanco(purpose, "")) ??
     (purpose !== "embedding" && purpose !== "chat"
@@ -415,8 +456,14 @@ function embMiddleware(cfg: ResolvedAi): EmbeddingModelMiddleware {
 
 /** Modelo de linguagem de uma finalidade (chat, importação…). `meta` atribui o
  *  consumo a um usuário (chat) em vez do sistema. */
-export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta, base = "") {
-  const cfg = await resolveAi(purpose, base);
+export async function languageModel(
+  purpose: Purpose = "chat",
+  meta?: UsageMeta,
+  base = "",
+  /** Base sem crédito: usa o modelo de contingência, se houver. */
+  semCredito = false,
+) {
+  const cfg = await resolveAi(purpose, base, semCredito);
   if (!cfg) {
     throw new Error(
       "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
@@ -427,8 +474,8 @@ export async function languageModel(purpose: Purpose = "chat", meta?: UsageMeta,
 
 /** Modelo de chat (streamText/generateObject/generateText). `base` = p_base do
  *  cliente para usar a config PRÓPRIA da base (senão, o padrão global). */
-export async function chatModel(meta?: UsageMeta, base = "") {
-  return languageModel("chat", meta, base);
+export async function chatModel(meta?: UsageMeta, base = "", semCredito = false) {
+  return languageModel("chat", meta, base, semCredito);
 }
 
 /** Resolve a config de um provider pelo KIND, usando a CHAVE já cadastrada em

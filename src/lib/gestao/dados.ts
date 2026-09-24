@@ -59,7 +59,7 @@ export type Saldo = {
   pct_restante: number;
   /** Consumo que rodou em modo documentação, depois de zerar. Não é cobrado. */
   consumo_sem_cobertura: number;
-  /** `normal` ou `somente_documentacao`. */
+  /** `normal` ou `economico` (sem crédito: modelo mais barato, ferramentas mantidas). */
   modo: ModoCredito;
   /** Está na faixa de aviso (≤10% e ainda não zerou). */
   avisar: boolean;

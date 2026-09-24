@@ -49,7 +49,9 @@ export default async function SistemaPage() {
   const [{ data: providers }, { data: assignments }, { data: email }, segredos, nivel, { data: backups }, { data: backupSettings }] =
     await Promise.all([
       supabase.from("ai_providers").select("id, name, kind, base_url, active, base_code").order("name"),
-      supabase.from("ai_assignments").select("purpose, provider_id, model, base_code"),
+      supabase
+        .from("ai_assignments")
+        .select("purpose, provider_id, model, base_code, model_sem_credito, provider_sem_credito"),
       supabase.from("email_settings").select("*").maybeSingle(),
       secretsPresentes(),
       currentMaxLevel(null),

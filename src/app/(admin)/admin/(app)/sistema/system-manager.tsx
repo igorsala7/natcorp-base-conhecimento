@@ -49,7 +49,15 @@ export type ProviderRow = {
   active: boolean;
   base_code: string;
 };
-export type AssignmentRow = { purpose: string; provider_id: string; model: string; base_code: string };
+export type AssignmentRow = {
+  purpose: string;
+  provider_id: string;
+  model: string;
+  base_code: string;
+  /** Modelo de contingência: o que roda enquanto a base está sem crédito. */
+  model_sem_credito: string | null;
+  provider_sem_credito: string | null;
+};
 export type EmailRow = {
   transport: string;
   from_name: string;
@@ -793,12 +801,16 @@ function LinhaFinalidade({
 }) {
   const [providerId, setProviderId] = useState(atual?.provider_id ?? "");
   const [model, setModel] = useState(atual?.model ?? "");
+  const [scProvider, setScProvider] = useState(atual?.provider_sem_credito ?? "");
+  const [scModel, setScModel] = useState(atual?.model_sem_credito ?? "");
   // Embedding não roda em qualquer provedor: a Anthropic não tem essa API.
   const elegiveis = providers.filter(
     (p) => p.active && suportaFinalidade(p.kind as ProviderKind, purpose),
   );
   const escolhido = elegiveis.find((p) => p.id === providerId);
   const sugestoes = escolhido ? modelosDe(escolhido.kind as ProviderKind, purpose) : [];
+  const scEscolhido = elegiveis.find((p) => p.id === scProvider);
+  const scSugestoes = scEscolhido ? modelosDe(scEscolhido.kind as ProviderKind, purpose) : [];
 
   return (
     <div className="rounded-lg border border-border p-3">
@@ -833,16 +845,87 @@ function LinhaFinalidade({
           {sugestoes.map((m) => <option key={m} value={m} />)}
         </datalist>
 
-        <Button size="sm" variant="secondary" disabled={pending} onClick={() => run(() => assignPurpose(purpose, providerId || null, model, base))}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={pending}
+          onClick={() =>
+            run(() =>
+              assignPurpose(purpose, providerId || null, model, base, {
+                providerId: scProvider || null,
+                model: scModel,
+              }),
+            )
+          }
+        >
           Salvar
         </Button>
         <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => testPurpose(purpose))} title="Faz uma chamada real ao provedor">
           <Zap className="size-4" /> Testar
         </Button>
       </div>
+
+      {/*
+        CONTINGÊNCIA SEM CRÉDITO.
+        Só aparece quando a finalidade já tem provedor: sem o modelo normal
+        definido, oferecer o de exceção é pedir para configurar o desvio antes
+        da estrada.
+        Só nas finalidades que o CLIENTE consome. Importação, editor e
+        embeddings rodam por conta da Natcorp e não dependem do saldo dele.
+      */}
+      {providerId && SEM_CREDITO_APLICAVEL.has(purpose) ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-2 text-xs text-text-muted">
+            <span className="font-medium text-text">Quando o crédito do cliente acabar</span>{" "}
+            o assistente continua com TODAS as ferramentas e passa a usar este modelo, até o
+            saldo voltar. Em branco, segue no modelo de cima e nada muda além do custo.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <Select
+              aria-label={`Provedor de contingência para ${label}`}
+              className={`${controlClass} h-9 w-auto`}
+              value={scProvider}
+              onChange={(v) => { setScProvider(v); setScModel(""); }}
+            >
+              <option value="">— sem contingência —</option>
+              {elegiveis.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+            {scProvider && (
+              <input
+                aria-label={`Modelo de contingência para ${label}`}
+                list={`modelos-sc-${purpose}`}
+                className={`${controlClass} h-9 w-auto`}
+                value={scModel}
+                onChange={(e) => setScModel(e.target.value)}
+                placeholder="modelo mais barato"
+              />
+            )}
+            <datalist id={`modelos-sc-${purpose}`}>
+              {scSugestoes.map((m) => <option key={m} value={m} />)}
+            </datalist>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
+
+/**
+ * Finalidades que o CRÉDITO DO CLIENTE paga.
+ *
+ * Importação, editor e embeddings rodam a mando da Natcorp, não do cliente, e
+ * o saldo dele não tem nada a ver com elas. Oferecer contingência ali seria um
+ * campo que nunca entra em jogo, e campo que não faz nada é pior que campo
+ * ausente: alguém preenche e conclui que configurou.
+ */
+const SEM_CREDITO_APLICAVEL = new Set<string>([
+  "chat",
+  "chat_ferramentas",
+  "report_analysis",
+  "query_rewrite",
+]);
 
 function AbaEmail({
   email,

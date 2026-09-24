@@ -120,6 +120,18 @@ export async function assignPurpose(
   providerId: string | null,
   model: string,
   base = "",
+  /**
+   * Modelo de CONTINGÊNCIA: o que roda enquanto a base está sem crédito.
+   *
+   * Os dois campos andam juntos, e o banco tem CHECK para isso: modelo sem
+   * provedor não instancia nada e provedor sem modelo não sabe o que chamar.
+   * Meio preenchido é a configuração que parece pronta na tela e só falha
+   * quando o crédito acaba, que é o pior momento para descobrir.
+   *
+   * Vazio = sem contingência; a resolução segue a cascata normal e as
+   * ferramentas continuam ligadas de todo jeito.
+   */
+  semCredito?: { providerId: string | null; model: string },
 ): Promise<SysResult> {
   try {
     await requirePermission("ai.configure", null);
@@ -138,10 +150,28 @@ export async function assignPurpose(
   }
 
   if (!model.trim()) return { ok: false, error: "Informe o modelo." };
+
+  const scProvider = semCredito?.providerId?.trim() || null;
+  const scModel = semCredito?.model?.trim() || "";
+  if (Boolean(scProvider) !== Boolean(scModel)) {
+    return {
+      ok: false,
+      error: "Contingência incompleta: informe provedor E modelo, ou deixe os dois vazios.",
+    };
+  }
+
   const { error } = await supabase
     .from("ai_assignments")
     .upsert(
-      { base_code: base, purpose, provider_id: providerId, model: model.trim(), updated_at: new Date().toISOString() },
+      {
+        base_code: base,
+        purpose,
+        provider_id: providerId,
+        model: model.trim(),
+        model_sem_credito: scModel || null,
+        provider_sem_credito: scProvider,
+        updated_at: new Date().toISOString(),
+      },
       { onConflict: "base_code,purpose" },
     );
   if (error) return { ok: false, error: `Falha ao salvar: ${error.message}` };

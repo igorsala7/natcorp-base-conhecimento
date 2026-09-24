@@ -118,13 +118,15 @@ export default async function GestaoConsumoPage({
         virar chamado. A faixa de 10% existe para a compra acontecer ANTES de
         alguém perceber pela ausência de resposta.
       */}
-      {saldo?.modo === "somente_documentacao" ? (
-        <div className="mb-4 rounded-lg border border-danger/40 bg-danger/5 px-4 py-3">
+      {saldo?.modo === "economico" ? (
+        <div className="mb-4 rounded-lg border border-warning/40 bg-warning-soft px-4 py-3">
           <p className="text-sm font-semibold text-text">Os créditos acabaram.</p>
           <p className="mt-1 text-sm text-text-muted">
-            O assistente continua respondendo pela <strong>documentação do sistema</strong>, mas
-            deixou de consultar dados e de gerar relatórios até haver saldo. Adquira créditos na
-            aba <strong>Créditos</strong> — os adicionais não vencem e acumulam para os próximos meses.
+            O assistente <strong>continua funcionando por inteiro</strong>, com todas as consultas
+            e relatórios, mas passou a rodar num modelo mais econômico até o saldo voltar. As
+            respostas podem ficar menos detalhadas. Adquira créditos na aba{" "}
+            <strong>Créditos</strong> para voltar ao normal; os adicionais não vencem e acumulam
+            para os próximos meses.
           </p>
         </div>
       ) : saldo?.avisar ? (

@@ -161,8 +161,16 @@ export function calcularSaldo(ciclos: CicloFato[]): SaldoCreditos | null {
   return ultimo;
 }
 
-/** O que o chat pode fazer com este saldo. */
-export type ModoCredito = "normal" | "somente_documentacao";
+/**
+ * O que o chat faz com este saldo.
+ *
+ * `economico` substituiu `somente_documentacao` em 24/09. O nome velho passou
+ * a mentir: crédito zerado não corta mais ferramenta nenhuma, só troca o
+ * modelo por um mais barato (configurado em Sistema → Qual IA faz o quê).
+ * Manter o nome antigo faria o próximo leitor procurar um corte que não
+ * existe mais.
+ */
+export type ModoCredito = "normal" | "economico";
 
 export function modoDoSaldo(saldo: SaldoCreditos | null, temPlano = true): ModoCredito {
   /**
@@ -180,7 +188,7 @@ export function modoDoSaldo(saldo: SaldoCreditos | null, temPlano = true): ModoC
    */
   if (!temPlano) return "normal";
   if (!saldo) return "normal";
-  return saldo.saldo > 0 ? "normal" : "somente_documentacao";
+  return saldo.saldo > 0 ? "normal" : "economico";
 }
 
 /** Está acabando? É o gatilho do aviso no painel de quem está usando. */
