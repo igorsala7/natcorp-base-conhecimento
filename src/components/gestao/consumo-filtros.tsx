@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { comBase } from "@/lib/base-path";
 import { fmtNumero } from "@/lib/gestao/formato";
 import { Button } from "@/components/ui/button";
 
@@ -81,10 +82,17 @@ export function ConsumoFiltros({
     /*
       Form NU: sem borda, sem fundo, sem margem.
       No Consumo ele vive dentro de um `<details>` que já é superfície, e o
-      cartão próprio criava cartão dentro de cartão — duas bordas a 16px uma
-      da outra, sem nenhuma informação a mais. Quem chama decide a superfície.
+      cartão próprio criava cartão dentro de cartão, duas bordas a 16px uma da
+      outra sem nenhuma informação a mais. Quem chama decide a superfície.
+
+      `comBase` no `action` NÃO é redundante, e a falta dele derrubou o filtro
+      em produção: o `basePath` do Next reescreve `<Link>`, rotas e assets, mas
+      não toca em `action` de formulário HTML nem em `href` de `<a>` cru. Com o
+      app servido em /natcorp/ia, `action="/gestao/conversas"` submetia para a
+      RAIZ do domínio e tomava 404. Local nunca reproduzia: ali o prefixo é
+      vazio e `comBase` é identidade.
     */
-    <form method="get" action={acao}>
+    <form method="get" action={comBase(acao)}>
       {Object.entries(sessaoParams).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
@@ -171,7 +179,7 @@ export function ConsumoFiltros({
         </Button>
         {temFiltro ? (
           <a
-            href={`${acao}?${new URLSearchParams(sessaoParams).toString()}`}
+            href={`${comBase(acao)}?${new URLSearchParams(sessaoParams).toString()}`}
             className="inline-flex items-center rounded-md border border-border-strong px-3 py-2 text-ui text-text transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Limpar

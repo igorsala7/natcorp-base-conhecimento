@@ -1,6 +1,7 @@
 import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib/gestao/sessao";
 import { Button } from "@/components/ui/button";
 import { lerSaldo, lerAlocacoes, lerCompras } from "@/lib/gestao/dados";
+import { comBase } from "@/lib/base-path";
 import { cotacaoDeHoje, emReais } from "@/lib/gestao/cotacao";
 import { USD_POR_CREDITO_EXTRA, CREDITOS_POR_LOTE } from "@/lib/gestao/creditos";
 import { ShellGestao, RecusaGestao, Bloco, Vazio, FaixaResumo } from "@/components/gestao/shell";
@@ -151,7 +152,13 @@ export default async function GestaoCreditosPage({
             : "Compras feitas no ciclo atual. Use o filtro para ver outros períodos."
         }
         acoes={
-          <form method="get" action="/gestao/creditos" className="flex flex-wrap items-end gap-2">
+          // `comBase`: o basePath do Next não reescreve `action` de
+          // formulário. Ver o comentário em `consumo-filtros.tsx`.
+          <form
+            method="get"
+            action={comBase("/gestao/creditos")}
+            className="flex flex-wrap items-end gap-2"
+          >
             {Object.entries(sessaoParams).map(([k, v]) => (
               <input key={k} type="hidden" name={k} value={v} />
             ))}

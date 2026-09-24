@@ -135,6 +135,29 @@ const PADROES = [
     porque: "Use lucide-react. Emoji renderiza diferente por SO e não herda cor nem tamanho do token.",
   },
   {
+    chave: "action-sem-base",
+    /*
+      `action="/..."` literal em JSX.
+
+      O `basePath` do Next reescreve `<Link>`, rotas e assets, mas NÃO toca em
+      `action` de formulário nem em `href` de `<a>` cru. Com o app servido em
+      /natcorp/ia, um `action="/gestao/conversas"` submete para a RAIZ do
+      domínio e devolve 404. Em 23/09 isso derrubou os filtros de Conversas,
+      Consumo e o histórico de Créditos ao mesmo tempo.
+
+      É invisível em desenvolvimento, onde o prefixo é vazio e o caminho cru
+      funciona. Por isso vira catraca: o único lugar que enxerga o defeito sem
+      um build de produção.
+
+      Use `comBase()` de `@/lib/base-path`. Formulário que aponta para a
+      própria página pode simplesmente omitir o `action`.
+    */
+    rx: /\baction="\//g,
+    semComentarios: true,
+    porque:
+      "Use comBase() de @/lib/base-path. O basePath do Next não reescreve action de formulário, e o caminho cru vira 404 em produção.",
+  },
+  {
     chave: "spinner-solto",
     rx: /\banimate-spin\b/g,
     ignora: (f) => f.startsWith("src/components/ui/"),
