@@ -58,16 +58,15 @@ export function ShellGestao({
   return (
     /*
       O CANVAS DEIXA DE SER BRANCO, e esta é a correção de raiz.
-      `--color-bg` e `--color-surface` valem os DOIS `#ffffff` neste projeto,
+      `--color-bg` e `--color-surface` valem os DOIS branco neste projeto,
       então cada bloco era um cartão branco sobre página branca, separado
       apenas por uma borda de 1px. Era exatamente o "falta de destaque para
       separar as regiões" relatado: não havia figura e fundo, só linhas.
-      `brand.gray.100` é o neutro com o viés roxo da marca, e aqui ele é fundo,
-      não decoração — é o que faz cada superfície branca ler como superfície.
-      Vale só na gestão, que é tela embutida e já roda em tema claro fixo; o
-      resto do produto mantém o canvas branco que sempre teve.
+      `--color-canvas` é o token do fundo sobre o qual superfícies se apoiam,
+      e ele existe para isto. Vale só na gestão, que é painel de trabalho; o
+      portal e o editor seguem com o canvas branco, que é o certo para leitura.
     */
-    <div className="min-h-screen bg-brand-gray-100 text-text">
+    <div className="min-h-screen bg-canvas text-text">
       <nav
         aria-label="Gestão do assistente"
         className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur"
@@ -82,7 +81,7 @@ export function ShellGestao({
                     href={linkGestao(sessao, aba.href)}
                     aria-current={ativa ? "page" : undefined}
                     className={[
-                      "inline-flex items-center rounded-md px-3 py-1.5 text-ui font-medium transition-colors duration-150",
+                      "alvo-toque inline-flex items-center rounded-md px-3 py-1.5 text-ui font-medium transition-colors duration-150",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
                       ativa
                         ? "bg-primary text-primary-fg"

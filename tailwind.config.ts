@@ -84,6 +84,7 @@ const config: Config = {
         bg: "var(--color-bg)",
         surface: "var(--color-surface)",
         "surface-2": "var(--color-surface-2)",
+        canvas: "var(--color-canvas)",
         border: "var(--color-border)",
         // Limite de componente interativo (input/select/checkbox) — 3:1 mínimo.
         "border-strong": "var(--color-border-strong)",

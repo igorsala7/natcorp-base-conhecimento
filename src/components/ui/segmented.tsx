@@ -44,7 +44,9 @@ export function Segmented<T extends string>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
+            // `alvo-toque` (globals.css) sobe para 44px só em ponteiro grosso:
+            // no mouse a densidade do controle é o que ele tem de melhor.
+            "alvo-toque inline-flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold transition-colors [&_svg]:size-3.5",
             value === o.value
               ? "bg-surface text-text shadow-1"
               : "text-text-muted hover:text-text",

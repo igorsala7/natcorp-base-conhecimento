@@ -15,6 +15,15 @@
   --color-bg: #ffffff;
   --color-surface: #ffffff;
   --color-surface-2: #fafafb; /* brand.gray.50 */
+  /*
+    CANVAS: o fundo sobre o qual as superfícies se apoiam.
+    `--color-bg` e `--color-surface` valem os dois branco, de propósito: o
+    portal e o editor são folhas de leitura, e ali cartão sobre papel seria
+    ruído. Painéis de trabalho precisam do contrário — sem um fundo distinto,
+    "região" vira só uma borda de 1px, que foi exatamente o que a gestão
+    sofria. `brand.gray.100`, o neutro com o viés roxo da marca.
+  */
+  --color-canvas: #f4f3f6; /* brand.gray.100 */
   --color-border: #e8e6ec; /* brand.gray.200 — separação decorativa */
   /* Borda de CONTROLE (input, select, checkbox): o hairline decorativo mede
      1,24:1 e some para quem enxerga pouco. WCAG 1.4.11 exige 3:1 no limite de
@@ -147,6 +156,8 @@
 .dark {
   --color-bg: #16131c; /* neutro escuro com viés roxo, não preto puro */
   --color-surface: #201d26; /* brand.gray.900 */
+  /* No escuro o canvas é mais FUNDO que a superfície: a luz vem da folha. */
+  --color-canvas: #100e15;
   --color-surface-2: #302c38; /* brand.gray.800 */
   --color-border: #302c38; /* brand.gray.800 */
   --color-border-strong: #736d80; /* 3,70:1 sobre o fundo, 3,34:1 sobre a superfície */
@@ -288,14 +299,24 @@
     color: var(--color-accent);
   }
 
-  /* Respeita quem pediu menos movimento. */
+  /*
+    MENOS MOVIMENTO NÃO É NENHUM SINAL.
+    Isto zerava `transition-duration` de TUDO. Quem pede menos movimento
+    perdia junto a transição de cor que confirma hover, foco e troca de aba —
+    realimentação de estado, não enfeite. A pessoa passava a clicar sem saber
+    se o clique pegou, que é o oposto do que ela pediu.
+    Agora some o que DESLOCA (transform, e qualquer propriedade fora da lista)
+    e fica o que INFORMA (cor, opacidade, sombra), curto.
+  */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
+      transition-property: opacity, color, background-color, border-color,
+        box-shadow, fill, stroke !important;
+      transition-duration: 120ms !important;
     }
   }
 }
@@ -800,4 +821,18 @@
 }
 .slim-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/*
+  ALVO DE TOQUE, só no ponteiro grosso.
+  Medido em 23/09: as abas da gestão têm 30px de altura e os segmentos 28px.
+  Passa no WCAG 2.2 AA (24px) e reprova no AAA (44px). Engordar tudo no
+  desktop custaria densidade num painel embutido que vive com o mouse, então
+  a altura sobe apenas onde o dedo é o ponteiro. `pointer: coarse` é a
+  pergunta certa: não é "tela pequena", é "como a pessoa aponta".
+*/
+@media (pointer: coarse) {
+  .alvo-toque {
+    min-height: 44px;
+  }
 }
