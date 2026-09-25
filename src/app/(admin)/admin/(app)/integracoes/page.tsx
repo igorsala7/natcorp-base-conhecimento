@@ -139,10 +139,16 @@ export default async function IntegracoesPage() {
      distinguir uma documentação cheia de uma recém-criada e vazia — anexar a
      vazia é o erro que não dá erro. Agregado em memória sobre uma consulta só:
      `knowledge_documents` tem 123 linhas hoje, mas cresce, e por isso a leitura
-     vai paginada. */
+     vai paginada.
+
+     `.order("id")` ANTES do `.range()`, como em `embeddings-actions.ts` e em
+     `quality/scan.ts`: sem ordem estável, cada página do PostgREST pode repetir
+     e pular linhas, e a contagem sairia errada sem erro nenhum. Hoje são 123
+     linhas e uma página só — a falha volta calada no dia em que passar de mil,
+     que é exatamente como esse defeito já voltou sete vezes neste projeto. */
   const docsPorEspaco = new Map<string, number>();
   for (const d of await fetchAllPaged<{ space_id: string | null }>((de, ate) =>
-    supabase.from("knowledge_documents").select("space_id").range(de, ate),
+    supabase.from("knowledge_documents").select("space_id").order("id").range(de, ate),
   )) {
     if (d.space_id) docsPorEspaco.set(d.space_id, (docsPorEspaco.get(d.space_id) ?? 0) + 1);
   }
