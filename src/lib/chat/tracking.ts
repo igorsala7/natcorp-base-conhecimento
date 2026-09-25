@@ -11,6 +11,22 @@ export const TRACKING_KEYS = [
   "p_empresa",
   "p_matricula",
   "p_perfil",
+  // Seis dimensões acrescentadas em 24/09, por decisão do dono. Todas são a
+  // ALOCAÇÃO da pessoa, não o que ela gerencia, e os valores vivem nos
+  // endpoints de estrutura do ERP (estrutura_filiais, estrutura_centros_custo,
+  // estrutura_unidades_adm, estrutura_vinculos_empregaticios,
+  // estrutura_sindicatos). `unidade de negócio` ainda não tem endpoint.
+  //
+  // Enquanto o bloco APEX de um cliente não for recolado, elas chegam vazias,
+  // e pela regra de "ausência fecha" qualquer restrição nelas não alcança
+  // ninguém naquele cliente. Isso é deliberado: a alternativa faria um
+  // documento restrito a um centro de custo vazar para a empresa inteira.
+  "p_filial",
+  "p_centro_custo",
+  "p_unidade_adm",
+  "p_unidade_negocio",
+  "p_vinculo",
+  "p_sindicato",
   // Painel do Candidato: quem ainda não tem matrícula. Ver `tipo-acesso.ts` —
   // matrícula preenchida continua mandando, para o contratado deixar de ser
   // candidato sem depender de o anfitrião limpar este campo.
