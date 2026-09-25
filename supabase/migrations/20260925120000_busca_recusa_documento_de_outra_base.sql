@@ -63,6 +63,29 @@
 -- então quando `anon` chama, a leitura de `chunks` continua governada
 -- pela RLS de `anon` (`chunks_public_read`), exatamente como hoje.
 --
+-- NÃO revogar de `anon` nesta função nem em `knowledge_list_chunks`,
+-- mesmo que a restrição global do projeto mande "função nova: revoke de
+-- public, anon". Estas não são novas: a busca do portal chama
+-- `hybrid_search_scoped` como `anon`, sem sessão nenhuma
+-- (`src/app/(portal)/actions.ts:141`). Aplicar aquela regra aqui reproduz
+-- exatamente o incidente que `20260721140000_search_anon_knowledge_grant.sql`
+-- documenta: a busca do portal morre com "permission denied", e a action
+-- engole o erro como lista vazia — silencioso, igual ao defeito que esta
+-- própria migration corrige em outro lugar.
+--
+-- Acoplamento com a RLS, para quem for mexer em policy depois: como as
+-- duas funções são `SECURITY INVOKER`, o `not exists` desta cerca só diz a
+-- verdade porque, para `authenticated`, a permissão que abre o CHUNK de
+-- arquivo de base (`chunks_auth_read`, exige `ai.configure`) é a MESMA que
+-- abre a LINHA de `knowledge_documents` que a cerca lê (`knowledge_
+-- documents_read`, também `ai.configure`). Se uma das duas policies for
+-- estreitada sem a outra, a cerca passa a enxergar "não existe documento
+-- de outra base" para um `authenticated` que só não tem permissão de
+-- LER a tabela — abrindo em silêncio, não fechando. Hoje isto é inofensivo
+-- porque `p_base` só chega por `service_role` (que tem `rolbypassrls` e
+-- não passa pela RLS de jeito nenhum), mas a dependência existe e fica
+-- registrada aqui.
+--
 -- ── Onde a cerca entra ─────────────────────────────────────────────────
 -- UM lugar só em cada função: no CTE `agrupado` de `hybrid_search_scoped`
 -- (upstream de `melhores_grupos` — um documento de outra base é
@@ -72,11 +95,22 @@
 -- duplicação, e não muda o resultado porque `agrupado`/`melhores_grupos`
 -- já filtram depois.
 --
--- `is distinct from`, não `<>`: se `p_base` vier com um código que não
--- existe em `ai_bases`, `base_alvo` fica vazio e o subselect é NULL; com
--- `<>` a comparação viraria NULL, `not exists` daria verdadeiro e a
--- cerca se desligaria em silêncio. Com `is distinct from` ela RECUSA todo
--- documento de base — a postura "ausência fecha" do desenho inteiro.
+-- `not exists (select 1 from base_alvo ba where ba.id = d.base_id)`, não
+-- uma subconsulta ESCALAR: `ai_bases_base_code_key` é `unique(base_code)`,
+-- case-sensitive e sem trim — 'Natcorp' e 'natcorp ' coexistem
+-- legitimamente hoje (conferido: não coexistem AINDA, mas a constraint não
+-- impede). No dia em que coexistirem, `base_alvo` (que normaliza com
+-- `lower(btrim(...))`) devolveria DUAS linhas, e `(select id from
+-- base_alvo)` como subconsulta escalar levantaria `more than one row
+-- returned by a subquery used as an expression` — erro que `rag.ts` não
+-- veria, porque as quatro chamadas desestruturam só `{ data }` e ignoram
+-- `error`: a busca daquela base voltaria vazia, em silêncio, sem
+-- documentação nenhuma. `not exists` com JOIN de pertinência tolera
+-- `base_alvo` com zero, uma ou várias linhas sem erro nenhum, e preserva a
+-- MESMA postura "ausência fecha": com `base_alvo` vazio (p_base nulo, ou
+-- código que não bate com nenhuma base) nada casa a pertinência, o `not
+-- exists` externo é falso e todo documento de base é recusado — idêntico
+-- ao que o `is distinct from` fazia antes desta correção.
 --
 -- `d.base_id is not null`: deixa passar documento de ESPAÇO (documentação
 -- anexada, `base_id` nulo) e, por `d.id = c2.document_id` nunca casar
@@ -201,9 +235,12 @@ as $function$
     select distinct on (origem) origem, id as chunk_id, score
     from fused order by origem, score desc
   ),
-  -- Base alvo desta busca (id de `ai_bases`), resolvida UMA vez. Vazio
-  -- quando `p_base` é nulo OU não bate com nenhuma base cadastrada — os
-  -- dois casos fecham a cerca (ver `is distinct from` abaixo).
+  -- Base(s) alvo desta busca (id de `ai_bases`), resolvida(s) UMA vez.
+  -- Vazio quando `p_base` é nulo OU não bate com nenhuma base cadastrada
+  -- — os dois casos fecham a cerca (ver `not exists` abaixo). PODE devolver
+  -- mais de uma linha se `base_code` colidir depois de normalizar — por
+  -- isso o consumo abaixo é `not exists`/pertinência, nunca subconsulta
+  -- escalar.
   base_alvo as (
     select b.id
       from public.ai_bases b
@@ -230,7 +267,7 @@ as $function$
               from public.knowledge_documents d
              where d.id = c2.document_id
                and d.base_id is not null
-               and d.base_id is distinct from (select id from base_alvo)
+               and not exists (select 1 from base_alvo ba where ba.id = d.base_id)
           )
   ),
   melhores_grupos as (
@@ -295,7 +332,10 @@ as $function$
     and c.tsv @@ websearch_to_tsquery('portuguese', public.f_unaccent(p_query))
     -- MESMA cerca de hybrid_search_scoped, mesmo texto de propósito
     -- (revisão mais fácil): document_id sem base (documentação de espaço)
-    -- sempre passa; com base, só passa se bater com `p_base`.
+    -- sempre passa; com base, só passa se bater com `p_base`. `not exists`
+    -- de pertinência (não subconsulta escalar) pelo mesmo motivo de lá:
+    -- `base_alvo` pode devolver mais de uma linha se `base_code` colidir
+    -- depois de `lower(btrim(...))` — ver o comentário completo acima.
     and (
       p_base is null
       or not exists (
@@ -303,7 +343,7 @@ as $function$
              from public.knowledge_documents d2
             where d2.id = c.document_id
               and d2.base_id is not null
-              and d2.base_id is distinct from (select id from base_alvo)
+              and not exists (select 1 from base_alvo ba where ba.id = d2.base_id)
          )
     )
   order by score desc
@@ -318,9 +358,12 @@ comment on function public.knowledge_list_chunks(text, uuid[], integer, text) is
 --
 -- Cria duas bases e um documento de BASE em cada, com o MESMO token no
 -- conteúdo dos dois (para os dois competirem pela mesma busca), roda as
--- duas funções com e sem `p_base`, e limpa tudo (delete explícito, mesma
--- transação) antes do fim do bloco — se qualquer `assert` falhar, a
--- exceção aborta a transação inteira do arquivo e o `migrate:apply`
+-- duas funções com `p_base` nulo, com `p_base` de uma base que EXISTE e
+-- com `p_base` de uma base que NÃO existe (o caso que distingue "fecha" de
+-- "abre em silêncio" — ver comentário na seção correspondente), e limpa
+-- tudo (delete explícito, mesma transação) antes do fim do bloco — se
+-- qualquer `assert` falhar, a exceção aborta a transação inteira do
+-- arquivo e o `migrate:apply`
 -- reverte junto (nenhuma linha de teste sobrevive nos dois caminhos).
 -- =====================================================================
 do $$
@@ -335,6 +378,8 @@ declare
   v_klc_sem  int;
   v_klc_com  int;
   v_klc_tem_b boolean;
+  v_hss_base_inexistente int;
+  v_klc_base_inexistente int;
 begin
   -- Limpeza defensiva: se uma aplicação anterior deste arquivo foi
   -- interrompida de um jeito que Postgres não devia permitir (a
@@ -418,6 +463,34 @@ begin
     format('knowledge_list_chunks com p_base da base A: esperava 1 linha (só o documento da base A), veio %s', v_klc_com);
   assert coalesce(v_klc_tem_b, false) = false,
     'knowledge_list_chunks com p_base da base A: o documento da base B NÃO pode aparecer, mesmo em p_document_ids';
+
+  -- ── p_base que NÃO existe em ai_bases (rodada de correção 1) ────────
+  -- Com `p_base` de uma base que EXISTE, o operador escalar antigo e o
+  -- `not exists` novo se comportam IGUAL — nenhuma assertiva acima
+  -- distingue "fecha" de "abre em silêncio" no caminho em que `base_alvo`
+  -- fica vazio por não achar NENHUMA base (não só por achar a base
+  -- ERRADA). `base_alvo` vazio tem de recusar TODOS os documentos de
+  -- base, dos dois arquivos, não deixar nenhum passar.
+  select count(*) into v_hss_base_inexistente
+    from public.hybrid_search_scoped(
+      p_query := 'zzmarcadortarefa7',
+      p_document_ids := array[v_doc_a, v_doc_b],
+      p_limit := 10,
+      p_group_limit := 10,
+      p_base := 'zz-base-que-nao-existe'
+    );
+  assert v_hss_base_inexistente = 0,
+    format('hybrid_search_scoped com p_base inexistente: esperava 0 linhas (ausência fecha), veio %s', v_hss_base_inexistente);
+
+  select count(*) into v_klc_base_inexistente
+    from public.knowledge_list_chunks(
+      p_query := 'zzmarcadortarefa7 pertence',
+      p_document_ids := array[v_doc_a, v_doc_b],
+      p_limit := 40,
+      p_base := 'zz-base-que-nao-existe'
+    );
+  assert v_klc_base_inexistente = 0,
+    format('knowledge_list_chunks com p_base inexistente: esperava 0 linhas (ausência fecha), veio %s', v_klc_base_inexistente);
 
   -- Limpeza final. `ai_bases` cascateia para `knowledge_documents` e daí
   -- para `chunks` (as três FKs são ON DELETE CASCADE) — um delete só.
