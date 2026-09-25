@@ -1308,7 +1308,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     const t0 = Date.now();
     try { return await p; } finally { _ragMs = Date.now() - t0; }
   };
-  const _ragPromise = social || baseExclusiva || soRedigir || ragLimit === 0 ? Promise.resolve([]) : _cronometrar(retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined, continuidade: _continuidade }));
+  const _ragPromise = social || baseExclusiva || soRedigir || ragLimit === 0 ? Promise.resolve([]) : _cronometrar(retrievePublicContext(key.space_ids, consultaRagFinal, ragLimit, payload.scope, idioma, { lexicalOnly: ragLexicalOnly, grupos: perguntaComposta || compostoPorTool ? 4 : undefined, continuidade: _continuidade, base: track.p_base ?? null, track }));
   // Fecha o rastreio: adiciona o passo final, PERSISTE (página de log, best-effort)
   // e devolve o evento SSE `trace` para o widget logar no console do navegador.
   const finalizarTrace = (desfecho: string) => {

@@ -36,7 +36,10 @@ async function answerWhatsapp(input: {
   const integ = await buildIntegrationTools(input.baseCode, identityFromTrack(input.track), input.files);
   const temTools = Object.keys(integ.tools).length > 0;
   // RAG em TODAS as documentações vinculadas à base.
-  const sources = await retrievePublicContext(input.chatSpaceIds, input.question, 6);
+  const sources = await retrievePublicContext(input.chatSpaceIds, input.question, 6, undefined, undefined, {
+    base: input.track?.p_base ?? null,
+    track: input.track,
+  });
   const temImagem = !!input.imageParts?.length;
   // Ontologia: glossário do domínio para o modelo acertar tools/parâmetros.
   const glossario = await glossarioCasado(createAdminClient(), input.chatSpaceIds, input.question).catch(() => "");
