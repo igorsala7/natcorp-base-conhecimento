@@ -52,6 +52,25 @@ const comoTexto = (x: unknown) => norm(x === null || x === undefined ? "" : Stri
 
 export function alcanca(regra: Regra, ident: Identidade): boolean {
   /**
+   * A REGRA INTEIRA malformada, antes de olhar chave nenhuma.
+   *
+   * Os dois lados divergiam aqui, e o corpus não cobria:
+   *
+   *   regra = null        SQL true    ·  TypeScript DERRUBAVA
+   *   regra = 7           SQL erro    ·  TypeScript true — ABRIA
+   *   regra = ["PG"]      SQL erro    ·  TypeScript false
+   *
+   * Decisão do dono: `null`/`undefined` é "sem regra" e não restringe (é o
+   * `coalesce(regra,'{}')` do SQL); qualquer outra coisa que não seja objeto —
+   * número, texto, array — é regra malformada e FECHA nos dois lados.
+   *
+   * `Object.entries(7)` devolve `[]`, e era por isso que o pior caso abria: a
+   * regra malformada parecia regra vazia.
+   */
+  if (regra === null || regra === undefined) return true; // sem regra
+  if (typeof regra !== "object" || Array.isArray(regra)) return false; // malformada: fecha
+
+  /**
    * Itera as chaves DA REGRA, e não a lista fixa de dimensões.
    *
    * Iterar `DIMENSOES` fazia uma chave desconhecida ser ignorada em silêncio, e
@@ -61,7 +80,7 @@ export function alcanca(regra: Regra, ident: Identidade): boolean {
    *
    * Agora os dois iteram a regra e os dois FECHAM em chave desconhecida.
    */
-  for (const [chave, bruto] of Object.entries(regra)) {
+  for (const [chave, bruto] of entradasDaRegra(regra)) {
     /**
      * `unknown` e não `string[]`, porque a regra vem de uma coluna `jsonb`: o
      * tipo não garante NADA em tempo de execução. A primeira versão fazia

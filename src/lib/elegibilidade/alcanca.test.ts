@@ -83,6 +83,25 @@ describe("alcanca", () => {
     expect(alcanca({ foo: null } as never, {})).toBe(true);
   });
 
+  /**
+   * A REGRA INTEIRA, e não uma dimensão dela. Os dois lados divergiam aqui e o
+   * corpus não cobria: `regra = 7` devolvia TRUE no TypeScript (porque
+   * `Object.entries(7)` é `[]`, e regra malformada parecia regra vazia) e erro
+   * no SQL. `undefined` só existe do lado TypeScript — JSON não o expressa —,
+   * então este é o único lugar onde ele pode ser fixado.
+   */
+  it("regra INTEIRA nula é 'sem regra' e LIBERA", () => {
+    expect(alcanca(null as never, { portal: "PG" })).toBe(true);
+    expect(alcanca(undefined as never, { portal: "PG" })).toBe(true);
+  });
+
+  it("regra INTEIRA que não é objeto FECHA", () => {
+    expect(alcanca(7 as never, { portal: "PG" })).toBe(false);
+    expect(alcanca("PG" as never, { portal: "PG" })).toBe(false);
+    expect(alcanca(["PG"] as never, { portal: "PG" })).toBe(false);
+    expect(alcanca(true as never, {})).toBe(false);
+  });
+
   it("cobre as doze dimensões, uma por uma", () => {
     for (const d of DIMENSOES) {
       expect(alcanca({ [d]: ["x"] }, { [d]: "x" })).toBe(true);

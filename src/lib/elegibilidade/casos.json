@@ -31,6 +31,11 @@
     { "nome": "null na dimensao e 'nao configurada', LIBERA", "regra": { "portal": null }, "identidade": {}, "esperado": true },
     { "nome": "array vazio LIBERA", "regra": { "portal": [] }, "identidade": {}, "esperado": true },
     { "nome": "item numerico na lista e convertido como o SQL faz", "regra": { "centro_custo": [100] }, "identidade": { "centro_custo": "100" }, "esperado": true },
+    { "nome": "regra INTEIRA nula e 'sem regra', LIBERA", "regra": null, "identidade": { "portal": "PG" }, "esperado": true },
+    { "nome": "regra INTEIRA escalar FECHA", "regra": 7, "identidade": { "portal": "PG" }, "esperado": false },
+    { "nome": "regra INTEIRA em array FECHA", "regra": ["PG"], "identidade": { "portal": "PG" }, "esperado": false },
+    { "nome": "identidade com TAB na frente casa (btrim do SQL so tirava espaco)", "regra": { "portal": ["PG"] }, "identidade": { "portal": "\tPG" }, "esperado": true },
+    { "nome": "identidade com NBSP na frente casa (idem)", "regra": { "portal": ["PG"] }, "identidade": { "portal": "\u00a0PG" }, "esperado": true },
     { "nome": "doze dimensoes, a ultima falha", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": "1", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "OUTRO" }, "esperado": false }
   ]
 }
