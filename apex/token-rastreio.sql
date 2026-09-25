@@ -82,13 +82,20 @@ declare
   -- sozinho enquanto a pessoa navega.
   c_minutos constant number := 30;
 
-  l_key   raw(32);  l_json varchar2(6000);  l_pay raw(6000);
-  l_mac   raw(32);  l_token varchar2(4000);
+  -- A CADEIA INTEIRA, dimensionada junta. Em 24/09 eu subi so l_json e l_pay e
+  -- deixei l_token em 4000: o token e 'kbt1h.' + base64(payload) + '.' +
+  -- base64(mac), e base64 de 6000 bytes ja da 8000 caracteres, entao o payload
+  -- passava o primeiro portao e morria no ultimo, longe da causa.
+  -- Sao locais de PL/SQL: nao custam nada, e o modo de falha e o widget nao
+  -- abrir na sessao de um usuario real. Dimensionar com folga e mais barato que
+  -- acertar a conta.
+  l_key   raw(32);  l_json varchar2(8000);  l_pay raw(16000);
+  l_mac   raw(32);  l_token varchar2(32767);
   l_exp   number;   -- NOVO: vencimento em unix time (segundos, UTC)
 
   -- base64url (base64 padrao, sem padding, com - e _)
   function b64url(p raw) return varchar2 is
-    v varchar2(8000);
+    v varchar2(32767);
   begin
     v := utl_raw.cast_to_varchar2(utl_encode.base64_encode(p));
     v := replace(replace(v, chr(13)), chr(10));
