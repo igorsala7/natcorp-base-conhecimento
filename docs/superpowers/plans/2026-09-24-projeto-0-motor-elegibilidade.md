@@ -351,6 +351,33 @@ describe("alcanca", () => {
     expect(alcanca({ portal: ["", "  "] }, { portal: null })).toBe(true);
   });
 
+  /**
+   * A REGRA VEM DE UMA COLUNA `jsonb`, então o tipo não protege em execução.
+   * Estes casos existem porque a primeira versão do predicado tinha DOIS
+   * defeitos aqui: `.map` num string derrubava o turno, e o gêmeo em SQL abria
+   * o conteúdo em vez de fechar. Os dois lados agora fecham.
+   */
+  it("valor de regra malformado FECHA, e não derruba", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v }) as never;
+    expect(alcanca(comoVemDoBanco("PG"), { portal: null })).toBe(false);
+    expect(alcanca(comoVemDoBanco("PG"), { portal: "PG" })).toBe(false);
+    expect(alcanca(comoVemDoBanco(123), { portal: "123" })).toBe(false);
+    expect(alcanca(comoVemDoBanco({ a: 1 }), { portal: "a" })).toBe(false);
+  });
+
+  it("null na dimensão é 'não configurada', não restrição vazia", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v }) as never;
+    expect(alcanca(comoVemDoBanco(null), { portal: null })).toBe(true);
+  });
+
+  it("item não-texto dentro da lista é convertido, como o SQL faz", () => {
+    // `x #>> '{}'` do SQL transforma o número 100 em '100'. Se o TypeScript
+    // não convertesse, a regra casaria de um lado só e o script de paridade
+    // acusaria — mas só depois de a divergência existir.
+    const comoVemDoBanco = (v: unknown) => ({ centro_custo: v }) as never;
+    expect(alcanca(comoVemDoBanco([100]), { centro_custo: "100" })).toBe(true);
+  });
+
   it("cobre as doze dimensões, uma por uma", () => {
     for (const d of DIMENSOES) {
       expect(alcanca({ [d]: ["x"] }, { [d]: "x" })).toBe(true);
@@ -416,8 +443,27 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
  */
 export function alcanca(regra: Regra, ident: Identidade): boolean {
   for (const d of DIMENSOES) {
-    const lista = (regra[d] ?? []).map(norm).filter((x) => x !== "");
-    if (lista.length === 0) continue; // dimensão não restringe
+    /**
+     * `unknown` e não `string[]`, porque a regra vem de uma coluna `jsonb`: o
+     * tipo não garante NADA em tempo de execução. A primeira versão fazia
+     * `(regra[d] ?? []).map(...)` e tinha dois defeitos de uma vez — `.map` num
+     * string derrubava o turno inteiro, e o gêmeo em SQL, que não derrubava,
+     * simplesmente IGNORAVA a dimensão e abria o conteúdo.
+     *
+     * Regra malformada FECHA, nos dois lados, inclusive quando a identidade
+     * casaria. Não se adivinha intenção de dado malformado, e quem impede a
+     * regra malformada de existir é `normalizarRegra` no caminho de gravação.
+     */
+    const bruto: unknown = regra[d];
+    if (bruto === null || bruto === undefined) continue; // não configurada
+    if (!Array.isArray(bruto)) return false; // malformada: fecha
+
+    // `String(x)` espelha o `x #>> '{}'` do SQL, que converte qualquer escalar
+    // jsonb para texto. Sem isso, regra com número casaria de um lado só.
+    const lista = bruto
+      .map((x) => norm(x === null || x === undefined ? "" : String(x)))
+      .filter((x) => x !== "");
+    if (lista.length === 0) continue; // lista vazia ou só de brancos: libera
     const valor = norm(ident[d]);
     if (valor === "") return false; // ausência fecha
     if (!lista.includes(valor)) return false;
@@ -621,6 +667,13 @@ alcance que o banco não entrega.
     { "nome": "sindicato nao casa", "regra": { "sindicato": ["SINDPD"] }, "identidade": { "sindicato": "SEESP" }, "esperado": false },
     { "nome": "dimensao nova restrita, token antigo", "regra": { "unidade_negocio": ["UN1"] }, "identidade": { "base": "leadec", "portal": "PG", "perfil": "MASTER" }, "esperado": false },
     { "nome": "doze dimensoes todas casando", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": " 1 ", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "sindpd" }, "esperado": true },
+    { "nome": "regra malformada: string em vez de array FECHA", "regra": { "portal": "PG" }, "identidade": {}, "esperado": false },
+    { "nome": "regra malformada FECHA mesmo com identidade casando", "regra": { "portal": "PG" }, "identidade": { "portal": "PG" }, "esperado": false },
+    { "nome": "regra malformada: numero FECHA", "regra": { "portal": 123 }, "identidade": {}, "esperado": false },
+    { "nome": "regra malformada: objeto FECHA", "regra": { "portal": { "a": 1 } }, "identidade": {}, "esperado": false },
+    { "nome": "null na dimensao e 'nao configurada', LIBERA", "regra": { "portal": null }, "identidade": {}, "esperado": true },
+    { "nome": "array vazio LIBERA", "regra": { "portal": [] }, "identidade": {}, "esperado": true },
+    { "nome": "item numerico na lista e convertido como o SQL faz", "regra": { "centro_custo": [100] }, "identidade": { "centro_custo": "100" }, "esperado": true },
     { "nome": "doze dimensoes, a ultima falha", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": "1", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "OUTRO" }, "esperado": false }
   ]
 }
@@ -633,7 +686,9 @@ import { describe, it, expect } from "vitest";
 import { alcanca, type Identidade, type Regra } from "./index";
 import corpus from "./casos.json";
 
-type Caso = { nome: string; regra: Regra; identidade: Identidade; esperado: boolean };
+// `regra` é `unknown` de propósito: o corpus carrega casos MALFORMADOS, que é
+// exatamente o que o tipo `Regra` promete que não existe e o banco entrega.
+type Caso = { nome: string; regra: unknown; identidade: Identidade; esperado: boolean };
 
 /**
  * O MESMO arquivo que `scripts/verificar-elegibilidade.ts` roda contra
@@ -644,12 +699,12 @@ describe("corpus compartilhado, lado TypeScript", () => {
   const casos = corpus.casos as Caso[];
 
   it("tem casos", () => {
-    expect(casos.length).toBeGreaterThan(15);
+    expect(casos.length).toBeGreaterThan(25);
   });
 
   for (const c of casos) {
     it(c.nome, () => {
-      expect(alcanca(c.regra, c.identidade)).toBe(c.esperado);
+      expect(alcanca(c.regra as Regra, c.identidade)).toBe(c.esperado);
     });
   }
 });
@@ -743,7 +798,7 @@ Em `"scripts"`, ao lado de `"verificar:ui"`:
 npm run verificar:elegibilidade
 ```
 
-Esperado: `Elegibilidade em paridade: 21 casos, SQL e TypeScript de acordo.`
+Esperado: `Elegibilidade em paridade: 28 casos, SQL e TypeScript de acordo.`
 
 Se divergir, a saída nomeia o caso e mostra os três valores. Corrija o lado que
 discorda do `esperado`; se os dois discordarem do esperado, o corpus está certo
@@ -1485,7 +1540,7 @@ depende de nada.
 
 ## Definição de pronto
 
-- [ ] `npm run verificar:elegibilidade` passa, com os 21 casos em paridade
+- [ ] `npm run verificar:elegibilidade` passa, com os 28 casos em paridade
 - [ ] `npx vitest run` passa inteiro (a suíte tinha 2.492 testes em 24/09)
 - [ ] `npm run verificar:ui` diz "Dívida de UI estável"
 - [ ] `NEXT_PUBLIC_BASE_PATH= npm run build` compila

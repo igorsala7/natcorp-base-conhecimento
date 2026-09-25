@@ -79,16 +79,30 @@ as $$
   select not exists (
     select 1
       from jsonb_each(coalesce(regra, '{}'::jsonb)) r(dim, lista)
-     where jsonb_typeof(r.lista) = 'array'
-       and not public.allowlist_casa(
-             (select array_agg(x #>> '{}') from jsonb_array_elements(r.lista) x),
-             identidade #>> array[r.dim]
-           )
+     -- `null` é dimensão NÃO CONFIGURADA, e não restrição vazia: mesma leitura
+     -- que `allowlist_casa(null, x)` já faz.
+     where jsonb_typeof(r.lista) <> 'null'
+       and (
+            -- VALOR MALFORMADO FECHA, e esta linha é a correção de 24/09.
+            -- A primeira versão pulava a dimensão quando o valor não era lista,
+            -- e pular ABRE: uma regra gravada como {"portal":"PG"} em vez de
+            -- {"portal":["PG"]} liberava o conteúdo para todo mundo, inclusive
+            -- para quem não manda `p_portal` nenhum. Num ponto único que três
+            -- projetos vão chamar, e sem erro em lugar nenhum.
+            -- Fecha mesmo quando a identidade casaria: não se adivinha intenção
+            -- de regra malformada, e quem impede a regra malformada de existir é
+            -- o caminho de gravação, não este predicado.
+            jsonb_typeof(r.lista) <> 'array'
+         or not public.allowlist_casa(
+              (select array_agg(x #>> '{}') from jsonb_array_elements(r.lista) x),
+              identidade #>> array[r.dim]
+            )
+       )
   );
 $$;
 
 comment on function public.elegivel(jsonb, jsonb) is
-  'Alcance de uma regra de elegibilidade sobre uma identidade, nas doze dimensões. Dentro da dimensão OU, entre dimensões E, lower(btrim()) dos dois lados, lista vazia libera, valor AUSENTE contra dimensão restrita FECHA. Gêmea de src/lib/elegibilidade/alcanca.ts; npm run verificar:elegibilidade prova que concordam.';
+  'Alcance de uma regra de elegibilidade sobre uma identidade, nas doze dimensões. Dentro da dimensão OU, entre dimensões E, lower(btrim()) dos dois lados, lista vazia libera, valor AUSENTE contra dimensão restrita FECHA, valor jsonb `null` = dimensão não configurada e LIBERA, e qualquer valor que não seja array nem null (string, número, booleano, objeto) é regra MALFORMADA e FECHA, mesmo quando a identidade casaria — quem impede a regra malformada de existir é o caminho de gravação, não este predicado. Gêmea de src/lib/elegibilidade/alcanca.ts; npm run verificar:elegibilidade prova que concordam.';
 
 revoke all on function public.elegivel(jsonb, jsonb) from public, anon;
 grant execute on function public.elegivel(jsonb, jsonb) to authenticated, service_role;
@@ -110,4 +124,16 @@ begin
     'E entre dimensoes';
   assert not public.elegivel('{"centro_custo":["100"]}', '{"centro_custo":"0100"}'),
     'zero a esquerda nao casa';
+  assert not public.elegivel('{"portal":"PG"}', '{}'),
+    'regra com string em vez de array FECHA';
+  assert not public.elegivel('{"portal":123}', '{}'),
+    'regra com numero FECHA';
+  assert not public.elegivel('{"portal":{"a":1}}', '{}'),
+    'regra com objeto FECHA';
+  assert not public.elegivel('{"portal":"PG"}', '{"portal":"PG"}'),
+    'regra malformada FECHA mesmo com identidade casando';
+  assert public.elegivel('{"portal":null}', '{}'),
+    'null = dimensao nao configurada, LIBERA';
+  assert public.elegivel('{"portal":[]}', '{}'),
+    'array vazio LIBERA';
 end $$;
