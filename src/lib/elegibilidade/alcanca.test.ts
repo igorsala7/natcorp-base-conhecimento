@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { alcanca, identidadeDoRastreio, chavesProblematicasDaRegra, normalizarRegra } from "./alcanca";
+import {
+  alcanca,
+  identidadeDoRastreio,
+  chavesProblematicasDaRegra,
+  normalizarRegra,
+  textoComoNoJsonb,
+} from "./alcanca";
 import { DIMENSOES } from "./dimensoes";
 
 describe("alcanca", () => {
@@ -102,12 +108,116 @@ describe("alcanca", () => {
     expect(alcanca(true as never, {})).toBe(false);
   });
 
+  /**
+   * IDENTIDADE QUE NÃO É TEXTO derrubava o turno em vez de negar acesso.
+   *
+   * `norm` fazia `(v ?? "").trim()`, e `trim` não existe em número, booleano nem
+   * array. Medido antes da correção:
+   *
+   *   alcanca({centro_custo:["100"]}, {centro_custo: 100})  TypeError
+   *   alcanca({vinculo:["true"]},     {vinculo: true})      TypeError
+   *   public.elegivel nos mesmos casos                      true / true
+   *
+   * Mesmo princípio que esta onda aplicou à REGRA e tinha esquecido na
+   * IDENTIDADE: autorização que estoura devolve 500 onde devia devolver
+   * negação — aqui, derrubaria o turno do chat. Hoje não dispara porque
+   * `identidadeDoRastreio` só produz texto; dispara quando a identidade vier de
+   * coluna do banco.
+   */
+  it("identidade numérica ou booleana é convertida, não derruba", () => {
+    const comoViraDoBanco = (v: unknown) => ({ centro_custo: v }) as never;
+    expect(alcanca({ centro_custo: ["100"] }, comoViraDoBanco(100))).toBe(true);
+    expect(alcanca({ centro_custo: ["100"] }, comoViraDoBanco(200))).toBe(false);
+    expect(alcanca({ vinculo: ["true"] }, { vinculo: true } as never)).toBe(true);
+    expect(alcanca({ vinculo: ["true"] }, { vinculo: false } as never)).toBe(false);
+    expect(alcanca({ centro_custo: ["1.5"] }, comoViraDoBanco(1.5))).toBe(true);
+  });
+
+  /**
+   * O PERIGO era `String(["PG"]) === "PG"`: a identidade em array casaria com a
+   * regra `["PG"]` e ABRIRIA o que o banco nega, porque o `#>> '{}'` do SQL
+   * entrega o TEXTO JSON `["PG"]`, não `PG`.
+   */
+  it("identidade em array ou objeto NÃO casa com o item solto da lista", () => {
+    expect(alcanca({ portal: ["PG"] }, { portal: ["PG"] } as never)).toBe(false);
+    expect(alcanca({ portal: ["PG"] }, { portal: { a: 1 } } as never)).toBe(false);
+    // ...e casa quando a regra tem exatamente o texto JSON, como no SQL.
+    expect(alcanca({ portal: ['["PG"]'] }, { portal: ["PG"] } as never)).toBe(true);
+    expect(alcanca({ portal: ['{"a": 1}'] }, { portal: { a: 1 } } as never)).toBe(true);
+  });
+
+  it("item de regra que não é texto usa a MESMA conversão do valor", () => {
+    // No SQL os dois passam pelo mesmo `#>> '{}'`: o item por
+    // `array_agg(x #>> '{}')`, o valor por `identidade #>> array[dim]`.
+    expect(alcanca({ portal: [["PG"]] } as never, { portal: '["PG"]' })).toBe(true);
+    expect(alcanca({ portal: [["PG"]] } as never, { portal: "PG" })).toBe(false);
+  });
+
   it("cobre as doze dimensões, uma por uma", () => {
     for (const d of DIMENSOES) {
       expect(alcanca({ [d]: ["x"] }, { [d]: "x" })).toBe(true);
       expect(alcanca({ [d]: ["x"] }, { [d]: "y" })).toBe(false);
       expect(alcanca({ [d]: ["x"] }, {})).toBe(false);
     }
+  });
+});
+
+/**
+ * A CONVERSÃO, MEDIDA CONTRA O BANCO em 25/09.
+ *
+ * Cada string esperada aqui foi lida de
+ * `select $1::jsonb #>> array['v']` com o valor correspondente — 24 formas, todas
+ * coincidindo. Não são valores que eu achei razoáveis: são os que o Postgres
+ * devolve. `JSON.stringify` sozinho falharia em metade delas, porque não põe
+ * espaço depois da vírgula nem dos dois-pontos e não ordena chave.
+ */
+describe("textoComoNoJsonb (o `#>> '{}'` do SQL, em TypeScript)", () => {
+  it("escalar sai como o banco escreve", () => {
+    expect(textoComoNoJsonb(100)).toBe("100");
+    expect(textoComoNoJsonb(1.5)).toBe("1.5");
+    expect(textoComoNoJsonb(-7)).toBe("-7");
+    expect(textoComoNoJsonb(true)).toBe("true");
+    expect(textoComoNoJsonb(false)).toBe("false");
+  });
+
+  it("texto no TOPO sai sem aspas, e ausência sai vazia", () => {
+    expect(textoComoNoJsonb("PG")).toBe("PG");
+    expect(textoComoNoJsonb("  PG ")).toBe("  PG "); // aparar é do `norm`, não daqui
+    expect(textoComoNoJsonb(null)).toBe("");
+    expect(textoComoNoJsonb(undefined)).toBe("");
+  });
+
+  it("array sai como TEXTO JSON, com espaço depois da vírgula", () => {
+    expect(textoComoNoJsonb(["PG"])).toBe('["PG"]');
+    expect(textoComoNoJsonb(["PG", "PC"])).toBe('["PG", "PC"]');
+    expect(textoComoNoJsonb([])).toBe("[]");
+    expect(textoComoNoJsonb([1, 2])).toBe("[1, 2]");
+    expect(textoComoNoJsonb([1, [2]])).toBe("[1, [2]]");
+  });
+
+  /** Ordem de chave do jsonb: TAMANHO em bytes primeiro, depois byte a byte. */
+  it("objeto sai com chave ordenada como o jsonb ordena", () => {
+    expect(textoComoNoJsonb({ a: 1 })).toBe('{"a": 1}');
+    expect(textoComoNoJsonb({ b: 1, a: 2 })).toBe('{"a": 2, "b": 1}');
+    expect(textoComoNoJsonb({ bb: 1, a: 2 })).toBe('{"a": 2, "bb": 1}');
+    // A que mostra que NÃO é alfabética: curta antes de longa, apesar de b > a.
+    expect(textoComoNoJsonb({ b: 1, aa: 2 })).toBe('{"b": 1, "aa": 2}');
+    expect(textoComoNoJsonb({ ccc: 3, a: 1, bb: 2 })).toBe('{"a": 1, "bb": 2, "ccc": 3}');
+    expect(textoComoNoJsonb({ B: 1, a: 2 })).toBe('{"B": 1, "a": 2}'); // 0x42 < 0x61
+    expect(textoComoNoJsonb({ "ç": 1, a: 2 })).toBe('{"a": 2, "ç": 1}'); // ç tem 2 bytes
+    expect(textoComoNoJsonb({})).toBe("{}");
+    expect(textoComoNoJsonb({ a: { b: [1, "x"] } })).toBe('{"a": {"b": [1, "x"]}}');
+  });
+
+  it("escapa aspas e barra como o banco", () => {
+    expect(textoComoNoJsonb(['a"b'])).toBe('["a\\"b"]');
+    expect(textoComoNoJsonb(["a\\b"])).toBe('["a\\\\b"]');
+  });
+
+  it("null DENTRO da estrutura é a palavra null; no topo é vazio", () => {
+    expect(textoComoNoJsonb([null])).toBe("[null]");
+    expect(textoComoNoJsonb({ a: null })).toBe('{"a": null}');
+    expect(textoComoNoJsonb(null)).toBe("");
   });
 });
 
@@ -121,6 +231,30 @@ describe("identidadeDoRastreio", () => {
     expect(id.base).toBe("leadec");
     expect(id.centro_custo).toBe("100");
     expect("cod_candidato" in id).toBe(false);
+  });
+
+  /**
+   * A conversão de `norm` é DEFESA EM PROFUNDIDADE, não licença para a
+   * identidade virar saco de tipos. Quem monta identidade a partir do rastreio
+   * continua entregando só texto, e é isto que este teste fixa: se um dia
+   * `identidadeDoRastreio` passar a devolver número, é aqui que se vê.
+   */
+  it("produz SÓ texto, mesmo recebendo lixo de tipo", () => {
+    const sujo = {
+      p_base: "leadec",
+      p_empresa: 700,
+      p_matricula: true,
+      p_filial: ["F1"],
+      p_centro_custo: { a: 1 },
+      p_vinculo: null,
+      p_sindicato: "   ",
+    } as never;
+    const id = identidadeDoRastreio(sujo);
+    for (const [chave, valor] of Object.entries(id)) {
+      expect(typeof valor, `${chave} deveria ser texto`).toBe("string");
+    }
+    // Só o que era texto não vazio sobrevive — o resto nem entra.
+    expect(Object.keys(id)).toEqual(["base"]);
   });
 });
 

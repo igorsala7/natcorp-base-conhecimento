@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import { alcanca, type Identidade, type Regra } from "./index";
 import corpus from "./casos.json";
 
-// `regra` é `unknown` de propósito: o corpus carrega casos MALFORMADOS, que é
-// exatamente o que o tipo `Regra` promete que não existe e o banco entrega.
-type Caso = { nome: string; regra: unknown; identidade: Identidade; esperado: boolean };
+// `regra` E `identidade` são `unknown` de propósito: o corpus carrega casos
+// MALFORMADOS dos dois lados, que é exatamente o que os tipos `Regra` e
+// `Identidade` prometem que não existe e uma coluna `jsonb` entrega. A
+// identidade ganhou casos não-texto em 25/09, quando se mediu que o predicado
+// DERRUBAVA com número e o gêmeo em SQL não.
+type Caso = { nome: string; regra: unknown; identidade: unknown; esperado: boolean };
 
 /**
  * O MESMO arquivo que `scripts/verificar-elegibilidade.ts` roda contra
@@ -15,12 +18,12 @@ describe("corpus compartilhado, lado TypeScript", () => {
   const casos = corpus.casos as Caso[];
 
   it("tem casos", () => {
-    expect(casos.length).toBeGreaterThan(28);
+    expect(casos.length).toBeGreaterThan(40);
   });
 
   for (const c of casos) {
     it(c.nome, () => {
-      expect(alcanca(c.regra as Regra, c.identidade)).toBe(c.esperado);
+      expect(alcanca(c.regra as Regra, c.identidade as Identidade)).toBe(c.esperado);
     });
   }
 });

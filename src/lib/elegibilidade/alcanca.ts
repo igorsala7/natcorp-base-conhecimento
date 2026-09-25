@@ -1,7 +1,89 @@
 import type { TrackingKey } from "@/lib/chat/tracking";
 import { CHAVE_DE_DIMENSAO, DIMENSOES, type Dimensao, type Identidade, type Regra } from "./dimensoes";
 
-const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+/**
+ * A ORDEM DE CHAVE DO `jsonb`, medida no banco em 25/09: TAMANHO EM BYTES
+ * primeiro, depois byte a byte.
+ *
+ * Não é alfabética, e a diferença aparece no primeiro exemplo que alguém tentar:
+ *
+ *   {"b":1,"aa":2}  ->  {"b": 1, "aa": 2}     (curta primeiro, apesar de b > a)
+ *   {"B":1,"a":2}   ->  {"B": 1, "a": 2}      (byte 0x42 antes de 0x61)
+ *   {"ç":1,"a":2}   ->  {"a": 2, "ç": 1}      (ç tem 2 bytes em UTF-8)
+ */
+function ordemDeChaveJsonb(a: string, b: string): number {
+  const codificador = new TextEncoder();
+  const ba = codificador.encode(a);
+  const bb = codificador.encode(b);
+  if (ba.length !== bb.length) return ba.length - bb.length;
+  for (let i = 0; i < ba.length; i++) {
+    if (ba[i] !== bb[i]) return ba[i]! - bb[i]!;
+  }
+  return 0;
+}
+
+/** Serialização de um valor DENTRO de uma estrutura: texto sai com aspas. */
+function jsonbDentro(v: unknown): string {
+  if (v === null || v === undefined) return "null";
+  if (Array.isArray(v)) return `[${v.map(jsonbDentro).join(", ")}]`;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const chaves = Object.keys(o).sort(ordemDeChaveJsonb);
+    return `{${chaves.map((k) => `${JSON.stringify(k)}: ${jsonbDentro(o[k])}`).join(", ")}}`;
+  }
+  if (typeof v === "string") return JSON.stringify(v);
+  return String(v);
+}
+
+/**
+ * O `#>> '{}'` DO SQL, EM TYPESCRIPT — e ele NÃO é `String(x)`.
+ *
+ * Tanto o valor da identidade (`identidade #>> array[dim]`) quanto cada item da
+ * lista da regra (`array_agg(x #>> '{}')`) passam por essa extração no gêmeo em
+ * SQL. Replicar aqui é o que faz os dois lados compararem o MESMO texto.
+ *
+ * `String(x)` erra em dois lugares, e um deles ABRE:
+ *
+ *   String(["PG"])          = "PG"        o SQL dá '["PG"]'  -> casaria com uma
+ *                                         regra ["PG"] e liberaria quem o SQL
+ *                                         nega. Este é o perigo.
+ *   String({a:1})           = "[object Object]"   o SQL dá '{"a": 1}'
+ *
+ * Medido no banco em 25/09, e por isso a serialização tem `", "`, `": "` e a
+ * ordem de chave acima: `JSON.stringify` sozinho NÃO serve — ele não põe espaço
+ * depois da vírgula nem dos dois-pontos, e não ordena chave.
+ *
+ * No TOPO o comportamento difere de dentro da estrutura, e também é medido:
+ * texto sai SEM aspas (`{"v":"PG"} #>> '{v}'` é `PG`) e `null` sai como SQL NULL,
+ * que a allowlist lê como vazio — ou seja, AUSÊNCIA, que fecha.
+ *
+ * Dois limites que não dão para cobrir, e nenhum é alcançável:
+ * `1.0` e `1e21` chegam do banco como `'1.0'` e `'1000000000000000000000'`,
+ * enquanto o JavaScript só tem o número 1 e `'1e+21'` — a forma escrita não
+ * sobrevive ao `JSON.parse`, então a divergência é do tipo, não do código.
+ */
+export function textoComoNoJsonb(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return jsonbDentro(v);
+  return String(v);
+}
+
+/**
+ * Normaliza para comparar: o texto do jsonb, aparado e sem caixa.
+ *
+ * Recebe `unknown` e não `string`, e isso é a correção de um defeito medido:
+ * `(v ?? "").trim()` DERRUBAVA quando a identidade não era texto —
+ * `alcanca({centro_custo:["100"]}, {centro_custo: 100})` levantava
+ * `TypeError: (v ?? "").trim is not a function`, enquanto `public.elegivel`
+ * devolvia um booleano sem exceção. É o mesmo princípio que esta onda aplicou à
+ * REGRA e tinha esquecido na IDENTIDADE: autorização que estoura devolve 500
+ * onde devia devolver negação, e aqui derrubaria o turno do chat inteiro.
+ *
+ * Hoje `identidadeDoRastreio` só produz texto. Dispara quando a identidade
+ * passar a ser montada a partir de coluna do banco.
+ */
+const norm = (v: unknown) => textoComoNoJsonb(v).trim().toLowerCase();
 
 /**
  * ESTA REGRA TAMBÉM EXISTE EM SQL (`public.elegivel`), e não por preguiça.
@@ -47,8 +129,16 @@ function entradasDaRegra(regra: unknown): [string, unknown][] {
   return Object.entries(regra as Record<string, unknown>);
 }
 
-/** `String(x)` espelha o `x #>> '{}'` do SQL, que leva qualquer escalar a texto. */
-const comoTexto = (x: unknown) => norm(x === null || x === undefined ? "" : String(x));
+/**
+ * Item da lista da regra e valor da identidade usam a MESMA conversão, porque no
+ * SQL os dois passam pelo mesmo `#>> '{}'` — o item por
+ * `array_agg(x #>> '{}')`, o valor por `identidade #>> array[dim]`.
+ *
+ * Eram duas funções aqui, e a do item usava `String(x)`: uma regra com
+ * `[["PG"]]` dentro (lista de lista) comparava `"PG"` de um lado e `'["PG"]'` do
+ * outro. Uma conversão só remove a chance de consertar uma e esquecer a outra.
+ */
+const comoTexto = norm;
 
 export function alcanca(regra: Regra, ident: Identidade): boolean {
   /**
