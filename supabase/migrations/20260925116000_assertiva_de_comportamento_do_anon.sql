@@ -40,12 +40,18 @@
 --     nesse teste, provando que ela pega a regressão que a antiga não
 --     pegava.
 --
--- `reset role` aparece nos dois caminhos (fim do bloco normal E no
--- `exception when others`): sem isso no caminho de erro, uma falha no
--- meio do bloco deixaria a transação com o papel trocado para `anon`
--- até o fim — e como `apply-migrations.ts` roda cada arquivo na sua
--- própria transação, isso vazaria para o `commit`/`rollback` seguinte
--- com o papel errado.
+-- `reset role` aparece nos dois caminhos. No caminho normal, ele existe
+-- para o papel já estar de volta a `postgres` quando a `assert` é
+-- avaliada. No `exception when others`, ele é REDUNDANTE — medido, não
+-- suposto: o `begin ... exception ... end` do PL/pgSQL cria um
+-- savepoint implícito no início do bloco, e capturar a exceção reverte
+-- para aquele savepoint, o que desfaz o `SET LOCAL ROLE` junto (é GUC
+-- transacional como qualquer outro). Um bloco que troca para `anon`,
+-- provoca erro, captura com `exception when others then null` (sem
+-- `reset role` nenhum) e só depois lê `current_user` devolve `postgres`
+-- — o papel já tinha voltado sozinho. Ele fica aqui por clareza (deixa
+-- explícito, no próprio handler, que o bloco não sai com o papel
+-- trocado), não porque removê-lo abrisse vazamento.
 -- =====================================================================
 
 do $$
