@@ -48,6 +48,16 @@ export type CamposSessao = z.infer<typeof sessaoSchema>;
 export type SessaoResolvida = {
   ok: true;
   base: string;
+  /**
+   * `ai_bases.id` da base da sessão.
+   *
+   * Existe para quem grava em tabela cuja chave é o UUID da base
+   * (`ai_base_documentacoes`) não ter de reconverter código → id com um `ilike`
+   * próprio. Duas bases que diferissem só por caixa quebrariam essa conversão, e
+   * este id vem da MESMA leitura que validou o token — não há segunda chance de
+   * errar a base.
+   */
+  baseId: string;
   /** Login do cliente, ou null no suporte — que não se passa por ninguém. */
   usuario: string | null;
   modo: "cliente" | "suporte";
@@ -76,6 +86,7 @@ export async function baseDaSessao(
   return {
     ok: true,
     base: s.identidade.baseCode,
+    baseId: s.identidade.baseId,
     usuario: s.identidade.usuario,
     modo: s.modo,
     operadorId: s.operador?.id ?? null,
