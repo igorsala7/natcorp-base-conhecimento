@@ -62,6 +62,39 @@ const baseSchema = z.object({
   widget_paineis: z.array(z.enum(["PO", "PG", "PC"])).nullish(),
 });
 
+/**
+ * A MENSAGEM DE CÓDIGO DUPLICADO, e por que são DUAS mensagens diferentes.
+ *
+ * `ai_bases` tem dois uniques sobre o código, e eles reprovam por motivos que a
+ * pessoa vive de formas opostas:
+ *
+ *  · `ai_bases_base_code_key` — o código cru, igualzinho. "Já existe" é óbvio;
+ *  · `ai_bases_base_code_normalizado_key` (20260925130000) — o código
+ *    `lower(btrim(...))`. Aqui a pessoa digitou algo que PARECE diferente do que
+ *    está na lista ('Natcorp' contra 'natcorp', ou com um espaço no fim), e um
+ *    "já existe uma base com esse código" a mandaria procurar um duplicado que
+ *    ela não vai achar olhando. A mensagem precisa dizer o que não conta.
+ *
+ * Um 23505 de OUTRA restrição não é traduzido: sai a mensagem do banco, que é
+ * ruim de ler mas verdadeira. Rotular tudo como código duplicado esconderia a
+ * causa real — e foi o que a versão anterior fazia, com um `code === "23505"`
+ * solto.
+ */
+function erroDeCodigoDuplicado(
+  error: { code?: string | null; message?: string | null; details?: string | null } | null | undefined,
+): string | null {
+  if (error?.code !== "23505") return null;
+  const onde = `${error.message ?? ""} ${error.details ?? ""}`;
+  if (onde.includes("ai_bases_base_code_normalizado_key")) {
+    return (
+      "Já existe um cliente com este código (as diferenças de maiúscula e de espaço não contam): " +
+      "confira a lista antes de cadastrar."
+    );
+  }
+  if (onde.includes("base_code")) return "Já existe uma base com esse código.";
+  return null;
+}
+
 /** Sincroniza as documentações do chatbot da base (ordem = position). */
 async function syncBaseSpaces(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -100,7 +133,8 @@ export async function createBase(input: unknown): Promise<IntegResult> {
     .select("id")
     .single();
   if (error || !data) {
-    if (error?.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
+    const duplicado = erroDeCodigoDuplicado(error);
+    if (duplicado) return { ok: false, error: duplicado };
     return { ok: false, error: `Falha ao criar: ${error?.message}` };
   }
   await syncBaseSpaces(supabase, data.id, parsed.data.space_ids);
@@ -152,7 +186,8 @@ export async function updateBase(input: unknown): Promise<IntegResult> {
     })
     .eq("id", id);
   if (error) {
-    if (error.code === "23505") return { ok: false, error: "Já existe uma base com esse código." };
+    const duplicado = erroDeCodigoDuplicado(error);
+    if (duplicado) return { ok: false, error: duplicado };
     return { ok: false, error: `Falha ao salvar: ${error.message}` };
   }
   await syncBaseSpaces(supabase, id, space_ids);
