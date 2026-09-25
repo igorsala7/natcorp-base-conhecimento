@@ -38,8 +38,8 @@
  *
  * ── Segurança: nunca escreve de verdade ──────────────────────────────
  * Tudo roda dentro de `BEGIN` ... `ROLLBACK`, o `ROLLBACK` está em `finally`
- * (roda mesmo se uma asserção lançar), e não há `COMMIT` em lugar nenhum
- * deste arquivo. Depois do rollback, o script reconsulta o banco (fora de
+ * (roda mesmo se uma asserção lançar), e não há confirmação de transação
+ * alguma neste arquivo. Depois do rollback, o script reconsulta o banco (fora de
  * qualquer transação) e IMPRIME quantas linhas com o prefixo `zz-isolamento-
  * teste-` sobreviveram — tem de ser zero, e se não for, o script se declara
  * em falha por sujar produção, que é pior do que o defeito que ele testa.
@@ -54,8 +54,7 @@
  * Uma prova que nunca falhou não é prova. Em vez de exigir editar o arquivo
  * a cada demonstração, as duas sabotagens do brief (passo 2 e passo 2b)
  * ficam atrás de uma variável de ambiente, sempre dentro da MESMA transação
- * que sempre reverte — então rodar com sabotagem é tão seguro quanto rodar
- * sem:
+ * que sempre reverte — nenhuma das duas deixa rastro em produção:
  *
  *   npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
  *   SABOTAR=isolamento npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
@@ -66,6 +65,13 @@
  * `chunks_public_read` (via `ALTER POLICY`, revertido pelo `ROLLBACK` como
  * qualquer outro DDL transacional) para o mesmo formato vazador que a
  * migration da tarefa 2 documentou por extenso.
+ *
+ *      RESSALVA OPERACIONAL de `SABOTAR=anon`: `ALTER POLICY` toma lock
+ *      `ACCESS EXCLUSIVE` na tabela `chunks` até o `ROLLBACK`. Enquanto o
+ *      lock existe, qualquer sessão que tente LER `chunks` — portal público,
+ *      RAG do chat — fica bloqueada esperando. Não deixa rastro nos dados,
+ *      mas não é sem efeito em produção: rode essa variante fora de horário
+ *      de pico.
  *
  *   npm run verificar:isolamento
  */
@@ -93,250 +99,261 @@ async function main() {
   await client.connect();
 
   const casos: { nome: string; passou: boolean }[] = [];
+  let falhas = 0;
 
   console.log(`\nProva de isolamento — documentação e arquivo anexáveis${SABOTAR ? `  [SABOTAR=${SABOTAR}]` : ""}\n`);
 
-  await client.query("BEGIN");
+  // `client.end()` no `finally` DESTE `try`, não só no fim feliz da função:
+  // uma exceção inesperada depois do ROLLBACK (por exemplo na consulta de
+  // "restos" abaixo) não pode deixar a conexão pendurada. A transação já
+  // foi revertida antes disto rodar, então não há risco para os dados — é
+  // só a conexão de rede que precisa fechar de qualquer jeito.
   try {
-    // ── 1. Duas bases de teste ─────────────────────────────────────────
-    const baseA = (
-      await client.query<{ id: string }>(
-        `insert into public.ai_bases (base_code, name) values ($1, $1) returning id`,
-        [`${PREFIXO}base-a`],
-      )
-    ).rows[0]!.id;
-    const baseB = (
-      await client.query<{ id: string }>(
-        `insert into public.ai_bases (base_code, name) values ($1, $1) returning id`,
-        [`${PREFIXO}base-b`],
-      )
-    ).rows[0]!.id;
+    await client.query("BEGIN");
+    try {
+      // ── 1. Duas bases de teste ───────────────────────────────────────
+      const baseA = (
+        await client.query<{ id: string }>(
+          `insert into public.ai_bases (base_code, name) values ($1, $1) returning id`,
+          [`${PREFIXO}base-a`],
+        )
+      ).rows[0]!.id;
+      const baseB = (
+        await client.query<{ id: string }>(
+          `insert into public.ai_bases (base_code, name) values ($1, $1) returning id`,
+          [`${PREFIXO}base-b`],
+        )
+      ).rows[0]!.id;
 
-    // ── 2. Três documentações de teste (espaços) ───────────────────────
-    // A e B: uma para cada base, regra aberta. C: exclusiva de A e
-    // restrita por portal — é o caso do passo 6 do brief.
-    const spaceA = (
-      await client.query<{ id: string }>(
-        `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
-        [`${PREFIXO}space-a`],
-      )
-    ).rows[0]!.id;
-    const spaceB = (
-      await client.query<{ id: string }>(
-        `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
-        [`${PREFIXO}space-b`],
-      )
-    ).rows[0]!.id;
-    const spaceC = (
-      await client.query<{ id: string }>(
-        `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
-        [`${PREFIXO}space-c-portal`],
-      )
-    ).rows[0]!.id;
+      // ── 2. Três documentações de teste (espaços) ─────────────────────
+      // A e B: uma para cada base, regra aberta. C: exclusiva de A e
+      // restrita por portal — é o caso do passo 6 do brief.
+      const spaceA = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}space-a`],
+        )
+      ).rows[0]!.id;
+      const spaceB = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}space-b`],
+        )
+      ).rows[0]!.id;
+      const spaceC = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}space-c-portal`],
+        )
+      ).rows[0]!.id;
 
-    // ── 3. Anexar: A → base A, B → base B, C → base A (só portal PG) ───
-    await client.query(
-      `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, '{}'::jsonb)`,
-      [baseA, spaceA],
-    );
-    await client.query(
-      `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, '{}'::jsonb)`,
-      [baseB, spaceB],
-    );
-    await client.query(
-      `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, $3::jsonb)`,
-      [baseA, spaceC, JSON.stringify({ portal: ["PG"] })],
-    );
-
-    if (SABOTAR === "isolamento") {
-      // SABOTAGEM (passo 2 do brief): anexa a documentação de B TAMBÉM à
-      // base A. Some com o ROLLBACK do `finally`, como todo o resto.
+      // ── 3. Anexar: A → base A, B → base B, C → base A (só portal PG) ─
       await client.query(
         `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, '{}'::jsonb)`,
-        [baseA, spaceB],
+        [baseA, spaceA],
       );
-      console.log("  [SABOTAGEM ATIVA] documentação de teste B também anexada à base de teste A\n");
-    }
+      await client.query(
+        `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, '{}'::jsonb)`,
+        [baseB, spaceB],
+      );
+      await client.query(
+        `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, $3::jsonb)`,
+        [baseA, spaceC, JSON.stringify({ portal: ["PG"] })],
+      );
 
-    // ── 4. Um arquivo de base em cada ───────────────────────────────────
-    const docA = (
-      await client.query<{ id: string }>(
-        `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
-         values ($1, $2, $3, '{}'::jsonb) returning id`,
-        [baseA, `${PREFIXO}base-a/arquivo.txt`, `${PREFIXO}arquivo-a.txt`],
-      )
-    ).rows[0]!.id;
-    const docB = (
-      await client.query<{ id: string }>(
-        `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
-         values ($1, $2, $3, '{}'::jsonb) returning id`,
-        [baseB, `${PREFIXO}base-b/arquivo.txt`, `${PREFIXO}arquivo-b.txt`],
-      )
-    ).rows[0]!.id;
+      if (SABOTAR === "isolamento") {
+        // SABOTAGEM (passo 2 do brief): anexa a documentação de B TAMBÉM à
+        // base A. Some com o ROLLBACK do `finally`, como todo o resto.
+        await client.query(
+          `insert into public.ai_base_documentacoes (base_id, space_id, regra) values ($1, $2, '{}'::jsonb)`,
+          [baseA, spaceB],
+        );
+        console.log("  [SABOTAGEM ATIVA] documentação de teste B também anexada à base de teste A\n");
+      }
 
-    const codigoBaseA = `${PREFIXO}base-a`;
-    const codigoBaseB = `${PREFIXO}base-b`;
-
-    // ── 5. escopo_documentacao para A e para B ──────────────────────────
-    const escopoA = (
-      await client.query<LinhaEscopo>(`select space_id, origem from public.escopo_documentacao($1, '{}'::jsonb)`, [
-        codigoBaseA,
-      ])
-    ).rows.map((r) => r.space_id);
-    const escopoB = (
-      await client.query<LinhaEscopo>(`select space_id, origem from public.escopo_documentacao($1, '{}'::jsonb)`, [
-        codigoBaseB,
-      ])
-    ).rows.map((r) => r.space_id);
-
-    registra(
-      casos,
-      "escopo de A não contém a documentação de B",
-      !escopoA.includes(spaceB),
-      `escopo(A) = [${escopoA.join(", ") || "vazio"}]`,
-    );
-    registra(
-      casos,
-      "escopo de B não contém a documentação de A",
-      !escopoB.includes(spaceA),
-      `escopo(B) = [${escopoB.join(", ") || "vazio"}]`,
-    );
-    registra(
-      casos,
-      "escopo de B não contém a documentação C (exclusiva de A)",
-      !escopoB.includes(spaceC),
-      `escopo(B) = [${escopoB.join(", ") || "vazio"}]`,
-    );
-
-    // ── 6. documentos_da_base para A e para B ───────────────────────────
-    const arquivosA = (
-      await client.query<LinhaArquivo>(`select document_id from public.documentos_da_base($1, '{}'::jsonb)`, [
-        codigoBaseA,
-      ])
-    ).rows.map((r) => r.document_id);
-    const arquivosB = (
-      await client.query<LinhaArquivo>(`select document_id from public.documentos_da_base($1, '{}'::jsonb)`, [
-        codigoBaseB,
-      ])
-    ).rows.map((r) => r.document_id);
-
-    registra(
-      casos,
-      "arquivos de A não contêm o arquivo de B",
-      !arquivosA.includes(docB),
-      `documentos(A) = [${arquivosA.join(", ") || "vazio"}]`,
-    );
-    registra(
-      casos,
-      "arquivos de B não contêm o arquivo de A",
-      !arquivosB.includes(docA),
-      `documentos(B) = [${arquivosB.join(", ") || "vazio"}]`,
-    );
-
-    // ── 7. Passo 6 do brief: regra restrita por portal ──────────────────
-    // C está anexada a A com regra {"portal": ["PG"]}. Identidade com
-    // portal ERRADO não pode alcançar; com o portal CERTO, alcança.
-    const escopoA_portalErrado = (
-      await client.query<LinhaEscopo>(`select space_id from public.escopo_documentacao($1, $2::jsonb)`, [
-        codigoBaseA,
-        JSON.stringify({ portal: "PO" }),
-      ])
-    ).rows.map((r) => r.space_id);
-    const escopoA_portalCerto = (
-      await client.query<LinhaEscopo>(`select space_id from public.escopo_documentacao($1, $2::jsonb)`, [
-        codigoBaseA,
-        JSON.stringify({ portal: "PG" }),
-      ])
-    ).rows.map((r) => r.space_id);
-
-    registra(
-      casos,
-      "regra restrita a portal PG: identidade PO (errada) NÃO alcança a documentação C",
-      !escopoA_portalErrado.includes(spaceC),
-      `escopo(A, identidade portal=PO) = [${escopoA_portalErrado.join(", ") || "vazio"}]`,
-    );
-    registra(
-      casos,
-      "regra restrita a portal PG: identidade PG (certa) alcança a documentação C",
-      escopoA_portalCerto.includes(spaceC),
-      `escopo(A, identidade portal=PG) = [${escopoA_portalCerto.join(", ") || "vazio"}]`,
-    );
-
-    // ── 8. A cerca do anon, agora repetível (passo 2b) ──────────────────
-    if (SABOTAR === "anon") {
-      // SABOTAGEM: mesmo formato vazador que a migration
-      // 20260925116000 documentou — acrescenta `OR chunks.node_id IS NULL`
-      // à policy. `ALTER POLICY` é DDL transacional: o `ROLLBACK` do
-      // `finally` desfaz isto como desfaz qualquer INSERT deste script.
-      await client.query(`
-        alter policy chunks_public_read on public.chunks
-        using (
-          exists (
-            select 1 from public.nodes n join public.spaces s on s.id = n.space_id
-            where n.id = chunks.node_id
-              and n.status = 'published'
-              and n.deleted_at is null
-              and s.visibility = 'public'
-          )
-          or chunks.node_id is null
+      // ── 4. Um arquivo de base em cada ─────────────────────────────────
+      const docA = (
+        await client.query<{ id: string }>(
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
+           values ($1, $2, $3, '{}'::jsonb) returning id`,
+          [baseA, `${PREFIXO}base-a/arquivo.txt`, `${PREFIXO}arquivo-a.txt`],
         )
-      `);
-      console.log("  [SABOTAGEM ATIVA] chunks_public_read reescrita para vazar chunk com node_id nulo\n");
+      ).rows[0]!.id;
+      const docB = (
+        await client.query<{ id: string }>(
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
+           values ($1, $2, $3, '{}'::jsonb) returning id`,
+          [baseB, `${PREFIXO}base-b/arquivo.txt`, `${PREFIXO}arquivo-b.txt`],
+        )
+      ).rows[0]!.id;
+
+      const codigoBaseA = `${PREFIXO}base-a`;
+      const codigoBaseB = `${PREFIXO}base-b`;
+
+      // ── 5. escopo_documentacao para A e para B ────────────────────────
+      const escopoA = (
+        await client.query<LinhaEscopo>(`select space_id, origem from public.escopo_documentacao($1, '{}'::jsonb)`, [
+          codigoBaseA,
+        ])
+      ).rows.map((r) => r.space_id);
+      const escopoB = (
+        await client.query<LinhaEscopo>(`select space_id, origem from public.escopo_documentacao($1, '{}'::jsonb)`, [
+          codigoBaseB,
+        ])
+      ).rows.map((r) => r.space_id);
+
+      registra(
+        casos,
+        "escopo de A não contém a documentação de B",
+        !escopoA.includes(spaceB),
+        `escopo(A) = [${escopoA.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "escopo de B não contém a documentação de A",
+        !escopoB.includes(spaceA),
+        `escopo(B) = [${escopoB.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "escopo de B não contém a documentação C (exclusiva de A)",
+        !escopoB.includes(spaceC),
+        `escopo(B) = [${escopoB.join(", ") || "vazio"}]`,
+      );
+
+      // ── 6. documentos_da_base para A e para B ─────────────────────────
+      const arquivosA = (
+        await client.query<LinhaArquivo>(`select document_id from public.documentos_da_base($1, '{}'::jsonb)`, [
+          codigoBaseA,
+        ])
+      ).rows.map((r) => r.document_id);
+      const arquivosB = (
+        await client.query<LinhaArquivo>(`select document_id from public.documentos_da_base($1, '{}'::jsonb)`, [
+          codigoBaseB,
+        ])
+      ).rows.map((r) => r.document_id);
+
+      registra(
+        casos,
+        "arquivos de A não contêm o arquivo de B",
+        !arquivosA.includes(docB),
+        `documentos(A) = [${arquivosA.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "arquivos de B não contêm o arquivo de A",
+        !arquivosB.includes(docA),
+        `documentos(B) = [${arquivosB.join(", ") || "vazio"}]`,
+      );
+
+      // ── 7. Passo 6 do brief: regra restrita por portal ────────────────
+      // C está anexada a A com regra {"portal": ["PG"]}. Identidade com
+      // portal ERRADO não pode alcançar; com o portal CERTO, alcança.
+      const escopoA_portalErrado = (
+        await client.query<LinhaEscopo>(`select space_id from public.escopo_documentacao($1, $2::jsonb)`, [
+          codigoBaseA,
+          JSON.stringify({ portal: "PO" }),
+        ])
+      ).rows.map((r) => r.space_id);
+      const escopoA_portalCerto = (
+        await client.query<LinhaEscopo>(`select space_id from public.escopo_documentacao($1, $2::jsonb)`, [
+          codigoBaseA,
+          JSON.stringify({ portal: "PG" }),
+        ])
+      ).rows.map((r) => r.space_id);
+
+      registra(
+        casos,
+        "regra restrita a portal PG: identidade PO (errada) NÃO alcança a documentação C",
+        !escopoA_portalErrado.includes(spaceC),
+        `escopo(A, identidade portal=PO) = [${escopoA_portalErrado.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "regra restrita a portal PG: identidade PG (certa) alcança a documentação C",
+        escopoA_portalCerto.includes(spaceC),
+        `escopo(A, identidade portal=PG) = [${escopoA_portalCerto.join(", ") || "vazio"}]`,
+      );
+
+      // ── 8. A cerca do anon, agora repetível (passo 2b) ────────────────
+      if (SABOTAR === "anon") {
+        // SABOTAGEM: mesmo formato vazador que a migration
+        // 20260925116000 documentou — acrescenta `OR chunks.node_id IS NULL`
+        // à policy. `ALTER POLICY` é DDL transacional: o `ROLLBACK` do
+        // `finally` desfaz isto como desfaz qualquer INSERT deste script.
+        // Ver a ressalva operacional no cabeçalho: isto toma lock
+        // `ACCESS EXCLUSIVE` em `chunks` até o rollback.
+        await client.query(`
+          alter policy chunks_public_read on public.chunks
+          using (
+            exists (
+              select 1 from public.nodes n join public.spaces s on s.id = n.space_id
+              where n.id = chunks.node_id
+                and n.status = 'published'
+                and n.deleted_at is null
+                and s.visibility = 'public'
+            )
+            or chunks.node_id is null
+          )
+        `);
+        console.log("  [SABOTAGEM ATIVA] chunks_public_read reescrita para vazar chunk com node_id nulo\n");
+      }
+
+      await client.query("SET LOCAL ROLE anon");
+      const anonAlcancados = Number(
+        (await client.query<{ n: string }>(`select count(*)::text as n from public.chunks where node_id is null`))
+          .rows[0]!.n,
+      );
+      await client.query("RESET ROLE");
+
+      registra(
+        casos,
+        "anon não alcança nenhum chunk de arquivo (node_id nulo)",
+        anonAlcancados === 0,
+        `contagem alcançável por anon = ${anonAlcancados}`,
+      );
+    } finally {
+      await client.query("ROLLBACK");
     }
 
-    await client.query("SET LOCAL ROLE anon");
-    const anonAlcancados = Number(
-      (await client.query<{ n: string }>(`select count(*)::text as n from public.chunks where node_id is null`))
-        .rows[0]!.n,
+    // ── Prova de que nada sujou produção ────────────────────────────────
+    // Fora de qualquer transação: se o rollback falhou silenciosamente por
+    // algum motivo, isto pega. Conta por prefixo nas quatro tabelas tocadas.
+    const restos = Number(
+      (
+        await client.query<{ n: string }>(
+          `select (
+             (select count(*) from public.ai_bases where base_code like $1) +
+             (select count(*) from public.spaces where slug like $1) +
+             (select count(*) from public.ai_base_documentacoes d
+                join public.spaces s on s.id = d.space_id where s.slug like $1) +
+             (select count(*) from public.knowledge_documents where original_name like $1)
+           )::text as n`,
+          [`${PREFIXO}%`],
+        )
+      ).rows[0]!.n,
     );
-    await client.query("RESET ROLE");
 
-    registra(
-      casos,
-      "anon não alcança nenhum chunk de arquivo (node_id nulo)",
-      anonAlcancados === 0,
-      `contagem alcançável por anon = ${anonAlcancados}`,
+    console.log(`\n  Linhas de teste remanescentes após o rollback: ${restos}`);
+    falhas = casos.filter((c) => !c.passou).length;
+    if (restos !== 0) {
+      console.error(
+        `  FALHA CRÍTICA: o script sujou produção — ${restos} linha(s) com prefixo "${PREFIXO}" sobreviveram ao rollback.`,
+      );
+      falhas++;
+    }
+
+    console.log(
+      `\n  ${
+        falhas === 0
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a regra por portal fecha a identidade errada, e a cerca do anon segue de pé"
+          : `FALHOU em ${falhas} caso(s)`
+      }\n`,
     );
   } finally {
-    await client.query("ROLLBACK");
+    await client.end();
   }
 
-  // ── Prova de que nada sujou produção ──────────────────────────────────
-  // Fora de qualquer transação: se o rollback falhou silenciosamente por
-  // algum motivo, isto pega. Conta por prefixo nas quatro tabelas tocadas.
-  const restos = Number(
-    (
-      await client.query<{ n: string }>(
-        `select (
-           (select count(*) from public.ai_bases where base_code like $1) +
-           (select count(*) from public.spaces where slug like $1) +
-           (select count(*) from public.ai_base_documentacoes d
-              join public.spaces s on s.id = d.space_id where s.slug like $1) +
-           (select count(*) from public.knowledge_documents where original_name like $1)
-         )::text as n`,
-        [`${PREFIXO}%`],
-      )
-    ).rows[0]!.n,
-  );
-
-  console.log(`\n  Linhas de teste remanescentes após o rollback: ${restos}`);
-  let falhas = casos.filter((c) => !c.passou).length;
-  if (restos !== 0) {
-    console.error(
-      `  FALHA CRÍTICA: o script sujou produção — ${restos} linha(s) com prefixo "${PREFIXO}" sobreviveram ao rollback.`,
-    );
-    falhas++;
-  }
-
-  console.log(
-    `\n  ${
-      falhas === 0
-        ? "PASSOU — nenhuma base alcança a documentação da outra, a regra por portal fecha a identidade errada, e a cerca do anon segue de pé"
-        : `FALHOU em ${falhas} caso(s)`
-    }\n`,
-  );
-
-  await client.end();
   if (falhas > 0) process.exitCode = 1;
 }
 
