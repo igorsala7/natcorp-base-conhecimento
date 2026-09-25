@@ -400,6 +400,30 @@ export async function valoresDaDimensao(baseCode: string, dimensao: Dimensao): P
     };
   }
 
+  /**
+   * SÓ LEITURA, e aqui a trava é MAIS necessária que no vizinho que a inspirou.
+   *
+   * `testarTool` recusa método diferente de GET porque um teste que escreve num
+   * ERP de produção cria registro de verdade a cada clique. Esta função tem a
+   * mesma consequência e uma superfície pior: ela não espera clique nenhum —
+   * dispara sozinha quando o admin liga "Restringir" numa dimensão.
+   *
+   * As seis ferramentas de estrutura são GET hoje (medido em 25/09), então a
+   * checagem não muda nada agora. É exatamente por isso que ela entra: sem a
+   * linha, a garantia de que este caminho nunca escreve no ERP do cliente está
+   * apoiada no estado atual do cadastro, e uma edição em "APIs / Tools" a
+   * derrubaria sem ninguém notar.
+   */
+  const metodo = String(bt.tool.method ?? "GET").toUpperCase();
+  if (metodo !== "GET") {
+    return {
+      ok: false,
+      motivo:
+        `A ferramenta ${origem.key} está cadastrada como ${metodo}, e esta tela só consulta ` +
+        `lista por GET — buscar valores não pode escrever no ERP do cliente. Digite o valor à mão.`,
+    };
+  }
+
   try {
     const cred = bt.credentialId ? await loadCredentialSecret(bt.credentialId) : null;
     const r = await executeTool({
