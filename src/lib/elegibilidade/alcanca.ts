@@ -30,6 +30,26 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
 /** As doze, para rejeitar chave que não é dimensão. */
 const CONHECIDAS = new Set<string>(DIMENSOES);
 
+/**
+ * As entradas de uma regra que VEM DE UMA COLUNA `jsonb`, sem derrubar nunca.
+ *
+ * `Object.entries(null)` e `Object.entries(undefined)` levantam `TypeError`, e
+ * as três funções deste arquivo são guarda: guarda que derruba não é guarda.
+ * Regra que não é objeto não tem chave a percorrer, e o que fazer com ela é
+ * decisão de cada função — o predicado FECHA, as duas do caminho de gravação
+ * não têm campo nenhum a reportar.
+ *
+ * Todas as três iteram ISTO, e não a lista fixa `DIMENSOES`. Iterar a lista
+ * fixa foi o defeito de 24/09: chave desconhecida era ignorada, e ignorar ABRE.
+ */
+function entradasDaRegra(regra: unknown): [string, unknown][] {
+  if (!regra || typeof regra !== "object" || Array.isArray(regra)) return [];
+  return Object.entries(regra as Record<string, unknown>);
+}
+
+/** `String(x)` espelha o `x #>> '{}'` do SQL, que leva qualquer escalar a texto. */
+const comoTexto = (x: unknown) => norm(x === null || x === undefined ? "" : String(x));
+
 export function alcanca(regra: Regra, ident: Identidade): boolean {
   /**
    * Itera as chaves DA REGRA, e não a lista fixa de dimensões.
@@ -51,7 +71,8 @@ export function alcanca(regra: Regra, ident: Identidade): boolean {
      *
      * Regra malformada FECHA, nos dois lados, inclusive quando a identidade
      * casaria. Não se adivinha intenção de dado malformado, e quem impede a
-     * regra malformada de existir é `normalizarRegra` no caminho de gravação.
+     * regra malformada de EXISTIR é `chavesProblematicasDaRegra` no caminho de
+     * gravação — `normalizarRegra` só limpa, e por isso ela nunca roda sozinha.
      */
     if (bruto === null || bruto === undefined) continue; // não configurada
     // Chave que não é uma das doze: regra malformada, fecha. Antes do teste de
@@ -59,11 +80,9 @@ export function alcanca(regra: Regra, ident: Identidade): boolean {
     if (!CONHECIDAS.has(chave)) return false;
     if (!Array.isArray(bruto)) return false; // malformada: fecha
 
-    // `String(x)` espelha o `x #>> '{}'` do SQL, que converte qualquer escalar
+    // `comoTexto` espelha o `x #>> '{}'` do SQL, que converte qualquer escalar
     // jsonb para texto. Sem isso, regra com número casaria de um lado só.
-    const lista = bruto
-      .map((x) => norm(x === null || x === undefined ? "" : String(x)))
-      .filter((x) => x !== "");
+    const lista = bruto.map(comoTexto).filter((x) => x !== "");
     if (lista.length === 0) continue; // lista vazia ou só de brancos: libera
     const valor = norm(ident[chave as Dimensao]);
     if (valor === "") return false; // ausência fecha
@@ -91,31 +110,60 @@ export function identidadeDoRastreio(
  * o que fica GRAVADO. Sem normalizar na entrada, o banco acumula
  * `["PG", "pg", "", " PG "]`, a tela mostra quatro chips onde há um valor, e a
  * pessoa que for conferir a regra conta errado.
+ *
+ * DESCARTA chave desconhecida e valor que não é lista, e isso só é seguro
+ * porque quem ACUSA é `chavesProblematicasDaRegra`, chamada ANTES no caminho de
+ * gravação. A versão de 24/09 descartava sem ninguém acusar, e o efeito medido
+ * era o pior possível: `{centro_custos:["100"]}` (typo no plural, o erro mais
+ * provável) virava `{}`, ou seja uma regra que FECHA era gravada como regra que
+ * ABRE. Nunca use esta função sem o validador na frente.
  */
 export function normalizarRegra(regra: Regra): Regra {
   const out: Regra = {};
-  for (const d of DIMENSOES) {
-    const itens = [...new Set((regra[d] ?? []).map(norm).filter((x) => x !== ""))];
-    if (itens.length) out[d] = itens;
+  for (const [chave, bruto] of entradasDaRegra(regra)) {
+    if (!CONHECIDAS.has(chave)) continue; // acusada pelo validador
+    if (!Array.isArray(bruto)) continue; // idem
+    const itens = [...new Set(bruto.map(comoTexto).filter((x) => x !== ""))];
+    if (itens.length) out[chave as Dimensao] = itens;
   }
   return out;
 }
 
 /**
- * A regra tem dimensão que RESTRINGE PARA NINGUÉM?
+ * O VALIDADOR DO CAMINHO DE GRAVAÇÃO: quais chaves da regra são problema.
  *
- * Acontece quando alguém salva uma lista cujos itens são todos em branco. Pelo
- * predicado isso vira "não restringe", que é o OPOSTO da intenção de quem
- * digitou: a pessoa quis restringir e liberou. O caminho de gravação recusa,
- * em vez de gravar algo que age ao contrário do que foi pedido.
+ * Três problemas, e cada um seria gravado sem erro nenhum se ninguém olhasse:
  *
- * Devolve as dimensões problemáticas, e não um booleano, porque a mensagem de
- * erro precisa dizer QUAL campo está em branco.
+ * · chave que não é uma das doze — typo como `centro_custos` no plural. O
+ *   predicado FECHA nela (as duas implementações), então a regra não alcança
+ *   ninguém, e a tela diria que alcança;
+ * · valor que não é lista — `"PG"` em vez de `["PG"]`. O predicado também
+ *   FECHA;
+ * · lista cujos itens são TODOS em branco — aí o predicado faz o contrário:
+ *   trata como "não restringe" e LIBERA, que é o oposto da intenção de quem
+ *   digitou. A pessoa quis restringir e abriu.
+ *
+ * Devolve as chaves, e não um booleano, porque a mensagem de erro precisa
+ * nomear QUAL campo está errado. São chaves da regra (`string`), e não
+ * `Dimensao`: a chave desconhecida é justamente uma das coisas reportadas.
+ *
+ * Lista VAZIA e valor `null` não são problema: são as duas formas legítimas de
+ * "esta dimensão não restringe".
+ *
+ * Regra INTEIRA que não é objeto não tem chave a reportar e sai daqui como
+ * `[]`. Quem fecha nesse caso é `alcanca`/`public.elegivel`; o formulário não
+ * consegue produzir uma.
  */
-export function dimensoesComRestricaoVazia(regra: Regra): Dimensao[] {
-  return DIMENSOES.filter((d) => {
-    const bruto = regra[d];
-    if (!bruto || bruto.length === 0) return false; // ausente = sem restrição, legítimo
-    return bruto.every((x) => norm(x) === ""); // tem itens, e todos em branco
-  });
+export function chavesProblematicasDaRegra(regra: Regra): string[] {
+  const problemas: string[] = [];
+  for (const [chave, bruto] of entradasDaRegra(regra)) {
+    if (bruto === null || bruto === undefined) continue; // não configurada
+    if (!CONHECIDAS.has(chave) || !Array.isArray(bruto)) {
+      problemas.push(chave);
+      continue;
+    }
+    if (bruto.length === 0) continue; // sem restrição, legítimo
+    if (bruto.every((x) => comoTexto(x) === "")) problemas.push(chave); // restringe para ninguém
+  }
+  return problemas;
 }

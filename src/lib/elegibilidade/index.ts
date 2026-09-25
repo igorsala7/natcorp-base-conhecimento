@@ -4,6 +4,6 @@ export {
   alcanca,
   identidadeDoRastreio,
   normalizarRegra,
-  dimensoesComRestricaoVazia,
+  chavesProblematicasDaRegra,
 } from "./alcanca";
 export { resumoElegibilidade, avisoDeAlcance, nomeDoPortal } from "./frase";

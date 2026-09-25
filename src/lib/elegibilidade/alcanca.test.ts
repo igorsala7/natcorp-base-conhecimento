@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { alcanca, identidadeDoRastreio, dimensoesComRestricaoVazia, normalizarRegra } from "./alcanca";
+import { alcanca, identidadeDoRastreio, chavesProblematicasDaRegra, normalizarRegra } from "./alcanca";
 import { DIMENSOES } from "./dimensoes";
 
 describe("alcanca", () => {
@@ -105,22 +105,101 @@ describe("identidadeDoRastreio", () => {
   });
 });
 
+/**
+ * AS DUAS FUNÇÕES DO CAMINHO DE GRAVAÇÃO iteravam a lista fixa de dimensões
+ * enquanto o predicado iterava a regra, e a consequência era medida:
+ *
+ *   alcanca({centro_custos:["100"]}, {centro_custo:"100"})  = false  (fecha)
+ *   normalizarRegra({centro_custos:["100"]})                = {}     (a
+ *                                                   restrição DESAPARECIA)
+ *   dimensoesComRestricaoVazia({centro_custos:["100"]})     = []     (nada
+ *                                                                  acusava)
+ *   normalizarRegra({portal:"PG"})                          derrubava
+ *
+ * Ou seja: a função anunciada como guarda do caminho de gravação transformava
+ * em silêncio uma regra que FECHA numa regra que ABRE, e derrubava justamente
+ * na forma malformada que ela existia para recusar.
+ */
 describe("normalizarRegra", () => {
   it("tira branco, caixa e duplicata, e some com dimensão que ficou vazia", () => {
     expect(normalizarRegra({ portal: ["PG", "pg", "", " PG "], perfil: ["  "] })).toEqual({
       portal: ["pg"],
     });
   });
-});
 
-describe("dimensoesComRestricaoVazia", () => {
-  it("acusa dimensão com itens todos em branco", () => {
-    expect(dimensoesComRestricaoVazia({ portal: ["", "  "] })).toEqual(["portal"]);
+  it("não muda regra bem formada", () => {
+    const boa = { portal: ["pg"], perfil: ["folha"], centro_custo: ["100", "200"] };
+    expect(normalizarRegra(boa)).toEqual(boa);
   });
 
-  it("não acusa dimensão ausente nem lista legítima", () => {
-    expect(dimensoesComRestricaoVazia({})).toEqual([]);
-    expect(dimensoesComRestricaoVazia({ portal: [] })).toEqual([]);
-    expect(dimensoesComRestricaoVazia({ portal: ["", "PG"] })).toEqual([]);
+  it("NÃO DERRUBA em valor malformado — descarta a dimensão e segue", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v, perfil: ["FOLHA"] }) as never;
+    expect(normalizarRegra(comoVemDoBanco("PG"))).toEqual({ perfil: ["folha"] });
+    expect(normalizarRegra(comoVemDoBanco(123))).toEqual({ perfil: ["folha"] });
+    expect(normalizarRegra(comoVemDoBanco({ a: 1 }))).toEqual({ perfil: ["folha"] });
+    expect(normalizarRegra(comoVemDoBanco(null))).toEqual({ perfil: ["folha"] });
+  });
+
+  /**
+   * Descartar a chave desconhecida continua sendo o comportamento — o que
+   * mudou é que descartar deixou de ser silencioso: quem ACUSA é o validador,
+   * e o caminho de gravação chama o validador ANTES de normalizar.
+   */
+  it("descarta chave que não é dimensão, mas quem acusa é o validador", () => {
+    expect(normalizarRegra({ centro_custos: ["100"] } as never)).toEqual({});
+    expect(chavesProblematicasDaRegra({ centro_custos: ["100"] } as never)).toEqual([
+      "centro_custos",
+    ]);
+  });
+
+  it("não derruba com a regra inteira malformada", () => {
+    expect(normalizarRegra(null as never)).toEqual({});
+    expect(normalizarRegra(undefined as never)).toEqual({});
+    expect(normalizarRegra(7 as never)).toEqual({});
+    expect(normalizarRegra(["PG"] as never)).toEqual({});
+  });
+});
+
+describe("chavesProblematicasDaRegra", () => {
+  it("acusa dimensão com itens todos em branco", () => {
+    expect(chavesProblematicasDaRegra({ portal: ["", "  "] })).toEqual(["portal"]);
+  });
+
+  it("acusa chave que não é dimensão", () => {
+    expect(chavesProblematicasDaRegra({ centro_custos: ["100"] } as never)).toEqual([
+      "centro_custos",
+    ]);
+    expect(chavesProblematicasDaRegra({ foo: ["x"], portal: ["PG"] } as never)).toEqual(["foo"]);
+  });
+
+  it("acusa valor que não é lista, e NÃO derruba", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v }) as never;
+    expect(chavesProblematicasDaRegra(comoVemDoBanco("PG"))).toEqual(["portal"]);
+    expect(chavesProblematicasDaRegra(comoVemDoBanco(123))).toEqual(["portal"]);
+    expect(chavesProblematicasDaRegra(comoVemDoBanco({ a: 1 }))).toEqual(["portal"]);
+  });
+
+  it("não acusa dimensão ausente, nula, vazia, nem lista com um valor real", () => {
+    expect(chavesProblematicasDaRegra({})).toEqual([]);
+    expect(chavesProblematicasDaRegra({ portal: [] })).toEqual([]);
+    expect(chavesProblematicasDaRegra({ portal: null } as never)).toEqual([]);
+    // Um valor real sobrevive ao branco: isto RESTRINGE, e recusar o
+    // salvamento aqui impediria a regra legítima.
+    expect(chavesProblematicasDaRegra({ portal: ["", "PG"] })).toEqual([]);
+  });
+
+  it("acusa tudo de uma vez, porque a mensagem precisa nomear cada campo", () => {
+    const regra = { portal: ["", " "], centro_custos: ["100"], perfil: "FOLHA" } as never;
+    expect(chavesProblematicasDaRegra(regra).sort()).toEqual([
+      "centro_custos",
+      "perfil",
+      "portal",
+    ]);
+  });
+
+  it("não derruba com a regra inteira malformada", () => {
+    expect(chavesProblematicasDaRegra(null as never)).toEqual([]);
+    expect(chavesProblematicasDaRegra(undefined as never)).toEqual([]);
+    expect(chavesProblematicasDaRegra(7 as never)).toEqual([]);
   });
 });
