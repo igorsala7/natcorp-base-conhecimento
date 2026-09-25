@@ -82,6 +82,12 @@ jobs:
             exit 0
           fi
           mudou() { git diff --name-only "$BASE"...HEAD | grep -qE "$1"; }
+          # Igual a `mudou`, mas olha o CONTEUDO do diff das migrations em vez do
+          # nome do arquivo. Migration que mexe na elegibilidade nem sempre traz
+          # a palavra no nome -- a de 25/09 se chama
+          # `paridade_aparo_e_regra_malformada` e troca as duas funcoes --, e
+          # aviso que depende de quem batizou o arquivo nao avisa.
+          conteudo() { git diff "$BASE"...HEAD -- supabase/migrations | grep -qE "$1"; }
           aviso() { echo "::warning title=Superficie medida::$1"; echo "  -> $1"; }
 
           echo "Arquivos alterados:"
@@ -114,6 +120,20 @@ jobs:
           fi
           if mudou '^supabase/migrations/.*hybrid_search'; then
             aviso "Busca hibrida alterada. Meca recall E tempo: eval-rag + EXPLAIN ANALYZE"
+            tocou=1
+          fi
+          # ELEGIBILIDADE: a MESMA regra escrita duas vezes, de proposito (o corte
+          # tem de acontecer no banco porque widget.js e publico; a frase tem de
+          # existir na tela porque o admin a le enquanto digita). Mexer num lado
+          # so nao quebra teste nenhum -- quebra a PARIDADE, e o sintoma e a tela
+          # prometer um alcance que o banco nao entrega, sem erro em lugar nenhum.
+          if mudou '^src/lib/elegibilidade/'; then
+            aviso "Motor de elegibilidade (lado TypeScript) alterado. Meca a paridade com o SQL: npm run verificar:elegibilidade"
+            tocou=1
+          fi
+          if mudou '^supabase/migrations/.*(elegivel|allowlist_casa|dimensoes_elegibilidade)' \
+             || conteudo 'function public\.(elegivel|allowlist_casa|dimensoes_elegibilidade)'; then
+            aviso "Lado SQL da elegibilidade alterado. Meca a paridade com o TypeScript: npm run verificar:elegibilidade"
             tocou=1
           fi
           if mudou '^src/lib/ai/(prompts|prompt-split|prompt-cascade|system-prompt|anthropic-cache)'; then

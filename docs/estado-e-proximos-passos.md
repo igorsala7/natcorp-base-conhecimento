@@ -70,9 +70,9 @@ salvou.
 | pergunta | resposta | consequência no código |
 |---|---|---|
 | quem cadastra? | **os dois** — Natcorp para todos + cada cliente o seu | uma tabela com `base_code NULL` = global |
-| como as regras combinam? | **E** — todas precisam bater | seis allowlists com E, vazio não restringe |
+| como as regras combinam? | **E** — todas precisam bater | doze allowlists com E, vazio não restringe |
 | o usuário copia ou favorita? | **favorita** | `prompt_favorito` guarda a ORDEM, não o texto |
-| por quais dimensões? | **base, portal, usuário, empresa e matrícula** (+ perfil) | `bases`, `portais`, `perfis`, `empresas`, `usuarios`, `matriculas` |
+| por quais dimensões? | **base, portal, usuário, empresa e matrícula** (+ perfil) — viraram **doze** em 24/09, ver a nota adiante | `bases`, `portais`, `perfis`, `empresas`, `usuarios`, `matriculas` |
 
 A lista de dimensões foi corrigida na mesma sessão: a primeira versão tinha só
 portal, perfil e usuário. O token de rastreio carrega os seis, e não há motivo
@@ -143,11 +143,33 @@ e um seletor no catálogo global montaria, na tela de um administrador, a lista
 de logins e matrículas de todos os clientes.
 
 O campo que faz a tela funcionar é a **frase em português embaixo dos filtros**,
-viva: *"Só quem estiver no portal do Gestor e for do perfil FOLHA."* Seis
+viva: *"Só quem estiver no portal do Gestor e for do perfil FOLHA."* Doze
 allowlists com E é fácil de implementar e difícil de conferir de cabeça —
 marcar Gestor e FOLHA restringe à interseção, e quem esperava "gestores OU
 folha" só descobriria o engano quando alguém reclamasse. `ou` dentro da
-dimensão, `e` entre elas; tem teste (`elegibilidade.test.ts`, 16 casos).
+dimensão, `e` entre elas.
+
+> **Doze dimensões, e onde o motor mora agora** (25/09). A regra saiu de
+> `src/lib/elegibilidade.ts` e virou um módulo: `src/lib/elegibilidade/`, com
+> `dimensoes.ts` (as doze, na ordem da especificação), `alcanca.ts` (o
+> predicado + as duas funções do caminho de gravação), `frase.ts` (a frase da
+> tela) e `casos.json`, que é o **corpus compartilhado**. As dimensões são
+> `base`, `portal`, `perfil`, `usuario`, `empresa`, `matricula`, `filial`,
+> `centro_custo`, `unidade_adm`, `unidade_negocio`, `vinculo`, `sindicato`.
+>
+> A MESMA regra existe duas vezes de propósito: `public.elegivel` em SQL,
+> porque o corte tem de acontecer no banco (`widget.js` é público), e `alcanca`
+> em TypeScript, porque a tela mostra a frase enquanto o admin digita. O que
+> impede as duas de divergirem é
+> **`npm run verificar:elegibilidade`** — ele compara as duas LISTAS de
+> dimensões (via `public.dimensoes_elegibilidade()`) e roda os **36 casos** de
+> `casos.json` nos dois lados, saindo com código 1 na primeira divergência.
+> Rode antes de qualquer deploy que toque elegibilidade; a CI avisa que você
+> tocou, ela não mede.
+>
+> Postura em uma linha: **ausência fecha, malformado fecha**. Lista vazia ou só
+> de brancos NÃO restringe; `null` numa dimensão é "não configurada" e não
+> restringe; regra que não é objeto FECHA.
 
 ### Estado
 
