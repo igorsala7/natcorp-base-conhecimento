@@ -144,6 +144,28 @@ jobs:
             aviso "GABARITO alterado: placares novos NAO sao comparaveis com os antigos. O checksum em ai_eval_runs vai divergir, e eval:comparar avisa."
             tocou=1
           fi
+          # Isolamento entre bases (documentacao e arquivo anexaveis, tarefa 6
+          # do projeto 1). O widget entra como service_role -- RLS nunca
+          # protege esse caminho -- entao quem impede um cliente de alcancar
+          # documento de outro sao estas duas funcoes e o codigo que monta a
+          # identidade que elas recebem.
+          if mudou '^supabase/migrations/.*(documentaco|arquivo_de_base)'; then
+            aviso "Tabela ou funcao de documentacao/arquivo anexavel alterada. Rode a prova: npm run verificar:isolamento"
+            tocou=1
+          fi
+          if mudou '^src/lib/ai/escopo-da-base'; then
+            aviso "Codigo que resolve o escopo da base para o RAG foi alterado. Rode a prova: npm run verificar:isolamento"
+            tocou=1
+          fi
+          # A cerca do anon (chunk de arquivo nunca alcanca o portal publico)
+          # e' uma policy de RLS, e QUALQUER migration pode reescrever uma
+          # policy -- nao so as que mexem em documentacao. A assertiva que
+          # provava isto no migrate:apply roda UMA VEZ; este aviso e' o que
+          # substitui "alguem lembrar de rodar de novo".
+          if mudou '^supabase/migrations/'; then
+            aviso "Migration alterada: qualquer uma pode reescrever uma policy de RLS, incluindo a que impede arquivo de cliente de vazar para o portal publico (anon). Rode a prova: npm run verificar:isolamento"
+            tocou=1
+          fi
 
           if [ "$tocou" -eq 0 ]; then
             echo "Nenhuma superficie medida foi tocada."
