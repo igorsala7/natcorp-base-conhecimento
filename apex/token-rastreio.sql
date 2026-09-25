@@ -7,6 +7,21 @@
 -- NAO precisa criar nada no banco: sem funcao, sem schema, sem grant. O bloco ja
 -- usa `dbms_crypto` e `apex_json` hoje, entao os privilegios existem.
 --
+-- Os treze campos sao um conjunto FECHADO, decidido pelo dono. Um cliente que
+-- nao recolar este bloco continua funcionando: o servidor le so as chaves que
+-- vierem, e as que faltarem contam como AUSENTES. Pela regra de elegibilidade,
+-- ausencia FECHA, entao conteudo restrito a uma dimensao que este bloco nao
+-- manda nao alcanca ninguem neste cliente -- de proposito, porque a
+-- alternativa faria um documento de um centro de custo vazar para a empresa
+-- inteira. A tela de elegibilidade avisa quando a base nunca enviou valor
+-- numa dimensao.
+--
+-- Se algum item nao existir como item de aplicacao no APEX do cliente,
+-- apex_json.stringify(:ITEM) devolve null e o campo vai nulo. Nao remova a
+-- linha: campo ausente e campo nulo tem o mesmo efeito, e manter as treze
+-- linhas mantem o bloco igual em todos os clientes, o que e o que permite
+-- comparar duas instalacoes.
+--
 -- ── O QUE MUDA em relacao ao bloco que esta em producao ──────────────────────
 --
 -- Sao 5 linhas: a variavel `l_exp`, a constante `c_minutos`, o calculo do
@@ -67,7 +82,7 @@ declare
   -- sozinho enquanto a pessoa navega.
   c_minutos constant number := 30;
 
-  l_key   raw(32);  l_json varchar2(2000);  l_pay raw(2000);
+  l_key   raw(32);  l_json varchar2(6000);  l_pay raw(6000);
   l_mac   raw(32);  l_token varchar2(4000);
   l_exp   number;   -- NOVO: vencimento em unix time (segundos, UTC)
 
@@ -95,6 +110,12 @@ begin
          || ',"p_perfil":'   ||apex_json.stringify(:P_PERFIL)
          || ',"p_portal":'   ||apex_json.stringify(:P_PAINEL)
          || ',"p_base":'     ||apex_json.stringify(:P_BASE)
+         || ',"p_filial":'          ||apex_json.stringify(:P_FILIAL)
+         || ',"p_centro_custo":'    ||apex_json.stringify(:P_CENTRO_CUSTO)
+         || ',"p_unidade_adm":'     ||apex_json.stringify(:P_UNIDADE_ADM)
+         || ',"p_unidade_negocio":' ||apex_json.stringify(:P_UNIDADE_NEGOCIO)
+         || ',"p_vinculo":'         ||apex_json.stringify(:P_VINCULO)
+         || ',"p_sindicato":'       ||apex_json.stringify(:P_SINDICATO)
          -- NOVO: sessao do painel. Amarra a sessao do widget a do APEX.
          || ',"sid":'        ||apex_json.stringify(v('APP_SESSION'))
          -- NOVO: validade. FM sem mascara de grupo -- em NLS pt_BR o padrao
