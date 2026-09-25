@@ -323,6 +323,30 @@ export type ValorOferecido = {
 };
 
 /**
+ * O resultado de buscar no ERP a lista de valores de uma dimensão.
+ *
+ * Mora aqui, e não na action que busca, porque as DUAS telas o consomem (a do
+ * admin e a do cliente em `/gestao/conteudo`) e porque este módulo é puro — um
+ * componente `"use client"` não pode importar de um arquivo `server-only`.
+ *
+ * "Vazia" e "indisponível" são coisas diferentes para quem está configurando: a
+ * primeira manda conferir o cadastro do cliente, a segunda manda liberar uma
+ * ferramenta ou digitar o código. Por isso a recusa carrega o MOTIVO, nunca um
+ * booleano.
+ */
+export type ListaDeValores =
+  | {
+      ok: true;
+      valores: ValorOferecido[];
+      total: number;
+      /** Login do ERP usado na consulta. A tela DIZ qual foi: o ORDS escopa por
+       *  usuário, e uma lista curta pode ser recorte de permissão. */
+      usuario: string;
+      formatoDesconhecido: boolean;
+    }
+  | { ok: false; motivo: string };
+
+/**
  * Teto de valores devolvidos ao navegador, por dimensão.
  *
  * Medido em 25/09: `estrutura_centros_custo` devolve 2.847 linhas na base
