@@ -74,4 +74,46 @@ describe("acessoFerramenta (allowlist por portal × empresa × perfil)", () => {
     expect(acessoFerramenta(regra, { portal: "PG", empresa: "1001", perfil: "MASTER" })).toBe(true);
     expect(acessoFerramenta(regra, { portal: "PG", empresa: "2002", perfil: "MASTER" })).toBe(false); // empresa fora
   });
+
+  /**
+   * ENTRADA EM BRANCO NA ALLOWLIST NÃO PODE LIBERAR QUEM NÃO MANDA O VALOR.
+   *
+   * O mesmo furo que 24/09 fechou em `public.allowlist_casa`, aqui na versão
+   * TypeScript: com `portais: ["", "PG"]`, a comparação de `""` com um portal
+   * AUSENTE dá `"" === ""` e liberava. Uma linha em branco salva sem intenção
+   * abria a ferramenta para todo mundo que não manda `p_portal`, e não havia
+   * erro em lugar nenhum para investigar.
+   *
+   * Latente e não explorado quando encontrado: 1.586 linhas em
+   * `ai_base_tools`, zero entrada em branco — exatamente como o outro estava
+   * antes de alguém olhar.
+   *
+   * De propósito NÃO unificado com o motor de elegibilidade: allowlist de
+   * FERRAMENTA decide qual API o modelo chama, allowlist de CONTEÚDO decide
+   * quem vê um documento, e o funil de ferramentas é superfície medida. Ver
+   * src/lib/elegibilidade/dimensoes.ts:63-77.
+   */
+  it("branco na lista NÃO libera quem não manda o valor", () => {
+    expect(acessoFerramenta({ portais: ["", "PG"] }, {})).toBe(false);
+    expect(acessoFerramenta({ portais: ["", "PG"] }, { portal: "PG" })).toBe(true);
+    expect(acessoFerramenta({ empresas: ["  ", "1001"] }, {})).toBe(false);
+    expect(acessoFerramenta({ empresas: ["  ", "1001"] }, { empresa: "1001" })).toBe(true);
+    expect(acessoFerramenta({ perfis: ["", "MASTER"] }, {})).toBe(false);
+    expect(acessoFerramenta({ perfis: ["", "MASTER"] }, { perfil: "master" })).toBe(true);
+    // Nem quem manda valor vazio, que é o mesmo caso por outro caminho.
+    expect(acessoFerramenta({ portais: ["", "PG"] }, { portal: "  " })).toBe(false);
+  });
+
+  it("lista SÓ de brancos não restringe, como lista vazia", () => {
+    // Convenção do projeto, igual a `cardinality = 0` no SQL: o que restringe
+    // para ninguém é lido como "sem restrição". Quem recusa o salvamento de
+    // uma lista assim é a tela, não este predicado.
+    expect(acessoFerramenta({ portais: ["", "  "] }, {})).toBe(true);
+    expect(acessoFerramenta({ portais: ["", "  "] }, { portal: "QUALQUER" })).toBe(true);
+  });
+
+  it("branco não estraga o resto: a lista com um valor real continua restringindo", () => {
+    expect(acessoFerramenta({ portais: ["", "PG"] }, { portal: "PC" })).toBe(false);
+    expect(acessoFerramenta({ perfis: [" ", "MASTER"] }, { perfil: "COMUM" })).toBe(false);
+  });
 });
