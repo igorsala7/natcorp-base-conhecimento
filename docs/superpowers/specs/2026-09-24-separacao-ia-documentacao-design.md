@@ -125,12 +125,15 @@ Junto com o diagnóstico de presença de dimensão, são duas camadas contra a r
 impossível: a escolha vem de uma lista real, e a tela avisa se aquela base nunca
 enviou valor naquela dimensão.
 
-> **Furo aberto: `unidade de negócio` não tem endpoint.** Busca no catálogo por
-> `negocio` devolve ZERO ferramentas. As outras cinco dimensões novas têm de onde
-> se preencher; esta não. Precisa de decisão do dono antes de o projeto 0
-> começar: existe endpoint a cadastrar, o conceito equivale a outro já coberto,
-> ou a dimensão sai da lista? Enquanto não houver origem, ela seria o único campo
-> de digitação livre, e o único sem validação possível.
+> **`unidade de negócio` fica sem lista, por ora.** Busca no catálogo por
+> `negocio` devolve ZERO ferramentas. O dono vai cadastrar o endpoint depois, então
+> a dimensão PERMANECE na lista das doze e é a única com digitação livre até lá.
+>
+> Duas consequências a respeitar: o aviso de presença de dimensão é a única
+> proteção que ela tem (não há lista de onde escolher, então não há como validar
+> o valor digitado); e quando o endpoint for cadastrado, a tela passa a oferecer
+> a lista **sem invalidar** o que já foi digitado, porque uma regra em produção
+> não pode parar de valer por causa de uma melhoria de tela.
 
 ## A regra, uma vez só
 
@@ -319,6 +322,47 @@ referenciando tabela sem grant derrubou a busca pública inteira, e o erro foi
 engolido como lista vazia.
 
 A ontologia permanece universal.
+
+## Ciclo de vida do arquivo: sair do RAG é requisito, não consequência
+
+Pedido do dono em 24/09: arquivo apagado tem de sair do RAG. Verificado, e o
+fluxo de hoje **já cumpre**: `deleteKnowledgeFile` apaga a linha, os chunks somem
+por `ON DELETE CASCADE` (`chunks.document_id -> knowledge_documents`), o objeto
+sai do Storage, e fica registro em `audit_log`. Também medido: zero chunks
+apontando para nó na lixeira, então o soft delete da árvore não deixa resto.
+
+O que NÃO está coberto, e é o que este projeto precisa resolver:
+
+**1. O interruptor de "incluir na base de conhecimento" tem de comandar os
+chunks, não só um booleano.** É a forma mais afiada do pedido. Um arquivo que o
+cliente marcou como "só download" e cujos chunks continuassem no banco seguiria
+respondendo perguntas, e a tela diria que ele não está na base. Desligar APAGA os
+chunks; religar ENFILEIRA o embedding. O estado da flag e a existência do chunk
+são a mesma coisa, verificável por consulta.
+
+Isso também dá ao cliente o que ele vai querer e que não é apagar: tirar do RAG
+um documento desatualizado sem perder o arquivo para download.
+
+**2. Não há checksum, e duplicata já existe.** `knowledge_documents` tem
+`original_name`, `mime` e `size_bytes`, mas nenhum checksum. Medido em produção:
+**123 documentos, 10 duplicados aparentes** por nome e tamanho.
+
+Numa tela onde o próprio cliente sobe arquivo, reenvio é rotina, e a duplicata
+não é só desperdício: `hybrid_search_scoped` agrupa por `coalesce(node_id,
+document_id)` e deixa passar os **dois grupos mais fortes**. Duas cópias do mesmo
+arquivo são duas origens distintas e podem ocupar as duas vagas, **expulsando o
+outro manual da resposta**. O upload precisa de checksum, e reenviar o mesmo
+arquivo deve substituir em vez de somar, que é a idempotência que o importador já
+pratica.
+
+**3. `deleteKnowledgeFile` não serve para arquivo de cliente, e por dois
+motivos.** Ela chama `requirePermission("content.edit", doc.space_id)`, e com
+`space_id` nulo isso reduz a "tem papel GLOBAL" (ver a cláusula de
+`has_permission` nos riscos): qualquer editor global apagaria arquivo de qualquer
+cliente, e um editor restrito a um espaço não apagaria nenhum. Pior, quem apaga
+na tela do cliente **não é usuário autenticado do admin**: chega pelo token de
+rastreio. A autorização de apagar arquivo de cliente é por base mais
+elegibilidade, não por `content.edit` em espaço, e é caminho novo, não reuso.
 
 **Aceitar "qualquer tipo de mídia" para download reabre o guarda de arquivo.**
 Existe `file-guard` com allowlist e verificação por magic-bytes, construído
