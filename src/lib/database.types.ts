@@ -2670,12 +2670,18 @@ export type Database = {
           hidden_at: string | null
           id: string
           p_base: string | null
+          p_centro_custo: string | null
           p_cod_candidato: string | null
           p_empresa: string | null
+          p_filial: string | null
           p_matricula: string | null
           p_perfil: string | null
           p_portal: string | null
+          p_sindicato: string | null
+          p_unidade_adm: string | null
+          p_unidade_negocio: string | null
           p_usuario: string | null
+          p_vinculo: string | null
           page: Json | null
           rag_memoria: Json
           session_id: string | null
@@ -2691,12 +2697,18 @@ export type Database = {
           hidden_at?: string | null
           id?: string
           p_base?: string | null
+          p_centro_custo?: string | null
           p_cod_candidato?: string | null
           p_empresa?: string | null
+          p_filial?: string | null
           p_matricula?: string | null
           p_perfil?: string | null
           p_portal?: string | null
+          p_sindicato?: string | null
+          p_unidade_adm?: string | null
+          p_unidade_negocio?: string | null
           p_usuario?: string | null
+          p_vinculo?: string | null
           page?: Json | null
           rag_memoria?: Json
           session_id?: string | null
@@ -2712,12 +2724,18 @@ export type Database = {
           hidden_at?: string | null
           id?: string
           p_base?: string | null
+          p_centro_custo?: string | null
           p_cod_candidato?: string | null
           p_empresa?: string | null
+          p_filial?: string | null
           p_matricula?: string | null
           p_perfil?: string | null
           p_portal?: string | null
+          p_sindicato?: string | null
+          p_unidade_adm?: string | null
+          p_unidade_negocio?: string | null
           p_usuario?: string | null
+          p_vinculo?: string | null
           page?: Json | null
           rag_memoria?: Json
           session_id?: string | null
@@ -3932,12 +3950,18 @@ export type Database = {
           kind: string
           node_id: string | null
           p_base: string | null
+          p_centro_custo: string | null
           p_cod_candidato: string | null
           p_empresa: string | null
+          p_filial: string | null
           p_matricula: string | null
           p_perfil: string | null
           p_portal: string | null
+          p_sindicato: string | null
+          p_unidade_adm: string | null
+          p_unidade_negocio: string | null
           p_usuario: string | null
+          p_vinculo: string | null
           path: string | null
           session_id: string | null
           space_id: string
@@ -3949,12 +3973,18 @@ export type Database = {
           kind?: string
           node_id?: string | null
           p_base?: string | null
+          p_centro_custo?: string | null
           p_cod_candidato?: string | null
           p_empresa?: string | null
+          p_filial?: string | null
           p_matricula?: string | null
           p_perfil?: string | null
           p_portal?: string | null
+          p_sindicato?: string | null
+          p_unidade_adm?: string | null
+          p_unidade_negocio?: string | null
           p_usuario?: string | null
+          p_vinculo?: string | null
           path?: string | null
           session_id?: string | null
           space_id: string
@@ -3966,12 +3996,18 @@ export type Database = {
           kind?: string
           node_id?: string | null
           p_base?: string | null
+          p_centro_custo?: string | null
           p_cod_candidato?: string | null
           p_empresa?: string | null
+          p_filial?: string | null
           p_matricula?: string | null
           p_perfil?: string | null
           p_portal?: string | null
+          p_sindicato?: string | null
+          p_unidade_adm?: string | null
+          p_unidade_negocio?: string | null
           p_usuario?: string | null
+          p_vinculo?: string | null
           path?: string | null
           session_id?: string | null
           space_id?: string
@@ -5965,6 +6001,10 @@ export type Database = {
       }
       allowlist_casa: {
         Args: { lista: string[]; valor: string }
+        Returns: boolean
+      }
+      elegivel: {
+        Args: { regra: Json; identidade: Json }
         Returns: boolean
       }
       prompt_favoritar: {

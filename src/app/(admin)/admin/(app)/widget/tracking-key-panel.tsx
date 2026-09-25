@@ -15,6 +15,10 @@ import {
   deleteTrackingKey,
   previewTrackingToken,
 } from "./tracking-actions";
+import { DIMENSOES, CHAVE_DE_DIMENSAO } from "@/lib/elegibilidade";
+// Só o TIPO: `bloco-apex.ts` é `server-only` (lê o arquivo do disco) e não pode
+// ser importado por componente de cliente. O texto chega por prop.
+import type { BlocoApex } from "@/lib/tracking/bloco-apex";
 
 type Space = { id: string; name: string; slug: string };
 
@@ -39,9 +43,49 @@ function CopyBtn({ text, label = "Copiar" }: { text: string; label?: string }) {
   );
 }
 
-const CAMPOS = ["p_usuario", "p_empresa", "p_matricula", "p_perfil", "p_portal", "p_base"] as const;
+/**
+ * OS DOZE `p_*`, derivados das doze dimensões de elegibilidade.
+ *
+ * Escritos à mão eram seis, e ficaram seis quando o motor foi para doze: o
+ * token de exemplo desta tela nascia sem filial, centro de custo, unidade
+ * administrativa, unidade de negócio, vínculo e sindicato, ou seja, testar aqui
+ * não exercitava metade do que a regra de elegibilidade corta. Saindo de
+ * `DIMENSOES`, a lista não pode mais ficar atrás do motor.
+ */
+const CAMPOS = DIMENSOES.map((d) => CHAVE_DE_DIMENSAO[d]);
 
-export function TrackingKeyPanel({ spaces, siteUrl }: { spaces: Space[]; siteUrl: string }) {
+/**
+ * Valor de exemplo por campo, para o trecho de Node.js ficar legível.
+ *
+ * Mapa e não lista: dimensão nova aparece no exemplo com valor vazio, em vez de
+ * desaparecer dele — que é exatamente o que aconteceu quando a lista era
+ * escrita à mão.
+ */
+const EXEMPLO: Record<string, string> = {
+  p_base: "prod",
+  p_portal: "PG",
+  p_perfil: "GESTOR",
+  p_usuario: "joao.silva",
+  p_empresa: "ACME",
+  p_matricula: "00123",
+  p_filial: "F1",
+  p_centro_custo: "100",
+  p_unidade_adm: "UA1",
+  p_unidade_negocio: "UN1",
+  p_vinculo: "CLT",
+  p_sindicato: "SINDPD",
+};
+
+export function TrackingKeyPanel({
+  spaces,
+  siteUrl,
+  apexBloco,
+}: {
+  spaces: Space[];
+  siteUrl: string;
+  /** Texto de `apex/token-rastreio.sql` com as constantes preenchidas. */
+  apexBloco: BlocoApex | null;
+}) {
   const toast = useToast();
   const { confirmar } = useConfirm();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? "");
@@ -131,9 +175,10 @@ function kbToken(params) {
 }
 
 // Gere por usuário logado e ponha em data-token / ?kbt= :
+// Os campos são as DOZE dimensões de elegibilidade — o que você não mandar
+// conta como AUSENTE, e ausência FECHA o conteúdo restrito naquela dimensão.
 const token = kbToken({
-  p_usuario: "joao.silva", p_empresa: "ACME", p_matricula: "00123",
-  p_perfil: "gestor", p_portal: "cliente-a", p_base: "prod",
+${CAMPOS.map((c) => `  ${c}: "${EXEMPLO[c] ?? ""}",`).join("\n")}
   exp: Math.floor(Date.now() / 1000) + 3600,   // opcional: expira em 1h
 });`;
 
@@ -150,43 +195,22 @@ $token = kb_token($key, ['p_usuario'=>'joao.silva','p_empresa'=>'ACME',
 
   const docSlug = space?.slug ?? "SUA-DOC";
   const apexGrant = `GRANT EXECUTE ON DBMS_CRYPTO TO SEU_SCHEMA;`;
-  const apexFull = `declare
-  c_key  constant varchar2(64)  := 'COLE_A_CHAVE_BASE64_DO_PAINEL';
-  c_site constant varchar2(200) := '${siteUrl}';
-  l_key   raw(32);  l_json varchar2(2000);  l_pay raw(2000);
-  l_mac   raw(32);  l_token varchar2(4000);
-
-  -- base64url (base64 padrão sem padding, com - e _)
-  function b64url(p raw) return varchar2 is
-    v varchar2(8000);
-  begin
-    v := utl_raw.cast_to_varchar2(utl_encode.base64_encode(p));
-    v := replace(replace(v, chr(13)), chr(10));
-    return replace(replace(rtrim(v,'='), '+','-'), '/','_');
-  end;
-begin
-  -- 1) JSON com os dados do usuário logado (apex_json escapa aspas/acentos)
-  l_json := '{"p_usuario":'  ||apex_json.stringify(:P_USUARIO)
-         || ',"p_empresa":'  ||apex_json.stringify(:P_EMPRESA_USER)
-         || ',"p_matricula":'||apex_json.stringify(:P_MATRICULA_USER)
-         || ',"p_perfil":'   ||apex_json.stringify(:P_PERFIL)
-         || ',"p_portal":'   ||apex_json.stringify(:P_PAINEL)
-         || ',"p_base":'     ||apex_json.stringify(:P_BASE) ||'}';
-
-  -- 2) Assina (HMAC-SHA256) -> token
-  l_key   := utl_encode.base64_decode(utl_raw.cast_to_raw(c_key));
-  l_pay   := utl_i18n.string_to_raw(l_json, 'AL32UTF8');   -- bytes UTF-8
-  l_mac   := dbms_crypto.mac(l_pay, dbms_crypto.hmac_sh256, l_key);
-  l_token := 'kbt1h.'||b64url(l_pay)||'.'||b64url(l_mac);
-
-  -- 3a) EMBED DO WIDGET (região "PL/SQL Dynamic Content"):
-  htp.p('<script src="'||c_site||'/widget.js" data-key="pk_live_SUA_CHAVE" '
-     ||'data-token="'||l_token||'" async></script>');
-
-  -- 3b) LINK para a DOCUMENTAÇÃO (rastreia o acesso do usuário):
-  htp.p('<a href="'||c_site||'/docs/${docSlug}?kbt='||l_token
-     ||'" target="_blank">Abrir documentação</a>');
-end;`;
+  /**
+   * O BLOCO VEM DO ARQUIVO, e não de um template literal aqui.
+   *
+   * Havia duas cópias do mesmo PL/SQL — `apex/token-rastreio.sql`, que é o que
+   * a equipe cola, e uma aqui, que é a que tem o botão de copiar. Em 24/09 o
+   * arquivo ganhou as seis dimensões novas, `sid`, `exp` e a cadeia de buffers
+   * redimensionada, e esta ficou em seis campos com `l_json varchar2(2000)`.
+   * Quem clicasse em copiar levava a versão velha para o ERP do cliente.
+   *
+   * O servidor lê o arquivo e preenche as constantes; só o slug da
+   * documentação fica como marcador, porque ele depende do espaço escolhido
+   * AQUI (estado do cliente) e o servidor não sabe qual é.
+   */
+  const apexFull = apexBloco
+    ? apexBloco.texto.replaceAll(apexBloco.marcadorSlug, docSlug)
+    : null;
   const apexLinkItem = `-- Reuse o mesmo l_token em quantos links quiser. Ex.: guardar a URL num item:
 :P_URL_DOC := c_site || '/docs/${docSlug}?kbt=' || l_token;`;
 
@@ -290,7 +314,9 @@ end;`;
               <ol className="ml-4 list-decimal space-y-1 text-xs text-text-muted">
                 <li>
                   Copie a <b>chave</b> acima e cole em <code>c_key</code> (guarde-a com segurança — é um
-                  segredo do seu banco).
+                  segredo do seu banco). No mesmo bloco, troque <code>c_widget</code> pela chave
+                  pública do widget deste espaço; <code>c_slug</code> e <code>c_site</code> já vêm
+                  preenchidos.
                 </li>
                 <li>
                   Conceda uma vez (o schema precisa do <code>DBMS_CRYPTO</code>):
@@ -307,15 +333,26 @@ end;`;
                   mesmo token serve para ambos.
                 </li>
               </ol>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs font-medium text-text-muted">
-                    Bloco PL/SQL — gera o token, embute o widget e monta o link
-                  </span>
-                  <CopyBtn text={apexFull} />
+              {apexFull ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs font-medium text-text-muted">
+                      Bloco PL/SQL — gera o token, embute o widget e monta o link
+                    </span>
+                    <CopyBtn text={apexFull} />
+                  </div>
+                  <pre className="overflow-x-auto rounded bg-surface-2 p-3 text-xs">{apexFull}</pre>
                 </div>
-                <pre className="overflow-x-auto rounded bg-surface-2 p-3 text-xs">{apexFull}</pre>
-              </div>
+              ) : (
+                /* Sem bloco em vez de bloco pela metade: o modelo carrega a
+                   chave real de um painel em `c_key`, e um preenchimento que
+                   não casou mostraria essa chave. */
+                <p className="rounded-md border border-border bg-surface-2 p-3 text-xs text-text-muted">
+                  O modelo <code>apex/token-rastreio.sql</code> não foi encontrado no servidor (ou
+                  mudou de forma e o preenchimento não casou). O bloco está no repositório, em{" "}
+                  <code>apex/token-rastreio.sql</code>.
+                </p>
+              )}
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium text-text-muted">

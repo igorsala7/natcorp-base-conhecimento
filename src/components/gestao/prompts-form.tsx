@@ -9,7 +9,7 @@ import {
   salvarCategoriaPrompt,
   excluirCategoriaPrompt,
 } from "@/app/gestao/prompts/actions";
-import { resumoElegibilidade, avisoDeAlcance } from "@/lib/prompts/elegibilidade";
+import { resumoElegibilidade, avisoDeAlcance, type Regra } from "@/lib/elegibilidade";
 import { Segmented } from "@/components/ui/segmented";
 import { MultiSelecao } from "./multi-selecao";
 
@@ -32,6 +32,50 @@ type PromptAdmin = {
 };
 
 type Categoria = { id: string; nome: string; ordem: number; ativo: boolean; global: boolean };
+
+/**
+ * A tradução plural → singular, e por que ela é obrigatória bem aqui.
+ *
+ * As colunas de `prompt_sugerido` são plurais por herança (`bases`, `portais`,
+ * `perfis`, `empresas`, `usuarios`, `matriculas`): o cadastro nasceu antes do
+ * motor de doze dimensões, e renomear uma coluna é migration, fora do escopo
+ * desta tela. O motor usa o nome da dimensão no singular, então esta função é
+ * a única ponte entre os dois nomes — e só a FRASE passa por ela; o que vai
+ * para `salvarPromptSugerido` continua com os nomes de coluna, sem tradução.
+ *
+ * Ela mora no componente, não num módulo compartilhado, porque `sugeridos.ts`
+ * é `server-only` e este arquivo é `"use client"`.
+ *
+ * `prompt_sugerido` só tem SEIS das doze dimensões do motor. As outras seis
+ * (filial, centro de custo, unidade administrativa, unidade de negócio,
+ * vínculo, sindicato) ficam de fora de propósito, porque a tabela não tem
+ * essas colunas, e o predicado lê dimensão ausente como "não restringe".
+ *
+ * A ARMADILHA: no dia em que `prompt_sugerido` ganhar uma sétima coluna, esta
+ * função precisa ganhar uma linha junto. Esquecer não quebra a compilação nem
+ * falha teste nenhum: a chave nova simplesmente não chega a `Regra`, e a
+ * frase passa a descrever um alcance MAIS AMPLO do que o real, que é o pior
+ * sentido possível para esse erro. O retorno tipado como `Regra` pega o nome
+ * de dimensão digitado errado do lado esquerdo (typo vira erro de compilação,
+ * não vira chave ignorada); não pega a coluna nova que ninguém acrescentou.
+ */
+function paraRegra(e: {
+  bases: string[];
+  portais: string[];
+  perfis: string[];
+  empresas: string[];
+  usuarios: string[];
+  matriculas: string[];
+}): Regra {
+  return {
+    base: e.bases,
+    portal: e.portais,
+    perfil: e.perfis,
+    empresa: e.empresas,
+    usuario: e.usuarios,
+    matricula: e.matriculas,
+  };
+}
 
 type Vocabulario = {
   portais: { id: string; nome: string }[];
@@ -302,7 +346,7 @@ export function PromptsSugeridos({
                   </p>
                   <p className="mt-1 text-sm text-text-muted">{p.texto}</p>
                   <p className="mt-2 text-xs text-text-muted">
-                    {resumoElegibilidade(p, nomeDaBase)}
+                    {resumoElegibilidade(paraRegra(p), nomeDaBase)}
                   </p>
                   {p.categoriaIds.length ? (
                     <ul className="mt-2 flex flex-wrap gap-1">
@@ -420,7 +464,7 @@ function FormularioPrompt({
   // seria "desconhecido" e o aviso viraria ruído garantido.
   const aviso =
     vocab.perfis.length || vocab.empresas.length
-      ? avisoDeAlcance(eleg, { perfis: vocab.perfis, empresas: vocab.empresas })
+      ? avisoDeAlcance(paraRegra(eleg), { perfis: vocab.perfis, empresas: vocab.empresas })
       : null;
 
   const nomeDaBase = useMemo(() => {
@@ -587,7 +631,7 @@ function FormularioPrompt({
         escrito assim, e não deduzido de seis campos vazios.
       */}
       <p className="mt-3 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text">
-        {resumoElegibilidade(eleg, nomeDaBase)}
+        {resumoElegibilidade(paraRegra(eleg), nomeDaBase)}
       </p>
       {aviso ? <p className="mt-2 text-xs text-warning">{aviso}</p> : null}
 

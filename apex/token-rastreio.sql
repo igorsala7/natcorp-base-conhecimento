@@ -7,6 +7,21 @@
 -- NAO precisa criar nada no banco: sem funcao, sem schema, sem grant. O bloco ja
 -- usa `dbms_crypto` e `apex_json` hoje, entao os privilegios existem.
 --
+-- Os treze campos sao um conjunto FECHADO, decidido pelo dono. Um cliente que
+-- nao recolar este bloco continua funcionando: o servidor le so as chaves que
+-- vierem, e as que faltarem contam como AUSENTES. Pela regra de elegibilidade,
+-- ausencia FECHA, entao conteudo restrito a uma dimensao que este bloco nao
+-- manda nao alcanca ninguem neste cliente -- de proposito, porque a
+-- alternativa faria um documento de um centro de custo vazar para a empresa
+-- inteira. A tela de elegibilidade avisa quando a base nunca enviou valor
+-- numa dimensao.
+--
+-- Se algum item nao existir como item de aplicacao no APEX do cliente,
+-- apex_json.stringify(:ITEM) devolve null e o campo vai nulo. Nao remova a
+-- linha: campo ausente e campo nulo tem o mesmo efeito, e manter as treze
+-- linhas mantem o bloco igual em todos os clientes, o que e o que permite
+-- comparar duas instalacoes.
+--
 -- ── O QUE MUDA em relacao ao bloco que esta em producao ──────────────────────
 --
 -- Sao 5 linhas: a variavel `l_exp`, a constante `c_minutos`, o calculo do
@@ -27,15 +42,27 @@
 
 declare
   -- +-------------------------------------------------------------------------+
-  -- | TROQUE OS 3 JUNTOS, SEMPRE DO MESMO PAINEL (senao a identidade nao bate):|
-  -- |   - Colaborador: c_key = 39/HM/Xcs...   widget = pk_live_8303167f...     |
-  -- |                  slug  = painel-do-colaborador                          |
-  -- |   - Gestor:      c_key = czFp9M8P...    widget = pk_live_e4f1eb41...     |
-  -- |                  slug  = painel-do-gestor                               |
+  -- | OS 3 ANDAM JUNTOS, SEMPRE DO MESMO PAINEL -- senao a identidade nao bate.|
+  -- |                                                                         |
+  -- |   c_key     chave de RASTREIO daquele espaco. Segredo: e ela que assina  |
+  -- |             o token. Sai do admin, em                                   |
+  -- |             Assistente > Chaves de todas as documentacoes > Rastreio    |
+  -- |             seguro, escolhendo a documentacao no seletor.                |
+  -- |   c_widget  chave PUBLICA do widget do MESMO espaco (pk_live_...), na    |
+  -- |             mesma tela.                                                 |
+  -- |   c_slug    slug da documentacao do MESMO espaco.                       |
+  -- |                                                                         |
+  -- | NAO anote aqui a chave de outros paineis. Havia um quadro com os         |
+  -- | prefixos de chave do Colaborador e do Gestor, e ele deixou de fazer      |
+  -- | sentido por dois motivos: caderno de chave em arquivo versionado         |
+  -- | envelhece sem ninguem notar, e desde 25/09 a tela do admin MOSTRA o      |
+  -- | texto deste arquivo (a tela troca c_key por um marcador, mas comentario  |
+  -- | ela mostra como esta). Quem diz qual e a chave de cada painel e a tela,  |
+  -- | por espaco, que e onde a chave de verdade mora.                         |
   -- +-------------------------------------------------------------------------+
-  c_key    constant varchar2(64)  := 'mondnL9n6TlVgDQxNnCJW6LsprzGuKJ1Kh1QD63tm3g=';  -- Operador
-  c_widget constant varchar2(80)  := 'pk_live_77c1d31cadd25d2768ac7c93167023bf';       -- Operador
-  c_slug   constant varchar2(80)  := 'natcorp';                                        -- docs
+  c_key    constant varchar2(64)  := 'mondnL9n6TlVgDQxNnCJW6LsprzGuKJ1Kh1QD63tm3g=';
+  c_widget constant varchar2(80)  := 'pk_live_77c1d31cadd25d2768ac7c93167023bf';
+  c_slug   constant varchar2(80)  := 'natcorp';
   -- RELATIVO, SEM HOST — e isto conserta uma classe inteira de defeito.
   --
   -- O sistema atende em natcorpbr.com.br E em www.natcorpbr.com.br. Fixar um
@@ -67,13 +94,20 @@ declare
   -- sozinho enquanto a pessoa navega.
   c_minutos constant number := 30;
 
-  l_key   raw(32);  l_json varchar2(2000);  l_pay raw(2000);
-  l_mac   raw(32);  l_token varchar2(4000);
+  -- A CADEIA INTEIRA, dimensionada junta. Em 24/09 eu subi so l_json e l_pay e
+  -- deixei l_token em 4000: o token e 'kbt1h.' + base64(payload) + '.' +
+  -- base64(mac), e base64 de 6000 bytes ja da 8000 caracteres, entao o payload
+  -- passava o primeiro portao e morria no ultimo, longe da causa.
+  -- Sao locais de PL/SQL: nao custam nada, e o modo de falha e o widget nao
+  -- abrir na sessao de um usuario real. Dimensionar com folga e mais barato que
+  -- acertar a conta.
+  l_key   raw(32);  l_json varchar2(8000);  l_pay raw(16000);
+  l_mac   raw(32);  l_token varchar2(32767);
   l_exp   number;   -- NOVO: vencimento em unix time (segundos, UTC)
 
   -- base64url (base64 padrao, sem padding, com - e _)
   function b64url(p raw) return varchar2 is
-    v varchar2(8000);
+    v varchar2(32767);
   begin
     v := utl_raw.cast_to_varchar2(utl_encode.base64_encode(p));
     v := replace(replace(v, chr(13)), chr(10));
@@ -95,6 +129,12 @@ begin
          || ',"p_perfil":'   ||apex_json.stringify(:P_PERFIL)
          || ',"p_portal":'   ||apex_json.stringify(:P_PAINEL)
          || ',"p_base":'     ||apex_json.stringify(:P_BASE)
+         || ',"p_filial":'          ||apex_json.stringify(:P_FILIAL)
+         || ',"p_centro_custo":'    ||apex_json.stringify(:P_CENTRO_CUSTO)
+         || ',"p_unidade_adm":'     ||apex_json.stringify(:P_UNIDADE_ADM)
+         || ',"p_unidade_negocio":' ||apex_json.stringify(:P_UNIDADE_NEGOCIO)
+         || ',"p_vinculo":'         ||apex_json.stringify(:P_VINCULO)
+         || ',"p_sindicato":'       ||apex_json.stringify(:P_SINDICATO)
          -- NOVO: sessao do painel. Amarra a sessao do widget a do APEX.
          || ',"sid":'        ||apex_json.stringify(v('APP_SESSION'))
          -- NOVO: validade. FM sem mascara de grupo -- em NLS pt_BR o padrao

@@ -351,6 +351,45 @@ describe("alcanca", () => {
     expect(alcanca({ portal: ["", "  "] }, { portal: null })).toBe(true);
   });
 
+  /**
+   * A REGRA VEM DE UMA COLUNA `jsonb`, então o tipo não protege em execução.
+   * Estes casos existem porque a primeira versão do predicado tinha DOIS
+   * defeitos aqui: `.map` num string derrubava o turno, e o gêmeo em SQL abria
+   * o conteúdo em vez de fechar. Os dois lados agora fecham.
+   */
+  it("valor de regra malformado FECHA, e não derruba", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v }) as never;
+    expect(alcanca(comoVemDoBanco("PG"), { portal: null })).toBe(false);
+    expect(alcanca(comoVemDoBanco("PG"), { portal: "PG" })).toBe(false);
+    expect(alcanca(comoVemDoBanco(123), { portal: "123" })).toBe(false);
+    expect(alcanca(comoVemDoBanco({ a: 1 }), { portal: "a" })).toBe(false);
+  });
+
+  it("null na dimensão é 'não configurada', não restrição vazia", () => {
+    const comoVemDoBanco = (v: unknown) => ({ portal: v }) as never;
+    expect(alcanca(comoVemDoBanco(null), { portal: null })).toBe(true);
+  });
+
+  it("item não-texto dentro da lista é convertido, como o SQL faz", () => {
+    // `x #>> '{}'` do SQL transforma o número 100 em '100'. Se o TypeScript
+    // não convertesse, a regra casaria de um lado só e o script de paridade
+    // acusaria — mas só depois de a divergência existir.
+    const comoVemDoBanco = (v: unknown) => ({ centro_custo: v }) as never;
+    expect(alcanca(comoVemDoBanco([100]), { centro_custo: "100" })).toBe(true);
+  });
+
+  it("chave que não é dimensão FECHA, e não é ignorada", () => {
+    // Iterar a lista fixa de dimensões ignorava isto, e ignorar abre: uma regra
+    // com `centro_custos` (plural) não restringiria nada. O SQL já fechava.
+    const comTypo = { centro_custos: ["100"] } as never;
+    expect(alcanca(comTypo, { centro_custo: "100" })).toBe(false);
+    expect(alcanca(comTypo, {})).toBe(false);
+  });
+
+  it("chave desconhecida com valor null é ignorada, como no SQL", () => {
+    expect(alcanca({ foo: null } as never, {})).toBe(true);
+  });
+
   it("cobre as doze dimensões, uma por uma", () => {
     for (const d of DIMENSOES) {
       expect(alcanca({ [d]: ["x"] }, { [d]: "x" })).toBe(true);
@@ -414,11 +453,45 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
  *   em `allowlist_casa` em 24/09);
  * · dentro da dimensão OU, entre dimensões E.
  */
+/** As doze, para rejeitar chave que não é dimensão. */
+const CONHECIDAS = new Set<string>(DIMENSOES);
+
 export function alcanca(regra: Regra, ident: Identidade): boolean {
-  for (const d of DIMENSOES) {
-    const lista = (regra[d] ?? []).map(norm).filter((x) => x !== "");
-    if (lista.length === 0) continue; // dimensão não restringe
-    const valor = norm(ident[d]);
+  /**
+   * Itera as chaves DA REGRA, e não a lista fixa de dimensões.
+   *
+   * Iterar `DIMENSOES` fazia uma chave desconhecida ser ignorada em silêncio, e
+   * ignorar ABRE: uma regra gravada com `centro_custos` (plural, typo) não
+   * restringiria nada. O gêmeo em SQL usa `jsonb_each(regra)`, ou seja, já
+   * iterava a regra, e por isso os dois divergiam justamente no caso de typo.
+   *
+   * Agora os dois iteram a regra e os dois FECHAM em chave desconhecida.
+   */
+  for (const [chave, bruto] of Object.entries(regra)) {
+    /**
+     * `unknown` e não `string[]`, porque a regra vem de uma coluna `jsonb`: o
+     * tipo não garante NADA em tempo de execução. A primeira versão fazia
+     * `(regra[d] ?? []).map(...)` e tinha dois defeitos de uma vez — `.map` num
+     * string derrubava o turno inteiro, e o gêmeo em SQL, que não derrubava,
+     * simplesmente IGNORAVA a dimensão e abria o conteúdo.
+     *
+     * Regra malformada FECHA, nos dois lados, inclusive quando a identidade
+     * casaria. Não se adivinha intenção de dado malformado, e quem impede a
+     * regra malformada de existir é `normalizarRegra` no caminho de gravação.
+     */
+    if (bruto === null || bruto === undefined) continue; // não configurada
+    // Chave que não é uma das doze: regra malformada, fecha. Antes do teste de
+    // array, na mesma ordem do SQL (que exclui `null` antes de tudo).
+    if (!CONHECIDAS.has(chave)) return false;
+    if (!Array.isArray(bruto)) return false; // malformada: fecha
+
+    // `String(x)` espelha o `x #>> '{}'` do SQL, que converte qualquer escalar
+    // jsonb para texto. Sem isso, regra com número casaria de um lado só.
+    const lista = bruto
+      .map((x) => norm(x === null || x === undefined ? "" : String(x)))
+      .filter((x) => x !== "");
+    if (lista.length === 0) continue; // lista vazia ou só de brancos: libera
+    const valor = norm(ident[chave as Dimensao]);
     if (valor === "") return false; // ausência fecha
     if (!lista.includes(valor)) return false;
   }
@@ -583,6 +656,7 @@ alcance que o banco não entrega.
 **Files:**
 - Create: `src/lib/elegibilidade/casos.json`
 - Create: `scripts/verificar-elegibilidade.ts`
+- Create: `supabase/migrations/20260924234000_dimensoes_elegibilidade.sql`
 - Modify: `package.json` (um script novo)
 - Test: `src/lib/elegibilidade/casos.test.ts`
 
@@ -621,6 +695,16 @@ alcance que o banco não entrega.
     { "nome": "sindicato nao casa", "regra": { "sindicato": ["SINDPD"] }, "identidade": { "sindicato": "SEESP" }, "esperado": false },
     { "nome": "dimensao nova restrita, token antigo", "regra": { "unidade_negocio": ["UN1"] }, "identidade": { "base": "leadec", "portal": "PG", "perfil": "MASTER" }, "esperado": false },
     { "nome": "doze dimensoes todas casando", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": " 1 ", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "sindpd" }, "esperado": true },
+    { "nome": "chave que nao e dimensao FECHA (typo plural)", "regra": { "centro_custos": ["100"] }, "identidade": { "centro_custo": "100" }, "esperado": false },
+    { "nome": "chave que nao e dimensao FECHA mesmo sem identidade", "regra": { "dimensao_inexistente": ["x"] }, "identidade": {}, "esperado": false },
+    { "nome": "chave desconhecida com null e ignorada", "regra": { "foo": null }, "identidade": {}, "esperado": true },
+    { "nome": "regra malformada: string em vez de array FECHA", "regra": { "portal": "PG" }, "identidade": {}, "esperado": false },
+    { "nome": "regra malformada FECHA mesmo com identidade casando", "regra": { "portal": "PG" }, "identidade": { "portal": "PG" }, "esperado": false },
+    { "nome": "regra malformada: numero FECHA", "regra": { "portal": 123 }, "identidade": {}, "esperado": false },
+    { "nome": "regra malformada: objeto FECHA", "regra": { "portal": { "a": 1 } }, "identidade": {}, "esperado": false },
+    { "nome": "null na dimensao e 'nao configurada', LIBERA", "regra": { "portal": null }, "identidade": {}, "esperado": true },
+    { "nome": "array vazio LIBERA", "regra": { "portal": [] }, "identidade": {}, "esperado": true },
+    { "nome": "item numerico na lista e convertido como o SQL faz", "regra": { "centro_custo": [100] }, "identidade": { "centro_custo": "100" }, "esperado": true },
     { "nome": "doze dimensoes, a ultima falha", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": "1", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "OUTRO" }, "esperado": false }
   ]
 }
@@ -633,7 +717,9 @@ import { describe, it, expect } from "vitest";
 import { alcanca, type Identidade, type Regra } from "./index";
 import corpus from "./casos.json";
 
-type Caso = { nome: string; regra: Regra; identidade: Identidade; esperado: boolean };
+// `regra` é `unknown` de propósito: o corpus carrega casos MALFORMADOS, que é
+// exatamente o que o tipo `Regra` promete que não existe e o banco entrega.
+type Caso = { nome: string; regra: unknown; identidade: Identidade; esperado: boolean };
 
 /**
  * O MESMO arquivo que `scripts/verificar-elegibilidade.ts` roda contra
@@ -644,12 +730,12 @@ describe("corpus compartilhado, lado TypeScript", () => {
   const casos = corpus.casos as Caso[];
 
   it("tem casos", () => {
-    expect(casos.length).toBeGreaterThan(15);
+    expect(casos.length).toBeGreaterThan(28);
   });
 
   for (const c of casos) {
     it(c.nome, () => {
-      expect(alcanca(c.regra, c.identidade)).toBe(c.esperado);
+      expect(alcanca(c.regra as Regra, c.identidade)).toBe(c.esperado);
     });
   }
 });
@@ -679,6 +765,102 @@ pegaria: centro de custo '0100' não casa com '100'. É por isso que a tela vai
 listar a estrutura real do cliente em vez de pedir código digitado."
 ```
 
+- [ ] **Passo 4b: a lista das doze passa a ter UMA fonte no banco**
+
+A revisão da tarefa 4b corrigiu uma afirmação otimista minha. Eu escrevi que "o
+corpus compartilhado cobre a duplicação" da lista das doze entre o SQL e o
+TypeScript. Não cobre: o script compara os casos que EXISTEM, então alguém
+acrescentar uma décima terceira dimensão só no array do SQL não faria teste
+nenhum falhar. A garantia era "o corpus, se mantido em dia", não "por
+construção" — e a diferença entre as duas é justamente o tipo de coisa que este
+projeto paga caro.
+
+Migration nova, `supabase/migrations/20260924234000_dimensoes_elegibilidade.sql`:
+
+```sql
+-- =====================================================================
+-- A LISTA DAS DOZE DIMENSÕES GANHA UMA FONTE, PARA A PARIDADE SER REAL
+--
+-- `elegivel` trazia os doze nomes num array literal dentro do corpo, e
+-- `src/lib/elegibilidade/dimensoes.ts` traz os mesmos doze. Eu havia
+-- escrito que o corpus compartilhado cobria essa duplicação; a revisão
+-- da tarefa 4b mostrou que não: o script de paridade compara os casos
+-- que existem, e uma décima terceira dimensão acrescentada só de um lado
+-- não faz nenhum caso falhar.
+--
+-- Expondo a lista como função, o script compara as DUAS LISTAS, não só o
+-- comportamento em casos já escritos. A divergência passa a ser
+-- impossível de passar batida em vez de improvável.
+-- =====================================================================
+
+create or replace function public.dimensoes_elegibilidade()
+returns text[]
+language sql
+immutable parallel safe
+as $$
+  select array[
+    'base','portal','perfil','usuario','empresa','matricula',
+    'filial','centro_custo','unidade_adm','unidade_negocio',
+    'vinculo','sindicato'
+  ];
+$$;
+
+comment on function public.dimensoes_elegibilidade() is
+  'As doze dimensões de elegibilidade, na ordem da especificação. Fonte única do lado do banco; npm run verificar:elegibilidade compara esta lista com DIMENSOES de src/lib/elegibilidade/dimensoes.ts e falha se divergirem.';
+
+revoke all on function public.dimensoes_elegibilidade() from public, anon;
+grant execute on function public.dimensoes_elegibilidade() to authenticated, service_role;
+
+-- `elegivel` passa a ler a lista em vez de repeti-la.
+create or replace function public.elegivel(regra jsonb, identidade jsonb)
+returns boolean
+language sql
+immutable parallel safe
+as $$
+  select not exists (
+    select 1
+      from jsonb_each(coalesce(regra, '{}'::jsonb)) r(dim, lista)
+     -- `null` é dimensão NÃO CONFIGURADA, e não restrição vazia.
+     where jsonb_typeof(r.lista) <> 'null'
+       and (
+            -- CHAVE QUE NÃO É UMA DAS DOZE: regra malformada, FECHA.
+            r.dim <> all (public.dimensoes_elegibilidade())
+            -- VALOR MALFORMADO FECHA, inclusive quando a identidade casaria.
+         or jsonb_typeof(r.lista) <> 'array'
+         or not public.allowlist_casa(
+              (select array_agg(x #>> '{}') from jsonb_array_elements(r.lista) x),
+              identidade #>> array[r.dim]
+            )
+       )
+  );
+$$;
+
+do $$
+begin
+  assert cardinality(public.dimensoes_elegibilidade()) = 12,
+    'sao doze dimensoes';
+  assert public.dimensoes_elegibilidade()[1] = 'base',
+    'a ordem da especificacao comeca em base';
+  assert public.dimensoes_elegibilidade()[12] = 'sindicato',
+    'e termina em sindicato';
+  -- O comportamento de `elegivel` NÃO pode mudar por causa da refatoração.
+  assert not public.elegivel('{"dimensao_inexistente":["x"]}', '{"dimensao_inexistente":"x"}'),
+    'chave desconhecida continua fechando';
+  assert public.elegivel('{"portal":["PG"]}', '{"portal":"pg"}'),
+    'array bem formado que casa continua liberando';
+  assert not public.elegivel('{"portal":["PG"]}', '{}'),
+    'ausencia continua fechando';
+  assert not public.elegivel('{"portal":"PG"}', '{"portal":"PG"}'),
+    'valor malformado continua fechando';
+  assert public.elegivel('{"portal":null}', '{}'),
+    'null continua liberando';
+  assert public.elegivel('{"portal":[]}', '{}'),
+    'array vazio continua liberando';
+end $$;
+```
+
+Aplique com `npm run migrate:apply -- supabase/migrations/20260924234000_dimensoes_elegibilidade.sql` e reaplique para provar que continua re-rodável.
+
 - [ ] **Passo 5 (depois da tarefa 4): escrever `scripts/verificar-elegibilidade.ts`**
 
 ```js
@@ -699,11 +881,30 @@ import pg from "pg";
 // tsconfig não é resolvido por scripts rodados fora do Next.
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 import { alcanca } from "../src/lib/elegibilidade/alcanca";
+import { DIMENSOES } from "../src/lib/elegibilidade/dimensoes";
 
 const corpus = JSON.parse(readFileSync("src/lib/elegibilidade/casos.json", "utf8"));
 const client = new pg.Client(parseDbConfig());
 await client.connect();
 await client.query("SET default_transaction_read_only = on");
+
+/**
+ * PRIMEIRO as duas LISTAS, depois os casos.
+ *
+ * Comparar só o comportamento em casos escritos não pega a divergência que mais
+ * importa: alguém acrescentar uma dimensão de um lado só. O script não descobre
+ * dimensão nova sozinho a partir dos casos, então ele pergunta ao banco qual é a
+ * lista e compara com a do TypeScript.
+ */
+const { rows: dimRows } = await client.query("select public.dimensoes_elegibilidade() as d");
+const doBanco: string[] = dimRows[0].d;
+if (doBanco.join("|") !== DIMENSOES.join("|")) {
+  console.error("As DUAS LISTAS de dimensões divergem, e nenhum caso de teste pegaria isso:");
+  console.error(`  banco:      ${doBanco.join(", ")}`);
+  console.error(`  typescript: ${DIMENSOES.join(", ")}`);
+  await client.end();
+  process.exit(1);
+}
 
 let divergencias = 0;
 for (const c of corpus.casos) {
@@ -726,7 +927,9 @@ if (divergencias) {
   console.error(`\n${divergencias} divergência(s) de ${corpus.casos.length} casos.`);
   process.exit(1);
 }
-console.log(`Elegibilidade em paridade: ${corpus.casos.length} casos, SQL e TypeScript de acordo.`);
+console.log(
+  `Elegibilidade em paridade: as doze dimensões batem e ${corpus.casos.length} casos concordam entre SQL e TypeScript.`,
+);
 ```
 
 - [ ] **Passo 6: registrar o script no `package.json`**
@@ -743,7 +946,7 @@ Em `"scripts"`, ao lado de `"verificar:ui"`:
 npm run verificar:elegibilidade
 ```
 
-Esperado: `Elegibilidade em paridade: 21 casos, SQL e TypeScript de acordo.`
+Esperado: `Elegibilidade em paridade: 31 casos, SQL e TypeScript de acordo.`
 
 Se divergir, a saída nomeia o caso e mostra os três valores. Corrija o lado que
 discorda do `esperado`; se os dois discordarem do esperado, o corpus está certo
@@ -1039,17 +1242,40 @@ evitar."
 
 ```sql
   l_key   raw(32);  l_json varchar2(2000);  l_pay raw(2000);
+  l_mac   raw(32);  l_token varchar2(4000);
 ```
 
 Treze campos com até 200 caracteres cada, mais nomes e pontuação, passam de
 2.000 bytes: só os valores dão até 2.600. `varchar2(2000)` estouraria com
 `ORA-06502` no meio da sessão do cliente, e o widget simplesmente não abriria.
 
-Troque por:
+> **A primeira versão deste passo subia só `l_json` e `l_pay`, e isso era pior
+> que não mexer.** O implementador refez a conta e me corrigiu. O token é
+> `'kbt1h.' || b64url(l_pay) || '.' || b64url(l_mac)`: base64 de 6000 bytes dá
+> 8000 caracteres, mais 50 de moldura, contra um `l_token varchar2(4000)`. E o
+> `v varchar2(8000)` de dentro de `b64url` ficava exatamente no limite.
+>
+> Consertar a entrada de uma cadeia e deixar a saída menor **degrada o modo de
+> falha**: antes o payload grande estourava na atribuição do JSON, no ponto de
+> origem, com erro legível; depois passava esse portão e morria no último, longe
+> da causa.
+
+Troque a declaração inteira por:
 
 ```sql
-  l_key   raw(32);  l_json varchar2(6000);  l_pay raw(6000);
+  -- A CADEIA INTEIRA, dimensionada junta. São locais de PL/SQL: não custam nada,
+  -- e o modo de falha é o widget não abrir na sessão de um usuário real.
+  -- Dimensionar com folga é mais barato que acertar a conta.
+  l_key   raw(32);  l_json varchar2(8000);  l_pay raw(16000);
+  l_mac   raw(32);  l_token varchar2(32767);
 ```
+
+`l_pay` em 16000 porque UTF-8 dobra o byte de caractere acentuado, e nome de
+unidade e de centro de custo têm acento. `l_token` em 32767 é o máximo de
+`varchar2` em PL/SQL, então não sobra conta para alguém errar depois.
+
+E dentro de `b64url`, a local `v varchar2(8000)` vai para `v varchar2(32767)`:
+base64 de 16000 bytes dá 21336 caracteres.
 
 - [ ] **Passo 2: acrescentar os seis campos ao JSON**
 
@@ -1085,10 +1311,19 @@ No cabeçalho do arquivo, depois da linha sobre `dbms_crypto`:
 -- comparar duas instalacoes.
 ```
 
-- [ ] **Passo 4: verificar que o arquivo continua sendo lido pela tela de instalação**
+- [ ] **Passo 4: confirmar que o build não quebrou**
 
-`src/lib/gestao/instalacao-apex.ts` lê este `.sql` e preenche a chave. Confirme
-que a tela ainda renderiza depois da edição:
+> **A primeira versão deste passo afirmava que `src/lib/gestao/instalacao-apex.ts`
+> lê este arquivo. É FALSO, e o implementador me corrigiu.** Aquele módulo lê
+> `apex/gestao-iframe.sql`, que é outro arquivo. Verifiquei: **nada no código lê
+> `apex/token-rastreio.sql`** — ele é aberto e colado à mão pela equipe. Então a
+> checagem de segurança que este passo pedia era sobre o arquivo errado, e não
+> havia risco nenhum ali.
+>
+> O passo fica, reduzido ao que de fato vale: o build prova que nada mais
+> quebrou.
+
+Confirme:
 
 ```bash
 npx tsc --noEmit && NEXT_PUBLIC_BASE_PATH= npm run build 2>&1 | grep -E "Compiled successfully|error"
@@ -1485,7 +1720,7 @@ depende de nada.
 
 ## Definição de pronto
 
-- [ ] `npm run verificar:elegibilidade` passa, com os 21 casos em paridade
+- [ ] `npm run verificar:elegibilidade` passa, com os 31 casos em paridade
 - [ ] `npx vitest run` passa inteiro (a suíte tinha 2.492 testes em 24/09)
 - [ ] `npm run verificar:ui` diz "Dívida de UI estável"
 - [ ] `NEXT_PUBLIC_BASE_PATH= npm run build` compila

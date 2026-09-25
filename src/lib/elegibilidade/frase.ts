@@ -1,27 +1,26 @@
-/**
- * "QUEM VAI VER ESTE PROMPT?" — em português, enquanto a pessoa preenche.
- *
- * Seis allowlists combinadas com E, cada uma opcional, é uma regra simples de
- * implementar e difícil de conferir de cabeça: marcar o portal do Gestor E o
- * perfil FOLHA restringe à interseção, não à união, e quem cadastrou esperando
- * "gestores OU pessoal da folha" só descobre o engano quando alguém reclama de
- * não ver o prompt — sem erro em lugar nenhum para investigar. Com seis
- * dimensões o risco só cresce.
- *
- * Então a tela diz a frase resultante, ao vivo. É a mesma regra do SQL escrita
- * por extenso, e é pura de propósito: mora fora do módulo `server-only` para o
- * formulário poder usá-la, e tem teste porque é ela que o admin vai ler em vez
- * de ler o código.
- */
+import type { Regra } from "./dimensoes";
 
-export type Elegibilidade = {
-  bases: string[];
-  portais: string[];
-  perfis: string[];
-  empresas: string[];
-  usuarios: string[];
-  matriculas: string[];
-};
+/**
+ * A FRASE, e por que ela é o produto e não um enfeite.
+ *
+ * Doze allowlists combinadas com E é uma regra simples de
+ * implementar e difícil de conferir de cabeça: marcar o portal do Gestor E o
+ * perfil FOLHA restringe à INTERSEÇÃO, não à união, e quem cadastrou esperando
+ * "gestores OU pessoal da folha" só descobre quando alguém reclama de não ver o
+ * conteúdo, sem erro em lugar nenhum para investigar.
+ *
+ * Por isso a tela diz a frase resultante, ao vivo. É a mesma regra do
+ * predicado escrita por extenso, e é pura de propósito: mora fora de
+ * `server-only` para o formulário poder usá-la.
+ *
+ * O tipo vem de `dimensoes.ts` e não é declarado aqui: com a lista duplicada,
+ * acrescentar uma dimensão compilaria com a frase ignorando a nova, e o
+ * sintoma seria a tela descrevendo um alcance mais amplo do que o real.
+ */
+// A frase descreve a MESMA coisa que o predicado avalia, então usa o MESMO
+// tipo. `Elegibilidade` fica só como nome antigo, para os importadores não
+// mudarem de assinatura no mesmo commit em que mudam de módulo.
+export type Elegibilidade = Regra;
 
 /** Nome amigável dos três painéis do ERP. */
 const NOME_PORTAL: Record<string, string> = {
@@ -59,12 +58,18 @@ export function resumoElegibilidade(
   e: Partial<Elegibilidade>,
   nomeDaBase?: (code: string) => string,
 ): string {
-  const bases = cheios(e.bases);
-  const portais = cheios(e.portais);
-  const perfis = cheios(e.perfis);
-  const empresas = cheios(e.empresas);
-  const usuarios = cheios(e.usuarios);
-  const matriculas = cheios(e.matriculas);
+  const bases = cheios(e.base);
+  const portais = cheios(e.portal);
+  const perfis = cheios(e.perfil);
+  const empresas = cheios(e.empresa);
+  const usuarios = cheios(e.usuario);
+  const matriculas = cheios(e.matricula);
+  const filiais = cheios(e.filial);
+  const centros = cheios(e.centro_custo);
+  const unidadesAdm = cheios(e.unidade_adm);
+  const unidadesNeg = cheios(e.unidade_negocio);
+  const vinculos = cheios(e.vinculo);
+  const sindicatos = cheios(e.sindicato);
 
   if (
     !bases.length &&
@@ -72,7 +77,13 @@ export function resumoElegibilidade(
     !perfis.length &&
     !empresas.length &&
     !usuarios.length &&
-    !matriculas.length
+    !matriculas.length &&
+    !filiais.length &&
+    !centros.length &&
+    !unidadesAdm.length &&
+    !unidadesNeg.length &&
+    !vinculos.length &&
+    !sindicatos.length
   ) {
     return "Todos os usuários desta base veem este prompt.";
   }
@@ -96,6 +107,28 @@ export function resumoElegibilidade(
   if (perfis.length) {
     oracoes.push(`for do perfil ${lista(perfis, "ou")}`);
   }
+  if (filiais.length) {
+    oracoes.push(`for da filial ${lista(filiais, "ou")}`);
+  }
+  if (centros.length) {
+    oracoes.push(`for do centro de custo ${lista(centros, "ou")}`);
+  }
+  if (unidadesAdm.length) {
+    oracoes.push(`for da unidade administrativa ${lista(unidadesAdm, "ou")}`);
+  }
+  if (unidadesNeg.length) {
+    oracoes.push(`for da unidade de negócio ${lista(unidadesNeg, "ou")}`);
+  }
+  if (vinculos.length) {
+    // "tiver O vínculo", com artigo, como as irmãs: "tiver A matrícula",
+    // "for DA filial", "for DO centro de custo". Sem ele a oração saía fora do
+    // padrão de todas as outras, e é numa frase lida de corrido que isso
+    // atrapalha — a pessoa tropeça e relê em vez de conferir o alcance.
+    oracoes.push(`tiver o vínculo ${lista(vinculos, "ou")}`);
+  }
+  if (sindicatos.length) {
+    oracoes.push(`for do sindicato ${lista(sindicatos, "ou")}`);
+  }
   if (usuarios.length) {
     oracoes.push(
       usuarios.length === 1
@@ -114,10 +147,9 @@ export function resumoElegibilidade(
   /*
     "ou" DENTRO de uma dimensão, "e" ENTRE elas — e essa diferença é a regra.
     Dois portais marcados de fato liberam qualquer um dos dois; o que nunca é
-    "ou" é a junção base × portal × empresa × perfil × usuário × matrícula.
-    Escrever "ou" nos dois níveis seria mentir sobre a interseção; escrever "e"
-    nos dois produziria "no portal Gestor e Operador", que ninguém está ao
-    mesmo tempo.
+    "ou" é a junção entre as doze dimensões. Escrever "ou" nos dois níveis
+    seria mentir sobre a interseção; escrever "e" nos dois produziria "no
+    portal Gestor e Operador", que ninguém está ao mesmo tempo.
   */
   return `Só quem ${lista(oracoes, "e")}.`;
 }
@@ -144,8 +176,8 @@ export function avisoDeAlcance(
     return usados.filter((p) => !set.has(p.trim().toLowerCase()));
   };
 
-  const perfis = fora(cheios(e.perfis), conhecidos.perfis);
-  const empresas = fora(cheios(e.empresas), conhecidos.empresas);
+  const perfis = fora(cheios(e.perfil), conhecidos.perfis);
+  const empresas = fora(cheios(e.empresa), conhecidos.empresas);
   if (!perfis.length && !empresas.length) return null;
 
   const partes: string[] = [];

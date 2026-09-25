@@ -7,6 +7,7 @@ import type { WidgetKeyRow } from "./widget-manager";
 import type { ApiKeyRow } from "./api-key-manager";
 import { ChatbotTabs } from "../chatbot/chatbot-tabs";
 import { TrackingKeyPanel } from "./tracking-key-panel";
+import { blocoTokenRastreio } from "@/lib/tracking/bloco-apex";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { PageShell } from "@/components/ui/page-shell";
 import { AbasRota } from "@/components/admin/abas-rota";
@@ -103,6 +104,12 @@ export default async function WidgetPage() {
         <TrackingKeyPanel
           spaces={spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))}
           siteUrl={env.NEXT_PUBLIC_SITE_URL}
+          /* O bloco PL/SQL vem do ARQUIVO que a equipe cola
+             (`apex/token-rastreio.sql`), lido aqui porque o painel é componente
+             de cliente. Antes a tela tinha a própria cópia, e as duas
+             divergiram: o arquivo foi para doze dimensões e a da tela ficou em
+             seis. Ver src/lib/tracking/bloco-apex.ts. */
+          apexBloco={await blocoTokenRastreio(env.NEXT_PUBLIC_SITE_URL)}
         />
       )}
     </PageShell>
