@@ -9,7 +9,7 @@ import {
   salvarCategoriaPrompt,
   excluirCategoriaPrompt,
 } from "@/app/gestao/prompts/actions";
-import { resumoElegibilidade, avisoDeAlcance } from "@/lib/elegibilidade";
+import { resumoElegibilidade, avisoDeAlcance, type Regra } from "@/lib/elegibilidade";
 import { Segmented } from "@/components/ui/segmented";
 import { MultiSelecao } from "./multi-selecao";
 
@@ -34,11 +34,30 @@ type PromptAdmin = {
 type Categoria = { id: string; nome: string; ordem: number; ativo: boolean; global: boolean };
 
 /**
- * Os seis campos de elegibilidade deste cadastro são plurais porque espelham
- * as colunas da tabela (`bases`, `portais`, `perfis`…) — mudar isso é mudança
- * de schema, fora do escopo desta tela. O motor de elegibilidade usa o nome da
- * dimensão no singular, então a FRASE (e só ela) passa por esta tradução;
- * o que vai para `salvarPromptSugerido` continua com os nomes de coluna.
+ * A tradução plural → singular, e por que ela é obrigatória bem aqui.
+ *
+ * As colunas de `prompt_sugerido` são plurais por herança (`bases`, `portais`,
+ * `perfis`, `empresas`, `usuarios`, `matriculas`): o cadastro nasceu antes do
+ * motor de doze dimensões, e renomear uma coluna é migration, fora do escopo
+ * desta tela. O motor usa o nome da dimensão no singular, então esta função é
+ * a única ponte entre os dois nomes — e só a FRASE passa por ela; o que vai
+ * para `salvarPromptSugerido` continua com os nomes de coluna, sem tradução.
+ *
+ * Ela mora no componente, não num módulo compartilhado, porque `sugeridos.ts`
+ * é `server-only` e este arquivo é `"use client"`.
+ *
+ * `prompt_sugerido` só tem SEIS das doze dimensões do motor. As outras seis
+ * (filial, centro de custo, unidade administrativa, unidade de negócio,
+ * vínculo, sindicato) ficam de fora de propósito, porque a tabela não tem
+ * essas colunas, e o predicado lê dimensão ausente como "não restringe".
+ *
+ * A ARMADILHA: no dia em que `prompt_sugerido` ganhar uma sétima coluna, esta
+ * função precisa ganhar uma linha junto. Esquecer não quebra a compilação nem
+ * falha teste nenhum: a chave nova simplesmente não chega a `Regra`, e a
+ * frase passa a descrever um alcance MAIS AMPLO do que o real, que é o pior
+ * sentido possível para esse erro. O retorno tipado como `Regra` pega o nome
+ * de dimensão digitado errado do lado esquerdo (typo vira erro de compilação,
+ * não vira chave ignorada); não pega a coluna nova que ninguém acrescentou.
  */
 function paraRegra(e: {
   bases: string[];
@@ -47,7 +66,7 @@ function paraRegra(e: {
   empresas: string[];
   usuarios: string[];
   matriculas: string[];
-}) {
+}): Regra {
   return {
     base: e.bases,
     portal: e.portais,
