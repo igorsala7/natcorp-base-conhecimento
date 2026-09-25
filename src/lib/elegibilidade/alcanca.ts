@@ -12,7 +12,7 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
  * mostra enquanto o admin digita.
  *
  * Duas implementações da mesma regra divergem; é questão de quando. As duas
- * lêm `casos.json` e `scripts/verificar-elegibilidade.ts` falha se
+ * lêem `casos.json` e `scripts/verificar-elegibilidade.ts` falha se
  * discordarem em um único caso.
  *
  * Quatro decisões que parecem detalhe e não são:
