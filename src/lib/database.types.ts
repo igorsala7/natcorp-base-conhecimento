@@ -384,6 +384,51 @@ export type Database = {
           },
         ]
       }
+      ai_base_documentacoes: {
+        Row: {
+          base_id: string
+          criado_em: string
+          criado_por: string | null
+          enabled: boolean
+          observacao: string | null
+          regra: Json
+          space_id: string
+        }
+        Insert: {
+          base_id: string
+          criado_em?: string
+          criado_por?: string | null
+          enabled?: boolean
+          observacao?: string | null
+          regra?: Json
+          space_id: string
+        }
+        Update: {
+          base_id?: string
+          criado_em?: string
+          criado_por?: string | null
+          enabled?: boolean
+          observacao?: string | null
+          regra?: Json
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_base_documentacoes_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "ai_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_base_documentacoes_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_base_spaces: {
         Row: {
           base_id: string
@@ -2867,6 +2912,41 @@ export type Database = {
             foreignKeyName: "data_dictionary_jobs_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documentacoes_universais: {
+        Row: {
+          criado_em: string
+          criado_por: string | null
+          enabled: boolean
+          observacao: string | null
+          regra: Json
+          space_id: string
+        }
+        Insert: {
+          criado_em?: string
+          criado_por?: string | null
+          enabled?: boolean
+          observacao?: string | null
+          regra?: Json
+          space_id: string
+        }
+        Update: {
+          criado_em?: string
+          criado_por?: string | null
+          enabled?: boolean
+          observacao?: string | null
+          regra?: Json
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documentacoes_universais_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: true
             referencedRelation: "spaces"
             referencedColumns: ["id"]
           },

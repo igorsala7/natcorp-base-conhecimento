@@ -30,6 +30,21 @@ describe("resumo da elegibilidade", () => {
     expect(resumoElegibilidade({})).toBe("Todos os usuários desta base veem este prompt.");
   });
 
+  it("nomeia a COISA restringida quando o chamador diz qual é", () => {
+    // A aba de documentações anexáveis restringe documentação, não prompt. Sem
+    // este parâmetro a única frase com substantivo diria "veem este prompt" numa
+    // tela que não configura prompt nenhum — e a saída alternativa (a tela
+    // escrever a própria frase nesse caso) poria duas descrições da mesma regra
+    // no produto.
+    expect(resumoElegibilidade(vazio, undefined, "esta documentação")).toBe(
+      "Todos os usuários desta base veem esta documentação.",
+    );
+    // Restrita, a frase não tem substantivo e o parâmetro não muda nada.
+    expect(resumoElegibilidade({ ...vazio, portal: ["PG"] }, undefined, "esta documentação")).toBe(
+      "Só quem estiver no portal do Gestor.",
+    );
+  });
+
   it("traduz o código do painel para o nome que o cliente conhece", () => {
     expect(resumoElegibilidade({ ...vazio, portal: ["PG"] })).toBe(
       "Só quem estiver no portal do Gestor.",

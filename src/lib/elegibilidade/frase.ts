@@ -53,10 +53,19 @@ const cheios = (v: string[] | undefined) => (v ?? []).filter((x) => x && x.trim(
  *
  * `nomeDaBase` existe porque a allowlist guarda o CÓDIGO da base e o admin
  * conhece o nome. Sem ele a frase diria "for da base leadec_sa".
+ *
+ * `oQue` nomeia a COISA restringida, e o padrão é "este prompt" porque foi o
+ * primeiro chamador. A aba de documentações anexáveis restringe documentação, e
+ * sem o parâmetro a única frase com substantivo — a do caso sem restrição —
+ * diria "veem este prompt" numa tela que não configura prompt nenhum. A saída
+ * alternativa seria a tela escrever a própria frase nesse caso, e aí haveria
+ * duas descrições da mesma regra no produto: exatamente o que este arquivo
+ * existe para impedir.
  */
 export function resumoElegibilidade(
   e: Partial<Elegibilidade>,
   nomeDaBase?: (code: string) => string,
+  oQue = "este prompt",
 ): string {
   const bases = cheios(e.base);
   const portais = cheios(e.portal);
@@ -85,7 +94,7 @@ export function resumoElegibilidade(
     !vinculos.length &&
     !sindicatos.length
   ) {
-    return "Todos os usuários desta base veem este prompt.";
+    return `Todos os usuários desta base veem ${oQue}.`;
   }
 
   // A ordem vai do recorte mais largo ao mais estreito — cliente, tela,
