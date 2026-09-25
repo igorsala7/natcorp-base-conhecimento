@@ -21,9 +21,21 @@
 -- Traduzir de um lado só já custou um bug neste projeto.
 -- =====================================================================
 
-drop function if exists public.vocabulario_rastreio(text);
-
-create function public.vocabulario_rastreio(base_ref text default null)
+-- ── `create or replace`, e NÃO `drop` + `create` ─────────────────────
+-- Este arquivo fazia `drop function` + `create function`. Função recém
+-- criada nasce com EXECUTE para PUBLIC, e o `grant` daqui somava
+-- `authenticated`. Como não há ledger de migrations — a convenção do
+-- projeto é que reaplicar tem de ser seguro, e `npm run migrate:apply`
+-- convida a isso —, reaplicar ESTE arquivo desfazia em silêncio a
+-- correção de segurança de `20260925003000` e devolvia a enumeração de
+-- matrícula entre clientes a qualquer conta autenticada. `security
+-- definer` + `base_ref` nulo devolve perfil, empresa, usuário e matrícula
+-- de TODOS os clientes.
+--
+-- `create or replace` preserva o ACL e não pode mudar o tipo de retorno —
+-- medido na revisão da tarefa: o retorno não mudou entre a versão de duas
+-- dimensões e esta, então o `replace` basta.
+create or replace function public.vocabulario_rastreio(base_ref text default null)
 returns table (campo text, valor text, conversas bigint)
 language sql
 stable
@@ -65,8 +77,27 @@ $$;
 comment on function public.vocabulario_rastreio(text) is
   'Valores DISTINTOS já vistos por dimensão de elegibilidade nas conversas da base (ou de todas, se base_ref é nulo), com contagem. Alimenta o diagnóstico "esta base nunca enviou valor nesta dimensão". `campo` usa o nome da dimensão, não o do parâmetro p_*.';
 
-revoke all on function public.vocabulario_rastreio(text) from public, anon;
-grant execute on function public.vocabulario_rastreio(text) to authenticated, service_role;
+-- SÓ `service_role`. O único consumidor (`vocabularioDoEscopo`) usa
+-- `createAdminClient()`, e as funções irmãs (gestao_ciclos,
+-- gestao_conversas_facetas, prompts_sugeridos) são todas `postgres,
+-- service_role`. `authenticated` aqui era erro de quem escreveu o plano, e
+-- custou a correção de `20260925003000`.
+revoke all on function public.vocabulario_rastreio(text) from public, anon, authenticated;
+grant execute on function public.vocabulario_rastreio(text) to service_role;
+
+-- A assertiva é o teste de regressão DESTE arquivo: reaplicá-lo sozinho não
+-- pode mais alargar o acesso.
+do $$
+declare
+  v_quem text;
+begin
+  select string_agg(distinct grantee, ', ' order by grantee)
+    into v_quem
+    from information_schema.role_routine_grants
+   where routine_schema = 'public' and routine_name = 'vocabulario_rastreio';
+  assert v_quem = 'postgres, service_role',
+    'grants de vocabulario_rastreio deveriam ser postgres, service_role — vieram: ' || coalesce(v_quem, '(nenhum)');
+end $$;
 
 -- `base` não entra no vocabulário: a base é o filtro, não uma dimensão a
 -- descobrir. Oferecê-la aqui deixaria a tela sugerir restringir um
