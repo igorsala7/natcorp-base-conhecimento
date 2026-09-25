@@ -1013,11 +1013,32 @@ temporariamente o script para anexar a documentação de B à base A e confirme 
 ele acusa e sai com código diferente de zero. Desfaça a sabotagem e diga no
 report as duas saídas.
 
+- [ ] **Passo 2b: a cerca do `anon` vira teste REPETÍVEL, não assertiva de uma vez**
+
+Acrescentado depois da re-revisão da tarefa 2, que foi honesta sobre o limite do
+que ela entregou: a assertiva comportamental que criamos lá roda **uma vez**, no
+`migrate:apply`. Não há ledger de migrations neste projeto, não há reaplicação
+automática e não há pgTAP. Se uma migration futura reescrever
+`chunks_public_read` para vazar, nada roda aquela assertiva de novo.
+
+Então o mesmo invariante entra neste script, que passa a ser chamado pela CI:
+
+- em transação, com `set local role anon`, contar `chunks` com `node_id is null`
+  alcançáveis. Tem de ser zero;
+- e, no mesmo molde da prova da tarefa 2, o script precisa **falhar quando
+  sabotado**. Reaproveite o mecanismo de sabotagem com `rollback` que você já vai
+  escrever para o isolamento.
+
+Sem isto, a proteção da cerca pública é revisão de código, não banco — e o dono
+precisa saber qual das duas é.
+
 - [ ] **Passo 3: registrar como superfície medida**
 
-Acrescente ao job `superficie-medida` da CI uma entrada para
-`^supabase/migrations/.*(documentaco|arquivo_de_base)` e para
-`^src/lib/ai/escopo-da-base` apontando para este script.
+Acrescente ao job `superficie-medida` da CI três entradas apontando para este
+script: `^supabase/migrations/.*(documentaco|arquivo_de_base)`,
+`^src/lib/ai/escopo-da-base`, e **`^supabase/migrations/`** em geral para a cerca
+do `anon` — porque qualquer migration pode mexer numa policy, e o ponto do passo
+2b é que a cerca deixe de depender de alguém lembrar.
 
 ---
 
