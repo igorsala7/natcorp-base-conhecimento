@@ -51,6 +51,14 @@ export function decidirEscopo(linhas: LinhasDoEscopo, spaceIdsDaChave: string[])
  * Erro de banco NÃO derruba o turno: devolve o escopo da chave, que é o
  * comportamento de antes desta mudança. Uma falha de leitura de configuração
  * não deve apagar a documentação do cliente.
+ *
+ * O log nos dois pontos de queda é OBRIGATÓRIO, não enfeite: sem ele, "o
+ * cliente não configurou nada" e "a leitura da configuração está quebrada"
+ * produzem exatamente o mesmo resultado visível — o escopo da chave, em
+ * silêncio — e não há como distinguir os dois de fora. `rag.ts` já corrigiu
+ * essa MESMA classe de defeito no catch do embedding da consulta (era um
+ * catch mudo, virou `console.error`); esta função tinha reintroduzido o
+ * defeito 250 linhas acima, no mesmo caminho.
  */
 export async function resolverEscopoDaBase(
   db: SupabaseClient,
@@ -65,6 +73,15 @@ export async function resolverEscopoDaBase(
       db.rpc("documentos_da_base", { p_base: base, p_identidade: identidade }),
     ]);
     if (docs.error || arqs.error) {
+      // A RPC RESPONDEU, mas com erro (permissão, assinatura mudou, função
+      // inexistente) — diferente da exceção do catch abaixo (transporte/rede).
+      // Só a BASE entra na mensagem; a identidade carrega matrícula e usuário,
+      // e log não é lugar de dado de pessoa.
+      console.error(
+        `[escopo-da-base] RPC de escopo respondeu com erro para a base "${base}", caindo no escopo da chave:`,
+        docs.error?.message ?? "(escopo_documentacao ok)",
+        arqs.error?.message ?? "(documentos_da_base ok)",
+      );
       return decidirEscopo({ documentacoes: [], documentos: [] }, spaceIdsDaChave);
     }
     return decidirEscopo(
@@ -74,7 +91,14 @@ export async function resolverEscopoDaBase(
       },
       spaceIdsDaChave,
     );
-  } catch {
+  } catch (e) {
+    // Exceção de TRANSPORTE (rede, timeout) ou algo inesperado que nem chegou
+    // a virar resposta com `.error` — diferente do caso acima. Mesma regra:
+    // só a base na mensagem, nunca a identidade.
+    console.error(
+      `[escopo-da-base] falha ao resolver o escopo da base "${base}", caindo no escopo da chave:`,
+      e instanceof Error ? e.message : e,
+    );
     return decidirEscopo({ documentacoes: [], documentos: [] }, spaceIdsDaChave);
   }
 }
