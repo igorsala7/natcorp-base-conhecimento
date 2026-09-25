@@ -59,3 +59,19 @@ export const CHAVE_DE_DIMENSAO: Record<Dimensao, TrackingKey> = {
   vinculo: "p_vinculo",
   sindicato: "p_sindicato",
 };
+
+/**
+ * `ai_base_tools` NÃO usa este motor, e é decisão do dono (24/09), não
+ * esquecimento.
+ *
+ * Allowlist de FERRAMENTA decide qual API o modelo pode chamar; allowlist de
+ * CONTEÚDO decide quem pode ver um documento. São perguntas diferentes que só
+ * por acidente têm a mesma forma, e unificá-las faria uma mudança na regra de
+ * publicação mexer no roteamento de ferramenta.
+ *
+ * Além disso o funil de ferramentas é superfície MEDIDA deste produto
+ * (`npm run eval:tools`), e mexer nele sem medir antes e depois viola a regra
+ * de operação do CLAUDE.md.
+ *
+ * Se você veio aqui para unificar: leia isto de novo.
+ */

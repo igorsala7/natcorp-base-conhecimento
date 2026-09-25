@@ -6,3 +6,4 @@ export {
   normalizarRegra,
   dimensoesComRestricaoVazia,
 } from "./alcanca";
+export { resumoElegibilidade, avisoDeAlcance, nomeDoPortal } from "./frase";

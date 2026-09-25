@@ -9,7 +9,7 @@ import {
   salvarCategoriaPrompt,
   excluirCategoriaPrompt,
 } from "@/app/gestao/prompts/actions";
-import { resumoElegibilidade, avisoDeAlcance } from "@/lib/prompts/elegibilidade";
+import { resumoElegibilidade, avisoDeAlcance } from "@/lib/elegibilidade";
 import { Segmented } from "@/components/ui/segmented";
 import { MultiSelecao } from "./multi-selecao";
 
@@ -32,6 +32,31 @@ type PromptAdmin = {
 };
 
 type Categoria = { id: string; nome: string; ordem: number; ativo: boolean; global: boolean };
+
+/**
+ * Os seis campos de elegibilidade deste cadastro são plurais porque espelham
+ * as colunas da tabela (`bases`, `portais`, `perfis`…) — mudar isso é mudança
+ * de schema, fora do escopo desta tela. O motor de elegibilidade usa o nome da
+ * dimensão no singular, então a FRASE (e só ela) passa por esta tradução;
+ * o que vai para `salvarPromptSugerido` continua com os nomes de coluna.
+ */
+function paraRegra(e: {
+  bases: string[];
+  portais: string[];
+  perfis: string[];
+  empresas: string[];
+  usuarios: string[];
+  matriculas: string[];
+}) {
+  return {
+    base: e.bases,
+    portal: e.portais,
+    perfil: e.perfis,
+    empresa: e.empresas,
+    usuario: e.usuarios,
+    matricula: e.matriculas,
+  };
+}
 
 type Vocabulario = {
   portais: { id: string; nome: string }[];
@@ -302,7 +327,7 @@ export function PromptsSugeridos({
                   </p>
                   <p className="mt-1 text-sm text-text-muted">{p.texto}</p>
                   <p className="mt-2 text-xs text-text-muted">
-                    {resumoElegibilidade(p, nomeDaBase)}
+                    {resumoElegibilidade(paraRegra(p), nomeDaBase)}
                   </p>
                   {p.categoriaIds.length ? (
                     <ul className="mt-2 flex flex-wrap gap-1">
@@ -420,7 +445,7 @@ function FormularioPrompt({
   // seria "desconhecido" e o aviso viraria ruído garantido.
   const aviso =
     vocab.perfis.length || vocab.empresas.length
-      ? avisoDeAlcance(eleg, { perfis: vocab.perfis, empresas: vocab.empresas })
+      ? avisoDeAlcance(paraRegra(eleg), { perfis: vocab.perfis, empresas: vocab.empresas })
       : null;
 
   const nomeDaBase = useMemo(() => {
@@ -587,7 +612,7 @@ function FormularioPrompt({
         escrito assim, e não deduzido de seis campos vazios.
       */}
       <p className="mt-3 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text">
-        {resumoElegibilidade(eleg, nomeDaBase)}
+        {resumoElegibilidade(paraRegra(eleg), nomeDaBase)}
       </p>
       {aviso ? <p className="mt-2 text-xs text-warning">{aviso}</p> : null}
 
