@@ -158,6 +158,17 @@ async function retrieveWith(
    * partir dos espaços — nunca substituem.
    */
   documentosDaBase?: string[],
+  /**
+   * `base_code` a passar como `p_base` para as RPCs — a CERCA de
+   * propriedade do banco (tarefa 7), nunca de elegibilidade. Só vai
+   * quando `resolverEscopoDaBase` devolveu `origem === "base"`: se caiu
+   * no escopo da CHAVE (cliente ainda não migrado), os documentos
+   * legítimos dele vêm por `spaceIds`/`documentIds` de outro jeito, e
+   * filtrar por base aqui cortaria conteúdo válido. `null`/`undefined`
+   * preserva o comportamento de todo chamador sem base (portal, Cmd+K,
+   * editor).
+   */
+  baseAlvo?: string | null,
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -286,6 +297,8 @@ async function retrieveWith(
     // A5: teto de GRUPOS (top-N manuais/documentos). undefined → default 2 (função);
     // pergunta composta pede 3-4 para cruzar mais manuais.
     p_group_limit: grupos ?? undefined,
+    // CERCA de propriedade (tarefa 7): só quando o escopo veio da BASE.
+    p_base: baseAlvo ?? undefined,
   });
 
   // `node_id` explicitamente anulável: os tipos gerados declaram toda coluna de
@@ -316,6 +329,7 @@ async function retrieveWith(
         p_node_ids: faltando,
         p_limit: 1,
         p_boost: boost ?? undefined,
+        p_base: baseAlvo ?? undefined,
       });
       if (forcado && forcado.length > 0) {
         forcadoNodeId = forcado[0]!.node_id ?? null;
@@ -347,6 +361,7 @@ async function retrieveWith(
         p_node_ids: lembrados,
         p_limit: _vagas,
         p_boost: boost ?? undefined,
+        p_base: baseAlvo ?? undefined,
       });
       if (extra && extra.length) resultados = [...resultados, ...extra].slice(0, limit);
     }
@@ -371,6 +386,7 @@ async function retrieveWith(
       p_query: limparConsultaLista(query),
       p_document_ids: documentIds,
       p_limit: 40,
+      p_base: baseAlvo ?? undefined,
     });
     if (lista?.length) {
       // Dedup por CONTEÚDO — inclusive entre as próprias linhas (há cópias do
@@ -526,10 +542,16 @@ export async function retrievePublicContext(
   // os dois.
   let idsDeEspaco = ids;
   let documentosDaBase: string[] = [];
+  // CERCA de propriedade (tarefa 7): só vai ao banco quando o escopo REALMENTE
+  // veio da base (`origem === "base"`). Com `origem === "chave"` o cliente
+  // ainda não foi migrado — os documentos legítimos dele chegam pelos
+  // `spaceIds` da chave, e filtrar por base aqui cortaria conteúdo válido.
+  let baseAlvo: string | null = null;
   if (opts?.base) {
     const escopo = await resolverEscopoDaBase(supabase, opts.base, opts.track ?? {}, ids);
     idsDeEspaco = escopo.spaceIds;
     documentosDaBase = escopo.documentIds;
+    baseAlvo = escopo.origem === "base" ? opts.base : null;
   }
 
   // O client admin precisa ir junto: sem ele getEffectiveTreePublic cai no
@@ -552,6 +574,7 @@ export async function retrievePublicContext(
     opts?.grupos,
     opts?.continuidade,
     documentosDaBase,
+    baseAlvo,
   );
 }
 

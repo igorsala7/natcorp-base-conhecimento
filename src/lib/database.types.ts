@@ -5936,6 +5936,7 @@ export type Database = {
       }
       hybrid_search_scoped: {
         Args: {
+          p_base?: string
           p_boost?: string
           p_document_ids?: string[]
           p_embedding?: string
@@ -5959,7 +5960,12 @@ export type Database = {
         Returns: undefined
       }
       knowledge_list_chunks: {
-        Args: { p_document_ids: string[]; p_limit?: number; p_query: string }
+        Args: {
+          p_base?: string
+          p_document_ids: string[]
+          p_limit?: number
+          p_query: string
+        }
         Returns: {
           content: string
           document_id: string

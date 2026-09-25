@@ -1,6 +1,7 @@
 /**
  * Prova de ISOLAMENTO ENTRE BASES para documentação e arquivo anexáveis
- * (tarefa 6), contra o banco real de PRODUÇÃO.
+ * (tarefa 6), e da CERCA DE PROPRIEDADE dentro de `hybrid_search_scoped` e
+ * `knowledge_list_chunks` (tarefa 7), contra o banco real de PRODUÇÃO.
  *
  * ── Por que este script existe ───────────────────────────────────────
  * O widget entra como `service_role`, que tem `rolbypassrls` — RLS nunca
@@ -10,7 +11,7 @@
  * um cliente à base de outro. Não há cerca de RLS aqui porque não pode
  * haver: este script É a cerca.
  *
- * Duas provas, uma atrás da outra:
+ * Três provas, uma atrás da outra:
  *
  *   1) ISOLAMENTO ENTRE BASES — cria duas bases e duas documentações de
  *      teste, anexa cada uma à sua base, cria um arquivo de base em cada, e
@@ -18,7 +19,16 @@
  *      caso do passo 6 do brief: uma terceira documentação, restrita por
  *      `regra` a um portal, prova que a identidade ERRADA não a alcança.
  *
- *   2) A CERCA DO `anon`, agora REPETÍVEL — a tarefa 2 deixou uma assertiva
+ *   2) A CERCA DE PROPRIEDADE dentro de `hybrid_search_scoped` e
+ *      `knowledge_list_chunks` (tarefa 7) — cria um CHUNK pesquisável para
+ *      o arquivo de cada base e chama as duas funções com `p_document_ids`
+ *      contendo os DOIS arquivos (A e B) mas `p_base` só da base A: é
+ *      exatamente o erro que a aplicação poderia cometer (montar a lista
+ *      errada), e a prova é que o arquivo de B desaparece do resultado
+ *      MESMO estando explicitamente pedido. Sem `p_base`, os dois
+ *      aparecem — prova que a cerca não muda nada para quem não a usa.
+ *
+ *   3) A CERCA DO `anon`, agora REPETÍVEL — a tarefa 2 deixou uma assertiva
  *      de comportamento em `20260925116000_assertiva_de_comportamento_do_anon.sql`
  *      que roda UMA VEZ, no `migrate:apply`. Não há ledger de migrations
  *      neste projeto, não há reaplicação automática e não há pgTAP: se uma
@@ -187,6 +197,19 @@ async function main() {
         )
       ).rows[0]!.id;
 
+      // Um CHUNK pesquisável para cada arquivo, com o MESMO marcador nos
+      // dois — para uma única consulta casar os dois documentos igualmente
+      // quando a cerca (tarefa 7) não estiver ativa. `tsv` é coluna GERADA
+      // (generated always as to_tsvector(...) stored): não entra no insert.
+      await client.query(
+        `insert into public.chunks (document_id, content) values ($1, $2)`,
+        [docA, `${PREFIXO}conteudo zzmarcadorisolamento7 do arquivo da base A`],
+      );
+      await client.query(
+        `insert into public.chunks (document_id, content) values ($1, $2)`,
+        [docB, `${PREFIXO}conteudo zzmarcadorisolamento7 do arquivo da base B`],
+      );
+
       const codigoBaseA = `${PREFIXO}base-a`;
       const codigoBaseB = `${PREFIXO}base-b`;
 
@@ -246,7 +269,72 @@ async function main() {
         `documentos(B) = [${arquivosB.join(", ") || "vazio"}]`,
       );
 
-      // ── 7. Passo 6 do brief: regra restrita por portal ────────────────
+      // ── 7. Tarefa 7: a cerca de PROPRIEDADE em hybrid_search_scoped e
+      //      knowledge_list_chunks ─────────────────────────────────────
+      // A prova do passo 5 do brief da tarefa 7: chama as duas RPCs com
+      // `p_document_ids` contendo os DOIS arquivos (A e B) — a aplicação
+      // ERRANDO a lista, de propósito — e `p_base` só da base A. O arquivo
+      // de B tem de desaparecer do resultado MESMO pedido explicitamente.
+      // Sem `p_base`, os dois aparecem: prova que a cerca não muda nada
+      // para quem não a usa (todo chamador hoje: portal, Cmd+K, editor).
+      const hssSemBase = (
+        await client.query<{ document_id: string }>(
+          `select document_id from public.hybrid_search_scoped(
+             p_query := 'zzmarcadorisolamento7', p_document_ids := $1::uuid[], p_limit := 10, p_group_limit := 10)`,
+          [[docA, docB]],
+        )
+      ).rows.map((r) => r.document_id);
+      const hssComBaseA = (
+        await client.query<{ document_id: string }>(
+          `select document_id from public.hybrid_search_scoped(
+             p_query := 'zzmarcadorisolamento7', p_document_ids := $1::uuid[], p_limit := 10,
+             p_group_limit := 10, p_base := $2)`,
+          [[docA, docB], codigoBaseA],
+        )
+      ).rows.map((r) => r.document_id);
+
+      registra(
+        casos,
+        "hybrid_search_scoped SEM p_base: os dois arquivos aparecem (comportamento inalterado)",
+        hssSemBase.includes(docA) && hssSemBase.includes(docB),
+        `document_ids = [${hssSemBase.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "hybrid_search_scoped COM p_base da base A: o arquivo de B desaparece MESMO pedido em p_document_ids",
+        hssComBaseA.includes(docA) && !hssComBaseA.includes(docB),
+        `document_ids = [${hssComBaseA.join(", ") || "vazio"}]`,
+      );
+
+      const klcSemBase = (
+        await client.query<{ document_id: string }>(
+          `select document_id from public.knowledge_list_chunks(
+             p_query := 'zzmarcadorisolamento7', p_document_ids := $1::uuid[], p_limit := 40)`,
+          [[docA, docB]],
+        )
+      ).rows.map((r) => r.document_id);
+      const klcComBaseA = (
+        await client.query<{ document_id: string }>(
+          `select document_id from public.knowledge_list_chunks(
+             p_query := 'zzmarcadorisolamento7', p_document_ids := $1::uuid[], p_limit := 40, p_base := $2)`,
+          [[docA, docB], codigoBaseA],
+        )
+      ).rows.map((r) => r.document_id);
+
+      registra(
+        casos,
+        "knowledge_list_chunks SEM p_base: os dois arquivos aparecem (comportamento inalterado)",
+        klcSemBase.includes(docA) && klcSemBase.includes(docB),
+        `document_ids = [${klcSemBase.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "knowledge_list_chunks COM p_base da base A: o arquivo de B desaparece MESMO pedido em p_document_ids",
+        klcComBaseA.includes(docA) && !klcComBaseA.includes(docB),
+        `document_ids = [${klcComBaseA.join(", ") || "vazio"}]`,
+      );
+
+      // ── 8. Passo 6 do brief: regra restrita por portal ────────────────
       // C está anexada a A com regra {"portal": ["PG"]}. Identidade com
       // portal ERRADO não pode alcançar; com o portal CERTO, alcança.
       const escopoA_portalErrado = (
@@ -275,7 +363,7 @@ async function main() {
         `escopo(A, identidade portal=PG) = [${escopoA_portalCerto.join(", ") || "vazio"}]`,
       );
 
-      // ── 8. A cerca do anon, agora repetível (passo 2b) ────────────────
+      // ── 9. A cerca do anon, agora repetível (passo 2b) ────────────────
       if (SABOTAR === "anon") {
         // SABOTAGEM: mesmo formato vazador que a migration
         // 20260925116000 documentou — acrescenta `OR chunks.node_id IS NULL`
@@ -318,7 +406,8 @@ async function main() {
 
     // ── Prova de que nada sujou produção ────────────────────────────────
     // Fora de qualquer transação: se o rollback falhou silenciosamente por
-    // algum motivo, isto pega. Conta por prefixo nas quatro tabelas tocadas.
+    // algum motivo, isto pega. Conta por prefixo nas cinco tabelas tocadas
+    // (a quinta, `chunks`, entrou com a tarefa 7).
     const restos = Number(
       (
         await client.query<{ n: string }>(
@@ -327,7 +416,8 @@ async function main() {
              (select count(*) from public.spaces where slug like $1) +
              (select count(*) from public.ai_base_documentacoes d
                 join public.spaces s on s.id = d.space_id where s.slug like $1) +
-             (select count(*) from public.knowledge_documents where original_name like $1)
+             (select count(*) from public.knowledge_documents where original_name like $1) +
+             (select count(*) from public.chunks where content like $1)
            )::text as n`,
           [`${PREFIXO}%`],
         )
@@ -346,7 +436,7 @@ async function main() {
     console.log(
       `\n  ${
         falhas === 0
-          ? "PASSOU — nenhuma base alcança a documentação da outra, a regra por portal fecha a identidade errada, e a cerca do anon segue de pé"
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada, e a cerca do anon segue de pé"
           : `FALHOU em ${falhas} caso(s)`
       }\n`,
     );
