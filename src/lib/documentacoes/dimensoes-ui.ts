@@ -314,6 +314,25 @@ export function formularioParaRegra(f: FormularioDeRegra): Regra {
   return regra;
 }
 
+/**
+ * A regra SEM a dimensão de cliente, para a tela do cliente MOSTRAR.
+ *
+ * A área do cliente (`/gestao/conteudo`) não pode imprimir o código de outro
+ * cliente na tela deste — e uma documentação universal restrita a dois clientes
+ * faria exatamente isso na frase de alcance. Ali a condição de cliente é
+ * verdadeira por construção (a página só lista o que vale para a base da
+ * sessão), então retirá-la não muda o sentido do que é dito.
+ *
+ * Só para MOSTRAR: o que vai ao banco é a regra inteira. Descartar a dimensão no
+ * caminho de gravação transformaria uma regra que fecha numa regra que abre, que
+ * é o defeito que o validador de chaves existe para impedir.
+ */
+export function regraSemCliente(regra: Regra): Regra {
+  const out = { ...regra };
+  delete out.base;
+  return out;
+}
+
 export type ValorOferecido = {
   valor: string;
   /** Nome legível, quando o cadastro tem um. */

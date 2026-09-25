@@ -27,16 +27,20 @@ import { linkGestao, type SessaoGestao } from "@/lib/gestao/sessao";
  * mínimo: onde estou, de que base, e as quatro páginas irmãs.
  */
 
-export type AbaGestao = "consumo" | "creditos" | "acessos" | "prompts" | "conversas";
+export type AbaGestao = "consumo" | "creditos" | "acessos" | "prompts" | "conteudo" | "conversas";
 
 const ABAS: { id: AbaGestao; rotulo: string; href: string }[] = [
   { id: "consumo", rotulo: "Consumo", href: "/gestao" },
   { id: "creditos", rotulo: "Créditos", href: "/gestao/creditos" },
   { id: "acessos", rotulo: "Acessos", href: "/gestao/acessos" },
-  // "Prompts" entre Acessos e Conversas de propósito: as três abas do meio são
-  // as de CONFIGURAR o assistente (quanto pode gastar, quem pode o quê, o que
-  // já vem escrito), e Conversas é a de OLHAR o que aconteceu.
+  // "Prompts" e "Conteúdo" entre Acessos e Conversas de propósito: as QUATRO
+  // abas do meio são as de CONFIGURAR o assistente (quanto pode gastar, quem
+  // pode o quê, o que já vem escrito, sobre o que ele responde), e Conversas é a
+  // de OLHAR o que aconteceu.
   { id: "prompts", rotulo: "Prompts", href: "/gestao/prompts" },
+  // "Conteúdo", e não "Documentações": a aba também vai receber os ARQUIVOS da
+  // própria empresa (projeto 2), e renomear aba é churn que o usuário percebe.
+  { id: "conteudo", rotulo: "Conteúdo", href: "/gestao/conteudo" },
   { id: "conversas", rotulo: "Conversas", href: "/gestao/conversas" },
 ];
 
