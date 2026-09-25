@@ -21,6 +21,8 @@ import { firstImageOf } from "@/lib/blocks/serialize";
 import type { ClarifyScope } from "@/lib/ai/disambiguation";
 import { expandirConsulta } from "@/lib/ai/ontology";
 import { pedeEnumeracao, limparConsultaLista } from "@/lib/ai/answer-style";
+import { resolverEscopoDaBase } from "@/lib/ai/escopo-da-base";
+import type { TrackingKey } from "@/lib/chat/tracking";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -150,6 +152,12 @@ async function retrieveWith(
   grupos?: number,
   /** Nós já recuperados em turnos recentes desta conversa (memória de continuidade). */
   continuidade?: string[],
+  /**
+   * Arquivos resolvidos pelo ESCOPO DA BASE (documentação anexada + arquivos
+   * exclusivos do cliente). SOMAM aos `documentIds` que esta função já monta a
+   * partir dos espaços — nunca substituem.
+   */
+  documentosDaBase?: string[],
 ): Promise<RetrievedSource[]> {
   // Escopo por DOCUMENTAÇÃO: restringe os espaços consultados (se bater em algum).
   const filtrados = scope?.spaceId ? escopos.filter((e) => e.spaceId === scope.spaceId) : escopos;
@@ -210,6 +218,11 @@ async function retrieveWith(
       .in("space_id", [...spaceIdsComPai])
       .eq("status", "ready");
     documentIds = (docs ?? []).map((d) => d.id);
+  }
+
+  // ESCOPO DA BASE: soma, nunca substitui — mantém a dedup dos dois lados.
+  if (documentosDaBase?.length) {
+    documentIds = [...new Set([...documentIds, ...documentosDaBase])];
   }
 
   if (nodeIds.length === 0 && documentIds.length === 0) return [];
@@ -491,20 +504,55 @@ export async function retrievePublicContext(
   limit = 8,
   scope?: ClarifyScope | null,
   lang?: string | null,
-  opts?: { lexicalOnly?: boolean; grupos?: number; continuidade?: string[] },
+  opts?: {
+    lexicalOnly?: boolean;
+    grupos?: number;
+    continuidade?: string[];
+    /**
+     * Base do cliente e identidade do turno. Quando vêm, o escopo é resolvido
+     * pelas documentações anexadas à base; quando a base não tem nada anexado,
+     * cai nos `spaceIds` da chave, que é o comportamento anterior.
+     */
+    base?: string | null;
+    track?: Partial<Record<TrackingKey, string>>;
+  },
 ): Promise<RetrievedSource[]> {
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
+
+  // ESCOPO PELA BASE, com queda para o escopo da chave.
+  // Os `documentIds` resolvidos aqui ENTRAM junto com os dos espaços: arquivo do
+  // cliente e documentação anexada somam, e é por isso que `retrieveWith` recebe
+  // os dois.
+  let idsDeEspaco = ids;
+  let documentosDaBase: string[] = [];
+  if (opts?.base) {
+    const escopo = await resolverEscopoDaBase(supabase, opts.base, opts.track ?? {}, ids);
+    idsDeEspaco = escopo.spaceIds;
+    documentosDaBase = escopo.documentIds;
+  }
+
   // O client admin precisa ir junto: sem ele getEffectiveTreePublic cai no
   // cliente anon, e a policy nodes_public_read exige visibility='public' — o
   // escopo voltava VAZIO justamente nos espaços privados vinculados à chave.
   const escopos = await Promise.all(
-    ids.map(async (spaceId) => ({
+    idsDeEspaco.map(async (spaceId) => ({
       spaceId,
       tree: await getEffectiveTreePublic(spaceId, supabase),
     })),
   );
-  return retrieveWith(supabase, escopos, query, limit, scope, lang, opts?.lexicalOnly, opts?.grupos, opts?.continuidade);
+  return retrieveWith(
+    supabase,
+    escopos,
+    query,
+    limit,
+    scope,
+    lang,
+    opts?.lexicalOnly,
+    opts?.grupos,
+    opts?.continuidade,
+    documentosDaBase,
+  );
 }
 
 /**
