@@ -3,7 +3,7 @@ import type { Regra } from "./dimensoes";
 /**
  * A FRASE, e por que ela é o produto e não um enfeite.
  *
- * Seis (agora doze) allowlists combinadas com E é uma regra simples de
+ * Doze allowlists combinadas com E é uma regra simples de
  * implementar e difícil de conferir de cabeça: marcar o portal do Gestor E o
  * perfil FOLHA restringe à INTERSEÇÃO, não à união, e quem cadastrou esperando
  * "gestores OU pessoal da folha" só descobre quando alguém reclama de não ver o
@@ -120,7 +120,11 @@ export function resumoElegibilidade(
     oracoes.push(`for da unidade de negócio ${lista(unidadesNeg, "ou")}`);
   }
   if (vinculos.length) {
-    oracoes.push(`tiver vínculo ${lista(vinculos, "ou")}`);
+    // "tiver O vínculo", com artigo, como as irmãs: "tiver A matrícula",
+    // "for DA filial", "for DO centro de custo". Sem ele a oração saía fora do
+    // padrão de todas as outras, e é numa frase lida de corrido que isso
+    // atrapalha — a pessoa tropeça e relê em vez de conferir o alcance.
+    oracoes.push(`tiver o vínculo ${lista(vinculos, "ou")}`);
   }
   if (sindicatos.length) {
     oracoes.push(`for do sindicato ${lista(sindicatos, "ou")}`);
