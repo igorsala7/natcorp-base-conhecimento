@@ -761,8 +761,12 @@ ponto onde `documentIds` é montado, mantendo a dedup existente.
 O RAG é superfície medida e a regra do projeto exige o número:
 
 ```bash
-npx tsx --env-file=.env.local scripts/eval-rag.ts
+NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env.local scripts/eval-rag.ts
 ```
+
+O `NODE_OPTIONS` é obrigatório e a primeira versão deste plano o omitia: `rag.ts`
+importa `server-only`, e sem a condição o script nem carrega. Use o MESMO prefixo
+nas duas medições, senão você compara coisas diferentes.
 
 Rode ANTES de tocar `rag.ts` e depois. Com nenhuma base configurada, o resultado
 tem de ser IDÊNTICO — é a prova de que a rodada é aditiva. Se mudar, pare e
@@ -801,10 +805,21 @@ cliente."
 - Consumes: `retrievePublicContext` com `opts.base` e `opts.track` da tarefa 3.
 - Produces: nada novo; é a ligação.
 
-**Por que os dois juntos, e não só o chat.** `POST /api/v1/search` é a busca do
+**Por que os TRÊS juntos, e não só o chat.** `POST /api/v1/search` é a busca do
 widget e usa o MESMO `key.space_ids`. Se só o chat resolvesse pela base, o cliente
 acharia pela busca um documento que o chat recusa usar, ou o contrário. Duas
 respostas diferentes para "o que eu posso ver" é pior que nenhuma das duas.
+
+> **A tarefa 3 achou um QUARTO chamador que este plano não previu:
+> `src/lib/whatsapp/chat.ts`.** Ele é caminho de cliente como o widget, e pior:
+> ele já tem `input.baseCode` e `input.track` na própria função e chama o RAG sem
+> passar nenhum dos dois. Deixá-lo de fora faria o WhatsApp ser o único caminho de
+> cliente sem resolver por base, com a informação ali do lado.
+>
+> **O chat do PORTAL continua intocado**, e isso é decisão e não esquecimento: o
+> portal não é o widget de um cliente, ele lê a documentação pública do espaço, e
+> resolver por base ali mudaria comportamento de uma superfície que ninguém pediu
+> para mudar.
 
 - [ ] **Passo 1: o chat passa base e identidade**
 
@@ -828,13 +843,20 @@ identidade faria a busca aplicar as regras sem as dimensões, e uma regra
 restrita por portal não alcançaria ninguém — o pior resultado, porque é
 silencioso.
 
-- [ ] **Passo 3: provar que os dois concordam**
+- [ ] **Passo 2b: o WhatsApp passa os mesmos**
 
-Com nada configurado, chat e busca devolvem o mesmo escopo. Com uma documentação
-anexada a uma base de teste, os dois passam a devolver o novo escopo. Não há teste
-automatizado para isso ainda (a tarefa 6 traz o de isolamento); confirme por
-leitura que os dois caminhos passam os MESMOS dois campos, e diga no report as
-duas linhas lado a lado.
+Em `src/lib/whatsapp/chat.ts`, a chamada `retrievePublicContext(input.chatSpaceIds,
+input.question, 6)` ganha `{ base: input.track?.p_base ?? null, track: input.track }`.
+Os dois valores já estão na função; o que faltava era passá-los.
+
+- [ ] **Passo 3: provar que os TRÊS concordam**
+
+Com nada configurado, chat, busca e WhatsApp devolvem o mesmo escopo. Com uma
+documentação anexada a uma base de teste, os três passam a devolver o novo escopo.
+Não há teste automatizado para isso ainda (a tarefa 6 traz o de isolamento);
+confirme por leitura que os três caminhos passam os MESMOS dois campos, e diga no
+report as três linhas lado a lado. Diga também, explicitamente, que o chat do
+portal NÃO os passa e por quê.
 
 - [ ] **Passo 4: portão e commit**
 
@@ -1099,7 +1121,7 @@ transcrição da função passa calado.
 - [ ] **Passo 3: medir DEPOIS e comparar**
 
 ```bash
-npx tsx --env-file=.env.local scripts/eval-rag.ts
+NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env.local scripts/eval-rag.ts
 ```
 
 Esperado: o MESMO número do passo 1. Se divergir, a transcrição da função mudou
@@ -1142,7 +1164,7 @@ T7 (cerca no banco) depois de T2 e T3; antes de T6 fazer sentido como par
 - [ ] `npx vitest run` passa inteiro (base 234 arquivos / 2586 testes)
 - [ ] `npm run verificar:ui` diz "Dívida de UI estável"
 - [ ] `NEXT_PUBLIC_BASE_PATH= npm run build` compila
-- [ ] `eval-rag` dá o MESMO número antes e depois, com nada configurado
+- [ ] `eval-rag` dá o MESMO número antes e depois, com nada configurado (medido: top-4 12/20, MRR 0,483)
 - [ ] `.audit/isolamento-documentacao-e2e.ts` passa, e falha quando sabotado
 - [ ] a cerca do banco (T7) recusa documento de outra base mesmo com a aplicação
       errando a lista, e o `eval-rag` dá o mesmo número antes e depois dela
