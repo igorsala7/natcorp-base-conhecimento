@@ -7,6 +7,7 @@ import { PageShell } from "@/components/ui/page-shell";
 import { SemPermissao } from "@/components/ui/sem-permissao";
 import { env } from "@/lib/env";
 import { listSpaces } from "@/lib/content/spaces";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import type { AuthType } from "@/lib/integrations/credentials";
 import type { WhatsappBundle } from "./integrations-shell";
 import type { WhatsappSettings } from "./whatsapp-panel";
@@ -18,6 +19,8 @@ import type { EndpointKind, ToolRow, BaseToolRow, ModuleTag } from "./tools-mana
 import type { AgentRow, ProviderOption } from "./agents-manager";
 import type { ProfileRow } from "./profiles-manager";
 import type { RunRow } from "./runs-manager";
+import type { AnexoRow, DocumentacaoOption } from "./documentacoes-panel";
+import type { Regra } from "@/lib/elegibilidade";
 
 export const metadata: Metadata = { title: "Integrações" };
 
@@ -102,6 +105,23 @@ export default async function IntegracoesPage() {
     supabase.from("ai_agent_profile_modules").select("profile_id, modulo, submodulo"),
   ]);
 
+  /*
+    ANEXOS DE DOCUMENTAÇÃO pela SESSÃO, e não pelo cliente admin.
+
+    A RLS das duas tabelas exige `ai.configure` (migration
+    20260925100000_documentacoes_anexaveis.sql). Lendo pela sessão, quem não tem
+    a permissão recebe zero linhas em vez de dados — e é por isso que
+    `podeConfigurarIA` vai para a aba: lista vazia por falta de permissão e lista
+    vazia por nada configurado são a MESMA tela, e a aba precisa poder
+    distinguir. Sem teto de paginação: são duas tabelas de configuração, uma
+    linha por documentação anexada.
+  */
+  const [{ data: universaisRows }, { data: porBaseRows }, podeConfigurarIA] = await Promise.all([
+    supabase.from("documentacoes_universais").select("space_id, enabled, regra"),
+    supabase.from("ai_base_documentacoes").select("base_id, space_id, enabled, regra"),
+    hasPermission("ai.configure", null),
+  ]);
+
   // Presença de segredo: `ai_base_credential_secrets` é deny-all (só service-role
   // lê). Buscamos só os ids que TÊM segredo — o valor nunca sai do servidor.
   const admin = createAdminClient();
@@ -112,7 +132,42 @@ export default async function IntegracoesPage() {
   ]);
   const comSegredo = new Set((secretRows ?? []).map((r) => r.credential_id));
 
-  const spaceOptions: SpaceOption[] = (await listSpaces()).map((s) => ({ id: s.id, name: s.name }));
+  const espacos = await listSpaces();
+  const spaceOptions: SpaceOption[] = espacos.map((s) => ({ id: s.id, name: s.name }));
+
+  /* Quantos arquivos de conhecimento cada documentação tem, para a aba de anexos
+     distinguir uma documentação cheia de uma recém-criada e vazia — anexar a
+     vazia é o erro que não dá erro. Agregado em memória sobre uma consulta só:
+     `knowledge_documents` tem 123 linhas hoje, mas cresce, e por isso a leitura
+     vai paginada. */
+  const docsPorEspaco = new Map<string, number>();
+  for (const d of await fetchAllPaged<{ space_id: string | null }>((de, ate) =>
+    supabase.from("knowledge_documents").select("space_id").range(de, ate),
+  )) {
+    if (d.space_id) docsPorEspaco.set(d.space_id, (docsPorEspaco.get(d.space_id) ?? 0) + 1);
+  }
+  const documentacoes: DocumentacaoOption[] = espacos.map((s) => ({
+    id: s.id,
+    name: s.name,
+    slug: s.slug,
+    tipo: s.type,
+    documentos: docsPorEspaco.get(s.id) ?? 0,
+  }));
+
+  const anexosDeDocumentacao: AnexoRow[] = [
+    ...(universaisRows ?? []).map((r) => ({
+      spaceId: r.space_id,
+      baseId: null,
+      enabled: r.enabled,
+      regra: (r.regra ?? {}) as Regra,
+    })),
+    ...(porBaseRows ?? []).map((r) => ({
+      spaceId: r.space_id,
+      baseId: r.base_id,
+      enabled: r.enabled,
+      regra: (r.regra ?? {}) as Regra,
+    })),
+  ];
 
   // Opções de tag (roteamento por assunto): pares (módulo, submódulo) DISTINTOS do
   // cache sincronizado — o vínculo tool→módulo é global (produto), então unimos
@@ -357,6 +412,9 @@ export default async function IntegracoesPage() {
         moduleOptions={moduleOptions}
         whatsapp={whatsapp}
         temChaveMestra={hasEncryptionKey()}
+        documentacoes={documentacoes}
+        anexosDeDocumentacao={anexosDeDocumentacao}
+        podeConfigurarIA={podeConfigurarIA}
       />
     </PageShell>
   );

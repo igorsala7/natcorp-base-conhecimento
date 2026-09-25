@@ -6,6 +6,12 @@ import { abasDaRota } from "@/lib/admin/mapa-rotas";
 import { IntegrationsManager, type BaseRow, type SpaceOption } from "./integrations-manager";
 import { ToolsManager, type ToolRow, type BaseToolRow, type ModuleTag } from "./tools-manager";
 import { BaseAccessManager } from "./base-access-manager";
+import {
+  DocumentacoesPanel,
+  type AnexoRow,
+  type BaseOption,
+  type DocumentacaoOption,
+} from "./documentacoes-panel";
 import { AgentsManager, type AgentRow, type ProviderOption } from "./agents-manager";
 import { ProfilesManager, type ProfileRow } from "./profiles-manager";
 import { RunsManager, type RunRow } from "./runs-manager";
@@ -16,8 +22,14 @@ import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
 type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
 /**
  * Nenhuma aba desta tela declara permissão própria: a página inteira já exige
- * `integrations.manage`, e quem chegou até aqui pode ver as nove. O conjunto
+ * `integrations.manage`, e quem chegou até aqui pode ver as dez. O conjunto
  * vazio é honesto — filtrar por permissão que ninguém declarou não filtra nada.
+ *
+ * A aba Documentações é a exceção parcial e ela mesma se defende: as duas
+ * tabelas que ela grava exigem `ai.configure` na RLS, então o painel recebe
+ * `podeConfigurarIA` e troca a tela pela recusa nomeada em vez de mostrar uma
+ * lista vazia que pareceria "nada configurado". Declará-la aqui esconderia a
+ * aba, e aba escondida por permissão vira link compartilhado que não abre.
  */
 const PERMISSOES_DA_TELA = new Set<string>();
 
@@ -41,6 +53,9 @@ export function IntegrationsShell({
   moduleOptions,
   whatsapp,
   temChaveMestra,
+  documentacoes,
+  anexosDeDocumentacao,
+  podeConfigurarIA,
 }: {
   bases: BaseRow[];
   tools: ToolRow[];
@@ -53,18 +68,24 @@ export function IntegrationsShell({
   moduleOptions: ModuleTag[];
   whatsapp: WhatsappBundle;
   temChaveMestra: boolean;
+  /** Documentações que existem, para a aba de anexos oferecer. */
+  documentacoes: DocumentacaoOption[];
+  /** O que já está anexado (universal e por base). */
+  anexosDeDocumentacao: AnexoRow[];
+  /** `ai.configure` — a permissão que a RLS das duas tabelas de anexo exige. */
+  podeConfigurarIA: boolean;
 }) {
   /**
    * A aba mora na URL, não em `useState`.
    *
    * Com estado local, F5 sempre voltava para "Bases / Clientes" — em uma tela de
-   * NOVE abas, onde quem está depurando uma tool passa o dia em "Execuções". O
+   * DEZ abas, onde quem está depurando uma tool passa o dia em "Execuções". O
    * Voltar do navegador também não desfazia a troca, e não havia como mandar
    * "abre em Execuções" para um colega.
    *
    * ── E a lista vem do mapa ───────────────────────────────────────────────────
    * Esta era a única tela do admin cujas abas tinham URL — e a única sem
-   * NENHUMA declarada no `mapa-rotas`. O Cmd+K não alcançava nenhuma das nove,
+   * NENHUMA declarada no `mapa-rotas`. O Cmd+K não alcançava nenhuma das dez,
    * justamente onde ele mais ajudaria. Ler daqui resolve os dois lados: a barra
    * e a paleta passam a enxergar a mesma lista.
    */
@@ -85,6 +106,15 @@ export function IntegrationsShell({
         <ToolsManager tools={tools} bases={bases} baseTools={baseTools} moduleOptions={moduleOptions} />
       ) : tab === "acesso" ? (
         <BaseAccessManager bases={bases} tools={tools} baseTools={baseTools} />
+      ) : tab === "documentacoes" ? (
+        <DocumentacoesPanel
+          bases={bases.map(
+            (b): BaseOption => ({ id: b.id, base_code: b.base_code, name: b.name, active: b.active }),
+          )}
+          documentacoes={documentacoes}
+          anexos={anexosDeDocumentacao}
+          podeConfigurar={podeConfigurarIA}
+        />
       ) : tab === "agentes" ? (
         <AgentsManager agents={agents} tools={tools} providers={providers} />
       ) : tab === "perfis" ? (

@@ -299,11 +299,21 @@ export const MAPA: Secao[] = [
         // mexe nisto está integrando sistema, não ajustando como o bot fala.
         descricao: "Bases dos clientes, ferramentas, agentes e execuções.",
         tambem: ["/admin/conexoes", "/admin/integracoes"],
-        apelidos: ["integrações", "tools", "apis", "ords", "agentes", "whatsapp", "execuções"],
+        apelidos: [
+          "integrações",
+          "tools",
+          "apis",
+          "ords",
+          "agentes",
+          "whatsapp",
+          "execuções",
+          "documentações",
+          "elegibilidade",
+        ],
         /**
-         * Nove abas — a tela mais densa do admin, e a única cujas abas já
+         * Dez abas — a tela mais densa do admin, e a única cujas abas já
          * tinham URL. Ironicamente era também a única sem NENHUMA declarada
-         * aqui: o Cmd+K não alcançava nenhuma das nove, justamente onde ele
+         * aqui: o Cmd+K não alcançava nenhuma delas, justamente onde ele
          * funcionaria melhor.
          *
          * A ordem é o fluxo de montagem, não o alfabeto: cadastra-se o cliente,
@@ -314,6 +324,11 @@ export const MAPA: Secao[] = [
           // QUEM É O CLIENTE — cadastro, credencial, quem pode usar.
           { key: "bases", rotulo: "Bases / Clientes", grupo: "cliente" },
           { key: "acesso", rotulo: "Acesso por base", grupo: "cliente" },
+          /* Vizinha de "Acesso por base" de propósito: as duas respondem "o que
+             este cliente alcança" — lá são as FERRAMENTAS, aqui é a
+             DOCUMENTAÇÃO. Longe uma da outra, quem monta um cliente novo teria
+             de descobrir sozinho que a segunda existe. */
+          { key: "documentacoes", rotulo: "Documentações", grupo: "cliente" },
           { key: "whatsapp", rotulo: "WhatsApp", grupo: "cliente" },
           // O QUE O BOT SABE FAZER — o catálogo e quem o opera.
           { key: "apis", rotulo: "APIs / Tools", grupo: "capacidade" },

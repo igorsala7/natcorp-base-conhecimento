@@ -1,0 +1,1140 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  BookOpen,
+  Building2,
+  Check,
+  Globe2,
+  Info,
+  Pause,
+  Play,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Dialog } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Field, eyebrow, eyebrowLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Segmented } from "@/components/ui/segmented";
+import { Select, type SelectOption } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SemPermissao } from "@/components/ui/sem-permissao";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm";
+import { cn } from "@/lib/utils";
+import {
+  avisoDeAlcance,
+  resumoElegibilidade,
+  type Dimensao,
+  type Regra,
+} from "@/lib/elegibilidade";
+import {
+  DIMENSOES_DA_TELA,
+  GRUPOS,
+  dimensaoUI,
+  dimensoesDoGrupo,
+  formularioParaRegra,
+  regraParaFormulario,
+  type DimensaoUI,
+} from "@/lib/documentacoes/dimensoes-ui";
+import {
+  removerDocumentacao,
+  salvarRegraDocumentacao,
+  valoresDaDimensao,
+  vocabularioDaBase,
+  type Escopo,
+  type ListaDeValores,
+  type Vocabulario,
+} from "./documentacoes-actions";
+
+/**
+ * DOCUMENTAÇÕES ANEXÁVEIS — onde uma documentação passa a ser recurso de uma
+ * base, e onde se decide quem dentro daquele cliente a alcança.
+ *
+ * Duas seções e não uma lista só, porque a fronteira é explícita por desenho:
+ * `documentacoes_universais` é o que TODA base alcança sem configuração;
+ * `ai_base_documentacoes` é o que é de um cliente e só dele. Misturá-las numa
+ * tabela com uma coluna "escopo" recriaria a confusão de herança que as duas
+ * tabelas existem para evitar — e nesta tela errar o escopo não dá erro, dá
+ * documentação que alcança o cliente errado ou ninguém.
+ *
+ * ── O que esta tela precisa acertar, e por que é difícil ─────────────────────
+ * A regra são doze allowlists combinadas com E. Marcar o portal do Gestor E o
+ * perfil FOLHA restringe à INTERSEÇÃO, não à união, e quem cadastrou esperando
+ * "gestores OU pessoal da folha" só descobre quando alguém reclama de não ver o
+ * conteúdo — sem erro em lugar nenhum para investigar. Daí três decisões:
+ *
+ *   · a FRASE de `resumoElegibilidade` ao vivo, sempre visível enquanto se
+ *     edita. É a mesma regra do predicado escrita por extenso;
+ *   · "sem restrição" é INTERRUPTOR, nunca campo em branco. Campo em branco é
+ *     estado inválido, e a tela recusa salvar uma dimensão marcada como restrita
+ *     e sem valor — em vez de gravar `[]`, que LIBERA, ou `[""]`, que o banco
+ *     recusa com mensagem de banco;
+ *   · ao lado de cada dimensão restringida, o AVISO DE PRESENÇA: se esta base
+ *     nunca enviou valor naquela dimensão, restringir por ali não alcança
+ *     ninguém. Substitui o contador de alcance, que foi medido e não funciona
+ *     (natcorp tem 317 conversas e 4 valores distintos de `p_usuario`: um
+ *     contador mostraria 0 ou 1 para qualquer regra).
+ */
+
+export type DocumentacaoOption = {
+  id: string;
+  name: string;
+  slug: string;
+  /** 'global' | 'client' — só para a tela dizer de onde a documentação vem. */
+  tipo: string;
+  /** Arquivos de conhecimento no espaço, para diferenciar doc vazia de cheia. */
+  documentos: number;
+};
+
+export type AnexoRow = {
+  spaceId: string;
+  /** null = universal. */
+  baseId: string | null;
+  enabled: boolean;
+  regra: Regra;
+};
+
+export type BaseOption = { id: string; base_code: string; name: string; active: boolean };
+
+type EmEdicao = {
+  escopo: Escopo;
+  /** null = anexando uma documentação nova. */
+  spaceId: string | null;
+  enabled: boolean;
+  restritas: Dimensao[];
+  valores: Partial<Record<Dimensao, string[]>>;
+};
+
+/** Chave do cache de listas: a base entra junto, senão a lista de A vale para B. */
+const chaveDaLista = (baseRef: string, d: Dimensao) => `${baseRef}\u0000${d}`;
+
+export function DocumentacoesPanel({
+  bases,
+  documentacoes,
+  anexos,
+  podeConfigurar,
+}: {
+  bases: BaseOption[];
+  documentacoes: DocumentacaoOption[];
+  /** Universais (baseId null) e por base, na mesma lista. */
+  anexos: AnexoRow[];
+  /** `ai.configure`. A RLS das duas tabelas exige a mesma. */
+  podeConfigurar: boolean;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const { confirmar } = useConfirm();
+  const [pendente, iniciar] = useTransition();
+
+  /* Base inativa continua na lista, marcada: a configuração dela precisa poder
+     ser lida e corrigida, e esconder a base faria a documentação anexada a ela
+     desaparecer da tela sem desaparecer do banco. As ativas vêm primeiro. */
+  const opcoesDeBase = useMemo(
+    () => [...bases].sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name, "pt-BR")),
+    [bases],
+  );
+  const [baseId, setBaseId] = useState(opcoesDeBase[0]?.id ?? "");
+  const [editando, setEditando] = useState<EmEdicao | null>(null);
+
+  const baseAtual = opcoesDeBase.find((b) => b.id === baseId) ?? null;
+  const universais = anexos.filter((a) => a.baseId === null);
+  const daBase = anexos.filter((a) => a.baseId === baseId);
+
+  const nomeDaDoc = (id: string) => documentacoes.find((d) => d.id === id)?.name ?? "(documentação removida)";
+  const nomeDaBase = useMemo(() => {
+    const m = new Map(bases.map((b) => [b.base_code, b.name] as const));
+    return (code: string) => m.get(code) ?? code;
+  }, [bases]);
+
+  /**
+   * A RLS das duas tabelas exige `ai.configure`; a PÁGINA exige
+   * `integrations.manage`. Hoje as duas pertencem aos mesmos dois papéis, então
+   * este ramo não é alcançável — mas se um dia for, a lista voltaria VAZIA e o
+   * estado vazio diria "nada configurado" sobre um cliente configurado. Recusar
+   * com o nome da permissão é a diferença entre um aviso e uma mentira.
+   */
+  if (!podeConfigurar) {
+    return (
+      <SemPermissao
+        titulo="Documentações anexáveis"
+        oQue="anexar documentação a uma base e definir quem a alcança"
+        permissao="ai.configure"
+        papel="Admin técnico"
+        voltarHref="/admin/integracoes"
+      />
+    );
+  }
+
+  function abrirNovo(escopo: Escopo) {
+    setEditando({ escopo, spaceId: null, enabled: true, restritas: [], valores: {} });
+  }
+
+  function abrirEdicao(a: AnexoRow) {
+    setEditando({
+      escopo: a.baseId ? { tipo: "base", baseId: a.baseId } : { tipo: "universal" },
+      spaceId: a.spaceId,
+      enabled: a.enabled,
+      ...regraParaFormulario(a.regra),
+    });
+  }
+
+  function alternarPausa(a: AnexoRow) {
+    iniciar(async () => {
+      const r = await salvarRegraDocumentacao({
+        escopo: a.baseId ? { tipo: "base", baseId: a.baseId } : { tipo: "universal" },
+        spaceId: a.spaceId,
+        regra: a.regra,
+        enabled: !a.enabled,
+      });
+      if (!r.ok) return toast.error(r.erro);
+      toast.success(a.enabled ? "Documentação pausada." : "Documentação ativada.");
+      router.refresh();
+    });
+  }
+
+  async function remover(a: AnexoRow) {
+    const ok = await confirmar({
+      title: `Desanexar “${nomeDaDoc(a.spaceId)}”?`,
+      description: a.baseId
+        ? `A base ${baseAtual?.name ?? ""} deixa de alcançar esta documentação na próxima pergunta. A restrição configurada é descartada — se você só quer suspender, use Pausar.`
+        : "Todas as bases deixam de alcançar esta documentação pelo caminho universal, na próxima pergunta — só continuam alcançando as que a tiverem anexada individualmente. A restrição configurada é descartada; se você só quer suspender, use Pausar.",
+      confirmLabel: "Desanexar",
+      tone: "danger",
+    });
+    if (!ok) return;
+    iniciar(async () => {
+      const r = await removerDocumentacao({
+        escopo: a.baseId ? { tipo: "base", baseId: a.baseId } : { tipo: "universal" },
+        spaceId: a.spaceId,
+      });
+      if (!r.ok) return toast.error(r.erro);
+      toast.success("Documentação desanexada.");
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      {/*
+        O aviso de rodada ADITIVA vem primeiro porque muda a leitura de tudo o
+        que está embaixo: com nenhuma linha nas duas tabelas, cliente nenhum
+        mudou de comportamento — cada base continua vendo o que a chave de widget
+        dela já apontava. Sem esta frase, o estado vazio parece defeito.
+      */}
+      <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-text-muted">
+        <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Enquanto uma base não tiver nenhuma documentação anexada aqui, ela continua enxergando
+          exatamente o que a chave do widget dela já aponta. Anexar é o que passa a valer no lugar
+          disso — um cliente por vez, sem mexer nos outros.
+        </span>
+      </p>
+
+      <SecaoAnexos
+        icone={Globe2}
+        titulo="Universais"
+        descricao="Toda base alcança estas documentações, sem configuração. É aqui que mora a restrição por portal ou perfil de uma documentação que não é de cliente nenhum."
+        vazioTitulo="Nenhuma documentação universal"
+        vazioDescricao="Anexe aqui o que vale para todos os clientes — o manual do produto, por exemplo. Nada é aplicado a ninguém enquanto você não anexar."
+        anexos={universais}
+        nomeDaDoc={nomeDaDoc}
+        nomeDaBase={nomeDaBase}
+        documentacoes={documentacoes}
+        pendente={pendente}
+        onNovo={() => abrirNovo({ tipo: "universal" })}
+        onEditar={abrirEdicao}
+        onPausar={alternarPausa}
+        onRemover={remover}
+      />
+
+      <section className="space-y-3">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-text">
+              <Building2 className="size-4 text-text-muted" aria-hidden="true" />
+              Deste cliente
+            </h3>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">
+              Só a base escolhida alcança. É acréscimo ao conjunto universal, nunca substituição: o
+              assistente une os dois.
+            </p>
+          </div>
+          <div className="w-56 shrink-0">
+            <Field label="Cliente / base" htmlFor="doc_base">
+              <Select id="doc_base" value={baseId} onChange={setBaseId}>
+                {opcoesDeBase.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.active ? b.name : `${b.name} (inativa)`}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        </header>
+
+        {opcoesDeBase.length === 0 ? (
+          <EmptyState
+            icon={Building2}
+            title="Nenhum cliente cadastrado"
+            description="Cadastre a base do cliente antes de anexar documentação a ela."
+            action={
+              <Button variant="secondary" onClick={() => router.push("?aba=bases")}>
+                Ir para Bases / Clientes
+              </Button>
+            }
+          />
+        ) : (
+          <SecaoAnexos
+            anexos={daBase}
+            vazioTitulo={`${baseAtual?.name ?? "Este cliente"} não tem documentação própria`}
+            vazioDescricao={
+              universais.length
+                ? `Esta base já alcança ${universais.length} documentação(ões) universal(is). Anexe aqui o que é só dela.`
+                : "Anexe aqui a documentação que é só deste cliente. Nada mais alcança esta base enquanto isto estiver vazio."
+            }
+            nomeDaDoc={nomeDaDoc}
+            nomeDaBase={nomeDaBase}
+            documentacoes={documentacoes}
+            pendente={pendente}
+            onNovo={() => baseId && abrirNovo({ tipo: "base", baseId })}
+            onEditar={abrirEdicao}
+            onPausar={alternarPausa}
+            onRemover={remover}
+          />
+        )}
+      </section>
+
+      {editando && (
+        <DialogoRegra
+          key={`${editando.escopo.tipo}-${editando.spaceId ?? "novo"}`}
+          edicao={editando}
+          bases={opcoesDeBase}
+          baseDoEscopo={
+            editando.escopo.tipo === "base"
+              ? (opcoesDeBase.find((b) => b.id === (editando.escopo as { baseId: string }).baseId)?.base_code ?? null)
+              : null
+          }
+          baseDeReferenciaInicial={baseAtual?.base_code ?? null}
+          documentacoes={documentacoes}
+          jaAnexadas={(editando.escopo.tipo === "universal" ? universais : daBase).map((a) => a.spaceId)}
+          nomeDaDoc={nomeDaDoc}
+          nomeDaBase={nomeDaBase}
+          onFechar={() => setEditando(null)}
+          onSalvo={() => {
+            setEditando(null);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Uma seção (Universais ou Deste cliente) ─────────────────────────────────
+
+function SecaoAnexos({
+  icone: Icone,
+  titulo,
+  descricao,
+  vazioTitulo,
+  vazioDescricao,
+  anexos,
+  documentacoes,
+  nomeDaDoc,
+  nomeDaBase,
+  pendente,
+  onNovo,
+  onEditar,
+  onPausar,
+  onRemover,
+}: {
+  icone?: React.ComponentType<{ className?: string }>;
+  titulo?: string;
+  descricao?: string;
+  vazioTitulo: string;
+  vazioDescricao: string;
+  anexos: AnexoRow[];
+  documentacoes: DocumentacaoOption[];
+  nomeDaDoc: (id: string) => string;
+  nomeDaBase: (code: string) => string;
+  pendente: boolean;
+  onNovo: () => void;
+  onEditar: (a: AnexoRow) => void;
+  onPausar: (a: AnexoRow) => void;
+  onRemover: (a: AnexoRow) => void;
+}) {
+  /*
+    Duas razões diferentes para não haver o que anexar, e um botão desabilitado
+    sem motivo é um beco sem saída: "nenhuma documentação existe" manda criar
+    uma, "todas já estão anexadas" é o estado final e correto.
+  */
+  const anexadas = new Set(anexos.map((a) => a.spaceId));
+  const restam = documentacoes.filter((d) => !anexadas.has(d.id)).length;
+  const porqueNaoAnexar =
+    documentacoes.length === 0
+      ? "Nenhuma documentação existe ainda para anexar — crie uma em Conteúdo."
+      : restam === 0
+        ? "Todas as documentações que existem já estão nesta lista."
+        : null;
+
+  return (
+    <section className="space-y-3">
+      {titulo && (
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-text">
+              {Icone && <Icone className="size-4 text-text-muted" aria-hidden="true" />}
+              {titulo}
+            </h3>
+            {descricao && (
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">{descricao}</p>
+            )}
+          </div>
+        </header>
+      )}
+
+      {anexos.length === 0 ? (
+        <EmptyState
+          icon={BookOpen}
+          title={vazioTitulo}
+          description={porqueNaoAnexar ?? vazioDescricao}
+          action={
+            <Button onClick={onNovo} disabled={!!porqueNaoAnexar}>
+              <Plus aria-hidden="true" />
+              Anexar documentação
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <ul className="overflow-hidden rounded-lg border border-border">
+            {anexos.map((a, i) => (
+              <li
+                key={`${a.baseId ?? "u"}-${a.spaceId}`}
+                className={cn("flex flex-wrap items-start gap-3 p-3", i > 0 && "border-t border-border")}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-text">{nomeDaDoc(a.spaceId)}</span>
+                    {a.enabled ? (
+                      <Badge tone="success">Ativa</Badge>
+                    ) : (
+                      <Badge tone="warning">Pausada</Badge>
+                    )}
+                  </p>
+                  {/*
+                    A frase, e não uma lista de chips: doze allowlists com E se
+                    conferem lendo, não contando etiquetas. `resumoElegibilidade`
+                    é a mesma função que o formulário usa ao vivo — se a linha e
+                    o diálogo discordassem, a tela teria duas descrições da mesma
+                    regra, que é o defeito que essa função existe para impedir.
+                  */}
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                    {/* Pausada, a frase descreveria um alcance que não existe.
+                        Dizer as duas coisas é mais curto que fazer quem lê
+                        cruzar a etiqueta com a frase. */}
+                    {a.enabled
+                      ? resumoElegibilidade(a.regra, nomeDaBase, "esta documentação")
+                      : `Ninguém alcança enquanto estiver pausada. Se ativada: ${resumoElegibilidade(a.regra, nomeDaBase, "esta documentação")}`}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button variant="secondary" size="sm" onClick={() => onEditar(a)} disabled={pendente}>
+                    Quem alcança
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onPausar(a)} disabled={pendente}>
+                    {a.enabled ? (
+                      <>
+                        <Pause aria-hidden="true" />
+                        Pausar
+                      </>
+                    ) : (
+                      <>
+                        <Play aria-hidden="true" />
+                        Ativar
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="icon"
+                    aria-label={`Desanexar ${nomeDaDoc(a.spaceId)}`}
+                    onClick={() => onRemover(a)}
+                    disabled={pendente}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {porqueNaoAnexar ? (
+            <p className="text-xs text-text-muted">{porqueNaoAnexar}</p>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={onNovo} disabled={pendente}>
+              <Plus aria-hidden="true" />
+              Anexar outra documentação
+            </Button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ── O diálogo: a documentação, o interruptor por dimensão, e a frase ────────
+
+function DialogoRegra({
+  edicao,
+  bases,
+  baseDoEscopo,
+  baseDeReferenciaInicial,
+  documentacoes,
+  jaAnexadas,
+  nomeDaDoc,
+  nomeDaBase,
+  onFechar,
+  onSalvo,
+}: {
+  edicao: EmEdicao;
+  bases: BaseOption[];
+  /** `base_code` da base do anexo (null quando universal). */
+  baseDoEscopo: string | null;
+  baseDeReferenciaInicial: string | null;
+  documentacoes: DocumentacaoOption[];
+  jaAnexadas: string[];
+  nomeDaDoc: (id: string) => string;
+  nomeDaBase: (code: string) => string;
+  onFechar: () => void;
+  onSalvo: () => void;
+}) {
+  const toast = useToast();
+  const [salvando, iniciar] = useTransition();
+
+  const [spaceId, setSpaceId] = useState(edicao.spaceId ?? "");
+  const [enabled, setEnabled] = useState(edicao.enabled);
+  const [restritas, setRestritas] = useState<Dimensao[]>(edicao.restritas);
+  const [valores, setValores] = useState(edicao.valores);
+  const [erro, setErro] = useState<string | null>(null);
+
+  /**
+   * A base de referência do CADASTRO, e por que ela existe.
+   *
+   * As listas de valor (empresa, filial, centro de custo…) vêm do ERP de UMA
+   * base. Numa documentação de cliente, é a base do próprio anexo. Numa
+   * universal não há base — e sem este seletor seis das doze dimensões ficariam
+   * sem lista nenhuma na seção Universais, o que é um beco sem saída e não uma
+   * decisão. O padrão é a base já escolhida na seção de baixo, então no caso
+   * comum não há escolha nova a fazer.
+   */
+  const [baseRef, setBaseRef] = useState(baseDoEscopo ?? baseDeReferenciaInicial ?? "");
+
+  const [vocab, setVocab] = useState<Vocabulario | null>(null);
+  const [vocabErro, setVocabErro] = useState<string | null>(null);
+  /**
+   * Listas de cadastro por `base + dimensão`, e a chave composta é o ponto.
+   *
+   * Guardando só por dimensão, trocar a base de referência exigiria um efeito de
+   * LIMPEZA — e um efeito que zera estado ofereceria, na janela entre o render e
+   * a limpeza, o centro de custo do cliente A no cadastro do cliente B. Com a
+   * base na chave, a troca invalida sozinha: a entrada da outra base continua
+   * guardada e simplesmente não é consultada.
+   */
+  const [listas, setListas] = useState<Record<string, ListaDeValores>>({});
+  /**
+   * Requisições em voo, em `ref` e não em estado.
+   *
+   * O efeito que busca as listas depende de `listas` (é o que faz a guarda "já
+   * tenho esta" funcionar), então ele roda de novo a cada resposta. Sem uma marca
+   * de "já pedi", a segunda passada pediria de novo a mesma lista. A marca não
+   * pode ser estado: escrever estado dentro do corpo do efeito é justamente o que
+   * cascateia render, e o esqueleto na tela já sai de `lista === undefined`.
+   */
+  const emVoo = useRef<Set<string>>(new Set());
+
+  /**
+   * O vocabulário é do ESCOPO: da base do anexo, ou de todas as bases quando a
+   * documentação é universal (`base_ref` nulo devolve o vocabulário de todos os
+   * clientes, que é o alcance real de uma universal).
+   *
+   * Sem reset síncrono no corpo do efeito: o diálogo é remontado por `key` a cada
+   * abertura, então `baseDoEscopo` não muda durante a vida deste componente e o
+   * estado inicial já é o "carregando" desta tela.
+   */
+  useEffect(() => {
+    let vivo = true;
+    void vocabularioDaBase(baseDoEscopo).then((r) => {
+      if (!vivo) return;
+      if (r.ok) setVocab(r.vocab);
+      else setVocabErro(r.erro);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [baseDoEscopo]);
+
+  const regra = useMemo(() => formularioParaRegra({ restritas, valores }), [restritas, valores]);
+  const frase = resumoElegibilidade(regra, nomeDaBase, "esta documentação");
+  const aviso = vocab
+    ? avisoDeAlcance(regra, {
+        perfis: (vocab.porDimensao.perfil ?? []).map((v) => v.valor),
+        empresas: (vocab.porDimensao.empresa ?? []).map((v) => v.valor),
+      })
+    : null;
+
+  /** Dimensões marcadas como restritas e ainda sem valor: estado inválido. */
+  const emBranco = restritas.filter((d) => !(valores[d] ?? []).some((v) => v.trim()));
+
+  function alternar(d: Dimensao, restrita: boolean) {
+    setErro(null);
+    setRestritas((prev) => (restrita ? [...new Set([...prev, d])] : prev.filter((x) => x !== d)));
+    // Desligar NÃO apaga os valores: quem alterna para conferir a frase e volta
+    // atrás não deveria redigitar oito códigos. O que vai ao banco é `paraRegra`,
+    // que só olha as dimensões ligadas.
+  }
+
+  function definirValores(d: Dimensao, lista: string[]) {
+    setErro(null);
+    setValores((prev) => ({ ...prev, [d]: lista }));
+  }
+
+  /*
+    Busca a lista do ERP só das dimensões LIGADAS, e uma vez cada. Buscar as seis
+    ao abrir seriam seis requisições ao ERP do cliente — uma delas de 2.847
+    linhas — numa tela onde o caso comum restringe uma ou duas dimensões.
+  */
+  useEffect(() => {
+    if (!baseRef) return;
+    let vivo = true;
+    for (const d of restritas) {
+      if (dimensaoUI(d).origem.tipo !== "tool") continue;
+      const k = chaveDaLista(baseRef, d);
+      if (listas[k] !== undefined || emVoo.current.has(k)) continue;
+      emVoo.current.add(k);
+      void valoresDaDimensao(baseRef, d).then((r) => {
+        emVoo.current.delete(k);
+        if (vivo) setListas((prev) => ({ ...prev, [k]: r }));
+      });
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [baseRef, restritas, listas]);
+
+  function salvar() {
+    if (!spaceId) return setErro("Escolha a documentação a anexar.");
+    if (emBranco.length) {
+      const nomes = emBranco.map((d) => DIMENSOES_DA_TELA.find((x) => x.dimensao === d)!.rotulo);
+      return setErro(
+        `${nomes.join(", ")}: você marcou "Restringir" e não escolheu nenhum valor. ` +
+          `Salvar assim gravaria uma lista vazia, que LIBERA para todo mundo — o contrário do que você pediu. ` +
+          `Escolha um valor ou volte para "Todos".`,
+      );
+    }
+    setErro(null);
+    iniciar(async () => {
+      const r = await salvarRegraDocumentacao({ escopo: edicao.escopo, spaceId, regra, enabled });
+      if (!r.ok) return setErro(r.erro);
+      toast.success(
+        edicao.spaceId ? "Restrição salva. Vale na próxima pergunta." : "Documentação anexada.",
+      );
+      onSalvo();
+    });
+  }
+
+  const opcoesDeDoc: SelectOption[] = documentacoes
+    .filter((d) => d.id === edicao.spaceId || !jaAnexadas.includes(d.id))
+    .map((d) => ({
+      value: d.id,
+      label: d.name,
+      hint: `${d.documentos} arquivo(s) · ${d.tipo === "client" ? "cliente" : "global"}`,
+    }));
+
+  return (
+    <Dialog
+      open
+      onClose={onFechar}
+      resizable
+      title={edicao.spaceId ? `${nomeDaDoc(edicao.spaceId)} — quem alcança` : "Anexar documentação"}
+      description={
+        edicao.escopo.tipo === "universal"
+          ? "Universal: toda base alcança, filtrada pela regra abaixo."
+          : `Só a base ${baseDoEscopo ?? ""} alcança, filtrada pela regra abaixo.`
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onFechar} disabled={salvando}>
+            <X aria-hidden="true" />
+            Cancelar
+          </Button>
+          <Button onClick={salvar} loading={salvando} loadingLabel="Salvando…">
+            <Check aria-hidden="true" />
+            Salvar
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Documentação"
+            htmlFor="doc_space"
+            hint={edicao.spaceId ? "Para trocar de documentação, desanexe e anexe a outra." : undefined}
+          >
+            <Select
+              id="doc_space"
+              value={spaceId}
+              onChange={setSpaceId}
+              options={opcoesDeDoc}
+              disabled={!!edicao.spaceId}
+              placeholder="Escolha a documentação…"
+            />
+          </Field>
+          {/* Sem `<Field>`: ele associa um `<label htmlFor>` a um controle com
+              id, e o grupo segmentado é um `role="tablist"` de três nós — o
+              rótulo apontaria para nada. */}
+          <div>
+            <p className={eyebrowLabel}>Situação</p>
+            <Segmented
+              value={enabled ? "on" : "off"}
+              onChange={(v) => setEnabled(v === "on")}
+              options={[
+                { value: "on", label: "Ativa" },
+                { value: "off", label: "Pausada" },
+              ]}
+            />
+            <p className="mt-1.5 text-xs leading-relaxed text-text-muted">
+              Pausada guarda a regra e não alcança ninguém.
+            </p>
+          </div>
+        </div>
+
+        {/*
+          A FRASE, colada no topo do corpo do diálogo. Ela é o produto desta tela,
+          não um resumo: é a única coisa que impede alguém de ler a interseção de
+          doze allowlists como união.
+        */}
+        <div className="rounded-lg border border-brand-purple-200 bg-brand-purple-50 px-3 py-2.5 dark:border-brand-purple-800 dark:bg-brand-purple-950/40">
+          <p className={eyebrow}>Quem alcança, por extenso</p>
+          <p className="mt-1 text-sm leading-relaxed text-text">{frase}</p>
+          {!enabled && (
+            <p className="mt-1 text-xs font-medium text-warning">
+              Pausada: ninguém alcança enquanto estiver assim, qualquer que seja a regra.
+            </p>
+          )}
+          {aviso && (
+            <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{aviso}</span>
+            </p>
+          )}
+          {emBranco.length > 0 && (
+            <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                A frase acima ignora{" "}
+                {emBranco
+                  .map((d) => DIMENSOES_DA_TELA.find((x) => x.dimensao === d)!.rotulo.toLowerCase())
+                  .join(", ")}
+                : está marcado como restrito e sem nenhum valor escolhido.
+              </span>
+            </p>
+          )}
+        </div>
+
+        {edicao.escopo.tipo === "universal" && bases.length > 0 && (
+          <Field
+            label="Cadastro de referência"
+            htmlFor="doc_base_ref"
+            hint="De qual ERP vêm as listas de empresa, filial, centro de custo e afins. Uma documentação universal não é de base nenhuma, então a lista precisa vir de alguma."
+          >
+            <Select id="doc_base_ref" value={baseRef} onChange={setBaseRef}>
+              {bases.map((b) => (
+                <option key={b.id} value={b.base_code}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        {/*
+          CARREGANDO, VAZIO, ERRO e SUCESSO do diagnóstico de presença, nesta
+          ordem. O esqueleto não é enfeite: sem ele, nos primeiros instantes
+          nenhuma dimensão mostra aviso de presença, e "ainda não sei" fica
+          idêntico a "está tudo certo" — que é justamente o par que esta tela
+          existe para separar.
+        */}
+        {vocabErro ? (
+          <p className="flex items-start gap-1.5 rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Não deu para ler o que esta base já enviou em cada dimensão ({vocabErro}). Os avisos de
+              presença ficam de fora desta sessão — a regra em si continua valendo.
+            </span>
+          </p>
+        ) : vocab === null ? (
+          <div className="space-y-1.5" aria-busy="true">
+            <Skeleton className="h-3 w-72" />
+            <Skeleton className="h-3 w-52" />
+          </div>
+        ) : vocab.conversas === 0 ? (
+          <p className="flex items-start gap-1.5 text-xs leading-relaxed text-text-muted">
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {baseDoEscopo
+                ? `A base ${baseDoEscopo} ainda não tem conversa registrada, então não há como conferir se um valor que você restringir chega de verdade.`
+                : "Nenhuma conversa registrada ainda em base nenhuma, então não há como conferir se um valor que você restringir chega de verdade."}
+            </span>
+          </p>
+        ) : (
+          <p className="flex items-start gap-1.5 text-xs leading-relaxed text-text-muted">
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Conferido contra {vocab.conversas} conversa(s)
+              {baseDoEscopo ? ` da base ${baseDoEscopo}` : " de todas as bases"}: cada dimensão avisa
+              embaixo se nunca recebeu valor.
+            </span>
+          </p>
+        )}
+
+        {GRUPOS.map((g) => (
+          <fieldset key={g.chave} className="rounded-lg border border-border bg-surface-2 p-3">
+            <legend className="px-1 text-xs font-semibold text-text">{g.titulo}</legend>
+            <p className="mb-2 text-xs leading-relaxed text-text-muted">{g.descricao}</p>
+            <div className="space-y-2">
+              {dimensoesDoGrupo(g.chave).map((ui) => (
+                <LinhaDimensao
+                  key={ui.dimensao}
+                  ui={ui}
+                  restrita={restritas.includes(ui.dimensao)}
+                  valores={valores[ui.dimensao] ?? []}
+                  onAlternar={(v) => alternar(ui.dimensao, v)}
+                  onValores={(v) => definirValores(ui.dimensao, v)}
+                  vocab={vocab}
+                  baseDoEscopo={baseDoEscopo}
+                  baseRef={baseRef}
+                  bases={bases}
+                  lista={listas[chaveDaLista(baseRef, ui.dimensao)]}
+                />
+              ))}
+            </div>
+          </fieldset>
+        ))}
+
+        {erro && (
+          <p role="alert" className="rounded-md border border-danger bg-danger-soft px-3 py-2 text-xs font-medium leading-relaxed text-danger">
+            {erro}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+// ── Uma dimensão: interruptor, valores escolhidos, e de onde eles vêm ───────
+
+function LinhaDimensao({
+  ui,
+  restrita,
+  valores,
+  onAlternar,
+  onValores,
+  vocab,
+  baseDoEscopo,
+  baseRef,
+  bases,
+  lista,
+}: {
+  ui: DimensaoUI;
+  restrita: boolean;
+  valores: string[];
+  onAlternar: (restrita: boolean) => void;
+  onValores: (v: string[]) => void;
+  vocab: Vocabulario | null;
+  baseDoEscopo: string | null;
+  baseRef: string;
+  bases: BaseOption[];
+  lista: ListaDeValores | undefined;
+}) {
+  const [digitado, setDigitado] = useState("");
+  const idBase = `dim_${ui.dimensao}`;
+  // `useMemo` e não `?? []`: o literal novo a cada render invalidaria o memo das
+  // opções logo abaixo, que é a lista que o seletor recebe.
+  const vistos = useMemo(() => vocab?.porDimensao[ui.dimensao] ?? [], [vocab, ui.dimensao]);
+  /* Esqueleto sai da AUSÊNCIA da lista, não de um estado "carregando": a
+     ausência é exatamente o que o efeito do diálogo usa para decidir buscar, e
+     duas representações do mesmo fato divergem. Sem base de referência não há o
+     que esperar, e aí a linha de procedência explica em vez de girar. */
+  const carregando = restrita && ui.origem.tipo === "tool" && !!baseRef && lista === undefined;
+
+  /**
+   * O que o seletor oferece, e a ORDEM importa.
+   *
+   * Primeiro o que esta base JÁ ENVIOU nas conversas: são literalmente os textos
+   * que `public.elegivel` vai comparar, então casam por construção. Depois o
+   * cadastro do ERP, que pode chegar com formatação diferente da do token (o
+   * código vem como número 9902 e o painel pode mandar "09902"). Inverter a ordem
+   * poria na frente o valor que tem mais chance de não casar.
+   */
+  const opcoes: SelectOption[] = useMemo(() => {
+    const out: SelectOption[] = [];
+    const visto = new Set<string>();
+    for (const v of vistos) {
+      out.push({ value: v.valor, label: v.valor, hint: `${v.conversas} conversa(s)` });
+      visto.add(v.valor.toLowerCase());
+    }
+    if (ui.origem.tipo === "fixo") {
+      for (const v of ui.origem.valores) {
+        if (visto.has(v.valor.toLowerCase())) continue;
+        out.push({ value: v.valor, label: `${v.rotulo} (${v.valor})` });
+        visto.add(v.valor.toLowerCase());
+      }
+    }
+    if (ui.origem.tipo === "cadastro") {
+      for (const b of bases) {
+        if (visto.has(b.base_code.toLowerCase())) continue;
+        out.push({ value: b.base_code, label: b.name, hint: b.base_code });
+        visto.add(b.base_code.toLowerCase());
+      }
+    }
+    if (lista?.ok) {
+      for (const v of lista.valores) {
+        if (visto.has(v.valor.toLowerCase())) continue;
+        out.push({ value: v.valor, label: v.rotulo ? `${v.valor} — ${v.rotulo}` : v.valor, hint: "cadastro" });
+        visto.add(v.valor.toLowerCase());
+      }
+    }
+    return out.filter((o) => !valores.some((v) => v.toLowerCase() === o.value.toLowerCase()));
+  }, [vistos, ui.origem, bases, lista, valores]);
+
+  function adicionar(v: string) {
+    const limpo = v.trim();
+    if (!limpo) return;
+    if (valores.some((x) => x.toLowerCase() === limpo.toLowerCase())) return;
+    onValores([...valores, limpo]);
+    setDigitado("");
+  }
+
+  const semPresenca = restrita && ui.presenca && vocab !== null && vistos.length === 0;
+
+  /**
+   * A dimensão `base` DENTRO de uma documentação de cliente.
+   *
+   * As doze são oferecidas sempre (decisão do dono), e esta é a única que pode
+   * se contradizer com o escopo: a linha já está presa à base do anexo, e
+   * `escopo_documentacao` exige as DUAS condições ao mesmo tempo. Restringir a
+   * outra base produz uma regra que não alcança ninguém — e é o tipo de erro que
+   * não dá erro. Restringir à própria base é só redundante, e dizer isso evita
+   * que alguém ache que mexer aqui mudou algo.
+   */
+  const conflitoDeBase =
+    restrita && ui.dimensao === "base" && baseDoEscopo && valores.length
+      ? valores.some((v) => v.trim().toLowerCase() !== baseDoEscopo.trim().toLowerCase())
+        ? `Esta documentação está anexada à base ${baseDoEscopo}, e as duas condições valem ao mesmo tempo: com outra base na lista, ela não alcança ninguém. Deixe em "Todos" ou use só ${baseDoEscopo}.`
+        : `Redundante: a documentação já é só da base ${baseDoEscopo}. Pode deixar em "Todos" sem mudar o alcance.`
+      : null;
+
+  return (
+    <div className={cn("rounded-md border bg-surface p-2.5", restrita ? "border-border-strong" : "border-border")}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-text">{ui.rotulo}</p>
+          <p className="text-xs leading-relaxed text-text-muted">{ui.ajuda}</p>
+        </div>
+        {/*
+          INTERRUPTOR explícito, e não "campo vazio = liberado". Campo em branco
+          é estado inválido: quem apagou o último valor querendo restringir mais
+          teria LIBERADO para todo mundo, sem nada na tela dizendo isso.
+        */}
+        <Segmented
+          value={restrita ? "sim" : "nao"}
+          onChange={(v) => onAlternar(v === "sim")}
+          options={[
+            { value: "nao", label: "Todos" },
+            { value: "sim", label: "Restringir" },
+          ]}
+        />
+      </div>
+
+      {restrita && (
+        <div className="mt-2.5 space-y-2 border-t border-border pt-2.5">
+          {valores.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5">
+              {valores.map((v) => (
+                <li key={v}>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 py-0.5 pl-2.5 pr-1 text-xs text-text">
+                    {v}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-5 rounded-full [&_svg]:size-3"
+                      aria-label={`Remover ${v} de ${ui.rotulo}`}
+                      onClick={() => onValores(valores.filter((x) => x !== v))}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {carregando ? (
+              <div className="space-y-1.5">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+            ) : (
+              <Select
+                id={`${idBase}_sel`}
+                value=""
+                onChange={adicionar}
+                options={opcoes}
+                aria-label={`Escolher valor de ${ui.rotulo}`}
+                placeholder={opcoes.length ? "Escolher da lista…" : "Nada na lista — digite ao lado"}
+                disabled={opcoes.length === 0}
+              />
+            )}
+            <div className="flex items-end gap-1.5">
+              <Input
+                id={`${idBase}_txt`}
+                value={digitado}
+                aria-label={`Digitar valor de ${ui.rotulo}`}
+                placeholder="ou digite o código…"
+                onChange={(e) => setDigitado(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  adicionar(digitado);
+                }}
+              />
+              <Button variant="secondary" onClick={() => adicionar(digitado)} disabled={!digitado.trim()}>
+                Adicionar
+              </Button>
+            </div>
+          </div>
+
+          {/*
+            De onde vem a lista, sempre dito. "Lista vazia" e "lista
+            indisponível" são coisas diferentes para quem configura: a primeira
+            manda conferir o cadastro do cliente, a segunda manda liberar uma
+            ferramenta ou digitar o código.
+          */}
+          <ProcedenciaDaLista
+            ui={ui}
+            lista={lista}
+            carregando={carregando}
+            baseRef={baseRef}
+            vistos={vistos.length}
+          />
+
+          {conflitoDeBase && (
+            <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{conflitoDeBase}</span>
+            </p>
+          )}
+
+          {semPresenca && (
+            <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                {baseDoEscopo
+                  ? `Esta base nunca enviou valor para ${ui.rotulo.toLowerCase()}.`
+                  : `Nenhuma base enviou valor para ${ui.rotulo.toLowerCase()}.`}{" "}
+                {vocab && vocab.conversas === 0
+                  ? "Também não há conversa nenhuma registrada aqui, então nada seria esperado ainda."
+                  : `Em ${vocab?.conversas ?? 0} conversa(s) registrada(s), nenhuma trouxe esse valor. ` +
+                    "Restringir por aqui faz a documentação não alcançar ninguém até o painel passar a enviá-lo."}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A linha que diz de onde os valores oferecidos vieram — ou por que não vieram. */
+function ProcedenciaDaLista({
+  ui,
+  lista,
+  carregando,
+  baseRef,
+  vistos,
+}: {
+  ui: DimensaoUI;
+  lista: ListaDeValores | undefined;
+  carregando: boolean;
+  baseRef: string;
+  vistos: number;
+}) {
+  const origem = ui.origem;
+  const daConversa = vistos > 0 ? `${vistos} valor(es) já visto(s) nas conversas. ` : "";
+
+  if (origem.tipo === "fixo") {
+    return <p className="text-xs text-text-muted">{daConversa}Os três painéis do produto são fixos.</p>;
+  }
+  if (origem.tipo === "cadastro") {
+    return <p className="text-xs text-text-muted">{daConversa}As bases vêm do cadastro de clientes.</p>;
+  }
+  if (origem.tipo === "digitacao") {
+    return (
+      <p className="text-xs text-text-muted">
+        {daConversa}
+        {origem.porque}
+      </p>
+    );
+  }
+  if (carregando || lista === undefined) {
+    return (
+      <p className="text-xs text-text-muted">
+        {daConversa}
+        {baseRef ? `Consultando ${origem.key} na base ${baseRef}…` : "Escolha um cadastro de referência para a lista."}
+      </p>
+    );
+  }
+  if (!lista.ok) {
+    // O MOTIVO na tela, não um "falhou". É ele que diz se a saída é liberar uma
+    // ferramenta, corrigir o token do painel, ou simplesmente digitar o código.
+    return (
+      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          {daConversa}
+          {lista.motivo}
+        </span>
+      </p>
+    );
+  }
+  if (lista.formatoDesconhecido) {
+    return (
+      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          {daConversa}
+          {`O cadastro de ${ui.rotulo.toLowerCase()} respondeu, mas sem o campo ${origem.campoValor[0]} que esperávamos — o retorno do ERP mudou. Digite o código à mão.`}
+        </span>
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs leading-relaxed text-text-muted">
+      {daConversa}
+      {lista.total === 0
+        ? `O cadastro de ${ui.rotulo.toLowerCase()} da base ${baseRef} está vazio (consultado com o login ${lista.usuario}).`
+        : `${lista.valores.length} de ${lista.total} do cadastro da base ${baseRef}, consultado com o login ${lista.usuario}${
+            lista.valores.length < lista.total ? " — se o que você quer não está na lista, digite o código" : ""
+          }.`}
+    </p>
+  );
+}
