@@ -93,6 +93,45 @@ todas as bases.
 candidato, não recorte de público, e oferecê-lo como filtro convidaria a
 restringir conteúdo a um candidato específico.
 
+## Toda dimensão é SINGULAR, e por quê
+
+Decidido pelo dono em 24/09: empresa, filial, centro de custo, unidade
+administrativa e unidade de negócio são a **alocação da pessoa**, não o conjunto
+que ela gerencia. Vínculo é o vínculo empregatício dela (CLT, PJ, autônomo,
+estagiário). Um valor por dimensão por pessoa, então o token carrega um valor e
+o predicado compara um valor.
+
+Isto resolve o furo que a simulação levantou. A pergunta era se um gestor
+responsável por três centros de custo deveria alcançar conteúdo restrito a
+qualquer um dos três; a resposta é que a dimensão não fala de quem gerencia, fala
+de onde a pessoa está alocada. Registrado porque a alternativa (lista por
+dimensão na identidade) mudaria o predicado, o token e as três telas, e alguém
+vai propor isso de novo.
+
+## A allowlist se preenche da estrutura do cliente, não da digitação
+
+Os valores dessas dimensões vivem nos **endpoints de estrutura do ERP**, e o
+catálogo já tem seis ferramentas ATIVAS para eles: `estrutura_empresas`,
+`estrutura_filiais`, `estrutura_centros_custo`, `estrutura_unidades_adm`,
+`estrutura_vinculos_empregaticios` e `estrutura_sindicatos`.
+
+Então a tela de elegibilidade não pede código digitado: ela lista a estrutura
+real daquele cliente e o admin escolhe. Isso elimina de uma vez a classe de erro
+mais provável nesta funcionalidade, que é restringir conteúdo ao centro de custo
+"0100" quando o código é "100", e que falharia exatamente como as outras falhas
+desta regra: sem erro, alcançando ninguém.
+
+Junto com o diagnóstico de presença de dimensão, são duas camadas contra a regra
+impossível: a escolha vem de uma lista real, e a tela avisa se aquela base nunca
+enviou valor naquela dimensão.
+
+> **Furo aberto: `unidade de negócio` não tem endpoint.** Busca no catálogo por
+> `negocio` devolve ZERO ferramentas. As outras cinco dimensões novas têm de onde
+> se preencher; esta não. Precisa de decisão do dono antes de o projeto 0
+> começar: existe endpoint a cadastrar, o conceito equivale a outro já coberto,
+> ou a dimensão sai da lista? Enquanto não houver origem, ela seria o único campo
+> de digitação livre, e o único sem validação possível.
+
 ## A regra, uma vez só
 
 Nasce `src/lib/elegibilidade/`:
@@ -296,17 +335,24 @@ controle de quem visualizou, painel por campanha e drilldown de quem viu e quem
 não viu. É um sistema de notificação com métricas; compartilha com os outros
 apenas o motor do projeto 0.
 
-> **BLOQUEIO encontrado na simulação de 24/09: "quem NÃO visualizou" é
-> incomputável hoje.** Não existe cadastro de usuários em nenhuma tabela; o
-> universo disponível é "quem já usou o chatbot", e a maior base conhece **7
-> usuários distintos**. Um painel de "não visualizaram" sobre esse universo
-> mediria adoção do chatbot, não alcance da campanha, e o número pareceria
-> completo sem ser.
->
-> Duas saídas, e a escolha é do dono antes de o projeto 3 começar: buscar o
-> roster no ERP (uma consulta por campanha, não por turno), ou mudar a pergunta
-> para "entregues × visualizados", que é computável com o que existe. Não
-> começar o projeto 3 sem essa decisão.
+**Escopo da primeira versão, decidido em 24/09: só QUEM VISUALIZOU.** O painel
+mostra os que abriram o alerta, e não tenta mostrar os que não abriram.
+
+O motivo é que "quem não visualizou" era incomputável: não existe cadastro de
+usuários em nenhuma tabela, e o único universo disponível é "quem já usou o
+chatbot" (a maior base conhece **7 usuários distintos**). Um painel de "não
+visualizaram" sobre esse universo mediria adoção do chatbot enquanto parecesse
+medir alcance da campanha, que é o pior tipo de número: completo na aparência e
+falso no conteúdo.
+
+Com o escopo reduzido, o denominador some e o que sobra é um fato: estes
+visualizaram. O drilldown continua existindo, sobre quem visualizou.
+
+**Consequência a respeitar no projeto:** nenhuma tela pode exibir percentual,
+taxa de leitura ou gráfico de "lidos × não lidos", porque todos precisam do
+denominador que não temos. Se alguém acrescentar isso depois sem trazer o roster,
+o número vai parecer certo e estar errado. A porta para a versão completa é
+buscar o roster no ERP, uma consulta por campanha e não por turno.
 
 ## Projeto 4 — Rodada 2 do desacoplamento
 
@@ -360,21 +406,25 @@ O lado bom foi confirmado por leitura da policy, não presumido:
 `chunks_public_read` exige `n.id = chunks.node_id`, então arquivo de cliente não
 alcança o portal por construção.
 
-**Quatro dimensões novas são multivaloradas na vida real.** Centro de custo,
-filial, unidade administrativa e vínculo não são singulares para todo mundo: um
-gestor responde por vários centros de custo, uma pessoa pode ter dois vínculos.
-O token carrega um valor por dimensão. Simulado: regra `centro_custo=[100]` com
-token `200` fecha, o que é certo pela regra e errado pela intenção se a pessoa
-também pertence ao 100. **Decisão pendente do dono:** `p_centro_custo` é a
-alocação PRÓPRIA da pessoa (singular, e o desenho está certo) ou o conjunto que
-ela gerencia (plural, e o parâmetro precisa aceitar lista)?
+**Multivalorado: levantado e RESOLVIDO.** A simulação perguntou se um gestor
+responsável por três centros de custo deveria alcançar conteúdo restrito a
+qualquer um deles. Resposta do dono: as dimensões são a alocação da pessoa, não o
+que ela gerencia, e o vínculo é o empregatício. Todas singulares, o desenho está
+certo como está. Ver "Toda dimensão é SINGULAR" no projeto 0.
 
-**`ai_bases.active = false` em quatro clientes vivos.** `leadec`, `saude`,
-`incor` e `stefanini` estão inativas em `ai_bases` e recebendo conversa; a
-leadec é a do plano de 50.000 créditos. Filtrar documentação por base ativa,
-como seria natural escrever, daria zero documentação a esses quatro sem nenhuma
-mensagem. A consulta de documentação NÃO filtra por `active`, e fica um
-comentário dizendo por quê.
+**`ai_bases.active = false`: era FALSO POSITIVO meu.** Eu li "recebendo
+conversa" como presente. As conversas de `leadec`, `saude`, `incor` e
+`stefanini` são históricas, todas até 17/08, e as bases foram desativadas depois.
+O dado está correto.
+
+E o efeito que eu temia não existe: `widgetLiberado()` devolve falso quando
+`baseAtiva` é falso, então **base desativada não abre o widget**. Esses clientes
+não ficariam sem documentação, eles são barrados na porta, antes de qualquer
+resolução de escopo. A consulta de documentação pode filtrar por `active` sem
+consequência, porque nunca chega a rodar para uma base inativa.
+
+Fica registrado porque o raciocínio errado é reutilizável: "tem tráfego" lido de
+uma tabela de histórico não significa "está em uso hoje".
 
 **Base órfã.** `teste_fatura` aparece em conversa e não existe em `ai_bases`.
 Comportamento definido: alcança só o conjunto universal, nunca conteúdo de
