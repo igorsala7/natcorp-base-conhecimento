@@ -2,24 +2,26 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tryDecryptSecret } from "@/lib/crypto/secrets";
 import { decodificarRastreioDetalhado } from "./token";
+import { PREFIXO_HMAC, baseAlegada, escaparIlike } from "./base-alegada";
 import type { TrackingKey } from "@/lib/chat/tracking";
 
 /**
  * Validação de token de rastreio AMARRADA À BASE.
  *
- * ── Por que este arquivo existe, e não dá para usar `resolve.ts` ────────
+ * ── Por que este arquivo continua existindo ao lado de `resolve.ts` ────
  *
- * `resolve.ts` busca a chave por `space_id`. Como os três espaços com chave
- * (`natcorp` = Operador, `painel-do-gestor`, `painel-do-colaborador`) estão
- * ligados às MESMAS 14 bases, existe UMA chave por painel para todos os
- * clientes — e ela mora, em texto puro, na constante `c_key` do bloco PL/SQL
- * dentro do APEX de cada cliente (`apex/token-rastreio.sql`).
+ * Desde 25/09 `resolve.ts` também inverte (ver a catraca lá). A diferença é a
+ * POSTURA, e ela é deliberada:
  *
- * Como nada amarra o `p_base` do payload à chave, quem administra o APEX de um
- * cliente pode emitir `{"p_base":"<outro cliente>"}` e o servidor aceita. No
- * widget isso é contido por acidente (as ferramentas ainda batem no ERP alheio,
- * com credenciais que essa pessoa não tem). Na área de gestão não há anteparo
- * nenhum: consumo, fatura e histórico de conversas estão no nosso Postgres.
+ *   · aqui a base sem chave própria FALHA FECHADA. A área de gestão mostra
+ *     consumo, fatura e histórico de conversas do cliente inteiro; enquanto um
+ *     cliente não tiver chave própria, ele simplesmente não entra;
+ *   · em `resolve.ts` existe catraca: base ainda não confirmada cai na chave do
+ *     espaço, como sempre foi, para não derrubar o widget de 14 clientes de uma
+ *     vez. Cada um fecha sozinho quando o bloco dele é recolado.
+ *
+ * O passo 1 da inversão (ler a base alegada) é o mesmo nos dois, e mora em
+ * `base-alegada.ts` — uma leitura só do formato do token.
  *
  * ── A inversão ─────────────────────────────────────────────────────────
  *
@@ -63,37 +65,6 @@ export type IdentidadeGestao = {
 export type ResultadoGestao =
   | { ok: true; identidade: IdentidadeGestao }
   | { ok: false; motivo: MotivoRecusa };
-
-const PREFIXO_HMAC = "kbt1h.";
-
-/**
- * Lê o payload de um token assinado SEM verificar a assinatura.
- *
- * O valor devolvido é uma ALEGAÇÃO, não um fato — serve unicamente para saber
- * qual chave usar na verificação. Nada daqui pode chegar a uma consulta antes
- * de `decodificarRastreioDetalhado` confirmar a assinatura.
- */
-function baseAlegada(token: string): string | null {
-  if (!token.startsWith(PREFIXO_HMAC)) return null;
-  const corpo = token.slice(PREFIXO_HMAC.length).split(".");
-  if (corpo.length !== 2) return null;
-  try {
-    const json = Buffer.from(corpo[0]!, "base64url").toString("utf8");
-    const obj = JSON.parse(json) as unknown;
-    if (!obj || typeof obj !== "object") return null;
-    const base = (obj as Record<string, unknown>).p_base;
-    if (typeof base !== "string") return null;
-    const limpo = base.trim().toLowerCase();
-    return limpo === "" ? null : limpo;
-  } catch {
-    return null;
-  }
-}
-
-/** Escapa os curingas do `ilike` — um `base_code` com `%` casaria demais. */
-function escaparIlike(v: string): string {
-  return v.replace(/([\\%_])/g, "\\$1");
-}
 
 /**
  * Resolve a identidade de gestão a partir do token, exigindo que a assinatura
