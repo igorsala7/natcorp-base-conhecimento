@@ -4,6 +4,7 @@ import { kvGetJson, kvSetJson, hashKey } from "@/lib/cache/kv";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
 import type { Database } from "@/lib/database.types";
 import {
   embeddingModel,
@@ -156,6 +157,12 @@ async function retrieveWith(
    * Arquivos resolvidos pelo ESCOPO DA BASE (documentação anexada + arquivos
    * exclusivos do cliente). SOMAM aos `documentIds` que esta função já monta a
    * partir dos espaços — nunca substituem.
+   *
+   * São também metade do conjunto ELEGÍVEL contra o qual um `scope.documentId`
+   * vindo do corpo da requisição é conferido: a outra metade são os arquivos
+   * prontos dos espaços. Quem monta esta lista (`resolverEscopoDaBase`) já
+   * aplicou `public.elegivel` no banco, então ela é elegibilidade resolvida, não
+   * pedido do cliente.
    */
   documentosDaBase?: string[],
   /**
@@ -200,37 +207,124 @@ async function retrieveWith(
     if (sub.length) nodeIds = sub;
   }
 
-  // Arquivos da base de conhecimento dos MESMOS espaços do escopo. Só os
-  // prontos: um documento ainda em extração tem chunks pela metade, e responder
-  // com meia planilha é pior do que não responder. Escopo por arquivo → só ele;
-  // escopo por diretório de artigos → sem arquivos.
+  /**
+   * Arquivos de conhecimento PRONTOS dos espaços do escopo. Só os prontos: um
+   * documento ainda em extração tem chunks pela metade, e responder com meia
+   * planilha é pior do que não responder — o modelo não tem como saber que a
+   * lista que recebeu está truncada, então ele afirma o parcial como se fosse o
+   * todo. (O mesmo predicado existe no SQL, dentro de `documentos_da_base`, para
+   * os arquivos que vêm da BASE.)
+   *
+   * HERANÇA: os arquivos do espaço-PAI (`parent_space_id`) também valem para o
+   * cliente — igual à árvore e à ontologia. Assim um CSV subido em "Documentação
+   * Natcorp" aparece nos widgets de Gestor/Colaborador sem precisar reenviar
+   * (nem re-embeddar) em cada espaço.
+   *
+   * MEMOIZADA porque o caminho de `scope.documentId` precisa da MESMA lista até
+   * duas vezes — uma para conferir a elegibilidade do id que o cliente mandou, e
+   * outra para servir de escopo normal quando aquele id não é elegível. São duas
+   * consultas no caminho quente do turno; rodá-las duas vezes seria desperdício
+   * puro, e rodá-las com resultados diferentes seria pior.
+   */
+  let _arquivosDosEspacos: Promise<string[]> | null = null;
+  const arquivosDosEspacos = () =>
+    (_arquivosDosEspacos ??= (async () => {
+      const escoposSpaceIds = escoposUsar.map((e) => e.spaceId);
+      // Sem espaço no escopo não há arquivo de espaço. Sai antes de mandar
+      // `in.()` ao PostgREST (caminho do widget que só resolve arquivo de base).
+      if (!escoposSpaceIds.length) return [];
+      const { data: espacos } = await supabase
+        .from("spaces")
+        .select("id, parent_space_id")
+        .in("id", escoposSpaceIds);
+      const spaceIdsComPai = new Set(escoposSpaceIds);
+      for (const s of espacos ?? []) if (s.parent_space_id) spaceIdsComPai.add(s.parent_space_id);
+      // PAGINADO: o teto PADRÃO do PostgREST é de 1.000 linhas por resposta, e
+      // esta consulta não tinha `range()`. Com a união da tarefa 9 (espaços da
+      // chave + universais + anexos por base) o conjunto de espaços cresce, e no
+      // dia em que os arquivos PRONTOS deles passarem de mil a lista seria
+      // truncada em SILÊNCIO — o chatbot deixaria de achar o arquivo 1.001 sem
+      // erro em lugar nenhum. `order("id")` antes do `range()` porque a fatia só
+      // é estável com ordenação total (ver `fetchAllPaged`).
+      let docs: { id: string }[];
+      try {
+        docs = await fetchAllPaged<{ id: string }>(async (from, to) => {
+          const { data, error } = await supabase
+            .from("knowledge_documents")
+            .select("id")
+            .in("space_id", [...spaceIdsComPai])
+            .eq("status", "ready")
+            .order("id")
+            .range(from, to);
+          return { data, error };
+        });
+      } catch (e) {
+        // `fetchAllPaged` LANÇA no erro, e o código anterior desestruturava só
+        // `{ data }` e seguia com lista vazia em silêncio. Degradar continua
+        // certo (uma falha de leitura não deve derrubar o turno), mas em
+        // silêncio não: sem este log, "o cliente não tem arquivo" e "a leitura
+        // dos arquivos quebrou" produzem exatamente o mesmo resultado visível.
+        console.error(
+          "[rag] leitura dos arquivos de conhecimento dos espaços falhou, seguindo sem eles:",
+          e instanceof Error ? e.message : e,
+        );
+        return [];
+      }
+      return docs.map((d) => d.id);
+    })());
+
+  // ── `scope.documentId` é INTERSECADO com o conjunto elegível ───────────
+  // Ele chega do CORPO da requisição (`payload.scope`, no widget e no Ask-AI do
+  // portal) e, até aqui, SUBSTITUÍA a lista sem interseção com nada que as RPCs
+  // de escopo tivessem resolvido. Duas consequências, e a segunda é pior:
+  //
+  //   · no widget, a cerca de propriedade da tarefa 7 (`p_base`) segura arquivo
+  //     de OUTRA base, mas arquivo DA PRÓPRIA base restrito por `regra` (portal,
+  //     perfil, centro de custo) era servido a quem NÃO é elegível, porque a
+  //     elegibilidade só roda ao MONTAR a lista e nunca ao honrar um id que o
+  //     cliente mandou;
+  //   · no portal aquele chamador não passa base, então a cerca está desligada
+  //     por desenho e qualquer `document_id` valia, inclusive de arquivo de base.
+  //
+  // O que protegia era um UUID ser imprevisível: segredo por acidente, e ele
+  // vaza em citação, print e tela.
+  //
+  // A checagem fica AQUI, dentro de `retrieveWith`, e não nos chamadores: esta
+  // função é o funil dos dois, e uma checagem por chamador seria um segundo
+  // lugar para alguém esquecer — que é o mesmo defeito que deixou
+  // `documentos_da_base` nascer sem o predicado de status.
+  //
+  // Id NÃO elegível cai no comportamento SEM escopo, nunca em vazio. Devolver
+  // vazio ensinaria a EXISTÊNCIA do id (a resposta mudaria de forma conforme o
+  // uuid chutado, que é o oráculo que estamos fechando) e ainda mataria o turno
+  // do usuário legítimo cujo escopo envelheceu — um arquivo apagado, ou uma
+  // regra que mudou entre um turno e o seguinte.
+  //
+  // Escopo por diretório de artigos continua sem arquivos.
   let documentIds: string[];
+  let idEscopado: string | null = null;
   if (scope?.documentId) {
-    documentIds = [scope.documentId];
+    const elegiveis = new Set([...(await arquivosDosEspacos()), ...(documentosDaBase ?? [])]);
+    if (elegiveis.has(scope.documentId)) idEscopado = scope.documentId;
+    else
+      console.warn(
+        `[rag] scope.documentId "${scope.documentId}" não pertence ao conjunto elegível desta identidade — ignorado, o turno segue com o escopo normal`,
+      );
+  }
+  if (idEscopado) {
+    documentIds = [idEscopado];
     nodeIds = [];
   } else if (scope?.nodeId) {
     documentIds = [];
   } else {
-    // HERANÇA: os arquivos de conhecimento do espaço-PAI (parent_space_id)
-    // também valem para o cliente — igual à árvore e à ontologia. Assim um CSV
-    // subido em "Documentação Natcorp" aparece nos widgets de Gestor/Colaborador
-    // sem precisar reenviar (nem re-embeddar) em cada espaço.
-    const escoposSpaceIds = escoposUsar.map((e) => e.spaceId);
-    const { data: espacos } = await supabase
-      .from("spaces")
-      .select("id, parent_space_id")
-      .in("id", escoposSpaceIds);
-    const spaceIdsComPai = new Set(escoposSpaceIds);
-    for (const s of espacos ?? []) if (s.parent_space_id) spaceIdsComPai.add(s.parent_space_id);
-    const { data: docs } = await supabase
-      .from("knowledge_documents")
-      .select("id")
-      .in("space_id", [...spaceIdsComPai])
-      .eq("status", "ready");
-    documentIds = (docs ?? []).map((d) => d.id);
+    documentIds = await arquivosDosEspacos();
   }
 
   // ESCOPO DA BASE: soma, nunca substitui — mantém a dedup dos dois lados.
+  // Vale inclusive quando um `scope.documentId` elegível foi honrado, e isso é
+  // deliberado: os arquivos da base são os do PRÓPRIO cliente, sempre no escopo
+  // daquela identidade, e a doutrina do ramo é aditiva. O que o escopo por
+  // arquivo estreita são os ARTIGOS (`nodeIds = []` acima).
   if (documentosDaBase?.length) {
     documentIds = [...new Set([...documentIds, ...documentosDaBase])];
   }
