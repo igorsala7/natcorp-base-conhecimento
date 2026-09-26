@@ -23,6 +23,23 @@
 -- A ingestão, o chunking e o caminho `p_document_ids` da busca já operam
 -- sobre `knowledge_documents`. Uma segunda tabela duplicaria o pipeline
 -- de embedding inteiro.
+--
+-- ── CORPO SUPERADO EM PARTE: documentos_da_base ──────────────────────
+-- O corpo de `public.documentos_da_base(text, jsonb)` que está aqui usa
+-- `lower(btrim(base_code))`, com `btrim` de UM argumento, que apara só o
+-- caractere espaço. A `20260925160000_branco_unico_e_grants.sql` trocou
+-- por `public.codigo_normalizado`, que apara os CINCO caracteres de
+-- `public.allowlist_casa` (espaço, TAB, LF, CR, NBSP) — o mesmo conjunto
+-- que a dimensão `base` de `public.elegivel` já usava. E ela também
+-- revogou o EXECUTE de `authenticated` desta função, que sendo `security
+-- definer` deixava qualquer Leitor enumerar os ids dos arquivos internos
+-- de qualquer cliente.
+--
+-- A ASSINATURA é a mesma, então reaplicar ESTE arquivo sozinho não cria
+-- função duplicada: ele SILENCIOSAMENTE desfaz as duas coisas — volta o
+-- aparo de um caractere e devolve o EXECUTE a `authenticated`. Reaplique
+-- a 20260925160000 depois, sempre. Não há ledger, então reaplicar um
+-- arquivo à mão é operação normal e este aviso é o que resta.
 -- =====================================================================
 
 alter table public.knowledge_documents
@@ -147,11 +164,12 @@ begin
    where space_id is null and document_id is null;
   assert v_n = 0, 'nenhum chunk pode ficar sem espaco E sem documento';
 
-  -- A cerca do anon continua de pé: chunk de arquivo tem node_id nulo, e
-  -- chunks_public_read exige node_id.
-  assert (select count(*) from pg_policies
-           where schemaname='public' and tablename='chunks'
-             and policyname='chunks_public_read'
-             and qual like '%node_id%') = 1,
-    'chunks_public_read tem de continuar exigindo node_id';
+  -- A cerca do anon (chunk de arquivo nunca chega ao portal público) é
+  -- verificada em `20260925116000_assertiva_de_comportamento_do_anon.sql`,
+  -- que assume o papel `anon` e CONTA os chunks sem `node_id` que ele
+  -- alcança. A assertiva que existia aqui checava se a palavra `node_id`
+  -- aparecia no `qual` da policy, e uma reescrita para
+  -- `(n.id = chunks.node_id or chunks.node_id is null)` vazaria todo
+  -- arquivo mantendo a palavra — ela passava sem verificar nada, e
+  -- assertiva que passa sem verificar ensina a confiar nela.
 end $$;

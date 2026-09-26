@@ -34,6 +34,27 @@
 -- `alter table ... add constraint unique` não aceita expressão, só
 -- coluna. Índice único sobre expressão é a forma que o Postgres oferece,
 -- e ele é igualmente respeitado por `insert`/`update`.
+--
+-- ── ÍNDICE SUPERADO: o aparo de um caractere não fechava ─────────────
+-- `btrim(x)` com um argumento apara SÓ espaço, e este índice foi criado
+-- com ele. Medido: `btrim('natcorp' || chr(160)) = 'natcorp'` é FALSE.
+-- Então este índice aceitava 'natcorp' e 'natcorp'+NBSP como bases
+-- DISTINTAS, enquanto a dimensão `base` de `public.elegivel` (que passa
+-- por `public.allowlist_casa`, que apara cinco caracteres) tratava as
+-- duas como a MESMA: uma documentação universal restrita a
+-- `{"base":["natcorp"]}` alcançava os usuários da outra base. NBSP é
+-- exatamente o que vem de um colar de planilha.
+--
+-- A `20260925160000_branco_unico_e_grants.sql` criou
+-- `ai_bases_codigo_normalizado_key`, sobre
+-- `public.codigo_normalizado(base_code)` (os cinco brancos), e DERRUBOU
+-- `ai_bases_base_code_normalizado_key`. O novo é estritamente mais forte:
+-- tudo que este recusava, ele também recusa.
+--
+-- Reaplicar ESTE arquivo sozinho recria o índice fraco ao lado do forte.
+-- Não abre o furo (o forte continua recusando a colisão por NBSP), mas
+-- deixa um índice redundante em `ai_bases`. Para limpar:
+-- `drop index if exists public.ai_bases_base_code_normalizado_key;`
 -- =====================================================================
 
 create unique index if not exists ai_bases_base_code_normalizado_key

@@ -79,6 +79,23 @@
 -- than one row returned by a subquery used as an expression" — erro que
 -- `rag.ts` engole, porque as chamadas desestruturam só `{ data }`. O índice
 -- único de 20260925130000 fecha a porta, mas a função não depende dele.
+--
+-- ── CORPO SUPERADO EM PARTE: o normalizador e o grant ──────────────────
+-- O corpo daqui compara `lower(btrim(b.base_code)) = lower(btrim(coalesce(
+-- p_base, '')))`, com `btrim` de UM argumento, que apara só espaço. A
+-- `20260925160000_branco_unico_e_grants.sql` trocou por
+-- `public.codigo_normalizado`, que apara os CINCO caracteres de
+-- `public.allowlist_casa` (espaço, TAB, LF, CR, NBSP) — o mesmo conjunto que a
+-- dimensão `base` de `public.elegivel` já usava, e cuja divergência fazia uma
+-- base com NBSP no código ser "outra" para o índice e "a mesma" para a regra. A
+-- mesma migration revogou o EXECUTE de `authenticated`: sendo `security
+-- definer`, esta função ignora a RLS das quatro tabelas que lê, e o único
+-- chamador é `service_role` (`src/lib/ai/escopo-da-base.ts`, via
+-- `createAdminClient`).
+--
+-- A ASSINATURA é a mesma nas duas, então reaplicar ESTE arquivo sozinho não cria
+-- função duplicada: ele SILENCIOSAMENTE volta o aparo de um caractere e devolve
+-- o EXECUTE a `authenticated`. Reaplique a 20260925160000 depois, sempre.
 -- =====================================================================
 
 create or replace function public.escopo_documentacao(

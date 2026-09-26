@@ -125,6 +125,34 @@
 -- elegibilidade aqui dentro, que é justamente o que esta cerca se recusa
 -- a fazer. Esse caso continua coberto só pela aplicação
 -- (`resolverEscopoDaBase`) e pela prova da tarefa 6.
+--
+-- ── CORPO SUPERADO EM PARTE, E REAPLICAR SOZINHO QUEBRA O PORTAL ───────
+-- Os corpos das duas funções que estão aqui resolvem a base com
+-- `from public.ai_bases` dentro da CTE `base_alvo`. Isso quebrou a busca pública
+-- do portal, e foi medido em 25/09 assumindo o papel `anon`:
+--
+--   hybrid_search_scoped(p_query := 'ferias', p_limit := 3)
+--     -> ERRO 42501: permission denied for table ai_bases
+--
+-- `anon` tem grant em `chunks`, `nodes` e `knowledge_documents`, e NENHUM em
+-- `ai_bases`. Estas duas funções são `security invoker`, e a permissão de tabela
+-- é conferida no INÍCIO da execução para toda entrada da range table — não
+-- quando a linha é lida. Então nem o `p_base is null` do portal salva: bastava a
+-- tabela estar no plano. `searchPortal` usa `createPublicClient()` (chave `anon`)
+-- e só registra `console.error`, então o sintoma é resultado vazio. É o mesmo
+-- modo de falha que o comentário sobre `20260721140000` acima previne para
+-- grant, produzido por outra porta.
+--
+-- A `20260925160000_branco_unico_e_grants.sql` corrige: a base alvo passa a vir
+-- de `public.bases_do_codigo(text)`, que é `security definer` — chamada de função
+-- não é entrada de range table. A mesma migration troca o `lower(btrim(...))` de
+-- um argumento pelo aparo de cinco caracteres de `public.codigo_normalizado`.
+--
+-- A ASSINATURA não muda, então reaplicar ESTE arquivo sozinho não cria função
+-- duplicada: ele devolve `public.ai_bases` para a range table e MATA a busca do
+-- portal outra vez, em silêncio, além de voltar o aparo de um caractere.
+-- Reaplique a 20260925160000 depois, SEMPRE. A assertiva 5 da 160000 é o que
+-- pega isso: ela assume o papel `anon` e chama as duas funções.
 -- =====================================================================
 
 drop function if exists public.hybrid_search_scoped(text, vector, uuid[], integer, uuid[], text, integer);

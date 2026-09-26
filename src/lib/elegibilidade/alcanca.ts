@@ -70,6 +70,21 @@ export function textoComoNoJsonb(v: unknown): string {
 }
 
 /**
+ * "BRANCO" É UM CONJUNTO DE CINCO CARACTERES, E APARECE UMA VEZ SÓ.
+ *
+ * Espaço, TAB, LF, CR e NBSP — exatamente o que `public.allowlist_casa` apara,
+ * onde o conjunto também aparece uma vez, com o comentário dizendo que é de
+ * propósito "para não corrigir dois e esquecer o terceiro".
+ *
+ * Escrito com escape `\uXXXX` e não com o caractere literal: invisível dentro do
+ * fonte atravessa revisão sem ninguém ver, e basta um editor trocá-lo por espaço
+ * para a correção virar nada (neste repositório dois bytes NUL num fonte já
+ * esconderam uma colisão).
+ */
+const BRANCOS = "\u0020\u0009\u000A\u000D\u00A0"; // espaco, TAB, LF, CR, NBSP
+const APARO = new RegExp(`^[${BRANCOS}]+|[${BRANCOS}]+$`, "g");
+
+/**
  * Normaliza para comparar: o texto do jsonb, aparado e sem caixa.
  *
  * Recebe `unknown` e não `string`, e isso é a correção de um defeito medido:
@@ -82,8 +97,22 @@ export function textoComoNoJsonb(v: unknown): string {
  *
  * Hoje `identidadeDoRastreio` só produz texto. Dispara quando a identidade
  * passar a ser montada a partir de coluna do banco.
+ *
+ * ── Por que NÃO é o `.trim()` do JavaScript ──────────────────────────────────
+ * `.trim()` apara TODO espaço Unicode: tabulação vertical, form feed, U+2000 a
+ * U+200A, U+3000, BOM. O `btrim` do gêmeo em SQL apara os CINCO acima e mais
+ * nada. Com `.trim()` aqui, um valor com U+2000 casava do lado TypeScript e não
+ * casava do lado SQL: a tela prometia um alcance que o banco não entrega, e
+ * `normalizarRegra` GRAVAVA o item já sem o caractere, então o alcance real
+ * mudava conforme quem digitou.
+ *
+ * A convergência é o TypeScript ESTREITAR, não o SQL alargar, e a direção é a
+ * segura: valor com espaço exótico deixa de casar nos DOIS lados, "ausência
+ * fecha" continua valendo, e nada que casava por acidente passa a casar. A
+ * 20260925010000 tinha alargado o SQL até os cinco por este mesmo motivo e
+ * registrou o residual dos exóticos; `casos.json` agora tem caso para ele.
  */
-const norm = (v: unknown) => textoComoNoJsonb(v).trim().toLowerCase();
+const norm = (v: unknown) => textoComoNoJsonb(v).replace(APARO, "").toLowerCase();
 
 /**
  * ESTA REGRA TAMBÉM EXISTE EM SQL (`public.elegivel`), e não por preguiça.

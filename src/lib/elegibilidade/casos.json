@@ -1,5 +1,5 @@
 {
-  "_comentario": "Corpus COMPARTILHADO entre o predicado TypeScript e public.elegivel. Um caso a mais aqui vale mais que um teste a mais em qualquer um dos dois lados, porque este é o único arquivo que os dois lêem. Ordem dos campos irrelevante; nomes das dimensões conforme src/lib/elegibilidade/dimensoes.ts.",
+  "_comentario": "Corpus COMPARTILHADO entre o predicado TypeScript e public.elegivel. Um caso a mais aqui vale mais que um teste a mais em qualquer um dos dois lados, porque este é o único arquivo que os dois lêem. Ordem dos campos irrelevante; nomes das dimensões conforme src/lib/elegibilidade/dimensoes.ts. Os nove últimos casos são do APARO: os cinco brancos que os dois lados aparam (espaço, TAB, LF, CR, NBSP, o conjunto de public.allowlist_casa e da constante BRANCOS em alcanca.ts) e o espaço Unicode exótico U+2000, que nenhum dos dois apara. Os dois de U+2000 falhavam antes de 25/09, quando o TypeScript usava .trim(), que apara todo espaço Unicode: a tela prometia um alcance que o banco não entregava. Todo caso deste array precisa de nome, regra, identidade e esperado — nada de entrada de comentário no meio, porque scripts/verificar-elegibilidade.ts itera TODOS os itens.",
   "casos": [
     { "nome": "regra vazia, identidade cheia", "regra": {}, "identidade": { "base": "leadec", "portal": "PG" }, "esperado": true },
     { "nome": "regra vazia, identidade vazia", "regra": {}, "identidade": {}, "esperado": true },
@@ -42,6 +42,15 @@
     { "nome": "identidade em ARRAY nao casa com o item solto (o perigo do String())", "regra": { "portal": ["PG"] }, "identidade": { "portal": ["PG"] }, "esperado": false },
     { "nome": "identidade em ARRAY casa com o TEXTO JSON exato", "regra": { "portal": ["[\"PG\"]"] }, "identidade": { "portal": ["PG"] }, "esperado": true },
     { "nome": "identidade em OBJETO casa com o TEXTO JSON canonico do jsonb", "regra": { "portal": ["{\"a\": 1}"] }, "identidade": { "portal": { "a": 1 } }, "esperado": true },
-    { "nome": "doze dimensoes, a ultima falha", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": "1", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "OUTRO" }, "esperado": false }
+    { "nome": "doze dimensoes, a ultima falha", "regra": { "base": ["leadec"], "portal": ["PG"], "perfil": ["MASTER"], "usuario": ["u1"], "empresa": ["1"], "matricula": ["123"], "filial": ["F1"], "centro_custo": ["100"], "unidade_adm": ["UA1"], "unidade_negocio": ["UN1"], "vinculo": ["CLT"], "sindicato": ["SINDPD"] }, "identidade": { "base": "LEADEC", "portal": "pg", "perfil": "master", "usuario": "U1", "empresa": "1", "matricula": "123", "filial": "f1", "centro_custo": "100", "unidade_adm": "ua1", "unidade_negocio": "un1", "vinculo": "clt", "sindicato": "OUTRO" }, "esperado": false },
+    { "nome": "TAB no ITEM da lista casa", "regra": { "portal": ["\tPG"] }, "identidade": { "portal": "PG" }, "esperado": true },
+    { "nome": "NBSP no fim do ITEM da lista casa", "regra": { "portal": ["PG\u00a0"] }, "identidade": { "portal": "PG" }, "esperado": true },
+    { "nome": "NBSP nos DOIS lados casa", "regra": { "portal": ["\u00a0PG"] }, "identidade": { "portal": "PG\u00a0" }, "esperado": true },
+    { "nome": "CR e LF no item sao aparados", "regra": { "portal": ["PG\r\n"] }, "identidade": { "portal": "PG" }, "esperado": true },
+    { "nome": "lista so de NBSP e espaco LIBERA", "regra": { "portal": ["\u00a0", "  "] }, "identidade": {}, "esperado": true },
+    { "nome": "NBSP + valor real: ausencia continua fechando", "regra": { "portal": ["\u00a0", "PG"] }, "identidade": {}, "esperado": false },
+    { "nome": "base com NBSP e a MESMA base (o furo entre clientes)", "regra": { "base": ["natcorp"] }, "identidade": { "base": "natcorp\u00a0" }, "esperado": true },
+    { "nome": "espaco Unicode exotico U+2000 no item NAO e aparado: fecha nos dois lados", "regra": { "portal": ["\u2000PG"] }, "identidade": { "portal": "PG" }, "esperado": false },
+    { "nome": "espaco Unicode exotico U+2000 na identidade NAO e aparado: fecha nos dois lados", "regra": { "portal": ["PG"] }, "identidade": { "portal": "\u2000PG" }, "esperado": false }
   ]
 }
