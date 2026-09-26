@@ -5,7 +5,9 @@
 -- assinatura VIVA é a de 8: `20260925120000_busca_recusa_documento_de_outra_
 -- base.sql` acrescentou `p_base` (a cerca de propriedade que impede um cliente
 -- de receber arquivo de outro), e o CORPO atual está em
--- `20260925160000_branco_unico_e_grants.sql`.
+-- `20260926120000_funcoes_de_escopo_canonicas.sql` — ele saiu de
+-- `20260925160000_branco_unico_e_grants.sql` na tarefa 15, quando as funções de
+-- escopo ganharam sítio ÚNICO de definição.
 --
 -- `create or replace` com assinatura DIFERENTE não substitui nada: cria uma
 -- SEGUNDA função. Com as duas de pé, `supabase.rpc("hybrid_search_scoped",
@@ -17,9 +19,13 @@
 --
 -- NÃO acrescente `drop function` aqui para "resolver": isso deixaria de pé só
 -- esta versão, SEM a cerca de base, o que é pior que a ambiguidade. Para voltar
--- ao estado correto, reaplique `20260925120000` e depois `20260925160000`,
--- nessa ordem. `npm run verificar:rpc` falha quando qualquer RPC chamada por
--- `src/` tem mais de uma assinatura, e é o portão que pega esta classe.
+-- ao estado correto, derrube à mão a assinatura ANTIGA que este arquivo criou e
+-- reaplique `20260926120000_funcoes_de_escopo_canonicas.sql`, que é o sítio
+-- único do corpo vivo e recusa um banco onde a duplicata ainda exista. Nem
+-- `20260925120000` nem `20260925160000` servem mais para isso: desde a tarefa 15
+-- nenhum dos dois define esta função. `npm run verificar:rpc` falha quando
+-- qualquer RPC chamada por `src/` tem mais de uma assinatura, e é o portão que
+-- pega esta classe.
 -- =====================================================================
 
 -- =====================================================================

@@ -128,7 +128,7 @@ if (problemas.length > 0) {
     );
   }
   console.error(
-    "\nProvável causa: alguma migration antiga foi reaplicada à mão. Veja o cabeçalho dos oito arquivos superados em supabase/migrations/ e reaplique 20260925120000 e depois 20260925160000, nessa ordem.",
+    "\nProvável causa: alguma migration antiga foi reaplicada à mão. Veja o cabeçalho dos oito arquivos superados em supabase/migrations/: derrube a assinatura antiga que o arquivo reaplicado criou e reaplique 20260926120000_funcoes_de_escopo_canonicas.sql, que é o sítio único do corpo vivo desde a tarefa 15.",
   );
   process.exit(1);
 }

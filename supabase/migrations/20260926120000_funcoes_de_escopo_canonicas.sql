@@ -187,10 +187,14 @@ comment on function public.escopo_documentacao(text, jsonb) is
   'Documentações que esta identidade alcança nesta base. A linha de ai_base_documentacoes é SOBREPOSIÇÃO sobre a universal e só ESTREITA: sem linha vale a universal; enabled=false esconde; enabled=true exige as DUAS regras (interseção, nunca substituição — a regra da Natcorp é teto). Enquanto existir linha universal ela é o teto, inclusive desligada: para devolver a documentação ao controle por base, APAGUE a linha universal. O segundo ramo devolve só anexo por base que não é universal. Base desconhecida devolve só as universais. O base_code é comparado por public.codigo_normalizado (mesmo aparo de allowlist_casa). Escopo da chave do widget NÃO passa por aqui: ele é somado pela aplicação (decidirEscopo) e se retira em /admin/widget.';
 
 -- `authenticated` FORA: sendo security definer ela ignora a RLS das quatro
--- tabelas que lê, e o único chamador é `service_role`
--- (`src/lib/ai/escopo-da-base.ts`, via `createAdminClient`). Com EXECUTE para
--- `authenticated`, qualquer Leitor deduzia a regra do dono variando a
+-- tabelas que lê, e o único chamador DESTA função é `service_role`
+-- (`src/lib/ai/escopo-da-base.ts:118`, via `createAdminClient`). Com EXECUTE
+-- para `authenticated`, qualquer Leitor deduzia a regra do dono variando a
 -- identidade.
+--
+-- "Único" vale para `escopo_documentacao` e NÃO se estende à vizinha:
+-- `documentos_da_base` tem DOIS chamadores (ver o revoke dela, abaixo). O
+-- cabeçalho de `20260925160000` dizia "o único chamador das duas" e subcontava.
 revoke all on function public.escopo_documentacao(text, jsonb) from public, anon, authenticated;
 grant execute on function public.escopo_documentacao(text, jsonb) to service_role;
 
@@ -221,6 +225,11 @@ $function$;
 comment on function public.documentos_da_base(text, jsonb) is
   'Arquivos DE CLIENTE, PRONTOS (status = ready), que esta identidade alcança nesta base, filtrados por public.elegivel. O filtro de status é o mesmo que rag.ts já aplicava aos arquivos dos ESPAÇOS, e mora aqui porque é aqui que o escopo por base mora: arquivo em extração tem chunks pela metade e o modelo afirmaria o parcial como se fosse o todo. A tela de administração lista da tabela, não desta função, e continua mostrando queued/extracting/error. Nunca devolve arquivo de outra base: o join por base_code normalizado (public.codigo_normalizado) é a cerca, e o teste de isolamento em .audit/ é o que a prova. EXECUTE só para service_role: sendo security definer ela ignora a RLS, e com grant a authenticated qualquer Leitor enumerava os ids dos arquivos internos de qualquer cliente.';
 
+-- DOIS chamadores, e os dois com `createAdminClient()` (`service_role`):
+--   · `src/lib/ai/escopo-da-base.ts:119` — o escopo do turno no RAG;
+--   · `src/lib/documentacoes/download-de-arquivo.ts:74` — quem pode BAIXAR,
+--     alcançado por `/api/v1/arquivo/[id]` e pela citação em `/api/v1/chat`.
+-- Nenhum é `authenticated`, então o revoke abaixo não quebra tela nenhuma.
 revoke all on function public.documentos_da_base(text, jsonb) from public, anon, authenticated;
 grant execute on function public.documentos_da_base(text, jsonb) to service_role;
 

@@ -38,10 +38,21 @@
 -- regra do dono. Não é conteúdo (ler os chunks exige `ai.configure`): é metadado
 -- mais oráculo.
 --
--- Verificado antes de revogar: o ÚNICO chamador das duas é
--- `src/lib/ai/escopo-da-base.ts:105-106`, alcançado por `retrievePublicContext`,
--- que monta o cliente com `createAdminClient()` (`service_role`). Não existe
--- chamador `authenticated`, então revogar não quebra tela nenhuma. A assertiva
+-- Verificado antes de revogar: TODOS os chamadores montam o cliente com
+-- `createAdminClient()` (`service_role`), e são TRÊS, não um —
+-- `escopo_documentacao` tem um, `documentos_da_base` tem dois:
+--
+--   · `src/lib/ai/escopo-da-base.ts:118-119` chama as DUAS, alcançado por
+--     `retrievePublicContext`;
+--   · `src/lib/documentacoes/download-de-arquivo.ts:74` chama
+--     `documentos_da_base` de novo, para decidir quem pode BAIXAR o arquivo —
+--     alcançada por `/api/v1/arquivo/[id]` e por `/api/v1/chat`, as duas com
+--     `createAdminClient()`.
+--
+-- A conclusão de segurança não muda (nenhum chamador é `authenticated`, então
+-- revogar não quebra tela nenhuma); a CONTAGEM estava errada, e uma contagem
+-- errada num comentário de segurança é o que faz o próximo leitor achar que
+-- basta olhar um arquivo. A assertiva
 -- que fixa os três papéis com `has_function_privilege` viajou com as funções
 -- para `20260926120000_funcoes_de_escopo_canonicas.sql` (tarefa 15), porque
 -- `has_function_privilege` de função que não existe levanta erro — e
