@@ -19,28 +19,60 @@ export type LinhasDoEscopo = {
 export type EscopoResolvido = {
   spaceIds: string[];
   documentIds: string[];
-  /** De onde veio: a base resolveu algo, ou caiu no escopo da chave. */
+  /**
+   * INFORMATIVA: a base resolveu algo PRÓPRIO (documentação anexada ou
+   * arquivo dela)? Não diz mais "de onde vem o escopo", porque o escopo
+   * agora é sempre a união — ver `decidirEscopo`. Serve para tela e log
+   * distinguirem "cliente configurado" de "cliente ainda no padrão".
+   *
+   * Quem decide `p_base` da cerca da tarefa 7 NÃO deve usar isto: a cerca é
+   * de PROPRIEDADE (só recusa arquivo de OUTRA base) e nunca corta documento
+   * de espaço, então `p_base` vai sempre que houver base.
+   */
   origem: "base" | "chave";
 };
 
 /**
- * A DECISÃO, pura e testável: o que a base resolveu, ou o escopo da chave.
+ * A DECISÃO, pura e testável: a UNIÃO de tudo que esta identidade alcança.
  *
- * Cair no escopo da chave quando a base não tem nada anexado é o que torna esta
- * rodada ADITIVA: enquanto ninguém configurar, todo cliente continua vendo
- * exatamente o que via, e a migração é um cliente por vez.
+ * ── O escopo da chave é SOMADO, nunca uma QUEDA ──────────────────────────
+ * Até 25/09 esta função tinha um ramo de queda: devolvia o escopo da chave
+ * SOMENTE quando a base não resolvia nada, e descartava a chave quando
+ * resolvia. Medido: o primeiro ramo de `escopo_documentacao` não filtra por
+ * base — ele devolve as universais para TODAS as bases. Ou seja, no instante
+ * em que alguém marcasse a PRIMEIRA documentação como universal, toda base
+ * passaria a resolver algo, o ramo de queda deixaria de rodar, e o escopo da
+ * chave seria DESCARTADO. Produção tem três chaves vivas, cada uma com um
+ * espaço extra (`painel-do-gestor`, `natcorp`, `painel-do-colaborador`):
+ * aquela primeira linha apagaria silenciosamente uma documentação de cada uma
+ * das três instalações, sem erro em lugar nenhum, e o sintoma seria o chatbot
+ * deixar de achar aquele manual.
  *
- * Arquivo sozinho já conta como escopo. Sem isso, o cliente que só anexou o PDF
- * de regras internas cairia no escopo da chave e o PDF não entraria na busca —
- * o pedido que originou o projeto ficaria sem efeito.
+ * Também contradizia a decisão "aditivo primeiro": marcar algo como universal
+ * tem de SOMAR, nunca tirar.
+ *
+ * ── Como se RETIRA uma documentação que vem da chave ─────────────────────
+ * É a pergunta que a próxima pessoa vai fazer, e a resposta não é aqui.
+ * Remova-a onde ela é configurada: a tela da chave, em `/admin/widget`
+ * (`widget_key_spaces`). Isso é explícito e é da Natcorp. O cliente não tira
+ * documentação de chave; ele só esconde universal, pela sobreposição de
+ * `ai_base_documentacoes` (migration 20260925140000).
+ *
+ * Arquivo sozinho já conta como escopo próprio da base. Sem isso, o cliente
+ * que só anexou o PDF de regras internas seria contado como "não
+ * configurado", e `origem` mentiria.
  */
 export function decidirEscopo(linhas: LinhasDoEscopo, spaceIdsDaChave: string[]): EscopoResolvido {
-  const spaceIds = [...new Set(linhas.documentacoes.map((d) => d.space_id))];
+  const daBase = [...new Set(linhas.documentacoes.map((d) => d.space_id))];
   const documentIds = [...new Set(linhas.documentos)];
-  if (spaceIds.length === 0 && documentIds.length === 0) {
-    return { spaceIds: [...new Set(spaceIdsDaChave)], documentIds: [], origem: "chave" };
-  }
-  return { spaceIds, documentIds, origem: "base" };
+  return {
+    // União sem duplicata, com a chave PRIMEIRO: a ordem não muda o
+    // resultado da busca (o SQL filtra por pertinência, não por posição),
+    // mas mantém estável o escopo que o cliente já tinha.
+    spaceIds: [...new Set([...spaceIdsDaChave, ...daBase])],
+    documentIds,
+    origem: daBase.length > 0 || documentIds.length > 0 ? "base" : "chave",
+  };
 }
 
 /**
@@ -48,9 +80,10 @@ export function decidirEscopo(linhas: LinhasDoEscopo, spaceIdsDaChave: string[])
  * quem chamar precisa cachear — o cache de contexto de 60 s já existe e a chave
  * dele ganha base, portal e perfil.
  *
- * Erro de banco NÃO derruba o turno: devolve o escopo da chave, que é o
- * comportamento de antes desta mudança. Uma falha de leitura de configuração
- * não deve apagar a documentação do cliente.
+ * Erro de banco NÃO derruba o turno: sem linha nenhuma para somar, a união de
+ * `decidirEscopo` é exatamente o escopo da chave — o comportamento de antes
+ * desta rodada. Uma falha de leitura de configuração não deve apagar a
+ * documentação do cliente.
  *
  * O log nos dois pontos de queda é OBRIGATÓRIO, não enfeite: sem ele, "o
  * cliente não configurou nada" e "a leitura da configuração está quebrada"

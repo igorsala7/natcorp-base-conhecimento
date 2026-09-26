@@ -160,13 +160,12 @@ async function retrieveWith(
   documentosDaBase?: string[],
   /**
    * `base_code` a passar como `p_base` para as RPCs — a CERCA de
-   * propriedade do banco (tarefa 7), nunca de elegibilidade. Só vai
-   * quando `resolverEscopoDaBase` devolveu `origem === "base"`: se caiu
-   * no escopo da CHAVE (cliente ainda não migrado), os documentos
-   * legítimos dele vêm por `spaceIds`/`documentIds` de outro jeito, e
-   * filtrar por base aqui cortaria conteúdo válido. `null`/`undefined`
-   * preserva o comportamento de todo chamador sem base (portal, Cmd+K,
-   * editor).
+   * propriedade do banco (tarefa 7), nunca de elegibilidade. Vai SEMPRE
+   * que houver base, configurada ou não: a cerca recusa apenas chunk de
+   * ARQUIVO cujo `base_id` é de outra base, e chunk de artigo e de
+   * documento de espaço passam sempre, então ela não corta nada que
+   * chegue pelo escopo da chave. `null`/`undefined` preserva o
+   * comportamento de todo chamador sem base (portal, Cmd+K, editor).
    */
   baseAlvo?: string | null,
 ): Promise<RetrievedSource[]> {
@@ -297,7 +296,9 @@ async function retrieveWith(
     // A5: teto de GRUPOS (top-N manuais/documentos). undefined → default 2 (função);
     // pergunta composta pede 3-4 para cruzar mais manuais.
     p_group_limit: grupos ?? undefined,
-    // CERCA de propriedade (tarefa 7): só quando o escopo veio da BASE.
+    // CERCA de propriedade (tarefa 7): sempre que houver base. As outras
+    // três chamadas abaixo recebem o MESMO `baseAlvo` — tirar de uma só
+    // reabre o buraco, e é o que `rag-cerca-base.test.ts` guarda.
     p_base: baseAlvo ?? undefined,
   });
 
@@ -525,9 +526,10 @@ export async function retrievePublicContext(
     grupos?: number;
     continuidade?: string[];
     /**
-     * Base do cliente e identidade do turno. Quando vêm, o escopo é resolvido
-     * pelas documentações anexadas à base; quando a base não tem nada anexado,
-     * cai nos `spaceIds` da chave, que é o comportamento anterior.
+     * Base do cliente e identidade do turno. Quando vêm, as documentações
+     * anexadas à base e os arquivos dela SOMAM aos `spaceIds` da chave —
+     * nunca substituem. Base sem nada configurado resolve exatamente os
+     * `spaceIds` da chave, que é o comportamento anterior.
      */
     base?: string | null;
     track?: Partial<Record<TrackingKey, string>>;
@@ -536,22 +538,26 @@ export async function retrievePublicContext(
   const supabase = createAdminClient();
   const ids = Array.isArray(spaceIds) ? spaceIds : [spaceIds];
 
-  // ESCOPO PELA BASE, com queda para o escopo da chave.
-  // Os `documentIds` resolvidos aqui ENTRAM junto com os dos espaços: arquivo do
-  // cliente e documentação anexada somam, e é por isso que `retrieveWith` recebe
-  // os dois.
+  // ESCOPO PELA BASE, SOMADO ao escopo da chave (nunca no lugar dele — ver
+  // `decidirEscopo`). Os `documentIds` resolvidos aqui ENTRAM junto com os dos
+  // espaços: arquivo do cliente e documentação anexada somam, e é por isso que
+  // `retrieveWith` recebe os dois.
   let idsDeEspaco = ids;
   let documentosDaBase: string[] = [];
-  // CERCA de propriedade (tarefa 7): só vai ao banco quando o escopo REALMENTE
-  // veio da base (`origem === "base"`). Com `origem === "chave"` o cliente
-  // ainda não foi migrado — os documentos legítimos dele chegam pelos
-  // `spaceIds` da chave, e filtrar por base aqui cortaria conteúdo válido.
-  let baseAlvo: string | null = null;
+  // CERCA de propriedade (tarefa 7): vai ao banco SEMPRE que houver base.
+  //
+  // Era `escopo.origem === "base" ? opts.base : null`, quando `origem` ainda
+  // significava "de onde veio o escopo". Com a união (25/09) `origem` passou a
+  // ser informativa, e amarrar a cerca a ela desligaria a cerca justamente no
+  // cliente que não configurou nada — que é quem mais precisa dela. A cerca é
+  // de PROPRIEDADE: ela só recusa chunk de arquivo cujo `base_id` é de OUTRA
+  // base, e deixa passar chunk de artigo e de documento de espaço. Então ela
+  // não tem como cortar conteúdo legítimo vindo da chave.
+  const baseAlvo: string | null = opts?.base ?? null;
   if (opts?.base) {
     const escopo = await resolverEscopoDaBase(supabase, opts.base, opts.track ?? {}, ids);
     idsDeEspaco = escopo.spaceIds;
     documentosDaBase = escopo.documentIds;
-    baseAlvo = escopo.origem === "base" ? opts.base : null;
   }
 
   // O client admin precisa ir junto: sem ele getEffectiveTreePublic cai no

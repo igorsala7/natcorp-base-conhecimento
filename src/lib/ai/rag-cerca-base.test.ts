@@ -10,9 +10,20 @@
  * Este teste dubla o cliente Supabase e força o fluxo de `retrieveWith`
  * a passar pelos quatro caminhos que chamam RPC (principal, vínculo
  * termo→artigo "forçado", continuidade "lembrada", e enumeração), e
- * afirma que TODOS os quatro payloads carregam `p_base` quando
- * `resolverEscopoDaBase` devolveu `origem === "base"`, e nenhum carrega
- * (fica `undefined`) quando devolveu `origem === "chave"`.
+ * afirma que TODOS os quatro payloads carregam `p_base`.
+ *
+ * ── O que a tarefa 9 mudou aqui, e por que os casos foram reescritos ─────
+ * A versão original amarrava `p_base` a `origem === "base"` e afirmava que
+ * `origem === "chave"` NÃO carregava `p_base`. Com a união de escopos
+ * (25/09), `origem` deixou de dizer "de onde vem o escopo" e passou a ser
+ * informativa, e manter aquela amarra desligaria a cerca justamente no
+ * cliente que não configurou nada — quem mais precisa dela. A cerca é de
+ * PROPRIEDADE: recusa só chunk de ARQUIVO cujo `base_id` é de outra base, e
+ * chunk de artigo e de documento de espaço passam sempre, então ela não corta
+ * nada que chegue pelo escopo da chave.
+ *
+ * Os casos passaram a ser, então: `p_base` vai nos dois valores de `origem`,
+ * e NÃO vai quando não há base nenhuma (portal, Cmd+K, editor).
  *
  * Doublagem ampla de propósito: `retrievePublicContext` é a única função
  * exportada que toca as quatro chamadas, e ela arrasta consigo embedding,
@@ -137,14 +148,19 @@ function dublarDb(chamadas: Chamada[]) {
   };
 }
 
-async function rodarCenario(origem: "base" | "chave"): Promise<Chamada[]> {
+/**
+ * `origem: null` significa "chamador SEM base" (portal, Cmd+K, editor): neste
+ * caso `opts.base` não vai, `resolverEscopoDaBase` nem é chamada, e a cerca
+ * tem de ficar de fora.
+ */
+async function rodarCenario(origem: "base" | "chave" | null): Promise<Chamada[]> {
   const chamadas: Chamada[] = [];
   const db = dublarDb(chamadas);
   vi.mocked(createAdminClient).mockReturnValue(db as never);
   vi.mocked(resolverEscopoDaBase).mockResolvedValue({
     spaceIds: [], // vazio de propósito: evita precisar dublar a árvore efetiva
     documentIds: ["doc-x"],
-    origem,
+    origem: origem ?? "chave",
   });
   vi.mocked(expandirConsulta).mockResolvedValue({
     lexica: "consulta",
@@ -160,7 +176,7 @@ async function rodarCenario(origem: "base" | "chave"): Promise<Chamada[]> {
     { documentId: "doc-x" }, // força documentIds=["doc-x"] sem tocar herança de espaço
     null,
     {
-      base: "base-a",
+      base: origem === null ? null : "base-a",
       track: {},
       continuidade: ["n-continuidade"], // dispara o caminho "lembrado" (passo 3)
     },
@@ -190,8 +206,30 @@ describe("retrievePublicContext propaga p_base às quatro chamadas cercadas", ()
     }
   });
 
-  it("origem 'chave': NENHUMA das quatro chamadas carrega p_base (undefined)", async () => {
+  /**
+   * A GUARDA DA TAREFA 9. Era o oposto disto, e a inversão é o ponto: com
+   * `origem === "chave"` o cliente não configurou nada, e é exatamente aí que
+   * a cerca de propriedade precisa estar de pé — se a aplicação montar uma
+   * lista de `p_document_ids` errada, é o banco que recusa o arquivo interno
+   * de outro cliente. A cerca não corta o que vem da chave: ela só olha
+   * `knowledge_documents.base_id`, e documento de espaço tem esse campo nulo.
+   */
+  it("origem 'chave': as quatro chamadas TAMBÉM carregam p_base — a cerca não depende de configuração", async () => {
     const chamadas = await rodarCenario("chave");
+
+    const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
+    const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");
+
+    expect(hss).toHaveLength(3);
+    expect(klc).toHaveLength(1);
+
+    for (const c of [...hss, ...klc]) {
+      expect(c.args.p_base, `${c.nome} com p_node_ids=${JSON.stringify(c.args.p_node_ids)}`).toBe("base-a");
+    }
+  });
+
+  it("chamador SEM base (portal, Cmd+K, editor): nenhuma das quatro carrega p_base", async () => {
+    const chamadas = await rodarCenario(null);
 
     const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
     const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");

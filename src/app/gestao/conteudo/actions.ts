@@ -58,15 +58,25 @@ import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
  *   · sem linha             → vale a universal, com a regra da Natcorp;
  *   · linha `enabled=false` → aquela documentação DESAPARECE para os usuários
  *                             desta base;
- *   · linha `enabled=true`  → a `regra` da base SUBSTITUI a da Natcorp, aqui.
+ *   · linha `enabled=true`  → a pessoa precisa satisfazer AS DUAS regras, a da
+ *                             Natcorp e a da base. INTERSEÇÃO, não substituição.
  *
- * ATENÇÃO, DÍVIDA CONHECIDA: o lado SQL disso é a TAREFA 9. Hoje
- * `public.escopo_documentacao` é um `union` puro, então uma linha por base só
- * consegue SOMAR — desligar não desliga e regra mais estreita não estreita.
- * Nada está implantado (as duas tabelas estão vazias em produção, medido em
- * 25/09), então nenhum usuário vê a janela entre as duas tarefas. Não "conserte"
- * isto mexendo na função: ela é `security definer`, precisa de assertiva e de
- * reaplicação do teste de isolamento, e tem tarefa própria.
+ * O lado SQL disso é a migration `20260925140000_escopo_com_sobreposicao_por_
+ * base.sql` (tarefa 9), que também explica por que a decisão do dono foi
+ * interseção: substituir deixaria um cliente ABRIR o que a Natcorp fechou —
+ * liberar para a empresa inteira uma documentação restrita a um portal, o que
+ * poria o manual do Operador na frente de um Colaborador. A regra da Natcorp é
+ * TETO; o cliente só aperta. `escopo_documentacao` é `security definer` e tem
+ * assertivas comportamentais: mexer nela exige rodar `verificar:isolamento`.
+ *
+ * DÍVIDA CONHECIDA que sobra desta tarefa, e é de TELA, não de banco: a frase
+ * ao vivo de `conteudo-painel.tsx` descreve só a regra da BASE quando o item
+ * está ajustado (`regraEmVigor = ajustada ? item.ajuste.regra : regraNatcorp`),
+ * e o rótulo diz "Sua escolha, no lugar do que a Natcorp definiu". Com
+ * interseção, o alcance real é a interseção das duas, então a tela pode
+ * prometer mais alcance do que o banco entrega. Nada implantado ainda (as duas
+ * tabelas estavam vazias em produção em 25/09); mudar texto que o cliente lê é
+ * decisão do dono.
  *
  * Consequência que vale registrar: `ai_base_documentacoes` passa a referenciar
  * SOMENTE documentação universal. "Documentação exclusiva de um cliente" não
@@ -268,10 +278,12 @@ export async function salvarAjusteDeDocumentacao(input: unknown): Promise<Result
 /**
  * Desfaz a sobreposição: a documentação volta a valer como a Natcorp configurou.
  *
- * Apagar a linha é o que devolve o padrão, e é diferente de ligar de volta com
- * regra vazia — este último gravaria "todos nesta empresa alcançam" no lugar da
- * regra da Natcorp, que pode ser mais estreita. A tela oferece os dois, com
- * nomes diferentes, porque a diferença é visível para quem configura.
+ * Apagar a linha é o que devolve o padrão, e continua sendo diferente de ligar
+ * de volta com regra vazia, mesmo com interseção: sem linha, a documentação sai
+ * da contagem de "ajustadas" e volta a seguir a Natcorp automaticamente quando
+ * ela mudar de regra; com linha de regra vazia, a base fica marcada como
+ * ajustada para sempre (a interseção só não estreita HOJE). A tela oferece os
+ * dois, com nomes diferentes, porque a diferença é visível para quem configura.
  */
 export async function voltarAoPadraoDeDocumentacao(input: unknown): Promise<ResultadoAcao> {
   const parsed = alvoSchema.safeParse(input);
