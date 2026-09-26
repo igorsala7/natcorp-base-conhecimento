@@ -281,7 +281,16 @@ export async function reindexDocumentChunks(
   supabase: Awaited<ReturnType<typeof createClient>>,
   params: {
     documentId: string;
-    spaceId: string;
+    /**
+     * NULO quando o documento é de uma BASE (arquivo do cliente) e não de uma
+     * documentação. `knowledge_documents` tem CHECK de dono único — ou `space_id`,
+     * ou `base_id` — e a migration `20260925110000_arquivo_de_base.sql` tornou
+     * `chunks.space_id` anulável exatamente para este caso.
+     *
+     * Mudança de TIPO, não de algoritmo: o caminho do espaço passa uma string
+     * como sempre e nada no fatiamento, no embedding ou na ordem de escrita muda.
+     */
+    spaceId: string | null;
     blocks: { text: string; level: number }[];
     withEmbeddings?: boolean;
     /** Usuário que disparou (proveniência). */
@@ -330,7 +339,11 @@ export async function reindexDocumentChunks(
       // article_id/node_id ficam nulos: a origem é o documento (o CHECK
       // `chunks_uma_origem` garante que só uma esteja preenchida).
       document_id: documentId,
-      space_id: spaceId,
+      // `as string` estreita o nulo legítimo: `chunks.space_id` já é anulável no
+      // banco (20260925110000), mas `src/lib/database.types.ts` ainda não foi
+      // regerado e diz NOT NULL. O cast é o mais estreito possível — todos os
+      // outros campos continuam conferidos pelo tipo gerado.
+      space_id: spaceId as string,
       heading_path: c.heading_path || null,
       content: c.content,
       token_count: Math.ceil(c.content.length / 4),
