@@ -17,7 +17,8 @@ import {
   type Dimensao,
   type Regra,
 } from "@/lib/elegibilidade";
-import { estaNoPocoUniversal } from "@/lib/documentacoes/universais";
+import { daOfertaUniversal } from "@/lib/documentacoes/universais";
+import { exclusoesEntreRegras, mensagemDeExclusao } from "@/lib/documentacoes/regras-combinadas";
 import { buscarValoresNoErp } from "@/lib/documentacoes/valores-erp";
 import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
 
@@ -137,8 +138,9 @@ const listaSchema = sessaoSchema.extend({
  */
 async function documentacaoOferecidaPelaNatcorp(
   spaceId: string,
-): Promise<{ ok: true } | { ok: false; erro: string }> {
-  if (await estaNoPocoUniversal(spaceId)) return { ok: true };
+): Promise<{ ok: true; regraDaNatcorp: Regra } | { ok: false; erro: string }> {
+  const oferta = await daOfertaUniversal(spaceId);
+  if (oferta) return { ok: true, regraDaNatcorp: oferta.regra };
   return {
     ok: false,
     erro:
@@ -236,6 +238,26 @@ export async function salvarAjusteDeDocumentacao(input: unknown): Promise<Result
     };
   }
   const regra = normalizarRegra(bruta as Regra);
+
+  /**
+   * A QUARTA TRAVA, e ela é da combinação, não da regra sozinha.
+   *
+   * As duas regras valem ao mesmo tempo (`public.escopo_documentacao` faz E), e
+   * duas listas disjuntas na mesma dimensão produzem documentação que NINGUÉM
+   * alcança. Isso nunca é intenção: quem quer esconder usa `enabled = false`.
+   * Como o efeito seria silencioso — grava, e o usuário só descobre quando
+   * alguém reclama de não ver o conteúdo —, recusa, pelo mesmo motivo das três
+   * anteriores. Depois de `normalizarRegra` de propósito: é a regra que de fato
+   * vai ao banco que precisa ser confrontada com a da Natcorp.
+   *
+   * Só quando a documentação está VISÍVEL: ocultar é justamente o caminho
+   * legítimo para "ninguém alcança", e recusar ali seria impedir a intenção que
+   * a mensagem manda usar.
+   */
+  if (parsed.data.enabled) {
+    const exclusoes = exclusoesEntreRegras(noPoco.regraDaNatcorp, regra);
+    if (exclusoes.length) return { ok: false, erro: mensagemDeExclusao(exclusoes) };
+  }
 
   // Leitura ANTES da gravação, e por dois motivos: o `before` do registro (mudança
   // de alcance sem rastro é o que impede responder "desde quando esse usuário

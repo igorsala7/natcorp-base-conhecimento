@@ -58,20 +58,25 @@ export async function pocoUniversal(): Promise<DocumentacaoUniversal[]> {
 }
 
 /**
- * Esta documentação está na oferta da Natcorp, ATIVA?
+ * Esta documentação está na oferta da Natcorp, ATIVA? Devolve a REGRA dela.
  *
  * Consulta apontada, e não um `pocoUniversal().some(...)`: é a checagem do
  * caminho de GRAVAÇÃO (ver `documentacaoOferecidaPelaNatcorp` em
  * `/gestao/conteudo/actions.ts`, que explica o que ela impede), e ela precisa
  * responder sobre o banco de agora, não sobre uma lista que a tela carregou
  * minutos antes.
+ *
+ * Devolve a regra, e não um booleano, porque a gravação precisa das DUAS regras:
+ * a combinação é E (`public.escopo_documentacao`), então uma escolha da base que
+ * não tem valor em comum com a da Natcorp produz documentação que ninguém
+ * alcança — e isso se recusa, não se grava.
  */
-export async function estaNoPocoUniversal(spaceId: string): Promise<boolean> {
+export async function daOfertaUniversal(spaceId: string): Promise<{ regra: Regra } | null> {
   const { data } = await createAdminClient()
     .from("documentacoes_universais")
-    .select("space_id")
+    .select("space_id, regra")
     .eq("space_id", spaceId)
     .eq("enabled", true)
     .maybeSingle();
-  return !!data;
+  return data ? { regra: (data.regra ?? {}) as Regra } : null;
 }

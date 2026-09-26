@@ -64,14 +64,20 @@ let operacoes: Operacao[] = [];
  * do teste. `ai_base_documentacoes` responde vazio (nenhuma sobreposição
  * gravada), salvo quando o cenário pede o contrário.
  */
-function dublarDb(opcoes: { sobreposicaoExistente?: boolean } = {}) {
+function dublarDb(opcoes: { sobreposicaoExistente?: boolean; regraDaNatcorp?: unknown } = {}) {
   function construir(tabela: string) {
     const op: Operacao = { tabela, op: "select", filtros: {} };
     const resposta = () => {
       if (tabela === "documentacoes_universais") {
         const pedido = op.filtros.space_id;
         const ativo = op.filtros.enabled !== false;
-        return { data: pedido === DOC_NO_POCO && ativo ? { space_id: DOC_NO_POCO } : null, error: null };
+        return {
+          data:
+            pedido === DOC_NO_POCO && ativo
+              ? { space_id: DOC_NO_POCO, regra: opcoes.regraDaNatcorp ?? {} }
+              : null,
+          error: null,
+        };
       }
       if (tabela === "ai_base_documentacoes" && op.op === "select") {
         return {
@@ -353,5 +359,72 @@ describe("as listas de valor usam o login de quem está na tela", () => {
 
     expect(r).toEqual({ ok: false, motivo: "O modo suporte não tem login do ERP; digite o valor." });
     expect(buscarValoresNoErp).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A QUARTA TRAVA: as duas regras valem ao mesmo tempo.
+ *
+ * Sem ela, o cliente escolhe um portal que a regra da Natcorp não permite, a
+ * gravação passa, e a documentação não alcança ninguém — sem erro em lugar
+ * nenhum. É o mesmo modo de falha das três primeiras, e por isso a mesma
+ * postura: recusar, nomeando o que fazer.
+ */
+describe("a combinação das duas regras", () => {
+  it("escolha sem valor em comum com a da Natcorp é RECUSADA, sem gravar", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ regraDaNatcorp: { portal: ["PG"] } }) as never,
+    );
+
+    const r = await salvarAjusteDeDocumentacao({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      spaceId: DOC_NO_POCO,
+      enabled: true,
+      regra: { portal: ["PO"] },
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toContain("Gestor");
+    expect(r.ok === false && r.erro).toContain("Ocultar");
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("escolha com valor em comum passa", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ regraDaNatcorp: { portal: ["PG", "PO"] } }) as never,
+    );
+
+    const r = await salvarAjusteDeDocumentacao({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      spaceId: DOC_NO_POCO,
+      enabled: true,
+      regra: { portal: ["PO"] },
+    });
+
+    expect(r).toEqual({ ok: true });
+    expect(escritas().some((o) => o.op === "upsert")).toBe(true);
+  });
+
+  it("OCULTAR não é recusado: é o caminho legítimo para ninguém alcançar", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ regraDaNatcorp: { portal: ["PG"] } }) as never,
+    );
+
+    const r = await salvarAjusteDeDocumentacao({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      spaceId: DOC_NO_POCO,
+      enabled: false,
+      regra: { portal: ["PO"] },
+    });
+
+    expect(r).toEqual({ ok: true });
+    const upsert = escritas().find((o) => o.op === "upsert");
+    expect((upsert?.payload as { enabled: boolean }).enabled).toBe(false);
   });
 });
