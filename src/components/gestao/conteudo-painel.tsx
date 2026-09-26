@@ -138,8 +138,13 @@ export function ConteudoPainel({
   baseCode: string;
   baseNome: string;
   itens: ItemDeConteudo[];
-  /** Sobreposições que apontam para documentação fora da oferta atual. */
-  orfas: string[];
+  /**
+   * Sobreposições que apontam para documentação fora do que esta empresa
+   * alcança hoje, já separadas pela CAUSA — ver `SobrasAntigas`, que é quem
+   * usa a distinção para dizer se a ação é "pedir para a Natcorp liberar" ou
+   * "não há nada a fazer".
+   */
+  orfas: { restringidasAOutros: string[]; naoOferecidas: string[] };
   presencas: Presencas;
 }) {
   const [editando, setEditando] = useState<EmEdicao | null>(null);
@@ -216,11 +221,14 @@ export function ConteudoPainel({
     });
   }
 
+  const todasAsOrfas = [...orfas.restringidasAOutros, ...orfas.naoOferecidas];
+
   function limparOrfas() {
     iniciar(async () => {
       // Uma por vez, e para na primeira que falhar: a mensagem do servidor é
-      // mais útil que "removemos algumas".
-      for (const spaceId of orfas) {
+      // mais útil que "removemos algumas". As duas causas se limpam da mesma
+      // forma — apagar a sobreposição —, então um botão só basta.
+      for (const spaceId of todasAsOrfas) {
         const r = await voltarAoPadraoDeDocumentacao({ ...sessao, spaceId });
         if (!r.ok) {
           setErro(r.erro);
@@ -242,9 +250,40 @@ export function ConteudoPainel({
           icon={BookOpen}
           title="Nenhuma documentação disponível ainda"
           description="Quando a Natcorp disponibilizar documentação para a sua empresa, ela aparece aqui e você decide quem alcança cada assunto. Até então, o assistente responde com o que foi definido na instalação."
+          action={
+            /*
+              AÇÃO HONESTA, contra a doutrina de `EmptyState` (ver o arquivo do
+              componente): não há nada que a pessoa CONFIGURE aqui até a Natcorp
+              oferecer algo, então a saída é pedir — não um botão que finge fazer
+              alguma coisa.
+
+              SEM LINK/E-MAIL DE PROPÓSITO: este produto ainda não tem, em lugar
+              nenhum do código, um canal de suporte cadastrado para a área do
+              CLIENTE — só o texto "Fale com o suporte Natcorp", sem destino
+              (`src/app/gestao/acessos/page.tsx`, `src/lib/tracking/resolve-base.ts`).
+              Inventar um endereço aqui seria pior do que não ter link nenhum.
+              Quando o dono definir o canal real (e-mail, WhatsApp, formulário),
+              troque este texto por um link de verdade.
+
+              QUANDO A TELA DE UPLOAD EXISTIR (arquivo próprio da empresa — ver
+              `arquivos-da-base.ts`), este estado vazio deixa de ser um beco sem
+              saída por outro caminho: o cliente sempre pode anexar um arquivo
+              dele, mesmo sem nada oferecido pela Natcorp. NÃO REMOVA esta ação
+              achando que virou enfeite — ela ganha uma companheira ("Anexar um
+              arquivo"), não um substituto.
+            */
+            <p className="text-sm font-medium text-text">
+              Precisa de uma documentação específica agora? Fale com o suporte Natcorp.
+            </p>
+          }
         />
-        {orfas.length > 0 ? (
-          <SobrasAntigas quantidade={orfas.length} pendente={pendente} onLimpar={limparOrfas} />
+        {todasAsOrfas.length > 0 ? (
+          <SobrasAntigas
+            restringidas={orfas.restringidasAOutros.length}
+            naoOferecidas={orfas.naoOferecidas.length}
+            pendente={pendente}
+            onLimpar={limparOrfas}
+          />
         ) : null}
       </div>
     );
@@ -414,8 +453,13 @@ export function ConteudoPainel({
         })}
       </ul>
 
-      {orfas.length > 0 ? (
-        <SobrasAntigas quantidade={orfas.length} pendente={pendente} onLimpar={limparOrfas} />
+      {todasAsOrfas.length > 0 ? (
+        <SobrasAntigas
+          restringidas={orfas.restringidasAOutros.length}
+          naoOferecidas={orfas.naoOferecidas.length}
+          pendente={pendente}
+          onLimpar={limparOrfas}
+        />
       ) : null}
     </div>
   );
@@ -530,27 +574,54 @@ function Etiqueta({ estado }: { estado: "padrao" | "ajustada" | "oculta" }) {
   );
 }
 
-/** Sobra de configuração apontando para documentação fora da oferta atual. */
+/**
+ * Sobra de configuração: aponta para documentação fora do que a empresa
+ * alcança hoje — DUAS causas, e a antiga versão desta tela dizia só uma
+ * ("a Natcorp não disponibiliza mais"), que é falsa no caso de restrição por
+ * cliente. A Natcorp pode continuar oferecendo a documentação para todo mundo
+ * e só ter excluído ESTA empresa da lista — nesse caso ainda há algo a fazer
+ * (pedir para liberar); no outro, não há.
+ */
 function SobrasAntigas({
-  quantidade,
+  restringidas,
+  naoOferecidas,
   pendente,
   onLimpar,
 }: {
-  quantidade: number;
+  /** Ainda no poço (`enabled = true`), mas a regra da Natcorp exclui esta base. */
+  restringidas: number;
+  /** Fora do poço: `enabled = false`, ou a linha nem existe mais. */
+  naoOferecidas: number;
   pendente: boolean;
   onLimpar: () => void;
 }) {
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
-      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-text-muted">
-        <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <span>
-          {quantidade === 1
-            ? "Uma configuração sua aponta para uma documentação que a Natcorp não disponibiliza mais."
-            : `${quantidade} configurações suas apontam para documentações que a Natcorp não disponibiliza mais.`}{" "}
-          Não tem efeito nenhum hoje e pode ser removida.
-        </span>
-      </p>
+      <div className="space-y-1.5 text-xs leading-relaxed text-text-muted">
+        {restringidas > 0 ? (
+          <p className="flex items-start gap-1.5">
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {restringidas === 1
+                ? "Uma configuração sua é de uma documentação que a Natcorp ainda oferece, mas passou a restringir a empresas específicas — a sua não está mais entre elas."
+                : `${restringidas} configurações suas são de documentações que a Natcorp ainda oferece, mas passou a restringir a empresas específicas — a sua não está mais entre elas.`}{" "}
+              Não têm efeito hoje. Se você precisa dessa documentação, fale com o suporte Natcorp para
+              pedir a liberação.
+            </span>
+          </p>
+        ) : null}
+        {naoOferecidas > 0 ? (
+          <p className="flex items-start gap-1.5">
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {naoOferecidas === 1
+                ? "Uma configuração sua aponta para uma documentação que a Natcorp não disponibiliza mais, para nenhuma empresa."
+                : `${naoOferecidas} configurações suas apontam para documentações que a Natcorp não disponibiliza mais, para nenhuma empresa.`}{" "}
+              Não há nada a fazer aqui além de remover.
+            </span>
+          </p>
+        ) : null}
+      </div>
       <Button
         type="button"
         variant="secondary"

@@ -2,7 +2,7 @@ import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ShellGestao, RecusaGestao, Bloco, FaixaResumo } from "@/components/gestao/shell";
 import { ConteudoPainel, type ItemDeConteudo } from "@/components/gestao/conteudo-painel";
-import { pocoUniversal } from "@/lib/documentacoes/universais";
+import { pocoUniversal, regraAlcancaBase } from "@/lib/documentacoes/universais";
 import { lerVocabulario } from "@/lib/documentacoes/vocabulario";
 import { regraSemCliente } from "@/lib/documentacoes/dimensoes-ui";
 import type { Regra } from "@/lib/elegibilidade";
@@ -54,11 +54,7 @@ export default async function GestaoConteudoPage({
     (ajustesRows ?? []).map((a) => [a.space_id, { enabled: a.enabled, regra: (a.regra ?? {}) as Regra }] as const),
   );
 
-  const daNossaBase = (regra: Regra) => {
-    const lista = (regra.base ?? []).filter((b) => b && b.trim());
-    if (lista.length === 0) return true;
-    return lista.some((b) => b.trim().toLowerCase() === baseCode.trim().toLowerCase());
-  };
+  const daNossaBase = (regra: Regra) => regraAlcancaBase(regra, baseCode);
 
   const itens: ItemDeConteudo[] = poco
     .filter((d) => daNossaBase(d.regra))
@@ -73,18 +69,29 @@ export default async function GestaoConteudoPage({
     }));
 
   /*
-    Sobra de configuração: a empresa ajustou uma documentação que a Natcorp
-    depois tirou da oferta (ou restringiu a outros clientes). A linha continua no
-    banco e não tem mais efeito nenhum.
+    Sobra de configuração: uma linha de `ai_base_documentacoes` que aponta para
+    uma documentação que não está mais na lista que a empresa alcança. DUAS
+    causas bem diferentes, e a tela precisa dizer qual é cada uma — é o que o
+    leitor usa para decidir se a ação dele é "pedir para a Natcorp liberar" ou
+    "não há nada a fazer":
 
-    Vai para a tela SEM NOME, de propósito, e como um bloco só com um botão de
-    limpar: nomear exigiria ler `spaces`, e no caso em que a documentação foi
-    restringida a outro cliente o nome dela não é para ser lido aqui. Esconder a
-    sobra inteira seria pior — quem ocultou uma documentação e não a vê mais na
-    lista não teria como desfazer.
+      · RESTRINGIDA A OUTROS: a documentação continua no poço (`enabled = true`
+        em `documentacoes_universais`), só que a regra da Natcorp agora exclui
+        esta base pela dimensão `base`. A Natcorp NÃO parou de oferecer — só não
+        oferece mais para esta empresa;
+      · NÃO OFERECIDA: a documentação saiu do poço de vez (`enabled = false`, ou
+        a linha nem existe mais).
+
+    Vai para a tela SEM NOME, de propósito, nos dois casos: nomear exigiria ler
+    `spaces`, e no caso "restringida a outros" o nome dela não é para ser lido
+    aqui. Esconder a sobra inteira seria pior — quem ocultou uma documentação e
+    não a vê mais na lista não teria como desfazer.
   */
   const oferecidos = new Set(itens.map((i) => i.spaceId));
+  const pocoPorId = new Map(poco.map((d) => [d.spaceId, d] as const));
   const orfas = [...ajustes.keys()].filter((id) => !oferecidos.has(id));
+  const orfasRestringidasAOutros = orfas.filter((id) => pocoPorId.has(id));
+  const orfasNaoOferecidas = orfas.filter((id) => !pocoPorId.has(id));
 
   const ocultas = itens.filter((i) => i.ajuste && !i.ajuste.enabled).length;
   const ajustadas = itens.filter((i) => i.ajuste?.enabled).length;
@@ -141,7 +148,7 @@ export default async function GestaoConteudoPage({
           baseCode={baseCode}
           baseNome={baseNome}
           itens={itens}
-          orfas={orfas}
+          orfas={{ restringidasAOutros: orfasRestringidasAOutros, naoOferecidas: orfasNaoOferecidas }}
           presencas={{ porDimensao: vocab.porDimensao, conversas: vocab.conversas }}
         />
       </Bloco>
