@@ -175,7 +175,20 @@ async function documentacaoOferecidaPelaNatcorp(
   };
 }
 
-/** Registro da ação, com o autor do ERP ou o interno, como no resto da área. */
+/**
+ * Registro da ação, com o autor do ERP ou o interno, como no resto da área.
+ *
+ * ── A FALHA DO REGISTRO VAI PARA O LOG, e o motivo não é zelo ────────────
+ * Toda coluna usada aqui é anulável, então este insert passa hoje. Mas o retorno
+ * era ignorado: se ele passasse a falhar (policy nova, coluna que muda de tipo,
+ * `actor_id` apontando para um usuário removido), a ação responderia `ok` e o
+ * RASTRO da superfície mais sensível deste ramo desapareceria em silêncio —
+ * exatamente a pergunta que o log de auditoria existe para responder ("desde
+ * quando esse usuário parou de ver isso?").
+ *
+ * E é LOG, não recusa: a configuração já está gravada quando chegamos aqui.
+ * Devolver erro faria o cliente achar que o ajuste não valeu e tentar de novo.
+ */
 async function registrar(
   sessao: SessaoResolvida,
   acao: string,
@@ -183,7 +196,7 @@ async function registrar(
   antes: Record<string, unknown> | null,
   depois: Record<string, unknown> | null,
 ) {
-  await createAdminClient()
+  const { error } = await createAdminClient()
     .from("audit_log")
     .insert({
       actor_id: sessao.operadorId,
@@ -199,6 +212,12 @@ async function registrar(
         ? { ...depois, por: autorDa(sessao), via_suporte: sessao.modo === "suporte" }
         : { por: autorDa(sessao), via_suporte: sessao.modo === "suporte" },
     });
+  if (error) {
+    console.error(
+      `[gestao/conteudo] auditoria PERDIDA — ação "${acao}" na base ${sessao.baseId}, espaço ${spaceId}:`,
+      error.message,
+    );
+  }
 }
 
 function revalidar() {
@@ -460,6 +479,11 @@ export async function valoresParaDimensao(input: unknown): Promise<ListaDeValore
  * próprio) e porque arquivo de empresa não tem `space_id` — reaproveitar a outra
  * exigiria inventar um espaço para a coluna, e uma linha de auditoria com espaço
  * inventado é pior que uma sem.
+ *
+ * A falha do insert vai para o LOG pela mesma razão de `registrar`, acima: o
+ * arquivo já subiu (ou já foi excluído) quando chegamos aqui, então recusar
+ * mentiria sobre o que aconteceu — mas perder o rastro em silêncio é como se
+ * ninguém tivesse anexado nada.
  */
 async function registrarArquivo(
   sessao: SessaoResolvida,
@@ -468,7 +492,7 @@ async function registrarArquivo(
   antes: Record<string, unknown> | null,
   depois: Record<string, unknown> | null,
 ) {
-  await createAdminClient()
+  const { error } = await createAdminClient()
     .from("audit_log")
     .insert({
       actor_id: sessao.operadorId,
@@ -484,6 +508,12 @@ async function registrarArquivo(
         via_suporte: sessao.modo === "suporte",
       } as never,
     });
+  if (error) {
+    console.error(
+      `[gestao/conteudo] auditoria PERDIDA — ação "${acao}" no documento ${documentId} da base ${sessao.baseId}:`,
+      error.message,
+    );
+  }
 }
 
 export type ResultadoAnexoAcao = { ok: true; chunks: number } | { ok: false; erro: string };
@@ -603,7 +633,16 @@ export async function excluirArquivoDoCliente(input: unknown): Promise<Resultado
   return { ok: true };
 }
 
-/** Os arquivos desta empresa. Sempre da base da sessão. */
+/**
+ * Os arquivos desta empresa. Sempre da base da sessão.
+ *
+ * LEITURA QUEBRADA NÃO VIRA LISTA VAZIA. `arquivosDaBase` declara `falhou`, e
+ * aqui isso vira recusa em vez de `{ ok: true, arquivos: [] }`: quem chama esta
+ * action SUBSTITUI a lista que está na tela, e entregar uma lista vazia (ou
+ * parcial) faria os arquivos do cliente desaparecerem por causa de um defeito
+ * nosso. Parcial também recusa, pelo mesmo motivo: metade da lista é mais
+ * enganoso que nenhuma, porque parece completa.
+ */
 export async function listarArquivosDoCliente(input: unknown): Promise<ListaDeArquivos> {
   const parsed = sessaoSchema.safeParse(input);
   if (!parsed.success) {
@@ -613,7 +652,16 @@ export async function listarArquivosDoCliente(input: unknown): Promise<ListaDeAr
   const sessao = await baseDaSessao(parsed.data);
   if (!sessao.ok) return { ok: false, erro: sessao.erro };
 
-  return { ok: true, arquivos: await arquivosDaBase(sessao.baseId) };
+  const leitura = await arquivosDaBase(sessao.baseId);
+  if (leitura.falhou) {
+    return {
+      ok: false,
+      erro:
+        "Não foi possível ler os arquivos da sua empresa agora. Atualize a página e tente de novo; " +
+        "se continuar, fale com o suporte.",
+    };
+  }
+  return { ok: true, arquivos: leitura.arquivos };
 }
 
 /** Campo de texto do formulário, ou `undefined` — nunca um `File` por engano. */

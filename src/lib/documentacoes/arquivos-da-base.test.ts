@@ -28,6 +28,7 @@
  * decisão de produto que este arquivo existe para implementar.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/importer/extract", () => ({ extractDocument: vi.fn() }));
@@ -55,7 +56,14 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00
 /** Caixa `ftyp` no byte 4 — a assinatura que `assertArquivoSeguro` exige do mp4. */
 const MP4 = new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
 
-type Op = { tabela: string; op: "select" | "insert" | "update" | "delete"; payload?: unknown; filtros: Record<string, unknown> };
+type Op = {
+  tabela: string;
+  op: "select" | "insert" | "update" | "delete";
+  payload?: unknown;
+  filtros: Record<string, unknown>;
+  /** `.in("status", [...])` — a conferência de reenvio usa este. */
+  filtrosEm: Record<string, unknown[]>;
+};
 type Storage = { op: "upload" | "remove"; caminhos: string[] };
 
 let ops: Op[] = [];
@@ -94,20 +102,43 @@ function linha(over: Partial<LinhaFake> = {}): LinhaFake {
   };
 }
 
-function dublarDb(opcoes: { linhas?: LinhaFake[]; falharUpload?: boolean; falharInsert?: boolean } = {}) {
+function dublarDb(
+  opcoes: {
+    linhas?: LinhaFake[];
+    falharUpload?: boolean;
+    falharInsert?: boolean;
+    /** A leitura paginada da listagem cai. É o defeito da tarefa 18 item 3. */
+    falharLeitura?: boolean;
+    /** O `delete` do desfazer cai: a linha resiste e não pode ficar mentindo. */
+    falharDelete?: boolean;
+    /** Nem a marcação como `error` passa: a linha fica presa. */
+    falharUpdate?: boolean;
+  } = {},
+) {
   const linhas = opcoes.linhas ?? [];
 
   function construir(tabela: string) {
-    const op: Op = { tabela, op: "select", filtros: {} };
+    const op: Op = { tabela, op: "select", filtros: {}, filtrosEm: {} };
     ops.push(op);
 
     // As linhas que batem com TODOS os filtros aplicados até aqui. É o que
     // reproduz o comportamento que interessa: `base_id` no filtro é uma CERCA,
     // não um enfeite — sem ele, a linha do vizinho voltaria.
     const casam = () =>
-      linhas.filter((l) =>
-        Object.entries(op.filtros).every(([campo, valor]) => (l as unknown as Record<string, unknown>)[campo] === valor),
-      );
+      linhas.filter((l) => {
+        const bruta = l as unknown as Record<string, unknown>;
+        return (
+          Object.entries(op.filtros).every(([campo, valor]) => bruta[campo] === valor) &&
+          Object.entries(op.filtrosEm).every(([campo, valores]) => valores.includes(bruta[campo]))
+        );
+      });
+
+    /** O erro da operação corrente, quando o caso pediu que ela caísse. */
+    const erroDaOp = () => {
+      if (op.op === "delete" && opcoes.falharDelete) return { message: "delete recusado" };
+      if (op.op === "update" && opcoes.falharUpdate) return { message: "update recusado" };
+      return null;
+    };
 
     const q: Record<string, unknown> = {
       select: () => q,
@@ -119,9 +150,18 @@ function dublarDb(opcoes: { linhas?: LinhaFake[]; falharUpload?: boolean; falhar
         op.filtros[campo] = valor;
         return q;
       },
+      in: (campo: string, valores: unknown[]) => {
+        op.filtrosEm[campo] = valores;
+        return q;
+      },
       order: () => q,
+      limit: (n: number) => Promise.resolve({ data: casam().slice(0, n), error: null }),
       range: (de: number, ate: number) =>
-        Promise.resolve({ data: casam().slice(de, ate + 1), error: null }),
+        Promise.resolve(
+          opcoes.falharLeitura
+            ? { data: null, error: { message: "conexão caiu no meio da página" } }
+            : { data: casam().slice(de, ate + 1), error: null },
+        ),
       maybeSingle: () => Promise.resolve({ data: casam()[0] ?? null, error: null }),
       single: () =>
         Promise.resolve(
@@ -146,7 +186,8 @@ function dublarDb(opcoes: { linhas?: LinhaFake[]; falharUpload?: boolean; falhar
         return q;
       },
       // Para o encadeamento que termina sem `single`/`maybeSingle` (update, delete).
-      then: (resolve: (v: { error: null }) => void) => resolve({ error: null }),
+      then: (resolve: (v: { error: { message: string } | null }) => void) =>
+        resolve({ error: erroDaOp() }),
     };
     return q;
   }
@@ -166,6 +207,12 @@ function dublarDb(opcoes: { linhas?: LinhaFake[]; falharUpload?: boolean; falhar
       }),
     },
   };
+}
+
+/** O caminho que a ingestão vai compor para estes bytes com este nome. */
+function caminhoDe(baseId: string, bytes: Uint8Array, nomeSaneado: string): string {
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  return `bases/${baseId}/${checksum}-${nomeSaneado}`;
 }
 
 const escritas = () => ops.filter((o) => o.op !== "select");
@@ -419,7 +466,11 @@ describe("o arquivo não consegue nascer na pasta de outro cliente", () => {
     });
 
     const up = storage.find((s) => s.op === "upload");
-    expect(up?.caminhos[0]).toMatch(new RegExp(`^bases/${BASE_DA_SESSAO}/[0-9a-f-]{36}-`));
+    // O prefixo é a base, e o que vem depois é o sha256 DO CONTEÚDO — não um
+    // uuid. É ele que torna o reenvio do mesmo arquivo reconhecível (ver o bloco
+    // de reenvio abaixo), e é o mesmo esquema do bucket `assets`.
+    expect(up?.caminhos[0]).toBe(caminhoDe(BASE_DA_SESSAO, PDF, "manual_da_empresa_v2_.pdf"));
+    expect(up?.caminhos[0]).toMatch(new RegExp(`^bases/${BASE_DA_SESSAO}/[0-9a-f]{64}-`));
     // Nome saneado: espaço e parênteses não entram no caminho, e a extensão fica.
     expect(up?.caminhos[0]).toMatch(/manual_da_empresa_v2_\.pdf$/);
 
@@ -445,7 +496,7 @@ describe("o arquivo não consegue nascer na pasta de outro cliente", () => {
     });
 
     const up = storage.find((s) => s.op === "upload");
-    expect(up?.caminhos[0]).toMatch(new RegExp(`^bases/${BASE_DA_SESSAO}/[0-9a-f-]{36}-passwd\\.txt$`));
+    expect(up?.caminhos[0]).toMatch(new RegExp(`^bases/${BASE_DA_SESSAO}/[0-9a-f]{64}-passwd\\.txt$`));
     expect(up?.caminhos[0]).not.toContain("..");
   });
 });
@@ -556,6 +607,200 @@ describe("a base de conhecimento: chunks de verdade, ou nada", () => {
   });
 });
 
+/* ── Reenvio do mesmo arquivo ────────────────────────────────────────────── */
+
+describe("reenviar o MESMO arquivo não cria uma segunda linha", () => {
+  /** A linha que já existe para estes bytes com este nome, nesta base. */
+  function jaAnexado(status: string): LinhaFake {
+    return linha({
+      id: DOC_NOVO,
+      base_id: BASE_DA_SESSAO,
+      original_name: "manual.pdf",
+      status,
+      storage_path: caminhoDe(BASE_DA_SESSAO, PDF, "manual.pdf"),
+    });
+  }
+
+  /*
+    O CASO REAL: a extração roda DENTRO da Server Action e pode passar do
+    `proxy_read_timeout` do nginx. O cliente lê um erro, o Node termina e grava
+    `ready`, e a pessoa reenvia — antes disto, com `randomUUID()` no caminho, o
+    reenvio nascia como uma SEGUNDA linha, com um segundo conjunto de chunks, e o
+    assistente passava a citar o mesmo documento duas vezes.
+  */
+  it("linha `ready` com o mesmo conteúdo: recusa dizendo que já está lá, e nada sobe", async () => {
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ linhas: [jaAnexado("ready")] }) as never,
+    );
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toContain("já está anexado");
+    // Nada subiu e nada foi escrito: a conferência vem ANTES do upload.
+    expect(storage).toHaveLength(0);
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("linha `extracting` com o mesmo conteúdo: diz que está processando", async () => {
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ linhas: [jaAnexado("extracting")] }) as never,
+    );
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toContain("processado");
+    expect(storage).toHaveLength(0);
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("a conferência é por base, nome E conteúdo — nenhum dos três sozinho", async () => {
+    // A MESMA linha, mas na base do vizinho: não pode barrar este cliente.
+    vi.mocked(createAdminClient).mockImplementation(
+      () =>
+        dublarDb({
+          linhas: [{ ...jaAnexado("ready"), base_id: BASE_DO_VIZINHO }],
+        }) as never,
+    );
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: false,
+      downloadLiberado: true,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(true);
+    const conferencia = ops.find((o) => o.filtrosEm.status !== undefined);
+    expect(conferencia?.filtros).toMatchObject({
+      base_id: BASE_DA_SESSAO,
+      storage_path: caminhoDe(BASE_DA_SESSAO, PDF, "manual.pdf"),
+    });
+    // Só o que está vivo barra: uma linha em `error` é resíduo que a pessoa está
+    // justamente tentando substituir, e recusar ali a deixaria presa.
+    expect(conferencia?.filtrosEm.status).toEqual(["extracting", "ready"]);
+  });
+
+  it("MESMO nome com conteúdo DIFERENTE é um arquivo novo, e não se sobrescrevem", async () => {
+    vi.mocked(createAdminClient).mockImplementation(
+      () =>
+        dublarDb({
+          linhas: [
+            linha({
+              id: DOC_NOVO,
+              base_id: BASE_DA_SESSAO,
+              original_name: "manual.pdf",
+              status: "ready",
+              // Mesmo nome, outro conteúdo: outro checksum, outro caminho.
+              storage_path: caminhoDe(BASE_DA_SESSAO, TXT, "manual.pdf"),
+            }),
+          ],
+        }) as never,
+    );
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: false,
+      downloadLiberado: true,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(true);
+    const up = storage.find((s) => s.op === "upload");
+    expect(up?.caminhos[0]).toBe(caminhoDe(BASE_DA_SESSAO, PDF, "manual.pdf"));
+    expect(up?.caminhos[0]).not.toBe(caminhoDe(BASE_DA_SESSAO, TXT, "manual.pdf"));
+  });
+});
+
+/* ── O desfazer que não consegue desfazer ────────────────────────────────── */
+
+describe("desfazer que falha não deixa a linha mentindo 'Processando'", () => {
+  /*
+    O `delete` tinha o retorno IGNORADO e a exceção engolida. Quando ele falhava,
+    a linha ficava em `extracting` para sempre: a tela do cliente mostrava
+    "Processando" indefinidamente, sem erro em canto nenhum e sem ação possível.
+  */
+  it("linha que resiste é MARCADA como error, e quem anexou fica sabendo", async () => {
+    vi.mocked(reindexDocumentChunks).mockResolvedValue(0);
+    vi.mocked(createAdminClient).mockImplementation(() => dublarDb({ falharDelete: true }) as never);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "digitalizado.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    // A mensagem diz o resíduo E o que fazer com ele.
+    expect(r.ok === false && r.erro).toContain("Falhou");
+    // A linha vira `error` com o motivo: é o que faz o distintivo "Falhou" e o
+    // parágrafo de erro da tela deixarem de ser peça morta, e é o que fecha o
+    // download da sobra (`documentos_da_base` só devolve `ready`).
+    const marcada = escritas().find((o) => o.op === "update");
+    expect(marcada?.payload).toMatchObject({ status: "error" });
+    expect((marcada?.payload as { error: string }).error).toContain("Falha ao processar");
+    expect(marcada?.filtros).toMatchObject({ id: DOC_NOVO, base_id: BASE_DA_SESSAO });
+    // Linha viva ⇒ o arquivo FICA: objeto apagado com linha apontando para ele é
+    // download quebrado, que é pior que espaço ocupado.
+    expect(storage.some((s) => s.op === "remove")).toBe(false);
+    // E a falha vai para o log, com base e documento — nunca a identidade.
+    const mensagens = erro.mock.calls.map((c) => String(c[0])).join(" | ");
+    expect(mensagens).toContain(DOC_NOVO);
+    expect(mensagens).toContain(BASE_DA_SESSAO);
+    erro.mockRestore();
+  });
+
+  it("quando nem a marcação passa, a queda é registrada em vez de sumir", async () => {
+    vi.mocked(reindexDocumentChunks).mockResolvedValue(0);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ falharDelete: true, falharUpdate: true }) as never,
+    );
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "digitalizado.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(erro.mock.calls.map((c) => String(c[0])).join(" | ")).toContain("extracting");
+    erro.mockRestore();
+  });
+});
+
 /* ── Ontologia: recusar em voz alta em vez de ignorar ────────────────────── */
 
 describe("ontologia de arquivo de empresa ainda não existe", () => {
@@ -593,7 +838,8 @@ describe("a listagem é sempre da base pedida", () => {
     const lista = await arquivosDaBase(BASE_DA_SESSAO);
 
     // A linha do vizinho está na tabela e NÃO volta.
-    expect(lista.map((a) => a.id)).toEqual([DOC_NOVO]);
+    expect(lista.arquivos.map((a) => a.id)).toEqual([DOC_NOVO]);
+    expect(lista.falhou).toBe(false);
     const leitura = ops.find((o) => o.tabela === "knowledge_documents");
     expect(leitura?.filtros).toMatchObject({ base_id: BASE_DA_SESSAO });
   });
@@ -618,9 +864,36 @@ describe("a listagem é sempre da base pedida", () => {
     const lista = await arquivosDaBase(BASE_DA_SESSAO);
 
     // Mais recente primeiro, e o RAG só alcança quem tem trecho.
-    expect(lista.map((a) => [a.chunkCount, a.naBaseDeConhecimento])).toEqual([
+    expect(lista.arquivos.map((a) => [a.chunkCount, a.naBaseDeConhecimento])).toEqual([
       [7, true],
       [0, false],
     ]);
+  });
+
+  /*
+    A FALHA DE LEITURA É DECLARADA, NÃO ENGOLIDA.
+
+    O `if (error) break;` mudo devolvia lista vazia, e a tela então dizia "Nenhum
+    arquivo da sua empresa ainda" com um botão convidando a anexar: defeito nosso
+    apresentado como convite, e com risco de o cliente reenviar o que já está lá.
+    É a terceira ocorrência da mesma classe neste ramo (`rag.ts` no catch do
+    embedding, `escopo-da-base.ts` nas duas RPCs), e o log é o que separa "não
+    tem nada" de "não deu para ler".
+  */
+  it("erro na paginação devolve `falhou` e grita no log", async () => {
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ falharLeitura: true, linhas: [linha({ base_id: BASE_DA_SESSAO })] }) as never,
+    );
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const lista = await arquivosDaBase(BASE_DA_SESSAO);
+
+    expect(lista.falhou).toBe(true);
+    expect(lista.arquivos).toEqual([]);
+    expect(erro).toHaveBeenCalled();
+    // A BASE entra na mensagem; a identidade de quem olha, não (ela carrega
+    // matrícula e usuário, e log não é lugar de dado de pessoa).
+    expect(String(erro.mock.calls[0]?.[0])).toContain(BASE_DA_SESSAO);
+    erro.mockRestore();
   });
 });

@@ -44,7 +44,7 @@ export default async function GestaoConteudoPage({
   const { baseCode, baseId, baseNome } = sessao.identidade;
   const db = createAdminClient();
 
-  const [poco, { data: ajustesRows }, vocab, arquivos] = await Promise.all([
+  const [poco, { data: ajustesRows }, vocab, leituraDeArquivos] = await Promise.all([
     pocoUniversal(),
     // Uma linha por documentação ajustada nesta base: tabela de configuração,
     // sem teto de paginação a estourar.
@@ -56,6 +56,10 @@ export default async function GestaoConteudoPage({
       action de listagem usa. Lido no servidor, junto com o resto, para a
       seção nascer preenchida — uma busca no cliente ao montar mostraria um
       vazio que não é vazio.
+
+      E ela devolve `falhou` junto: lista vazia e leitura quebrada davam o
+      mesmo valor, e a tela apresentava o nosso defeito como convite para
+      anexar. O sinalizador atravessa até a tela por isso.
     */
     arquivosDaBase(baseId),
   ]);
@@ -183,7 +187,8 @@ export default async function GestaoConteudoPage({
           modo={sessao.modo}
           baseCode={baseCode}
           baseNome={baseNome}
-          arquivos={arquivos.map(
+          falhaDeLeitura={leituraDeArquivos.falhou}
+          arquivos={leituraDeArquivos.arquivos.map(
             (a): ArquivoNaTela => ({
               id: a.id,
               nome: a.nome,

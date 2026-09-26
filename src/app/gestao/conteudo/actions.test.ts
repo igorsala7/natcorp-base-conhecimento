@@ -528,7 +528,7 @@ describe("arquivos da empresa: a base vem da sessão, nunca do formulário", () 
   beforeEach(() => {
     vi.mocked(anexarArquivoDaBase).mockResolvedValue({ ok: true, documentId: "doc-1", chunks: 5 });
     vi.mocked(excluirArquivoDaBase).mockResolvedValue({ ok: true, nome: "manual.pdf", tinhaChunks: true });
-    vi.mocked(arquivosDaBase).mockResolvedValue([]);
+    vi.mocked(arquivosDaBase).mockResolvedValue({ arquivos: [], falhou: false });
   });
 
   it("anexar usa o baseId DA SESSÃO, mesmo com a base do vizinho no formulário", async () => {
@@ -598,6 +598,24 @@ describe("arquivos da empresa: a base vem da sessão, nunca do formulário", () 
 
     expect(r).toEqual({ ok: true, arquivos: [] });
     expect(arquivosDaBase).toHaveBeenCalledWith(BASE_DA_SESSAO.id);
+  });
+
+  /*
+    LEITURA QUEBRADA NÃO VIRA LISTA VAZIA.
+
+    Quem chama esta action SUBSTITUI a lista que está na tela. Devolver
+    `{ ok: true, arquivos: [] }` numa leitura que caiu faria os arquivos do
+    cliente desaparecerem por causa de um defeito nosso — e uma leitura PARCIAL é
+    pior ainda, porque parece completa.
+  */
+  it("falha de leitura recusa em vez de devolver lista vazia", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(arquivosDaBase).mockResolvedValue({ arquivos: [], falhou: true });
+
+    const r = await listarArquivosDoCliente({ key: "pk_x", kbt: "kbt1h.a.b" });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toContain("Não foi possível ler");
   });
 
   it("sessão recusada não chega ao mecanismo", async () => {

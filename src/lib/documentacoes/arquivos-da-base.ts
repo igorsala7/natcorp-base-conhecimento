@@ -1,11 +1,12 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   assertArquivoSeguro,
   extDe,
   extensaoAceita,
-  MAX_UPLOAD_BYTES,
+  MAX_ANEXO_CLIENTE_BYTES,
+  MAX_ANEXO_CLIENTE_MB,
 } from "@/lib/importer/file-guard";
 import { extractDocument } from "@/lib/importer/extract";
 import { reindexDocumentChunks } from "@/lib/content/chunk";
@@ -188,6 +189,20 @@ function daLinha(l: LinhaCrua): ArquivoDaBase {
 const PAGINA = 500;
 
 /**
+ * O resultado de ler a lista — com a falha DECLARADA, e não engolida.
+ *
+ * Lista vazia e leitura quebrada davam exatamente o mesmo valor de retorno, e a
+ * tela então mostrava "Nenhum arquivo da sua empresa ainda" com um botão
+ * convidando a anexar: um defeito nosso apresentado como convite, e com risco de
+ * o cliente anexar de novo o que já está lá. `falhou` é o que separa os dois.
+ */
+export type LeituraDeArquivos = {
+  /** O que deu para ler. Com `falhou = true`, pode estar VAZIA ou PARCIAL. */
+  arquivos: ArquivoDaBase[];
+  falhou: boolean;
+};
+
+/**
  * Os arquivos DESTA base.
  *
  * Sempre filtrado por `base_id`, e pagina por CONSULTA com `.order("id")` antes
@@ -196,10 +211,23 @@ const PAGINA = 500;
  * achando que leu tudo, e sem `order` o corte de página nem é determinístico.
  * Hoje um cliente tem dezenas de arquivos, não milhares — o laço existe para o
  * dia em que isso mudar, não para hoje.
+ *
+ * ── O `break` MUDO ERA O TERCEIRO DA MESMA CLASSE NESTE RAMO ──────────────
+ * `rag.ts` tinha um catch de embedding sem log, e `escopo-da-base.ts` caía em
+ * silêncio nas duas RPCs de escopo — os dois corrigidos, e o comentário de lá
+ * chama o log de "OBRIGATÓRIO, não enfeite". Aqui era a mesma coisa: um erro no
+ * meio da paginação devolvia o que tinha acumulado (às vezes nada) sem uma linha
+ * em lugar nenhum, então "o cliente não anexou nada" e "a leitura está quebrada"
+ * produziam a MESMA tela e não havia como distingui-los de fora.
+ *
+ * Só a BASE entra na mensagem. A identidade de quem está olhando carrega
+ * matrícula e usuário, e log não é lugar de dado de pessoa (mesma regra de
+ * `escopo-da-base.ts`).
  */
-export async function arquivosDaBase(baseId: string): Promise<ArquivoDaBase[]> {
+export async function arquivosDaBase(baseId: string): Promise<LeituraDeArquivos> {
   const db = createAdminClient();
   const linhas: LinhaCrua[] = [];
+  let falhou = false;
 
   for (let de = 0; ; de += PAGINA) {
     const { data, error } = await db
@@ -208,17 +236,25 @@ export async function arquivosDaBase(baseId: string): Promise<ArquivoDaBase[]> {
       .filter("base_id", "eq", baseId)
       .order("id")
       .range(de, de + PAGINA - 1);
-    if (error) break;
+    if (error) {
+      console.error(
+        `[arquivos-da-base] falha ao ler os arquivos da base ${baseId} (a partir da linha ${de}):`,
+        error.message,
+      );
+      falhou = true;
+      break;
+    }
     const lote = (data ?? []) as unknown as LinhaCrua[];
     linhas.push(...lote);
     if (lote.length < PAGINA) break;
   }
 
-  // Ordem de EXIBIÇÃO é a mais recente primeiro; a ordem por `id` acima existe
-  // só para a paginação ser estável, e as duas não precisam coincidir.
-  return linhas
-    .map(daLinha)
-    .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
+  return {
+    // Ordem de EXIBIÇÃO é a mais recente primeiro; a ordem por `id` acima existe
+    // só para a paginação ser estável, e as duas não precisam coincidir.
+    arquivos: linhas.map(daLinha).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)),
+    falhou,
+  };
 }
 
 type EntradaAnexo = {
@@ -269,10 +305,21 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
   const nome = (originalName ?? "").trim();
   if (!nome) return { ok: false, erro: "Arquivo sem nome." };
   if (bytes.length === 0) return { ok: false, erro: "O arquivo está vazio." };
-  if (bytes.length > MAX_UPLOAD_BYTES) {
+  /*
+    O TETO AQUI É O DA SERVER ACTION, não os 60 MB do file-guard.
+
+    Este caminho chega por Server Action, e o corpo dela é cortado em
+    `serverActions.bodySizeLimit` muito antes de 60 MB — ver
+    `MAX_ANEXO_CLIENTE_BYTES`. Na prática esta recusa quase nunca dispara (o
+    corpo grande nem chega a virar chamada), e é por isso que a tela também
+    confere ANTES de enviar. Ela fica porque Server Action é endpoint: quem
+    chamar este módulo por outro caminho tem de bater no mesmo número que a tela
+    anuncia, e não num maior.
+  */
+  if (bytes.length > MAX_ANEXO_CLIENTE_BYTES) {
     return {
       ok: false,
-      erro: `Arquivo maior que ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`,
+      erro: `Arquivo maior que ${MAX_ANEXO_CLIENTE_MB} MB.`,
     };
   }
 
@@ -357,17 +404,83 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
   /*
     O PREFIXO SAI DA SESSÃO, NÃO DO FORMULÁRIO.
 
-    `bases/<base_id>/<uuid>-<nome saneado>`, com o `base_id` que veio da sessão
-    revalidada. É a garantia que sobrevive a todas as outras falharem: o arquivo
-    de um cliente não consegue nem NASCER na pasta de outro. O uuid na frente
-    evita colisão entre dois envios do mesmo nome — sobrescrever o arquivo antigo
-    com o novo deixaria o documento antigo apontando para conteúdo trocado.
+    `bases/<base_id>/<sha256 do conteúdo>-<nome saneado>`, com o `base_id` que
+    veio da sessão revalidada. É a garantia que sobrevive a todas as outras
+    falharem: o arquivo de um cliente não consegue nem NASCER na pasta de outro.
+
+    ── POR QUE O CHECKSUM, E NÃO UM UUID ──────────────────────────────────
+    Até a tarefa 18 era um `randomUUID()`, e ele resolvia colisão de nome: dois
+    envios do mesmo nome com conteúdos diferentes não se sobrescreviam. O
+    checksum resolve a MESMA coisa (conteúdo diferente ⇒ hash diferente ⇒
+    caminho diferente) e resolve uma segunda, que o uuid não só não resolvia
+    como impedia: com uuid, reenviar o MESMO arquivo produzia um segundo
+    caminho, e a duplicata era invisível para qualquer conferência.
+
+    E o checksum tem de morar em algum lugar DURÁVEL para a conferência
+    existir. `knowledge_documents` não tem coluna de checksum, e o banco é
+    produção — então ele mora no CAMINHO, que é exatamente o que
+    `capture/rehost-images.ts` já faz no bucket `assets`
+    (`<escopo>/web/<sha256>.<ext>`), a dedup por checksum que este projeto já
+    tinha. Sem migration, e sem uma segunda fonte para o mesmo dado.
+
+    `upsert: true` pelo mesmo motivo que lá: o caminho É o conteúdo. Regravar
+    escreve bytes idênticos, por definição de sha256 — e isso limpa de graça o
+    caso do objeto órfão (um `desfazer` que apagou a linha e não conseguiu
+    apagar o arquivo travaria um reenvio legítimo com "resource already
+    exists").
   */
-  const caminho = `bases/${baseId}/${randomUUID()}-${nomeSaneado(nome)}`;
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  const caminho = `bases/${baseId}/${checksum}-${nomeSaneado(nome)}`;
+
+  /*
+    REENVIO DO MESMO ARQUIVO NÃO CRIA UMA SEGUNDA LINHA.
+
+    O caso real: a extração de um PDF grande roda DENTRO desta ação (ver o
+    comentário logo abaixo) e pode passar do `proxy_read_timeout` do nginx. O
+    cliente lê um erro, o Node termina o trabalho e marca `ready`, e a pessoa
+    reenvia — ficando com duas linhas do mesmo arquivo, dois conjuntos de chunks
+    e o assistente citando o mesmo documento duas vezes.
+
+    Mesmo nome E mesmo conteúdo ⇒ mesmo caminho, então a conferência é uma
+    igualdade, não uma heurística. Só `extracting` e `ready` barram: linha em
+    `error` é resíduo que a pessoa está justamente tentando substituir, e
+    recusar ali a deixaria presa.
+
+    Falha na LEITURA não bloqueia o envio — bloquear por não conseguir conferir
+    trocaria uma duplicata eventual por uma tela que não anexa nada. Mas vai para
+    o log: é a única pista de que a idempotência não foi exercida.
+  */
+  const { data: mesmos, error: erroDaConferencia } = await db
+    .from("knowledge_documents")
+    .select("id, status")
+    .filter("base_id", "eq", baseId)
+    .eq("storage_path", caminho)
+    .in("status", ["extracting", "ready"])
+    .limit(1);
+  if (erroDaConferencia) {
+    console.error(
+      `[arquivos-da-base] não deu para conferir reenvio na base ${baseId}:`,
+      erroDaConferencia.message,
+    );
+  }
+  const jaExiste = (mesmos ?? [])[0] as { id: string; status: string } | undefined;
+  if (jaExiste) {
+    return {
+      ok: false,
+      erro:
+        jaExiste.status === "ready"
+          ? `“${nome}” já está anexado nesta empresa, com exatamente este conteúdo. ` +
+            `Ele está na lista abaixo — não precisa enviar de novo. Para trocar o conteúdo, ` +
+            `exclua o arquivo atual e anexe a versão nova.`
+          : `“${nome}” está sendo processado agora, com exatamente este conteúdo. ` +
+            `Aguarde e atualize a página: quando terminar, ele aparece como “Pronto” na lista abaixo. ` +
+            `Enviar de novo criaria uma segunda cópia do mesmo arquivo.`,
+    };
+  }
 
   const up = await db.storage.from(BUCKET_ARQUIVOS).upload(caminho, bytes, {
     contentType: mime || "application/octet-stream",
-    upsert: false,
+    upsert: true,
   });
   if (up.error) return { ok: false, erro: `Falha ao enviar o arquivo: ${up.error.message}` };
 
@@ -380,6 +493,11 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
     tela dele para sempre, sem ação possível além de excluir manualmente um
     arquivo que nunca funcionou. Desfazer é o comportamento que não deixa
     resíduo — e quem tentou anexar recebe o motivo e tenta de novo.
+
+    A exceção é o desfazer que NÃO CONSEGUE desfazer: aí a linha fica, marcada
+    como `error` com o motivo, porque uma linha presa em "Processando" para
+    sempre é pior que uma linha "Falhou" que o cliente consegue excluir. Ver
+    `desfazer`.
   */
   let documentId: string | null = null;
   try {
@@ -409,6 +527,26 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
 
     if (!naBaseDeConhecimento) return { ok: true, documentId, chunks: 0 };
 
+    /*
+      ── ISTO VIOLA UMA REGRA DO PRÓPRIO PROJETO, E NÃO É DESCUIDO ──────────
+
+      "Toda operação assíncrona longa vira job, não request HTTP" (CLAUDE.md,
+      Parte 3, regra 6). Extrair um PDF e gerar embeddings dele são as duas
+      operações longas deste repositório, e as duas rodam AQUI, segurando um
+      worker do Next pela duração inteira. O importador já faz certo: arquivo em
+      Storage, `import_jobs`, worker com pg-boss e progresso por Realtime.
+
+      O que isso custa, concretamente: com `proxy_read_timeout 300s` no nginx
+      (DEPLOY.md), um arquivo que passe disso faz o cliente ler um erro enquanto
+      o Node termina e grava `ready`. O dano do reenvio está contido pela
+      conferência de checksum acima; o que continua em aberto é o tempo de
+      espera com a tela parada, e um worker preso por minutos.
+
+      A VERSÃO EM JOB ESTÁ PENDENTE, e é maior que esta correção: pede fila
+      própria (ou reuso de `import_jobs`), progresso na tela do cliente e uma
+      decisão sobre o que a lista mostra enquanto o arquivo está na fila. Quem
+      chegar aqui pensando "isto está esquecido": não está — está declarado.
+    */
     const { blocks } = await extractDocument(Buffer.from(bytes), nome, mime || undefined);
     const chunks = await reindexDocumentChunks(db, {
       documentId,
@@ -439,9 +577,26 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
 
     return { ok: true, documentId, chunks };
   } catch (e) {
-    await desfazer(db, caminho, documentId);
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, erro: `Falha ao processar: ${msg}`.slice(0, 500) };
+    /*
+      O MOTIVO PRIMEIRO, e o recado do desfazer depois — truncando só o motivo.
+
+      Truncar a frase inteira em 500 cortaria justamente a parte que diz o que
+      fazer, e ela só aparece quando o desfazer falhou, que é o caso em que a
+      pessoa mais precisa de instrução.
+
+      O mesmo texto é o que `desfazer` grava na coluna `error` se a linha
+      resistir: a tela então mostra ao cliente exatamente a frase que ele teria
+      lido aqui, e não uma segunda redação do mesmo problema.
+    */
+    const motivo = `Falha ao processar: ${msg}`.slice(0, 400);
+    const desfeito = await desfazer(db, baseId, caminho, documentId, motivo);
+    return {
+      ok: false,
+      erro: desfeito
+        ? motivo
+        : `${motivo} O registro do arquivo não pôde ser removido: ele aparece na lista como “Falhou”, e você pode excluí-lo por lá.`,
+    };
   }
 }
 
@@ -452,18 +607,94 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
  * linha falhasse, ficaria um documento na lista do cliente apontando para um
  * arquivo que não existe — download quebrado e nada explicando. Arquivo órfão no
  * bucket é invisível e custa espaço; linha órfã é visível e custa confiança.
+ *
+ * ── "MELHOR ESFORÇO" NÃO PODE SIGNIFICAR "SEM SABER SE DEU CERTO" ────────
+ * A versão anterior ignorava o retorno do `delete` e engolia a exceção. Quando
+ * a remoção falhava, a linha ficava em `extracting` PARA SEMPRE: a tela do
+ * cliente mostrava "Processando" indefinidamente, sem erro em canto nenhum e
+ * sem nada que explicasse. Agora:
+ *
+ *   1. o retorno é conferido e a falha vai para o log — com a base e o
+ *      documento, nunca a identidade de quem enviou (mesma regra de
+ *      `escopo-da-base.ts`);
+ *   2. se a linha resistiu, ela é MARCADA como `error` com o motivo. Não é
+ *      enfeite: é o que faz a lista parar de mentir "Processando" e é o que
+ *      torna alcançável o distintivo "Falhou" da tela, que até aqui era peça
+ *      morta — nada escrevia `error` numa linha de base. De quebra fecha o
+ *      download da sobra: `documentos_da_base` só devolve `status = 'ready'`,
+ *      então a linha marcada deixa de ser baixável;
+ *   3. o `boolean` de volta é o que permite a quem chamou DIZER isso a quem
+ *      anexou, em vez de deixar a pessoa olhando uma linha presa.
+ *
+ * E o arquivo no bucket só sai quando a LINHA saiu: linha viva apontando para
+ * objeto apagado é download quebrado, que é pior que espaço ocupado — a mesma
+ * troca que justifica a ordem lá em cima.
+ *
+ * @returns `true` se não sobrou resíduo visível para o cliente.
  */
 async function desfazer(
   db: ReturnType<typeof createAdminClient>,
+  baseId: string,
   caminho: string,
   documentId: string | null,
-) {
-  try {
-    if (documentId) await db.from("knowledge_documents").delete().eq("id", documentId);
-    await db.storage.from(BUCKET_ARQUIVOS).remove([caminho]);
-  } catch {
-    /* melhor esforço: o erro que trouxe a gente aqui é o que o cliente precisa ler */
+  motivo: string,
+): Promise<boolean> {
+  let linhaRemovida = true;
+
+  if (documentId) {
+    linhaRemovida = false;
+    try {
+      const { error } = await db
+        .from("knowledge_documents")
+        .delete()
+        .eq("id", documentId)
+        // A mesma cerca da exclusão: o desfazer também não alcança outra base.
+        .filter("base_id", "eq", baseId);
+      if (error) throw new Error(error.message);
+      linhaRemovida = true;
+    } catch (e) {
+      console.error(
+        `[arquivos-da-base] desfazer NÃO removeu a linha ${documentId} da base ${baseId}:`,
+        e instanceof Error ? e.message : String(e),
+      );
+      try {
+        const { error } = await db
+          .from("knowledge_documents")
+          .update({ status: "error", error: motivo.slice(0, 500) })
+          .eq("id", documentId)
+          .filter("base_id", "eq", baseId);
+        if (error) throw new Error(error.message);
+      } catch (e2) {
+        // Segunda queda: a linha fica em `extracting`. Nada mais a tentar daqui,
+        // e o log é o que permite achá-la depois pelo id.
+        console.error(
+          `[arquivos-da-base] a linha ${documentId} da base ${baseId} ficou presa em "extracting":`,
+          e2 instanceof Error ? e2.message : String(e2),
+        );
+      }
+    }
   }
+
+  if (!linhaRemovida) return false;
+
+  try {
+    const { error } = await db.storage.from(BUCKET_ARQUIVOS).remove([caminho]);
+    if (error) {
+      // Órfão no bucket: invisível para o cliente e sem ação possível do lado
+      // dele, então não muda o retorno — mas some do radar sem esta linha.
+      console.error(
+        `[arquivos-da-base] arquivo órfão em "${caminho}" (base ${baseId}):`,
+        error.message,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `[arquivos-da-base] arquivo órfão em "${caminho}" (base ${baseId}):`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  return true;
 }
 
 /**

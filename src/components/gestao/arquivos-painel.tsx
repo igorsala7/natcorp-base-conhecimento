@@ -9,6 +9,7 @@ import {
   Info,
   MessageSquareText,
   Paperclip,
+  RefreshCw,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -16,7 +17,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ACCEPT_ATTR_MIDIA, extensaoAceita, extDe } from "@/lib/importer/file-guard";
+import {
+  ACCEPT_ATTR_MIDIA,
+  extensaoAceita,
+  extDe,
+  MAX_ANEXO_CLIENTE_BYTES,
+  MAX_ANEXO_CLIENTE_MB,
+} from "@/lib/importer/file-guard";
 import { avisoDeAlcance, resumoElegibilidade, type Dimensao, type Regra } from "@/lib/elegibilidade";
 import {
   DIMENSOES_DA_TELA,
@@ -71,6 +78,26 @@ import {
  * trechos somem por cascade); a confirmação é onde isso fica VISÍVEL para quem
  * está clicando — senão a pessoa acha que só tirou o arquivo da lista e o
  * assistente continuaria respondendo por ele.
+ *
+ * ── O TETO DE TAMANHO É UM NÚMERO SÓ, E ELE VEM DO CÓDIGO ────────────────
+ * Esta tela dizia "Até 60 MB por arquivo" — o `MAX_UPLOAD_BYTES` do file-guard,
+ * digitado à mão no JSX. Só que o arquivo sobe por Server Action, e o corpo dela
+ * é cortado em 8 MB (`MAX_ANEXO_CLIENTE_BYTES`); acima disso o Next não devolve
+ * erro de validação, devolve uma resposta ilegível, e o cliente via
+ * "An unexpected response was received from the server" sem nenhuma pista de
+ * que o problema era TAMANHO. Em produção o teto real é provavelmente menor
+ * ainda: o nginx sem `client_max_body_size` corta em 1 MB com 413.
+ *
+ * Agora: a tela anuncia a constante compartilhada, recusa o arquivo grande ANTES
+ * de enviar (o tamanho é conhecido no navegador) e, quando o envio morre sem
+ * resposta legível, lê isso como "arquivo grande demais" em vez de repassar a
+ * frase do framework. Ver o comentário de `MAX_UPLOAD_BYTES` no file-guard, que
+ * é onde está escrito o que subir o teto exigiria.
+ *
+ * ── LISTA VAZIA ≠ LEITURA QUEBRADA ──────────────────────────────────────
+ * `falhaDeLeitura` existe porque as duas coisas mostravam a MESMA tela: o estado
+ * vazio, com um botão convidando a anexar. Defeito nosso apresentado como
+ * convite — e com o risco de o cliente anexar de novo o que já está lá.
  */
 
 /** Um arquivo como a tela precisa dele. Espelho de `ArquivoDaBase`, sem o Storage. */
@@ -109,6 +136,7 @@ export function ArquivosPainel({
   baseNome,
   arquivos,
   presencas,
+  falhaDeLeitura = false,
 }: {
   /** `key` + `kbt` (cliente) ou `suporte` + `base`. A ação revalida do zero. */
   sessao: Record<string, string>;
@@ -117,6 +145,8 @@ export function ArquivosPainel({
   baseNome: string;
   arquivos: ArquivoNaTela[];
   presencas: Presencas;
+  /** A leitura da lista caiu: `arquivos` pode estar vazia OU parcial. */
+  falhaDeLeitura?: boolean;
 }) {
   const [abrindoEnvio, setAbrindoEnvio] = useState(false);
   const [confirmandoExclusao, setConfirmandoExclusao] = useState<string | null>(null);
@@ -166,22 +196,35 @@ export function ArquivosPainel({
     return (
       <div className="space-y-4">
         <Mensagens erro={erro} ok={ok} />
-        {formulario ?? (
-          <EmptyState
-            icon={Paperclip}
-            title="Nenhum arquivo da sua empresa ainda"
-            description="Anexe os documentos, manuais e mídias da sua empresa. Você escolhe, arquivo por arquivo, se o assistente pode responder com o conteúdo dele, se ele fica disponível para download no chat, e quem dentro da empresa alcança cada um."
-            action={
-              /* Estado vazio COM ação de verdade, diferente do das documentações
-                 ao lado: ali não há nada que o cliente possa fazer até a Natcorp
-                 disponibilizar algo, aqui ele sempre pode anexar o primeiro. */
-              <Button type="button" onClick={() => setAbrindoEnvio(true)}>
-                <FileUp aria-hidden="true" />
-                Anexar o primeiro arquivo
-              </Button>
-            }
-          />
-        )}
+        {formulario ??
+          (falhaDeLeitura ? (
+            /* NÃO é o estado vazio: a lista pode ter arquivos que não foram
+               lidos. Ver `LeituraQuebrada`. */
+            <LeituraQuebrada
+              vazia
+              pendente={pendente}
+              onTentarDeNovo={() => {
+                setErro(null);
+                setOk(null);
+                router.refresh();
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={Paperclip}
+              title="Nenhum arquivo da sua empresa ainda"
+              description="Anexe os documentos, manuais e mídias da sua empresa. Você escolhe, arquivo por arquivo, se o assistente pode responder com o conteúdo dele, se ele fica disponível para download no chat, e quem dentro da empresa alcança cada um."
+              action={
+                /* Estado vazio COM ação de verdade, diferente do das documentações
+                   ao lado: ali não há nada que o cliente possa fazer até a Natcorp
+                   disponibilizar algo, aqui ele sempre pode anexar o primeiro. */
+                <Button type="button" onClick={() => setAbrindoEnvio(true)}>
+                  <FileUp aria-hidden="true" />
+                  Anexar o primeiro arquivo
+                </Button>
+              }
+            />
+          ))}
       </div>
     );
   }
@@ -189,6 +232,19 @@ export function ArquivosPainel({
   return (
     <div className="space-y-4">
       <Mensagens erro={erro} ok={ok} />
+
+      {/* A lista veio, mas incompleta: o aviso vem ANTES dela, senão a pessoa lê
+          a lista como se fosse tudo o que existe. */}
+      {falhaDeLeitura ? (
+        <LeituraQuebrada
+          pendente={pendente}
+          onTentarDeNovo={() => {
+            setErro(null);
+            setOk(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       {formulario ?? (
         <Button type="button" onClick={() => setAbrindoEnvio(true)} disabled={pendente}>
@@ -243,6 +299,15 @@ export function ArquivosPainel({
                   {resumoElegibilidade(regraSemCliente(a.regra), nomeDaBase, "este arquivo")}
                 </p>
 
+                {/* O MOTIVO DA FALHA — e ele é alcançável desde a tarefa 18.
+                    Até ali, nada escrevia `error` numa linha de base: a ingestão
+                    APAGAVA a linha quando dava errado, e este parágrafo (com o
+                    distintivo "Falhou") era peça morta. Foi mantido e LIGADO em
+                    vez de removido, porque existe um caso em que a linha tem de
+                    ficar: quando o próprio desfazer não consegue apagá-la. Ela
+                    então é marcada como `error` com o motivo, e é esta linha que
+                    o cliente lê para saber que aquele resíduo é para excluir —
+                    antes disso ele ficava em "Processando" para sempre. */}
                 {a.erro ? (
                   <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -330,6 +395,56 @@ function Mensagens({ erro, ok }: { erro: string | null; ok: string | null }) {
   );
 }
 
+/**
+ * "NÃO DEU PARA LER OS SEUS ARQUIVOS" — e por que não é o estado vazio.
+ *
+ * `arquivosDaBase` interrompia a paginação em silêncio e devolvia o que tinha
+ * acumulado, às vezes nada. A tela então mostrava "Nenhum arquivo da sua empresa
+ * ainda" com o botão "Anexar o primeiro arquivo": um defeito nosso lido como
+ * convite, e um convite perigoso — o cliente anexaria de novo o que já está lá.
+ *
+ * As duas diferenças que importam:
+ *
+ *   · a AÇÃO é "Tentar de novo", não "Anexar". Anexar continua possível pela
+ *     lista quando há lista, mas não é o que a tela oferece primeiro enquanto
+ *     não se sabe o que já existe;
+ *   · o TEXTO diz que a falha é nossa e o que fazer. "Nenhum arquivo ainda" é
+ *     uma afirmação sobre os dados do cliente, e neste caso ela é falsa.
+ */
+function LeituraQuebrada({
+  vazia = false,
+  pendente,
+  onTentarDeNovo,
+}: {
+  /** Nada foi lido (contra: leu parte, e a lista está na tela). */
+  vazia?: boolean;
+  pendente: boolean;
+  onTentarDeNovo: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-warning-line bg-warning-soft p-4">
+      <p className="flex items-start gap-1.5 text-sm leading-relaxed text-warning">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>
+          <strong>Não foi possível ler os arquivos da sua empresa.</strong>{" "}
+          {vazia
+            ? "Isto é uma falha nossa, e não uma lista vazia: você pode ter arquivos anexados que não estão aparecendo aqui agora."
+            : "A lista abaixo pode estar incompleta: alguns arquivos da sua empresa podem não ter sido lidos."}{" "}
+          Tente de novo em alguns instantes. Enquanto a lista não carregar, evite
+          anexar um arquivo que você já tenha enviado — ele pode já estar aí.
+          Se continuar, fale com o suporte.
+        </span>
+      </p>
+      <div className="mt-3">
+        <Button type="button" variant="warning" onClick={onTentarDeNovo} disabled={pendente}>
+          <RefreshCw aria-hidden="true" />
+          Tentar de novo
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function Uso({
   icone: Icone,
   ligado,
@@ -361,6 +476,14 @@ function Uso({
  * é para ser lida por quem está deste lado da tela. Valor desconhecido cai em
  * "Processando" em vez de imprimir o texto cru: um estado novo no banco não
  * deve vazar nome de coluna para a tela do cliente.
+ *
+ * "Falhou" ERA INALCANÇÁVEL, e agora não é. A ingestão apaga a linha quando algo
+ * dá errado, então nenhuma linha de base chegava aqui com `error` — o distintivo
+ * vermelho e o parágrafo de motivo eram UI morta. A tarefa 18 preferiu ligá-los a
+ * removê-los, porque descobriu o caso em que a linha PRECISA ficar: quando o
+ * desfazer não consegue apagá-la, ela é marcada como `error` em vez de ficar
+ * presa em `extracting` mostrando "Processando" indefinidamente. Ver `desfazer`,
+ * em `arquivos-da-base.ts`.
  */
 function Situacao({ status }: { status: string }) {
   const pronto = status === "ready";
@@ -409,7 +532,29 @@ function FormularioDeEnvio({
 }) {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [naBase, setNaBase] = useState(true);
-  const [download, setDownload] = useState(true);
+  /*
+    DOWNLOAD NASCE DESLIGADO, e isto é uma decisão, não um descuido.
+
+    Nascia `true`, e a consequência é que todo arquivo anexado ficava, por
+    padrão, baixável por todo mundo da empresa que a regra alcança — uma
+    distribuição que ninguém pediu. O pedido do dono diz *"e SE for [...]
+    disponível para download"*, sem declarar padrão.
+
+    Duas razões para o desligado:
+
+      · a coluna `download_liberado` tem DEFAULT `false` no banco (conferido).
+        Tela e banco discordando sobre o padrão é como um caminho de escrita
+        passa a produzir resultado diferente do outro;
+      · as duas direções não custam o mesmo. Arquivo que DEVERIA ser baixável e
+        não está fica a um clique de distância, e quem anexou está olhando a
+        tela; arquivo que NÃO deveria e está é uma distribuição que só se
+        descobre quando alguém já baixou.
+
+    Ligar de volta é uma linha (`useState(true)`), se o dono preferir o outro
+    padrão. A opção continua visível e explicada na própria caixa — o que não
+    existe mais é a escolha feita no lugar dele.
+  */
+  const [download, setDownload] = useState(false);
   const [restritas, setRestritas] = useState<Dimensao[]>([]);
   const [valores, setValores] = useState<Partial<Record<Dimensao, string[]>>>({});
   const [erro, setErro] = useState<string | null>(null);
@@ -473,8 +618,53 @@ function FormularioDeEnvio({
   /** Restrições ligadas e ainda sem valor escolhido: estado inválido. */
   const emBranco = restritas.filter((d) => !(valores[d] ?? []).some((v) => v.trim()));
 
+  /**
+   * Nenhuma das duas escolhas marcada: o arquivo não serviria para nada.
+   *
+   * Sai como AVISO na hora, e não só como erro no clique. Com o download nascendo
+   * desligado (ver acima), quem escolhe um vídeo ou uma imagem — tipo que não vira
+   * conteúdo — cai neste estado sem ter desmarcado nada, e descobrir isso só
+   * depois de clicar "Anexar" seria trocar um padrão perigoso por um beco.
+   */
+  const semUso = !naBaseEfetivo && !download;
+
+  /**
+   * O ARQUIVO GRANDE É RECUSADO NO NAVEGADOR, antes de a requisição sair.
+   *
+   * O tamanho é conhecido aqui, e é o único lugar em que a recusa consegue DIZER
+   * "tamanho": passado o teto do corpo da Server Action, o Next devolve uma
+   * resposta que o cliente não sabe ler e o console mostra "An unexpected
+   * response was received from the server" — sem nenhuma pista da causa.
+   *
+   * O arquivo nem fica selecionado: deixá-lo escolhido com uma mensagem de erro
+   * convidaria a clicar "Anexar" de novo e bater no mesmo muro.
+   */
+  function escolherArquivo(f: File | null) {
+    if (!f) {
+      setErro(null);
+      return setArquivo(null);
+    }
+    if (f.size > MAX_ANEXO_CLIENTE_BYTES) {
+      setArquivo(null);
+      return setErro(
+        `“${f.name}” tem ${tamanhoLegivel(f.size)}, e o limite é ${MAX_ANEXO_CLIENTE_MB} MB por arquivo. ` +
+          `Envie uma versão menor (um PDF salvo com imagens comprimidas, por exemplo) ou divida o conteúdo ` +
+          `em mais de um arquivo. Se precisar anexar algo maior, fale com o suporte.`,
+      );
+    }
+    setErro(null);
+    setArquivo(f);
+  }
+
   function enviar() {
     if (!arquivo) return setErro("Escolha um arquivo.");
+    // Segunda conferência do tamanho: `escolherArquivo` já recusa, e esta existe
+    // para o caso de o estado ter sido montado por outro caminho.
+    if (arquivo.size > MAX_ANEXO_CLIENTE_BYTES) {
+      return setErro(
+        `“${arquivo.name}” tem ${tamanhoLegivel(arquivo.size)}, acima do limite de ${MAX_ANEXO_CLIENTE_MB} MB por arquivo.`,
+      );
+    }
     if (!naBaseEfetivo && !download) {
       return setErro(
         "Escolha ao menos uma coisa para o arquivo fazer: o assistente responder com o conteúdo " +
@@ -505,7 +695,36 @@ function FormularioDeEnvio({
       fd.set("downloadLiberado", download ? "1" : "0");
       fd.set("regra", JSON.stringify(regra));
 
-      const r = await anexarArquivoDoCliente(fd);
+      /*
+        O ENVIO PODE MORRER SEM VIRAR RESPOSTA — e a causa provável é TAMANHO.
+
+        Dois caminhos levam aqui, e nenhum devolve `{ ok: false, erro }`:
+
+          · o corpo passou do `bodySizeLimit` da Server Action, e o Next devolveu
+            uma resposta que o cliente não sabe ler (a chamada REJEITA, e o
+            console mostra "An unexpected response was received from the
+            server");
+          · o nginx cortou com 413 antes de a aplicação ser chamada — o padrão de
+            `client_max_body_size` é 1 MB, menor que o teto que esta tela já
+            confere, e o DEPLOY.md não declara outro valor.
+
+        Nos dois a mensagem do framework é o pior diagnóstico possível: ela não
+        menciona tamanho, que é justamente o que aconteceu. Então a frase daqui
+        LIDERA com tamanho, mostra o tamanho do arquivo, e ainda dá saída para o
+        caso de não ser isso — em vez de afirmar uma causa que não dá para provar
+        daqui.
+      */
+      let r: Awaited<ReturnType<typeof anexarArquivoDoCliente>>;
+      try {
+        r = await anexarArquivoDoCliente(fd);
+      } catch {
+        return setErro(
+          `Não foi possível enviar “${arquivo.name}” (${tamanhoLegivel(arquivo.size)}): o servidor ` +
+            `interrompeu o envio antes de responder. A causa mais comum é o TAMANHO — o limite do ` +
+            `servidor pode ser menor que os ${MAX_ANEXO_CLIENTE_MB} MB aceitos nesta tela. Tente um ` +
+            `arquivo menor; se ele já for pequeno, fale com o suporte informando o nome e o tamanho.`,
+        );
+      }
       if (!r.ok) return setErro(r.erro);
       onEnviado(
         r.chunks > 0
@@ -519,9 +738,12 @@ function FormularioDeEnvio({
     <div className="space-y-4 rounded-lg border border-border-strong bg-surface-2 p-4">
       <div>
         <h3 className="text-sm font-semibold text-text">Anexar um arquivo da sua empresa</h3>
+        {/* O NÚMERO VEM DA CONSTANTE, e é o MENOR teto que se aplica de fato —
+            ver o cabeçalho deste arquivo. Escrito à mão no JSX, ele dizia 60 MB
+            e o envio quebrava em 8. */}
         <p className="mt-1 text-xs leading-relaxed text-text-muted">
-          Documento, planilha, apresentação, imagem, vídeo, áudio ou pacote compactado. Até 60 MB por
-          arquivo.
+          Documento, planilha, apresentação, imagem, vídeo, áudio ou pacote compactado. Até{" "}
+          {MAX_ANEXO_CLIENTE_MB} MB por arquivo.
         </p>
       </div>
 
@@ -541,8 +763,7 @@ function FormularioDeEnvio({
           className="hidden"
           disabled={enviando}
           onChange={(e) => {
-            setErro(null);
-            setArquivo(e.target.files?.[0] ?? null);
+            escolherArquivo(e.target.files?.[0] ?? null);
             // Zera para que escolher o MESMO arquivo de novo dispare o evento.
             e.target.value = "";
           }}
@@ -568,6 +789,24 @@ function FormularioDeEnvio({
           label="Meus usuários podem baixar este arquivo pelo chat"
           description="Quando o assistente citar este arquivo, quem tiver acesso vê um link para baixá-lo."
         />
+        {/*
+          NENHUMA DAS DUAS MARCADA: avisa AGORA, e não no clique.
+
+          O servidor recusa este caso (arquivo que não serve para nada), e o
+          clique também — mas com o download nascendo desligado, escolher um
+          vídeo ou uma imagem cai aqui sem a pessoa ter desmarcado nada. O aviso
+          na própria caixa é o que transforma "por que não deixa anexar?" em
+          "ah, tenho de marcar uma".
+        */}
+        {semUso ? (
+          <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Marque ao menos uma das duas. Sem nenhuma, o arquivo ficaria guardado sem o assistente
+              ler o conteúdo e sem ninguém poder baixá-lo.
+            </span>
+          </p>
+        ) : null}
         {/*
           A OPÇÃO DE VOCABULÁRIO (ontologia) NÃO ENTRA AQUI — ver o cabeçalho
           deste arquivo. Ela é por documentação, e arquivo de empresa não
