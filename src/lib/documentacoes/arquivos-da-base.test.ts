@@ -33,6 +33,10 @@ import { createHash } from "node:crypto";
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/importer/extract", () => ({ extractDocument: vi.fn() }));
 vi.mock("@/lib/content/chunk", () => ({ reindexDocumentChunks: vi.fn() }));
+// A fila é dublada (pg-boss abriria conexão); `criarJobOntologia` roda de
+// VERDADE contra o gravador, porque o que interessa é o PAYLOAD do job — é ele
+// que decide se o termo do cliente vai para a base ou para um espaço.
+vi.mock("@/lib/jobs/boss", () => ({ enqueueOntologyScan: vi.fn() }));
 
 import {
   anexarArquivoDaBase,
@@ -43,6 +47,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocument } from "@/lib/importer/extract";
 import { reindexDocumentChunks } from "@/lib/content/chunk";
+import { enqueueOntologyScan } from "@/lib/jobs/boss";
 
 const BASE_DA_SESSAO = "11111111-1111-4111-8111-111111111111";
 const BASE_DO_VIZINHO = "22222222-2222-4222-8222-222222222222";
@@ -801,10 +806,10 @@ describe("desfazer que falha não deixa a linha mentindo 'Processando'", () => {
   });
 });
 
-/* ── Ontologia: recusar em voz alta em vez de ignorar ────────────────────── */
+/* ── Ontologia POR BASE: o vocabulário é do cliente, e é dele só ─────────── */
 
-describe("ontologia de arquivo de empresa ainda não existe", () => {
-  it("pedido de varredura é RECUSADO com o motivo, antes de subir nada", async () => {
+describe("varredura de vocabulário da empresa", () => {
+  it("o job nasce com base_id e space_id NULO — o termo não entra na ontologia global", async () => {
     const r = await anexarArquivoDaBase({
       baseId: BASE_DA_SESSAO,
       bytes: PDF,
@@ -816,13 +821,80 @@ describe("ontologia de arquivo de empresa ainda não existe", () => {
       varrerOntologia: true,
     });
 
-    // `ontology_jobs.space_id` e `ontology_terms.space_id` são NOT NULL para
-    // `spaces`, e este arquivo não tem espaço. Aceitar e não enfileirar seria a
-    // falha silenciosa: o cliente marca, nada acontece, e ele nunca sabe.
+    expect(r.ok).toBe(true);
+    const job = ops.find((o) => o.tabela === "ontology_jobs" && o.op === "insert");
+    // `space_id: null` é a metade que importa: com espaço, o jargão interno deste
+    // cliente expandiria a consulta de quem lê aquela documentação. O CHECK
+    // `ontology_jobs_um_dono` recusaria os dois juntos, e este teste afirma que
+    // nem chegamos a tentar.
+    expect(job?.payload).toMatchObject({
+      base_id: BASE_DA_SESSAO,
+      space_id: null,
+      scope: "document",
+      target_id: DOC_NOVO,
+    });
+    expect(enqueueOntologyScan).toHaveBeenCalledWith(DOC_NOVO);
+  });
+
+  it("sem varredura pedida, nenhum job é criado (a varredura é OPT-IN)", async () => {
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(true);
+    expect(ops.some((o) => o.tabela === "ontology_jobs")).toBe(false);
+    expect(enqueueOntologyScan).not.toHaveBeenCalled();
+  });
+
+  it("varredura sem base de conhecimento é RECUSADA, antes de subir nada", async () => {
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: MP4,
+      originalName: "treinamento.mp4",
+      mime: "video/mp4",
+      naBaseDeConhecimento: false,
+      downloadLiberado: true,
+      regra: {},
+      varrerOntologia: true,
+    });
+
+    // O vocabulário sai do TEXTO. Sem chunk não há o que varrer, e aceitar
+    // gravaria zero termo em silêncio — o cliente marcaria a caixa e nunca saberia.
     expect(r.ok).toBe(false);
-    expect(r.ok === false && r.erro).toContain("ontologia");
+    expect(r.ok === false && r.erro).toContain("conteúdo deste arquivo");
     expect(storage).toHaveLength(0);
     expect(escritas()).toHaveLength(0);
+  });
+
+  it("fila fora do ar NÃO desfaz a ingestão — o arquivo já está no ar", async () => {
+    vi.mocked(enqueueOntologyScan).mockRejectedValueOnce(new Error("fila indisponível"));
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: PDF,
+      originalName: "manual.pdf",
+      mime: "application/pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: false,
+      regra: {},
+      varrerOntologia: true,
+    });
+
+    expect(r.ok).toBe(true);
+    expect(r.ok === true && r.chunks).toBe(4);
+    // Nada foi apagado: a ontologia é acréscimo, não condição.
+    expect(storage.filter((s) => s.op === "remove")).toHaveLength(0);
+    // E não em silêncio: sem o log, "o cliente não pediu" e "a fila caiu" são a
+    // mesma coisa vista de fora.
+    expect(erro).toHaveBeenCalled();
+    erro.mockRestore();
   });
 });
 

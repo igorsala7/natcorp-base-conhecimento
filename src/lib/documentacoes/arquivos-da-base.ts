@@ -11,6 +11,8 @@ import {
 import { extractDocument } from "@/lib/importer/extract";
 import { reindexDocumentChunks } from "@/lib/content/chunk";
 import { chavesProblematicasDaRegra, normalizarRegra, type Regra } from "@/lib/elegibilidade";
+import { criarJobOntologia } from "@/lib/ai/ontology-enqueue";
+import { enqueueOntologyScan } from "@/lib/jobs/boss";
 
 /**
  * O ARQUIVO DO CLIENTE: ingestão, exclusão e listagem.
@@ -271,6 +273,13 @@ type EntradaAnexo = {
    * descartaria chave desconhecida em silêncio.
    */
   regra: unknown;
+  /**
+   * Varrer o vocabulário próprio da empresa deste arquivo (ontologia por base).
+   *
+   * OPT-IN, e o motivo está no corpo de `anexarArquivoDaBase`, onde o job é
+   * enfileirado — é o mesmo motivo de custo que `ingestKnowledgeFile` declara
+   * para a porta do admin.
+   */
   varrerOntologia?: boolean;
   /** `auth.users.id`, quando existe (modo suporte). Nulo no modo cliente. */
   criadoPor?: string | null;
@@ -360,28 +369,24 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
   }
 
   /*
-    ONTOLOGIA NÃO EXISTE PARA ARQUIVO DE EMPRESA — e recusar é melhor que ignorar.
+    VOCABULÁRIO SEM TEXTO NÃO EXISTE — recusa com o motivo, como as de cima.
 
-    `ontology_jobs.space_id` e `ontology_terms.space_id` são `NOT NULL references
-    spaces(id)` (conferido no banco em 25/09). Arquivo de empresa não tem espaço:
-    o CHECK `knowledge_documents_um_dono` garante que ele tem `base_id` e
-    `space_id` NULO. Não existe onde pendurar nem o job nem os termos.
+    A varredura lê os CHUNKS do documento. Arquivo que não entra na base de
+    conhecimento não tem chunk nenhum, então aceitar o pedido aqui varreria o
+    vazio e gravaria zero termo — a falha silenciosa de sempre: o cliente marca a
+    opção, nada acontece, e ele descobre semanas depois que a busca não melhorou.
 
-    Aceitar o pedido e não enfileirar nada seria a falha silenciosa de sempre: o
-    cliente marca a opção, nada acontece, e ele descobre semanas depois que a
-    busca não melhorou. Então recusa aqui, antes de subir o arquivo.
-
-    Fazer funcionar exige migration (as duas colunas passarem a aceitar base) E
-    uma decisão do dono que a migration não resolve: o vocabulário de um cliente
-    não pode vazar para a ontologia global, senão o sinônimo de um cliente
-    reescreveria a consulta de outro.
+    Na prática a tela só oferece a opção junto da base de conhecimento; esta
+    recusa existe porque este módulo é chamado por uma Server Action, que é
+    endpoint.
   */
-  if (entrada.varrerOntologia) {
+  if (entrada.varrerOntologia && !naBaseDeConhecimento) {
     return {
       ok: false,
       erro:
-        "A varredura de ontologia ainda não vale para arquivo da empresa — ela é por " +
-        "documentação, e este arquivo não pertence a nenhuma. Anexe sem ela.",
+        "Para ensinar os termos da sua empresa ao assistente, marque também " +
+        "“o assistente pode responder com o conteúdo deste arquivo”: o vocabulário " +
+        "é lido do texto do arquivo.",
     };
   }
 
@@ -574,6 +579,44 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
       .update({ status: "ready", chunk_count: chunks, error: null })
       .eq("id", documentId);
     if (erroFim) throw new Error(erroFim.message);
+
+    /*
+      ── O VOCABULÁRIO DA EMPRESA, quando o cliente pede ────────────────────
+
+      Job com `base_id` (nunca `space_id`): o termo extraído daqui é DO CLIENTE e
+      não entra na ontologia global. Quem garante isso é o CHECK
+      `ontology_jobs_um_dono`/`ontology_terms_um_dono` no banco, a união
+      `DonoDaOntologia` no tipo, e a expansão da consulta, que SOMA os dois
+      conjuntos sem misturá-los (`carregarOntologia`).
+
+      OPT-IN, pelo mesmo motivo que o admin já usa em `ingestKnowledgeFile`: a
+      varredura é chamada de IA por lote de texto, e um acervo grande pagaria caro
+      por vocabulário que às vezes não existe — nem todo documento tem jargão que
+      valha virar termo. Quem liga ganha o outro lado: o RAG usa os sinônimos para
+      casar a pergunta com o vocabulário do documento.
+
+      Falha aqui NUNCA desfaz a ingestão — o arquivo já está no ar para o
+      assistente, e a ontologia é acréscimo. Mesma regra da publicação de artigo e
+      da porta do admin. O log é o que distingue "o cliente não pediu" de "a fila
+      está fora do ar".
+    */
+    if (entrada.varrerOntologia) {
+      try {
+        const jobId = await criarJobOntologia(db, {
+          baseId,
+          scope: "document",
+          targetId: documentId,
+          createdBy: entrada.criadoPor ?? null,
+        });
+        if (jobId) await enqueueOntologyScan(jobId);
+        else throw new Error("o job não foi registrado");
+      } catch (e) {
+        console.error(
+          `[arquivos-da-base] varredura de vocabulário não enfileirada para o documento ${documentId} da base ${baseId}:`,
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    }
 
     return { ok: true, documentId, chunks };
   } catch (e) {

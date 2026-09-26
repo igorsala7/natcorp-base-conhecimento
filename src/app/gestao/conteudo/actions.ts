@@ -575,6 +575,10 @@ export async function anexarArquivoDoCliente(formData: FormData): Promise<Result
     mime: arquivo.type,
     naBaseDeConhecimento: campo(formData, "naBaseDeConhecimento") === "1",
     downloadLiberado: campo(formData, "downloadLiberado") === "1",
+    // Vocabulário próprio da empresa (ontologia por base). Desmarcado por padrão
+    // na tela, então a ausência do campo tem de significar NÃO — e significa:
+    // só a string "1" liga.
+    varrerOntologia: campo(formData, "varrerOntologia") === "1",
     regra,
     // `criado_por` referencia `auth.users`: existe no suporte, é nulo no modo
     // cliente. A autoria real do cliente fica no registro de auditoria (`por`).
@@ -588,6 +592,9 @@ export async function anexarArquivoDoCliente(formData: FormData): Promise<Result
     chunks: r.chunks,
     na_base_de_conhecimento: r.chunks > 0,
     download_liberado: campo(formData, "downloadLiberado") === "1",
+    // Fica no rastro porque a varredura GASTA IA e cria vocabulário que muda a
+    // busca daquela base: quem ligou, e quando, é a pergunta que vem depois.
+    varrer_ontologia: campo(formData, "varrerOntologia") === "1",
     regra,
   });
   revalidar();

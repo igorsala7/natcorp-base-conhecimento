@@ -65,12 +65,16 @@ import {
  * tenha uma linha de texto dele. Por isso são duas caixas e não um seletor de
  * três posições — a combinação das duas é o caso comum, não a exceção.
  *
- * ── O QUE NÃO ESTÁ AQUI, e por que ──────────────────────────────────────
- * NÃO existe opção de varredura de ontologia (o "vocabulário" do cliente). As
- * tabelas de ontologia exigem `space_id NOT NULL` e arquivo de empresa não
- * pertence a documentação nenhuma, então a ingestão RECUSA o pedido com o
- * motivo. Um interruptor que sempre falha é pior que interruptor nenhum.
- * Quando existir ontologia POR BASE, a opção entra aqui, ao lado das duas.
+ * ── A TERCEIRA CAIXA: o vocabulário da empresa ──────────────────────────
+ * "Ensinar ao assistente os termos da sua empresa" é a ontologia por base
+ * (tarefa 19), e ela é DESMARCADA por padrão pelo mesmo motivo que a tela do
+ * admin usa: a varredura é uma chamada de IA por lote de texto, e nem todo
+ * documento tem jargão que valha virar termo. Ela só aparece ligável junto da
+ * primeira caixa, porque o vocabulário é lido do TEXTO do arquivo — sem texto
+ * não há o que varrer, e o servidor recusa a combinação.
+ *
+ * O termo que sai daqui é DO CLIENTE: ele soma ao vocabulário da Natcorp na
+ * busca daquela empresa e nunca entra no global (CHECK `ontology_terms_um_dono`).
  *
  * ── A EXCLUSÃO DIZ O QUE ACONTECE ───────────────────────────────────────
  * Pedido do dono de 24/09: *"Quando for adicionado um arquivo que vai para o
@@ -555,6 +559,12 @@ function FormularioDeEnvio({
     existe mais é a escolha feita no lugar dele.
   */
   const [download, setDownload] = useState(false);
+  /*
+    VOCABULÁRIO DA EMPRESA (ontologia por base) nasce DESLIGADO — ver a caixa,
+    onde o motivo está escrito na própria copy: é chamada de IA por lote de texto,
+    e nem todo documento tem jargão que valha virar termo.
+  */
+  const [vocabulario, setVocabulario] = useState(false);
   const [restritas, setRestritas] = useState<Dimensao[]>([]);
   const [valores, setValores] = useState<Partial<Record<Dimensao, string[]>>>({});
   const [erro, setErro] = useState<string | null>(null);
@@ -693,6 +703,11 @@ function FormularioDeEnvio({
       fd.set("arquivo", arquivo);
       fd.set("naBaseDeConhecimento", naBaseEfetivo ? "1" : "0");
       fd.set("downloadLiberado", download ? "1" : "0");
+      // `&& naBaseEfetivo` pela mesma razão do `naBaseEfetivo`: derivar em vez de
+      // sincronizar por efeito preserva a intenção de quem trocou um vídeo por um
+      // PDF depois de marcar a caixa, e nunca manda um pedido que o servidor
+      // recusaria.
+      fd.set("varrerOntologia", vocabulario && naBaseEfetivo ? "1" : "0");
       fd.set("regra", JSON.stringify(regra));
 
       /*
@@ -726,9 +741,17 @@ function FormularioDeEnvio({
         );
       }
       if (!r.ok) return setErro(r.erro);
+      /*
+        A VARREDURA DE VOCABULÁRIO É ASSÍNCRONA, e a mensagem diz isso.
+
+        O arquivo já está no ar quando esta linha roda; os termos, não — eles
+        saem de um job no worker. Sem a frase, quem marcou a caixa perguntaria
+        no mesmo minuto por que o apelido interno ainda não é entendido.
+      */
+      const vocab = vocabulario && naBaseEfetivo ? " Os termos da sua empresa estão sendo aprendidos e passam a valer nas respostas em alguns minutos." : "";
       onEnviado(
         r.chunks > 0
-          ? `“${arquivo.name}” foi anexado. O assistente já pode responder com o conteúdo dele.`
+          ? `“${arquivo.name}” foi anexado. O assistente já pode responder com o conteúdo dele.${vocab}`
           : `“${arquivo.name}” foi anexado e está disponível para download.`,
       );
     });
@@ -808,11 +831,29 @@ function FormularioDeEnvio({
           </p>
         ) : null}
         {/*
-          A OPÇÃO DE VOCABULÁRIO (ontologia) NÃO ENTRA AQUI — ver o cabeçalho
-          deste arquivo. Ela é por documentação, e arquivo de empresa não
-          pertence a nenhuma; a ingestão recusa o pedido com o motivo. Entra
-          quando existir ontologia por base.
+          O VOCABULÁRIO DA EMPRESA — desmarcado por padrão, e não por cautela
+          genérica: a varredura é uma chamada de IA por lote de texto, e nem todo
+          documento tem jargão que valha virar termo (é o mesmo motivo escrito em
+          `ingestKnowledgeFile`, a porta do admin). Quem liga ganha o outro lado:
+          o assistente passa a achar o conteúdo mesmo quando a pessoa pergunta com
+          a palavra da casa em vez da palavra do manual.
+
+          Fica ATRÁS da primeira caixa porque o vocabulário sai do TEXTO: sem
+          conteúdo lido não há o que varrer, e o servidor recusa a combinação.
+          Desmarcar a primeira desmarca esta, em vez de deixar um pedido que
+          nasceria recusado.
         */}
+        <Checkbox
+          checked={vocabulario && naBaseEfetivo}
+          onChange={setVocabulario}
+          disabled={!naBaseEfetivo}
+          label="Ensinar ao assistente os termos próprios da sua empresa"
+          description={
+            naBaseEfetivo
+              ? "O assistente aprende como a sua empresa chama as coisas neste arquivo (apelidos, siglas, nomes internos) e passa a encontrar o conteúdo mesmo quando a pergunta usa a palavra da casa. Vale só para a sua empresa. Leva alguns minutos depois do envio."
+              : "Disponível quando o assistente puder responder com o conteúdo do arquivo: os termos são lidos do texto dele."
+          }
+        />
       </fieldset>
 
       {/* QUEM ALCANÇA. Fechado não é opção: a escolha padrão (todo mundo da
