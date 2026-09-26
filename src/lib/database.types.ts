@@ -520,6 +520,7 @@ export type Database = {
       ai_base_tracking_keys: {
         Row: {
           base_id: string
+          confirmada_em: string | null
           key_enc: string
           space_id: string
           updated_at: string
@@ -527,6 +528,7 @@ export type Database = {
         }
         Insert: {
           base_id: string
+          confirmada_em?: string | null
           key_enc: string
           space_id: string
           updated_at?: string
@@ -534,6 +536,7 @@ export type Database = {
         }
         Update: {
           base_id?: string
+          confirmada_em?: string | null
           key_enc?: string
           space_id?: string
           updated_at?: string
