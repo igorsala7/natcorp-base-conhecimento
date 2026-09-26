@@ -21,6 +21,12 @@ import { daOfertaUniversal } from "@/lib/documentacoes/universais";
 import { exclusoesEntreRegras, mensagemDeExclusao } from "@/lib/documentacoes/regras-combinadas";
 import { buscarValoresNoErp } from "@/lib/documentacoes/valores-erp";
 import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
+import {
+  anexarArquivoDaBase,
+  excluirArquivoDaBase,
+  arquivosDaBase,
+  type ArquivoDaBase,
+} from "@/lib/documentacoes/arquivos-da-base";
 
 /**
  * Ações da aba Conteúdo, na área do CLIENTE.
@@ -79,7 +85,8 @@ import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
  * Consequência que vale registrar: `ai_base_documentacoes` passa a referenciar
  * SOMENTE documentação universal. "Documentação exclusiva de um cliente" não
  * mora nesta tabela — o que é exclusivo do cliente é o ARQUIVO dele
- * (`knowledge_documents` com `base_id`), que é o projeto 2.
+ * (`knowledge_documents` com `base_id`), e as ações dele estão no FIM deste
+ * arquivo, sob "OS ARQUIVOS DA EMPRESA".
  */
 
 const alvoSchema = sessaoSchema.extend({
@@ -379,4 +386,194 @@ export async function valoresParaDimensao(input: unknown): Promise<ListaDeValore
     dimensao: parsed.data.dimensao as Dimensao,
     usuario: sessao.usuario,
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OS ARQUIVOS DA EMPRESA
+
+   A outra metade da aba Conteúdo. Acima, o cliente escolhe sobre QUAIS
+   documentações da Natcorp o assistente responde. Aqui ele traz o conteúdo DELE:
+   *"ele pode anexar qualquer tipo de mídia para ficar disponível para download, e
+   se for word, pdf, ppt, txt ou md, o usuário decidir se quer que o conteúdo seja
+   incluído na base de conhecimento e/ou disponível para download pelo usuário no
+   chatbot"*.
+
+   O mecanismo inteiro (validação, Storage, chunks, cascade) mora em
+   `src/lib/documentacoes/arquivos-da-base.ts`, puro de sessão e de UI. O que
+   pertence a ESTE arquivo é o que só ele tem: a sessão revalidada, o `baseId` que
+   sai dela, e o registro em `audit_log`.
+
+   A BASE NUNCA VEM DO FORMULÁRIO. Vale para as três ações abaixo, e é a mesma
+   razão das ações de documentação: Server Action é endpoint, e este caminho grava
+   com `service_role`, que tem `rolbypassrls`. Não há RLS para corrigir um erro
+   nosso aqui.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Registro das ações de arquivo.
+ *
+ * Separado de `registrar` porque a entidade é outra (`knowledge_document`, com id
+ * próprio) e porque arquivo de empresa não tem `space_id` — reaproveitar a outra
+ * exigiria inventar um espaço para a coluna, e uma linha de auditoria com espaço
+ * inventado é pior que uma sem.
+ */
+async function registrarArquivo(
+  sessao: SessaoResolvida,
+  acao: string,
+  documentId: string,
+  antes: Record<string, unknown> | null,
+  depois: Record<string, unknown> | null,
+) {
+  await createAdminClient()
+    .from("audit_log")
+    .insert({
+      actor_id: sessao.operadorId,
+      action: acao,
+      entity_type: "knowledge_document",
+      entity_id: documentId,
+      space_id: null,
+      before: antes as never,
+      after: {
+        ...(depois ?? {}),
+        base: sessao.base,
+        por: autorDa(sessao),
+        via_suporte: sessao.modo === "suporte",
+      } as never,
+    });
+}
+
+export type ResultadoAnexoAcao = { ok: true; chunks: number } | { ok: false; erro: string };
+export type ListaDeArquivos =
+  | { ok: true; arquivos: ArquivoDaBase[] }
+  | { ok: false; erro: string };
+
+/**
+ * Anexa um arquivo da empresa.
+ *
+ * ── Por que `FormData` e não um objeto ───────────────────────────────────
+ * O arquivo tem de ATRAVESSAR, e `FormData` é o transporte que o navegador e o
+ * Next já combinam para bytes. Os campos de sessão viajam nele como em qualquer
+ * formulário da área; a regra viaja como JSON em um campo, porque ela é um objeto
+ * de doze chaves possíveis e espalhá-la em campos soltos obrigaria este arquivo a
+ * remontá-la — uma segunda implementação da regra, que as restrições do projeto
+ * proíbem.
+ *
+ * A validação de conteúdo é toda de `anexarArquivoDaBase`, que não conhece sessão.
+ * Aqui só se checa o que é DESTE lado: a sessão, e se veio um arquivo de fato.
+ */
+export async function anexarArquivoDoCliente(formData: FormData): Promise<ResultadoAnexoAcao> {
+  const parsed = sessaoSchema.safeParse({
+    key: campo(formData, "key"),
+    kbt: campo(formData, "kbt"),
+    suporte: campo(formData, "suporte"),
+    base: campo(formData, "base"),
+  });
+  if (!parsed.success) {
+    return { ok: false, erro: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const sessao = await baseDaSessao(parsed.data);
+  if (!sessao.ok) return { ok: false, erro: sessao.erro };
+
+  const arquivo = formData.get("arquivo");
+  if (!(arquivo instanceof File) || arquivo.size === 0) {
+    return { ok: false, erro: "Escolha um arquivo." };
+  }
+
+  // A regra chega como texto JSON de um endpoint: quebra aqui é entrada malformada,
+  // não regra inválida — quem julga o CONTEÚDO da regra é o validador, lá dentro.
+  let regra: unknown = {};
+  const cru = campo(formData, "regra");
+  if (cru) {
+    try {
+      regra = JSON.parse(cru);
+    } catch {
+      return { ok: false, erro: "Configuração de alcance inválida. Atualize a página e tente de novo." };
+    }
+  }
+
+  const r = await anexarArquivoDaBase({
+    // DA SESSÃO. O formulário não tem campo de base para ler, e se tivesse ele
+    // seria ignorado aqui — é a mesma linha que protege as ações de documentação.
+    baseId: sessao.baseId,
+    bytes: new Uint8Array(await arquivo.arrayBuffer()),
+    originalName: arquivo.name,
+    mime: arquivo.type,
+    naBaseDeConhecimento: campo(formData, "naBaseDeConhecimento") === "1",
+    downloadLiberado: campo(formData, "downloadLiberado") === "1",
+    regra,
+    // `criado_por` referencia `auth.users`: existe no suporte, é nulo no modo
+    // cliente. A autoria real do cliente fica no registro de auditoria (`por`).
+    criadoPor: sessao.operadorId,
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  await registrarArquivo(sessao, "gestao.arquivo.anexado", r.documentId, null, {
+    original_name: arquivo.name,
+    size_bytes: arquivo.size,
+    chunks: r.chunks,
+    na_base_de_conhecimento: r.chunks > 0,
+    download_liberado: campo(formData, "downloadLiberado") === "1",
+    regra,
+  });
+  revalidar();
+  return { ok: true, chunks: r.chunks };
+}
+
+const arquivoSchema = sessaoSchema.extend({
+  documentId: z.string().uuid("Escolha o arquivo."),
+});
+
+/**
+ * Exclui um arquivo da empresa — e, com ele, o que o assistente lia dele.
+ *
+ * *"Quando for adicionado um arquivo que vai para o RAG, se for deletado precisa
+ * apagar do RAG também"* (24/09). Os chunks somem por `ON DELETE CASCADE`; ver
+ * `excluirArquivoDaBase`, que também é onde mora a conferência de dono — o
+ * documento é procurado por `id` E `base_id` juntos, então um id vazado não acha
+ * linha e não apaga nada de outro cliente.
+ */
+export async function excluirArquivoDoCliente(input: unknown): Promise<ResultadoAcao> {
+  const parsed = arquivoSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, erro: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const sessao = await baseDaSessao(parsed.data);
+  if (!sessao.ok) return { ok: false, erro: sessao.erro };
+
+  const r = await excluirArquivoDaBase({
+    baseId: sessao.baseId,
+    documentId: parsed.data.documentId,
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  await registrarArquivo(
+    sessao,
+    "gestao.arquivo.excluido",
+    parsed.data.documentId,
+    { original_name: r.nome, estava_na_base_de_conhecimento: r.tinhaChunks },
+    null,
+  );
+  revalidar();
+  return { ok: true };
+}
+
+/** Os arquivos desta empresa. Sempre da base da sessão. */
+export async function listarArquivosDoCliente(input: unknown): Promise<ListaDeArquivos> {
+  const parsed = sessaoSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, erro: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const sessao = await baseDaSessao(parsed.data);
+  if (!sessao.ok) return { ok: false, erro: sessao.erro };
+
+  return { ok: true, arquivos: await arquivosDaBase(sessao.baseId) };
+}
+
+/** Campo de texto do formulário, ou `undefined` — nunca um `File` por engano. */
+function campo(formData: FormData, nome: string): string | undefined {
+  const v = formData.get(nome);
+  return typeof v === "string" && v !== "" ? v : undefined;
 }

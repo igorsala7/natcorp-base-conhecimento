@@ -1,11 +1,12 @@
 /**
- * AS DUAS GARANTIAS DE SEGURANÇA DA ABA CONTEÚDO, sob teste.
+ * AS GARANTIAS DE SEGURANÇA DA ABA CONTEÚDO, sob teste.
  *
  * A área do cliente não tem sessão do Supabase: grava com `service_role`, que
- * tem `rolbypassrls`. Não existe RLS protegendo este caminho — as duas linhas de
+ * tem `rolbypassrls`. Não existe RLS protegendo este caminho — as linhas de
  * código testadas aqui SÃO a cerca:
  *
- *   1. a base vem da sessão revalidada, nunca do formulário;
+ *   1. a base vem da sessão revalidada, nunca do formulário. Vale para as ações de
+ *      documentação E para as de ARQUIVO da empresa, no fim do arquivo;
  *   2. o `space_id` que o cliente anexa tem de estar no poço de
  *      `documentacoes_universais` com `enabled = true` — sem isso ele aponta para
  *      a documentação customizada de outro cliente, e o isolamento das tarefas 1
@@ -33,15 +34,34 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/documentacoes/valores-erp", () => ({
   buscarValoresNoErp: vi.fn(async () => ({ ok: true, valores: [], total: 0, usuario: "?", formatoDesconhecido: false })),
 }));
+/**
+ * O mecanismo do arquivo é dublado porque ele tem teste próprio
+ * (`src/lib/documentacoes/arquivos-da-base.test.ts`, onde as quatro recusas e o
+ * desfazer são verificados). O que se testa AQUI é só o que este arquivo
+ * acrescenta: a base sai da sessão revalidada e nunca do formulário.
+ */
+vi.mock("@/lib/documentacoes/arquivos-da-base", () => ({
+  anexarArquivoDaBase: vi.fn(),
+  excluirArquivoDaBase: vi.fn(),
+  arquivosDaBase: vi.fn(),
+}));
 
 import {
   salvarAjusteDeDocumentacao,
   voltarAoPadraoDeDocumentacao,
   valoresParaDimensao,
+  anexarArquivoDoCliente,
+  excluirArquivoDoCliente,
+  listarArquivosDoCliente,
 } from "./actions";
 import { abrirSessaoGestao } from "@/lib/gestao/sessao";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buscarValoresNoErp } from "@/lib/documentacoes/valores-erp";
+import {
+  anexarArquivoDaBase,
+  excluirArquivoDaBase,
+  arquivosDaBase,
+} from "@/lib/documentacoes/arquivos-da-base";
 
 const BASE_DA_SESSAO = { code: "natcorp", id: "11111111-1111-4111-8111-111111111111" };
 const BASE_DO_VIZINHO = { code: "leadec", id: "22222222-2222-4222-8222-222222222222" };
@@ -426,5 +446,177 @@ describe("a combinação das duas regras", () => {
     expect(r).toEqual({ ok: true });
     const upsert = escritas().find((o) => o.op === "upsert");
     expect((upsert?.payload as { enabled: boolean }).enabled).toBe(false);
+  });
+});
+
+/**
+ * OS ARQUIVOS DA EMPRESA — o que a camada de action garante.
+ *
+ * O mecanismo (allowlist, Storage, chunks, cascade, desfazer) tem teste próprio.
+ * Aqui só uma coisa é afirmada, e é a que não tem RLS por trás: o `baseId` que
+ * chega ao mecanismo é o da SESSÃO revalidada. Um POST forjado pode mandar a base
+ * do vizinho em qualquer nome — o arquivo continua nascendo na pasta certa e a
+ * exclusão continua alcançando só a própria base.
+ */
+function formDeAnexo(extra: Record<string, string> = {}) {
+  const form = new FormData();
+  form.set("key", "pk_x");
+  form.set("kbt", "kbt1h.a.b");
+  // O atacante manda de tudo: a base do vizinho em todos os nomes plausíveis.
+  form.set("base", BASE_DO_VIZINHO.code);
+  form.set("baseId", BASE_DO_VIZINHO.id);
+  form.set("base_id", BASE_DO_VIZINHO.id);
+  form.set("downloadLiberado", "1");
+  form.set("regra", "{}");
+  for (const [k, v] of Object.entries(extra)) form.set(k, v);
+  form.set("arquivo", new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "manual.pdf", { type: "application/pdf" }));
+  return form;
+}
+
+describe("arquivos da empresa: a base vem da sessão, nunca do formulário", () => {
+  beforeEach(() => {
+    vi.mocked(anexarArquivoDaBase).mockResolvedValue({ ok: true, documentId: "doc-1", chunks: 5 });
+    vi.mocked(excluirArquivoDaBase).mockResolvedValue({ ok: true, nome: "manual.pdf", tinhaChunks: true });
+    vi.mocked(arquivosDaBase).mockResolvedValue([]);
+  });
+
+  it("anexar usa o baseId DA SESSÃO, mesmo com a base do vizinho no formulário", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    const r = await anexarArquivoDoCliente(formDeAnexo({ naBaseDeConhecimento: "1" }));
+
+    expect(r).toEqual({ ok: true, chunks: 5 });
+    const entrada = vi.mocked(anexarArquivoDaBase).mock.calls[0]?.[0];
+    expect(entrada?.baseId).toBe(BASE_DA_SESSAO.id);
+    expect(entrada?.baseId).not.toBe(BASE_DO_VIZINHO.id);
+    expect(entrada).toMatchObject({
+      originalName: "manual.pdf",
+      naBaseDeConhecimento: true,
+      downloadLiberado: true,
+    });
+  });
+
+  it("excluir usa o baseId DA SESSÃO — é o que impede apagar arquivo alheio", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    const r = await excluirArquivoDoCliente({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      base: BASE_DO_VIZINHO.code,
+      baseId: BASE_DO_VIZINHO.id,
+      documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    expect(r).toEqual({ ok: true });
+    expect(excluirArquivoDaBase).toHaveBeenCalledWith({
+      baseId: BASE_DA_SESSAO.id,
+      documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+  });
+
+  it("listar também é escopado pela sessão", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    const r = await listarArquivosDoCliente({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      baseId: BASE_DO_VIZINHO.id,
+    });
+
+    expect(r).toEqual({ ok: true, arquivos: [] });
+    expect(arquivosDaBase).toHaveBeenCalledWith(BASE_DA_SESSAO.id);
+  });
+
+  it("sessão recusada não chega ao mecanismo", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue({
+      ok: false,
+      motivo: "expirado",
+      mensagem: "Sua sessão expirou.",
+    } as never);
+
+    const anexo = await anexarArquivoDoCliente(formDeAnexo());
+    const exclusao = await excluirArquivoDoCliente({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    expect(anexo).toEqual({ ok: false, erro: "Sua sessão expirou." });
+    expect(exclusao).toEqual({ ok: false, erro: "Sua sessão expirou." });
+    expect(anexarArquivoDaBase).not.toHaveBeenCalled();
+    expect(excluirArquivoDaBase).not.toHaveBeenCalled();
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("formulário sem arquivo é recusado antes de qualquer escrita", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    const form = formDeAnexo();
+    form.delete("arquivo");
+    const r = await anexarArquivoDoCliente(form);
+
+    expect(r).toEqual({ ok: false, erro: "Escolha um arquivo." });
+    expect(anexarArquivoDaBase).not.toHaveBeenCalled();
+  });
+
+  it("regra em JSON quebrado é recusada como entrada malformada, sem chamar o mecanismo", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    const r = await anexarArquivoDoCliente(formDeAnexo({ regra: "{portal:" }));
+
+    expect(r.ok).toBe(false);
+    expect(anexarArquivoDaBase).not.toHaveBeenCalled();
+  });
+
+  it("a recusa do mecanismo chega intacta, e nada é registrado em auditoria", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(anexarArquivoDaBase).mockResolvedValue({
+      ok: false,
+      erro: "Não é possível incluir .png na base de conhecimento.",
+    });
+
+    const r = await anexarArquivoDoCliente(formDeAnexo({ naBaseDeConhecimento: "1" }));
+
+    expect(r).toEqual({ ok: false, erro: "Não é possível incluir .png na base de conhecimento." });
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("o que dá certo vai para o audit_log com a base e o autor", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente("ana.silva") as never);
+
+    await anexarArquivoDoCliente(formDeAnexo({ naBaseDeConhecimento: "1" }));
+
+    const registro = escritas().find((o) => o.tabela === "audit_log");
+    expect(registro?.op).toBe("insert");
+    expect(registro?.payload).toMatchObject({
+      action: "gestao.arquivo.anexado",
+      entity_type: "knowledge_document",
+      entity_id: "doc-1",
+      // Arquivo de empresa não tem espaço: inventar um faria a linha de auditoria
+      // apontar para uma documentação que nada tem a ver com o arquivo.
+      space_id: null,
+    });
+    expect((registro?.payload as { after: Record<string, unknown> }).after).toMatchObject({
+      base: BASE_DA_SESSAO.code,
+      por: "ana.silva",
+      via_suporte: false,
+      chunks: 5,
+    });
+  });
+
+  it("no suporte, a auditoria diz que não foi o cliente", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeSuporte() as never);
+
+    await excluirArquivoDoCliente({
+      suporte: "1",
+      base: BASE_DA_SESSAO.code,
+      documentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    const registro = escritas().find((o) => o.tabela === "audit_log");
+    expect((registro?.payload as { after: Record<string, unknown> }).after).toMatchObject({
+      por: "suporte:suporte@natcorp.com.br",
+      via_suporte: true,
+    });
   });
 });
