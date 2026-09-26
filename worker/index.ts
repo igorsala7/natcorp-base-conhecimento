@@ -40,7 +40,7 @@ import { enfileirarTraducoesPendentes } from "../src/lib/ai/ontology-translate-e
 import { runApexIngest } from "../src/lib/apex/ingest-run";
 import { runApexDocs } from "../src/lib/apex/docs-run";
 import { runDbIngest, runDbDocs } from "../src/lib/dbobjects/run";
-import { normalizarTermo } from "../src/lib/ai/ontology";
+import { normalizarTermo, type DonoDaOntologia } from "../src/lib/ai/ontology";
 import { mesclarTermos, type TermoAcumulado } from "../src/lib/ai/ontology-merge";
 import { criarJobOntologia } from "../src/lib/ai/ontology-enqueue";
 import { normalizeDoc } from "../src/lib/blocks/convert";
@@ -422,16 +422,242 @@ async function processEmbeddings(jobId: string): Promise<void> {
   }
 
   // Resolve os nós-artigo do escopo.
-  /**
-   * DOCUMENTO DA BASE — arquivo ou página indexada para o chatbot.
-   *
-   * A varredura sempre leu `articles`, filtrando por `node_id`. Documento subido
-   * para o chatbot não tem `node_id`: ele vira `chunks` e nunca passou por
-   * ontologia. O resultado era um beco — não adiantava re-subir o arquivo, porque
-   * esse caminho nunca gerou ontologia em momento nenhum.
-   *
-   * O texto já está lá, chunkado no upload. Faltava a varredura olhar para ele.
-   */
+  let nodeIds: string[] = [];
+  if (job.scope === "article" && job.target_id) {
+    nodeIds = [job.target_id];
+  } else if (job.scope === "subtree" && job.target_id) {
+    const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: job.target_id });
+    nodeIds = ((sub ?? []) as { id: string; type: string }[])
+      .filter((r) => r.type === "article")
+      .map((r) => r.id);
+  } else {
+    const { data: nodes } = await supabase
+      .from("nodes")
+      .select("id")
+      .eq("space_id", job.space_id)
+      .eq("type", "article")
+      .is("deleted_at", null);
+    nodeIds = (nodes ?? []).map((n) => n.id);
+  }
+
+  await supabase
+    .from("embedding_jobs")
+    .update({ status: "running", total: nodeIds.length, done: 0, progress: nodeIds.length ? 0 : 100 })
+    .eq("id", jobId);
+
+  let done = 0;
+  for (const nodeId of nodeIds) {
+    try {
+      const { data: art } = await supabase
+        .from("articles")
+        .select("id, content_json")
+        .eq("node_id", nodeId)
+        .maybeSingle();
+      if (art) {
+        await reindexNodeChunks(supabase, {
+          nodeId,
+          articleId: art.id,
+          spaceId: job.space_id,
+          doc: art.content_json,
+          withEmbeddings: true,
+          embeddedBy: job.created_by,
+        });
+      }
+    } catch (e) {
+      console.error(`Embeddings do nó ${nodeId} falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await supabase
+      .from("embedding_jobs")
+      .update({ done, progress: Math.round((done / Math.max(1, nodeIds.length)) * 100) })
+      .eq("id", jobId);
+  }
+
+  await supabase.from("embedding_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
+}
+
+/** Agrupa textos em lotes até ~maxChars por lote (um artigo nunca é partido). */
+function agruparPorTamanho(textos: string[], maxChars: number): string[] {
+  const lotes: string[] = [];
+  let atual = "";
+  for (const t of textos) {
+    if (atual && atual.length + t.length > maxChars) {
+      lotes.push(atual);
+      atual = "";
+    }
+    atual = atual ? `${atual}\n\n---\n\n${t}` : t;
+  }
+  if (atual) lotes.push(atual);
+  return lotes;
+}
+
+/**
+ * NÚCLEO da ontologia (reutilizado pela varredura E pelo lote): a IA (do Chat)
+ * lê o texto dos artigos `nodeIds` (cada um com seu CAMINHO DE PASTAS, para
+ * entender o contexto) e sugere termos + sinônimos, gravados com origem 'ia' e
+ * MERGE inteligente (termo/sinônimo já existente — como canônico OU alias de
+ * outro — NÃO duplica nem conflaciona; só acrescenta o que falta; curadoria
+ * manual preservada). Carimba `articles.ontology_at`. `onProgress(done,total)`
+ * é chamado por lote. Retorna quantos itens (termos+aliases) foram gravados.
+ */
+/**
+ * O NÚCLEO da varredura: pedaços de texto → termos e sinônimos gravados.
+ *
+ * Extraído de `varrerOntologia` quando a varredura passou a valer também para
+ * documentos da base de conhecimento. As duas precisam usar o MESMO extrator e
+ * o MESMO merge: uma segunda implementação produziria vocabulário com critério
+ * diferente, e aí o mesmo jargão viraria dois termos conforme a porta de
+ * entrada — artigo ou arquivo.
+ */
+async function gravarTermosVarridos(
+  dono: DonoDaOntologia,
+  pedacos: string[],
+  createdBy: string | null,
+  onProgress?: (done: number, total: number) => Promise<void>,
+): Promise<number> {
+  const lotes = agruparPorTamanho(pedacos, 40_000);
+  await onProgress?.(0, lotes.length);
+
+  const acumulado = new Map<
+    string,
+    { term: string; kind: string; description: string | null; aliases: Set<string> }
+  >();
+  let done = 0;
+  for (const lote of lotes) {
+    try {
+      const termos = await extrairTermos(lote);
+      for (const t of termos) {
+        const norm = normalizarTermo(t.term);
+        if (!norm) continue;
+        const ex = acumulado.get(norm) ?? {
+          term: t.term,
+          kind: t.kind,
+          description: t.description,
+          aliases: new Set<string>(),
+        };
+        if (!ex.description && t.description) ex.description = t.description;
+        for (const a of t.aliases) {
+          if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
+        }
+        acumulado.set(norm, ex);
+      }
+    } catch (e) {
+      console.error(`Ontologia lote falhou:`, e instanceof Error ? e.message : e);
+    }
+    done += 1;
+    await onProgress?.(done, lotes.length);
+  }
+
+  // MERGE compartilhado com a importação por arquivo (não duplica termo/alias).
+  // O `dono` atravessa inteiro até aqui: termo de cliente não tem como cair num
+  // espaço, e termo de documentação não tem como cair numa base.
+  return mesclarTermos(supabase, dono, acumulado, { source: "ia", createdBy });
+}
+
+async function varrerOntologia(
+  spaceId: string,
+  nodeIds: string[],
+  createdBy: string | null,
+  onProgress?: (done: number, total: number) => Promise<void>,
+): Promise<number> {
+  const { data: allNodes } = await supabase
+    .from("nodes")
+    .select("id, parent_id, title, type")
+    .eq("space_id", spaceId)
+    .is("deleted_at", null);
+  const nodeById = new Map((allNodes ?? []).map((n) => [n.id, n]));
+  const caminhoPastas = (nodeId: string): string => {
+    const partes: string[] = [];
+    let cur = nodeById.get(nodeId)?.parent_id ?? null;
+    for (let i = 0; cur && i < 50; i++) {
+      const p = nodeById.get(cur);
+      if (!p) break;
+      if (p.type === "folder") partes.unshift(p.title);
+      cur = p.parent_id;
+    }
+    return partes.join(" > ");
+  };
+
+  // Texto dos artigos em FATIAS (`.in()` com centenas de UUIDs estoura a URL).
+  const arts: { node_id: string | null; content_text: string | null }[] = [];
+  for (let i = 0; i < nodeIds.length; i += 200) {
+    const { data } = await supabase
+      .from("articles")
+      .select("node_id, content_text")
+      .in("node_id", nodeIds.slice(i, i + 200));
+    if (data) arts.push(...data);
+  }
+
+  const pedacos = arts
+    .map((a) => {
+      const titulo = (a.node_id && nodeById.get(a.node_id)?.title) || "";
+      const caminho = a.node_id ? caminhoPastas(a.node_id) : "";
+      const cabecalho = caminho ? `[${caminho}]\n# ${titulo}` : `# ${titulo}`;
+      return `${cabecalho}\n${a.content_text ?? ""}`.trim();
+    })
+    .filter((t) => t.length > 20);
+  const found = await gravarTermosVarridos({ spaceId }, pedacos, createdBy, onProgress);
+
+  // Carimba os artigos varridos (bolinha de ontologia na árvore).
+  const agora = new Date().toISOString();
+  for (let i = 0; i < nodeIds.length; i += 200) {
+    await supabase.from("articles").update({ ontology_at: agora }).in("node_id", nodeIds.slice(i, i + 200));
+  }
+  return found;
+}
+
+/**
+ * Job de varredura de ontologia: resolve o DONO e o escopo, e chama o núcleo.
+ *
+ * ── OS RAMOS `dicionario` E `document` MORAVAM NA FUNÇÃO ERRADA ──────────
+ * Os dois nasceram dentro de `processEmbeddings`, que lê `embedding_jobs` — e
+ * `embedding_jobs.scope` só recebe `space`, `subtree` ou `article`
+ * (`enqueueEmbeddingsJob`, em `importar/embeddings-actions.ts`). Ou seja: as duas
+ * condições nunca eram verdadeiras ali, e os `update` de `ontology_jobs` que elas
+ * fazem usariam um id de `embedding_jobs`, que não casa linha nenhuma.
+ *
+ * O efeito visível não era "não acontece nada", que seria fácil de notar: o job
+ * de documento caía no ramo final desta função e varria TODOS os artigos do
+ * espaço — gastando IA no acervo inteiro e gravando termos, então a tela mostrava
+ * termos novos e ninguém percebeu que o alvo estava errado.
+ *
+ * Vieram para cá na tarefa 19, sem alteração de corpo, porque esta é a função que
+ * a fila `ontology-scan` de fato chama. A ordem entre eles é preservada de
+ * propósito: `ontology-sinonimos.test.ts` fatia o fonte do worker entre os dois
+ * para afirmar que nome de coluna não vai no lote da IA.
+ */
+async function processOntologyScan(jobId: string): Promise<void> {
+  const { data: job } = await supabase.from("ontology_jobs").select("*").eq("id", jobId).single();
+  if (!job) throw new Error(`Job de ontologia ${jobId} não encontrado`);
+  if (job.status !== "queued") {
+    console.log(`Ontologia job ${jobId} em '${job.status}' — nada a fazer.`);
+    return;
+  }
+
+  /*
+    ── O DONO DO JOB: documentação (espaço) OU base do cliente ─────────────
+
+    `ontology_jobs` ganhou `base_id` na `20260926140000_ontologia_por_base.sql`,
+    e o CHECK `ontology_jobs_um_dono` garante que exatamente um dos dois está
+    preenchido. O ramo de espaço fica como estava; o de base entra ao lado.
+
+    Só `document` faz sentido com base: os outros escopos resolvem NÓS, e arquivo
+    de cliente não tem nó nem árvore. Um job de base com outro escopo cairia no
+    ramo final, onde `job.space_id` é nulo — `eq("space_id", null)` não devolve
+    artigo nenhum e o job terminaria "done" com zero termo, dizendo que varreu.
+    Erro duro é melhor: ele para em `status = 'error'` com o motivo na tela.
+
+    O tipo gerado ainda não conhece a coluna, daí a leitura por índice — mesma
+    fronteira declarada de `arquivos-da-base.ts`.
+  */
+  const baseId = (job as { base_id?: string | null }).base_id ?? null;
+  const dono: DonoDaOntologia = baseId ? { baseId } : { spaceId: job.space_id! };
+  if (baseId && job.scope !== "document") {
+    throw new Error(
+      `Job de ontologia ${jobId} é de base (${baseId}) com escopo "${job.scope}": só "document" tem alvo sem árvore.`,
+    );
+  }
+
   /**
    * O DICIONÁRIO DE DADOS — tabelas, colunas e rótulos importados.
    *
@@ -558,211 +784,35 @@ async function processEmbeddings(jobId: string): Promise<void> {
       await supabase.from("ontology_jobs").update({ done: feitos, progress: Math.round((feitos / lotes.length) * 100) }).eq("id", jobId);
     }
 
-    const found = await mesclarTermos(supabase, job.space_id, acumulado, { source: "ia", createdBy: job.created_by });
+    const found = await mesclarTermos(supabase, dono, acumulado, { source: "ia", createdBy: job.created_by });
     await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
     return;
   }
 
+  /**
+   * DOCUMENTO DA BASE — arquivo ou página indexada para o chatbot.
+   *
+   * A varredura sempre leu `articles`, filtrando por `node_id`. Documento subido
+   * para o chatbot não tem `node_id`: ele vira `chunks` e nunca passou por
+   * ontologia. O resultado era um beco — não adiantava re-subir o arquivo, porque
+   * esse caminho nunca gerou ontologia em momento nenhum.
+   *
+   * O texto já está lá, chunkado no upload. Faltava a varredura olhar para ele.
+   *
+   * É TAMBÉM o ramo do arquivo do CLIENTE (tarefa 19): mesmo escopo, `dono`
+   * diferente. Os termos vão para a base, nunca para um espaço — quem decide é o
+   * `dono` resolvido no topo, e ele atravessa até `mesclarTermos` sem ninguém
+   * reinterpretá-lo no meio.
+   */
   if (job.scope === "document" && job.target_id) {
     await supabase.from("ontology_jobs").update({ status: "running", done: 0, progress: 0 }).eq("id", jobId);
-    const found = await varrerOntologiaDeDocumento(job.space_id, job.target_id, job.created_by, async (done, total) => {
+    const found = await varrerOntologiaDeDocumento(dono, job.target_id, job.created_by, async (done, total) => {
       await supabase
         .from("ontology_jobs")
         .update({ total, done, progress: total ? Math.round((done / total) * 100) : 100 })
         .eq("id", jobId);
     });
     await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
-    return;
-  }
-
-  let nodeIds: string[] = [];
-  if (job.scope === "article" && job.target_id) {
-    nodeIds = [job.target_id];
-  } else if (job.scope === "subtree" && job.target_id) {
-    const { data: sub } = await supabase.rpc("subtree_ids", { p_node_id: job.target_id });
-    nodeIds = ((sub ?? []) as { id: string; type: string }[])
-      .filter((r) => r.type === "article")
-      .map((r) => r.id);
-  } else {
-    const { data: nodes } = await supabase
-      .from("nodes")
-      .select("id")
-      .eq("space_id", job.space_id)
-      .eq("type", "article")
-      .is("deleted_at", null);
-    nodeIds = (nodes ?? []).map((n) => n.id);
-  }
-
-  await supabase
-    .from("embedding_jobs")
-    .update({ status: "running", total: nodeIds.length, done: 0, progress: nodeIds.length ? 0 : 100 })
-    .eq("id", jobId);
-
-  let done = 0;
-  for (const nodeId of nodeIds) {
-    try {
-      const { data: art } = await supabase
-        .from("articles")
-        .select("id, content_json")
-        .eq("node_id", nodeId)
-        .maybeSingle();
-      if (art) {
-        await reindexNodeChunks(supabase, {
-          nodeId,
-          articleId: art.id,
-          spaceId: job.space_id,
-          doc: art.content_json,
-          withEmbeddings: true,
-          embeddedBy: job.created_by,
-        });
-      }
-    } catch (e) {
-      console.error(`Embeddings do nó ${nodeId} falhou:`, e instanceof Error ? e.message : e);
-    }
-    done += 1;
-    await supabase
-      .from("embedding_jobs")
-      .update({ done, progress: Math.round((done / Math.max(1, nodeIds.length)) * 100) })
-      .eq("id", jobId);
-  }
-
-  await supabase.from("embedding_jobs").update({ status: "done", progress: 100 }).eq("id", jobId);
-}
-
-/** Agrupa textos em lotes até ~maxChars por lote (um artigo nunca é partido). */
-function agruparPorTamanho(textos: string[], maxChars: number): string[] {
-  const lotes: string[] = [];
-  let atual = "";
-  for (const t of textos) {
-    if (atual && atual.length + t.length > maxChars) {
-      lotes.push(atual);
-      atual = "";
-    }
-    atual = atual ? `${atual}\n\n---\n\n${t}` : t;
-  }
-  if (atual) lotes.push(atual);
-  return lotes;
-}
-
-/**
- * NÚCLEO da ontologia (reutilizado pela varredura E pelo lote): a IA (do Chat)
- * lê o texto dos artigos `nodeIds` (cada um com seu CAMINHO DE PASTAS, para
- * entender o contexto) e sugere termos + sinônimos, gravados com origem 'ia' e
- * MERGE inteligente (termo/sinônimo já existente — como canônico OU alias de
- * outro — NÃO duplica nem conflaciona; só acrescenta o que falta; curadoria
- * manual preservada). Carimba `articles.ontology_at`. `onProgress(done,total)`
- * é chamado por lote. Retorna quantos itens (termos+aliases) foram gravados.
- */
-/**
- * O NÚCLEO da varredura: pedaços de texto → termos e sinônimos gravados.
- *
- * Extraído de `varrerOntologia` quando a varredura passou a valer também para
- * documentos da base de conhecimento. As duas precisam usar o MESMO extrator e
- * o MESMO merge: uma segunda implementação produziria vocabulário com critério
- * diferente, e aí o mesmo jargão viraria dois termos conforme a porta de
- * entrada — artigo ou arquivo.
- */
-async function gravarTermosVarridos(
-  spaceId: string,
-  pedacos: string[],
-  createdBy: string | null,
-  onProgress?: (done: number, total: number) => Promise<void>,
-): Promise<number> {
-  const lotes = agruparPorTamanho(pedacos, 40_000);
-  await onProgress?.(0, lotes.length);
-
-  const acumulado = new Map<
-    string,
-    { term: string; kind: string; description: string | null; aliases: Set<string> }
-  >();
-  let done = 0;
-  for (const lote of lotes) {
-    try {
-      const termos = await extrairTermos(lote);
-      for (const t of termos) {
-        const norm = normalizarTermo(t.term);
-        if (!norm) continue;
-        const ex = acumulado.get(norm) ?? {
-          term: t.term,
-          kind: t.kind,
-          description: t.description,
-          aliases: new Set<string>(),
-        };
-        if (!ex.description && t.description) ex.description = t.description;
-        for (const a of t.aliases) {
-          if (normalizarTermo(a) && normalizarTermo(a) !== norm) ex.aliases.add(a);
-        }
-        acumulado.set(norm, ex);
-      }
-    } catch (e) {
-      console.error(`Ontologia lote falhou:`, e instanceof Error ? e.message : e);
-    }
-    done += 1;
-    await onProgress?.(done, lotes.length);
-  }
-
-  // MERGE compartilhado com a importação por arquivo (não duplica termo/alias).
-  return mesclarTermos(supabase, spaceId, acumulado, { source: "ia", createdBy });
-}
-
-async function varrerOntologia(
-  spaceId: string,
-  nodeIds: string[],
-  createdBy: string | null,
-  onProgress?: (done: number, total: number) => Promise<void>,
-): Promise<number> {
-  const { data: allNodes } = await supabase
-    .from("nodes")
-    .select("id, parent_id, title, type")
-    .eq("space_id", spaceId)
-    .is("deleted_at", null);
-  const nodeById = new Map((allNodes ?? []).map((n) => [n.id, n]));
-  const caminhoPastas = (nodeId: string): string => {
-    const partes: string[] = [];
-    let cur = nodeById.get(nodeId)?.parent_id ?? null;
-    for (let i = 0; cur && i < 50; i++) {
-      const p = nodeById.get(cur);
-      if (!p) break;
-      if (p.type === "folder") partes.unshift(p.title);
-      cur = p.parent_id;
-    }
-    return partes.join(" > ");
-  };
-
-  // Texto dos artigos em FATIAS (`.in()` com centenas de UUIDs estoura a URL).
-  const arts: { node_id: string | null; content_text: string | null }[] = [];
-  for (let i = 0; i < nodeIds.length; i += 200) {
-    const { data } = await supabase
-      .from("articles")
-      .select("node_id, content_text")
-      .in("node_id", nodeIds.slice(i, i + 200));
-    if (data) arts.push(...data);
-  }
-
-  const pedacos = arts
-    .map((a) => {
-      const titulo = (a.node_id && nodeById.get(a.node_id)?.title) || "";
-      const caminho = a.node_id ? caminhoPastas(a.node_id) : "";
-      const cabecalho = caminho ? `[${caminho}]\n# ${titulo}` : `# ${titulo}`;
-      return `${cabecalho}\n${a.content_text ?? ""}`.trim();
-    })
-    .filter((t) => t.length > 20);
-  const found = await gravarTermosVarridos(spaceId, pedacos, createdBy, onProgress);
-
-  // Carimba os artigos varridos (bolinha de ontologia na árvore).
-  const agora = new Date().toISOString();
-  for (let i = 0; i < nodeIds.length; i += 200) {
-    await supabase.from("articles").update({ ontology_at: agora }).in("node_id", nodeIds.slice(i, i + 200));
-  }
-  return found;
-}
-
-/** Job de varredura de ontologia: resolve o escopo e chama o núcleo. */
-async function processOntologyScan(jobId: string): Promise<void> {
-  const { data: job } = await supabase.from("ontology_jobs").select("*").eq("id", jobId).single();
-  if (!job) throw new Error(`Job de ontologia ${jobId} não encontrado`);
-  if (job.status !== "queued") {
-    console.log(`Ontologia job ${jobId} em '${job.status}' — nada a fazer.`);
     return;
   }
 
@@ -804,7 +854,7 @@ async function processOntologyScan(jobId: string): Promise<void> {
  * termo do domínio e não adjetivo solto.
  */
 async function varrerOntologiaDeDocumento(
-  spaceId: string,
+  dono: DonoDaOntologia,
   documentId: string,
   createdBy: string | null,
   onProgress?: (done: number, total: number) => Promise<void>,
@@ -832,7 +882,7 @@ async function varrerOntologiaDeDocumento(
     .map((c) => [doc?.title ?? "", c.heading_path ?? "", c.content ?? ""].filter(Boolean).join("\n"))
     .filter((t) => t.trim().length > 40);
 
-  return gravarTermosVarridos(spaceId, pedacos, createdBy, onProgress);
+  return gravarTermosVarridos(dono, pedacos, createdBy, onProgress);
 }
 
 const MAX_TERMOS_IMPORT = 5000;
@@ -904,7 +954,9 @@ async function processOntologyImport(jobId: string): Promise<void> {
     await supabase.from("ontology_jobs").update({ done, progress: Math.round((done / lotes.length) * 100) }).eq("id", jobId);
   }
 
-  const found = await mesclarTermos(supabase, job.space_id, acumulado, { source: "upload", createdBy: job.created_by });
+  // A importação por arquivo é da tela de Ontologia, que é POR DOCUMENTAÇÃO: só
+  // escopo de espaço chega aqui (`enqueueOntologyImportJob` exige `spaceId`).
+  const found = await mesclarTermos(supabase, { spaceId: job.space_id! }, acumulado, { source: "upload", createdBy: job.created_by });
   await supabase.from("ontology_jobs").update({ status: "done", progress: 100, found }).eq("id", jobId);
   await supabase.storage.from("imports").remove([job.source_file]).catch(() => {});
 }

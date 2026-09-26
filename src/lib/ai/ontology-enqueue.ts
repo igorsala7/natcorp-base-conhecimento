@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import type { DonoDaOntologia } from "./ontology";
 
 /**
  * Cria um job de ontologia acoplado ao publicar — um EFEITO DE SISTEMA (igual
@@ -9,18 +10,23 @@ import type { Database } from "@/lib/database.types";
  * IMPORTANTE: passe um cliente SERVICE-ROLE (admin). A RLS de `ontology_jobs`
  * exige `ai.configure`, que um Gestor de conteúdo NÃO tem — mas ele pode
  * publicar. Com o cliente de usuário, a inserção seria silenciosamente barrada
- * pela RLS e a ontologia nunca rodaria.
+ * pela RLS e a ontologia nunca rodaria. Vale igual para o ramo de base: lá a
+ * policy exige `ai.configure` GLOBAL, que o cliente não tem e não deve ter.
  *
  * Escopo: `article` = só aquele nó; `subtree` = a pasta e TODO o conteúdo
- * abaixo (uma varredura em lote, não um job por artigo). Só insere a linha em
- * `ontology_jobs` e devolve o id; o ENVIO para a fila fica a cargo de quem
- * chama. Devolve `null` se a inserção falhar (o publish não pode ser derrubado
- * por um efeito colateral de indexação).
+ * abaixo (uma varredura em lote, não um job por artigo); `document` = um arquivo
+ * da base de conhecimento. Só insere a linha em `ontology_jobs` e devolve o id;
+ * o ENVIO para a fila fica a cargo de quem chama. Devolve `null` se a inserção
+ * falhar (o publish não pode ser derrubado por um efeito colateral de indexação).
+ *
+ * O DONO é um só: espaço OU base (`DonoDaOntologia`). Arquivo do cliente não
+ * pertence a documentação nenhuma, e o vocabulário dele não pode entrar na
+ * ontologia global — daí a união, que não compila com os dois nem com nenhum, e
+ * o CHECK `ontology_jobs_um_dono` fazendo a mesma recusa no banco.
  */
 export async function criarJobOntologia(
   db: SupabaseClient<Database>,
-  input: {
-    spaceId: string;
+  input: DonoDaOntologia & {
     scope: "article" | "subtree" | "document";
     targetId: string;
     createdBy: string | null;
@@ -28,12 +34,15 @@ export async function criarJobOntologia(
 ): Promise<string | null> {
   const { data: job } = await db
     .from("ontology_jobs")
+    // `as never`: o tipo gerado ainda não conhece `ontology_jobs.base_id` nem
+    // sabe que `space_id` virou anulável (conferido contra o banco em 26/09).
     .insert({
-      space_id: input.spaceId,
+      space_id: input.spaceId ?? null,
+      base_id: input.baseId ?? null,
       scope: input.scope,
       target_id: input.targetId,
       created_by: input.createdBy,
-    })
+    } as never)
     .select("id")
     .single();
   return job?.id ?? null;

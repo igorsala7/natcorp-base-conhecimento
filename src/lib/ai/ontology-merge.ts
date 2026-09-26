@@ -1,7 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import { normalizarTermo } from "./ontology";
+import { fetchAllPaged } from "@/lib/supabase/paginate";
+import { normalizarTermo, type DonoDaOntologia } from "./ontology";
 
 export type TermoAcumulado = {
   term: string;
@@ -20,34 +21,67 @@ export type TermoAcumulado = {
 };
 
 /**
- * Mescla um conjunto de termos (com sinônimos) na ontologia de um espaço,
- * sem duplicar: um `term_norm` OU um `alias_norm` já existente aponta para o
- * mesmo termo. Usado pela VARREDURA por IA (worker) e pela IMPORTAÇÃO por
- * arquivo. Devolve quantos itens NOVOS (termos + aliases) foram gravados.
+ * Mescla um conjunto de termos (com sinônimos) na ontologia de UM DONO — uma
+ * documentação (espaço) ou uma base —, sem duplicar: um `term_norm` OU um
+ * `alias_norm` já existente aponta para o mesmo termo. Usado pela VARREDURA por
+ * IA (worker) e pela IMPORTAÇÃO por arquivo. Devolve quantos itens NOVOS
+ * (termos + aliases) foram gravados.
+ *
+ * O dono entra como união (`DonoDaOntologia`) e não como dois parâmetros
+ * opcionais: uma chamada com os dois, ou com nenhum, não compila — e é o mesmo
+ * que o CHECK `ontology_terms_um_dono` recusa no banco. Termo de base e termo de
+ * espaço nunca se misturam nem se enxergam: a LEITURA abaixo filtra pelo dono, e
+ * a mesclagem de um cliente não tem como achar (nem renomear) termo do global.
  *
  * `db` é service-role (worker/sistema) — a RLS de ontologia exige `ai.configure`.
  */
 export async function mesclarTermos(
   db: SupabaseClient<Database>,
-  spaceId: string,
+  dono: DonoDaOntologia,
   acumulado: Map<string, TermoAcumulado>,
   opts: { source: string; createdBy: string | null },
 ): Promise<number> {
   const { source, createdBy } = opts;
   if (acumulado.size === 0) return 0;
 
-  // norm → termId cobre termos E aliases já existentes (não duplica nada).
-  const { data: exTerms } = await db
-    .from("ontology_terms")
-    .select("id, term_norm, description")
-    .eq("space_id", spaceId);
+  /*
+    O DONO, numa coluna e num valor — usado na leitura e na escrita.
+
+    `.filter()` em vez de `.eq()` porque `src/lib/database.types.ts` ainda não
+    conhece `ontology_terms.base_id` (conferido contra o banco em 26/09), e
+    `filter` aceita nome de coluna fora do tipo gerado sem `as never`. Mesma
+    fronteira declarada de `arquivos-da-base.ts`.
+  */
+  const coluna: "space_id" | "base_id" = dono.spaceId ? "space_id" : "base_id";
+  const valorDoDono: string = dono.spaceId ?? dono.baseId!;
+
+  /*
+    A LEITURA PAGINA — o teto de 1.000 linhas do PostgREST é silencioso.
+
+    Este `select` é o índice que impede a duplicata, e sem paginar ele via 1.000
+    de 4.424 termos (medido em `natcorp`): para todo termo além do milésimo, a
+    mesclagem achava que não existia, tentava inserir, tomava `unique_violation`,
+    e o `if (!novo) continue` engolia — o sinônimo novo não era gravado e o
+    contador `found` não contava, sem uma linha de log em lugar nenhum. É a mesma
+    armadilha que `carregarOntologia` documenta acima do `fetchAllPaged` dela,
+    e a ordem TOTAL por `id` é o que faz as fatias não pularem linha.
+  */
+  const exTerms = await fetchAllPaged<{ id: string; term_norm: string; description: string | null }>(
+    (de, ate) =>
+      db
+        .from("ontology_terms")
+        .select("id, term_norm, description")
+        .filter(coluna, "eq", valorDoDono)
+        .order("id")
+        .range(de, ate),
+  );
   const normToTermId = new Map<string, string>();
   const descById = new Map<string, string | null>();
-  for (const t of exTerms ?? []) {
+  for (const t of exTerms) {
     normToTermId.set(t.term_norm, t.id);
     descById.set(t.id, t.description);
   }
-  const exTermIds = (exTerms ?? []).map((t) => t.id);
+  const exTermIds = exTerms.map((t) => t.id);
   for (let i = 0; i < exTermIds.length; i += 200) {
     const { data: exAliases } = await db
       .from("ontology_aliases")
@@ -89,7 +123,18 @@ export async function mesclarTermos(
     } else {
       const { data: novo } = await db
         .from("ontology_terms")
-        .insert({ space_id: spaceId, term: t.term, term_norm: norm, kind: t.kind, description: t.description, source, created_by: createdBy })
+        // O dono vai numa chave só, e é o MESMO da leitura acima. `as never`
+        // porque o tipo gerado não conhece `base_id` — ver o comentário do
+        // `coluna`/`valorDoDono`.
+        .insert({
+          [coluna]: valorDoDono,
+          term: t.term,
+          term_norm: norm,
+          kind: t.kind,
+          description: t.description,
+          source,
+          created_by: createdBy,
+        } as never)
         .select("id")
         .single();
       if (!novo) continue;
