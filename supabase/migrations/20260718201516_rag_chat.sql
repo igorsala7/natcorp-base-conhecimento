@@ -1,3 +1,27 @@
+-- =====================================================================
+-- ARQUIVO SUPERADO — NÃO REAPLIQUE ESTE ARQUIVO SOZINHO
+--
+-- Este arquivo cria `public.hybrid_search_scoped` com 4 parâmetros. A
+-- assinatura VIVA é a de 8: `20260925120000_busca_recusa_documento_de_outra_
+-- base.sql` acrescentou `p_base` (a cerca de propriedade que impede um cliente
+-- de receber arquivo de outro), e o CORPO atual está em
+-- `20260925160000_branco_unico_e_grants.sql`.
+--
+-- `create or replace` com assinatura DIFERENTE não substitui nada: cria uma
+-- SEGUNDA função. Com as duas de pé, `supabase.rpc("hybrid_search_scoped",
+-- {...})` — que nunca nomeia todos os parâmetros — fica ambíguo e o Postgres
+-- levanta `function ... is not unique`. As quatro chamadas de
+-- `src/lib/ai/rag.ts` desestruturam só `{ data }`: o erro não aparece em log
+-- nenhum e A BUSCA DEVOLVE VAZIO. Documentação e arquivo do cliente somem do
+-- chat em silêncio, e não há nada para investigar.
+--
+-- NÃO acrescente `drop function` aqui para "resolver": isso deixaria de pé só
+-- esta versão, SEM a cerca de base, o que é pior que a ambiguidade. Para voltar
+-- ao estado correto, reaplique `20260925120000` e depois `20260925160000`,
+-- nessa ordem. `npm run verificar:rpc` falha quando qualquer RPC chamada por
+-- `src/` tem mais de uma assinatura, e é o portão que pega esta classe.
+-- =====================================================================
+
 -- Fase 6 — Chatbot RAG. conversations/messages + busca escopada por nós.
 
 create table public.conversations (

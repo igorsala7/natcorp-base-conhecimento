@@ -496,3 +496,47 @@ begin
   -- para `chunks` (as três FKs são ON DELETE CASCADE) — um delete só.
   delete from public.ai_bases where base_code like 'zz-tarefa7-assert-%';
 end $$;
+
+-- =====================================================================
+-- ASSERTIVA DE ASSINATURA ÚNICA — a que pega a reaplicação de arquivo antigo
+--
+-- Sete migrations anteriores criam `hybrid_search_scoped` com 4, 5, 6 ou 7
+-- parâmetros, e uma cria `knowledge_list_chunks` com 3. Todas usam `create or
+-- replace`, e nenhuma derruba a assinatura ATUAL (nem poderia: ela nasceu aqui).
+-- Reaplicar qualquer uma delas à mão deixa DUAS funções do mesmo nome de pé, e a
+-- partir daí toda chamada do app — `supabase.rpc(nome, {...})`, que não nomeia
+-- todos os parâmetros — levanta `function ... is not unique`. As cinco chamadas
+-- de `src/lib/ai/rag.ts` e de `src/app/(portal)/actions.ts` desestruturam só
+-- `{ data }`: o erro não aparece em log nenhum e a BUSCA DEVOLVE VAZIO.
+--
+-- Os oito arquivos ganharam cabeçalho de aviso na tarefa 12. Isto aqui é a rede
+-- de baixo: toda vez que ESTE arquivo for aplicado, ele recusa um banco onde a
+-- duplicata já existe, em vez de deixar a aplicação "passar" e a busca morrer
+-- depois. E `npm run verificar:rpc` (`.audit/assinatura-unica-de-rpc.ts`) faz a
+-- mesma checagem para TODAS as RPCs que `src/` chama, sem depender de aplicar
+-- migration nenhuma.
+--
+-- `count(*) = 1` e não `>= 1` de propósito: zero também é defeito (função que o
+-- app chama e não existe devolve o mesmo vazio silencioso).
+-- =====================================================================
+do $$
+declare
+  v_hss int;
+  v_klc int;
+begin
+  select count(*) into v_hss
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'hybrid_search_scoped';
+
+  select count(*) into v_klc
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'knowledge_list_chunks';
+
+  assert v_hss = 1,
+    format('public.hybrid_search_scoped tem de ter UMA assinatura, e tem %s. Alguma migration antiga foi reaplicada: toda chamada do app fica ambigua (function ... is not unique) e a busca devolve VAZIO em silencio. Veja o cabecalho dos oito arquivos superados.', v_hss);
+
+  assert v_klc = 1,
+    format('public.knowledge_list_chunks tem de ter UMA assinatura, e tem %s. Mesmo defeito, no caminho de ENUMERACAO (todos os X de Y).', v_klc);
+end $$;
