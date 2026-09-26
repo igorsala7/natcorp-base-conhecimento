@@ -42,8 +42,10 @@
 -- `src/lib/ai/escopo-da-base.ts:105-106`, alcançado por `retrievePublicContext`,
 -- que monta o cliente com `createAdminClient()` (`service_role`). Não existe
 -- chamador `authenticated`, então revogar não quebra tela nenhuma. A assertiva
--- lá embaixo fixa os três papéis com `has_function_privilege`, porque hoje nada
--- fixa isso — e `has_function_privilege('anon', ...)` responde verdadeiro quando
+-- que fixa os três papéis com `has_function_privilege` viajou com as funções
+-- para `20260926120000_funcoes_de_escopo_canonicas.sql` (tarefa 15), porque
+-- `has_function_privilege` de função que não existe levanta erro — e
+-- `has_function_privilege('anon', ...)` responde verdadeiro quando
 -- é PUBLIC que tem o privilégio, então negar `anon` e `authenticated` também
 -- prova que PUBLIC não tem.
 --
@@ -80,10 +82,11 @@
 -- o problema nunca foi o normalizador, foi a TABELA no plano do invoker.
 --
 -- E o que faltava era assertiva: a única do `anon` (20260925116000) conta chunks
--- que ele alcança, não verifica se ele consegue CHAMAR a busca. A assertiva 5
--- deste arquivo assume o papel `anon` e chama as duas funções; qualquer mudança
--- futura que volte a pôr uma tabela fechada ao `anon` no plano delas para nesta
--- linha, em vez de virar busca vazia em produção.
+-- que ele alcança, não verifica se ele consegue CHAMAR a busca. A assertiva que
+-- assume o papel `anon` e chama as duas funções nasceu aqui e hoje mora em
+-- `20260926120000_funcoes_de_escopo_canonicas.sql`, com elas (tarefa 15);
+-- qualquer mudança futura que volte a pôr uma tabela fechada ao `anon` no plano
+-- delas para nela, em vez de virar busca vazia em produção.
 --
 -- Custo desta escolha, escrito para o dono decidir se aceita: `bases_do_codigo`
 -- é `security definer` com EXECUTE para `anon`, logo é um oráculo de EXISTÊNCIA
@@ -102,23 +105,52 @@
 -- e em `ai_base_documentacoes(space_id)`, os dois caminhos que as funções deste
 -- ramo percorrem sem índice.
 --
--- ── `create or replace` nas quatro, e `drop` PROIBIDO aqui ────────────
+-- ── `create or replace`, e `drop` PROIBIDO aqui ───────────────────────
 -- Nenhuma assinatura muda. `drop function` + `create` devolveria EXECUTE a
 -- PUBLIC e desfaria justamente os revokes que este ramo passou a rodada
 -- fechando. É a situação oposta à da 20260925120000, onde a assinatura ganhou
--- parâmetro e o drop era obrigatório.
+-- parâmetro e o drop era obrigatório. Valia para as cinco funções que este
+-- arquivo criava e continua valendo para a que ficou.
 --
--- ── CORPO SUPERADO EM PARTE: documentos_da_base ──────────────────────
--- A `20260926100000_documentos_da_base_so_prontos.sql` acrescentou ao corpo de
--- `public.documentos_da_base(text, jsonb)` o predicado `k.status = 'ready'`. O
--- corpo que está AQUI devolve arquivo de qualquer status, e arquivo em extração
--- tem chunks pela metade: o RAG receberia meia planilha e o modelo afirmaria o
--- parcial como se fosse o todo.
+-- ── O QUE SAIU DESTE ARQUIVO, E PARA ONDE FOI (tarefa 15) ─────────────
+-- As definições de `public.bases_do_codigo`, `public.escopo_documentacao`,
+-- `public.documentos_da_base`, `public.hybrid_search_scoped` e
+-- `public.knowledge_list_chunks` — com os `comment on function`, os
+-- `revoke`/`grant` e as assertivas que CHAMAM essas funções — saíram daqui e
+-- passaram a morar num sítio ÚNICO:
 --
--- A assinatura é a mesma, então reaplicar ESTE arquivo sozinho não cria função
--- duplicada — ele silenciosamente desfaz aquele predicado. Reaplique a
--- 20260926100000 depois, sempre. As outras três funções deste arquivo seguem
--- sendo a versão viva.
+--   supabase/migrations/20260926120000_funcoes_de_escopo_canonicas.sql
+--
+-- Enquanto elas estavam definidas aqui TAMBÉM, reaplicar este arquivo sozinho
+-- — operação normal, porque não há ledger — desfazia em SILÊNCIO o
+-- `k.status = 'ready'` que a `20260926100000` acrescentou a
+-- `documentos_da_base`, devolvendo ao RAG arquivo em extração, com chunks pela
+-- metade que o modelo afirma como o todo. A assinatura não mudava, então nem
+-- `npm run verificar:rpc` nem assertiva de assinatura nenhuma percebia: era o
+-- CORPO que retrocedia. Agora `npm run verificar:corpo` recusa o segundo sítio.
+--
+-- ── `codigo_normalizado` FICOU AQUI, e é decisão de ORDEM ──────────────
+-- O plano da tarefa 15 mandava levá-la para o arquivo canônico junto com
+-- `bases_do_codigo`. Ela ficou, porque este MESMO arquivo cria dois objetos de
+-- schema SOBRE a expressão dela:
+--
+--   · o índice único `ai_bases_codigo_normalizado_key`, em
+--     `public.codigo_normalizado(base_code)`;
+--   · o CHECK `ai_bases_codigo_nao_branco`, na mesma chamada.
+--
+-- Levar a função para um arquivo POSTERIOR faria uma aplicação do zero deste
+-- arquivo falhar com `function public.codigo_normalizado(text) does not exist`
+-- — trocaríamos um defeito silencioso por um erro duro na replay, que é pior
+-- negócio. E ela nunca foi parte do problema: tem UM sítio de definição (este),
+-- e reaplicar este arquivo sozinho a recria IDÊNTICA.
+--
+-- Quem quiser levá-la ao arquivo canônico tem de levar JUNTO o bloco de
+-- colisão, o índice único e o CHECK. Isso é mudança de dono de objeto de
+-- schema, não transposição de função, e é decisão do dono.
+--
+-- As assertivas do APARO (a 1) e da COLISÃO no índice (a 4) ficaram aqui, com a
+-- função e o índice que elas exercitam. As que chamam as cinco funções que
+-- saíram viajaram com elas.
 -- =====================================================================
 
 -- ── O normalizador, com o conjunto de branco aparecendo UMA vez ──────
@@ -152,33 +184,6 @@ revoke all on function public.codigo_normalizado(text) from public, anon;
 -- `authenticated` precisa: ele escreve em `ai_bases`, e tanto o CHECK quanto a
 -- expressão do índice único são avaliados como o usuário que grava.
 grant execute on function public.codigo_normalizado(text) to authenticated, service_role;
-
--- ── A base alvo, resolvida FORA da range table do invoker ────────────
--- Ver seção (3) do cabeçalho. `security definer` não é conveniência: é o que
--- tira `public.ai_bases` do plano de `hybrid_search_scoped` e
--- `knowledge_list_chunks`, que são `security invoker` e são chamadas por `anon`.
-create or replace function public.bases_do_codigo(p_base text)
-returns setof uuid
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  select b.id
-    from public.ai_bases b
-   where p_base is not null
-     and public.codigo_normalizado(b.base_code) = public.codigo_normalizado(p_base);
-$$;
-
-comment on function public.bases_do_codigo(text) is
-  'Ids das bases cujo base_code normalizado bate com p_base. PODE devolver zero, uma ou várias linhas (nunca é consumida como subconsulta escalar). Existe como security definer para que hybrid_search_scoped e knowledge_list_chunks, que são security invoker e são chamadas por `anon`, não tenham public.ai_bases na range table: a permissão de tabela é conferida no início da execução, então bastava a tabela estar no plano para `anon` receber permission denied e a busca do portal devolver vazio em silêncio.';
-
-revoke all on function public.bases_do_codigo(text) from public;
--- `anon` explicitamente, e com o motivo escrito: a busca do portal roda como
--- `anon`, sem sessão (`src/app/(portal)/actions.ts:141`). Sem este grant, a
--- restrição global "função nova: revoke de public, anon" reproduz exatamente o
--- incidente que 20260721140000_search_anon_knowledge_grant.sql documenta.
-grant execute on function public.bases_do_codigo(text) to anon, authenticated, service_role;
 
 -- ── Nenhuma colisão pode existir antes do índice novo ────────────────
 -- O índice de 20260925130000 apara um caractere; este apara cinco, então ele
@@ -246,339 +251,6 @@ revoke all on function public.regra_valida(jsonb) from public, anon;
 grant execute on function public.regra_valida(jsonb) to authenticated, service_role;
 
 -- =====================================================================
--- AS QUATRO FUNÇÕES PASSAM AO NORMALIZADOR ÚNICO
--- `create or replace` nas quatro. Nenhuma assinatura muda, então `drop` é
--- proibido aqui (ver cabeçalho).
--- =====================================================================
-
--- ── 1/4 escopo_documentacao (corpo de 20260925140000) ────────────────
-create or replace function public.escopo_documentacao(
-  p_base text,
-  p_identidade jsonb default '{}'::jsonb
-)
-returns table (space_id uuid, origem text)
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  with alvo as (
-    select b.id
-      from public.ai_bases b
-     where public.codigo_normalizado(b.base_code) = public.codigo_normalizado(p_base)
-  )
-  -- Ramo 1: as universais, JÁ com a sobreposição desta base aplicada.
-  -- `left join` com a base no ON (e não no WHERE): sem linha da base, o lado
-  -- direito vem nulo e a universal vale como está. Base desconhecida deixa
-  -- `alvo` vazio, nenhuma linha casa, e o resultado é só as universais — o
-  -- comportamento documentado desde 20260925100000.
-  --
-  -- `codigo_normalizado(p_base)` sem `coalesce`: nulo entra, nulo sai, e nulo
-  -- não casa com nada. Antes era `lower(btrim(coalesce(p_base,'')))`, que com
-  -- `p_base` nulo comparava contra vazio e casaria um `base_code` em branco —
-  -- que o CHECK desta migration passou a proibir, mas depender do CHECK para a
-  -- comparação estar certa é depender de duas coisas onde uma bastava.
-  select u.space_id, 'universal'::text
-    from public.documentacoes_universais u
-    left join public.ai_base_documentacoes d
-      on d.space_id = u.space_id
-     and d.base_id in (select id from alvo)
-   where u.enabled
-     and public.elegivel(u.regra, p_identidade)
-     and (
-       -- sem sobreposição: vale a universal
-       d.space_id is null
-       -- com sobreposição habilitada: INTERSEÇÃO das duas regras
-       or (d.enabled and public.elegivel(d.regra, p_identidade))
-     )
-  union
-  -- Ramo 2: anexo por base que NÃO é universal. O `not exists` evita contar
-  -- a mesma documentação duas vezes (uma por origem) e deixa explícito que
-  -- este ramo é só para o que a Natcorp não ofereceu a todos.
-  select d.space_id, 'base'::text
-    from public.ai_base_documentacoes d
-   where d.base_id in (select id from alvo)
-     and d.enabled
-     and public.elegivel(d.regra, p_identidade)
-     and not exists (
-       select 1 from public.documentacoes_universais u2 where u2.space_id = d.space_id
-     );
-$$;
-
-comment on function public.escopo_documentacao(text, jsonb) is
-  'Documentações que esta identidade alcança nesta base. A linha de ai_base_documentacoes é SOBREPOSIÇÃO sobre a universal e só ESTREITA: sem linha vale a universal; enabled=false esconde; enabled=true exige as DUAS regras (interseção, nunca substituição — a regra da Natcorp é teto). Enquanto existir linha universal ela é o teto, inclusive desligada: para devolver a documentação ao controle por base, APAGUE a linha universal. O segundo ramo devolve só anexo por base que não é universal. Base desconhecida devolve só as universais. O base_code é comparado por public.codigo_normalizado (mesmo aparo de allowlist_casa). Escopo da chave do widget NÃO passa por aqui: ele é somado pela aplicação (decidirEscopo) e se retira em /admin/widget.';
-
--- `authenticated` SAI: security definer ignora a RLS das tabelas que esta função
--- lê, e o único chamador é service_role (ver cabeçalho, seção 2).
-revoke all on function public.escopo_documentacao(text, jsonb) from public, anon, authenticated;
-grant execute on function public.escopo_documentacao(text, jsonb) to service_role;
-
--- ── 2/4 documentos_da_base (corpo de 20260925110000) ─────────────────
--- ATENÇÃO: este corpo foi SUPERADO pela 20260926100000, que acrescentou
--- `k.status = 'ready'`. Ver o cabeçalho deste arquivo.
-create or replace function public.documentos_da_base(
-  p_base text,
-  p_identidade jsonb default '{}'::jsonb
-)
-returns table (document_id uuid)
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  select k.id
-    from public.knowledge_documents k
-    join public.ai_bases b on b.id = k.base_id
-   where k.base_id is not null
-     and public.codigo_normalizado(b.base_code) = public.codigo_normalizado(p_base)
-     and public.elegivel(k.regra, p_identidade);
-$$;
-
-comment on function public.documentos_da_base(text, jsonb) is
-  'Arquivos DE CLIENTE que esta identidade alcança nesta base, filtrados por public.elegivel. Nunca devolve arquivo de outra base: o join por base_code normalizado (public.codigo_normalizado) é a cerca, e o teste de isolamento em .audit/ é o que a prova. EXECUTE só para service_role: sendo security definer ela ignora a RLS, e com grant a authenticated qualquer Leitor enumerava os ids dos arquivos internos de qualquer cliente.';
-
-revoke all on function public.documentos_da_base(text, jsonb) from public, anon, authenticated;
-grant execute on function public.documentos_da_base(text, jsonb) to service_role;
-
--- ── 3/4 hybrid_search_scoped (corpo de 20260925120000) ───────────────
--- A ÚNICA mudança no corpo é a CTE `base_alvo`, que deixa de ler
--- `public.ai_bases` e passa a chamar `public.bases_do_codigo`. Toda a cerca, os
--- quatro sinais e a fusão RRF ficam idênticos — ver 20260925120000 para o
--- raciocínio completo de cada pedaço.
-create or replace function public.hybrid_search_scoped(
-  p_query text,
-  p_embedding vector default null,
-  p_node_ids uuid[] default null,
-  p_limit integer default 8,
-  p_document_ids uuid[] default null,
-  p_boost text default null,
-  p_group_limit integer default 2,
-  -- Code da base que pediu a busca. Null preserva TODOS os chamadores sem base
-  -- (portal, Cmd+K, editor) sem mudar comportamento.
-  p_base text default null
-)
-returns table (node_id uuid, document_id uuid, title text, heading_path text, snippet text, content text, score double precision)
-language sql
-stable
-set search_path to 'public', 'extensions'
-as $function$
-  with q as (
-    select public.f_unaccent(p_query) as uq,
-           websearch_to_tsquery('portuguese', public.f_unaccent(p_query)) as tsq,
-           case
-             when p_boost is null or btrim(p_boost) = '' then null
-             else websearch_to_tsquery('portuguese', public.f_unaccent(p_boost))
-           end as bq
-  ),
-  -- Full-text: o GIN em `tsv` serve o `@@`; ordena/limita os casados por ts_rank.
-  ft as (
-    select id, origem, row_number() over (order by r desc) as rnk
-    from (
-      select c.id, coalesce(c.node_id, c.document_id) as origem, ts_rank(c.tsv, q.tsq) as r
-      from public.chunks c, q
-      where q.tsq is not null and c.tsv @@ q.tsq
-        and ( (p_node_ids is null and p_document_ids is null)
-              or (p_node_ids is not null and c.node_id = any (p_node_ids))
-              or (p_document_ids is not null and c.document_id = any (p_document_ids)) )
-      order by r desc
-      limit 40
-    ) s
-  ),
-  -- Trigram (typo): SOMENTE o título do nó (GIN nodes_title_trgm). O ramo sobre
-  -- `c.content` saiu em 24/08 — 2,47 s para 4 linhas que não mudavam posição
-  -- nenhuma. A estrutura aninhada continua igual à original de propósito: se o
-  -- ramo de conteúdo voltar, ele volta como `union all` aqui dentro, sem
-  -- reescrever o resto.
-  trg as (
-    select id, origem, rnk from (
-      select id, origem, row_number() over (order by sim desc) as rnk
-      from (
-        select id, origem, max(sim) as sim
-        from (
-          ( select c.id, coalesce(c.node_id, c.document_id) as origem,
-                   similarity(public.f_unaccent(n.title), q.uq) as sim
-            from public.chunks c join public.nodes n on n.id = c.node_id, q
-            where public.f_unaccent(n.title) % q.uq
-              and ( (p_node_ids is null and p_document_ids is null)
-                    or (p_node_ids is not null and c.node_id = any (p_node_ids))
-                    or (p_document_ids is not null and c.document_id = any (p_document_ids)) )
-            order by sim desc limit 40 )
-        ) u
-        group by id, origem
-      ) g
-    ) r
-    where rnk <= 40
-  ),
-  -- Vetorial: o HNSW serve `order by embedding <=> q limit 40` no acesso DIRETO.
-  vec as (
-    select id, origem, row_number() over (order by dist) as rnk
-    from (
-      select c.id, coalesce(c.node_id, c.document_id) as origem, (c.embedding <=> p_embedding) as dist
-      from public.chunks c
-      where p_embedding is not null and c.embedding is not null
-        and ( (p_node_ids is null and p_document_ids is null)
-              or (p_node_ids is not null and c.node_id = any (p_node_ids))
-              or (p_document_ids is not null and c.document_id = any (p_document_ids)) )
-      order by c.embedding <=> p_embedding
-      limit 40
-    ) s
-  ),
-  -- BOOST: chunks que casam os termos/sinônimos da ontologia entram como 4º sinal.
-  boost as (
-    select id, origem, row_number() over (order by r desc) as rnk
-    from (
-      select c.id, coalesce(c.node_id, c.document_id) as origem, ts_rank(c.tsv, q.bq) as r
-      from public.chunks c, q
-      where q.bq is not null and c.tsv @@ q.bq
-        and ( (p_node_ids is null and p_document_ids is null)
-              or (p_node_ids is not null and c.node_id = any (p_node_ids))
-              or (p_document_ids is not null and c.document_id = any (p_document_ids)) )
-      order by r desc
-      limit 40
-    ) s
-  ),
-  fused as (
-    select origem, id, sum(1.0 / (60 + rnk)) as score
-    from (
-      select origem, id, rnk from ft
-      union all select origem, id, rnk from trg
-      union all select origem, id, rnk from vec
-      union all select origem, id, rnk from boost
-    ) u
-    group by origem, id
-  ),
-  best as (
-    select distinct on (origem) origem, id as chunk_id, score
-    from fused order by origem, score desc
-  ),
-  -- Base(s) alvo desta busca, resolvida(s) UMA vez.
-  --
-  -- `public.bases_do_codigo` e não `from public.ai_bases`: esta função é
-  -- `security invoker` e a busca do portal a chama como `anon`, que não tem
-  -- grant em `ai_bases`. A permissão de tabela é conferida no INÍCIO da
-  -- execução, para toda entrada da range table, então a tabela no plano
-  -- bastava para `anon` receber `permission denied for table ai_bases` mesmo
-  -- com `p_base` nulo — e a action engolia o erro como lista vazia. Chamada de
-  -- função não é entrada de range table.
-  --
-  -- `materialized`: a CTE é consumida dentro de um `not exists` correlacionado,
-  -- e sem isso o planejador pode chamar a função por linha de `agrupado`.
-  --
-  -- Vazio quando `p_base` é nulo OU não bate com nenhuma base cadastrada — os
-  -- dois casos fecham a cerca. PODE devolver mais de uma linha, e por isso o
-  -- consumo abaixo é `not exists` de pertinência, nunca subconsulta escalar.
-  base_alvo as materialized (
-    select t.id from public.bases_do_codigo(p_base) as t(id)
-  ),
-  agrupado as (
-    select b.chunk_id, b.score,
-           case
-             when c2.node_id is not null
-               then 'raiz:' || coalesce(subpath(n2.path, 0, 1)::text, c2.node_id::text)
-             else 'doc:' || c2.document_id::text
-           end as grupo
-    from best b
-    join public.chunks c2 on c2.id = b.chunk_id
-    left join public.nodes n2 on n2.id = c2.node_id
-    -- A CERCA: chunk de artigo (document_id nulo) e chunk de documento de
-    -- ESPAÇO (base_id nulo) sempre passam. Chunk de documento de BASE só
-    -- passa se a base bater com `p_base` — e "bater" inclui `p_base`
-    -- nulo, que é o caso de todo chamador sem base (portal, Cmd+K).
-    where p_base is null
-       or not exists (
-            select 1
-              from public.knowledge_documents d
-             where d.id = c2.document_id
-               and d.base_id is not null
-               and not exists (select 1 from base_alvo ba where ba.id = d.base_id)
-          )
-  ),
-  melhores_grupos as (
-    select grupo
-    from agrupado
-    group by grupo
-    order by sum(score) desc, max(score) desc
-    limit p_group_limit
-  )
-  select
-    c.node_id,
-    c.document_id,
-    coalesce(n.title, d.original_name) as title,
-    c.heading_path,
-    ts_headline('portuguese', c.content,
-      websearch_to_tsquery('portuguese', public.f_unaccent(p_query)),
-      'MaxWords=40, MinWords=15, ShortWord=2') as snippet,
-    c.content, a.score
-  from agrupado a
-  join melhores_grupos using (grupo)
-  join public.chunks c on c.id = a.chunk_id
-  left join public.nodes n on n.id = c.node_id
-  left join public.knowledge_documents d on d.id = c.document_id
-  where c.node_id is null or n.deleted_at is null
-  order by a.score desc
-  limit p_limit;
-$function$;
-
-comment on function public.hybrid_search_scoped(text, vector, uuid[], integer, uuid[], text, integer, text) is
-  'Busca híbrida (RRF: full-text + trigram + vetor + boost) escopada por nós/documentos. `p_base` é cerca de PROPRIEDADE (knowledge_documents.base_id), nunca de elegibilidade — nulo preserva todo chamador sem base. A base alvo é resolvida por public.bases_do_codigo (security definer) para que public.ai_bases não entre na range table desta função, que é security invoker e é chamada como `anon` pela busca do portal.';
-
--- Privilégio restatado de propósito (o `replace` preserva o ACL, mas o arquivo
--- tem de ser auto-suficiente): EXECUTE segue ABERTO a PUBLIC/`anon`, porque a
--- busca do portal roda sem sessão. Sendo `security invoker`, a leitura de
--- `chunks` continua governada pela RLS de quem chama.
-grant execute on function public.hybrid_search_scoped(text, vector, uuid[], integer, uuid[], text, integer, text) to public;
-
--- ── 4/4 knowledge_list_chunks (corpo de 20260925120000) ──────────────
-create or replace function public.knowledge_list_chunks(
-  p_query text,
-  p_document_ids uuid[],
-  p_limit integer default 40,
-  p_base text default null
-)
-returns table (document_id uuid, title text, heading_path text, content text, score double precision)
-language sql
-stable
-set search_path to 'public', 'extensions'
-as $function$
-  -- MESMA resolução de base de hybrid_search_scoped, e pelo mesmo motivo:
-  -- `security invoker` chamada por `anon`, que não tem grant em `ai_bases`.
-  with base_alvo as materialized (
-    select t.id from public.bases_do_codigo(p_base) as t(id)
-  )
-  select c.document_id,
-         d.original_name as title,
-         c.heading_path,
-         c.content,
-         ts_rank(c.tsv, websearch_to_tsquery('portuguese', public.f_unaccent(p_query)))::double precision as score
-  from public.chunks c
-  join public.knowledge_documents d on d.id = c.document_id
-  where c.document_id = any (p_document_ids)
-    and c.tsv @@ websearch_to_tsquery('portuguese', public.f_unaccent(p_query))
-    -- MESMA cerca de hybrid_search_scoped, mesmo texto de propósito
-    -- (revisão mais fácil): document_id sem base (documentação de espaço)
-    -- sempre passa; com base, só passa se bater com `p_base`. `not exists`
-    -- de pertinência (não subconsulta escalar) porque `base_alvo` pode
-    -- devolver mais de uma linha.
-    and (
-      p_base is null
-      or not exists (
-           select 1
-             from public.knowledge_documents d2
-            where d2.id = c.document_id
-              and d2.base_id is not null
-              and not exists (select 1 from base_alvo ba where ba.id = d2.base_id)
-         )
-    )
-  order by score desc
-  limit greatest(1, least(p_limit, 100));
-$function$;
-
-comment on function public.knowledge_list_chunks(text, uuid[], integer, text) is
-  'Enumeração: todos os chunks (até 40) dos documentos que casam a consulta. `p_base` é a MESMA cerca de propriedade de hybrid_search_scoped — nulo preserva todo chamador sem base. A base alvo vem de public.bases_do_codigo pelo mesmo motivo de lá: esta função é security invoker e `anon` não tem grant em public.ai_bases.';
-
-grant execute on function public.knowledge_list_chunks(text, uuid[], integer, text) to public;
-
--- =====================================================================
 -- ASSERTIVAS — comportamentais, e cada uma falha por um motivo diferente
 --
 -- Molde das migrations 120000/140000: dado com prefixo `zz-`, limpeza defensiva
@@ -587,21 +259,19 @@ grant execute on function public.knowledge_list_chunks(text, uuid[], integer, te
 -- `scripts/apply-migrations.ts`, que envolve o arquivo em begin/commit.
 --
 --   1. aparo de cinco caracteres em `codigo_normalizado`, incluindo NBSP
---   2. as duas funções de busca tratam `p_base` com NBSP como a mesma base
---   3. as duas RPCs de metadado idem
 --   4. duas bases que diferem por NBSP COLIDEM (o furo entre clientes)
---   5. `anon` consegue CHAMAR as duas funções de busca (a regressão da 120000)
---   6. estado de grant dos três papéis, nas cinco funções
+--
+-- A numeração tem buracos de propósito. As assertivas 2, 3, 5 e 6 desta
+-- migration CHAMAM as cinco funções que saíram na tarefa 15, então viajaram
+-- com elas para
+-- `20260926120000_funcoes_de_escopo_canonicas.sql` — numa aplicação do zero
+-- elas rodariam antes de a função existir se tivessem ficado aqui. Renumerar as
+-- que ficaram faria as duas metades deixarem de se referenciar.
 -- =====================================================================
-do $$
+do $aparo$
 declare
   v_cod      text := 'zz-t12-nbsp';
-  v_base     uuid;
-  v_doc      uuid;
-  v_sp       uuid;
-  v_n        int;
   v_recusou  boolean;
-  v_tem      boolean;
 begin
   -- ── 1. O aparo ──────────────────────────────────────────────────────
   assert public.codigo_normalizado('natcorp' || chr(160)) = 'natcorp',
@@ -616,78 +286,11 @@ begin
     'codigo feito so de NBSP normaliza para vazio — e e por isso que o CHECK usa o normalizador, nao btrim';
   raise notice 'assertiva 1 OK — codigo_normalizado apara os cinco brancos e propaga nulo';
 
-  -- Dado de teste: uma base, um arquivo dela, um chunk, um espaço anexado.
-  delete from public.spaces   where slug      like 'zz-t12-%';
+  -- Dado de teste da assertiva 4: uma base, para as inserções colidentes
+  -- abaixo terem com quem colidir.
   delete from public.ai_bases where base_code like 'zz-t12-%';
 
-  insert into public.ai_bases (base_code, name) values (v_cod, v_cod) returning id into v_base;
-
-  insert into public.knowledge_documents (base_id, storage_path, original_name, status)
-    values (v_base, 'zz-t12/a.txt', 'zz-t12-doc.txt', 'ready')
-    returning id into v_doc;
-
-  insert into public.chunks (document_id, content)
-    values (v_doc, 'Documento de teste zzmarcadortarefa12 pertence a base zz-t12-nbsp.');
-
-  insert into public.spaces (slug, name, type, visibility)
-    values ('zz-t12-espaco', 'zz-t12-espaco', 'client', 'private') returning id into v_sp;
-  insert into public.ai_base_documentacoes (base_id, space_id, enabled, regra)
-    values (v_base, v_sp, true, '{}'::jsonb);
-
-  -- ── 2. As duas funções de busca e o NBSP no `p_base` ────────────────
-  -- Com o `btrim` de um argumento, `p_base` com NBSP não casava nenhuma base,
-  -- `base_alvo` ficava vazio e a cerca RECUSAVA o documento da própria base:
-  -- estas duas assertivas voltariam 0.
-  select count(*) into v_n
-    from public.hybrid_search_scoped(
-      p_query := 'zzmarcadortarefa12',
-      p_document_ids := array[v_doc],
-      p_limit := 5,
-      p_group_limit := 5,
-      p_base := v_cod || chr(160)
-    );
-  assert v_n = 1,
-    format('hybrid_search_scoped com NBSP no p_base tem de resolver a MESMA base e devolver 1 linha, veio %s', v_n);
-
-  select count(*) into v_n
-    from public.knowledge_list_chunks(
-      p_query := 'zzmarcadortarefa12',
-      p_document_ids := array[v_doc],
-      p_limit := 40,
-      p_base := chr(9) || v_cod
-    );
-  assert v_n = 1,
-    format('knowledge_list_chunks com TAB no p_base tem de resolver a MESMA base e devolver 1 linha, veio %s', v_n);
-
-  -- E o contrário continua fechando: código de OUTRA base, mesmo com NBSP,
-  -- não alcança este documento.
-  select count(*) into v_n
-    from public.hybrid_search_scoped(
-      p_query := 'zzmarcadortarefa12',
-      p_document_ids := array[v_doc],
-      p_limit := 5,
-      p_group_limit := 5,
-      p_base := 'zz-t12-outra-base' || chr(160)
-    );
-  assert v_n = 0,
-    format('hybrid_search_scoped com codigo de OUTRA base tem de recusar (ausencia fecha), veio %s', v_n);
-  raise notice 'assertiva 2 OK — as duas funcoes de busca tratam NBSP/TAB no p_base como a mesma base, e outra base continua recusada';
-
-  -- ── 3. As duas RPCs de metadado ─────────────────────────────────────
-  select exists (
-    select 1 from public.documentos_da_base(v_cod || chr(160), '{}'::jsonb) d
-     where d.document_id = v_doc
-  ) into v_tem;
-  assert v_tem,
-    'documentos_da_base com NBSP no p_base tem de resolver a MESMA base, e nao resolveu';
-
-  select exists (
-    select 1 from public.escopo_documentacao(v_cod || chr(160), '{}'::jsonb) e
-     where e.space_id = v_sp
-  ) into v_tem;
-  assert v_tem,
-    'escopo_documentacao com NBSP no p_base tem de resolver a MESMA base, e nao resolveu';
-  raise notice 'assertiva 3 OK — documentos_da_base e escopo_documentacao tambem normalizam o p_base';
+  insert into public.ai_bases (base_code, name) values (v_cod, v_cod);
 
   -- ── 4. O FURO ENTRE CLIENTES: as duas bases têm de COLIDIR ──────────
   -- Subtransação: sem o bloco interno, a violação abortaria o bloco anônimo
@@ -735,60 +338,17 @@ begin
   raise notice 'assertiva 4 OK — NBSP, TAB, caixa e espaco colidem, e codigo em branco e recusado';
 
   -- Limpeza.
-  delete from public.spaces   where slug      like 'zz-t12-%';
   delete from public.ai_bases where base_code like 'zz-t12-%';
-end $$;
+end $aparo$;
 
--- ── 5. `anon` consegue CHAMAR as duas funções de busca ────────────────
--- A regressão que a 20260925120000 introduziu e que nenhuma assertiva pegava: a
--- do `anon` (20260925116000) conta chunks alcançados, não verifica se ele
--- consegue chamar a busca. Esta assume o papel de verdade — `set local role`
--- funciona dentro de bloco anônimo, PL/pgSQL repassa `SET` ao motor SQL — e
--- chama as duas. Qualquer mudança futura que ponha uma tabela fechada ao `anon`
--- no plano delas para AQUI, em vez de virar busca vazia em produção.
---
--- `reset role` nos dois caminhos. No `exception`, ele é redundante (capturar a
--- exceção volta ao savepoint implícito do bloco, o que desfaz o SET LOCAL
--- junto) e fica por clareza, como em 20260925116000.
-do $$
-declare
-  v_hss int;
-  v_klc int;
-begin
-  set local role anon;
-  select count(*) into v_hss
-    from public.hybrid_search_scoped(p_query := 'zzsondaanontarefa12', p_limit := 1);
-  select count(*) into v_klc
-    from public.knowledge_list_chunks(p_query := 'zzsondaanontarefa12', p_document_ids := '{}'::uuid[]);
-  reset role;
-  raise notice 'assertiva 5 OK — anon chamou hybrid_search_scoped (% linhas) e knowledge_list_chunks (% linhas) sem erro', v_hss, v_klc;
-exception when others then
-  reset role;
-  raise exception
-    'assertiva 5: o papel anon NAO consegue chamar a busca (% / %). A busca publica do portal usa a chave anon (src/app/(portal)/actions.ts:141) e engole o erro como lista vazia. Causa provavel: alguma tabela sem grant para anon voltou para a range table de uma das duas funcoes, que sao security invoker — a base alvo tem de vir de public.bases_do_codigo, que e security definer.',
-    sqlstate, sqlerrm;
-end $$;
-
--- ── 6. Estado de grant dos três papéis ───────────────────────────────
+-- ── 6. Estado de grant das duas funções que ficaram ──────────────────
 -- `has_function_privilege('anon', ...)` responde verdadeiro quando é PUBLIC que
 -- tem o privilégio, então negar `anon` também prova que PUBLIC não tem.
-do $$
+--
+-- Os grants das cinco funções que saíram são conferidos no arquivo canônico,
+-- junto com elas.
+do $grants$
 begin
-  -- As duas definer de metadado: SÓ service_role.
-  assert not has_function_privilege('anon', 'public.escopo_documentacao(text, jsonb)', 'execute'),
-    'escopo_documentacao nao pode ter EXECUTE para anon nem para PUBLIC';
-  assert not has_function_privilege('authenticated', 'public.escopo_documentacao(text, jsonb)', 'execute'),
-    'escopo_documentacao nao pode ter EXECUTE para authenticated: sendo definer ela ignora a RLS, e qualquer Leitor deduzia a regra do dono variando a identidade';
-  assert has_function_privilege('service_role', 'public.escopo_documentacao(text, jsonb)', 'execute'),
-    'escopo_documentacao tem de continuar executavel por service_role — e o unico chamador (escopo-da-base.ts, via createAdminClient)';
-
-  assert not has_function_privilege('anon', 'public.documentos_da_base(text, jsonb)', 'execute'),
-    'documentos_da_base nao pode ter EXECUTE para anon nem para PUBLIC';
-  assert not has_function_privilege('authenticated', 'public.documentos_da_base(text, jsonb)', 'execute'),
-    'documentos_da_base nao pode ter EXECUTE para authenticated: qualquer Leitor enumerava os ids dos arquivos internos de qualquer cliente';
-  assert has_function_privilege('service_role', 'public.documentos_da_base(text, jsonb)', 'execute'),
-    'documentos_da_base tem de continuar executavel por service_role';
-
   -- regra_valida: fora de PUBLIC/anon, mantida para quem grava.
   assert not has_function_privilege('anon', 'public.regra_valida(jsonb)', 'execute'),
     'regra_valida nao pode mais ter EXECUTE para anon nem para PUBLIC';
@@ -806,19 +366,5 @@ begin
   assert has_function_privilege('service_role', 'public.codigo_normalizado(text)', 'execute'),
     'codigo_normalizado tem de ser executavel por service_role';
 
-  -- bases_do_codigo: anon PRECISA, e o motivo esta na assertiva 5.
-  assert has_function_privilege('anon', 'public.bases_do_codigo(text)', 'execute'),
-    'bases_do_codigo TEM de ser executavel por anon: a busca do portal roda sem sessao e resolve a base por ela';
-  assert has_function_privilege('authenticated', 'public.bases_do_codigo(text)', 'execute'),
-    'bases_do_codigo tem de ser executavel por authenticated (Cmd+K e editor chamam a busca com sessao)';
-  assert has_function_privilege('service_role', 'public.bases_do_codigo(text)', 'execute'),
-    'bases_do_codigo tem de ser executavel por service_role (o widget)';
-
-  -- As duas de busca seguem abertas: a do portal roda sem sessao.
-  assert has_function_privilege('anon', 'public.hybrid_search_scoped(text, vector, uuid[], integer, uuid[], text, integer, text)', 'execute'),
-    'hybrid_search_scoped tem de continuar executavel por anon (busca do portal)';
-  assert has_function_privilege('anon', 'public.knowledge_list_chunks(text, uuid[], integer, text)', 'execute'),
-    'knowledge_list_chunks tem de continuar executavel por anon';
-
-  raise notice 'assertiva 6 OK — grants dos tres papeis conferidos nas cinco funcoes';
-end $$;
+  raise notice 'assertiva 6 OK — grants de codigo_normalizado e regra_valida conferidos';
+end $grants$;

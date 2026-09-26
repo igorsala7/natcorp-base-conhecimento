@@ -24,28 +24,30 @@
 -- sobre `knowledge_documents`. Uma segunda tabela duplicaria o pipeline
 -- de embedding inteiro.
 --
--- ── CORPO SUPERADO EM PARTE: documentos_da_base ──────────────────────
--- O corpo de `public.documentos_da_base(text, jsonb)` que está aqui usa
--- `lower(btrim(base_code))`, com `btrim` de UM argumento, que apara só o
--- caractere espaço. A `20260925160000_branco_unico_e_grants.sql` trocou
--- por `public.codigo_normalizado`, que apara os CINCO caracteres de
--- `public.allowlist_casa` (espaço, TAB, LF, CR, NBSP) — o mesmo conjunto
--- que a dimensão `base` de `public.elegivel` já usava. E ela também
--- revogou o EXECUTE de `authenticated` desta função, que sendo `security
--- definer` deixava qualquer Leitor enumerar os ids dos arquivos internos
--- de qualquer cliente.
+-- ── O QUE SAIU DESTE ARQUIVO, E PARA ONDE FOI (tarefa 15) ────────────
+-- A definição de `public.documentos_da_base(text, jsonb)`, o `comment on
+-- function` dela e os `revoke`/`grant` saíram daqui e passaram a morar num
+-- sítio ÚNICO:
 --
--- E a `20260926100000_documentos_da_base_so_prontos.sql` acrescentou ao corpo
--- o predicado `k.status = 'ready'`: arquivo em extração tem chunks pela
--- metade, e o corpo DESTE arquivo devolve arquivo de qualquer status.
+--   supabase/migrations/20260926120000_funcoes_de_escopo_canonicas.sql
 --
--- A ASSINATURA é a mesma, então reaplicar ESTE arquivo sozinho não cria
--- função duplicada: ele SILENCIOSAMENTE desfaz as TRÊS coisas — volta o
--- aparo de um caractere, devolve o EXECUTE a `authenticated` e volta a
--- servir ao RAG arquivo que ainda está sendo extraído. Reaplique a
--- 20260925160000 e depois a 20260926100000, nessa ordem, sempre. Não há
--- ledger, então reaplicar um arquivo à mão é operação normal e este aviso é
--- o que resta.
+-- Enquanto ela estava definida aqui TAMBÉM, reaplicar este arquivo sozinho —
+-- operação normal, porque não há ledger — desfazia em SILÊNCIO três correções
+-- posteriores: voltava o aparo de UM caractere (`lower(btrim(base_code))` em
+-- vez de `public.codigo_normalizado`, que apara os cinco brancos de
+-- `public.allowlist_casa` e é o que a dimensão `base` de `public.elegivel` já
+-- usava), devolvia o EXECUTE de `authenticated` numa função `security definer`
+-- (qualquer Leitor enumerava os ids dos arquivos internos de qualquer cliente)
+-- e tirava o predicado `k.status = 'ready'`, devolvendo ao RAG arquivo em
+-- extração, com chunks pela metade que o modelo afirma como o todo.
+--
+-- A assinatura nunca mudou, então nem `npm run verificar:rpc` nem a assertiva
+-- de assinatura de `20260925120000` percebiam: era o CORPO que retrocedia.
+-- Agora `npm run verificar:corpo` recusa o segundo sítio.
+--
+-- Este arquivo ficou com o que é dele: colunas, CHECKs, o `drop not null` e as
+-- policies. A assertiva do fim NÃO chama função nenhuma (conta linhas de
+-- `knowledge_documents` e de `chunks`), então ficou aqui.
 -- =====================================================================
 
 alter table public.knowledge_documents
@@ -131,31 +133,11 @@ create policy chunks_auth_read on public.chunks
   );
 
 -- ── Os documentos que esta identidade alcança nesta base ────────────
--- Só arquivo DE BASE. Arquivo de documentação entra pelo escopo da
--- documentação, na tarefa 3, junto com os nós.
-create or replace function public.documentos_da_base(
-  p_base text,
-  p_identidade jsonb default '{}'::jsonb
-)
-returns table (document_id uuid)
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  select k.id
-    from public.knowledge_documents k
-    join public.ai_bases b on b.id = k.base_id
-   where k.base_id is not null
-     and lower(btrim(b.base_code)) = lower(btrim(coalesce(p_base, '')))
-     and public.elegivel(k.regra, p_identidade);
-$$;
-
-comment on function public.documentos_da_base(text, jsonb) is
-  'Arquivos DE CLIENTE que esta identidade alcança nesta base, filtrados por public.elegivel. Nunca devolve arquivo de outra base: o join por base_code é a cerca, e o teste de isolamento em .audit/ é o que a prova.';
-
-revoke all on function public.documentos_da_base(text, jsonb) from public, anon;
-grant execute on function public.documentos_da_base(text, jsonb) to authenticated, service_role;
+-- `public.documentos_da_base(text, jsonb)` nasceu AQUI, e desde a tarefa 15 a
+-- definição dela mora só em
+-- `20260926120000_funcoes_de_escopo_canonicas.sql` — com o corpo vivo, que
+-- ganhou o normalizador de cinco brancos, o `status = 'ready'` e o EXECUTE
+-- restrito a `service_role`. Ver o cabeçalho deste arquivo.
 
 -- ── Assertivas ──────────────────────────────────────────────────────
 do $$
