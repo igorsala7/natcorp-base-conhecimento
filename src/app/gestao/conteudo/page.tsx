@@ -2,7 +2,9 @@ import { abrirSessaoGestao, paramsDaSessao, registrarAcessoSuporte } from "@/lib
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ShellGestao, RecusaGestao, Bloco, FaixaResumo } from "@/components/gestao/shell";
 import { ConteudoPainel, type ItemDeConteudo } from "@/components/gestao/conteudo-painel";
+import { ArquivosPainel, type ArquivoNaTela } from "@/components/gestao/arquivos-painel";
 import { pocoUniversal, regraAlcancaBase } from "@/lib/documentacoes/universais";
+import { arquivosDaBase } from "@/lib/documentacoes/arquivos-da-base";
 import { lerVocabulario } from "@/lib/documentacoes/vocabulario";
 import { regraSemCliente } from "@/lib/documentacoes/dimensoes-ui";
 import type { Regra } from "@/lib/elegibilidade";
@@ -42,12 +44,20 @@ export default async function GestaoConteudoPage({
   const { baseCode, baseId, baseNome } = sessao.identidade;
   const db = createAdminClient();
 
-  const [poco, { data: ajustesRows }, vocab] = await Promise.all([
+  const [poco, { data: ajustesRows }, vocab, arquivos] = await Promise.all([
     pocoUniversal(),
     // Uma linha por documentação ajustada nesta base: tabela de configuração,
     // sem teto de paginação a estourar.
     db.from("ai_base_documentacoes").select("space_id, enabled, regra").eq("base_id", baseId),
     lerVocabulario(baseCode),
+    /*
+      Os arquivos DESTA empresa. Sempre da base da SESSÃO: `arquivosDaBase`
+      filtra por `base_id` e pagina por consulta, e é a mesma leitura que a
+      action de listagem usa. Lido no servidor, junto com o resto, para a
+      seção nascer preenchida — uma busca no cliente ao montar mostraria um
+      vazio que não é vazio.
+    */
+    arquivosDaBase(baseId),
   ]);
 
   const ajustes = new Map(
@@ -149,6 +159,44 @@ export default async function GestaoConteudoPage({
           baseNome={baseNome}
           itens={itens}
           orfas={{ restringidasAOutros: orfasRestringidasAOutros, naoOferecidas: orfasNaoOferecidas }}
+          presencas={{ porDimensao: vocab.porDimensao, conversas: vocab.conversas }}
+        />
+      </Bloco>
+
+      {/*
+        OS ARQUIVOS DA EMPRESA, logo abaixo das documentações e na MESMA aba.
+        As duas seções respondem à mesma pergunta — "sobre o que o assistente
+        responde aqui, e para quem" —, e separá-las em abas obrigaria o leitor a
+        procurar em dois lugares o que ele pensa como uma coisa só.
+
+        O `storagePath` de cada arquivo NÃO atravessa para o cliente: a tela não
+        precisa dele, e quem baixa passa por `/api/v1/arquivo/[id]`, que confere
+        dono, liberação e alcance antes de assinar. Mandar o caminho junto seria
+        publicar a localização de um arquivo que a regra pode fechar.
+      */}
+      <Bloco
+        titulo="Arquivos da sua empresa"
+        descricao="Documentos, manuais e mídias que são só da sua empresa. Você escolhe, arquivo por arquivo, se o assistente responde com o conteúdo dele, se ele fica disponível para download no chat, e quem alcança cada um."
+      >
+        <ArquivosPainel
+          sessao={paramsDaSessao(sessao)}
+          modo={sessao.modo}
+          baseCode={baseCode}
+          baseNome={baseNome}
+          arquivos={arquivos.map(
+            (a): ArquivoNaTela => ({
+              id: a.id,
+              nome: a.nome,
+              tamanhoBytes: a.tamanhoBytes,
+              mime: a.mime,
+              status: a.status,
+              naBaseDeConhecimento: a.naBaseDeConhecimento,
+              downloadLiberado: a.downloadLiberado,
+              regra: a.regra,
+              criadoEm: a.criadoEm,
+              erro: a.erro,
+            }),
+          )}
           presencas={{ porDimensao: vocab.porDimensao, conversas: vocab.conversas }}
         />
       </Bloco>

@@ -547,6 +547,28 @@ describe("arquivos da empresa: a base vem da sessão, nunca do formulário", () 
     });
   });
 
+  /*
+    O FIO ENTRE A TELA E A AÇÃO, no formato exato que a tela manda.
+
+    `ArquivosPainel` envia "1" ou "0" nas duas caixas, e `campo()` devolve
+    `undefined` só para string VAZIA — "0" chega como "0" e precisa virar
+    `false`. Um `Boolean(campo(...))` aqui leria "0" como verdadeiro e gravaria
+    o oposto da escolha: o arquivo que o cliente mandou NÃO indexar entraria na
+    base de conhecimento, sem erro em lugar nenhum.
+  */
+  it('"0" nas duas caixas chega ao mecanismo como false', async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+
+    await anexarArquivoDoCliente(
+      formDeAnexo({ naBaseDeConhecimento: "0", downloadLiberado: "0" }),
+    );
+
+    expect(vi.mocked(anexarArquivoDaBase).mock.calls[0]?.[0]).toMatchObject({
+      naBaseDeConhecimento: false,
+      downloadLiberado: false,
+    });
+  });
+
   it("excluir usa o baseId DA SESSÃO — é o que impede apagar arquivo alheio", async () => {
     vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
 

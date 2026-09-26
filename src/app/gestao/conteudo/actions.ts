@@ -438,6 +438,15 @@ export async function valoresParaDimensao(input: unknown): Promise<ListaDeValore
    pertence a ESTE arquivo é o que só ele tem: a sessão revalidada, o `baseId` que
    sai dela, e o registro em `audit_log`.
 
+   AS TRÊS PONTAS DO MESMO ARQUIVO, para quem chegar por uma delas:
+     · aqui e no mecanismo .......... subir, listar e excluir (área do cliente);
+     · `src/components/gestao/arquivos-painel.tsx` ... a tela, com as duas
+       escolhas e o formulário de alcance;
+     · `src/app/api/v1/arquivo/[id]/route.ts` ....... o DOWNLOAD pelo chatbot,
+       que é o único caminho em que o arquivo sai — e que confere dono,
+       liberação e alcance de novo, porque o widget é público e nada que ele
+       diga é decisão.
+
    A BASE NUNCA VEM DO FORMULÁRIO. Vale para as três ações abaixo, e é a mesma
    razão das ações de documentação: Server Action é endpoint, e este caminho grava
    com `service_role`, que tem `rolbypassrls`. Não há RLS para corrigir um erro
