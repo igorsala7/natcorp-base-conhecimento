@@ -11,7 +11,7 @@
  * um cliente à base de outro. Não há cerca de RLS aqui porque não pode
  * haver: este script É a cerca.
  *
- * Três provas, uma atrás da outra:
+ * Quatro provas, uma atrás da outra:
  *
  *   1) ISOLAMENTO ENTRE BASES — cria duas bases e duas documentações de
  *      teste, anexa cada uma à sua base, cria um arquivo de base em cada, e
@@ -75,6 +75,15 @@
  * `chunks_public_read` (via `ALTER POLICY`, revertido pelo `ROLLBACK` como
  * qualquer outro DDL transacional) para o mesmo formato vazador que a
  * migration da tarefa 2 documentou por extenso.
+ *
+ *   4) A SOBREPOSIÇÃO POR BASE, e que ela só ESTREITA (tarefa 9) — quatro
+ *      documentações UNIVERSAIS e sobreposições só na base A. Prova que
+ *      `enabled = false` esconde na base A e NÃO esconde na base B, que uma
+ *      regra mais estreita na base A não estreita na base B, e que uma
+ *      sobreposição ABERTA não ALARGA uma universal restrita por portal (a
+ *      interseção das duas regras). A migration
+ *      `20260925140000_escopo_com_sobreposicao_por_base.sql` tem as mesmas
+ *      assertivas, e elas rodam uma vez só; estas rodam a cada portão.
  *
  *      RESSALVA OPERACIONAL de `SABOTAR=anon`: `ALTER POLICY` toma lock
  *      `ACCESS EXCLUSIVE` na tabela `chunks` até o `ROLLBACK`. Enquanto o
@@ -363,7 +372,116 @@ async function main() {
         `escopo(A, identidade portal=PG) = [${escopoA_portalCerto.join(", ") || "vazio"}]`,
       );
 
-      // ── 9. A cerca do anon, agora repetível (passo 2b) ────────────────
+      // ── 9. Tarefa 9: a SOBREPOSIÇÃO por base, e que ela só ESTREITA ───
+      // Quatro documentações UNIVERSAIS (a oferta da Natcorp) e sobreposições
+      // só na base A. O que cada uma prova:
+      //
+      //   u-aberta   → universal sem sobreposição alcança as DUAS bases;
+      //   u-oculta   → `enabled = false` na base A esconde na base A e NÃO
+      //                esconde na base B (a prova que o brief pediu por
+      //                extenso: sobreposição é por base, nunca global);
+      //   u-estreita → regra da base ESTREITA na base A e não na base B;
+      //   u-teto     → universal restrita a PG + sobreposição ABERTA: a
+      //                identidade PO CONTINUA sem alcançar. É a prova da
+      //                INTERSEÇÃO, e o caso que quebraria se alguém trocasse
+      //                interseção por substituição.
+      //
+      // As inserções vêm DEPOIS das seções 5 a 8 de propósito: antes delas,
+      // `documentacoes_universais` está vazia, e as contagens daquelas seções
+      // continuam medindo exatamente o que mediam.
+      const spaceUAberta = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}u-aberta`],
+        )
+      ).rows[0]!.id;
+      const spaceUOculta = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}u-oculta`],
+        )
+      ).rows[0]!.id;
+      const spaceUEstreita = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}u-estreita`],
+        )
+      ).rows[0]!.id;
+      const spaceUTeto = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'client', 'private') returning id`,
+          [`${PREFIXO}u-teto`],
+        )
+      ).rows[0]!.id;
+
+      await client.query(
+        `insert into public.documentacoes_universais (space_id, enabled, regra) values
+           ($1, true, '{}'::jsonb),
+           ($2, true, '{}'::jsonb),
+           ($3, true, '{}'::jsonb),
+           ($4, true, $5::jsonb)`,
+        [spaceUAberta, spaceUOculta, spaceUEstreita, spaceUTeto, JSON.stringify({ portal: ["PG"] })],
+      );
+      await client.query(
+        `insert into public.ai_base_documentacoes (base_id, space_id, enabled, regra) values
+           ($1, $2, false, '{}'::jsonb),
+           ($1, $3, true,  $5::jsonb),
+           ($1, $4, true,  '{}'::jsonb)`,
+        [baseA, spaceUOculta, spaceUEstreita, spaceUTeto, JSON.stringify({ portal: ["PG"] })],
+      );
+
+      /** Espaços que esta identidade alcança nesta base, pela função de verdade. */
+      const escopoDe = async (codigo: string, identidade: Record<string, string>) =>
+        (
+          await client.query<LinhaEscopo>(`select space_id from public.escopo_documentacao($1, $2::jsonb)`, [
+            codigo,
+            JSON.stringify(identidade),
+          ])
+        ).rows.map((r) => r.space_id);
+
+      const aPG = await escopoDe(codigoBaseA, { portal: "PG" });
+      const bPG = await escopoDe(codigoBaseB, { portal: "PG" });
+      const aPO = await escopoDe(codigoBaseA, { portal: "PO" });
+      const bPO = await escopoDe(codigoBaseB, { portal: "PO" });
+
+      registra(
+        casos,
+        "universal SEM sobreposição alcança as duas bases",
+        aPG.includes(spaceUAberta) && bPG.includes(spaceUAberta),
+        `A tem u-aberta = ${aPG.includes(spaceUAberta)} · B tem u-aberta = ${bPG.includes(spaceUAberta)}`,
+      );
+      registra(
+        casos,
+        "sobreposição enabled=false ESCONDE a universal na base A",
+        !aPG.includes(spaceUOculta),
+        `escopo(A, PG) tem u-oculta = ${aPG.includes(spaceUOculta)}`,
+      );
+      registra(
+        casos,
+        "esconder na base A NÃO esconde na base B",
+        bPG.includes(spaceUOculta),
+        `escopo(B, PG) tem u-oculta = ${bPG.includes(spaceUOculta)}`,
+      );
+      registra(
+        casos,
+        "sobreposição com regra ESTREITA: identidade PO não alcança na base A",
+        !aPO.includes(spaceUEstreita) && aPG.includes(spaceUEstreita),
+        `A: PO tem u-estreita = ${aPO.includes(spaceUEstreita)} · PG tem = ${aPG.includes(spaceUEstreita)}`,
+      );
+      registra(
+        casos,
+        "estreitar na base A NÃO estreita na base B (PO continua alcançando lá)",
+        bPO.includes(spaceUEstreita),
+        `escopo(B, PO) tem u-estreita = ${bPO.includes(spaceUEstreita)}`,
+      );
+      registra(
+        casos,
+        "sobreposição ABERTA não ALARGA universal restrita a PG: identidade PO continua fora (INTERSEÇÃO)",
+        !aPO.includes(spaceUTeto) && aPG.includes(spaceUTeto),
+        `A: PO tem u-teto = ${aPO.includes(spaceUTeto)} · PG tem = ${aPG.includes(spaceUTeto)}`,
+      );
+
+      // ── 10. A cerca do anon, agora repetível (passo 2b) ───────────────
       if (SABOTAR === "anon") {
         // SABOTAGEM: mesmo formato vazador que a migration
         // 20260925116000 documentou — acrescenta `OR chunks.node_id IS NULL`
@@ -406,8 +524,9 @@ async function main() {
 
     // ── Prova de que nada sujou produção ────────────────────────────────
     // Fora de qualquer transação: se o rollback falhou silenciosamente por
-    // algum motivo, isto pega. Conta por prefixo nas cinco tabelas tocadas
-    // (a quinta, `chunks`, entrou com a tarefa 7).
+    // algum motivo, isto pega. Conta por prefixo nas SEIS tabelas tocadas
+    // (a quinta, `chunks`, entrou com a tarefa 7; a sexta,
+    // `documentacoes_universais`, com a tarefa 9).
     const restos = Number(
       (
         await client.query<{ n: string }>(
@@ -416,6 +535,8 @@ async function main() {
              (select count(*) from public.spaces where slug like $1) +
              (select count(*) from public.ai_base_documentacoes d
                 join public.spaces s on s.id = d.space_id where s.slug like $1) +
+             (select count(*) from public.documentacoes_universais u
+                join public.spaces s on s.id = u.space_id where s.slug like $1) +
              (select count(*) from public.knowledge_documents where original_name like $1) +
              (select count(*) from public.chunks where content like $1)
            )::text as n`,
@@ -436,7 +557,7 @@ async function main() {
     console.log(
       `\n  ${
         falhas === 0
-          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada, e a cerca do anon segue de pé"
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), e a cerca do anon segue de pé"
           : `FALHOU em ${falhas} caso(s)`
       }\n`,
     );
