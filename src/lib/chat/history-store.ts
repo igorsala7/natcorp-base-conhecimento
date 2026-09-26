@@ -18,6 +18,17 @@ export type HistoryCitation = {
   url: string | null;
   image?: string | null;
   heading_path?: string | null;
+  /**
+   * Arquivo da empresa que ESTA identidade podia baixar quando a resposta foi
+   * escrita. É o que faz o widget mostrar "Baixar" também no histórico, com o
+   * mesmo bloco de citação de sempre.
+   *
+   * Uma FOTO do momento: a regra pode ter mudado desde então. Não é problema —
+   * `/api/v1/arquivo/[id]` reconfere dono, liberação e alcance no clique e
+   * recusa se algo mudou. O caminho errado seria o contrário: guardar aqui uma
+   * URL já assinada, que continuaria valendo depois de o acesso ser tirado.
+   */
+  document_id?: string | null;
 };
 /** Metadado leve do anexo, para reexibir o "chip" no histórico. */
 export type HistoryAttachment = { id: string; name: string; mime: string; size: number };
