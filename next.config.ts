@@ -1,4 +1,14 @@
 import type { NextConfig } from "next";
+/*
+  O teto do corpo de Server Action vem do file-guard, e não de um literal aqui.
+
+  `file-guard.ts` é puro (nenhum import) e já é o módulo que a TELA lê para
+  recusar o arquivo grande antes de enviar. Com o número em dois lugares, a tela
+  prometia 60 MB enquanto este campo cortava em 8 — o defeito que a tarefa 18
+  corrigiu. Caminho relativo porque o alias `@/` não existe na compilação da
+  configuração.
+*/
+import { MAX_SERVER_ACTION_BYTES } from "./src/lib/importer/file-guard";
 
 /**
  * Caminho público quando o app NÃO fica na raiz do domínio — a Natcorp serve em
@@ -109,8 +119,16 @@ const nextConfig: NextConfig = {
        * 8 MB cobre o metadado de aplicação grande. Acima disso o caminho certo é
        * arquivo em Storage e job, não Server Action: manter o corpo pequeno é o
        * que evita segurar um worker de Next com megabytes na memória.
+       *
+       * ── E ELE TAMBÉM É O TETO DO ANEXO DO CLIENTE ────────────────────────
+       * A tela de arquivos da empresa (`arquivos-painel.tsx`) manda o arquivo
+       * por Server Action, então este campo é o teto DELA — menor que os 60 MB
+       * de `MAX_UPLOAD_BYTES`. Por isso o valor é derivado da constante
+       * compartilhada: é a mesma que a tela anuncia e usa para recusar antes de
+       * enviar. Mudar aqui exige mudar o `client_max_body_size` do nginx
+       * também (o padrão dele é 1 MB) — ver o comentário de `MAX_UPLOAD_BYTES`.
        */
-      bodySizeLimit: "8mb",
+      bodySizeLimit: `${MAX_SERVER_ACTION_BYTES / 1024 / 1024}mb`,
     },
   },
   async headers() {

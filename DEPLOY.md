@@ -166,6 +166,36 @@ location /natcorp/ia {
 }
 ```
 
+### O teto de tamanho do upload é do nginx, e o padrão dele é 1 MB
+
+O bloco acima **não declara `client_max_body_size`**, e o padrão do nginx é
+**1 MB**. Quem sobe um arquivo por esse caminho (a aba **Conteúdo** da gestão,
+"Arquivos da sua empresa") leva **413** acima disso, e o app não é nem chamado.
+
+Três tetos, e vale o menor:
+
+| onde | valor | o que acontece acima dele |
+|---|---|---|
+| `client_max_body_size` (nginx) | **1 MB** (padrão, não declarado) | 413 do proxy; o app não roda |
+| `serverActions.bodySizeLimit` (`next.config.ts`) | **8 MB** (`MAX_SERVER_ACTION_BYTES`) | resposta ilegível; o console diz "An unexpected response was received from the server" |
+| `MAX_UPLOAD_BYTES` (`file-guard.ts`) | 60 MB | mensagem clara de "arquivo maior que…" |
+
+A tela anuncia **8 MB** — o menor dos dois que o código conhece — e recusa antes
+de enviar. Do 413 e da resposta ilegível ela não consegue ler a causa, então
+trata os dois como "arquivo grande demais" em vez de repassar a frase do
+framework.
+
+**Isto é decisão de deploy, não de código.** Para que os 8 MB da aplicação valham
+de verdade, acrescente ao `location` acima:
+
+```nginx
+client_max_body_size 8m;   # senão o teto real é 1 MB (padrão do nginx)
+```
+
+Subir acima de 8 MB exige mexer nos três lugares da tabela — ver o comentário de
+`MAX_UPLOAD_BYTES` em `src/lib/importer/file-guard.ts`, que também registra que
+esse valor é compartilhado com o importador e com os anexos de chat.
+
 ### Cabeçalhos que o proxy NÃO pode tocar
 
 Medido em 23/09/2026: o nginx **reescreve o `Content-Security-Policy`** e

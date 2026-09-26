@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   extDe,
   extensaoAceita,
@@ -6,6 +7,10 @@ import {
   assertArquivoSeguro,
   ACCEPT_ATTR,
   ACCEPT_ATTR_MIDIA,
+  MAX_UPLOAD_BYTES,
+  MAX_SERVER_ACTION_BYTES,
+  MAX_ANEXO_CLIENTE_BYTES,
+  MAX_ANEXO_CLIENTE_MB,
 } from "./file-guard";
 
 const txt = (s: string) => new TextEncoder().encode(s);
@@ -148,5 +153,38 @@ describe("assertArquivoSeguro({ midia: true })", () => {
     expect(ACCEPT_ATTR_MIDIA).toContain(".pdf");
     expect(ACCEPT_ATTR).not.toContain(".mp4");
     expect(ACCEPT_ATTR).not.toContain(".zip");
+  });
+});
+
+/**
+ * OS TETOS DE TAMANHO — e a promessa que a tela pode fazer.
+ *
+ * A tela do arquivo da empresa dizia "Até 60 MB por arquivo", copiado à mão de
+ * `MAX_UPLOAD_BYTES`. Mas o envio é por Server Action, cortada em 8 MB, e acima
+ * disso o Next devolve uma resposta ilegível em vez de erro de validação — o
+ * cliente via "An unexpected response was received from the server", sem nenhuma
+ * pista de que o problema era TAMANHO. O número estava em dois lugares e só um
+ * deles valia.
+ *
+ * O que estes casos guardam não é o VALOR (o dono pode mudá-lo), é a relação: o
+ * que a tela anuncia nunca pode ser maior que o que o servidor aceita, e o
+ * `next.config.ts` não pode voltar a ter o número escrito à mão.
+ */
+describe("os três tetos de tamanho", () => {
+  it("o que a tela anuncia não passa do que a Server Action aceita", () => {
+    expect(MAX_ANEXO_CLIENTE_BYTES).toBeLessThanOrEqual(MAX_SERVER_ACTION_BYTES);
+    expect(MAX_ANEXO_CLIENTE_BYTES).toBeLessThanOrEqual(MAX_UPLOAD_BYTES);
+    // MB inteiros, e para BAIXO: anunciar arredondando para cima prometeria
+    // alguns KB que o servidor recusa.
+    expect(MAX_ANEXO_CLIENTE_MB).toBe(Math.floor(MAX_ANEXO_CLIENTE_BYTES / 1024 / 1024));
+    expect(MAX_ANEXO_CLIENTE_MB * 1024 * 1024).toBeLessThanOrEqual(MAX_ANEXO_CLIENTE_BYTES);
+  });
+
+  it("`next.config.ts` deriva o bodySizeLimit da constante, não de um literal", () => {
+    const config = readFileSync("next.config.ts", "utf8");
+    expect(config).toContain("MAX_SERVER_ACTION_BYTES");
+    expect(config).toMatch(/bodySizeLimit:\s*`\$\{MAX_SERVER_ACTION_BYTES/);
+    // O literal é o defeito: ele foi de 1mb para 8mb sem a tela saber.
+    expect(config).not.toMatch(/bodySizeLimit:\s*["']\d+mb["']/);
   });
 });

@@ -145,8 +145,72 @@ export const ACCEPT_ATTR_MIDIA = [
   ...ACCEPT_MIMES,
 ].join(",");
 
-/** Limite padrão por arquivo (bytes). Documentos grandes vão pela Importação. */
+/**
+ * Limite deste PORTÃO, por arquivo (bytes) — e o maior dos três tetos que existem.
+ *
+ * ── TRÊS TETOS, E O MENOR É O QUE VALE ───────────────────────────────────
+ * Este número não é o que um arquivo precisa vencer para chegar até aqui. Entre
+ * o seletor de arquivo da tela do cliente e esta função há mais dois limites,
+ * cada um em um lugar diferente, e os dois são MENORES:
+ *
+ *   1. `client_max_body_size` do nginx — o padrão é 1 MB, e o bloco `location`
+ *      do DEPLOY.md não declara outro valor. Estourado, o proxy responde 413 e
+ *      a aplicação não é nem chamada;
+ *   2. `serverActions.bodySizeLimit` em `next.config.ts` — 8 MB, que é
+ *      `MAX_SERVER_ACTION_BYTES` logo abaixo. Estourado, o Next NÃO devolve
+ *      erro de validação: devolve uma resposta que o cliente não sabe ler, e o
+ *      console mostra "An unexpected response was received from the server". O
+ *      comentário daquele campo registra o incidente que isso já causou na
+ *      ingestão do APEX;
+ *   3. este, que é o único dos três a produzir mensagem clara.
+ *
+ * Por isso a tela do cliente anuncia `MAX_ANEXO_CLIENTE_MB` — o menor dos dois
+ * que o CÓDIGO conhece — e não este. Prometer 60 MB e quebrar em 8 (ou em 1,
+ * em produção) é a mentira que a tarefa 18 veio desfazer.
+ *
+ * ── PARA SUBIR O TETO DE VERDADE, os três lados têm de concordar ─────────
+ *   · `serverActions.bodySizeLimit`, em `next.config.ts` (que hoje DERIVA de
+ *     `MAX_SERVER_ACTION_BYTES`) — lembrando que o corpo inteiro fica na
+ *     memória de um worker do Next enquanto a ação roda;
+ *   · `client_max_body_size <N>m;` no bloco `location` do nginx (DEPLOY.md);
+ *   · e este valor, que é COMPARTILHADO com o importador e com os anexos de
+ *     chat. Esses dois não passam por Server Action e não têm os outros dois
+ *     tetos: mexer aqui muda três superfícies de uma vez.
+ *
+ * Acima de poucos MB o caminho certo não é subir limite, é upload direto ao
+ * Storage + job — ver o comentário de `anexarArquivoDaBase`, em
+ * `src/lib/documentacoes/arquivos-da-base.ts`.
+ */
 export const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
+
+/**
+ * O teto do CORPO de uma Server Action, em bytes.
+ *
+ * SÍTIO ÚNICO: `next.config.ts` importa esta constante e deriva
+ * `serverActions.bodySizeLimit` dela. Duas fontes para o mesmo número é como a
+ * tela passou a prometer 60 MB enquanto o servidor cortava em 8 — o valor
+ * estava em dois lugares e só um deles mudou.
+ *
+ * Mora AQUI, e não no `next.config.ts`, porque quem precisa dele é a TELA: é
+ * ela que tem de recusar o arquivo grande antes de a requisição sair do
+ * navegador, e um componente de cliente não importa o arquivo de configuração.
+ * Este módulo é puro (nenhum import) e já é lido pelos dois lados.
+ */
+export const MAX_SERVER_ACTION_BYTES = 8 * 1024 * 1024;
+
+/**
+ * O menor teto que o código conhece para um anexo enviado PELA TELA.
+ *
+ * O do nginx pode ser menor ainda (ver acima) e não é visível daqui: nenhuma
+ * variável de ambiente o expõe, e inventar um palpite seria trocar uma promessa
+ * errada por outra. Quem trata esse caso é a tela, que lê o 413 e a resposta
+ * ilegível como "arquivo grande demais" em vez de repassar a mensagem do
+ * framework.
+ */
+export const MAX_ANEXO_CLIENTE_BYTES = Math.min(MAX_UPLOAD_BYTES, MAX_SERVER_ACTION_BYTES);
+
+/** O mesmo teto em MB inteiros: a tela diz um número, não uma conta. */
+export const MAX_ANEXO_CLIENTE_MB = Math.floor(MAX_ANEXO_CLIENTE_BYTES / 1024 / 1024);
 
 /** Extensão (minúscula, sem ponto) do nome. */
 export function extDe(name: string): string {
