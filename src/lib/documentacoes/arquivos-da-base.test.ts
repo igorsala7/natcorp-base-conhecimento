@@ -52,6 +52,8 @@ const DOC_NOVO = "44444444-4444-4444-8444-444444444444";
 const TXT = new TextEncoder().encode("Manual interno da empresa.\nSegunda linha.\n");
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x25, 0x41]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02]);
+/** Caixa `ftyp` no byte 4 — a assinatura que `assertArquivoSeguro` exige do mp4. */
+const MP4 = new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
 
 type Op = { tabela: string; op: "select" | "insert" | "update" | "delete"; payload?: unknown; filtros: Record<string, unknown> };
 type Storage = { op: "upload" | "remove"; caminhos: string[] };
@@ -335,10 +337,10 @@ describe("qualquer mídia baixa; só o que extrai vira conhecimento", () => {
     expect(escritas()).toHaveLength(0);
   });
 
-  it("tipo fora da allowlist é barrado pelo file-guard, antes de tudo", async () => {
+  it("vídeo entra para DOWNLOAD — é o `{ midia: true }` da tarefa 17", async () => {
     const r = await anexarArquivoDaBase({
       baseId: BASE_DA_SESSAO,
-      bytes: new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
+      bytes: MP4,
       originalName: "treinamento.mp4",
       mime: "video/mp4",
       naBaseDeConhecimento: false,
@@ -346,11 +348,49 @@ describe("qualquer mídia baixa; só o que extrai vira conhecimento", () => {
       regra: {},
     });
 
-    // Vídeo NÃO passa hoje, e é a distância entre "qualquer tipo de mídia" e o
-    // que `EXT_ACEITAS` lista. Está sob teste para a decisão aparecer ao ser
-    // mudada, em vez de alguém descobrir pela reclamação de um cliente.
+    // Até a tarefa 16 este caso era RECUSADO, e o teste guardava a recusa para
+    // a decisão aparecer ao ser mudada. Foi mudada de propósito: a tela promete
+    // mídia, e prometer sem entregar era o defeito.
+    expect(r).toEqual({ ok: true, documentId: DOC_NOVO, chunks: 0 });
+    const insert = escritas().find((o) => o.op === "insert");
+    expect(insert?.payload).toMatchObject({ status: "ready", download_liberado: true });
+    expect(reindexDocumentChunks).not.toHaveBeenCalled();
+  });
+
+  it("o MESMO vídeo pedido para a base de conhecimento é RECUSADO com o motivo", async () => {
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: MP4,
+      originalName: "treinamento.mp4",
+      mime: "video/mp4",
+      naBaseDeConhecimento: true,
+      downloadLiberado: true,
+      regra: {},
+    });
+
+    // O que SOBE e o que vira CONHECIMENTO são listas diferentes de propósito:
+    // vídeo não tem texto para o assistente ler, e aceitar produziria documento
+    // "pronto" com zero trecho.
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.erro).toContain(".mp4");
+    expect(r.ok === false && r.erro).toContain("download");
+    expect(storage).toHaveLength(0);
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("executável continua barrado pelo file-guard, antes de tudo", async () => {
+    const r = await anexarArquivoDaBase({
+      baseId: BASE_DA_SESSAO,
+      bytes: new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]),
+      originalName: "instalador.exe",
+      mime: "application/octet-stream",
+      naBaseDeConhecimento: false,
+      downloadLiberado: true,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toMatch(/execut/i);
     expect(storage).toHaveLength(0);
   });
 

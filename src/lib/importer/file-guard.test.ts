@@ -1,7 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { extDe, extensaoAceita, pareceBinario, assertArquivoSeguro, ACCEPT_ATTR } from "./file-guard";
+import {
+  extDe,
+  extensaoAceita,
+  pareceBinario,
+  assertArquivoSeguro,
+  ACCEPT_ATTR,
+  ACCEPT_ATTR_MIDIA,
+} from "./file-guard";
 
 const txt = (s: string) => new TextEncoder().encode(s);
+
+/** Bytes com a assinatura certa seguidos de enchimento, para os casos de mídia. */
+const bytes = (...sig: number[]) => new Uint8Array([...sig, 1, 2, 3, 4, 5, 6, 7, 8]);
+/** Caixa `ftyp` da família ISO-BMFF (mp4/mov/m4a): ela mora no byte 4. */
+const ftyp = (marca: string) =>
+  new Uint8Array([0, 0, 0, 0x20, ...[..."ftyp" + marca].map((c) => c.charCodeAt(0))]);
 
 describe("extDe / extensaoAceita", () => {
   it("extrai a extensão e aceita dev types + pptx", () => {
@@ -55,5 +68,85 @@ describe("assertArquivoSeguro", () => {
   });
   it("rejeita pdf sem %PDF", () => {
     expect(() => assertArquivoSeguro(txt("nope"), "fake.pdf")).toThrow(/PDF/i);
+  });
+});
+
+/**
+ * O MODO MÍDIA — e a metade dele que é "o resto do produto não muda".
+ *
+ * `assertArquivoSeguro` é compartilhada com o importador e com os anexos de
+ * chat. A liberação de mídia é do ARQUIVO DA EMPRESA e de mais ninguém: cada
+ * caso abaixo que prova uma liberação tem o par que prova que, SEM a opção, a
+ * recusa de sempre continua de pé. Os casos da seção anterior rodam todos sem
+ * `opts` de propósito — eles são a regressão das outras duas superfícies.
+ */
+describe("assertArquivoSeguro({ midia: true })", () => {
+  const MP4 = ftyp("isom");
+
+  it("sem a opção, vídeo continua recusado (importador e anexo de chat não mudam)", () => {
+    expect(() => assertArquivoSeguro(MP4, "treinamento.mp4")).toThrow(/não permitido/i);
+    expect(() => assertArquivoSeguro(MP4, "treinamento.mp4", { imagens: true })).toThrow(/não permitido/i);
+  });
+
+  it("com a opção, vídeo, áudio, compactado e Office antigo passam", () => {
+    const casos: [Uint8Array, string][] = [
+      [MP4, "treinamento.mp4"],
+      [ftyp("qt  "), "clipe.mov"],
+      [bytes(0x1a, 0x45, 0xdf, 0xa3), "aula.webm"],
+      [bytes(0x49, 0x44, 0x33, 0x04), "podcast.mp3"],
+      [new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]), "aviso.wav"],
+      [bytes(0x50, 0x4b, 0x03, 0x04), "pacote.zip"],
+      [bytes(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07), "pacote.rar"],
+      [bytes(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1), "antigo.ppt"],
+    ];
+    for (const [buf, nome] of casos) {
+      expect(() => assertArquivoSeguro(buf, nome, { midia: true }), nome).not.toThrow();
+    }
+  });
+
+  it("magic bytes, não extensão: .mp4 que não é mp4 cai", () => {
+    expect(() => assertArquivoSeguro(txt("isto é texto"), "falso.mp4", { midia: true })).toThrow(
+      /não parece um \.mp4/i,
+    );
+  });
+
+  it("executável e script de sistema são recusados COM o motivo", () => {
+    expect(() => assertArquivoSeguro(bytes(0x4d, 0x5a), "instalador.exe", { midia: true })).toThrow(
+      /executável ou script/i,
+    );
+    expect(() => assertArquivoSeguro(txt("#!/bin/sh\nrm -rf /"), "limpar.sh", { midia: true })).toThrow(
+      /executável ou script/i,
+    );
+  });
+
+  it("executável RENOMEADO para mídia cai pelo conteúdo", () => {
+    const pe = new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]);
+    expect(() => assertArquivoSeguro(pe, "treinamento.mp4", { midia: true })).toThrow(/programa executável/i);
+    const elf = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00]);
+    expect(() => assertArquivoSeguro(elf, "foto.png", { midia: true })).toThrow(/programa executável/i);
+  });
+
+  it("o .sh continua sendo TEXTO para o importador (o modo mídia não vazou)", () => {
+    expect(() => assertArquivoSeguro(txt("#!/bin/sh\necho oi"), "script.sh")).not.toThrow();
+  });
+
+  it("o .ppt antigo só muda de resposta DENTRO do modo mídia", () => {
+    const ole = bytes(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+    expect(() => assertArquivoSeguro(ole, "a.ppt")).toThrow(/pptx/i);
+    expect(() => assertArquivoSeguro(ole, "a.ppt", { midia: true })).not.toThrow();
+  });
+
+  it("documento continua valendo no modo mídia (a opção SOMA, não substitui)", () => {
+    expect(() => assertArquivoSeguro(txt("%PDF-1.7\n"), "manual.pdf", { midia: true })).not.toThrow();
+    expect(() => assertArquivoSeguro(txt("linha um"), "notas.txt", { midia: true })).not.toThrow();
+  });
+
+  it("ACCEPT_ATTR_MIDIA acrescenta mídia sem mexer no ACCEPT_ATTR do importador", () => {
+    expect(ACCEPT_ATTR_MIDIA).toContain(".mp4");
+    expect(ACCEPT_ATTR_MIDIA).toContain(".zip");
+    expect(ACCEPT_ATTR_MIDIA).toContain(".png");
+    expect(ACCEPT_ATTR_MIDIA).toContain(".pdf");
+    expect(ACCEPT_ATTR).not.toContain(".mp4");
+    expect(ACCEPT_ATTR).not.toContain(".zip");
   });
 });

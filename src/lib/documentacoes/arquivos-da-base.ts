@@ -102,14 +102,20 @@ export type ResultadoExclusao =
  * ou md") porque planilha e csv também têm extrator, e recusá-los seria inventar
  * restrição que o extrator não tem.
  *
- * E é MENOS num ponto que vale dizer em voz alta: `.ppt` ANTIGO (binário OLE) não
- * entra — `assertArquivoSeguro` o recusa com a mensagem pedindo `.pptx`. Quando o
- * dono escreveu "ppt", o código entende `pptx`.
+ * E é MENOS num ponto que vale dizer em voz alta: `.ppt` ANTIGO (binário OLE)
+ * SOBE — no modo mídia ele é aceito — mas não vira conhecimento, porque não há
+ * extrator para ele. Quando o dono escreveu "ppt" pensando em conteúdo, o
+ * código entende `pptx`; o `.ppt` fica disponível para download.
  *
- * Imagem, vídeo, áudio e afins ficam de fora: não viram texto, e um documento com
- * `chunk_count = 0` e status "pronto" é a falha silenciosa clássica deste produto.
- * Por isso pedir a base de conhecimento para um tipo assim é RECUSADO com o
- * motivo, em vez de aceito e indexado com zero trecho.
+ * Imagem, vídeo, áudio, compactado e o Office ANTIGO (.doc/.xls/.ppt, binário
+ * OLE) ficam de fora: eles ENTRAM na ingestão — é o `{ midia: true }` de
+ * `assertArquivoSeguro` —, mas só para download. Não viram texto, e um documento
+ * com `chunk_count = 0` e status "pronto" é a falha silenciosa clássica deste
+ * produto. Por isso pedir a base de conhecimento para um tipo assim é RECUSADO
+ * com o motivo, em vez de aceito e indexado com zero trecho.
+ *
+ * A assimetria é de propósito e tem um lugar só: `EXT_MIDIA` diz o que pode
+ * SUBIR, `EXT_ACEITAS` (esta função) diz o que pode VIRAR CONHECIMENTO.
  *
  * A tela (tarefa 11) deve usar ESTA função para desabilitar a opção, e não uma
  * segunda lista escrita à mão que um dia divergiria desta.
@@ -271,9 +277,18 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
   }
 
   try {
-    // `imagens: true` porque imagem é uma das mídias que o dono quer poder
-    // anexar para download — e a assinatura dela é conferida aqui dentro.
-    assertArquivoSeguro(bytes, nome, { imagens: true });
+    /*
+      `midia: true` é o que torna verdadeira a frase *"qualquer tipo de mídia
+      para ficar disponível para download"*: com ela entram imagem, vídeo,
+      áudio, compactado e o Office antigo, cada um com a assinatura conferida
+      por magic bytes lá dentro, e executável/script saem com o motivo.
+
+      A opção é SÓ desta ingestão. O importador e os anexos de chat chamam a
+      mesma função sem ela e continuam com a allowlist de sempre — o arquivo
+      que eles recebem vira TEXTO, e um .mp4 lá produziria documento com zero
+      trecho.
+    */
+    assertArquivoSeguro(bytes, nome, { midia: true });
   } catch (e) {
     return { ok: false, erro: e instanceof Error ? e.message : "Arquivo não aceito." };
   }
