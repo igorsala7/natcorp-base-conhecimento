@@ -76,9 +76,22 @@ export function decidirEscopo(linhas: LinhasDoEscopo, spaceIdsDaChave: string[])
 }
 
 /**
- * Lê as duas RPCs e decide. Duas consultas no caminho quente do turno, então
- * quem chamar precisa cachear — o cache de contexto de 60 s já existe e a chave
- * dele ganha base, portal e perfil.
+ * Lê as duas RPCs e decide.
+ *
+ * ── Custo, e o que dizer sobre cache sem descrever o que não existe ──────
+ * São duas consultas no caminho quente, uma por turno, e HOJE NÃO HÁ CACHE
+ * NENHUM aqui: nenhum chamador cacheia, e as duas rodam a cada turno. O único
+ * cache de 60 s do projeto (`src/lib/integrations/resolve.ts`, `baseCtxCache`)
+ * guarda FERRAMENTAS, não escopo, e é chaveado só pelo código da base.
+ *
+ * Se alguém for cachear isto, a chave tem de incluir a IDENTIDADE INTEIRA — as
+ * doze dimensões que `identidadeDoRastreio` monta, não só a base. O resultado
+ * destas duas RPCs depende de `public.elegivel(regra, identidade)`: dois
+ * usuários da MESMA base, com portais ou perfis diferentes, alcançam conjuntos
+ * diferentes de documentação e de arquivo. Uma chave só de base entregaria ao
+ * Colaborador o escopo do Gestor por até 60 s, dentro do mesmo cliente, sem
+ * erro em lugar nenhum — vazamento entre identidades, que é a coisa que este
+ * arquivo existe para impedir.
  *
  * Erro de banco NÃO derruba o turno: sem linha nenhuma para somar, a união de
  * `decidirEscopo` é exatamente o escopo da chave — o comportamento de antes

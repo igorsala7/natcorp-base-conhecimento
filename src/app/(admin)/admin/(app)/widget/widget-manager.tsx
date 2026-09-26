@@ -1219,8 +1219,11 @@ function ApiDocs({ siteUrl }: { siteUrl: string }) {
           <pre className="mt-1 overflow-x-auto rounded bg-surface-2 p-3 text-xs">{`curl ${siteUrl}/api/v1/search \\
   -H "X-Widget-Key: pk_live_…" \\
   -H "Content-Type: application/json" \\
-  -d '{"query":"nota fiscal","limit":8}'
+  -d '{"query":"nota fiscal","limit":8,"track":"kbt1.SEU_TOKEN"}'
 
+# \`track\` é OBRIGATÓRIO e é o MESMO token que o widget recebe em data-token:
+# a documentação pode ser restrita por base, portal e perfil, e servir sem
+# identidade devolveria conteúdo que a regra do cliente excluiu. Sem ele: 400.
 # Resposta: {"results":[{"title","heading_path","snippet","url"}]}`}</pre>
         </div>
       </div>

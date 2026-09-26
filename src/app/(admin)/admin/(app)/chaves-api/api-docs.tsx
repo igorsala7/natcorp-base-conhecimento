@@ -399,7 +399,8 @@ curl -H "Authorization: Bearer sk_live_..." "$HOST/api/v1/analyze?jobId=5b1e..."
       <Secao metodo="REF" path="/api/v1/*" titulo="Outras rotas do sistema">
         <ul className="list-disc pl-5">
           <li><code>POST /api/v1/chat</code> (alias <code>/api/ia</code>) — chat com IA (RAG + ferramentas), resposta em streaming SSE. Chave <b>pública</b> <code>pk_</code> + allowlist de origem.</li>
-          <li><code>POST /api/v1/search</code> (alias <code>/api/docs</code>) — busca híbrida na documentação. Chave <code>pk_</code>.</li>
+          <li><code>POST /api/v1/search</code> — busca híbrida na documentação. Chave <code>pk_</code> <b>+ token de rastreio</b> (<code>track</code>): sem ele responde 400, porque a documentação pode ser restrita por base, portal e perfil.</li>
+          <li><code>POST /api/docs</code> — mesma busca, <b>sem exigir</b> <code>track</code>, para a ferramenta interna NatDocs. Não é alias de <code>/api/v1/search</code>: usa as documentações da chave e pode devolver conteúdo que a regra de uma base excluiu.</li>
           <li><code>POST /api/v1/attach</code> — anexa um documento ao chat (multipart <code>file</code>); devolve o <code>attachment.id</code> para o chat.</li>
           <li><code>/api/manage/v1/…</code> — CRUD/publicação de conteúdo. Chave <code>sk_</code> com escopos <code>content.*</code>.</li>
           <li><code>GET /api/metrics</code> — observabilidade (chave <code>sk_</code> + <code>data.analyze</code>): profundidade das filas, concorrência (leases ativos), taxa de uso de IA (1min/5min), disjuntores e backend de cache.</li>
