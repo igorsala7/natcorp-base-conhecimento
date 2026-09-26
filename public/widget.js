@@ -3887,6 +3887,11 @@
       ".cite{display:flex;align-items:center;gap:10px;text-decoration:none;border:1px solid #ece3f6;border-radius:14px;padding:9px 10px;background:#fff;transition:border-color .15s,box-shadow .15s;box-shadow:0 3px 10px rgba(60,40,100,.05)}" +
       ".cite:hover{border-color:var(--pc);box-shadow:0 8px 18px rgba(60,40,100,.12)}" +
       ".cite-nolink{cursor:default}.cite-nolink:hover{border-color:#ece3f6;box-shadow:0 3px 10px rgba(60,40,100,.05)}" +
+      // "Baixar": pendurado sob o cartão da fonte, recuado para se ler como
+      // ação DAQUELE arquivo, e não como uma quarta fonte da lista.
+      ".cdl{display:inline-block;margin:-2px 0 2px 46px;font-size:12px;font-weight:600;color:var(--pc);text-decoration:none}" +
+      ".cdl:before{content:\"\\2193\";margin-right:5px}" +
+      ".cdl:hover{text-decoration:underline}" +
       ".csum{cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:#6b6577;padding:4px 2px;user-select:none}" +
       ".csum::-webkit-details-marker{display:none}" +
       ".csum:before{content:\"\\25B8\";display:inline-block;margin-right:6px;transition:transform .15s}" +
@@ -8058,6 +8063,36 @@
       a.appendChild(thumb);
       a.appendChild(body);
       box.appendChild(a);
+
+      /*
+        BAIXAR — só quando o SERVIDOR disse que pode.
+
+        `document_id` chega na citação apenas para arquivo da empresa cujo
+        download aquele usuário pode fazer: quem decidiu foi `/api/v1/chat`,
+        com a identidade do token cifrado e o corte em SQL. Este arquivo é
+        PÚBLICO, então nada decidido aqui valeria — e por isso o link também
+        não é um atalho: ele aponta para `/api/v1/arquivo/<id>`, que refaz as
+        três conferências (dono, liberação, alcance) antes de assinar. Se a
+        regra mudou depois que a resposta foi escrita, o clique é recusado, e é
+        assim que tem de ser: a citação é uma foto, o endpoint é a verdade.
+
+        Vai FORA do cartão da fonte, e não dentro: o cartão inteiro já é o
+        alvo de clique da fonte, e um link dentro de outro link é HTML
+        inválido e um alvo ambíguo para teclado e leitor de tela.
+      */
+      if (c.document_id) {
+        var bx = document.createElement("a");
+        bx.className = "cdl";
+        var q = "key=" + encodeURIComponent(KEY || "");
+        if (track && track.token) q += "&track=" + encodeURIComponent(track.token);
+        bx.href = API + "/api/v1/arquivo/" + encodeURIComponent(c.document_id) + "?" + q;
+        bx.target = "_blank";
+        bx.rel = "noopener";
+        // O nome do arquivo no rótulo: "Baixar" sozinho, embaixo de três
+        // cartões, não diz QUAL arquivo desce.
+        bx.textContent = "Baixar " + (c.title || "arquivo");
+        box.appendChild(bx);
+      }
     });
     det.appendChild(box);
     return det;

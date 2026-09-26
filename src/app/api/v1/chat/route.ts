@@ -28,6 +28,7 @@ import { reescritaDivergente } from "@/lib/ai/rewrite-divergence";
 import { separarSocial, ehTurnoSocial } from "@/lib/ai/social";
 import { analyzeAmbiguity, analyzeConfidence, resolveTheme, type ClarifyOption, type ClarifyScope } from "@/lib/ai/disambiguation";
 import { decodeTrackDetalhado } from "@/lib/tracking/resolve";
+import { arquivosBaixaveis } from "@/lib/documentacoes/download-de-arquivo";
 import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
 import { creditoDoTurno } from "@/lib/gestao/portao";
 import { clienteSumiu, encerrarRun, motivoDaRun, registrarRun, runIdValido } from "@/lib/chat/run-registry";
@@ -129,7 +130,11 @@ function mensagemErroChat(err: unknown): string {
  * POST /api/v1/chat — chat RAG público (widget e integrações).
  * Auth: chave pública (pk_...). Escopo: apenas o espaço da chave.
  * Resposta: SSE (text/event-stream) com eventos JSON:
- *   {type:'citations', citations:[{n,title,url}]}
+ *   {type:'citations', citations:[{n,title,url,image,heading_path,document_id}]}
+ *     · `url` nulo = a fonte é um ARQUIVO, que não tem página no portal;
+ *     · `document_id` presente = aquele arquivo pode ser BAIXADO por esta
+ *       identidade, e o widget monta o link para `/api/v1/arquivo/[id]`. Quem
+ *       decidiu foi o servidor; o endpoint reconfere no clique.
  *   {type:'token', value:'...'}   (vários)
  *   {type:'done', conversationId:'...'}
  *   {type:'error', message:'...'}
@@ -2352,12 +2357,40 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   const webSources = social || operacaoDeTela || soRedigir ? [] : await webSourcesParaLeitor(question, ragSources.length + 1);
   const sources = [...ragSources, ...webSources];
 
+  /*
+    O LINK DE DOWNLOAD DA CITAÇÃO — e quem decide não é o widget.
+
+    O cliente pode marcar um arquivo dele como baixável, e a resposta que o
+    cita é o lugar natural de oferecer o arquivo. Mas `widget.js` é público:
+    qualquer decisão tomada lá é sugestão, não autorização. Então o SERVIDOR
+    resolve aqui quais dos arquivos citados esta identidade pode baixar, e o
+    widget só desenha o que recebeu — e `/api/v1/arquivo/[id]` reconfere tudo
+    no clique, com a MESMA função (`arquivosBaixaveis`), porque o link pode
+    ser copiado, guardado e usado depois de a regra mudar.
+
+    `document_id` só sai quando o download está AUTORIZADO. Ele não é segredo
+    (é um arquivo que esta identidade já alcança), mas o widget só precisa dele
+    para montar o link, e o que não é preciso não atravessa.
+
+    Uma consulta a mais no turno só quando há arquivo citado: artigo tem
+    `document_id` nulo e nem entra na lista.
+  */
+  const idsCitados = sources
+    .map((s) => s.document_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const baixaveis = idsCitados.length
+    ? new Set((await arquivosBaixaveis(supabase, track.p_base, track, idsCitados)).map((a) => a.id))
+    : new Set<string>();
+
   const citations = sources.map((s) => ({
     n: s.n,
     title: s.title,
     url: s.url,
     image: s.image,
     heading_path: s.heading_path,
+    // Só para fonte de ARQUIVO liberada. Artigo tem `url` e não tem isto — é a
+    // distinção entre arquivo e artigo que a citação não tinha.
+    document_id: s.document_id && baixaveis.has(s.document_id) ? s.document_id : null,
   }));
 
   // Contexto fraco → recusa (proibido responder por conhecimento geral).
