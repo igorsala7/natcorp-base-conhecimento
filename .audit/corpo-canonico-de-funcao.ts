@@ -25,10 +25,12 @@
  * nos ARQUIVOS. São complementares, e esta é a classe que mordeu duas vezes.
  *
  * ── Por que é CATRACA e não "zero duplicatas" ───────────────────────────────
- * Medido em 26/09 sobre `supabase/migrations/`: 26 funções têm mais de um sítio
- * vivo de definição. Vinte e duas delas são dívida HERDADA, anterior a este
- * ramo, e exigir zero faria o portão nascer vermelho e ser desligado no mesmo
- * dia — portão que ninguém consegue passar não mede nada.
+ * Medido em 26/09 sobre `supabase/migrations/`: 26 funções tinham mais de um
+ * sítio vivo de definição. Vinte e duas delas eram dívida HERDADA, anterior a
+ * este ramo, e exigir zero faria o portão nascer vermelho e ser desligado no
+ * mesmo dia — portão que ninguém consegue passar não mede nada. A tarefa 16
+ * apertou a catraca para 19 ao consolidar `elegivel`, `allowlist_casa` e
+ * `vocabulario_rastreio`.
  *
  * Então o contrato é uma catraca com linha de base explícita:
  *
@@ -64,8 +66,9 @@
  *
  * ── Sentinela: o script tem de continuar medindo ────────────────────────────
  * Se a varredura achar zero arquivo, zero função, ou perder de vista qualquer
- * uma das seis funções de escopo por base, ele FALHA em vez de passar. Portão
- * verde porque não olhou é pior do que portão nenhum.
+ * uma das nove funções de `SENTINELA` (as seis de escopo por base mais as três
+ * da tarefa 16), ele FALHA em vez de passar. Portão verde porque não olhou é
+ * pior do que portão nenhum.
  *
  *   npm run verificar:corpo
  */
@@ -107,13 +110,19 @@ const LINHAS_DE_CABECALHO = 5;
  * para as funções de escopo por base. Zerar esta lista é trabalho por domínio
  * (cada função tem um dono e um conjunto de assertivas que viajam com ela), não
  * um mutirão.
+ *
+ * A catraca já foi apertada uma vez, na tarefa 16: `elegivel` (4 sítios),
+ * `allowlist_casa` (3) e `vocabulario_rastreio` (2) SAÍRAM desta lista e valem
+ * UM sítio cada. As duas primeiras decidem isolamento entre clientes, e a
+ * terceira veio junto por força da ordem — ela era definida no mesmo arquivo
+ * que virou o sítio canônico de `allowlist_casa`, e enquanto estivesse lá
+ * reaplicar aquele arquivo continuaria sendo destrutivo. Linha de base: 22
+ * funções antes, 19 depois.
  */
 const DIVIDA_HERDADA: Record<string, number> = {
   ai_usage_report: 5,
-  allowlist_casa: 3,
   approve_review: 2,
   create_article_version: 2,
-  elegivel: 4,
   gestao_alocacoes: 2,
   gestao_ciclos: 2,
   gestao_compras: 2,
@@ -130,13 +139,17 @@ const DIVIDA_HERDADA: Record<string, number> = {
   soft_delete_subtree: 2,
   submit_for_review: 2,
   verify_space_password: 2,
-  vocabulario_rastreio: 2,
 };
 
 /**
- * As seis funções de escopo por base. Não ganham tratamento especial na regra
- * (elas simplesmente não estão em `DIVIDA_HERDADA`, logo valem UM sítio); estão
- * aqui só como sentinela de que a varredura continua enxergando o que deveria.
+ * As seis funções de escopo por base (tarefa 15) mais as três consolidadas na
+ * tarefa 16. Não ganham tratamento especial na regra (elas simplesmente não
+ * estão em `DIVIDA_HERDADA`, logo valem UM sítio); estão aqui só como
+ * sentinela de que a varredura continua enxergando o que deveria.
+ *
+ * Perder de vista uma destas é o modo de falha que quase passou na tarefa 15:
+ * o script parou de MEDIR sem mudar de cor. Portão verde porque não olhou é
+ * pior do que portão nenhum.
  */
 const SENTINELA = [
   "codigo_normalizado",
@@ -145,6 +158,9 @@ const SENTINELA = [
   "documentos_da_base",
   "hybrid_search_scoped",
   "knowledge_list_chunks",
+  "elegivel",
+  "allowlist_casa",
+  "vocabulario_rastreio",
 ];
 
 function semComentario(sql: string): string {
