@@ -50,17 +50,36 @@ const SEGUNDOS_DE_VALIDADE = 120;
  * decisão, de propósito.
  *
  * As recusas que NÃO são sobre o arquivo continuam distintas — chave inválida
- * (401), origem não autorizada (403), rate limit (429) —, porque elas falam do
- * CHAMADOR e não ensinam nada sobre o acervo.
+ * (401) e rate limit (429) —, porque elas falam do CHAMADOR e não ensinam nada
+ * sobre o acervo.
+ *
+ * ── E A DE ORIGEM (403) NÃO É CONTROLE NESTA ROTA ─────────────────────────
+ * O ramo existe e responde 403, mas ele não fecha nada aqui, e dizer o contrário
+ * ensinaria o próximo leitor a contar com uma cerca que não existe. O download
+ * abre por navegação de TOPO, de um `<a target="_blank">` dentro da citação: o
+ * navegador não manda `Origin` nesse caso, e `originAllowed` devolve `true` para
+ * `Origin` nulo de propósito (chamada servidor-a-servidor não tem origem). Ou
+ * seja: no caminho real desta rota a checagem nunca reprova, e num caminho
+ * forjado basta não mandar o cabeçalho.
+ *
+ * Fica no lugar porque é a forma da v1 inteira e porque ela SIM reprova num
+ * `fetch` entre origens de um site não autorizado — só não é ela que protege o
+ * arquivo. Quem protege são a chave, o token cifrado e as três condições em SQL
+ * (`documentos_da_base` + `download_liberado`), e nenhuma delas depende de
+ * cabeçalho que o cliente escolhe mandar.
  */
 
 export async function OPTIONS(req: NextRequest) {
-  return new Response(null, { status: 204, headers: corsHeaders(req.headers.get("origin")) });
+  return new Response(null, {
+    status: 204,
+    // GET, não POST: esta rota é a única da v1 que serve por redirect.
+    headers: corsHeaders(req.headers.get("origin"), "GET, OPTIONS"),
+  });
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const origin = req.headers.get("origin");
-  const cors = corsHeaders(origin);
+  const cors = corsHeaders(origin, "GET, OPTIONS");
   const json = (body: unknown, status: number) => Response.json(body, { status, headers: cors });
 
   /**

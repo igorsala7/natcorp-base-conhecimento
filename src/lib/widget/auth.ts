@@ -108,11 +108,23 @@ export function originAllowed(allowed: string[], origin: string | null): boolean
   return allowed.some((a) => a.trim().replace(/\/$/, "") === origin.replace(/\/$/, ""));
 }
 
-/** Cabeçalhos CORS. Reflete a origem quando permitida. */
-export function corsHeaders(origin: string | null): Record<string, string> {
+/**
+ * Cabeçalhos CORS. Reflete a origem quando permitida.
+ *
+ * `metodos` existe porque a v1 deixou de ser só de POST: `/api/v1/arquivo/[id]`
+ * é GET, e anunciar "POST, OPTIONS" nele é uma declaração FALSA sobre o que a
+ * rota aceita. Não quebra o download (navegação de topo não passa por
+ * pré-voo), mas um `fetch` entre origens leria o anúncio e concluiria que o GET
+ * não é permitido. O padrão continua "POST, OPTIONS" para as outras rotas não
+ * mudarem de comportamento por causa desta.
+ */
+export function corsHeaders(
+  origin: string | null,
+  metodos = "POST, OPTIONS",
+): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin ?? "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": metodos,
     "Access-Control-Allow-Headers": "Content-Type, X-Widget-Key, Authorization",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
