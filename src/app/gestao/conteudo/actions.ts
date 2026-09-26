@@ -17,7 +17,7 @@ import {
   type Dimensao,
   type Regra,
 } from "@/lib/elegibilidade";
-import { daOfertaUniversal } from "@/lib/documentacoes/universais";
+import { daOfertaUniversal, regraAlcancaBase } from "@/lib/documentacoes/universais";
 import { exclusoesEntreRegras, mensagemDeExclusao } from "@/lib/documentacoes/regras-combinadas";
 import { buscarValoresNoErp } from "@/lib/documentacoes/valores-erp";
 import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
@@ -128,10 +128,24 @@ const listaSchema = sessaoSchema.extend({
  * daquele cliente.
  *
  * A trava é: o `space_id` tem de estar em `documentacoes_universais` com
- * `enabled = true`. Um cliente nunca alcança um espaço que a Natcorp não ofereceu
- * a todos. Tem uma segunda razão além da segurança, e ela chegou depois:
+ * `enabled = true`, E a regra da Natcorp tem de alcançar A BASE desta sessão
+ * pela dimensão `base`. Um cliente nunca alcança um espaço que a Natcorp não
+ * ofereceu a ele. Tem uma segunda razão além da segurança, e ela chegou depois:
  * sobreposição só faz sentido sobre algo que existe universalmente — sem a linha
  * universal, não há o que esconder nem que regra substituir.
+ *
+ * ── A SEGUNDA METADE, que faltou até a tarefa 14 ──────────────────────────
+ * `enabled = true` sozinho não basta: uma universal pode estar ATIVA e mesmo
+ * assim ter `regra.base` restringindo a OUTROS clientes — é como a Natcorp
+ * oferece uma documentação para alguns e não para todos, sem desativá-la para
+ * ninguém. Sem esta segunda checagem, o cliente salvava uma configuração para
+ * uma documentação que a Natcorp nunca ofereceu A ELE: a gravação respondia
+ * `ok: true`, e o ajuste não abria acesso a NADA — falha silenciosa, porque
+ * `public.escopo_documentacao` reavalia a regra da Natcorp contra a identidade
+ * real a cada turno e contém o dano na camada SQL (não vazava conteúdo de
+ * outro cliente; só gravava sem efeito). Ver `regraAlcancaBase`, que é a MESMA
+ * função que `page.tsx` usa para montar a lista — duas implementações
+ * divergentes é exatamente esse defeito.
  *
  * Oferecer uma documentação a um cliente só NÃO passa por aqui: é a Natcorp
  * entrando nesta página em modo SUPORTE, que é o mesmo mecanismo que a tela de
@@ -142,9 +156,17 @@ const listaSchema = sessaoSchema.extend({
  */
 async function documentacaoOferecidaPelaNatcorp(
   spaceId: string,
+  baseCode: string,
 ): Promise<{ ok: true; regraDaNatcorp: Regra } | { ok: false; erro: string }> {
   const oferta = await daOfertaUniversal(spaceId);
-  if (oferta) return { ok: true, regraDaNatcorp: oferta.regra };
+  if (oferta && regraAlcancaBase(oferta.regra, baseCode)) {
+    return { ok: true, regraDaNatcorp: oferta.regra };
+  }
+  // A MESMA mensagem nos dois motivos (fora do poço, ou dentro do poço mas
+  // restrita a outra empresa): as duas são igualmente verdadeiras do ponto de
+  // vista de QUEM LÊ ("não está entre as que a Natcorp oferece para a sua
+  // empresa"), e distinguir aqui exigiria nomear a restrição — que, no segundo
+  // caso, é nomear o código de outro cliente numa tela deste.
   return {
     ok: false,
     erro:
@@ -221,7 +243,7 @@ export async function salvarAjusteDeDocumentacao(input: unknown): Promise<Result
   const sessao = await baseDaSessao(parsed.data);
   if (!sessao.ok) return { ok: false, erro: sessao.erro };
 
-  const noPoco = await documentacaoOferecidaPelaNatcorp(parsed.data.spaceId);
+  const noPoco = await documentacaoOferecidaPelaNatcorp(parsed.data.spaceId, sessao.base);
   if (!noPoco.ok) return { ok: false, erro: noPoco.erro };
 
   // A regra chega como `unknown` de um endpoint. O que precisa ser garantido
@@ -285,10 +307,23 @@ export async function salvarAjusteDeDocumentacao(input: unknown): Promise<Result
     .from("ai_base_documentacoes")
     .upsert(linha as never, { onConflict: "base_id,space_id" });
 
-  // O CHECK `regra_valida` no banco é a terceira trava. Se ela disparar aqui, é
-  // porque algo chegou por um caminho que as duas primeiras não cobrem — devolva
-  // a mensagem do banco em vez de engolir, senão a tela diz "salvo" e nada foi.
-  if (error) return { ok: false, erro: error.message };
+  /*
+    O CHECK `regra_valida` no banco é a terceira trava. Se ela disparar aqui, é
+    porque algo chegou por um caminho que as duas primeiras não cobrem — hoje
+    praticamente inalcançável, mas "praticamente" não é "nunca".
+
+    A mensagem CRUA do Postgres (nome de tabela, de constraint) não é para quem
+    está deste lado da tela: um analista de implantação do CLIENTE, não um
+    engenheiro. Trocar por frase de produto — mas sem ENGOLIR o erro, que é o
+    defeito oposto: ele vai para o log do servidor, de onde dá para investigar.
+  */
+  if (error) {
+    console.error("[gestao/conteudo] falha ao gravar ai_base_documentacoes:", error);
+    return {
+      ok: false,
+      erro: "Não foi possível salvar esta configuração. Atualize a página e tente de novo; se continuar, fale com o suporte.",
+    };
+  }
 
   await registrar(
     sessao,

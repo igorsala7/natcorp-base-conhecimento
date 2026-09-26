@@ -266,6 +266,57 @@ describe("o poço: o cliente só ajusta o que a Natcorp oferece", () => {
     expect(escritas()).toHaveLength(0);
   });
 
+  /**
+   * O ACHADO DA TAREFA 14, PASSO 1: `enabled = true` sozinho não bastava.
+   *
+   * A universal está ATIVA no poço, mas a regra da Natcorp restringe a dimensão
+   * `base` a um cliente que NÃO é o da sessão. Antes da correção, isso passava:
+   * a gravação respondia `ok: true` e o ajuste não abria acesso a nada — falha
+   * silenciosa, porque quem de fato protege é `public.escopo_documentacao`, no
+   * SQL, reavaliando a identidade a cada turno.
+   */
+  it("universal ATIVA mas restrita a OUTRO cliente é RECUSADA na gravação, sem nomear o outro cliente", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ regraDaNatcorp: { base: [BASE_DO_VIZINHO.code] } }) as never,
+    );
+
+    const r = await salvarAjusteDeDocumentacao({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      spaceId: DOC_NO_POCO,
+      enabled: true,
+      regra: {},
+    });
+
+    expect(r.ok).toBe(false);
+    // A MESMA mensagem do caso "fora do poço": de quem lê, as duas são
+    // igualmente "não oferecida para a minha empresa".
+    expect(r.ok === false && r.erro).toContain("não está entre as que a Natcorp oferece");
+    // E ela não pode citar o código do outro cliente — é o vazamento que a
+    // tela do cliente nunca pode cometer.
+    expect(r.ok === false && r.erro).not.toContain(BASE_DO_VIZINHO.code);
+    expect(escritas()).toHaveLength(0);
+  });
+
+  it("universal restrita à PRÓPRIA base da sessão passa normalmente", async () => {
+    vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
+    vi.mocked(createAdminClient).mockImplementation(
+      () => dublarDb({ regraDaNatcorp: { base: [BASE_DA_SESSAO.code] } }) as never,
+    );
+
+    const r = await salvarAjusteDeDocumentacao({
+      key: "pk_x",
+      kbt: "kbt1h.a.b",
+      spaceId: DOC_NO_POCO,
+      enabled: true,
+      regra: {},
+    });
+
+    expect(r).toEqual({ ok: true });
+    expect(escritas().some((o) => o.op === "upsert")).toBe(true);
+  });
+
   it("a conferência do poço vem ANTES da gravação, e olha enabled", async () => {
     vi.mocked(abrirSessaoGestao).mockResolvedValue(sessaoDeCliente() as never);
 

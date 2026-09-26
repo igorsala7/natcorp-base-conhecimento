@@ -80,3 +80,31 @@ export async function daOfertaUniversal(spaceId: string): Promise<{ regra: Regra
     .maybeSingle();
   return data ? { regra: (data.regra ?? {}) as Regra } : null;
 }
+
+/**
+ * Esta REGRA da Natcorp alcança a base informada, pela dimensão `base`?
+ *
+ * Lista ausente ou vazia LIBERA — é o caso comum, documentação sem restrição de
+ * cliente — pela mesma convenção do motor de elegibilidade. Comparação sem
+ * caixa e sem espaço nas pontas, porque o cadastro não garante que `base_code`
+ * chegue sempre no mesmo formato.
+ *
+ * Mora aqui, e não repetida em cada chamador, porque os DOIS lados que decidem
+ * "esta documentação vale para esta empresa" precisam da MESMA resposta:
+ *
+ *   · a LEITURA (`/gestao/conteudo/page.tsx`, que monta a lista que a tela
+ *     mostra);
+ *   · a GRAVAÇÃO (`documentacaoOferecidaPelaNatcorp`, em
+ *     `/gestao/conteudo/actions.ts`, que decide o que o cliente pode ajustar).
+ *
+ * Duas implementações divergentes É o defeito que a tarefa 14 encontrou: a
+ * tela filtrava por aqui, a gravação só conferia `enabled`, e uma universal
+ * restrita a OUTROS clientes passava — salvava com sucesso e não abria acesso
+ * a nada (a proteção real ficava só em `public.escopo_documentacao`, que
+ * reavalia a identidade a cada turno).
+ */
+export function regraAlcancaBase(regra: Regra, baseCode: string): boolean {
+  const lista = (regra.base ?? []).filter((b) => b && b.trim());
+  if (lista.length === 0) return true;
+  return lista.some((b) => b.trim().toLowerCase() === baseCode.trim().toLowerCase());
+}
