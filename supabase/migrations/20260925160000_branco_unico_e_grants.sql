@@ -107,6 +107,18 @@
 -- PUBLIC e desfaria justamente os revokes que este ramo passou a rodada
 -- fechando. É a situação oposta à da 20260925120000, onde a assinatura ganhou
 -- parâmetro e o drop era obrigatório.
+--
+-- ── CORPO SUPERADO EM PARTE: documentos_da_base ──────────────────────
+-- A `20260926100000_documentos_da_base_so_prontos.sql` acrescentou ao corpo de
+-- `public.documentos_da_base(text, jsonb)` o predicado `k.status = 'ready'`. O
+-- corpo que está AQUI devolve arquivo de qualquer status, e arquivo em extração
+-- tem chunks pela metade: o RAG receberia meia planilha e o modelo afirmaria o
+-- parcial como se fosse o todo.
+--
+-- A assinatura é a mesma, então reaplicar ESTE arquivo sozinho não cria função
+-- duplicada — ele silenciosamente desfaz aquele predicado. Reaplique a
+-- 20260926100000 depois, sempre. As outras três funções deste arquivo seguem
+-- sendo a versão viva.
 -- =====================================================================
 
 -- ── O normalizador, com o conjunto de branco aparecendo UMA vez ──────
@@ -302,6 +314,8 @@ revoke all on function public.escopo_documentacao(text, jsonb) from public, anon
 grant execute on function public.escopo_documentacao(text, jsonb) to service_role;
 
 -- ── 2/4 documentos_da_base (corpo de 20260925110000) ─────────────────
+-- ATENÇÃO: este corpo foi SUPERADO pela 20260926100000, que acrescentou
+-- `k.status = 'ready'`. Ver o cabeçalho deste arquivo.
 create or replace function public.documentos_da_base(
   p_base text,
   p_identidade jsonb default '{}'::jsonb

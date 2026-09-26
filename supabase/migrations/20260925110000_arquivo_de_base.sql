@@ -35,11 +35,17 @@
 -- definer` deixava qualquer Leitor enumerar os ids dos arquivos internos
 -- de qualquer cliente.
 --
+-- E a `20260926100000_documentos_da_base_so_prontos.sql` acrescentou ao corpo
+-- o predicado `k.status = 'ready'`: arquivo em extração tem chunks pela
+-- metade, e o corpo DESTE arquivo devolve arquivo de qualquer status.
+--
 -- A ASSINATURA é a mesma, então reaplicar ESTE arquivo sozinho não cria
--- função duplicada: ele SILENCIOSAMENTE desfaz as duas coisas — volta o
--- aparo de um caractere e devolve o EXECUTE a `authenticated`. Reaplique
--- a 20260925160000 depois, sempre. Não há ledger, então reaplicar um
--- arquivo à mão é operação normal e este aviso é o que resta.
+-- função duplicada: ele SILENCIOSAMENTE desfaz as TRÊS coisas — volta o
+-- aparo de um caractere, devolve o EXECUTE a `authenticated` e volta a
+-- servir ao RAG arquivo que ainda está sendo extraído. Reaplique a
+-- 20260925160000 e depois a 20260926100000, nessa ordem, sempre. Não há
+-- ledger, então reaplicar um arquivo à mão é operação normal e este aviso é
+-- o que resta.
 -- =====================================================================
 
 alter table public.knowledge_documents

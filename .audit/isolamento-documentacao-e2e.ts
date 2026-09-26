@@ -18,6 +18,12 @@
  *      falha se o escopo de uma contiver qualquer id da outra. Inclui o
  *      caso do passo 6 do brief: uma terceira documentação, restrita por
  *      `regra` a um portal, prova que a identidade ERRADA não a alcança.
+ *      E, do lado do ARQUIVO, os dois casos que faltavam: um arquivo da
+ *      PRÓPRIA base restrito por `regra` (a trava do ativo principal do
+ *      pedido, que os arquivos de `regra '{}'` nunca exercitavam) e um
+ *      arquivo em EXTRAÇÃO, que não pode chegar ao RAG com chunks pela
+ *      metade. Cada negativa vem com a positiva ao lado: sem ela, uma função
+ *      que devolvesse lista vazia por qualquer motivo passaria por aqui.
  *
  *   2) A CERCA DE PROPRIEDADE dentro de `hybrid_search_scoped` e
  *      `knowledge_list_chunks` (tarefa 7) — cria um CHUNK pesquisável para
@@ -28,23 +34,38 @@
  *      MESMO estando explicitamente pedido. Sem `p_base`, os dois
  *      aparecem — prova que a cerca não muda nada para quem não a usa.
  *
- *   3) A CERCA DO `anon`, agora REPETÍVEL — a tarefa 2 deixou uma assertiva
- *      de comportamento em `20260925116000_assertiva_de_comportamento_do_anon.sql`
- *      que roda UMA VEZ, no `migrate:apply`. Não há ledger de migrations
- *      neste projeto, não há reaplicação automática e não há pgTAP: se uma
- *      migration futura reescrever `chunks_public_read` para vazar, nada
- *      roda aquela assertiva de novo. Este script repete o MESMO invariante
- *      (`anon` não alcança nenhum `chunk` com `node_id is null`) toda vez
- *      que é chamado — pela CI (job `superficie-medida`, que agora aponta
- *      para cá) e pelo portão de commit (`npm run verificar:isolamento`).
+ *   3) A CERCA DO `anon`, nas DUAS direções, e REPETÍVEL — a tarefa 2
+ *      deixou uma assertiva de comportamento em
+ *      `20260925116000_assertiva_de_comportamento_do_anon.sql` que roda UMA
+ *      VEZ, no `migrate:apply`. Não há ledger de migrations neste projeto,
+ *      não há reaplicação automática e não há pgTAP: se uma migration futura
+ *      reescrever `chunks_public_read` para vazar, nada roda aquela
+ *      assertiva de novo. Este script repete o MESMO invariante toda vez que
+ *      alguém o executa.
  *
- *      Honestidade sobre o que isso cobre e o que não cobre: a cerca do
- *      `anon` está protegida por TRÊS mecanismos, em ordem — a assertiva de
- *      migration de uma vez só, este script rodado do portão de commit, e o
- *      aviso da CI dizendo QUANDO rodar. O que falta, e que não é decisão
- *      minha nem de quem escreveu o brief, é uma credencial de produção nos
- *      secrets do GitHub Actions: sem ela, a CI avisa mas não verifica
- *      sozinha. Essa decisão é do dono.
+ *      O que ele é, exatamente, para ninguém confundir com prova
+ *      automática: um COMANDO que uma pessoa roda
+ *      (`npm run verificar:isolamento`). A CI não o executa — o job
+ *      `superficie-medida` imprime um `::warning` LEMBRANDO de rodar, e
+ *      segue verde de qualquer jeito. Não existe portão de commit neste
+ *      repositório: não há husky, não há `.husky/`, não há `core.hooksPath`
+ *      e não há hook em `.git/hooks`. Ou seja: nada neste caminho executa
+ *      esta prova sozinho. Se ninguém digitar o comando, o invariante fica
+ *      sem ser medido.
+ *
+ *      Honestidade sobre o que isso cobre: a cerca do `anon` tem TRÊS
+ *      mecanismos, e nenhum deles roda sem gente — a assertiva de migration
+ *      (só quando alguém aplica aquele arquivo), este script (só quando
+ *      alguém o chama) e o aviso da CI (que só avisa). O que falta para a
+ *      CI verificar sozinha é uma credencial de produção nos secrets do
+ *      GitHub Actions, e essa decisão é do dono.
+ *
+ *      As duas direções, porque uma só não é cerca: `anon` não alcança
+ *      NENHUM chunk de arquivo (`node_id` nulo) E alcança ao menos um chunk
+ *      de artigo publicado em espaço público. Sem a segunda, uma policy
+ *      reescrita para `using (false)` passaria neste script e derrubaria a
+ *      busca do portal público em silêncio — que é precisamente o modo de
+ *      falha que a 20260925160000 encontrou por outra porta.
  *
  * ── Segurança: nunca escreve de verdade ──────────────────────────────
  * Tudo roda dentro de `BEGIN` ... `ROLLBACK`, o `ROLLBACK` está em `finally`
@@ -190,19 +211,52 @@ async function main() {
         console.log("  [SABOTAGEM ATIVA] documentação de teste B também anexada à base de teste A\n");
       }
 
-      // ── 4. Um arquivo de base em cada ─────────────────────────────────
+      // ── 4. Arquivos de base ───────────────────────────────────────────
+      // `status` EXPLÍCITO nos quatro, e não o default da coluna: o default é
+      // `queued`, e desde a `20260926100000_documentos_da_base_so_prontos.sql`
+      // a função só devolve `ready`. Omitir o status faria as assertivas
+      // NEGATIVAS da seção 6 passarem por motivo errado — "A não contém o
+      // arquivo de B" é verdade trivial quando nenhum dos dois sai. É por isso
+      // que a seção 6 ganhou também as assertivas POSITIVAS.
+      //
+      //   docA / docB      → um por base, regra aberta, prontos;
+      //   docAPortal       → base A, regra {"portal":["PG"]} — a trava do
+      //                      ativo principal do pedido, exercitada por
+      //                      identidade ERRADA (seção 6b);
+      //   docAExtraindo    → base A, regra aberta, `extracting` — o invariante
+      //                      da 20260926100000, repetível a cada portão
+      //                      (seção 6c).
       const docA = (
         await client.query<{ id: string }>(
-          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
-           values ($1, $2, $3, '{}'::jsonb) returning id`,
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra, status)
+           values ($1, $2, $3, '{}'::jsonb, 'ready') returning id`,
           [baseA, `${PREFIXO}base-a/arquivo.txt`, `${PREFIXO}arquivo-a.txt`],
         )
       ).rows[0]!.id;
       const docB = (
         await client.query<{ id: string }>(
-          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra)
-           values ($1, $2, $3, '{}'::jsonb) returning id`,
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra, status)
+           values ($1, $2, $3, '{}'::jsonb, 'ready') returning id`,
           [baseB, `${PREFIXO}base-b/arquivo.txt`, `${PREFIXO}arquivo-b.txt`],
+        )
+      ).rows[0]!.id;
+      const docAPortal = (
+        await client.query<{ id: string }>(
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra, status)
+           values ($1, $2, $3, $4::jsonb, 'ready') returning id`,
+          [
+            baseA,
+            `${PREFIXO}base-a/so-gestor.txt`,
+            `${PREFIXO}arquivo-a-so-gestor.txt`,
+            JSON.stringify({ portal: ["PG"] }),
+          ],
+        )
+      ).rows[0]!.id;
+      const docAExtraindo = (
+        await client.query<{ id: string }>(
+          `insert into public.knowledge_documents (base_id, storage_path, original_name, regra, status)
+           values ($1, $2, $3, '{}'::jsonb, 'extracting') returning id`,
+          [baseA, `${PREFIXO}base-a/em-extracao.xlsx`, `${PREFIXO}arquivo-a-em-extracao.xlsx`],
         )
       ).rows[0]!.id;
 
@@ -276,6 +330,79 @@ async function main() {
         "arquivos de B não contêm o arquivo de A",
         !arquivosB.includes(docA),
         `documentos(B) = [${arquivosB.join(", ") || "vazio"}]`,
+      );
+      // As duas POSITIVAS, sem as quais as duas negativas acima passariam com a
+      // função devolvendo lista vazia por qualquer motivo (status, regra, join
+      // quebrado). Negativa sozinha não prova cerca, prova ausência.
+      registra(
+        casos,
+        "arquivos de A contêm o próprio arquivo de A (a negativa acima não passa por lista vazia)",
+        arquivosA.includes(docA),
+        `documentos(A) = [${arquivosA.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "arquivos de B contêm o próprio arquivo de B",
+        arquivosB.includes(docB),
+        `documentos(B) = [${arquivosB.join(", ") || "vazio"}]`,
+      );
+
+      // ── 6b. Arquivo de base restrito pela PRÓPRIA `regra` ─────────────
+      // `docA` e `docB` nascem com `regra '{}'`, então o `public.elegivel(k.regra,
+      // …)` de `documentos_da_base` nunca era exercitado por identidade ERRADA —
+      // e essa é a trava do ativo principal do pedido do dono: o arquivo que só
+      // o Gestor daquele cliente pode ver. O molde é o da seção 8 (documentação
+      // restrita por portal), aplicado ao ARQUIVO.
+      const arquivosDe = async (codigo: string, identidade: Record<string, string>) =>
+        (
+          await client.query<LinhaArquivo>(`select document_id from public.documentos_da_base($1, $2::jsonb)`, [
+            codigo,
+            JSON.stringify(identidade),
+          ])
+        ).rows.map((r) => r.document_id);
+
+      const arquivosA_portalErrado = await arquivosDe(codigoBaseA, { portal: "PO" });
+      const arquivosA_portalCerto = await arquivosDe(codigoBaseA, { portal: "PG" });
+
+      registra(
+        casos,
+        "arquivo com regra portal=PG: identidade PO (errada) NÃO alcança o arquivo da PRÓPRIA base",
+        !arquivosA_portalErrado.includes(docAPortal),
+        `documentos(A, identidade portal=PO) = [${arquivosA_portalErrado.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "arquivo com regra portal=PG: identidade PG (certa) alcança",
+        arquivosA_portalCerto.includes(docAPortal),
+        `documentos(A, identidade portal=PG) = [${arquivosA_portalCerto.join(", ") || "vazio"}]`,
+      );
+      // E o arquivo de regra ABERTA continua alcançado pelas duas identidades:
+      // prova que o corte acima é da `regra` do arquivo, não da identidade.
+      registra(
+        casos,
+        "arquivo de regra aberta continua alcançado pelas duas identidades (o corte é da regra, não da identidade)",
+        arquivosA_portalErrado.includes(docA) && arquivosA_portalCerto.includes(docA),
+        `PO tem arquivo-a = ${arquivosA_portalErrado.includes(docA)} · PG tem = ${arquivosA_portalCerto.includes(docA)}`,
+      );
+
+      // ── 6c. Só arquivo PRONTO entra no RAG ────────────────────────────
+      // O invariante da `20260926100000_documentos_da_base_so_prontos.sql`. A
+      // assertiva dela roda uma vez, no `migrate:apply`; esta roda a cada vez
+      // que alguém chama este script. O MESMO documento é consultado nos dois
+      // estados — sem isso a prova mediria existência, não o predicado.
+      registra(
+        casos,
+        "arquivo em extração (status extracting) NÃO sai: meia planilha afirmada como inteira é pior do que não responder",
+        !arquivosA.includes(docAExtraindo),
+        `documentos(A) = [${arquivosA.join(", ") || "vazio"}]`,
+      );
+      await client.query(`update public.knowledge_documents set status = 'ready' where id = $1`, [docAExtraindo]);
+      const arquivosA_depoisDoReady = await arquivosDe(codigoBaseA, {});
+      registra(
+        casos,
+        "o MESMO arquivo, agora ready, SAI — o que decide é o status e nada mais",
+        arquivosA_depoisDoReady.includes(docAExtraindo),
+        `documentos(A) = [${arquivosA_depoisDoReady.join(", ") || "vazio"}]`,
       );
 
       // ── 7. Tarefa 7: a cerca de PROPRIEDADE em hybrid_search_scoped e
@@ -481,7 +608,36 @@ async function main() {
         `A: PO tem u-teto = ${aPO.includes(spaceUTeto)} · PG tem = ${aPG.includes(spaceUTeto)}`,
       );
 
-      // ── 10. A cerca do anon, agora repetível (passo 2b) ───────────────
+      // ── 10. A cerca do anon, nas DUAS direções, repetível ─────────────
+      // A direção ABERTA precisa de um alvo legítimo: um espaço PÚBLICO com um
+      // artigo PUBLICADO e um chunk dele. Sem esta parte, uma policy reescrita
+      // para `using (false)` passaria na direção fechada e derrubaria a busca do
+      // portal público em silêncio — exatamente o modo de falha que a
+      // 20260925160000 encontrou por outra porta (`permission denied for table
+      // ai_bases`, engolido como lista vazia).
+      //
+      // Criado AQUI, depois das seções 5 a 9, de propósito: espaço público novo
+      // não entra em `ai_base_documentacoes` nem em `documentacoes_universais`,
+      // então nenhuma contagem daquelas seções muda.
+      const spacePublico = (
+        await client.query<{ id: string }>(
+          `insert into public.spaces (slug, name, type, visibility) values ($1, $1, 'global', 'public') returning id`,
+          [`${PREFIXO}space-publico`],
+        )
+      ).rows[0]!.id;
+      const nodePublicado = (
+        await client.query<{ id: string }>(
+          `insert into public.nodes (space_id, type, title, slug, position, status)
+           values ($1, 'article', $2, $2, 'a0', 'published') returning id`,
+          [spacePublico, `${PREFIXO}artigo-publicado`],
+        )
+      ).rows[0]!.id;
+      await client.query(`insert into public.chunks (node_id, space_id, content) values ($1, $2, $3)`, [
+        nodePublicado,
+        spacePublico,
+        `${PREFIXO}conteudo zzmarcadorportalpublico de artigo publicado em espaco publico`,
+      ]);
+
       if (SABOTAR === "anon") {
         // SABOTAGEM: mesmo formato vazador que a migration
         // 20260925116000 documentou — acrescenta `OR chunks.node_id IS NULL`
@@ -510,6 +666,17 @@ async function main() {
         (await client.query<{ n: string }>(`select count(*)::text as n from public.chunks where node_id is null`))
           .rows[0]!.n,
       );
+      // A direção ABERTA, no MESMO papel e na mesma transação: o chunk do artigo
+      // publicado em espaço público TEM de ser alcançável. `count` do id exato,
+      // não do total da tabela — um total >0 poderia vir de outro espaço e não
+      // provaria que a policy ainda deixa passar o caso do portal.
+      const anonArtigoPublicado = Number(
+        (
+          await client.query<{ n: string }>(`select count(*)::text as n from public.chunks where node_id = $1`, [
+            nodePublicado,
+          ])
+        ).rows[0]!.n,
+      );
       await client.query("RESET ROLE");
 
       registra(
@@ -518,15 +685,22 @@ async function main() {
         anonAlcancados === 0,
         `contagem alcançável por anon = ${anonAlcancados}`,
       );
+      registra(
+        casos,
+        "anon ALCANÇA o chunk de artigo publicado em espaço público (sem isto, `using (false)` passaria e mataria o portal)",
+        anonArtigoPublicado >= 1,
+        `chunks do artigo público alcançáveis por anon = ${anonArtigoPublicado}`,
+      );
     } finally {
       await client.query("ROLLBACK");
     }
 
     // ── Prova de que nada sujou produção ────────────────────────────────
     // Fora de qualquer transação: se o rollback falhou silenciosamente por
-    // algum motivo, isto pega. Conta por prefixo nas SEIS tabelas tocadas
+    // algum motivo, isto pega. Conta por prefixo nas SETE tabelas tocadas
     // (a quinta, `chunks`, entrou com a tarefa 7; a sexta,
-    // `documentacoes_universais`, com a tarefa 9).
+    // `documentacoes_universais`, com a tarefa 9; a sétima, `nodes`, com o
+    // artigo publicado do caso positivo do `anon`).
     const restos = Number(
       (
         await client.query<{ n: string }>(
@@ -538,6 +712,7 @@ async function main() {
              (select count(*) from public.documentacoes_universais u
                 join public.spaces s on s.id = u.space_id where s.slug like $1) +
              (select count(*) from public.knowledge_documents where original_name like $1) +
+             (select count(*) from public.nodes where slug like $1) +
              (select count(*) from public.chunks where content like $1)
            )::text as n`,
           [`${PREFIXO}%`],
@@ -557,7 +732,7 @@ async function main() {
     console.log(
       `\n  ${
         falhas === 0
-          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), e a cerca do anon segue de pé"
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada na documentação E no arquivo, arquivo em extração não chega ao RAG, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), e a cerca do anon segue de pé nas duas direções (fecha arquivo, abre artigo publicado)"
           : `FALHOU em ${falhas} caso(s)`
       }\n`,
     );
