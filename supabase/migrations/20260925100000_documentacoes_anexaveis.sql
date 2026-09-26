@@ -26,6 +26,28 @@
 -- e reescrever é o que o projeto 0 comprou o direito de não fazer.
 -- `ai_base_tools` fica com arrays por decisão do dono; a fronteira está
 -- documentada em src/lib/elegibilidade/dimensoes.ts.
+--
+-- ── ONDE `escopo_documentacao` MORA, E POR QUE NÃO É AQUI ────────────
+-- Esta migration CRIOU `public.escopo_documentacao(text, jsonb)`, com um
+-- `union` puro: as universais mais o anexo da base, sem sobreposição
+-- nenhuma. A 20260925140000 trocou o corpo pela versão em que a linha
+-- por base é SOBREPOSIÇÃO e só ESTREITA (`enabled = false` esconde, e a
+-- regra da base é interseção com a da Natcorp), e a 20260925160000
+-- trocou o normalizador do `base_code`.
+--
+-- A ASSINATURA é a mesma nas três — `(text, jsonb)` entra, `(text,
+-- jsonb)` sai — então o `create or replace` daqui não criava função
+-- nova: ele SOBRESCREVIA o corpo mais novo pelo `union` puro. Reaplicar
+-- este arquivo sozinho (operação normal, porque não há ledger) fazia
+-- `enabled = false` parar de esconder e a regra da base parar de
+-- estreitar, sem erro em lugar nenhum: um cliente voltaria a alcançar a
+-- documentação que ele próprio ocultou, e ninguém veria.
+--
+-- Por isso o bloco da função saiu daqui. Ela existe em UM arquivo só,
+-- `20260925140000_escopo_com_sobreposicao_por_base.sql`, e este cria
+-- apenas as duas tabelas, o CHECK de `regra` e a RLS. A aplicação do
+-- zero continua correta porque nenhuma migration entre as duas chama a
+-- função, e as assertivas daqui são de `regra_valida`, não dela.
 -- =====================================================================
 
 create table if not exists public.documentacoes_universais (
@@ -108,45 +130,9 @@ create policy ai_base_documentacoes_admin on public.ai_base_documentacoes
 revoke all on public.documentacoes_universais from anon, public;
 revoke all on public.ai_base_documentacoes   from anon, public;
 
--- ── A resolução do escopo ───────────────────────────────────────────
--- Devolve as documentações que ESTA identidade alcança nesta base, com a
--- origem, porque a tela precisa dizer de onde cada uma veio e o RAG
--- precisa saber se resolveu algo (se não, cai no escopo da chave — é o
--- que torna a rodada aditiva).
---
--- `base` desconhecida devolve só as universais: chegar com um p_base que
--- não existe em ai_bases não é motivo para não alcançar a documentação do
--- sistema, e conteúdo de cliente ela não alcança por não casar base_id.
-create or replace function public.escopo_documentacao(
-  p_base text,
-  p_identidade jsonb default '{}'::jsonb
-)
-returns table (space_id uuid, origem text)
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  select u.space_id, 'universal'::text
-    from public.documentacoes_universais u
-   where u.enabled
-     and public.elegivel(u.regra, p_identidade)
-  union
-  select d.space_id, 'base'::text
-    from public.ai_base_documentacoes d
-    join public.ai_bases b on b.id = d.base_id
-   where d.enabled
-     and lower(btrim(b.base_code)) = lower(btrim(coalesce(p_base, '')))
-     and public.elegivel(d.regra, p_identidade);
-$$;
-
-comment on function public.escopo_documentacao(text, jsonb) is
-  'Documentações que esta identidade alcança nesta base: universais mais as do cliente, ambas filtradas por public.elegivel. `origem` diz de qual das duas veio. Base desconhecida devolve só as universais.';
-
-revoke all on function public.escopo_documentacao(text, jsonb) from public, anon;
-grant execute on function public.escopo_documentacao(text, jsonb) to authenticated, service_role;
-
 -- ── Assertivas ──────────────────────────────────────────────────────
+-- Só de `regra_valida`. Nenhuma chama `escopo_documentacao`: ela mora em
+-- 20260925140000, pelo motivo escrito no cabeçalho.
 do $$
 begin
   assert public.regra_valida('{}'::jsonb), 'regra vazia e valida';
