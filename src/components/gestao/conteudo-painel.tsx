@@ -18,6 +18,11 @@ import {
 } from "@/lib/documentacoes/dimensoes-ui";
 import { LinhaDimensao, type OpcaoDeCadastro } from "@/lib/documentacoes/dimensao-editor";
 import {
+  exclusoesEntreRegras,
+  mensagemDeExclusao,
+  regraRestringeAlgo,
+} from "@/lib/documentacoes/regras-combinadas";
+import {
   salvarAjusteDeDocumentacao,
   valoresParaDimensao,
   voltarAoPadraoDeDocumentacao,
@@ -31,28 +36,36 @@ import {
  * sobrepor uma decisão própria:
  *
  *   · padrão    → vale como a Natcorp definiu. É o estado de quem nunca mexeu;
- *   · ajustada  → a empresa escolheu quem alcança, no lugar do padrão;
+ *   · ajustada  → a empresa ESTREITOU quem alcança, somando à regra da Natcorp;
  *   · oculta    → a documentação desaparece para os usuários da empresa.
  *
- * "Voltar ao padrão" não é o mesmo que "mostrar com regra vazia": o primeiro
- * devolve a decisão à Natcorp, o segundo grava "todos nesta empresa" por cima
- * dela — e a regra da Natcorp pode ser mais estreita. Os dois existem, com nomes
- * diferentes, porque a diferença é visível para quem configura.
+ * "Ajustada" não é "no lugar de": a combinação é E (`public.escopo_documentacao`,
+ * tarefa 9), então quem alcança precisa satisfazer as DUAS regras. A tela diz
+ * isso com duas frases e a conjunção, nunca com uma frase da combinação — o
+ * motivo está em `Alcance`, e é uma armadilha real, não zelo.
+ *
+ * "Voltar ao padrão" apaga a sobreposição; "mostrar de novo" sem regra guardada
+ * faz a mesma coisa, de propósito. Uma linha ligada com regra vazia alcançaria o
+ * mesmo que nenhuma linha, mas deixaria a etiqueta dizendo "Ajustada por você"
+ * sobre uma escolha que não escolhe nada.
  *
  * ── O que esta tela precisa acertar, e por que é difícil ──────────────────
  * Restringir é uma INTERSEÇÃO: marcar o portal do Gestor e o perfil FOLHA
  * alcança quem é as duas coisas, não quem é uma delas. Quem espera "gestores OU
  * pessoal da folha" só descobre quando alguém reclama de não ver o conteúdo, e
- * não há erro em lugar nenhum para investigar. Daí três decisões, as mesmas da
- * tela interna e pelos mesmos motivos:
+ * não há erro em lugar nenhum para investigar. Daí quatro decisões, três delas as
+ * mesmas da tela interna e pelos mesmos motivos:
  *
- *   · a FRASE ao vivo, em português, enquanto se edita. É a mesma regra que o
- *     banco aplica, escrita por extenso;
+ *   · as FRASES ao vivo, em português, enquanto se edita — uma por regra que
+ *     vale. São a mesma regra que o banco aplica, escrita por extenso;
  *   · "sem restrição" é INTERRUPTOR, nunca campo em branco — campo em branco
  *     LIBERA para todo mundo, o contrário do que quem apagou o último valor
  *     queria;
  *   · o aviso de presença por restrição ligada: se esta empresa nunca enviou
- *     aquele dado, restringir por ali não alcança ninguém.
+ *     aquele dado, restringir por ali não alcança ninguém;
+ *   · e a quarta, que só existe aqui: escolher valores sem nada em comum com os
+ *     da Natcorp é RECUSADO, porque o resultado não alcança ninguém e quem quer
+ *     esconder tem o botão de ocultar.
  *
  * ── E a consequência que o usuário NÃO vê no momento do clique ────────────
  * Ocultar uma documentação faz o assistente parar de responder sobre aquele
@@ -177,10 +190,10 @@ export function ConteudoPainel({
     iniciar(async () => {
       /*
         Duas saídas, e a escolha não é detalhe: sem regra própria guardada, mostrar
-        de novo tem de APAGAR a sobreposição (voltar ao padrão da Natcorp). Gravar
-        `enabled = true` com regra vazia diria "todos nesta empresa alcançam" por
-        cima de um padrão que pode ser mais estreito — o usuário clicou em
-        "mostrar de novo", não em "liberar para todo mundo".
+        de novo APAGA a sobreposição, em vez de gravar `enabled = true` com regra
+        vazia. As duas alcançam o mesmo (regra vazia não estreita nada), mas a
+        segunda deixaria uma linha para trás, e a etiqueta passaria a dizer
+        "Ajustada por você" sobre uma escolha que não escolhe nada.
       */
       const r = tinhaRegra
         ? await salvarAjusteDeDocumentacao({
@@ -264,21 +277,23 @@ export function ConteudoPainel({
                   </p>
 
                   {/*
-                    A frase, não uma lista de etiquetas: restrição é interseção, e
-                    isso se confere lendo. É a mesma função que o formulário mostra
-                    ao vivo — se a linha e o formulário discordassem, a tela teria
-                    duas descrições da mesma regra.
+                    A FRASE, não uma lista de etiquetas: restringir é combinar
+                    condições, e isso se confere lendo. É a mesma função que o
+                    formulário mostra ao vivo — se a linha e o formulário
+                    discordassem, a tela teria duas descrições da mesma regra.
                   */}
-                  <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                    {oculta
-                      ? "Ninguém da sua empresa alcança. O assistente não responde sobre este assunto para os seus usuários."
-                      : resumoElegibilidade(regraSemCliente(regraEmVigor), nomeDaBase, "esta documentação")}
-                  </p>
-                  {ajustada && !oculta ? (
-                    <p className="mt-1 text-2xs text-text-muted">
-                      Sua escolha, no lugar do que a Natcorp definiu.
+                  {oculta ? (
+                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                      Ninguém da sua empresa alcança. O assistente não responde sobre este assunto
+                      para os seus usuários.
                     </p>
-                  ) : null}
+                  ) : (
+                    <Alcance
+                      regraNatcorp={item.regraNatcorp}
+                      regraDaBase={ajustada ? item.ajuste!.regra : null}
+                      nomeDaBase={nomeDaBase}
+                    />
+                  )}
 
                   {travadaEmOutroCliente(item.ajuste?.regra ?? {}, baseCode) ? (
                     <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
@@ -431,6 +446,77 @@ function Mensagens({ erro, ok }: { erro: string | null; ok: string | null }) {
   );
 }
 
+/**
+ * QUEM ALCANÇA, quando há DUAS regras valendo ao mesmo tempo.
+ *
+ * ── Por que duas frases, e não uma ────────────────────────────────────────
+ * A escolha da empresa não substitui a da Natcorp: quem alcança precisa se
+ * encaixar nas duas. Uma frase só teria de descrever a combinação, e a única
+ * forma de montá-la seria interseccionar as listas — que INVERTE o sentido no
+ * caso que mais importa: `["PG"]` com `["PO"]` dá lista vazia, e lista vazia
+ * LIBERA neste motor, então a frase diria "todos alcançam" onde ninguém alcança.
+ *
+ * Então cada regra diz a sua, com o nome de quem a definiu, e a conjunção é
+ * escrita por extenso. Enquanto a empresa não escolhe nada, há uma regra só e a
+ * tela mostra uma frase só — o caso comum não paga pela precisão do outro.
+ */
+function Alcance({
+  regraNatcorp,
+  regraDaBase,
+  nomeDaBase,
+}: {
+  regraNatcorp: Regra;
+  /** `null` quando a empresa não ajustou nada: vale só a da Natcorp. */
+  regraDaBase: Regra | null;
+  nomeDaBase: (code: string) => string;
+}) {
+  const frase = (r: Regra) => resumoElegibilidade(regraSemCliente(r), nomeDaBase, "esta documentação");
+
+  if (!regraDaBase) {
+    return <p className="mt-1 text-xs leading-relaxed text-text-muted">{frase(regraNatcorp)}</p>;
+  }
+
+  // A Natcorp não restringiu nada: a combinação é exatamente a escolha da
+  // empresa, e repetir "todos alcançam" numa segunda linha só faria ruído.
+  if (!regraRestringeAlgo(regraNatcorp)) {
+    return (
+      <>
+        <p className="mt-1 text-xs leading-relaxed text-text-muted">{frase(regraDaBase)}</p>
+        <p className="mt-1 text-2xs text-text-muted">
+          Sua escolha. A Natcorp não restringiu esta documentação.
+        </p>
+      </>
+    );
+  }
+
+  const exclusoes = exclusoesEntreRegras(regraNatcorp, regraDaBase);
+  return (
+    <div className="mt-1 space-y-1">
+      <p className="text-xs leading-relaxed text-text-muted">
+        <span className="font-medium text-text">A Natcorp definiu:</span> {frase(regraNatcorp)}
+      </p>
+      <p className="text-xs leading-relaxed text-text-muted">
+        <span className="font-medium text-text">Você escolheu:</span> {frase(regraDaBase)}
+      </p>
+      {exclusoes.length ? (
+        /* Combinação que não alcança ninguém. A gravação recusa isto desde a
+           rodada de correção 1, então só chega aqui configuração anterior a ela
+           (ou feita pela Natcorp) — e ficar calado faria as duas linhas de cima
+           parecerem um alcance que não existe. */
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>{mensagemDeExclusao(exclusoes)}</span>
+        </p>
+      ) : (
+        <p className="text-2xs text-text-muted">
+          Alcança quem se encaixa nas duas condições. A sua escolha soma à da Natcorp — ela não
+          substitui.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Etiqueta({ estado }: { estado: "padrao" | "ajustada" | "oculta" }) {
   const texto = estado === "oculta" ? "Oculta" : estado === "ajustada" ? "Ajustada por você" : "Padrão";
   const cor =
@@ -537,6 +623,18 @@ function FormularioDeAlcance({
   const emBranco = restritas.filter((d) => !(valores[d] ?? []).some((v) => v.trim()));
 
   /*
+    A combinação que não alcança ninguém, ao vivo. Mesma função que a action usa
+    para recusar — a tela evita o erro, e a action é quem nega. Duas
+    implementações da mesma decisão divergiriam, e o efeito seria a tela liberar
+    o botão para um salvamento que o servidor recusa.
+  */
+  const natcorpRestringe = regraRestringeAlgo(item.regraNatcorp);
+  const exclusoes = useMemo(
+    () => exclusoesEntreRegras(item.regraNatcorp, regra),
+    [item.regraNatcorp, regra],
+  );
+
+  /*
     Busca a lista do ERP só das restrições LIGADAS, e uma vez cada. Buscar todas
     ao abrir seriam seis consultas ao ERP — uma delas de milhares de linhas —
     numa tela em que o caso comum restringe uma ou duas coisas.
@@ -579,6 +677,7 @@ function FormularioDeAlcance({
           `Escolha um valor ou volte para "Todos".`,
       );
     }
+    if (exclusoes.length) return setErro(mensagemDeExclusao(exclusoes));
     setErro(null);
     iniciar(async () => {
       const r = await salvarAjusteDeDocumentacao({
@@ -602,20 +701,49 @@ function FormularioDeAlcance({
       <div>
         <h3 className="text-sm font-semibold text-text">Quem alcança “{item.nome}”</h3>
         <p className="mt-1 text-xs leading-relaxed text-text-muted">
-          O que você definir aqui vale para a sua empresa, no lugar do que a Natcorp definiu. Deixe
-          tudo em “Todos” para que qualquer pessoa da empresa alcance.
+          O que você definir aqui SOMA ao que a Natcorp definiu: alcança quem se encaixa nas duas
+          condições. Deixe tudo em “Todos” para não estreitar nada além do que já vale.
         </p>
       </div>
 
       {/*
-        A FRASE, colada no topo. Ela é o produto desta tela, não um resumo: é a
-        única coisa que impede alguém de ler uma interseção como se fosse união.
+        AS FRASES, coladas no topo. Elas são o produto desta tela, não um resumo:
+        são a única coisa que impede alguém de ler "quem se encaixa nas duas"
+        como se fosse "quem se encaixa em qualquer uma". Duas, e não uma frase
+        esperta da combinação, pelo motivo comentado em `Alcance`.
       */}
       <div className="rounded-lg border border-brand-purple-200 bg-brand-purple-50 px-3 py-2.5">
         <p className="text-2xs font-medium uppercase tracking-wide text-brand-purple-800">
           Quem alcança, por extenso
         </p>
-        <p className="mt-1 text-sm leading-relaxed text-text">{frase}</p>
+        {natcorpRestringe ? (
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">
+            <span className="font-medium text-text">A Natcorp definiu:</span>{" "}
+            {resumoElegibilidade(regraSemCliente(item.regraNatcorp), nomeDaBase, "esta documentação")}
+          </p>
+        ) : null}
+        <p className="mt-1 text-sm leading-relaxed text-text">
+          {natcorpRestringe ? (
+            <>
+              <span className="font-medium">Você está escolhendo:</span> {frase}
+            </>
+          ) : (
+            frase
+          )}
+        </p>
+        {natcorpRestringe && exclusoes.length === 0 ? (
+          <p className="mt-1 text-2xs text-text-muted">
+            Vai alcançar quem se encaixa nas duas condições.
+          </p>
+        ) : null}
+        {exclusoes.length > 0 ? (
+          /* A recusa aparece ANTES do clique em Salvar, e com o mesmo texto que
+             a action devolveria: a tela evita o erro, a action é quem nega. */
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>{mensagemDeExclusao(exclusoes)}</span>
+          </p>
+        ) : null}
         {aviso ? (
           <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

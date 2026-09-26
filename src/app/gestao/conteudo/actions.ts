@@ -70,14 +70,11 @@ import type { ListaDeValores } from "@/lib/documentacoes/dimensoes-ui";
  * TETO; o cliente só aperta. `escopo_documentacao` é `security definer` e tem
  * assertivas comportamentais: mexer nela exige rodar `verificar:isolamento`.
  *
- * DÍVIDA CONHECIDA que sobra desta tarefa, e é de TELA, não de banco: a frase
- * ao vivo de `conteudo-painel.tsx` descreve só a regra da BASE quando o item
- * está ajustado (`regraEmVigor = ajustada ? item.ajuste.regra : regraNatcorp`),
- * e o rótulo diz "Sua escolha, no lugar do que a Natcorp definiu". Com
- * interseção, o alcance real é a interseção das duas, então a tela pode
- * prometer mais alcance do que o banco entrega. Nada implantado ainda (as duas
- * tabelas estavam vazias em produção em 25/09); mudar texto que o cliente lê é
- * decisão do dono.
+ * A TELA foi corrigida junto (rodada 1 da tarefa 8): ela mostra DUAS frases, uma
+ * por regra, e a conjunção por extenso. Não mostra uma frase da combinação de
+ * propósito — interseccionar `["PG"]` com `["PO"]` dá lista vazia, e lista vazia
+ * LIBERA neste motor, então a frase diria "todos alcançam" onde ninguém alcança.
+ * Ver `regras-combinadas.ts`.
  *
  * Consequência que vale registrar: `ai_base_documentacoes` passa a referenciar
  * SOMENTE documentação universal. "Documentação exclusiva de um cliente" não
