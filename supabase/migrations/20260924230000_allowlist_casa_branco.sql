@@ -20,24 +20,35 @@
 -- não têm branco. A trava de verdade contra lista-só-de-brancos é a tela
 -- recusar o salvamento (projeto 1); aqui garantimos que o pior caso
 -- (branco junto de valor real) deixe de abrir.
+--
+-- ── O QUE SAIU DESTE ARQUIVO, E PARA ONDE FOI (tarefa 16) ────────────
+-- A definição de `public.allowlist_casa(text[], text)` e o `comment on
+-- function` dela saíram daqui e passaram a morar num sítio ÚNICO:
+--
+--   supabase/migrations/20260923050000_prompts_elegibilidade_completa.sql
+--
+-- Enquanto ela estava definida aqui TAMBÉM, reaplicar este arquivo sozinho —
+-- operação normal, porque não há ledger — devolvia o `btrim` de UM argumento
+-- em SILÊNCIO: o Postgres apara só o caractere espaço, e o `.trim()` do
+-- JavaScript apara também TAB, LF, CR e NBSP. É o furo do NBSP ENTRE
+-- CLIENTES, a metade que faltava do que a tarefa 12 fechou do outro lado —
+-- uma base que difere só por NBSP é linha distinta para o índice único de
+-- `ai_bases` e o MESMO valor para a dimensão `base` de `public.elegivel`.
+--
+-- A assinatura nunca mudou, então nem `npm run verificar:rpc` nem nenhuma
+-- assertiva de assinatura enxergavam isso: era o CORPO que retrocedia.
+-- `npm run verificar:corpo` é quem recusa o segundo sítio agora.
+--
+-- O sítio canônico é o arquivo MAIS ANTIGO, e não este, porque
+-- `public.prompts_sugeridos` é criada no mesmo arquivo logo depois da função
+-- e a chama no corpo: com `check_function_bodies` ligado, uma aplicação do
+-- zero morreria lá se a definição estivesse aqui. O cabeçalho daquele arquivo
+-- explica a dependência.
+--
+-- As ASSERTIVAS ficaram: este arquivo roda DEPOIS do sítio canônico, então
+-- elas exercitam o corpo canônico e viram prova de replay. O furo que este
+-- arquivo existe para fechar continua sendo verificado aqui.
 -- =====================================================================
-
-create or replace function public.allowlist_casa(lista text[], valor text)
-returns boolean
-language sql
-immutable parallel safe
-as $$
-  with itens as (
-    select lower(btrim(x)) as v
-      from unnest(coalesce(lista, '{}'::text[])) x
-     where btrim(coalesce(x, '')) <> ''
-  )
-  select not exists (select 1 from itens)
-      or lower(btrim(coalesce(valor, ''))) in (select v from itens);
-$$;
-
-comment on function public.allowlist_casa(text[], text) is
-  'Allowlist: lista vazia (ou só de brancos) não restringe; senão compara por lower(btrim()) dos dois lados, e valor AUSENTE nunca casa. Brancos são filtrados antes de decidir — sem isso, uma entrada em branco liberava quem não manda o parâmetro.';
 
 -- ── Assertivas: a migration falha se o comportamento regredir ────────
 do $$

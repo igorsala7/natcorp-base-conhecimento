@@ -23,6 +23,41 @@
 -- específicos, sem duplicá-lo três vezes e sem entregá-lo a todos.
 -- Num prompt de cliente a lista é redundante (o escopo já restringe) —
 -- redundante, não contraditória, então não estorva.
+--
+-- ── ESTE ARQUIVO É O SÍTIO ÚNICO DE `allowlist_casa` (tarefa 16) ─────
+-- `public.allowlist_casa(text[], text)` estava definida em TRÊS arquivos
+-- (este, `20260924230000` e `20260925010000`). Sem ledger de migrations,
+-- reaplicar um arquivo à mão é operação normal, e reaplicar o mais antigo
+-- desfazia o mais novo em SILÊNCIO — a assinatura continua única, então
+-- `npm run verificar:rpc` passa: é o CORPO que retrocede.
+--
+-- O que este arquivo devolvia, na versão que estava aqui: o `btrim` de UM
+-- argumento (só o caractere espaço) e nenhum filtro de brancos na lista. As
+-- duas coisas são furo entre clientes. O aparo curto faz o banco discordar do
+-- `.trim()` do JavaScript em TAB, LF, CR e NBSP, e o NBSP é a metade que
+-- faltava do furo que a tarefa 12 fechou do outro lado: uma base que difere
+-- só por NBSP é linha distinta para o índice único de `ai_bases` e o MESMO
+-- valor para a dimensão `base` de `public.elegivel`, então documentação
+-- restrita a uma alcança os usuários da outra. E a lista sem filtro de
+-- brancos liberava quem NÃO manda o parâmetro.
+--
+-- O corpo abaixo NÃO foi remontado à mão: é a saída de `pg_get_functiondef`
+-- do banco de PRODUÇÃO colada aqui (daí o cabeçalho em MAIÚSCULAS). O SHA-256
+-- foi capturado antes e conferido depois de aplicar: idêntico.
+--
+-- ── Por que o sítio canônico é o arquivo MAIS ANTIGO, e não o mais novo ─
+-- `public.prompts_sugeridos`, criada LOGO ABAIXO neste mesmo arquivo, chama
+-- `allowlist_casa` seis vezes no corpo. `check_function_bodies` está ligado
+-- neste banco (medido: criar função SQL que chama função inexistente FALHA),
+-- então levar `allowlist_casa` para qualquer arquivo posterior faria uma
+-- aplicação do zero morrer aqui com `function public.allowlist_casa(text[],
+-- text) does not exist`. É a mesma forma de dependência que travou
+-- `codigo_normalizado` na tarefa 15 — lá um índice único e um CHECK, aqui a
+-- função vizinha.
+--
+-- `20260924230000` e `20260925010000` guardam as assertivas deles onde estão:
+-- rodam DEPOIS deste arquivo, contra o corpo canônico, e por isso viram prova
+-- de replay em vez de precisarem ser transplantadas.
 -- =====================================================================
 
 alter table public.prompt_sugerido
@@ -45,21 +80,30 @@ comment on column public.prompt_sugerido.matriculas is
 --
 -- `immutable` e sem `set search_path` de propósito: o planejador consegue
 -- inlinear, e a função não toca em objeto nenhum do schema.
-create or replace function public.allowlist_casa(lista text[], valor text)
-returns boolean
-language sql
-immutable
-parallel safe
-as $$
-  select lista is null
-      or cardinality(lista) = 0
-      or lower(btrim(coalesce(valor, ''))) = any (
-           select lower(btrim(x)) from unnest(lista) x
-         );
-$$;
+CREATE OR REPLACE FUNCTION public.allowlist_casa(lista text[], valor text)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE PARALLEL SAFE
+AS $function$
+  -- O conjunto de "branco" aparece UMA vez e é usado nas três pontas
+  -- (item, teste de item vazio, valor). Repetir o literal três vezes era
+  -- convidar a corrigir duas e esquecer a terceira, que é exatamente a
+  -- classe de defeito que esta migration está fechando.
+  with b(brancos) as (
+    select ' ' || chr(9) || chr(10) || chr(13) || chr(160)  -- espaco, TAB, LF, CR, NBSP
+  ),
+  itens as (
+    select lower(btrim(x, b.brancos)) as v
+      from b, unnest(coalesce(lista, '{}'::text[])) x
+     where btrim(coalesce(x, ''), b.brancos) <> ''
+  )
+  select not exists (select 1 from itens)
+      or lower(btrim(coalesce(valor, ''), b.brancos)) in (select v from itens)
+    from b;
+$function$;
 
 comment on function public.allowlist_casa(text[], text) is
-  'Allowlist: vazia/NULL não restringe; senão compara por lower(btrim()) dos dois lados. Usada pela elegibilidade dos prompts sugeridos.';
+  'Allowlist: lista vazia (ou só de brancos) não restringe; senão compara por lower(btrim()) dos dois lados, e valor AUSENTE nunca casa. Brancos são filtrados antes de decidir — sem isso, uma entrada em branco liberava quem não manda o parâmetro. "Branco" aqui é espaço, TAB, LF, CR e NBSP, o mesmo conjunto que o .trim() do JavaScript remove, para o gêmeo em src/lib/elegibilidade/alcanca.ts não discordar.';
 
 -- A assinatura mudou (duas dimensões novas), então a antiga precisa sair.
 drop function if exists public.prompts_sugeridos(text, text, text, text);
@@ -163,39 +207,26 @@ grant execute on function public.prompts_sugeridos(text, text, text, text, text,
 -- =====================================================================
 
 drop function if exists public.perfis_da_base(text);
-drop function if exists public.vocabulario_rastreio(text);
 
-create function public.vocabulario_rastreio(base_ref text default null)
-returns table (campo text, valor text, conversas bigint)
-language sql
-stable
-security definer
-set search_path to 'public', 'extensions'
-as $$
-  with base as (
-    select c.p_perfil, c.p_empresa
-      from public.conversations c
-     -- Sem base = todas: é o vocabulário do catálogo GLOBAL da Natcorp,
-     -- que precisa enxergar os valores de todos os clientes.
-     where base_ref is null
-        or lower(btrim(c.p_base)) = lower(btrim(base_ref))
-  )
-  select 'perfil'::text, btrim(b.p_perfil), count(*)
-    from base b
-   where b.p_perfil is not null and btrim(b.p_perfil) <> ''
-   group by btrim(b.p_perfil)
-  union all
-  select 'empresa'::text, btrim(b.p_empresa), count(*)
-    from base b
-   where b.p_empresa is not null and btrim(b.p_empresa) <> ''
-   group by btrim(b.p_empresa)
-  -- Frequência primeiro: põe na frente o que o admin escolhe em 90% das
-  -- vezes. Alfabético poria 'ADM_COORD_SUP' antes de 'MASTER'.
-  order by 1, 3 desc, 2;
-$$;
+-- ── A DEFINIÇÃO DE `vocabulario_rastreio` SAIU DAQUI (tarefa 16) ────
+-- Este arquivo criava `public.vocabulario_rastreio(text)` na versão de DUAS
+-- dimensões (perfil e empresa), e `20260924232000_vocabulario_doze_dimensoes.sql`
+-- a substituiu pela de DOZE. Com a função definida nos dois, reaplicar ESTE
+-- arquivo sozinho devolvia o vocabulário a duas dimensões em silêncio: dez
+-- seletores de elegibilidade da tela ficariam vazios, e "esta base nunca
+-- enviou valor nesta dimensão" passaria a ser dito sobre dimensão que a
+-- função nem consulta. Pior, o `drop function` que vinha antes do create
+-- destruía e recriava a função, e função recém-criada nasce com EXECUTE para
+-- PUBLIC — o mesmo furo que `20260925003000` e `20260924232000` fecharam.
+--
+-- A definição, o comentário e os privilégios moram agora num sítio ÚNICO:
+--
+--   supabase/migrations/20260924232000_vocabulario_doze_dimensoes.sql
+--
+-- Nada entre este arquivo e aquele chama `vocabulario_rastreio` (conferido:
+-- nenhuma função SQL do banco a menciona, e a única outra migration que a
+-- toca é `20260925003000`, posterior), então uma aplicação do zero continua
+-- válida. O texto ACIMA é o registro da decisão original — por que RPC e não
+-- `select` paginado, e por que usuário e matrícula ficam fora — e continua
+-- valendo para a versão de doze dimensões.
 
-comment on function public.vocabulario_rastreio(text) is
-  'Valores distintos já vistos em conversas para perfil e empresa, com contagem. Alimenta os seletores de elegibilidade dos prompts. Usuário e matrícula ficam de fora de propósito: identificam pessoas.';
-
-revoke all on function public.vocabulario_rastreio(text) from public, anon, authenticated;
-grant execute on function public.vocabulario_rastreio(text) to service_role;

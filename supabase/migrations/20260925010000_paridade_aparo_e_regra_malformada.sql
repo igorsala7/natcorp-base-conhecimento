@@ -78,72 +78,36 @@
 -- apareceriam num p_* do ERP. Os dois lados seguem discordando nos
 -- exóticos, na direção segura (o banco FECHA), e um caso no corpus
 -- pega isso no dia em que importar.
+--
+-- ── O QUE SAIU DESTE ARQUIVO, E PARA ONDE FOI (tarefa 16) ────────────
+-- As definições de `public.allowlist_casa(text[], text)` e de
+-- `public.elegivel(jsonb, jsonb)` — que eram o corpo VIVO — e os dois
+-- `comment on function` saíram daqui e passaram a morar em sítios ÚNICOS:
+--
+--   allowlist_casa ... supabase/migrations/20260923050000_prompts_elegibilidade_completa.sql
+--   elegivel ......... supabase/migrations/20260924234000_dimensoes_elegibilidade.sql
+--
+-- Cada uma foi para o PRIMEIRO arquivo em que o corpo vivo é legal: o de
+-- `allowlist_casa` porque `prompts_sugeridos` a chama no mesmo arquivo logo
+-- abaixo, o de `elegivel` porque ela chama `dimensoes_elegibilidade()`, que
+-- nasce lá. Com `check_function_bodies` ligado, qualquer arquivo anterior
+-- falharia na aplicação do zero. Os cabeçalhos dos dois explicam a
+-- dependência.
+--
+-- Este arquivo era o mais NOVO dos quatro sítios de `elegivel` e dos três de
+-- `allowlist_casa`, ou seja, o corpo daqui era o que estava no banco. O
+-- problema nunca foi ele: era que reaplicar à mão qualquer um dos outros
+-- — operação normal, porque não há ledger — dava a última palavra a um corpo
+-- antigo, em SILÊNCIO, já que a assinatura continua única e `verificar:rpc`
+-- não olha corpo. `npm run verificar:corpo` é quem recusa o segundo sítio.
+--
+-- As TRINTA E QUATRO assertivas ficaram todas aqui, de propósito: este
+-- arquivo roda depois dos dois sítios canônicos, então elas exercitam os
+-- corpos canônicos e são a prova, numa aplicação do zero, de que as duas
+-- correções deste arquivo (regra inteira malformada FECHA; aparo dos cinco
+-- brancos) sobreviveram à consolidação. O texto acima continua sendo o
+-- registro da decisão.
 -- =====================================================================
-
--- ── (b) aparo alinhado com o .trim() do JavaScript ──────────────────
-create or replace function public.allowlist_casa(lista text[], valor text)
-returns boolean
-language sql
-immutable parallel safe
-as $$
-  -- O conjunto de "branco" aparece UMA vez e é usado nas três pontas
-  -- (item, teste de item vazio, valor). Repetir o literal três vezes era
-  -- convidar a corrigir duas e esquecer a terceira, que é exatamente a
-  -- classe de defeito que esta migration está fechando.
-  with b(brancos) as (
-    select ' ' || chr(9) || chr(10) || chr(13) || chr(160)  -- espaco, TAB, LF, CR, NBSP
-  ),
-  itens as (
-    select lower(btrim(x, b.brancos)) as v
-      from b, unnest(coalesce(lista, '{}'::text[])) x
-     where btrim(coalesce(x, ''), b.brancos) <> ''
-  )
-  select not exists (select 1 from itens)
-      or lower(btrim(coalesce(valor, ''), b.brancos)) in (select v from itens)
-    from b;
-$$;
-
-comment on function public.allowlist_casa(text[], text) is
-  'Allowlist: lista vazia (ou só de brancos) não restringe; senão compara por lower(btrim()) dos dois lados, e valor AUSENTE nunca casa. Brancos são filtrados antes de decidir — sem isso, uma entrada em branco liberava quem não manda o parâmetro. "Branco" aqui é espaço, TAB, LF, CR e NBSP, o mesmo conjunto que o .trim() do JavaScript remove, para o gêmeo em src/lib/elegibilidade/alcanca.ts não discordar.';
-
--- ── (a) regra inteira malformada FECHA, em vez de levantar exceção ──
-create or replace function public.elegivel(regra jsonb, identidade jsonb)
-returns boolean
-language sql
-immutable parallel safe
-as $$
-  with bruta as (
-    -- SQL NULL e o jsonb `null` caem no MESMO caso: "sem regra".
-    select coalesce(regra, 'null'::jsonb) as v
-  ),
-  pronta as (
-    select jsonb_typeof(v) as tipo,
-           -- O jsonb_each abaixo recebe SEMPRE um objeto, por construção.
-           case when jsonb_typeof(v) = 'object' then v else '{}'::jsonb end as obj
-      from bruta
-  )
-  select p.tipo in ('object', 'null')   -- regra que não é objeto: FECHA
-     and not exists (
-       select 1
-         from jsonb_each(p.obj) r(dim, lista)
-        -- `null` é dimensão NÃO CONFIGURADA, e não restrição vazia.
-        where jsonb_typeof(r.lista) <> 'null'
-          and (
-               -- CHAVE QUE NÃO É UMA DAS DOZE: regra malformada, FECHA.
-               r.dim <> all (public.dimensoes_elegibilidade())
-               -- VALOR MALFORMADO FECHA, inclusive quando a identidade casaria.
-            or jsonb_typeof(r.lista) <> 'array'
-            or not public.allowlist_casa(
-                 (select array_agg(x #>> '{}') from jsonb_array_elements(r.lista) x),
-                 identidade #>> array[r.dim]
-               )
-          )
-     )
-    from pronta p;
-$$;
-
-comment on function public.elegivel(jsonb, jsonb) is
-  'Alcance de uma regra de elegibilidade sobre uma identidade, nas doze dimensões. Dentro da dimensão OU, entre dimensões E, lower(btrim()) dos dois lados, lista vazia libera, valor AUSENTE contra dimensão restrita FECHA. Valor `null` = dimensão não configurada (libera). FECHA em valor que não é lista, em chave que não é uma das doze e na REGRA INTEIRA que não é objeto — sempre fechando, nunca levantando exceção, porque autorização que estoura devolve 500 onde devia devolver negação. Regra ausente (SQL NULL ou jsonb null) = sem regra, LIBERA. Quem recusa a regra malformada antes de ela ser gravada é chavesProblematicasDaRegra, no caminho de gravação. Gêmea de src/lib/elegibilidade/alcanca.ts; npm run verificar:elegibilidade prova que concordam.';
 
 -- ── Assertivas ──────────────────────────────────────────────────────
 do $$

@@ -23,6 +23,33 @@
 --
 -- As duas lêem `src/lib/elegibilidade/casos.json` e
 -- `npm run verificar:elegibilidade` falha se discordarem em um caso.
+--
+-- ── O QUE SAIU DESTE ARQUIVO, E PARA ONDE FOI (tarefa 16) ────────────
+-- A definição de `public.elegivel(jsonb, jsonb)`, o `comment on function`
+-- dela, os `revoke`/`grant` e as treze assertivas que a CHAMAM saíram daqui e
+-- passaram a morar num sítio ÚNICO:
+--
+--   supabase/migrations/20260924234000_dimensoes_elegibilidade.sql
+--
+-- Enquanto ela estava definida aqui TAMBÉM, reaplicar este arquivo sozinho —
+-- operação normal, porque não há ledger — devolvia o motor de elegibilidade
+-- ao estado de 24/09 em SILÊNCIO. O corpo daqui aceita QUALQUER chave como
+-- dimensão: `{"foo":["x"]}` contra identidade `{"foo":"x"}` LIBERAVA, e um
+-- typo no nome da dimensão (`centro_custos` no plural) abria o conteúdo em
+-- vez de fechá-lo. Também levantava EXCEÇÃO quando a regra inteira não era
+-- objeto, que numa RPC de listagem vira 500 onde devia haver negação.
+--
+-- A assinatura nunca mudou, então nem `npm run verificar:rpc` nem nenhuma
+-- assertiva de assinatura enxergavam isso: era o CORPO que retrocedia.
+-- `npm run verificar:corpo` é quem recusa o segundo sítio agora.
+--
+-- As assertivas foram junto com a definição porque CHAMAM a função: ficando
+-- aqui, uma aplicação do zero as rodaria antes de `elegivel` existir. Os
+-- `revoke`/`grant` foram pelo mesmo motivo — apontariam para função
+-- inexistente.
+--
+-- O que é DESTE arquivo ficou: as doze colunas de rastreio em
+-- `conversations` e `page_views`, e a decisão de por que elas são colunas.
 -- =====================================================================
 
 alter table public.conversations
@@ -66,74 +93,9 @@ alter table public.page_views
   add column if not exists p_vinculo         text,
   add column if not exists p_sindicato       text;
 
--- ── A regra, em SQL ─────────────────────────────────────────────────
+-- ── A regra, em SQL, mora em 20260924234000 ────────────────────────
 -- Assinatura em jsonb (e não doze pares de text[]/text) porque toda RPC
 -- dos projetos 1 a 3 vai chamá-la, e uma função de 24 argumentos erra na
 -- ordem em silêncio: trocar `filial` com `centro_custo` compila, roda e
--- devolve o conteúdo errado para o cliente errado.
-create or replace function public.elegivel(regra jsonb, identidade jsonb)
-returns boolean
-language sql
-immutable parallel safe
-as $$
-  select not exists (
-    select 1
-      from jsonb_each(coalesce(regra, '{}'::jsonb)) r(dim, lista)
-     -- `null` é dimensão NÃO CONFIGURADA, e não restrição vazia: mesma leitura
-     -- que `allowlist_casa(null, x)` já faz.
-     where jsonb_typeof(r.lista) <> 'null'
-       and (
-            -- VALOR MALFORMADO FECHA, e esta linha é a correção de 24/09.
-            -- A primeira versão pulava a dimensão quando o valor não era lista,
-            -- e pular ABRE: uma regra gravada como {"portal":"PG"} em vez de
-            -- {"portal":["PG"]} liberava o conteúdo para todo mundo, inclusive
-            -- para quem não manda `p_portal` nenhum. Num ponto único que três
-            -- projetos vão chamar, e sem erro em lugar nenhum.
-            -- Fecha mesmo quando a identidade casaria: não se adivinha intenção
-            -- de regra malformada, e quem impede a regra malformada de existir é
-            -- o caminho de gravação, não este predicado.
-            jsonb_typeof(r.lista) <> 'array'
-         or not public.allowlist_casa(
-              (select array_agg(x #>> '{}') from jsonb_array_elements(r.lista) x),
-              identidade #>> array[r.dim]
-            )
-       )
-  );
-$$;
-
-comment on function public.elegivel(jsonb, jsonb) is
-  'Alcance de uma regra de elegibilidade sobre uma identidade, nas doze dimensões. Dentro da dimensão OU, entre dimensões E, lower(btrim()) dos dois lados, lista vazia libera, valor AUSENTE contra dimensão restrita FECHA, valor jsonb `null` = dimensão não configurada e LIBERA, e qualquer valor que não seja array nem null (string, número, booleano, objeto) é regra MALFORMADA e FECHA, mesmo quando a identidade casaria — quem impede a regra malformada de existir é o caminho de gravação, não este predicado. Gêmea de src/lib/elegibilidade/alcanca.ts; npm run verificar:elegibilidade prova que concordam.';
-
-revoke all on function public.elegivel(jsonb, jsonb) from public, anon;
-grant execute on function public.elegivel(jsonb, jsonb) to authenticated, service_role;
-
--- ── Assertivas ──────────────────────────────────────────────────────
-do $$
-begin
-  assert public.elegivel('{}'::jsonb, '{}'::jsonb),
-    'regra vazia libera';
-  assert public.elegivel('{"portal":["PG"]}', '{"portal":"pg"}'),
-    'caixa nao importa';
-  assert not public.elegivel('{"portal":["PG"]}', '{}'::jsonb),
-    'ausencia fecha';
-  assert not public.elegivel('{"portal":["","PG"]}', '{}'::jsonb),
-    'branco na lista nao libera ausencia';
-  assert public.elegivel('{"portal":["",""]}', '{}'::jsonb),
-    'lista so de brancos libera';
-  assert not public.elegivel('{"portal":["PG"],"perfil":["FOLHA"]}', '{"portal":"PG","perfil":"RH"}'),
-    'E entre dimensoes';
-  assert not public.elegivel('{"centro_custo":["100"]}', '{"centro_custo":"0100"}'),
-    'zero a esquerda nao casa';
-  assert not public.elegivel('{"portal":"PG"}', '{}'),
-    'regra com string em vez de array FECHA';
-  assert not public.elegivel('{"portal":123}', '{}'),
-    'regra com numero FECHA';
-  assert not public.elegivel('{"portal":{"a":1}}', '{}'),
-    'regra com objeto FECHA';
-  assert not public.elegivel('{"portal":"PG"}', '{"portal":"PG"}'),
-    'regra malformada FECHA mesmo com identidade casando';
-  assert public.elegivel('{"portal":null}', '{}'),
-    'null = dimensao nao configurada, LIBERA';
-  assert public.elegivel('{"portal":[]}', '{}'),
-    'array vazio LIBERA';
-end $$;
+-- devolve o conteúdo errado para o cliente errado. Essa decisão é deste
+-- arquivo; a DEFINIÇÃO dela não é mais (ver o cabeçalho).
