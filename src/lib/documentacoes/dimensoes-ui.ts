@@ -164,7 +164,7 @@ const DIMENSOES_UI: DimensaoUI[] = [
   {
     dimensao: "unidade_negocio",
     rotulo: "Unidade de negócio",
-    ajuda: "Código da unidade de negócio, como ele chega no token.",
+    ajuda: "Código da unidade de negócio da própria pessoa, do jeito que está cadastrado no ERP.",
     grupo: "alocacao",
     presenca: true,
     origem: {
@@ -201,7 +201,9 @@ const DIMENSOES_UI: DimensaoUI[] = [
   {
     dimensao: "perfil",
     rotulo: "Perfil de acesso",
-    ajuda: "O `p_perfil` do token (MASTER, PORTAL_COLAB…). Não é o painel.",
+    ajuda:
+      "O perfil de acesso da pessoa no cadastro do sistema — por exemplo, MASTER é o perfil de quem " +
+      "administra. Não é o painel de onde ela abre o assistente (isso é a dimensão \"Portal\", acima).",
     grupo: "pessoa",
     presenca: true,
     origem: {
