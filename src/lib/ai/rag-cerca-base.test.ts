@@ -149,18 +149,18 @@ function dublarDb(chamadas: Chamada[]) {
 }
 
 /**
- * `origem: null` significa "chamador SEM base" (portal, Cmd+K, editor): neste
- * caso `opts.base` não vai, `resolverEscopoDaBase` nem é chamada, e a cerca
- * tem de ficar de fora.
+ * `base` é o que o chamador passa em `opts.base`: um código, `null` (portal,
+ * Cmd+K, editor) ou string VAZIA — os quatro chamadores fazem
+ * `track.p_base ?? null`, e um `p_base=` vazio na querystring chega como "".
  */
-async function rodarCenario(origem: "base" | "chave" | null): Promise<Chamada[]> {
+async function rodarCenario(origem: "base" | "chave", base: string | null): Promise<Chamada[]> {
   const chamadas: Chamada[] = [];
   const db = dublarDb(chamadas);
   vi.mocked(createAdminClient).mockReturnValue(db as never);
   vi.mocked(resolverEscopoDaBase).mockResolvedValue({
     spaceIds: [], // vazio de propósito: evita precisar dublar a árvore efetiva
     documentIds: ["doc-x"],
-    origem: origem ?? "chave",
+    origem,
   });
   vi.mocked(expandirConsulta).mockResolvedValue({
     lexica: "consulta",
@@ -176,7 +176,7 @@ async function rodarCenario(origem: "base" | "chave" | null): Promise<Chamada[]>
     { documentId: "doc-x" }, // força documentIds=["doc-x"] sem tocar herança de espaço
     null,
     {
-      base: origem === null ? null : "base-a",
+      base,
       track: {},
       continuidade: ["n-continuidade"], // dispara o caminho "lembrado" (passo 3)
     },
@@ -191,7 +191,7 @@ beforeEach(() => {
 
 describe("retrievePublicContext propaga p_base às quatro chamadas cercadas", () => {
   it("origem 'base': as três hybrid_search_scoped E a knowledge_list_chunks carregam p_base", async () => {
-    const chamadas = await rodarCenario("base");
+    const chamadas = await rodarCenario("base", "base-a");
 
     const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
     const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");
@@ -215,7 +215,7 @@ describe("retrievePublicContext propaga p_base às quatro chamadas cercadas", ()
    * `knowledge_documents.base_id`, e documento de espaço tem esse campo nulo.
    */
   it("origem 'chave': as quatro chamadas TAMBÉM carregam p_base — a cerca não depende de configuração", async () => {
-    const chamadas = await rodarCenario("chave");
+    const chamadas = await rodarCenario("chave", "base-a");
 
     const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
     const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");
@@ -229,7 +229,28 @@ describe("retrievePublicContext propaga p_base às quatro chamadas cercadas", ()
   });
 
   it("chamador SEM base (portal, Cmd+K, editor): nenhuma das quatro carrega p_base", async () => {
-    const chamadas = await rodarCenario(null);
+    const chamadas = await rodarCenario("chave", null);
+
+    const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
+    const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");
+
+    expect(hss).toHaveLength(3);
+    expect(klc).toHaveLength(1);
+
+    for (const c of [...hss, ...klc]) {
+      expect(c.args.p_base, `${c.nome} com p_node_ids=${JSON.stringify(c.args.p_node_ids)}`).toBeUndefined();
+    }
+  });
+
+  /**
+   * `p_base=` VAZIO na querystring. Os quatro chamadores fazem
+   * `track.p_base ?? null`, e `??` não pega string vazia: com `opts.base = ""`,
+   * um `?? null` aqui dentro mandaria `p_base: ""` ao banco, `p_base is null`
+   * seria FALSO, e a cerca ativaria com `base_alvo` vazio — recusando TODO
+   * arquivo de base, de todo cliente, em silêncio.
+   */
+  it("base como string VAZIA é tratada como sem base: nenhuma das quatro carrega p_base", async () => {
+    const chamadas = await rodarCenario("chave", "");
 
     const hss = chamadas.filter((c) => c.nome === "hybrid_search_scoped");
     const klc = chamadas.filter((c) => c.nome === "knowledge_list_chunks");

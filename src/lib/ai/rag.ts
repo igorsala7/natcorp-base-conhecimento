@@ -553,7 +553,14 @@ export async function retrievePublicContext(
   // de PROPRIEDADE: ela só recusa chunk de arquivo cujo `base_id` é de OUTRA
   // base, e deixa passar chunk de artigo e de documento de espaço. Então ela
   // não tem como cortar conteúdo legítimo vindo da chave.
-  const baseAlvo: string | null = opts?.base ?? null;
+  //
+  // Ternário e não `?? null`: os quatro chamadores passam `track.p_base ??
+  // null`, e um `p_base=` vazio na querystring chega aqui como STRING VAZIA.
+  // Com `??`, "" sobreviveria, `p_base: ""` iria ao banco, `p_base is null`
+  // seria falso e a cerca ativaria com `base_alvo` VAZIO — recusando TODO
+  // arquivo de base, de todo cliente, em silêncio. O ternário usa a mesma
+  // verdade do `if` abaixo, então "" é tratado como "sem base".
+  const baseAlvo: string | null = opts?.base ? opts.base : null;
   if (opts?.base) {
     const escopo = await resolverEscopoDaBase(supabase, opts.base, opts.track ?? {}, ids);
     idsDeEspaco = escopo.spaceIds;
