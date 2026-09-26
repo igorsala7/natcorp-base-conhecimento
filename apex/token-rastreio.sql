@@ -44,21 +44,40 @@ declare
   -- +-------------------------------------------------------------------------+
   -- | OS 3 ANDAM JUNTOS, SEMPRE DO MESMO PAINEL -- senao a identidade nao bate.|
   -- |                                                                         |
-  -- |   c_key     chave de RASTREIO daquele espaco. Segredo: e ela que assina  |
-  -- |             o token. Sai do admin, em                                   |
-  -- |             Assistente > Chaves de todas as documentacoes > Rastreio    |
-  -- |             seguro, escolhendo a documentacao no seletor.                |
-  -- |   c_widget  chave PUBLICA do widget do MESMO espaco (pk_live_...), na    |
-  -- |             mesma tela.                                                 |
-  -- |   c_slug    slug da documentacao do MESMO espaco.                       |
+  -- |   c_key     chave de RASTREIO DESTE CLIENTE -- nao a do painel. Segredo: |
+  -- |             e ela que assina o token. Cada cliente tem a sua (tabela     |
+  -- |             ai_base_tracking_keys) e o valor e o MESMO que ja vai no     |
+  -- |             bloco da area de gestao (apex/gestao-iframe.sql). Sai do     |
+  -- |             admin, em Integracoes > a base > Bloco do APEX.              |
+  -- |   c_widget  chave PUBLICA do widget do MESMO espaco (pk_live_...).       |
+  -- |   c_slug    slug da documentacao do MESMO espaco.                        |
   -- |                                                                         |
-  -- | NAO anote aqui a chave de outros paineis. Havia um quadro com os         |
-  -- | prefixos de chave do Colaborador e do Gestor, e ele deixou de fazer      |
-  -- | sentido por dois motivos: caderno de chave em arquivo versionado         |
-  -- | envelhece sem ninguem notar, e desde 25/09 a tela do admin MOSTRA o      |
-  -- | texto deste arquivo (a tela troca c_key por um marcador, mas comentario  |
-  -- | ela mostra como esta). Quem diz qual e a chave de cada painel e a tela,  |
-  -- | por espaco, que e onde a chave de verdade mora.                         |
+  -- | RECOLAR ESTE BLOCO COM A CHAVE PROPRIA E O QUE FECHA O ACESSO CRUZADO.   |
+  -- |                                                                         |
+  -- | Por que: a chave do PAINEL e uma so para todos os clientes daquele       |
+  -- | painel, e ela mora aqui, em texto puro, dentro do APEX de cada um.       |
+  -- | Enquanto este bloco assinar com ela, quem administra o APEX de um        |
+  -- | cliente consegue emitir um token dizendo :P_BASE de OUTRO cliente, e o   |
+  -- | servidor nao tem como distinguir. Com a chave propria isso acaba: o      |
+  -- | servidor escolhe a chave PELA base que o token declara e confere a       |
+  -- | assinatura com ELA -- token de um cliente dizendo ser outro nao fecha.   |
+  -- |                                                                         |
+  -- | A troca e por cliente e sem janela combinada: na primeira vez que um     |
+  -- | token assinado com a chave propria chegar, o servidor marca aquele       |
+  -- | cliente como migrado (ai_base_tracking_keys.confirmada_em) e, a partir   |
+  -- | dali, nunca mais aceita a chave compartilhada PARA ELE. Quem ainda nao   |
+  -- | recolou continua funcionando como sempre. So nao volte atras: recolar a  |
+  -- | versao antiga, com a chave do painel, derruba a identidade daquele       |
+  -- | cliente (o widget passa a dizer que precisa ser aberto de dentro do      |
+  -- | painel) ate a chave propria voltar.                                      |
+  -- |                                                                         |
+  -- | NAO anote aqui a chave de ninguem. Havia um quadro com os prefixos de    |
+  -- | chave do Colaborador e do Gestor, e ele deixou de fazer sentido por dois |
+  -- | motivos: caderno de chave em arquivo versionado envelhece sem ninguem    |
+  -- | notar, e desde 25/09 a tela do admin MOSTRA o texto deste arquivo (a     |
+  -- | tela troca c_key por um marcador, mas comentario ela mostra como esta).  |
+  -- | Quem diz qual e a chave de cada cliente e a tela, que e onde a chave de  |
+  -- | verdade mora.                                                           |
   -- +-------------------------------------------------------------------------+
   c_key    constant varchar2(64)  := 'mondnL9n6TlVgDQxNnCJW6LsprzGuKJ1Kh1QD63tm3g=';
   c_widget constant varchar2(80)  := 'pk_live_77c1d31cadd25d2768ac7c93167023bf';

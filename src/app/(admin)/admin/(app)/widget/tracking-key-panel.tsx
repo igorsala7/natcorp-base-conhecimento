@@ -318,6 +318,21 @@ $token = kb_token($key, ['p_usuario'=>'joao.silva','p_empresa'=>'ACME',
                   pública do widget deste espaço; <code>c_slug</code> e <code>c_site</code> já vêm
                   preenchidos.
                 </li>
+                {/*
+                  A chave desta tela é do ESPAÇO, portanto a MESMA para todos os
+                  clientes do painel — e é isso que permite um cliente assinar um
+                  token com o `p_base` de outro. Quem fecha esse acesso cruzado é a
+                  chave por cliente, em Integrações. O passo acima continua válido
+                  para quem ainda não migrou (o servidor aceita as duas durante a
+                  transição), mas mandar alguém colar esta aqui sem dizer disso é
+                  entregar o furo com instrução de uso.
+                */}
+                <li>
+                  <b>Prefira a chave daquele cliente.</b> Esta aqui é do painel, igual para todos os
+                  clientes dele — com ela, um cliente consegue emitir token dizendo ser outro. A chave
+                  por cliente está em <b>Integrações → a base → Bloco do APEX</b>, e recolar o bloco
+                  com ela fecha o acesso cruzado daquele cliente para sempre.
+                </li>
                 <li>
                   Conceda uma vez (o schema precisa do <code>DBMS_CRYPTO</code>):
                   <div className="mt-1 flex items-center gap-2">

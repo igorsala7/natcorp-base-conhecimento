@@ -131,6 +131,22 @@ export function GestaoApex({ baseId, baseName }: { baseId: string; baseName: str
             <span className="font-mono">apex/gestao-iframe.sql</span>.
             {nota ? ` ${nota}` : ""}
           </p>
+          {/*
+            Desde 25/09 esta chave não serve só à área de gestão: `resolve.ts`
+            também escolhe a chave PELA base que o token declara. O bloco daqui
+            é o da região de gestão; o do widget é outro (`token-rastreio.sql`),
+            e é nele que o `c_key` ainda é o do painel, compartilhado. Levar o
+            MESMO valor para lá é o que tira este cliente da chave compartilhada
+            — e o servidor nunca mais aceita a compartilhada para ele. Dizer
+            isso aqui é o que transforma "copiei um bloco" em "fechei um furo".
+          */}
+          <p className="mt-1.5 text-xs text-text-muted">
+            A chave acima é <b>só deste cliente</b>. Cole o <span className="font-mono">c_key</span> dela
+            também no bloco do <b>widget</b> deste cliente (
+            <span className="font-mono">apex/token-rastreio.sql</span>), onde hoje está a chave do painel:
+            é isso que tira ele da chave compartilhada e o torna o único capaz de se identificar como ele
+            mesmo. Vale por cliente, sem janela combinada e sem afetar os outros.
+          </p>
         </>
       )}
     </div>
