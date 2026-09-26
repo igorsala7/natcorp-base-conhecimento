@@ -335,11 +335,17 @@ async function retrieveWith(
   // LÉXICA (tsquery com os sinônimos) e a do VETOR (pergunta enriquecida com os
   // sinônimos casados), para a busca SEMÂNTICA também achar o conteúdo quando as
   // palavras exatas diferem. Degrada para a pergunta original se algo falhar.
+  //
+  // `baseAlvo` SOMA o vocabulário do próprio cliente ao dos espaços (tarefa 19):
+  // o termo dele nunca entra na ontologia global — ele é uma segunda consulta,
+  // filtrada pelo `base_id` da sessão, unida em memória. Sem base (portal,
+  // Cmd+K, editor) nada muda, e é o que o `eval-rag` afirma.
   const { lexica: pQuery, vetor: queryVetor, boost, responsaveis } = await expandirConsulta(
     supabase,
     escoposUsar.map((e) => e.spaceId),
     query,
     lang,
+    baseAlvo,
   );
 
   let embedding: number[] | null = null;

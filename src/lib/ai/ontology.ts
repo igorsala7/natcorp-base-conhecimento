@@ -30,6 +30,18 @@ export function contemTermo(perguntaNorm: string, termoNorm: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(perguntaNorm);
 }
 
+/**
+ * DONO de um termo/varredura: OU uma documentação (espaço), OU uma base.
+ *
+ * Exclusivo por desenho, e o CHECK `ontology_terms_um_dono` (migration
+ * `20260926140000_ontologia_por_base.sql`) recusa no banco o que o tipo recusa
+ * aqui. O motivo é de produto, não de modelagem: um termo com os dois donos
+ * expandiria a consulta de quem lê a documentação com jargão interno de um
+ * cliente — vazamento de informação comercial, porque os termos que uma empresa
+ * usa dizem o que ela faz.
+ */
+export type DonoDaOntologia = { spaceId: string; baseId?: null } | { spaceId?: null; baseId: string };
+
 /** Uma entrada da ontologia: formas de comparação + formas de superfície. */
 /** `nodeId` = nó RESPONSÁVEL pelo termo (artigo/diretório), quando vinculado. */
 export type EntradaOntologia = { matchNorms: string[]; forms: string[]; nodeId?: string | null };
@@ -114,7 +126,7 @@ export function enriquecerParaVetor(query: string, entradas: EntradaOntologia[])
   return `${query}\n${extras.slice(0, 6).join("\n")}`;
 }
 
-/** Cache curto por conjunto de espaços — está no caminho de TODA busca. */
+/** Cache curto por conjunto de espaços (+ base, quando houver) — está no caminho de TODA busca. */
 const cache = new Map<string, { at: number; data: EntradaOntologia[] }>();
 const TTL_MS = 60_000;
 
@@ -136,9 +148,63 @@ export async function entradasOntologia(supabase: DbClient, spaceIds: string[], 
   return carregarOntologia(supabase, spaceIds, lang);
 }
 
-async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: string | null): Promise<EntradaOntologia[]> {
+/**
+ * O id da base cujo `base_code` bate com este código — ou `null`.
+ *
+ * `public.bases_do_codigo(text)` é a MESMA comparação que a cerca de
+ * propriedade do RAG usa em `p_base` (`public.codigo_normalizado`, que apara os
+ * cinco brancos de `allowlist_casa`, o NBSP incluído). Resolver aqui com
+ * `ilike`, como `tool-catalog.ts` faz, divergiria em dois pontos: `%` e `_` no
+ * código viram curinga, e o lado da COLUNA não é aparado. Vocabulário e cerca
+ * têm de casar a base pelo mesmo critério, senão um turno pega o arquivo do
+ * cliente e não pega o vocabulário dele (ou o contrário).
+ *
+ * O `as unknown as SupabaseClient` existe porque `src/lib/database.types.ts`
+ * ainda não foi regerado: ele não conhece esta função nem a coluna `base_id`
+ * (conferido contra o banco em 26/09). Mesma fronteira declarada que
+ * `arquivos-da-base.ts` usa com `.filter("base_id", ...)`, e num lugar só.
+ */
+async function idDaBase(supabase: DbClient, baseCode: string): Promise<string | null> {
+  const alvo = baseCode.trim();
+  if (!alvo) return null;
+  const { data, error } = await (supabase as unknown as SupabaseClient).rpc("bases_do_codigo", {
+    p_base: alvo,
+  });
+  if (error) {
+    // Log OBRIGATÓRIO: sem ele, "este cliente não tem vocabulário próprio" e "a
+    // leitura da base falhou" produzem a MESMA consulta sem expansão, e não há
+    // como distinguir os dois de fora. Mesma regra de `escopo-da-base.ts`.
+    console.error(`[ontology] não deu para resolver a base "${alvo}", seguindo só com a ontologia dos espaços:`, error.message);
+    return null;
+  }
+  // `setof uuid` chega como lista de escalares. Mais de uma linha é impossível
+  // hoje (índice único sobre `codigo_normalizado(base_code)`) e, se acontecesse,
+  // escolher uma no escuro seria pior que não expandir.
+  const ids = (Array.isArray(data) ? data : []).map((x) => String(x)).filter(Boolean);
+  if (ids.length > 1) {
+    console.error(`[ontology] o código "${alvo}" resolveu ${ids.length} bases — nenhuma expansão por base neste turno.`);
+    return null;
+  }
+  return ids[0] ?? null;
+}
+
+/**
+ * @param baseCode Base do turno (`p_base`), quando houver. Os termos DELA são
+ * UNIDOS aos dos espaços — nunca substituem nenhum. Sem base, a segunda
+ * consulta não é nem emitida e a chave de cache é a de sempre: o caminho do
+ * portal e do Cmd+K fica idêntico, e é isso que o `eval-rag` mede.
+ */
+async function carregarOntologia(
+  supabase: DbClient,
+  spaceIds: string[],
+  lang?: string | null,
+  baseCode?: string | null,
+): Promise<EntradaOntologia[]> {
   const idioma = idiomaAtivo(lang);
-  const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO);
+  const base = (baseCode ?? "").trim();
+  // O segmento da base só ENTRA na chave quando existe: assim a chave do
+  // caminho sem base continua byte a byte a de antes desta rodada.
+  const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO) + (base ? `|base:${base.toLowerCase()}` : "");
   const hit = cache.get(chave);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
@@ -162,7 +228,8 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: 
   // É a mesma armadilha que já fez artigo "subir para a raiz" na árvore de
   // conteúdo (ver `fetchAllPaged`). A ordem precisa ser TOTAL e estável, senão
   // as fatias pulam ou repetem linhas na fronteira.
-  const termos = await fetchAllPaged<{ id: string; term: string; term_norm: string; node_id: string | null }>(
+  type LinhaDeTermo = { id: string; term: string; term_norm: string; node_id: string | null };
+  const termos = await fetchAllPaged<LinhaDeTermo>(
     (de, ate) =>
       supabase
         .from("ontology_terms")
@@ -171,6 +238,48 @@ async function carregarOntologia(supabase: DbClient, spaceIds: string[], lang?: 
         .order("id")
         .range(de, ate),
   );
+
+  /*
+    ── O VOCABULÁRIO DO CLIENTE SOMA AO GLOBAL, E NUNCA ENTRA NELE ──────────
+
+    Dois conjuntos, duas consultas, e a união em memória:
+
+      · termo de ESPAÇO (`space_id`) — a documentação da Natcorp, compartilhada;
+      · termo de BASE (`base_id`) — o jargão daquele cliente, só dele.
+
+    O CHECK `ontology_terms_um_dono` garante que nenhuma linha tem os dois, e a
+    consulta de base filtra por UM `base_id` resolvido da sessão. Então o termo
+    do cliente A não tem caminho para a expansão do cliente B nem para a de quem
+    lê a documentação sem base: nenhuma das duas consultas o alcança.
+
+    SOMA, não substituição — o precedente é o roteamento de ferramentas, que
+    toma o MAX entre o vetor por base e o global e nunca rebaixa. Se o cliente
+    tem sinônimo para um termo que o global também tem, os DOIS valem: as duas
+    entradas ficam na lista e `formasCasadas` ordena as duas (o rodízio dá vaga a
+    cada conceito antes de qualquer um ganhar o quinto sinônimo).
+
+    SEM BASE, NADA MUDA: sem `base` a consulta abaixo não é emitida, e o
+    resultado é exatamente o de antes desta rodada — o que o `eval-rag` afirma.
+
+    `.filter("base_id", ...)` e não `.eq()`: o tipo gerado ainda não conhece a
+    coluna (ver `idDaBase`), e `filter` aceita nome de coluna fora do tipo sem
+    `as never`. Pagina igual, pela mesma razão do comentário acima — o teto de
+    1.000 linhas do PostgREST é silencioso.
+  */
+  const baseId = base ? await idDaBase(supabase, base) : null;
+  if (baseId) {
+    const daBase = await fetchAllPaged<LinhaDeTermo>(
+      (de, ate) =>
+        supabase
+          .from("ontology_terms")
+          .select("id, term, term_norm, node_id")
+          .filter("base_id", "eq", baseId)
+          .order("id")
+          .range(de, ate),
+    );
+    termos.push(...daBase);
+  }
+
   const ids = termos.map((t) => t.id);
 
   // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do
@@ -330,19 +439,20 @@ export async function glossarioCasado(
 }
 
 /**
- * Carrega a ontologia dos espaços e expande a consulta léxica. Degrada para a
- * pergunta original em qualquer falha — a busca nunca pode quebrar por causa da
- * ontologia.
+ * Carrega a ontologia dos espaços (+ da base do turno, quando houver) e expande
+ * a consulta léxica. Degrada para a pergunta original em qualquer falha — a
+ * busca nunca pode quebrar por causa da ontologia.
  */
 export async function expandirConsultaLexica(
   supabase: DbClient,
   spaceIds: string[],
   query: string,
   lang?: string | null,
+  baseCode?: string | null,
 ): Promise<string> {
-  if (!spaceIds.length || !query.trim()) return query;
+  if ((!spaceIds.length && !baseCode) || !query.trim()) return query;
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds, lang);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang, baseCode);
     return expandirComOntologia(query, entradas);
   } catch {
     return query;
@@ -370,17 +480,22 @@ export async function formasExpandidas(supabase: DbClient, spaceIds: string[], q
  * (tsquery com os sinônimos em OR) e a `vetor` (pergunta enriquecida com os
  * sinônimos, para o embedding). Degrada para a pergunta original em qualquer
  * falha — a busca nunca pode quebrar por causa da ontologia.
+ *
+ * `baseCode` (o `p_base` do turno) SOMA o vocabulário daquele cliente ao dos
+ * espaços; sem ele o comportamento é idêntico ao de antes — ver
+ * `carregarOntologia`.
  */
 export async function expandirConsulta(
   supabase: DbClient,
   spaceIds: string[],
   query: string,
   lang?: string | null,
+  baseCode?: string | null,
 ): Promise<{ lexica: string; vetor: string; boost: string | null; responsaveis: string[] }> {
   const vazio = { lexica: query, vetor: query, boost: null, responsaveis: [] as string[] };
-  if (!spaceIds.length || !query.trim()) return vazio;
+  if ((!spaceIds.length && !baseCode) || !query.trim()) return vazio;
   try {
-    const entradas = await carregarOntologia(supabase, spaceIds, lang);
+    const entradas = await carregarOntologia(supabase, spaceIds, lang, baseCode);
     const casadas = casarOntologia(query, entradas);
     if (!casadas.length) return vazio;
     // Mesma ordenação de `formasCasadas` — reaproveitando o `casarOntologia`
