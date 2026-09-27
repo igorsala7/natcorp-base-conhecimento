@@ -78,10 +78,34 @@ export async function POST(req: NextRequest) {
   const t = await decodeTrackForSpace(key.space_id, payload.track);
   const base = String(t.p_base ?? "").trim();
 
-  // Balde por PESSOA quando há identidade, como no resto da v1: teto por chave
-  // puniria a empresa inteira porque um usuário reabriu o chat muitas vezes.
-  const sujeito = `${base}:${String(t.p_usuario ?? t.p_matricula ?? "").trim()}`;
-  if (!(await rateLimitOk(key.id, clientIp(req), key.rate_limit, base ? sujeito : null))) {
+  /*
+    O BALDE É POR PESSOA QUANDO HÁ PESSOA, E POR IP QUANDO NÃO HÁ.
+
+    Com identidade, o sujeito é `base:usuario` (ou a matrícula), como no resto da
+    v1: teto por chave puniria a empresa inteira porque um usuário reabriu o chat
+    muitas vezes.
+
+    SEM identidade não existe pessoa, e fingir que existe era o defeito: o sujeito
+    virava `base:` — o MESMO valor para todo acesso anônimo daquela base —, então o
+    balde que este comentário chamava de "por pessoa" era na verdade um balde por
+    BASE. Com `rate_limit = 600` (o único valor nas três chaves de produção), duas
+    consequências: um script gravava até 600 linhas por minuto na campanha dele, e
+    drenava junto o balde de todos os outros anônimos daquela base, empurrando o
+    número do painel para BAIXO.
+
+    Com o IP no lugar da pessoa ausente, o abusador consome o próprio balde e quem
+    está em outro IP não sente nada. O teto por IP que o `rateLimitOk` já aplica
+    continua valendo por cima, e o efeito colateral é na direção certa: com sujeito
+    presente aquele teto folga para 20× (é o caso do escritório atrás de um NAT),
+    e o balde principal aperta de 600 compartilhados para 600 por IP.
+
+    A inflação em si não fecha aqui, e não precisa: ela só fecharia com o roster do
+    ERP, e o número deixou de se chamar pessoas.
+  */
+  const ip = clientIp(req);
+  const quem = String(t.p_usuario ?? t.p_matricula ?? "").trim();
+  const sujeito = `${base}:${quem || `ip:${ip}`}`;
+  if (!(await rateLimitOk(key.id, ip, key.rate_limit, base ? sujeito : null))) {
     // Uma visualização PERDIDA, e é a troca certa: o número que o painel mostra
     // fica menor do que a realidade, nunca maior. O widget tenta de novo na
     // próxima abertura.

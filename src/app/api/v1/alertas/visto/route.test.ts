@@ -286,6 +286,41 @@ describe("o portão da v1", () => {
     expect(rateLimitOk).toHaveBeenCalledWith("k1", "1.2.3.4", 100, "zz-cliente-a:ana.silva");
   });
 
+  /**
+   * SEM PESSOA, O SUJEITO É O IP — E NUNCA A BASE.
+   *
+   * O sujeito era `${base}:${usuario ?? matricula ?? ""}`, que para o acesso
+   * anônimo dava `zz-cliente-a:` — o MESMO valor para todo anônimo daquela base.
+   * O balde que o comentário chamava de "por pessoa" era um balde por BASE: com
+   * `rate_limit = 600` (o valor das três chaves de produção), um script drenava o
+   * teto de todos os outros anônimos e empurrava o número do painel para baixo.
+   *
+   * As duas metades ficam travadas aqui: o anônimo passa a ter balde de IP, e o
+   * caminho identificado continua exatamente como estava (o teste acima).
+   */
+  it("sem usuário e sem matrícula, o balde é por IP e não por base", async () => {
+    dublarDb();
+    track.mockResolvedValue({ p_base: "zz-cliente-a", p_portal: "PG" });
+    await pedir({ campanhaId: DA_BASE_A, track: "tok" });
+    expect(rateLimitOk).toHaveBeenCalledWith("k1", "1.2.3.4", 100, "zz-cliente-a:ip:1.2.3.4");
+  });
+
+  it("só matrícula continua sendo pessoa: o balde é a matrícula, não o IP", async () => {
+    dublarDb();
+    track.mockResolvedValue({ p_base: "zz-cliente-a", p_portal: "PG", p_matricula: "9001" });
+    await pedir({ campanhaId: DA_BASE_A, track: "tok" });
+    expect(rateLimitOk).toHaveBeenCalledWith("k1", "1.2.3.4", 100, "zz-cliente-a:9001");
+  });
+
+  /* Sem base no token não há cliente a quem cobrar, e o sujeito não é inventado:
+     cai no balde da chave, que é o que `rateLimitOk` faz com `null`. */
+  it("sem base no token o sujeito é nulo: balde da chave, não um sujeito de mentira", async () => {
+    dublarDb();
+    track.mockResolvedValue({ p_portal: "PG" });
+    await pedir({ campanhaId: DA_BASE_A, track: "tok" });
+    expect(rateLimitOk).toHaveBeenCalledWith("k1", "1.2.3.4", 100, null);
+  });
+
   it("id fora de forma: 400 sem ir ao banco (o PostgREST erraria no tipo)", async () => {
     const db = dublarDb();
     for (const id of ["", "  ", "nao-e-uuid", "1; drop table x", DA_BASE_A + "x"]) {
