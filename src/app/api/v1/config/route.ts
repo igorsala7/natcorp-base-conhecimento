@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeTrackDetalhado, type TrackFields } from "@/lib/tracking/resolve";
 import { widgetLiberado, bloqueioPorIdentidade } from "@/lib/widget/disponibilidade";
 import { montarAbertura, publicoDaAbertura } from "@/lib/widget/abertura";
+import { alertasDaIdentidade } from "@/lib/widget/alertas";
 import {
   resolveWidgetKey,
   originAllowed,
@@ -143,10 +144,39 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /**
+   * OS ALERTAS DE CAMPANHA, NA MESMA RESPOSTA — e por que aqui.
+   *
+   * Esta rota já decodificou o token e já tem a identidade verificada. Um
+   * segundo endpoint de leitura custaria uma ida e volta a mais no caminho que
+   * o usuário SENTE (a abertura da bolha), para buscar um dado que esta
+   * requisição já tem tudo para responder.
+   *
+   * `alertas` entra como chave de TOPO, ao lado de `config` e `aiEnabled`, e
+   * não dentro de `config`. Os clientes rodam o `widget.js` que a página deles
+   * tem em cache: o laço de bootstrap daquele arquivo copia as chaves de
+   * `data.config` para dentro de `cfg` e IGNORA qualquer outra chave de topo,
+   * então uma versão antiga do widget simplesmente não vê os alertas — nada
+   * quebra e nada muda de comportamento. Dentro de `config`, a mesma chave
+   * viraria `cfg.alertas` num objeto que a versão antiga usa para montar cor,
+   * avatar e sugestões.
+   *
+   * O CORTE É EM SQL. `alertas_para` decide base, janela e elegibilidade; este
+   * arquivo não filtra nada — filtro em TypeScript aqui viraria a segunda
+   * implementação da regra, e `widget.js` é público de todo jeito.
+   *
+   * Falha da RPC não derruba a abertura. Mesmo critério de `titulos_de_partida`
+   * logo acima: widget sem alerta é o comportamento de sempre; widget que não
+   * monta por causa de um alerta é regressão.
+   */
+  const alertas = await alertasDaIdentidade(createAdminClient(), campos);
+
   return Response.json(
-    { config: { ...cfgAtual, ...abertura }, aiEnabled: await hasAiKey() },
+    { config: { ...cfgAtual, ...abertura }, aiEnabled: await hasAiKey(), alertas },
     // no-store: mudança de config (ícone/cor/título) reflete no próximo load,
-    // sem o navegador servir uma versão cacheada da config.
+    // sem o navegador servir uma versão cacheada da config. Vale dobrado com os
+    // alertas: campanha publicada tem de aparecer na próxima abertura, e não
+    // quando o navegador decidir reler a config.
     { headers: { ...cors, "Cache-Control": "no-store" } },
   );
 }
