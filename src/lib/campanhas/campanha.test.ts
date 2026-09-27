@@ -313,10 +313,11 @@ describe("esquema da action", () => {
 /* ═══════════════════════════════════════════════════════════════════════════
    SENTINELA DA TELA — nenhum denominador, e as duas frases obrigatórias
 
-   A migration de campanhas tem uma assertiva que quebra se alguém criar coluna ou
-   função de denominador. Ela não alcança a TELA: nada impede um componente de
-   dividir a contagem de visualizações por um total inventado no cliente. Esta é a
-   metade de cima da mesma guarda.
+   ESTA é a catraca que roda a cada PR: `npm test` está na CI. A assertiva D da
+   migration de campanhas cobre o lado do BANCO e só dispara quando alguém aplica
+   aquele arquivo — `ci.yml` não aplica migration nenhuma —, e de todo jeito ela
+   não alcançaria a TELA: nada impede um componente de dividir a contagem de
+   visualizações por um total inventado no cliente.
 
    Olha o FONTE como texto, e só formas de CÓDIGO (`toFixed(`, `* 100`, divisão
    por total). Palavra em prosa fica de fora de propósito: os comentários daquele
@@ -334,15 +335,58 @@ const TELA = readFileSync(
   "utf8",
 );
 
+/**
+ * O MESMO FONTE, SEM O PREFIXO DE COMENTÁRIO DE CADA LINHA.
+ *
+ * As agulhas são FORMAS de código, e a caixa de comentário deste repositório
+ * começa cada linha com ` * `: uma linha de prosa como "* 100 mil visualizações"
+ * traria a forma `* 100` sem nenhuma conta existir. É exatamente o defeito do
+ * contador de emoji, e catraca que acusa quem documenta a decisão é catraca que a
+ * equipe aprende a ignorar.
+ *
+ * O preço é uma conta de porcentagem escrita com o `*` abrindo uma linha de
+ * continuação. Essa mesma conta cai na agulha da DIVISÃO, cuja linha começa com
+ * uma barra só e não é tocada aqui.
+ */
+const CODIGO_DA_TELA = TELA.split("\n")
+  .map((l) => l.replace(/^[ \t]*(?:\*+|\/\/+)[ \t]?/, ""))
+  .join("\n");
+
+/**
+ * As agulhas são REGEX, e o espaço é OPCIONAL em todas.
+ *
+ * Com `includes("* 100")` e `includes("/ painel.total")`, as grafias `*100` e
+ * `/painel.total` — que o Prettier deste projeto aceita igual — atravessavam a
+ * catraca inteira. `[ \t]*` e não `\s*` de propósito: cruzar linha traria de volta
+ * o falso positivo de prosa que o passo acima acabou de fechar.
+ */
+const AGULHAS: [RegExp, string][] = [
+  [/toFixed[ \t]*\(/, "arredondamento de fração: só aparece em conta de porcentagem"],
+  [/\*[ \t]*100\b/, "multiplicação por cem é percentual"],
+  [/\b100[ \t]*\*/, "idem, do outro lado"],
+  [/\/[ \t]*painel\.total\b/, "divisão pelo total de visualizações é taxa de leitura"],
+  [/\/[ \t]*painel\.identificadas\b/, "idem, com o outro número"],
+];
+
 describe("a tela de comunicação não mede o que não tem denominador", () => {
+  it.each(AGULHAS)("não contém %s (%s)", (agulha) => {
+    expect(agulha.test(CODIGO_DA_TELA)).toBe(false);
+  });
+
+  /**
+   * A SENTINELA DA SENTINELA, TERCEIRA PARTE: a agulha pega a forma SEM espaço.
+   *
+   * A versão anterior comparava texto, então `*100` e `/painel.total` passavam.
+   * Este teste é o que impede a regressão de voltar em silêncio: ele exercita as
+   * agulhas contra as duas grafias da mesma conta.
+   */
   it.each([
-    ["toFixed(", "arredondamento de fração: só aparece em conta de porcentagem"],
-    ["* 100", "multiplicação por cem é percentual"],
-    ["100 *", "idem, do outro lado"],
-    ["/ painel.total", "divisão pelo total de visualizações é taxa de leitura"],
-    ["/ painel.identificadas", "idem, com o outro número"],
-  ])("não contém %s (%s)", (agulha) => {
-    expect(TELA.includes(agulha)).toBe(false);
+    "const pct = painel.identificadas * 100 / painel.total;",
+    "const pct = painel.identificadas *100 /painel.total;",
+    "const pct = (100 * painel.identificadas) / painel.total;",
+    "const pct = (painel.identificadas/painel.identificadas).toFixed(1);",
+  ])("as agulhas pegam a conta escrita como %s", (amostra) => {
+    expect(AGULHAS.some(([re]) => re.test(amostra))).toBe(true);
   });
 
   it("explica por extenso por que não existe 'quem não visualizou'", () => {

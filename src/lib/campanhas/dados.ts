@@ -32,9 +32,14 @@ import type { Campanha } from "./campanha";
  * Não existe função, coluna ou consulta aqui que produza um total de
  * destinatários. Não é esquecimento: não há cadastro de usuários em tabela
  * nenhuma deste banco, e o único universo disponível ("quem já usou o chatbot")
- * mediria adoção do chatbot parecendo medir alcance da campanha. A migration tem
- * uma assertiva que quebra se alguém criar a coluna; este arquivo é o lado de
- * cima da mesma decisão.
+ * mediria adoção do chatbot parecendo medir alcance da campanha.
+ *
+ * A catraca que RODA a cada PR é a sentinela de `campanha.test.ts`, dentro de
+ * `npm test`: ela olha o fonte da tela e falha se aparecer conta de porcentagem.
+ * A assertiva D de `20260926160000_campanhas.sql` cobre o lado do BANCO, e
+ * dispara na próxima vez que alguém aplicar aquele arquivo — a CI não aplica
+ * migration nenhuma, então ela não é portão de PR. Este arquivo é o lado de cima
+ * da mesma decisão, e o que o mantém assim é revisão, não automação.
  */
 
 /** O cliente admin sem o parâmetro de tipo. Ver o cabeçalho. */

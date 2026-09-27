@@ -32,8 +32,13 @@ import { lerVocabulario } from "@/lib/documentacoes/vocabulario";
  * cadastro de usuários em tabela nenhuma deste banco, então qualquer denominador
  * sairia de "quem já usou o chatbot" e mediria adoção do chatbot parecendo medir
  * alcance do aviso. A tela mostra quem visualizou, e diz em uma frase por que não
- * existe o outro lado. A migration tem uma assertiva que quebra se alguém criar a
- * coluna; esta página é o lado de cima da mesma decisão.
+ * existe o outro lado.
+ *
+ * Quem guarda isso a cada PR é a sentinela de `src/lib/campanhas/campanha.test.ts`
+ * (dentro de `npm test`, que a CI roda), olhando o fonte do painel. A assertiva D
+ * da migration de campanhas guarda o lado do BANCO e só dispara quando ALGUÉM
+ * aplica aquele arquivo: a CI não aplica migration. Esta página é o lado de cima
+ * da mesma decisão.
  */
 export default async function GestaoComunicacaoPage({
   searchParams,

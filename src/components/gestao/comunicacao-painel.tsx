@@ -92,10 +92,15 @@ import { valoresParaDimensao } from "@/app/gestao/conteudo/actions";
  * esta tela, não para quem escreveu o banco: ela não fala de tabela, de cadastro
  * de sistema nem de denominador.
  *
- * A migration de campanhas tem uma assertiva que QUEBRA se alguém criar coluna ou
- * função de denominador. Este arquivo é o lado de cima da mesma decisão, e
- * `campanha.test.ts` tem a sentinela que confere que ele continua sem conta de
- * porcentagem.
+ * A CATRACA DESTE ARQUIVO é a sentinela de `campanha.test.ts`, que olha este
+ * fonte e falha se aparecer conta de porcentagem. Ela roda em `npm test`, e
+ * `npm test` está na CI — é o único dos dois portões que barra um PR.
+ *
+ * A assertiva D da migration de campanhas cobre o lado do BANCO (coluna ou função
+ * de denominador) e dispara quando ALGUÉM aplica aquele arquivo: `ci.yml` não
+ * aplica migration nenhuma, e `scripts/apply-migrations.ts` só aplica o que
+ * recebe como argumento. Ou seja: a tela tem portão automático, o banco tem
+ * revisão mais uma assertiva que espera a próxima aplicação.
  *
  * ── Três decisões de formulário que vêm da aba Conteúdo, e por quê ────────
  *   · "sem restrição" é INTERRUPTOR, nunca campo em branco. Campo em branco

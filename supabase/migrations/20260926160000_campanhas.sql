@@ -57,6 +57,20 @@
 -- Enquanto isso não acontecer, a única coisa que o banco sabe dizer é
 -- "estas pessoas viram", e é só isso que ele oferece.
 --
+-- ── QUEM É A CATRACA DE VERDADE: A SENTINELA DO VITEST ────────────────
+-- A guarda que roda a cada PR é `src/lib/campanhas/campanha.test.ts`, que
+-- olha o fonte da tela e falha se aparecer conta de porcentagem. Ela está
+-- em `npm test`, e `npm test` está na CI.
+--
+-- A ASSERTIVA D deste arquivo (no fim) NÃO é catraca de CI: `ci.yml` não
+-- aplica migration nenhuma, e `scripts/apply-migrations.ts` só aplica o
+-- arquivo que recebe como argumento. Ela dispara na próxima vez que ALGUÉM
+-- aplicar ESTE arquivo — o que é operação normal aqui (não há ledger), mas
+-- não acontece sozinho. Uma migration futura que criasse
+-- `total_destinatarios` entraria verde, e a assertiva só acusaria depois.
+-- Quem depende dela para não criar a coluna está contando com um portão que
+-- ninguém abre.
+--
 -- ── A RLS DAQUI NÃO DEFENDE O CAMINHO DO CLIENTE ──────────────────────
 -- Isto precisa estar escrito, porque a leitura natural das policies abaixo
 -- é errada. A área do cliente e o widget NÃO têm sessão do Supabase: eles
@@ -965,13 +979,33 @@ end $grants$;
 --
 -- A restrição do dono é "só quem visualizou, nunca quem não visualizou", e
 -- ela só continua expressável se nenhuma coluna, view ou função deste
--- schema prometer um total. Esta assertiva é a rede: se alguém
--- acrescentar `total_destinatarios`, `percentual_lido`, `taxa_leitura` ou
--- `elegiveis_count` a qualquer objeto de campanha, ela quebra antes de o
--- número aparecer numa tela.
+-- schema prometer um total. Se alguém acrescentar `total_destinatarios`,
+-- `percentual_lido`, `taxa_leitura` ou `elegiveis_count` a um objeto de
+-- campanha, esta assertiva acusa.
+--
+-- QUANDO ELA ACUSA, E É AQUI QUE O COMENTÁRIO ANTIGO EXAGERAVA: na próxima
+-- vez que alguém aplicar ESTE arquivo. `ci.yml` não aplica migration
+-- nenhuma e `scripts/apply-migrations.ts` só aplica o que recebe como
+-- argumento, então uma migration futura que criasse a coluna entra VERDE e
+-- a coluna existe até a próxima reaplicação daqui. Ela não é portão de PR.
+-- O portão de PR do lado da TELA é a sentinela de
+-- `src/lib/campanhas/campanha.test.ts`, que roda em `npm test`.
 --
 -- Ela olha nome, e nome é sinal fraco — por isso a defesa de verdade está
--- no cabeçalho e na revisão. Mas o nome é o que a pessoa escreve primeiro.
+-- no cabeçalho e na revisão. Mas o nome é o que a pessoa escreve primeiro,
+-- e por isso a lista de nomes inclui as palavras que um desenvolvedor
+-- brasileiro alcança antes das inglesas: `lidos`, `alcance`, `enviados`,
+-- `publico`, `previstos`, `esperados`.
+--
+-- Duas escolhas de desenho da varredura, para ela não quebrar à toa (falso
+-- positivo aqui impede a REAPLICAÇÃO deste arquivo, que é operação normal
+-- num repositório sem ledger):
+--
+--   · `%lidos%` no plural, e não `%lido%`: "consolidado" contém "lido";
+--   · nas FUNÇÕES, as palavras soltas só valem quando o nome já é de
+--     campanha ou de visualização. A varredura de função não tem filtro de
+--     tabela para se apoiar, então `%publico%` solto acusaria um
+--     `artigos_publicos()` legítimo de outro assunto.
 -- =====================================================================
 do $denominador$
 declare
@@ -990,6 +1024,14 @@ begin
        or column_name like '%elegiveis%'
        or column_name like '%nao_visto%'
        or column_name like '%nao_lido%'
+       -- As palavras em português, que é o que se escreve primeiro aqui.
+       -- `%lidos%` no plural de propósito: "consolidado" contém "lido".
+       or column_name like '%lidos%'
+       or column_name like '%alcance%'
+       or column_name like '%enviad%'
+       or column_name like '%publico%'
+       or column_name like '%previst%'
+       or column_name like '%esperad%'
      );
   assert v_col is null,
     format('coluna de DENOMINADOR em tabela de campanha: %s. Nao existe cadastro de usuarios neste banco; a maior base conhece 7 usuarios distintos, e qualquer total sobre esse universo mede adocao do chatbot parecendo medir alcance da campanha. Traga o roster do ERP antes de criar a coluna.', v_col);
@@ -999,10 +1041,27 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
      and (
+       -- Compostos inequívocos: valem em QUALQUER nome do schema.
        p.proname like '%taxa_leitura%'
        or p.proname like '%percentual_%'
        or p.proname like '%destinatarios%'
        or p.proname like '%nao_visualiz%'
+       -- Palavras soltas: só quando o nome já é de campanha ou de
+       -- visualização. Sem esta cerca, `%publico%` acusaria um
+       -- `artigos_publicos()` legítimo e travaria a reaplicação deste arquivo.
+       or (
+         (p.proname like '%campanha%' or p.proname like '%visualizac%')
+         and (
+           p.proname like '%total%'
+           or p.proname like '%elegiveis%'
+           or p.proname like '%lidos%'
+           or p.proname like '%alcance%'
+           or p.proname like '%enviad%'
+           or p.proname like '%publico%'
+           or p.proname like '%previst%'
+           or p.proname like '%esperad%'
+         )
+       )
      );
   assert v_fn is null,
     format('funcao de DENOMINADOR: %s. Mesmo motivo: o painel mostra quem visualizou, e nao tenta mostrar quem nao visualizou.', v_fn);
