@@ -3747,11 +3747,14 @@
    * são os balões que já foram DESENHADOS, com o elemento na mão, esperando
    * virar visualização. O servidor entrega os alertas no carregamento da PÁGINA,
    * com o painel fechado; reportar ali mediria ENTREGA. O que a campanha precisa
-   * saber é se a pessoa viu, e para isso o painel tem de estar aberto.
+   * saber é se a pessoa VIU, e quem responde isso é o `IntersectionObserver` de
+   * `observarAlertasNaVista`: a visualização é reportada quando o balão entra na
+   * área visível, não quando ele existe no layout.
    *
    * `alertasReportados` guarda os ids já enviados para não reenviar quando a
-   * pessoa fecha e reabre, ou quando usa "Limpar" e os balões são redesenhados.
-   * O banco também deduplica (chave única por campanha + pessoa), então isto é
+   * pessoa fecha e reabre, quando rola de volta até o aviso, ou quando usa
+   * "Limpar" e os balões são redesenhados — uma vez por campanha por sessão. O
+   * banco também deduplica (chave única por campanha + pessoa), então isto é
    * economia de requisição, não correção.
    */
   var alertasDoServidor = [];
@@ -6520,29 +6523,25 @@
       marcarLido(); // abrir = confirmou a leitura → zera badge/contagem/título
       if (_revealFlush) _revealFlush(); // completa a resposta que ficou parada enquanto minimizado
       /**
-       * AQUI o aviso da empresa passa a contar como visualizado.
+       * NADA A FAZER AQUI PELO AVISO DA EMPRESA — e isso é a mudança.
        *
        * `panel.classList.add("open")` acabou de trocar `display:none` por
-       * `display:flex`, então o balão do aviso — que já estava no DOM desde o
-       * carregamento da página, medindo 0×0 — ganha altura. É a mesma razão pela
-       * qual a rolagem abaixo precisa ser refeita.
+       * `display:flex`. O `IntersectionObserver` de `observarAlertasNaVista`
+       * recalcula a interseção no quadro seguinte, sozinho, e reporta se o balão
+       * ENTROU na área visível. Como a rolagem abaixo vai para a última mensagem
+       * e o aviso é a primeira, num histórico longo ele continua fora da vista
+       * depois de abrir — e aí não conta, que é o comportamento certo. Conta
+       * quando a pessoa rolar até ele.
        *
-       * `requestAnimationFrame` (com `setTimeout` de reserva, porque aba oculta
-       * não recebe rAF) garante que o navegador já aplicou o estilo antes de
-       * medirmos. Medir cedo devolveria 0 e a visualização escorregaria para a
-       * próxima abertura, o que erra para MENOS — mas erra.
+       * O `requestAnimationFrame` que existia aqui ("medir depois de o estilo
+       * valer") era exatamente o trabalho que o navegador já faz para o
+       * observador. Chamar à mão agora só criaria um segundo caminho de reporte.
        */
-      if (window.requestAnimationFrame) requestAnimationFrame(confirmarAlertasVistos);
-      else setTimeout(confirmarAlertasVistos, 0);
       // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
       // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
       setTimeout(function () {
         rolarChat();
         inputEl.focus();
-        // Rede: se o rAF acima mediu antes de o estilo valer (aba em segundo
-        // plano, animação), esta segunda passada pega. Idempotente — o id já
-        // reportado não volta.
-        confirmarAlertasVistos();
       }, 50);
     } else {
       // Minimizar animado: encolhe/desaparece (kbout) e só então esconde.
@@ -6738,8 +6737,8 @@
    * Desenhar não é visualizar: no instante em que isto roda, o painel está
    * FECHADO (`.panel` só ganha `display:flex` com a classe `open`, e o próprio
    * `toggle` registra que com o painel oculto `scrollHeight` é 0). Por isso aqui
-   * não se reporta nada — quem reporta é `confirmarAlertasVistos`, e só depois de
-   * conferir que o balão tem altura de verdade.
+   * não se reporta nada — quem reporta é o `IntersectionObserver`, quando o balão
+   * entra de fato na área visível da pessoa.
    *
    * Chamada ANTES do histórico e da saudação, então o aviso é a primeira coisa
    * da conversa. Reentrante de propósito: "Limpar" esvazia a tela e redesenha, e
@@ -6752,8 +6751,9 @@
       if (!a || !a.id || !a.titulo) return;
       var box = document.createElement("div");
       box.className = "kbav";
-      // `data-*` para quem for investigar no inspetor descobrir de qual campanha
-      // é o balão sem abrir o banco.
+      // `data-alerta` é o vínculo entre o balão e a campanha: é daqui que
+      // `alertaEntrouNaVista` tira o id ao reportar a visualização. (Serve também
+      // para investigar no inspetor de qual campanha é o balão sem abrir o banco.)
       box.setAttribute("data-alerta", a.id);
 
       var rot = document.createElement("div");
@@ -6783,70 +6783,143 @@
       messagesEl.appendChild(box);
       alertasNaTela.push({ id: a.id, el: box });
     });
-    // Caso o painel já esteja aberto quando os avisos chegam (config lenta, ou
-    // "Limpar" com o chat aberto): a conferência é a mesma, e ela é que decide.
-    confirmarAlertasVistos();
+    // Liga o observador nos balões que acabaram de nascer. Não reporta nada por
+    // si: com o painel fechado eles não têm caixa, e quem decide é a interseção.
+    observarAlertasNaVista();
   }
 
   /**
-   * REPORTA a visualização — e só quando o balão foi REALMENTE renderizado.
+   * O LIMIAR: quanto do balão tem de estar na área visível para contar.
    *
-   * A pergunta "a pessoa viu?" tem uma resposta mensurável no navegador: com o
-   * painel fechado o balão existe no DOM e mede 0×0, porque `.panel` sem a classe
-   * `open` é `display:none`. Com o painel aberto ele passa a ter altura. Este
-   * `getBoundingClientRect` é exatamente essa medida, e é o que separa um número
-   * que significa "gente viu" de um que significa "o servidor entregou".
+   * `0` contaria um pixel — o balão roçando a borda da rolagem enquanto a pessoa
+   * passa reto conta como lido, e isso é a mesma mentira da medida antiga com
+   * outro nome. Metade do elemento é o proxy mais barato de "a pessoa PODERIA
+   * ler": com metade do balão dentro, o rótulo e a primeira linha do título
+   * estão na tela. Não é certeza de leitura (isso ninguém mede), é o ponto em
+   * que "não viu" deixa de ser a explicação mais provável.
+   */
+  var LIMIAR_ALERTA = 0.5;
+  var _alertaObs = null;
+
+  /**
+   * LIGA O OBSERVADOR nos balões desenhados. Quem reporta é o observador.
    *
-   * Chamado na ABERTURA do painel e ao desenhar. Nunca no carregamento da página.
+   * ── POR QUE ISTO SUBSTITUIU A MEDIDA DE RETÂNGULO ───────────────────────────
+   * A versão anterior media `getBoundingClientRect().height > 0`, e essa medida
+   * responde "o balão está no layout?", não "a pessoa viu?". Ela separava
+   * corretamente painel fechado (0×0) de painel aberto, e SÓ isso: um aviso no
+   * topo de um histórico longo tem altura de sobra enquanto está rolado para
+   * fora da vista, e contava. O número dizia "gente viu" e media "o painel
+   * abriu" — o mesmo defeito que a medida veio consertar, uma casa adiante.
+   *
+   * `IntersectionObserver` responde a pergunta certa porque o navegador calcula
+   * a interseção recortando o elemento contra TODOS os ancestrais que cortam:
+   * a rolagem de `.messages`, o painel, e a janela. Nenhuma das três precisa ser
+   * conferida à mão aqui.
+   *
+   * ── O PAINEL FECHADO SAI DE GRAÇA, E POR ISSO NÃO HÁ SEGUNDA GUARDA ─────────
+   * Elemento em `display:none` não tem caixa, então a interseção é vazia e o
+   * observador nunca reporta `isIntersecting`. A propriedade "o painel tem de
+   * estar aberto" — que a medida antiga existia para garantir — passou a ser
+   * consequência de como o observador funciona, e é por isso que a medida de
+   * retângulo SAIU em vez de ficar ao lado. Duas guardas para a mesma
+   * propriedade convidam a próxima pessoa a mexer numa e confiar na outra.
+   *
+   * Também não há mais nada a chamar na abertura do painel: trocar `display:none`
+   * por `display:flex` muda o layout, e o observador dispara sozinho no quadro
+   * seguinte. O `requestAnimationFrame` que o `toggle` usava para "medir depois
+   * do estilo valer" era exatamente o trabalho que o navegador já faz.
+   *
+   * ── SEM `IntersectionObserver`, NÃO SE REPORTA NADA ─────────────────────────
+   * Navegador sem a API perde a visualização, e é a troca certa: o número fica
+   * MENOR que a realidade, nunca maior, que é a direção de erro de todo este
+   * caminho. Voltar à medida de retângulo como reserva traria de volta a
+   * contagem que este arquivo acabou de deixar de fazer. A guarda é barata e não
+   * é um segundo mecanismo: este arquivo já exige navegador de 2019 para cima
+   * (usa `catch` sem binding e `ResizeObserver` sem reserva), e
+   * `IntersectionObserver` é mais antigo que os dois.
+   */
+  function observarAlertasNaVista() {
+    if (!alertasNaTela.length) return;
+    if (!window.IntersectionObserver) return;
+    // "Limpar" redesenha os balões: os elementos antigos saíram do DOM e o
+    // observador velho não serve mais.
+    if (_alertaObs) _alertaObs.disconnect();
+    // `0` na lista além do limiar: é o cruzamento que dá a callback do aviso mais
+    // ALTO que a janela, que nunca chega a 0,5 de si mesmo.
+    _alertaObs = new IntersectionObserver(alertaEntrouNaVista, { threshold: [0, LIMIAR_ALERTA] });
+    alertasNaTela.forEach(function (it) {
+      if (it && it.el) _alertaObs.observe(it.el);
+    });
+  }
+
+  /**
+   * A CALLBACK do observador: aplica o limiar e manda reportar.
+   *
+   * O id sai de `data-alerta` no próprio elemento observado — o atributo que
+   * `renderAlertas` escreve. Era só conforto de inspetor; agora é o vínculo entre
+   * o balão e a campanha, e por isso tem teste.
+   *
+   * Não se desobserva depois de reportar: `alertasReportados` já evita o reenvio,
+   * e continuar observando é o que dá a nova tentativa de graça quando o reporte
+   * falha por motivo transitório — a próxima abertura ou a próxima rolagem
+   * produzem um novo cruzamento de limiar.
+   */
+  function alertaEntrouNaVista(entradas) {
+    entradas.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      var raiz = e.rootBounds;
+      // Metade do BALÃO na vista; ou, quando o aviso é mais alto que a janela,
+      // metade da JANELA tomada por ele. Sem o segundo ramo, um aviso comprido
+      // nunca cruzaria 0,5 do próprio tamanho e nunca contaria.
+      var lido =
+        e.intersectionRatio >= LIMIAR_ALERTA ||
+        (raiz && raiz.height > 0 && e.intersectionRect.height >= raiz.height * LIMIAR_ALERTA);
+      if (!lido) return;
+      var id = e.target.getAttribute("data-alerta");
+      if (!id || alertasReportados[id]) return;
+      reportarAlertaVisto(id);
+    });
+  }
+
+  /**
+   * REPORTA a visualização. UMA vez por campanha por sessão.
    *
    * O que acontece com cada resposta do servidor:
    *
-   * · `registrado: true`  → gravado (ou já estava: repetição devolve `true`).
+   * · `registrado: true`  → gravado (ou já estava: a chave única absorve).
    * · `registrado: false` → o alerta não é entregável a esta identidade: id que
-   *   não existe, campanha de outro cliente, ou janela encerrada entre a
-   *   abertura e o desenho. É resposta NORMAL, não falha, e insistir só geraria
-   *   requisição inútil — o id fica marcado como resolvido.
-   * · erro de rede ou 5xx → desmarca, para a próxima abertura tentar de novo.
-   *   Visualização perdida deixa o número MENOR que a realidade, nunca maior.
+   *   não existe, campanha de outro cliente, janela encerrada entre a abertura e
+   *   a leitura, ou outra aba da MESMA pessoa que já reportou. É resposta NORMAL,
+   *   não falha, e insistir só geraria requisição inútil — o id fica marcado como
+   *   resolvido.
+   * · erro de rede ou 5xx → desmarca, e o próximo cruzamento de limiar (próxima
+   *   abertura, próxima rolagem até o aviso) tenta de novo. Visualização perdida
+   *   deixa o número MENOR que a realidade, nunca maior.
    */
-  function confirmarAlertasVistos() {
-    if (!alertasNaTela.length) return;
-    alertasNaTela.forEach(function (it) {
-      if (!it || !it.id || alertasReportados[it.id]) return;
-      if (!it.el || !it.el.isConnected) return;
-      var r;
-      try {
-        r = it.el.getBoundingClientRect();
-      } catch {
-        return;
-      }
-      // O painel fechado devolve 0×0 para o MESMO elemento. É aqui que "servir"
-      // deixa de contar como "visualizar".
-      if (!(r.height > 0 && r.width > 0)) return;
-
-      alertasReportados[it.id] = true;
-      var body = { campanhaId: it.id };
-      if (track) body.track = track;
-      fetch(API + "/api/v1/alertas/visto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
-        body: JSON.stringify(body),
-        // `keepalive`: a pessoa pode abrir o painel e trocar de tela do ERP no
-        // mesmo segundo. Sem isto, a requisição morre com a navegação e a
-        // visualização se perde justamente no caso em que ela aconteceu.
-        keepalive: true,
+  function reportarAlertaVisto(id) {
+    alertasReportados[id] = true;
+    var body = { campanhaId: id };
+    if (track) body.track = track;
+    fetch(API + "/api/v1/alertas/visto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+      body: JSON.stringify(body),
+      // `keepalive`: a pessoa pode ler o aviso e trocar de tela do ERP no mesmo
+      // segundo. Sem isto, a requisição morre com a navegação e a visualização se
+      // perde justamente no caso em que ela aconteceu.
+      keepalive: true,
+    })
+      .then(function (resp) {
+        // Só o que é TRANSITÓRIO volta para a fila: teto de requisições e
+        // falha de servidor. Chave inválida e origem não autorizada são
+        // configuração errada — reenviar não conserta nada e só gera requisição
+        // que vai falhar igual.
+        if (resp.status === 429 || resp.status >= 500) alertasReportados[id] = false;
       })
-        .then(function (resp) {
-          // Só o que é TRANSITÓRIO volta para a fila: teto de requisições e
-          // falha de servidor. Chave inválida e origem não autorizada são
-          // configuração errada — reenviar a cada abertura não conserta nada e só
-          // gera requisição que vai falhar igual.
-          if (resp.status === 429 || resp.status >= 500) alertasReportados[it.id] = false;
-        })
-        .catch(function () {
-          alertasReportados[it.id] = false;
-        });
-    });
+      .catch(function () {
+        alertasReportados[id] = false;
+      });
   }
 
   function renderWelcome() {

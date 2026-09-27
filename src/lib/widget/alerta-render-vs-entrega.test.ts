@@ -2,39 +2,100 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 
 /**
- * SERVIR NÃO É VISUALIZAR — a invariante do widget, lida no fonte.
+ * SERVIR NÃO É VISUALIZAR, E ESTAR NO LAYOUT TAMBÉM NÃO — lido no fonte.
  *
  * `public/widget.js` é um IIFE de ~9 mil linhas, sem ponto de entrada para teste
  * unitário (o mesmo limite que `bootstrap-token.test.ts` registra). Mas a
  * invariante desta tarefa é estrutural e se lê no texto: o reporte de
- * visualização tem de estar atrás de uma MEDIDA de layout, e não pode acontecer
- * no caminho em que o servidor entrega o alerta.
+ * visualização tem de sair de UM lugar, e esse lugar tem de ser alcançado pelo
+ * observador de interseção — nunca pelo caminho em que o servidor entrega o
+ * alerta, e nunca por uma medida de retângulo.
+ *
+ * ── O QUE MUDOU, E POR QUE O TESTE ANTIGO NÃO SERVIA MAIS ────────────────────
+ * A versão anterior media `getBoundingClientRect().height > 0`, e esse teste
+ * exigia essa medida. A medida separava painel fechado (0×0) de painel aberto, e
+ * só isso: um aviso no topo de um histórico longo tem altura de sobra enquanto
+ * está rolado para FORA da vista, e contava. O número dizia "gente viu" e media
+ * "o painel abriu".
+ *
+ * Então o teste foi reescrito para a invariante nova, não afrouxado para aceitar
+ * as duas: ele agora EXIGE o `IntersectionObserver`, exige o limiar antes do
+ * envio, e RECUSA a volta da medida de retângulo no caminho do alerta. Aceitar
+ * "uma das duas" transformaria o teste em documentação de que qualquer coisa
+ * serve.
  *
  * Por que isso merece teste em vez de revisão: o defeito, se voltar, é invisível.
- * Reportar na entrega não quebra nada, não gera erro, não muda a tela — só
- * transforma a única contagem que o painel de campanha mostra em "quantas
- * páginas carregaram", com o nome de "quantas pessoas viram". O painel continua
- * bonito e o número passa a ser outro.
- *
- * A medida em si é o que separa os dois casos, e ela é exata: com o painel
- * fechado, `.panel` é `display:none` e o balão do alerta — que já está no DOM
- * desde o carregamento da página — mede 0×0. Aberto, ele tem altura. O próprio
- * `toggle` do widget já dependia disso para refazer a rolagem, e registra que com
- * o painel oculto `scrollHeight` é 0.
+ * Reportar na entrega (ou no layout) não quebra nada, não gera erro, não muda a
+ * tela — só transforma a única contagem que o painel de campanha mostra em
+ * "quantas páginas carregaram", com o nome de "quantas pessoas viram".
  */
 const WIDGET = fs.readFileSync("public/widget.js", "utf-8");
 
-/** O corpo de uma `function nome() {...}` do fonte, por contagem de chaves. */
+/**
+ * O MESMO texto, com comentário virando espaço — e é por isso que ele existe.
+ *
+ * A primeira versão deste teste comparava substring no fonte CRU, e a assertiva
+ * "a abertura do painel não chama mais o observador" falhou contra o comentário
+ * que EXPLICA que ela não chama. Substring em fonte cru não distingue chamada de
+ * menção, e este repositório já pagou essa conta inteira: uma catraca de CI
+ * contava emoji dentro de comentário e ficou dez dias vermelha.
+ *
+ * O texto trocado por espaço mantém o COMPRIMENTO, então as comparações de
+ * posição (`indexOf(a) < indexOf(b)`) continuam valendo sobre o mesmo recorte.
+ * Literais de texto são pulados para não engolir um `//` de dentro de uma URL.
+ *
+ * Limite conhecido: literal de expressão regular não é tratado (não existe um
+ * dentro das funções que este arquivo inspeciona). E as assertivas POSITIVAS
+ * (`toContain("new IntersectionObserver")`) são a sentinela — se este apagador
+ * passar a apagar demais, elas caem antes de as negativas virarem vazias.
+ */
+function semComentarios(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; ) {
+    const c = s[i];
+    if (c === "/" && s[i + 1] === "/") {
+      const fim = s.indexOf("\n", i);
+      const ate = fim === -1 ? s.length : fim;
+      out += " ".repeat(ate - i);
+      i = ate;
+    } else if (c === "/" && s[i + 1] === "*") {
+      const fim = s.indexOf("*/", i + 2);
+      const ate = fim === -1 ? s.length : fim + 2;
+      out += (s.slice(i, ate).match(/\n/g) || []).length
+        ? s.slice(i, ate).replace(/[^\n]/g, " ")
+        : " ".repeat(ate - i);
+      i = ate;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < s.length && s[j] !== c) j += s[j] === "\\" ? 2 : 1;
+      out += s.slice(i, Math.min(j + 1, s.length));
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * O corpo de uma `function nome() {...}` do fonte, por contagem de chaves, já
+ * sem comentário. A contagem roda sobre o texto sem comentário para uma chave
+ * dentro de comentário não desequilibrar a varredura.
+ */
+const WIDGET_SEM_COMENTARIO = semComentarios(WIDGET);
+
 function corpoDaFuncao(nome: string): string {
   const i = WIDGET.indexOf(`function ${nome}(`);
   expect(i, `função ${nome} não existe mais em widget.js`).toBeGreaterThan(-1);
-  const inicio = WIDGET.indexOf("{", i);
+  const limpo = WIDGET_SEM_COMENTARIO;
+  const inicio = limpo.indexOf("{", i);
   let nivel = 0;
-  for (let j = inicio; j < WIDGET.length; j++) {
-    if (WIDGET[j] === "{") nivel++;
-    else if (WIDGET[j] === "}") {
+  for (let j = inicio; j < limpo.length; j++) {
+    if (limpo[j] === "{") nivel++;
+    else if (limpo[j] === "}") {
       nivel--;
-      if (nivel === 0) return WIDGET.slice(inicio, j + 1);
+      if (nivel === 0) return limpo.slice(inicio, j + 1);
     }
   }
   throw new Error(`função ${nome} sem fechamento`);
@@ -51,38 +112,94 @@ describe("o reporte de visualização do alerta", () => {
     expect(n).toBe(1);
   });
 
-  it("sai de `confirmarAlertasVistos`, e essa função MEDE o layout antes", () => {
-    const corpo = corpoDaFuncao("confirmarAlertasVistos");
+  it("sai de `reportarAlertaVisto`, e essa função só envia", () => {
+    const corpo = corpoDaFuncao("reportarAlertaVisto");
     expect(corpo).toContain(ROTA);
-    // A medida. Sem ela, "renderizado" viraria "existe no DOM", que é verdade
-    // desde o carregamento da página, com o painel fechado.
-    expect(corpo).toContain("getBoundingClientRect");
-    expect(corpo).toMatch(/r\.height\s*>\s*0/);
-    // E a medida tem de vir ANTES do envio.
-    expect(corpo.indexOf("getBoundingClientRect")).toBeLessThan(corpo.indexOf(ROTA));
+    // Quem decide é a callback do observador. Se a decisão migrasse para cá, a
+    // função de envio voltaria a poder ser chamada de qualquer lugar.
+    expect(corpo).not.toContain("intersectionRatio");
+    expect(corpo).not.toContain("getBoundingClientRect");
   });
 
-  it("NÃO é enviado ao desenhar: `renderAlertas` não reporta por conta própria", () => {
+  it("é decidido por um `IntersectionObserver`, não por medida de layout", () => {
+    const corpo = corpoDaFuncao("observarAlertasNaVista");
+    expect(corpo).toContain("new IntersectionObserver");
+    expect(corpo).toContain("alertaEntrouNaVista");
+    expect(corpo).toContain("threshold");
+    // `disconnect` antes de religar: "Limpar" redesenha os balões, e observar os
+    // elementos velhos (fora do DOM) é observar o que ninguém vai ver.
+    expect(corpo).toContain("disconnect()");
+  });
+
+  it("a medida de RETÂNGULO não voltou para o caminho do alerta", () => {
+    // Esta é a assertiva que recusa o afrouxamento. A medida antiga é verdadeira
+    // para um aviso rolado para fora da vista, e mantê-la ao lado do observador
+    // faria a próxima pessoa mexer numa e confiar na outra.
+    for (const fn of ["observarAlertasNaVista", "alertaEntrouNaVista", "reportarAlertaVisto", "renderAlertas"]) {
+      expect(corpoDaFuncao(fn), `${fn} voltou a medir retângulo`).not.toContain("getBoundingClientRect");
+    }
+  });
+
+  it("aplica o limiar ANTES de reportar, e o limiar não é zero", () => {
+    const corpo = corpoDaFuncao("alertaEntrouNaVista");
+    expect(corpo).toContain("isIntersecting");
+    expect(corpo).toContain("LIMIAR_ALERTA");
+    expect(corpo).toContain("intersectionRatio");
+    // A decisão vem antes da chamada que envia.
+    expect(corpo.indexOf("intersectionRatio")).toBeLessThan(corpo.indexOf("reportarAlertaVisto("));
+    // Limiar 0 contaria um pixel do balão roçando a borda da rolagem — a mesma
+    // mentira da medida antiga com outro nome.
+    const limiar = WIDGET.match(/var LIMIAR_ALERTA = ([\d.]+);/);
+    expect(limiar, "LIMIAR_ALERTA saiu do fonte").not.toBeNull();
+    expect(Number(limiar![1])).toBeGreaterThan(0);
+  });
+
+  it("conta o aviso mais ALTO que a janela pela fração da janela", () => {
+    // Sem este ramo, um aviso comprido nunca cruzaria 0,5 do próprio tamanho e
+    // nunca contaria — a campanha mais longa seria justamente a que não mede.
+    const corpo = corpoDaFuncao("alertaEntrouNaVista");
+    expect(corpo).toContain("rootBounds");
+    expect(corpo).toContain("intersectionRect");
+    // E o `0` na lista de limiares é o que garante a callback nesse caso.
+    expect(corpoDaFuncao("observarAlertasNaVista")).toMatch(/threshold:\s*\[\s*0\s*,/);
+  });
+
+  it("reporta UMA vez por campanha por sessão", () => {
+    const decide = corpoDaFuncao("alertaEntrouNaVista");
+    expect(decide).toContain("alertasReportados[id]");
+    // Só o transitório volta para a fila; recusa do portão é assunto encerrado.
+    const envia = corpoDaFuncao("reportarAlertaVisto");
+    expect(envia).toMatch(/status === 429 \|\| resp\.status >= 500/);
+  });
+
+  it("NÃO é enviado ao desenhar: `renderAlertas` liga o observador e nada mais", () => {
     // `renderAlertas` roda no carregamento da página, com o painel fechado.
-    // Ele pode CHAMAR a conferência (que mede e decide), mas não pode enviar.
     const corpo = corpoDaFuncao("renderAlertas");
     expect(corpo).not.toContain(ROTA);
-    expect(corpo).toContain("confirmarAlertasVistos()");
+    expect(corpo).not.toMatch(/reportarAlertaVisto\s*\(/);
+    expect(corpo).toContain("observarAlertasNaVista()");
+    // O id do balão vai para o atributo de onde a callback o lê.
+    expect(corpo).toContain('box.setAttribute("data-alerta", a.id)');
   });
 
   it("NÃO é enviado no handler da config: entrega não é visualização", () => {
     const corpo = corpoDaFuncao("init");
     expect(corpo).not.toContain(ROTA);
-    expect(corpo).not.toContain("confirmarAlertasVistos");
+    expect(corpo).not.toMatch(/reportarAlertaVisto\s*\(/);
+    expect(corpo).not.toMatch(/observarAlertasNaVista\s*\(/);
     // O que o handler da config faz com os alertas é guardar.
     expect(corpo).toContain("alertasDoServidor = data.alertas");
   });
 
-  it("é conferido quando o painel ABRE", () => {
+  it("a ABERTURA do painel não reporta mais por conta própria", () => {
+    // Trocar `display:none` por `display:flex` muda o layout, e o observador
+    // dispara sozinho no quadro seguinte. Uma chamada à mão aqui seria um segundo
+    // caminho de reporte — e, pior, um que dispara na abertura mesmo quando o
+    // aviso está rolado para fora da vista, que é o defeito consertado.
     const corpo = corpoDaFuncao("toggle");
-    expect(corpo).toContain("confirmarAlertasVistos");
-    // Depois de o painel virar visível, senão a medida devolve 0.
-    expect(corpo.indexOf('classList.add("open")')).toBeLessThan(corpo.indexOf("confirmarAlertasVistos"));
+    expect(corpo).not.toContain(ROTA);
+    expect(corpo).not.toMatch(/reportarAlertaVisto\s*\(/);
+    expect(corpo).not.toMatch(/observarAlertasNaVista\s*\(/);
   });
 });
 
@@ -102,7 +219,7 @@ describe("o texto do alerta é DADO, nunca marcação", () => {
   });
 });
 
-describe("o widget não decide elegibilidade", () => {
+describe("o widget não decide elegibilidade nem repetição", () => {
   it("não filtra os alertas do servidor por base, portal ou regra", () => {
     // `widget.js` é público: filtro aqui é sugestão, não cerca — e um filtro que
     // parece cerca faz a próxima pessoa confiar nele. O corte é em SQL
@@ -111,5 +228,14 @@ describe("o widget não decide elegibilidade", () => {
     expect(corpo).not.toContain(".regra");
     expect(corpo).not.toMatch(/alertasDoServidor\s*\.\s*filter/);
     expect(WIDGET).not.toMatch(/alertasDoServidor\s*=\s*[^;]*\.filter\(/);
+  });
+
+  it("não conhece o interruptor `repetir`: quem não repete o servidor não entrega", () => {
+    // "Uma vez por pessoa" é predicado de `alertas_para`, que para de devolver a
+    // campanha já vista. Se a bandeira chegasse ao navegador, a próxima pessoa
+    // escreveria o filtro aqui — em arquivo público, portanto sem cerca.
+    // No fonte SEM comentário e olhando acesso a propriedade: "repetir" aparece
+    // como palavra portuguesa em vários comentários e numa mensagem de tela.
+    expect(WIDGET_SEM_COMENTARIO).not.toMatch(/\.repetir\b/);
   });
 });
