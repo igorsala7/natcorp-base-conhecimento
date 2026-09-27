@@ -305,6 +305,35 @@ describe("a auto-abertura do painel pelo aviso", () => {
     expect(decide.indexOf("ehMobile()")).toBeLessThan(decide.indexOf("toggle({"));
   });
 
+  it("nasce no CANTO mesmo com a preferência de expandir salva", () => {
+    /*
+      A guarda de celular mediu o DISPOSITIVO, não o perigo. `expanded` vem do
+      `localStorage`, então ela sobrevive a sessões e dias: no desktop, com ela
+      ligada, `aplicarExpansao` dava 60% da largura por 90% da altura,
+      centralizado, em cima do formulário de quem está lançando folha — e chegava
+      sem ninguém ter tocado em nada hoje.
+
+      Quem fecha isso é a GEOMETRIA da auto-abertura, não uma guarda a mais (essa
+      recusaria a abertura de quem um dia clicou em "Expandir", e o aviso voltaria
+      a nascer invisível para essa pessoa). As quatro pontas precisam existir, ou
+      a regra vaza por uma delas.
+    */
+    const abre = corpoDaFuncao("toggle");
+    // 1. o sinalizador sai do MESMO booleano do caminho do aviso...
+    expect(abre).toContain("autoAberturaNoCanto = paraAlerta;");
+    // 2. ...e é ligado ANTES de a geometria ser aplicada, senão não vale nesta abertura.
+    expect(abre.indexOf("autoAberturaNoCanto = paraAlerta;")).toBeLessThan(abre.indexOf("aplicarExpansao()"));
+    // 3. a geometria o consulta: com ele ligado, o ramo do expandido não entra.
+    expect(corpoDaFuncao("aplicarExpansao")).toContain("expanded && !autoAberturaNoCanto");
+    // 4. e o gesto continua mandando: "Expandir" expande, e fechar devolve a
+    //    preferência para a próxima abertura manual.
+    expect(corpoDaFuncao("toggleExpand")).toContain("if (autoAberturaNoCanto) { autoAberturaNoCanto = false; expanded = false; }");
+    expect(abre).toContain("autoAberturaNoCanto = false;");
+    // A PREFERÊNCIA NÃO É REESCRITA: quem grava no `localStorage` é só o gesto.
+    expect(abre).not.toContain("kb.widget.exp");
+    expect(corpoDaFuncao("anunciarAlertasNovos")).not.toContain("kb.widget.exp");
+  });
+
   it("não afrouxa a contagem: nada reporta visualização no caminho da abertura", () => {
     // O número continua significando "entrou no campo de visão". Ele sobe porque
     // a pessoa passou a ver o aviso, não porque a régua mudou.

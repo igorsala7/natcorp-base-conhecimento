@@ -3789,6 +3789,23 @@
   var open = false;
   var expanded = false;
   try { expanded = localStorage.getItem("kb.widget.exp") === "1"; } catch { }
+  /**
+   * ESTA ABERTURA FOI AUTOMÁTICA, ENTÃO ELA VAI PARA O CANTO.
+   *
+   * `expanded` é PREFERÊNCIA, e ela vive no `localStorage` (linha acima): quem
+   * expandiu o painel uma vez o quer expandido amanhã. A auto-abertura por aviso
+   * não é gesto de ninguém, e honrar a preferência ali entregava 60% da largura por
+   * 90% da altura, centralizado, em cima do formulário de quem está lançando folha.
+   * A guarda de celular existia por esse exato motivo (painel de tela cheia sobre o
+   * formulário) e mediu o DISPOSITIVO, não o perigo: no desktop com a preferência
+   * ligada o estrago é o mesmo, e chega sem ninguém ter tocado em nada hoje.
+   *
+   * Então a geometria da auto-abertura é a do CANTO, sempre, e a preferência segue
+   * governando as aberturas por GESTO — ela não é apagada nem reescrita aqui. O
+   * sinalizador cai quando o painel fecha (a próxima abertura manual volta a
+   * expandir) e quando a pessoa clica em "Expandir" (ver `toggleExpand`).
+   */
+  var autoAberturaNoCanto = false;
   var _animT = null;
   var _closeT = null;
   var host, root, bubble, panel, messagesEl, inputEl, sendBtn, attzEl, fileInput, micBtn, jumpBtn;
@@ -6271,7 +6288,7 @@
       panel.classList.remove("exp");
       panel.classList.remove("kb-dim"); // mata um escurecimento em voo ao girar a tela
       setGeom(geomCanto());
-    } else if (expanded && window.innerWidth > BP_MOBILE) {
+    } else if (expanded && !autoAberturaNoCanto && window.innerWidth > BP_MOBILE) {
       panel.classList.remove("full");
       panel.classList.add("exp");
       setGeom(geomExp());
@@ -6285,6 +6302,10 @@
     atualizarBolha();
   }
   function toggleExpand() {
+    // O painel está no canto por causa da auto-abertura, e o botão diz "Expandir":
+    // o gesto tem de expandir. Sem zerar `expanded` aqui, a inversão abaixo o
+    // levaria de `true` para `false` e o clique não faria nada visível.
+    if (autoAberturaNoCanto) { autoAberturaNoCanto = false; expanded = false; }
     expanded = !expanded;
     try { localStorage.setItem("kb.widget.exp", expanded ? "1" : "0"); } catch { }
     // Anima a ida/volta (0,5s): liga a transição, commita antes de mudar a
@@ -6622,6 +6643,9 @@
     if (open) {
       clearTimeout(_closeT);
       panel.classList.remove("closing");
+      // ANTES da geometria: é ele que manda `aplicarExpansao` ignorar a preferência
+      // salva nesta abertura. Ver `autoAberturaNoCanto`.
+      autoAberturaNoCanto = paraAlerta;
       aplicarExpansao(); // geometria + origem do scale ANTES da entrada (kbin)
       panel.classList.add("open"); // dispara o crescimento a partir do canto da bolha
       bubble.innerHTML = "";
@@ -6664,6 +6688,8 @@
       // mais sozinhos por aviso. Abertura automática que briga com fechamento
       // deliberado é a pior versão deste recurso — o badge continua sinalizando.
       dispensarAutoAbertura();
+      // A preferência volta a valer na próxima abertura por gesto.
+      autoAberturaNoCanto = false;
       // Minimizar animado: encolhe/desaparece (kbout) e só então esconde.
       bubble.style.fontSize = "";
       bubble.innerHTML = bubbleInner();
@@ -7011,12 +7037,20 @@
    *    existir, porque o sinal que temos é "esta pessoa fechou o painel hoje" e
    *    reabrir contra isso é o comportamento que faria o cliente desligar tudo.
    * 5. `ehMobile()` — no celular o painel é TELA CHEIA (`aplicarExpansao` põe a
-   *    classe `full`), então abrir sozinho não seria "aparecer num canto": seria
-   *    cobrir o formulário inteiro de quem está no meio de um lançamento. No
-   *    desktop o painel é um cartão no canto e a abertura não tapa o trabalho.
-   *    Aqui o badge é o sinal, e ele já resolve o defeito original — o aviso
-   *    deixa de nascer invisível. Se o dono quiser a abertura também no celular,
-   *    é esta linha que sai.
+   *    classe `full`, e no celular até a geometria "de canto" é a tela inteira),
+   *    então abrir sozinho não seria "aparecer num canto": seria cobrir o
+   *    formulário inteiro de quem está no meio de um lançamento. Aqui o badge é o
+   *    sinal, e ele já resolve o defeito original — o aviso deixa de nascer
+   *    invisível. Se o dono quiser a abertura também no celular, é esta linha que
+   *    sai.
+   *
+   * NO DESKTOP O PERIGO É O MESMO QUANDO O PAINEL ESTÁ EXPANDIDO, e quem fecha
+   * isso não é uma sexta guarda: é a GEOMETRIA da auto-abertura. `toggle` liga
+   * `autoAberturaNoCanto`, e com ele o painel nasce no cartão do canto mesmo que a
+   * preferência salva diga "expandido" — ver a variável, que explica por que medir
+   * o dispositivo não bastava. Uma guarda a mais aqui recusaria a abertura de quem
+   * um dia clicou em "Expandir", e o aviso voltaria a nascer invisível para essa
+   * pessoa; a geometria entrega as duas coisas.
    */
   function anunciarAlertasNovos(novos) {
     if (!novos.length) return;
