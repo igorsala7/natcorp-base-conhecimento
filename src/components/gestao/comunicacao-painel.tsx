@@ -372,6 +372,23 @@ export function ComunicacaoPainel({
                   </div>
 
                   <div className="flex flex-none flex-wrap items-center gap-2">
+                    {/*
+                      O RÓTULO CONTA VISUALIZAÇÃO, NUNCA PESSOA.
+
+                      `c.visualizacoes` é o total de linhas de
+                      `ai_campanha_visualizacoes` desta campanha — identificadas MAIS
+                      anônimas —, e cada abertura anônima grava uma linha nova. Numa
+                      base sem o bloco de rastreio instalado, o rótulo antigo dizia
+                      "Quem visualizou (480)" sobre um número que não tem NENHUMA
+                      pessoa dentro.
+
+                      Filtrar a contagem para só as identificadas seria a mentira
+                      contrária: visualização anônima é visualização de verdade, e
+                      esconder 480 delas aqui apagaria o aviso inteiro da tela. Quem
+                      separa os dois é o painel, um clique adiante — este número é o
+                      que aparece SEM clique nenhum, então quem tem de mudar é o
+                      rótulo.
+                    */}
                     <Button
                       type="button"
                       variant="secondary"
@@ -383,7 +400,7 @@ export function ComunicacaoPainel({
                       aria-expanded={abertoEste}
                     >
                       <Eye aria-hidden="true" />
-                      Quem visualizou
+                      Visualizações
                       {c.visualizacoes === null ? "" : ` (${c.visualizacoes})`}
                     </Button>
 
@@ -674,7 +691,7 @@ type ColunaDeFiltro = (typeof COLUNAS_DE_FILTRO)[number]["chave"];
  *
  * ── Só quem visualizou. E a frase que explica a ausência do outro lado ─────
  * `SEM_QUEM_NAO_VIU` vem logo depois dos números, antes da lista, porque é onde
- * ela impede a leitura errada: quem vê "7 visualizaram" sem a frase ao lado
+ * ela impede a leitura errada: quem vê "7 visualizações" sem a frase ao lado
  * inventa um total para comparar.
  */
 function QuemVisualizou({
@@ -765,18 +782,32 @@ function QuemVisualizou({
 /**
  * Os números, e por que são DOIS e não um.
  *
- * "Pessoas identificadas" e "acessos sem identificação" medem coisas diferentes e
- * não se somam em nada útil: a primeira é gente, e a segunda é visualização (nulo
- * é distinto de nulo na chave única, então a mesma pessoa não identificada conta
- * de novo a cada abertura). Somar os dois num total só produziria um número que
- * não é nem gente nem visualização.
+ * OS DOIS CONTAM VISUALIZAÇÃO — LINHA DE `ai_campanha_visualizacoes` —, e nenhum
+ * dos dois conta gente. O que os separa é que só o primeiro tem nome para listar.
+ *
+ * `identificadas` não é o número de pessoas, e a chave única não o torna um: ela
+ * é `(campanha, usuario, matricula)`, e nulo é distinto de nulo. Dois casos
+ * medidos fazem a MESMA pessoa aparecer mais de uma vez na contagem e na lista,
+ * com datas diferentes:
+ *
+ *   · o acesso que traz só usuário, sem matrícula (2 de 513 acessos, declarado na
+ *     migration de campanhas): a chave não dedupe contra a linha completa;
+ *   · o painel que passa a enviar matrícula no meio da implantação: a pessoa
+ *     ganha uma linha `(usuario, null)` e depois outra `(usuario, matricula)`.
+ *
+ * Com o rótulo dizendo VISUALIZAÇÕES, o mesmo nome duas vezes deixa de ser
+ * contradição — são duas visualizações, e é isso que a tela está contando. Era o
+ * rótulo que prometia gente; a consulta sempre contou linha.
+ *
+ * Somar os dois num total só produziria um número sem nome para nada: um lado tem
+ * quem, o outro não, e a soma não responde nenhuma das duas perguntas.
  */
 function Numeros({ painel }: { painel: PainelDeVisualizacoes }) {
   return (
     <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
       <div>
         <p className="text-2xs font-medium uppercase tracking-wide text-text-muted">
-          Visualizaram com identificação
+          Visualizações identificadas
         </p>
         <p className="mt-0.5 text-2xl font-semibold leading-none tabular-nums text-primary">
           {painel.identificadas}

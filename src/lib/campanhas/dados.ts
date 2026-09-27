@@ -190,14 +190,27 @@ export type VisualizacaoDeCampanha = {
   empresa: string | null;
   portal: string | null;
   perfil: string | null;
-  /** ISO-8601 da PRIMEIRA visualização desta pessoa nesta campanha. */
+  /**
+   * ISO-8601 da PRIMEIRA visualização desta CHAVE nesta campanha.
+   *
+   * A chave é `(campanha, usuario, matricula)`, não a pessoa: um acesso que traz
+   * só usuário e outro que traz usuário e matrícula são duas linhas, com duas
+   * datas. Por isso a tela conta e rotula VISUALIZAÇÕES, e não pessoas.
+   */
   vistoEm: string;
 };
 
 export type PainelDeVisualizacoes = {
   /** Todas as linhas: identificadas mais anônimas. */
   total: number;
-  /** As que trazem usuário ou matrícula, contadas no banco (não na lista). */
+  /**
+   * As que trazem usuário ou matrícula, contadas no banco (não na lista).
+   *
+   * LINHA, NÃO PESSOA: a chave única é `(campanha, usuario, matricula)` e nulo é
+   * distinto de nulo, então o acesso que manda só usuário não dedupe contra o que
+   * manda usuário e matrícula. A mesma pessoa pode entrar duas vezes aqui, e a
+   * tela rotula este número como VISUALIZAÇÕES por causa disso.
+   */
   identificadas: number;
   /**
    * As que não trazem nem usuário nem matrícula.
