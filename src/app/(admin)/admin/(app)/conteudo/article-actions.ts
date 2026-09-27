@@ -479,9 +479,18 @@ async function enfileirarOntologiaPublicacao(
       createdBy,
     });
     if (jobId) await enqueueOntologyScan(jobId);
-  } catch {
+    else throw new Error("o job não foi registrado");
+  } catch (e) {
     // Fila/DB indisponível: o conteúdo está publicado; a ontologia pode ser
-    // gerada depois pela página de ontologia ou pelo lote "Processar".
+    // gerada depois pela página de ontologia ou pelo lote "Processar". Mas com
+    // LOG: sem ele, "este artigo não tem termo para extrair" e "a fila caiu"
+    // produzem a mesma ausência, e a pessoa que publicou não tem como saber que
+    // precisa rodar o lote. A porta do cliente (`arquivos-da-base.ts`) já fazia
+    // isso, e o comentário dela declarava a regra que esta não seguia.
+    console.error(
+      `[conteudo] varredura de vocabulário não enfileirada (${scope} ${targetId}, espaço ${spaceId}):`,
+      e instanceof Error ? e.message : String(e),
+    );
   }
 }
 

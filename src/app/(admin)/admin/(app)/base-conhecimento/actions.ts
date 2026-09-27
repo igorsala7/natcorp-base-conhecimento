@@ -117,8 +117,17 @@ export async function ingestKnowledgeFile(input: {
         createdBy: user?.id ?? null,
       });
       if (jobId) await enqueueOntologyScan(jobId);
-    } catch {
-      /* fila indisponível: dá para varrer depois pela página de Ontologia */
+      else throw new Error("o job não foi registrado");
+    } catch (e) {
+      // O log é o que distingue "ninguém pediu a varredura" de "a fila está fora
+      // do ar" — sem ele os dois produzem a MESMA ausência de vocabulário, e a
+      // página de Ontologia não diz qual dos dois aconteceu. A porta do CLIENTE
+      // (`arquivos-da-base.ts`) já registrava, e o comentário dela declarava a
+      // regra que esta porta não seguia.
+      console.error(
+        `[base-conhecimento] varredura de vocabulário não enfileirada para o documento ${doc.id} do espaço ${spaceId}:`,
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 

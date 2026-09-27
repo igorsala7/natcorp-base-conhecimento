@@ -651,6 +651,21 @@ async function processOntologyScan(jobId: string): Promise<void> {
     fronteira declarada de `arquivos-da-base.ts`.
   */
   const baseId = (job as { base_id?: string | null }).base_id ?? null;
+  /*
+    OS DOIS NULOS, ANTES DO `!`.
+
+    O CHECK `ontology_jobs_um_dono` diz que exatamente um está preenchido, e é
+    verdade no banco de hoje. Mas o `!` em `job.space_id!` afirma isso aqui, no
+    TypeScript, para uma linha que veio do banco: se a linha nascer sem dono
+    nenhum (uma migration que relaxe o CHECK, uma inserção por caminho novo), o
+    `!` passa e o dono vira `{ spaceId: undefined }`. A partir daí `mesclarTermos`
+    filtra por `space_id = undefined` e o job termina "done" com zero termo,
+    dizendo que varreu — o mesmo modo de falha que a guarda de escopo logo abaixo
+    existe para evitar, e por isso as duas ficam lado a lado.
+  */
+  if (!baseId && !job.space_id) {
+    throw new Error(`Job de ontologia ${jobId} não tem dono: nem \`space_id\` nem \`base_id\`.`);
+  }
   const dono: DonoDaOntologia = baseId ? { baseId } : { spaceId: job.space_id! };
   if (baseId && job.scope !== "document") {
     throw new Error(

@@ -76,10 +76,22 @@ async function main() {
   const revisar: Linha[] = [];
   let ambiguos = 0;
   for (let de = 0; ; de += 1000) {
+    /*
+      SÓ TERMO DE DOCUMENTAÇÃO, DITO DE PROPÓSITO.
+
+      `node_id` aponta para um NÓ da árvore de conteúdo, e termo de BASE (o jargão
+      que um arquivo do cliente ensinou) não tem árvore nenhuma — arquivo de
+      cliente não é nó. Sem este filtro o `select` traz os dois donos, e os de base
+      só caem fora por ACIDENTE: o `space_id` deles é nulo, a chave de busca vira
+      `"null|termo"` e nenhum título casa com ela. Acidente não é regra, e o dia
+      em que a chave mudar de forma este script começa a vincular termo de cliente
+      a artigo da Natcorp em silêncio.
+    */
     const { data, error } = await db
       .from("ontology_terms")
       .select("id, term, space_id, node_id")
       .is("node_id", null)
+      .not("space_id", "is", null)
       .range(de, de + 999);
     if (error) throw error;
     if (!data?.length) break;

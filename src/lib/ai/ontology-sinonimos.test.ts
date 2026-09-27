@@ -59,7 +59,22 @@ describe("o que NÃO vai para a IA", () => {
     // cruzava os nomes entre as 60 linhas do prompt. O par coluna↔rótulo o
     // servidor já tem — mandá-lo só abria espaço para errar.
     const w = await (await import("node:fs/promises")).readFile("worker/index.ts", "utf-8");
-    const bloco = w.slice(w.indexOf('if (job.scope === "dicionario")'), w.indexOf('if (job.scope === "document"'));
+    /*
+      OS DOIS DELIMITADORES TÊM DE EXISTIR, e esta é a sentinela da sentinela.
+
+      O defeito que este caso vigia é um RAMO MORANDO NA FUNÇÃO ERRADA, então o
+      recorte é a afirmação inteira: sem ele, `indexOf` acha a primeira ocorrência
+      em qualquer lugar do arquivo e as assertivas abaixo passam mesmo que o bloco
+      do dicionário tenha ido embora. E se a grafia de um delimitador mudar (um
+      espaço, uma aspa), `indexOf` devolve -1: no começo o recorte vira o arquivo
+      do começo ao penúltimo caractere, e no fim vira `slice(inicio, -1)`, que é o
+      resto do arquivo. Nos dois casos o teste continua VERDE medindo outra coisa.
+    */
+    const inicio = w.indexOf('if (job.scope === "dicionario")');
+    const fim = w.indexOf('if (job.scope === "document"');
+    expect(inicio, "o bloco do dicionário mudou de grafia ou saiu do worker").toBeGreaterThan(-1);
+    expect(fim, "o bloco de documento mudou de grafia ou saiu do worker").toBeGreaterThan(inicio);
+    const bloco = w.slice(inicio, fim);
     expect(bloco).toContain("aliases: [] as string[]");
     expect(bloco).toContain("colunasPorTermo");
     expect(bloco).not.toMatch(/aliases:\s*\[\.\.\.e\.aliases\]/);

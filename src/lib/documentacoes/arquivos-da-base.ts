@@ -675,6 +675,39 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
  *
  * @returns `true` se não sobrou resíduo visível para o cliente.
  */
+/**
+ * Remove um objeto do bucket em MELHOR ESFORÇO, e registra a sobra.
+ *
+ * Existe porque os dois caminhos que apagam arquivo (o `desfazer` da ingestão e o
+ * `excluirArquivoDaBase` do cliente) precisam da mesma decisão, e ela estava nos
+ * dois com pesos opostos: o `desfazer` escrevia a MESMA frase de órfão em dois
+ * lugares (o ramo do `error` e o do `catch`), e a exclusão do cliente descartava
+ * o retorno e não escrevia nada. Duas leituras da mesma regra, nenhuma delas
+ * completa.
+ *
+ * Órfão no bucket é invisível para o cliente e não tem ação possível do lado dele,
+ * então isto NUNCA muda o retorno de quem chamou. O log é o único jeito de a
+ * sobra ser achada depois — pelo caminho, que é o que o bucket entende.
+ *
+ * O log leva a base e o CAMINHO, nunca a identidade de quem enviou (mesma regra de
+ * `escopo-da-base.ts`).
+ */
+async function removerDoBucket(
+  db: ReturnType<typeof createAdminClient>,
+  baseId: string,
+  caminho: string,
+): Promise<void> {
+  try {
+    const { error } = await db.storage.from(BUCKET_ARQUIVOS).remove([caminho]);
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.error(
+      `[arquivos-da-base] arquivo órfão em "${caminho}" (base ${baseId}):`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
 async function desfazer(
   db: ReturnType<typeof createAdminClient>,
   baseId: string,
@@ -720,22 +753,7 @@ async function desfazer(
 
   if (!linhaRemovida) return false;
 
-  try {
-    const { error } = await db.storage.from(BUCKET_ARQUIVOS).remove([caminho]);
-    if (error) {
-      // Órfão no bucket: invisível para o cliente e sem ação possível do lado
-      // dele, então não muda o retorno — mas some do radar sem esta linha.
-      console.error(
-        `[arquivos-da-base] arquivo órfão em "${caminho}" (base ${baseId}):`,
-        error.message,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[arquivos-da-base] arquivo órfão em "${caminho}" (base ${baseId}):`,
-      e instanceof Error ? e.message : String(e),
-    );
-  }
+  await removerDoBucket(db, baseId, caminho);
 
   return true;
 }
@@ -783,8 +801,12 @@ export async function excluirArquivoDaBase(entrada: {
   if (error) return { ok: false, erro: `Falha ao excluir: ${error.message}` };
 
   // Melhor esforço, e DEPOIS da linha: arquivo órfão no bucket é menos grave que
-  // linha apontando para arquivo inexistente (ver `desfazer`).
-  await db.storage.from(BUCKET_ARQUIVOS).remove([linha.storage_path]);
+  // linha apontando para arquivo inexistente (ver `desfazer`). "Melhor esforço"
+  // não quer dizer "em silêncio": o retorno é lido e a falha vai para o log, pelo
+  // MESMO helper do `desfazer`. Aqui o retorno era descartado, e um bucket que
+  // recusasse a remoção guardaria o arquivo de um cliente que pediu para apagá-lo
+  // sem nada em lugar nenhum dizendo isso.
+  await removerDoBucket(db, entrada.baseId, linha.storage_path);
 
   return { ok: true, nome: linha.original_name, tinhaChunks: (linha.chunk_count ?? 0) > 0 };
 }
