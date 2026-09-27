@@ -101,21 +101,57 @@ export async function copyOntologyBetweenSpaces(
   destSpaceId: string,
 ): Promise<number> {
   const admin = createAdminClient();
-  const { data: srcTerms } = await admin
-    .from("ontology_terms")
-    .select("id, term, term_norm, kind, description, source")
-    .eq("space_id", sourceSpaceId);
-  if (!srcTerms?.length) return 0;
+  /*
+    PAGINADO — É O TETO DE 1.000 LINHAS PELA NONA VEZ NESTE REPOSITÓRIO.
 
-  // `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do PostgREST.
+    Medido em 27/09: 5.582 termos no banco. Uma documentação com mais de mil era
+    copiada pela METADE, em silêncio: nenhum erro, nenhum aviso, nenhuma contagem
+    denunciando — a doc nova nascia com parte do vocabulário e as consultas dela
+    passavam a não casar sinônimo que existia na origem. É a mesma armadilha que o
+    vizinho aqui em cima documenta para os `chunks`, e a que `carregarOntologia` e
+    `mesclarTermos` documentam cada um no seu `fetchAllPaged`.
+
+    A ordem tem de ser TOTAL e estável, e `id` é a chave única — senão as fatias
+    pulam ou repetem linhas na fronteira.
+  */
+  const srcTerms = await fetchAllPaged<{
+    id: string;
+    term: string;
+    term_norm: string;
+    kind: string;
+    description: string | null;
+    source: string;
+  }>((from, to) =>
+    admin
+      .from("ontology_terms")
+      .select("id, term, term_norm, kind, description, source")
+      .eq("space_id", sourceSpaceId)
+      .order("id")
+      .range(from, to),
+  );
+  if (!srcTerms.length) return 0;
+
+  /*
+    `.in()` em fatias: centenas de UUIDs numa URL só estouram o limite do
+    PostgREST. E cada fatia PAGINA, pela mesma razão dos termos acima — a fatia
+    limita o número de TERMOS, nunca o de sinônimos: 200 termos com seis apelidos
+    cada já passam das 1.000 linhas, e o corte apagaria justamente os conceitos
+    mais ricos. É o mesmo par (fatiar + paginar) que `carregarOntologia` usa.
+  */
   const aliasBySrcTerm = new Map<string, { alias: string; alias_norm: string; source: string }[]>();
   const srcIds = srcTerms.map((t) => t.id);
   for (let i = 0; i < srcIds.length; i += 200) {
-    const { data: srcAliases } = await admin
-      .from("ontology_aliases")
-      .select("term_id, alias, alias_norm, source")
-      .in("term_id", srcIds.slice(i, i + 200));
-    for (const a of srcAliases ?? []) {
+    const fatia = srcIds.slice(i, i + 200);
+    const srcAliases = await fetchAllPaged<{ term_id: string; alias: string; alias_norm: string; source: string }>(
+      (from, to) =>
+        admin
+          .from("ontology_aliases")
+          .select("term_id, alias, alias_norm, source")
+          .in("term_id", fatia)
+          .order("id")
+          .range(from, to),
+    );
+    for (const a of srcAliases) {
       const lista = aliasBySrcTerm.get(a.term_id) ?? [];
       lista.push({ alias: a.alias, alias_norm: a.alias_norm, source: a.source });
       aliasBySrcTerm.set(a.term_id, lista);
@@ -124,18 +160,30 @@ export async function copyOntologyBetweenSpaces(
 
   // Índice do DESTINO: norm → termId, cobrindo termos canônicos E aliases.
   const normToTermId = new Map<string, string>();
-  const { data: destTerms } = await admin
-    .from("ontology_terms")
-    .select("id, term_norm")
-    .eq("space_id", destSpaceId);
-  for (const t of destTerms ?? []) normToTermId.set(t.term_norm, t.id);
-  const destIds = (destTerms ?? []).map((t) => t.id);
+  // Pagina pela mesma razão da origem, e aqui o truncamento é PIOR: este índice é
+  // o que impede a duplicata. Ver mil de cinco mil e meio termos do destino faria
+  // a função reinserir o que já estava lá, e cada cópia multiplicaria o acervo.
+  const destTerms = await fetchAllPaged<{ id: string; term_norm: string }>((from, to) =>
+    admin
+      .from("ontology_terms")
+      .select("id, term_norm")
+      .eq("space_id", destSpaceId)
+      .order("id")
+      .range(from, to),
+  );
+  for (const t of destTerms) normToTermId.set(t.term_norm, t.id);
+  const destIds = destTerms.map((t) => t.id);
   for (let i = 0; i < destIds.length; i += 200) {
-    const { data: destAliases } = await admin
-      .from("ontology_aliases")
-      .select("term_id, alias_norm")
-      .in("term_id", destIds.slice(i, i + 200));
-    for (const a of destAliases ?? []) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
+    const fatia = destIds.slice(i, i + 200);
+    const destAliases = await fetchAllPaged<{ term_id: string; alias_norm: string }>((from, to) =>
+      admin
+        .from("ontology_aliases")
+        .select("term_id, alias_norm")
+        .in("term_id", fatia)
+        .order("id")
+        .range(from, to),
+    );
+    for (const a of destAliases) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
   }
 
   let novos = 0;
