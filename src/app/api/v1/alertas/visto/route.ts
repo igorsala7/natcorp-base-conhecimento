@@ -99,6 +99,16 @@ export async function POST(req: NextRequest) {
     presente aquele teto folga para 20× (é o caso do escritório atrás de um NAT),
     e o balde principal aperta de 600 compartilhados para 600 por IP.
 
+    O IP É SUPOSIÇÃO, NÃO MEDIÇÃO — e enquanto ele é o sujeito, isto precisa estar
+    escrito aqui. `clientIp` prefere `X-Real-IP` (o nginx o SUBSTITUI por
+    `$remote_addr`, o peer TCP) e, na falta dele, lê o ÚLTIMO elemento de
+    `X-Forwarded-For`, que é o que o proxy acrescentou. Nenhuma das duas leituras
+    PROVA que o cabeçalho veio do nosso proxy: numa topologia com outro proxy na
+    frente, o valor é o IP daquele hop e todos os anônimos daquele caminho caem num
+    balde só (aperta, não afrouxa); num app exposto sem proxy, os dois cabeçalhos
+    voltam a ser escolha de quem chama. Fechar isso exige saber quais hops são
+    confiáveis, e a topologia é decisão de deploy — ver o comentário de `clientIp`.
+
     A inflação em si não fecha aqui, e não precisa: ela só fecharia com o roster do
     ERP, e o número deixou de se chamar pessoas.
   */

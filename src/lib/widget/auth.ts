@@ -131,11 +131,52 @@ export function corsHeaders(
   };
 }
 
-/** IP do requisitante (por trás de proxy). */
+/**
+ * IP do requisitante (por trás de proxy) — e é uma SUPOSIÇÃO, não uma medição.
+ *
+ * ── O PRIMEIRO ELEMENTO DE `X-Forwarded-For` É ESCOLHA DE QUEM CHAMA ─────────
+ * O bloco nginx do `DEPLOY.md` usa `$proxy_add_x_forwarded_for`, que ACRESCENTA o
+ * IP real ao que veio no cabeçalho em vez de substituí-lo. Então numa requisição
+ * com `X-Forwarded-For: 1.2.3.4` o proxy entrega `1.2.3.4, <ip real>`, e o
+ * primeiro elemento — que era o que esta função devolvia — é texto que o cliente
+ * digitou.
+ *
+ * Isso era "afrouxa o próprio teto" enquanto o IP só servia de segundo balde. A
+ * tarefa 20 promoveu este valor a IDENTIDADE do balde principal do acesso anônimo
+ * (`/api/v1/alertas/visto`), e aí a consequência mudou de tamanho: quem gira o
+ * valor ganha um balde novo de 600/min a cada volta, e quem aponta o valor para o
+ * IP de saída do escritório do cliente drena o balde de todo mundo que está lá.
+ *
+ * ── A ORDEM DE PREFERÊNCIA, E O QUE ELA ASSUME ──────────────────────────────
+ * 1. `X-Real-IP`, que aquele mesmo bloco nginx SUBSTITUI por `$remote_addr` — o
+ *    peer TCP, que o chamador não escolhe. É a única das duas fontes que o proxy
+ *    reescreve, e é por isso que ela vem primeiro.
+ * 2. `X-Forwarded-For`, e aí o ÚLTIMO elemento: numa lista que o proxy
+ *    acrescentou, o último é o que ELE escreveu. O primeiro é o mais antigo, e
+ *    numa cadeia sem proxy nenhum ele é só o corpo da requisição em outro lugar.
+ *
+ * O que continua sendo suposição, dito de frente: nada aqui PROVA que o cabeçalho
+ * veio do nosso nginx. Numa topologia com dois proxies (um CDN na frente, por
+ * exemplo), o último elemento é o IP do proxy anterior e não o da pessoa — todos
+ * os acessos daquele caminho caem num balde só, o que aperta demais em vez de
+ * afrouxar. E se um dia o app for exposto sem proxy, os dois cabeçalhos passam a
+ * ser escolha de quem chama e não há nada nesta função que perceba.
+ *
+ * Fechar isso de verdade exige saber quais hops são confiáveis (uma lista de
+ * proxies, ou contar hops a partir do fim) e é decisão de deploy: a topologia é
+ * que diz o número. Até lá, quem usa este valor como SUJEITO precisa saber que
+ * está usando uma suposição — é o caso de `/api/v1/alertas/visto`.
+ */
 export function clientIp(req: NextRequest): string {
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip") ?? "0.0.0.0";
+  if (fwd) {
+    const partes = fwd.split(",").map((p) => p.trim()).filter(Boolean);
+    const ultimo = partes[partes.length - 1];
+    if (ultimo) return ultimo;
+  }
+  return "0.0.0.0";
 }
 
 /** Extrai a chave pública do header, query ou body. */
