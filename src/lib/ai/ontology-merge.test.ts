@@ -14,7 +14,11 @@
  *      àquele conceito, que são a razão de a varredura ter sido pedida;
  *   2. falha que NÃO é colisão é registrada, com o dono e o `term_norm` — e nunca
  *      com o termo nem com a descrição, que são conteúdo do cliente;
- *   3. `found` conta o que foi GRAVADO. Sinônimo que falhou não entra no número.
+ *   3. `found` conta o que não deu erro — não o que foi de fato INSERIDO. O
+ *      `upsert` de alias usa `ignoreDuplicates: true` e o retorno não distingue
+ *      "gravei" de "já existia, ignorei": um sinônimo que já estava lá também
+ *      soma. O que fica de fora é só o que falhou de verdade (erro no
+ *      `insert`/`upsert`, ou colisão sem id para pendurar os sinônimos).
  */
 import { describe, it, expect, vi } from "vitest";
 import { mesclarTermos, type TermoAcumulado } from "./ontology-merge";

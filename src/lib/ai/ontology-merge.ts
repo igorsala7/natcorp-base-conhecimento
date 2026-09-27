@@ -64,10 +64,13 @@ export async function mesclarTermos(
     caixa, paga a chamada de IA e recebe menos vocabulário do que foi extraído, com
     nada em lugar nenhum dizendo isso.
 
-    O log leva o DONO e o `term_norm`, nunca o termo nem a descrição: o conteúdo é
-    dado do cliente e o log do servidor é lido por quem opera a plataforma. O
-    `term_norm` basta para achar a linha depois (é ele que a chave única usa) e não
-    carrega a frase que o documento do cliente escreveu.
+    O log leva o DONO e o `term_norm`: o termo do cliente, só que normalizado
+    (minúsculo, sem acento, espaçamento compactado) — o jargão dele ESTÁ no log,
+    a redação original é que não está. O que fica de fora é o `term` (como o
+    cliente escreveu, com maiúscula e acento) e a `description`: essa é a frase
+    inteira que o documento do cliente escreveu, e o log do servidor é lido por
+    quem opera a plataforma. `term_norm` basta para achar a linha depois (é ele
+    que a chave única usa) sem carregar essa frase.
   */
   const ondeEstamos = `${coluna}=${valorDoDono}`;
   const aviso = (oQue: string, norm: string, detalhe: string) =>
@@ -206,16 +209,22 @@ export async function mesclarTermos(
           aviso("termo NÃO gravado", norm, error?.message ?? "o banco não devolveu a linha nem erro");
           continue;
         }
-        const { data: jaExistia } = await db
+        const { data: jaExistia, error: erroRelendo } = await db
           .from("ontology_terms")
           .select("id, description")
           .filter(coluna, "eq", valorDoDono)
           .eq("term_norm", norm)
           .maybeSingle();
         if (!jaExistia) {
-          // Colidiu e não está lá: é outro dono, outro índice, ou a linha saiu no
-          // meio. Sem id não há onde pendurar os sinônimos.
-          aviso("termo colidiu e não foi encontrado depois", norm, error?.message ?? "");
+          // Colidiu e não está lá: é outro dono, outro índice, a linha saiu no
+          // meio, ou a RELEITURA em si falhou. O detalhe vem do erro DELA, não
+          // do erro do `insert` (aquele já sabemos que foi `unique_violation` —
+          // repeti-lo aqui apontaria para a causa errada).
+          aviso(
+            "termo colidiu e não foi encontrado depois",
+            norm,
+            erroRelendo?.message ?? "a releitura não achou a linha nem devolveu erro",
+          );
           continue;
         }
         termId = jaExistia.id;

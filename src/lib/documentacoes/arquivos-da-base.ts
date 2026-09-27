@@ -644,38 +644,6 @@ export async function anexarArquivoDaBase(entrada: EntradaAnexo): Promise<Result
 }
 
 /**
- * Desfaz um anexo pela metade: apaga a linha (chunks por cascade) e o arquivo.
- *
- * A LINHA PRIMEIRO, de propósito. Se a ordem fosse ao contrário e a remoção da
- * linha falhasse, ficaria um documento na lista do cliente apontando para um
- * arquivo que não existe — download quebrado e nada explicando. Arquivo órfão no
- * bucket é invisível e custa espaço; linha órfã é visível e custa confiança.
- *
- * ── "MELHOR ESFORÇO" NÃO PODE SIGNIFICAR "SEM SABER SE DEU CERTO" ────────
- * A versão anterior ignorava o retorno do `delete` e engolia a exceção. Quando
- * a remoção falhava, a linha ficava em `extracting` PARA SEMPRE: a tela do
- * cliente mostrava "Processando" indefinidamente, sem erro em canto nenhum e
- * sem nada que explicasse. Agora:
- *
- *   1. o retorno é conferido e a falha vai para o log — com a base e o
- *      documento, nunca a identidade de quem enviou (mesma regra de
- *      `escopo-da-base.ts`);
- *   2. se a linha resistiu, ela é MARCADA como `error` com o motivo. Não é
- *      enfeite: é o que faz a lista parar de mentir "Processando" e é o que
- *      torna alcançável o distintivo "Falhou" da tela, que até aqui era peça
- *      morta — nada escrevia `error` numa linha de base. De quebra fecha o
- *      download da sobra: `documentos_da_base` só devolve `status = 'ready'`,
- *      então a linha marcada deixa de ser baixável;
- *   3. o `boolean` de volta é o que permite a quem chamou DIZER isso a quem
- *      anexou, em vez de deixar a pessoa olhando uma linha presa.
- *
- * E o arquivo no bucket só sai quando a LINHA saiu: linha viva apontando para
- * objeto apagado é download quebrado, que é pior que espaço ocupado — a mesma
- * troca que justifica a ordem lá em cima.
- *
- * @returns `true` se não sobrou resíduo visível para o cliente.
- */
-/**
  * Remove um objeto do bucket em MELHOR ESFORÇO, e registra a sobra.
  *
  * Existe porque os dois caminhos que apagam arquivo (o `desfazer` da ingestão e o
@@ -708,6 +676,38 @@ async function removerDoBucket(
   }
 }
 
+/**
+ * Desfaz um anexo pela metade: apaga a linha (chunks por cascade) e o arquivo.
+ *
+ * A LINHA PRIMEIRO, de propósito. Se a ordem fosse ao contrário e a remoção da
+ * linha falhasse, ficaria um documento na lista do cliente apontando para um
+ * arquivo que não existe — download quebrado e nada explicando. Arquivo órfão no
+ * bucket é invisível e custa espaço; linha órfã é visível e custa confiança.
+ *
+ * ── "MELHOR ESFORÇO" NÃO PODE SIGNIFICAR "SEM SABER SE DEU CERTO" ────────
+ * A versão anterior ignorava o retorno do `delete` e engolia a exceção. Quando
+ * a remoção falhava, a linha ficava em `extracting` PARA SEMPRE: a tela do
+ * cliente mostrava "Processando" indefinidamente, sem erro em canto nenhum e
+ * sem nada que explicasse. Agora:
+ *
+ *   1. o retorno é conferido e a falha vai para o log — com a base e o
+ *      documento, nunca a identidade de quem enviou (mesma regra de
+ *      `escopo-da-base.ts`);
+ *   2. se a linha resistiu, ela é MARCADA como `error` com o motivo. Não é
+ *      enfeite: é o que faz a lista parar de mentir "Processando" e é o que
+ *      torna alcançável o distintivo "Falhou" da tela, que até aqui era peça
+ *      morta — nada escrevia `error` numa linha de base. De quebra fecha o
+ *      download da sobra: `documentos_da_base` só devolve `status = 'ready'`,
+ *      então a linha marcada deixa de ser baixável;
+ *   3. o `boolean` de volta é o que permite a quem chamou DIZER isso a quem
+ *      anexou, em vez de deixar a pessoa olhando uma linha presa.
+ *
+ * E o arquivo no bucket só sai quando a LINHA saiu: linha viva apontando para
+ * objeto apagado é download quebrado, que é pior que espaço ocupado — a mesma
+ * troca que justifica a ordem lá em cima.
+ *
+ * @returns `true` se não sobrou resíduo visível para o cliente.
+ */
 async function desfazer(
   db: ReturnType<typeof createAdminClient>,
   baseId: string,
