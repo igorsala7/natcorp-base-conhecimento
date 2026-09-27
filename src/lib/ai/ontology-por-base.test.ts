@@ -1,7 +1,7 @@
 /**
  * ONTOLOGIA POR BASE — o vocabulário do cliente SOMA, e não sai da casa dele.
  *
- * Três afirmações, e as três falham em silêncio se ninguém as vigiar:
+ * Quatro afirmações, e as quatro falham em silêncio se ninguém as vigiar:
  *
  *   1. SEM BASE, NADA MUDA. O portal e o Cmd+K não passam base, e a consulta que
  *      sai tem de ser byte a byte a de antes desta rodada. O `eval-rag` mede isso
@@ -17,10 +17,16 @@
  *      base. Vazaria informação comercial: os termos que uma empresa usa dizem o
  *      que ela faz.
  *
+ *   4. A CHAVE DO CACHE É O `base_id`, NUNCA O CÓDIGO. Duas bases que só diferem
+ *      por um branco que o JavaScript apara e o banco não (o BOM) são bases
+ *      DISTINTAS, e dentro de um processo Node o cache de módulo era o caminho
+ *      curto entre o vocabulário de uma e o turno da outra.
+ *
  * O Supabase é um GRAVADOR: registra cada consulta emitida (tabela e filtros), o
- * que permite afirmar o que NÃO aconteceu. O cache de `carregarOntologia` é por
- * conjunto de espaços + idioma + base e vive 60 s no módulo, então cada caso usa
- * IDs próprios — dois casos com a mesma chave mediriam o cache, não o código.
+ * que permite afirmar o que NÃO aconteceu. Há DOIS caches de módulo, os dois de
+ * 60 s: o da ontologia (espaços + idioma + `base_id`) e o de código→`base_id`.
+ * Então cada caso usa IDs de espaço E códigos de base próprios — dois casos que
+ * compartilhem qualquer um dos dois mediriam o cache, não o código.
  */
 import { describe, it, expect, vi } from "vitest";
 import { expandirConsulta, expandirConsultaLexica } from "./ontology";
@@ -37,10 +43,26 @@ type AliasFake = { id: string; term_id: string; alias: string; alias_norm: strin
 
 type Consulta = { tabela: string; filtros: Record<string, unknown> };
 
+/**
+ * `public.codigo_normalizado`, tal como está em produção:
+ * `lower(btrim(p_codigo, ' ' || chr(9) || chr(10) || chr(13) || chr(160)))`.
+ *
+ * O dublê tem de aparar os CINCO caracteres e nenhum a mais. Um dublê que usasse
+ * `String.prototype.trim()` aparia também o BOM e o tab vertical, e aí o caso do
+ * BOM abaixo passaria por acidente — mediria o dublê, não o código.
+ */
+const BRANCOS_DO_BTRIM = " \\t\\n\\r\\u00a0";
+function codigoNormalizado(s: string): string {
+  return s
+    .replace(new RegExp(`^[${BRANCOS_DO_BTRIM}]+`), "")
+    .replace(new RegExp(`[${BRANCOS_DO_BTRIM}]+$`), "")
+    .toLowerCase();
+}
+
 function dublarDb(dados: {
   termos: TermoFake[];
   aliases?: AliasFake[];
-  /** `base_code` → id, como `public.bases_do_codigo` responderia. */
+  /** `base_code` → id, comparado como `public.bases_do_codigo` compararia. */
   bases?: Record<string, string>;
 }) {
   const consultas: Consulta[] = [];
@@ -91,9 +113,14 @@ function dublarDb(dados: {
       from: (tabela: string) => construir(tabela),
       rpc: (fn: string, args: unknown) => {
         rpcs.push({ fn, args });
-        const codigo = String((args as { p_base?: string }).p_base ?? "").trim();
-        const id = dados.bases?.[codigo];
-        return Promise.resolve({ data: id ? [id] : [], error: null });
+        // Compara como `bases_do_codigo` compara: os DOIS lados por
+        // `codigo_normalizado`. Nada de `.trim()` do JavaScript aqui — era ele,
+        // no código de verdade, que fazia `acme` e `acme`+BOM virarem a mesma base.
+        const pedido = codigoNormalizado(String((args as { p_base?: string }).p_base ?? ""));
+        const achados = Object.entries(dados.bases ?? {})
+          .filter(([codigo]) => codigoNormalizado(codigo) === pedido)
+          .map(([, id]) => id);
+        return Promise.resolve({ data: achados, error: null });
       },
     },
     consultas,
@@ -162,6 +189,99 @@ describe("com base, o vocabulário do cliente SOMA ao global", () => {
 
     expect(lexica).toContain("Requisição de Baliza");
     expect(lexica).toContain("Ficha Amarela");
+  });
+});
+
+describe("a chave do cache é o `base_id`, nunca o código", () => {
+  /*
+    O CASO QUE DERRUBAVA A CERCA DENTRO DO PROCESSO.
+
+    A chave era montada com `base.trim().toLowerCase()`, e o `.trim()` do
+    JavaScript apara todo branco Unicode — o BOM (U+FEFF) incluído. O `btrim` do
+    `codigo_normalizado` apara CINCO caracteres e não apara o BOM, e o CHECK
+    `ai_bases_codigo_nao_branco` usa justamente ele: `acme` e `acme`+BOM são duas
+    bases legais, com ids diferentes e vocabulários diferentes.
+
+    Com a chave aparada pelo JavaScript as duas caíam na MESMA entrada (mesmos
+    espaços, mesmo idioma — o caso comum, porque os clientes compartilham a
+    documentação global), e quem chegasse depois recebia o jargão interno do
+    vizinho por até 60 s, na expansão léxica e no enriquecimento do vetor.
+
+    Este caso roda as duas bases em sequência, de propósito: é a sequência que
+    produzia o vazamento. O `Map` do cache é de MÓDULO, então a segunda chamada
+    enxerga o que a primeira gravou.
+  */
+  const COM_BOM = "acme\uFEFF";
+
+  it("duas bases que só diferem por um BOM recebem vocabulários diferentes", async () => {
+    const espaco = `${ESPACO}-bom`;
+    const { db, consultas } = dublarDb({
+      termos: [
+        { id: "t-global", term: "Requisição de Baliza", term_norm: "requisicao de baliza", node_id: null, space_id: espaco, base_id: null },
+        { id: "t-acme", term: "Ficha Amarela", term_norm: "ficha amarela", node_id: null, space_id: null, base_id: BASE_A },
+        { id: "t-acme-bom", term: "Guia Roxa", term_norm: "guia roxa", node_id: null, space_id: null, base_id: BASE_B },
+      ],
+      aliases: [
+        { id: "a1", term_id: "t-global", alias: "baliza", alias_norm: "baliza" },
+        { id: "a2", term_id: "t-acme", alias: "baliza", alias_norm: "baliza" },
+        { id: "a3", term_id: "t-acme-bom", alias: "baliza", alias_norm: "baliza" },
+      ],
+      bases: { acme: BASE_A, [COM_BOM]: BASE_B },
+    });
+
+    const primeira = await expandirConsulta(db as never, [espaco], "como abro uma baliza?", null, "acme");
+    const segunda = await expandirConsulta(db as never, [espaco], "como abro uma baliza?", null, COM_BOM);
+
+    // Cada uma vê o global e o PRÓPRIO jargão — e nada do vizinho.
+    expect(primeira.lexica).toContain("Ficha Amarela");
+    expect(primeira.lexica).not.toContain("Guia Roxa");
+    expect(segunda.lexica).toContain("Guia Roxa");
+    expect(segunda.lexica).not.toContain("Ficha Amarela");
+    expect(primeira.lexica).toContain("Requisição de Baliza");
+    expect(segunda.lexica).toContain("Requisição de Baliza");
+
+    // O mecanismo: DUAS consultas por base, uma para cada id. Com a chave antiga
+    // a segunda nem era emitida — o cache respondia com os termos da primeira.
+    expect(consultas.filter((c) => c.filtros.base_id === BASE_A)).toHaveLength(1);
+    expect(consultas.filter((c) => c.filtros.base_id === BASE_B)).toHaveLength(1);
+  });
+
+  it("o mesmo código no mesmo minuto não resolve a base duas vezes", async () => {
+    // A resolução passou a vir ANTES da chave, então ela roda também nos acertos
+    // do cache. O cache de código→id é o que impede uma ida ao banco por busca.
+    const espaco = `${ESPACO}-cache-id`;
+    const { db, rpcs } = dublarDb({ termos: termos(espaco), aliases: ALIASES, bases: { "cliente-cacheado": BASE_A } });
+
+    await expandirConsulta(db as never, [espaco], "como abro uma baliza?", null, "cliente-cacheado");
+    await expandirConsulta(db as never, [espaco], "e a baliza do mês?", null, "cliente-cacheado");
+
+    expect(rpcs.filter((r) => r.fn === "bases_do_codigo")).toHaveLength(1);
+  });
+
+  it("FALHA de leitura não fica colada: a próxima busca tenta de novo", async () => {
+    // Cachear o erro tiraria o vocabulário do cliente por 60 s por causa de uma
+    // queda de um segundo. Só a RESPOSTA do banco é cacheada.
+    const espaco = `${ESPACO}-erro-nao-cola`;
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const base = dublarDb({ termos: termos(espaco), aliases: ALIASES, bases: { "cliente-erro": BASE_A } });
+    let chamadas = 0;
+    const db = {
+      ...base.db,
+      rpc: (fn: string, args: unknown) => {
+        chamadas += 1;
+        if (chamadas === 1) return Promise.resolve({ data: null, error: { message: "conexão caiu" } });
+        return (base.db.rpc as (f: string, a: unknown) => Promise<unknown>)(fn, args);
+      },
+    };
+
+    const caiu = await expandirConsulta(db as never, [espaco], "como abro uma baliza?", null, "cliente-erro");
+    const voltou = await expandirConsulta(db as never, [espaco], "outra baliza agora", null, "cliente-erro");
+
+    expect(caiu.lexica).not.toContain("Ficha Amarela");
+    expect(voltou.lexica).toContain("Ficha Amarela");
+    expect(chamadas).toBe(2);
+    expect(erro).toHaveBeenCalled();
+    erro.mockRestore();
   });
 });
 

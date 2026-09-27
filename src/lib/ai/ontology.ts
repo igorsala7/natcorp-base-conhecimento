@@ -126,9 +126,57 @@ export function enriquecerParaVetor(query: string, entradas: EntradaOntologia[])
   return `${query}\n${extras.slice(0, 6).join("\n")}`;
 }
 
-/** Cache curto por conjunto de espaços (+ base, quando houver) — está no caminho de TODA busca. */
+/**
+ * Cache curto por conjunto de espaços (+ base, quando houver) — está no caminho
+ * de TODA busca.
+ *
+ * ── A CHAVE É O `base_id`, NUNCA O CÓDIGO ─────────────────────────────────────
+ * Ela já foi montada com `base.trim().toLowerCase()`, e isso era um TERCEIRO
+ * critério de "que cliente é este", ao lado dos dois que o banco usa. O `.trim()`
+ * do JavaScript apara todo branco Unicode (U+FEFF, U+000B, U+000C, U+2028,
+ * U+2029, U+2000–U+200A, U+3000 e mais); o `public.codigo_normalizado` apara
+ * CINCO caracteres. `ai_bases.base_code` não tem restrição de formato além de não
+ * ser vazio, então `acme` e `acme﻿` coexistem legalmente — o BOM não é
+ * aparado pelo banco, os dois `codigo_normalizado` diferem e os dois índices
+ * únicos aceitam as duas linhas.
+ *
+ * O que isso produzia: o turno da segunda base resolvia o `base_id` dela certo,
+ * carregava os termos dela e gravava sob a chave `acme`; o turno da PRIMEIRA
+ * base, com os mesmos espaços e o mesmo idioma (o caso comum, porque os clientes
+ * compartilham a documentação global), lia aquela entrada e recebia o jargão
+ * interno do vizinho por até 60 segundos, em `expandirComOntologia` e em
+ * `enriquecerParaVetor`. Este `Map` é de MÓDULO: ele é um só para o processo
+ * Node inteiro, atravessando clientes.
+ *
+ * É a mesma classe do defeito de branco que a tarefa 12 fechou em SQL, agora numa
+ * chave de cache. A lição, e ela vale para o próximo lugar que precise decidir de
+ * quem é o turno: **quem decide "que cliente é este" usa UM critério, e o
+ * canônico é o id** — o mesmo valor que a cerca de propriedade usa. Código é
+ * entrada do usuário; id é identidade.
+ */
 const cache = new Map<string, { at: number; data: EntradaOntologia[] }>();
 const TTL_MS = 60_000;
+
+/**
+ * Código → `base_id`, cacheado pelo código CRU.
+ *
+ * Existe para o id-na-chave não custar uma ida ao banco a cada busca: resolver
+ * antes de montar a chave significa resolver também nos acertos do cache, e a
+ * ontologia está no caminho de TODA consulta.
+ *
+ * A chave é o código **exatamente como chegou** — sem `trim()`, sem
+ * `toLowerCase()`. Normalizar aqui reintroduziria o defeito um nível acima: dois
+ * códigos que o banco considera DISTINTOS voltariam a compartilhar uma entrada, e
+ * o primeiro a resolver entregaria o id dele ao segundo. O preço de não
+ * normalizar é uma chamada extra quando o mesmo cliente chega com bytes
+ * diferentes (`ACME` e `acme`); o preço de normalizar seria o vazamento.
+ *
+ * Entra o que o banco RESPONDEU — inclusive "não existe base com esse código",
+ * que é estado de dado e poupa uma RPC por turno de quem manda um `p_base` que
+ * não casa nada. Erro de LEITURA não entra: colar 60 s de "sem base" numa queda
+ * momentânea do banco tiraria o vocabulário do cliente sem ninguém pedir.
+ */
+const cacheIdDaBase = new Map<string, { at: number; id: string | null }>();
 
 /** Idioma canônico da ontologia (as linhas em `ontology_terms`/`aliases`). */
 export const IDIOMA_CANONICO = "pt";
@@ -149,6 +197,15 @@ export async function entradasOntologia(supabase: DbClient, spaceIds: string[], 
 }
 
 /**
+ * Resolução de uma base: o id, e se a leitura FALHOU.
+ *
+ * Os dois casos são distintos porque só um deles pode ser cacheado. "Respondeu
+ * que não existe" é estado de dado e vale por 60 s; "o banco caiu" não pode
+ * grudar, senão uma queda momentânea vira uma janela sem vocabulário de cliente.
+ */
+type ResolucaoDaBase = { id: string | null; falhou: boolean };
+
+/**
  * O id da base cujo `base_code` bate com este código — ou `null`.
  *
  * `public.bases_do_codigo(text)` é a MESMA comparação que a cerca de
@@ -159,40 +216,63 @@ export async function entradasOntologia(supabase: DbClient, spaceIds: string[], 
  * têm de casar a base pelo mesmo critério, senão um turno pega o arquivo do
  * cliente e não pega o vocabulário dele (ou o contrário).
  *
+ * ── O CÓDIGO VAI CRU, E O `.trim()` QUE ESTAVA AQUI ERA UM QUARTO CRITÉRIO ────
+ * Este parâmetro chegava aparado por `String.prototype.trim()`, e aquele é um
+ * critério DIFERENTE do `btrim` de cinco caracteres do `codigo_normalizado`: o do
+ * JavaScript apara todo branco Unicode, o BOM (U+FEFF) incluído. Com os códigos
+ * `acme` e `acme﻿` coexistindo legalmente — o CHECK `ai_bases_codigo_nao_branco`
+ * usa `codigo_normalizado`, que não apara o BOM —, o segundo era aparado aqui
+ * para `acme` e resolvia o id do PRIMEIRO, enquanto a cerca de propriedade,
+ * comparando pelo critério do banco, continuava no segundo. Vocabulário de um
+ * cliente com o arquivo de outro, exatamente o que o parágrafo acima promete não
+ * acontecer. Agora quem decide é a função do banco, e num lugar só.
+ *
+ * Código vazio (`""`) é o único atalho: aí não há o que resolver e a RPC não é
+ * emitida. Um código que só o JavaScript considera branco (`"﻿"`) PODE existir em
+ * `ai_bases`, então ele segue para a RPC como qualquer outro.
+ *
  * O `as unknown as SupabaseClient` existe porque `src/lib/database.types.ts`
  * ainda não foi regerado: ele não conhece esta função nem a coluna `base_id`
  * (conferido contra o banco em 26/09). Mesma fronteira declarada que
  * `arquivos-da-base.ts` usa com `.filter("base_id", ...)`, e num lugar só.
  */
-async function idDaBase(supabase: DbClient, baseCode: string): Promise<string | null> {
-  const alvo = baseCode.trim();
-  if (!alvo) return null;
+async function idDaBase(supabase: DbClient, baseCode: string): Promise<ResolucaoDaBase> {
+  if (baseCode === "") return { id: null, falhou: false };
   const { data, error } = await (supabase as unknown as SupabaseClient).rpc("bases_do_codigo", {
-    p_base: alvo,
+    p_base: baseCode,
   });
   if (error) {
     // Log OBRIGATÓRIO: sem ele, "este cliente não tem vocabulário próprio" e "a
     // leitura da base falhou" produzem a MESMA consulta sem expansão, e não há
     // como distinguir os dois de fora. Mesma regra de `escopo-da-base.ts`.
-    console.error(`[ontology] não deu para resolver a base "${alvo}", seguindo só com a ontologia dos espaços:`, error.message);
-    return null;
+    console.error(`[ontology] não deu para resolver a base "${baseCode}", seguindo só com a ontologia dos espaços:`, error.message);
+    return { id: null, falhou: true };
   }
   // `setof uuid` chega como lista de escalares. Mais de uma linha é impossível
   // hoje (índice único sobre `codigo_normalizado(base_code)`) e, se acontecesse,
   // escolher uma no escuro seria pior que não expandir.
   const ids = (Array.isArray(data) ? data : []).map((x) => String(x)).filter(Boolean);
   if (ids.length > 1) {
-    console.error(`[ontology] o código "${alvo}" resolveu ${ids.length} bases — nenhuma expansão por base neste turno.`);
-    return null;
+    console.error(`[ontology] o código "${baseCode}" resolveu ${ids.length} bases — nenhuma expansão por base neste turno.`);
+    return { id: null, falhou: false };
   }
-  return ids[0] ?? null;
+  return { id: ids[0] ?? null, falhou: false };
+}
+
+/** `idDaBase` com o cache curto de `cacheIdDaBase` — ver o comentário dele. */
+async function idDaBaseCacheado(supabase: DbClient, baseCode: string): Promise<string | null> {
+  const hit = cacheIdDaBase.get(baseCode);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.id;
+  const r = await idDaBase(supabase, baseCode);
+  if (!r.falhou) cacheIdDaBase.set(baseCode, { at: Date.now(), id: r.id });
+  return r.id;
 }
 
 /**
  * @param baseCode Base do turno (`p_base`), quando houver. Os termos DELA são
- * UNIDOS aos dos espaços — nunca substituem nenhum. Sem base, a segunda
- * consulta não é nem emitida e a chave de cache é a de sempre: o caminho do
- * portal e do Cmd+K fica idêntico, e é isso que o `eval-rag` mede.
+ * UNIDOS aos dos espaços — nunca substituem nenhum. Sem base, nem a resolução do
+ * id nem a segunda consulta são emitidas, e a chave de cache é a de sempre: o
+ * caminho do portal e do Cmd+K fica idêntico, e é isso que o `eval-rag` mede.
  */
 async function carregarOntologia(
   supabase: DbClient,
@@ -201,10 +281,26 @@ async function carregarOntologia(
   baseCode?: string | null,
 ): Promise<EntradaOntologia[]> {
   const idioma = idiomaAtivo(lang);
-  const base = (baseCode ?? "").trim();
-  // O segmento da base só ENTRA na chave quando existe: assim a chave do
-  // caminho sem base continua byte a byte a de antes desta rodada.
-  const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO) + (base ? `|base:${base.toLowerCase()}` : "");
+  const base = baseCode ?? "";
+  /*
+    O DONO SE RESOLVE ANTES DA CHAVE, e a chave leva o `base_id`.
+
+    Ordem invertida de propósito: a chave não pode se parecer com o código, ela
+    tem de SER a identidade que a cerca de propriedade usa. Ver `cache` acima para
+    o que a versão anterior (`base.trim().toLowerCase()`) entregava a quem.
+
+    O segmento da base só ENTRA quando um id foi resolvido: assim a chave do
+    caminho sem base continua byte a byte a de antes desta rodada — e um turno cuja
+    resolução FALHOU passa a compartilhar aquela mesma entrada, o que é correto,
+    porque sem id a lista carregada é exatamente a dos espaços e nenhum termo de
+    cliente entra nela.
+
+    `base` não é aparado aqui: quem apara é o `codigo_normalizado` dentro de
+    `bases_do_codigo`, que é o critério do banco. Aparar antes seria repor o
+    terceiro critério em outro lugar — ver `idDaBase`.
+  */
+  const baseId = await idDaBaseCacheado(supabase, base);
+  const chave = [...spaceIds].sort().join(",") + "|" + (idioma ?? IDIOMA_CANONICO) + (baseId ? `|base:${baseId}` : "");
   const hit = cache.get(chave);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
@@ -258,15 +354,15 @@ async function carregarOntologia(
     entradas ficam na lista e `formasCasadas` ordena as duas (o rodízio dá vaga a
     cada conceito antes de qualquer um ganhar o quinto sinônimo).
 
-    SEM BASE, NADA MUDA: sem `base` a consulta abaixo não é emitida, e o
-    resultado é exatamente o de antes desta rodada — o que o `eval-rag` afirma.
+    SEM BASE, NADA MUDA: sem `base` nem o id é resolvido nem a consulta abaixo é
+    emitida, e o resultado é exatamente o de antes desta rodada — o que o
+    `eval-rag` afirma.
 
     `.filter("base_id", ...)` e não `.eq()`: o tipo gerado ainda não conhece a
     coluna (ver `idDaBase`), e `filter` aceita nome de coluna fora do tipo sem
     `as never`. Pagina igual, pela mesma razão do comentário acima — o teto de
     1.000 linhas do PostgREST é silencioso.
   */
-  const baseId = base ? await idDaBase(supabase, base) : null;
   if (baseId) {
     const daBase = await fetchAllPaged<LinhaDeTermo>(
       (de, ate) =>
