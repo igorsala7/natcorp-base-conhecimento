@@ -56,14 +56,14 @@
   // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
   // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
   var I18N = {
-    pt: { toqueAssunto: "Toque num assunto para começar", placeholder: "Escreva ou fale…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada." },
-    en: { toqueAssunto: "Tap a topic to start", placeholder: "Type or speak…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected." },
-    es: { toqueAssunto: "Toca un tema para empezar", placeholder: "Escribe o habla…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada." },
-    fr: { toqueAssunto: "Touchez un sujet pour commencer", placeholder: "Écrivez ou parlez…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté." },
-    de: { toqueAssunto: "Tippen Sie auf ein Thema", placeholder: "Schreiben oder sprechen…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt." },
-    it: { toqueAssunto: "Tocca un argomento per iniziare", placeholder: "Scrivi o parla…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato." },
-    ja: { toqueAssunto: "トピックをタップして開始", placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。" },
-    zh: { toqueAssunto: "点击一个主题开始", placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。" },
+    pt: { toqueAssunto: "Toque num assunto para começar", placeholder: "Escreva ou fale…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada.", aviso: "Aviso" },
+    en: { toqueAssunto: "Tap a topic to start", placeholder: "Type or speak…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected.", aviso: "Notice" },
+    es: { toqueAssunto: "Toca un tema para empezar", placeholder: "Escribe o habla…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada.", aviso: "Aviso" },
+    fr: { toqueAssunto: "Touchez un sujet pour commencer", placeholder: "Écrivez ou parlez…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté.", aviso: "Avis" },
+    de: { toqueAssunto: "Tippen Sie auf ein Thema", placeholder: "Schreiben oder sprechen…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt.", aviso: "Hinweis" },
+    it: { toqueAssunto: "Tocca un argomento per iniziare", placeholder: "Scrivi o parla…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato.", aviso: "Avviso" },
+    ja: { toqueAssunto: "トピックをタップして開始", placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。", aviso: "お知らせ" },
+    zh: { toqueAssunto: "点击一个主题开始", placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。", aviso: "通知" },
   };
   function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
   // LS_CLEARED e LS_DRAFT também são declarados ADIANTE, junto do LS_SID: os
@@ -3735,6 +3735,28 @@
     reportServer: true,
   };
   var conversationId = null;
+  /**
+   * ALERTAS DE CAMPANHA — SERVIR NÃO É VISUALIZAR.
+   *
+   * `alertasDoServidor` é o que `/api/v1/config` entregou na abertura: os
+   * alertas ATIVOS e ELEGÍVEIS desta identidade, já cortados em SQL. O widget
+   * não decide quem vê o quê — este arquivo é público, e qualquer filtro escrito
+   * aqui seria sugestão, não cerca.
+   *
+   * `alertasNaTela` é outra coisa, e a diferença é o ponto inteiro da tarefa:
+   * são os balões que já foram DESENHADOS, com o elemento na mão, esperando
+   * virar visualização. O servidor entrega os alertas no carregamento da PÁGINA,
+   * com o painel fechado; reportar ali mediria ENTREGA. O que a campanha precisa
+   * saber é se a pessoa viu, e para isso o painel tem de estar aberto.
+   *
+   * `alertasReportados` guarda os ids já enviados para não reenviar quando a
+   * pessoa fecha e reabre, ou quando usa "Limpar" e os balões são redesenhados.
+   * O banco também deduplica (chave única por campanha + pessoa), então isto é
+   * economia de requisição, não correção.
+   */
+  var alertasDoServidor = [];
+  var alertasNaTela = [];
+  var alertasReportados = {};
   var open = false;
   var expanded = false;
   try { expanded = localStorage.getItem("kb.widget.exp") === "1"; } catch { }
@@ -3860,6 +3882,15 @@
       ".m.a p{margin:6px 0}.m.a p:first-child{margin-top:0}.m.a p:last-child{margin-bottom:0}" +
       ".m.a strong{font-weight:700}.m.a em{font-style:italic}.m.a .mh{font-weight:700;margin:8px 0 4px}" +
       ".m.a ul,.m.a ol{margin:6px 0;padding-left:20px}.m.a li{margin:3px 0}" +
+      /* AVISO DA EMPRESA (campanha). Lido como recado, não como resposta do
+         assistente: sem avatar, largura inteira, barra da cor da marca à
+         esquerda e o rótulo dizendo de quem é. Sem isso, um aviso de RH parece
+         a IA tomando iniciativa — e a pessoa desconfia do que leu. */
+      ".kbav{align-self:stretch;background:color-mix(in srgb,var(--pc) 6%,#fff);border:1px solid color-mix(in srgb,var(--pc) 22%,#fff);border-left:4px solid var(--pc);border-radius:14px;padding:12px 14px}" +
+      ".kbav .kbav-r{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--pc);margin-bottom:5px}" +
+      ".kbav .kbav-r svg{width:12px;height:12px;flex:none}" +
+      ".kbav .kbav-t{font-size:14px;font-weight:700;line-height:1.35;color:#1c1726}" +
+      ".kbav .kbav-c{font-size:13.5px;line-height:1.55;color:#3b3548;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;margin-top:4px}" +
       ".m.a code{background:#f0ebf7;border-radius:5px;padding:1px 5px;font-size:.85em}" +
       ".m.a pre{background:#f4f0fa;border-radius:10px;padding:10px;overflow-x:auto;margin:6px 0}" +
       ".m.a pre code{background:none;padding:0}" +
@@ -4116,6 +4147,10 @@
   // Avatar do assistente: um brilho ("sparkle"), como nas referências.
   var ICON_BOT =
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 4.8L18 8.5l-4.3 1.7L12 15l-1.7-4.8L6 8.5l4.3-1.7L12 2z"/><path d="M19 13l.8 2.3L22 16l-2.2.8L19 19l-.8-2.2L16 16l2.2-.7L19 13z" opacity=".65"/></svg>';
+  // Aviso da empresa (campanha) — sininho, para o balão não se confundir com
+  // uma resposta do assistente.
+  var ICON_BELL =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
   // Biblioteca de prompts salvos (só quando a visita traz o token de rastreio).
   var ICON_BOOKMARK =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
@@ -6484,11 +6519,30 @@
       desbloquearAudio(); // gesto do usuário: libera o som de notificação
       marcarLido(); // abrir = confirmou a leitura → zera badge/contagem/título
       if (_revealFlush) _revealFlush(); // completa a resposta que ficou parada enquanto minimizado
+      /**
+       * AQUI o aviso da empresa passa a contar como visualizado.
+       *
+       * `panel.classList.add("open")` acabou de trocar `display:none` por
+       * `display:flex`, então o balão do aviso — que já estava no DOM desde o
+       * carregamento da página, medindo 0×0 — ganha altura. É a mesma razão pela
+       * qual a rolagem abaixo precisa ser refeita.
+       *
+       * `requestAnimationFrame` (com `setTimeout` de reserva, porque aba oculta
+       * não recebe rAF) garante que o navegador já aplicou o estilo antes de
+       * medirmos. Medir cedo devolveria 0 e a visualização escorregaria para a
+       * próxima abertura, o que erra para MENOS — mas erra.
+       */
+      if (window.requestAnimationFrame) requestAnimationFrame(confirmarAlertasVistos);
+      else setTimeout(confirmarAlertasVistos, 0);
       // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
       // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
       setTimeout(function () {
         rolarChat();
         inputEl.focus();
+        // Rede: se o rAF acima mediu antes de o estilo valer (aba em segundo
+        // plano, animação), esta segunda passada pega. Idempotente — o id já
+        // reportado não volta.
+        confirmarAlertasVistos();
       }, 50);
     } else {
       // Minimizar animado: encolhe/desaparece (kbout) e só então esconde.
@@ -6678,6 +6732,123 @@
     rolarChat(role === "user");
     return el;
   }
+  /**
+   * DESENHA os avisos da empresa como primeira(s) mensagem(ns) da conversa.
+   *
+   * Desenhar não é visualizar: no instante em que isto roda, o painel está
+   * FECHADO (`.panel` só ganha `display:flex` com a classe `open`, e o próprio
+   * `toggle` registra que com o painel oculto `scrollHeight` é 0). Por isso aqui
+   * não se reporta nada — quem reporta é `confirmarAlertasVistos`, e só depois de
+   * conferir que o balão tem altura de verdade.
+   *
+   * Chamada ANTES do histórico e da saudação, então o aviso é a primeira coisa
+   * da conversa. Reentrante de propósito: "Limpar" esvazia a tela e redesenha, e
+   * um aviso ativo não deve desaparecer porque a pessoa limpou o chat.
+   */
+  function renderAlertas() {
+    if (!alertasDoServidor.length) return;
+    alertasNaTela = [];
+    alertasDoServidor.forEach(function (a) {
+      if (!a || !a.id || !a.titulo) return;
+      var box = document.createElement("div");
+      box.className = "kbav";
+      // `data-*` para quem for investigar no inspetor descobrir de qual campanha
+      // é o balão sem abrir o banco.
+      box.setAttribute("data-alerta", a.id);
+
+      var rot = document.createElement("div");
+      rot.className = "kbav-r";
+      rot.innerHTML = ICON_BELL;
+      var rotTxt = document.createElement("span");
+      rotTxt.textContent = wt("aviso");
+      rot.appendChild(rotTxt);
+      box.appendChild(rot);
+
+      var tit = document.createElement("div");
+      tit.className = "kbav-t";
+      // `textContent`, nunca `innerHTML`: título e corpo são escritos pelo
+      // cliente na tela de Comunicação e chegam aqui como texto do banco. Um
+      // `innerHTML` transformaria o campo de um formulário interno em XSS dentro
+      // do ERP de todos os elegíveis.
+      tit.textContent = a.titulo;
+      box.appendChild(tit);
+
+      if (a.corpo && String(a.corpo).trim()) {
+        var cor = document.createElement("div");
+        cor.className = "kbav-c";
+        cor.textContent = a.corpo;
+        box.appendChild(cor);
+      }
+
+      messagesEl.appendChild(box);
+      alertasNaTela.push({ id: a.id, el: box });
+    });
+    // Caso o painel já esteja aberto quando os avisos chegam (config lenta, ou
+    // "Limpar" com o chat aberto): a conferência é a mesma, e ela é que decide.
+    confirmarAlertasVistos();
+  }
+
+  /**
+   * REPORTA a visualização — e só quando o balão foi REALMENTE renderizado.
+   *
+   * A pergunta "a pessoa viu?" tem uma resposta mensurável no navegador: com o
+   * painel fechado o balão existe no DOM e mede 0×0, porque `.panel` sem a classe
+   * `open` é `display:none`. Com o painel aberto ele passa a ter altura. Este
+   * `getBoundingClientRect` é exatamente essa medida, e é o que separa um número
+   * que significa "gente viu" de um que significa "o servidor entregou".
+   *
+   * Chamado na ABERTURA do painel e ao desenhar. Nunca no carregamento da página.
+   *
+   * O que acontece com cada resposta do servidor:
+   *
+   * · `registrado: true`  → gravado (ou já estava: repetição devolve `true`).
+   * · `registrado: false` → o alerta não é entregável a esta identidade: id que
+   *   não existe, campanha de outro cliente, ou janela encerrada entre a
+   *   abertura e o desenho. É resposta NORMAL, não falha, e insistir só geraria
+   *   requisição inútil — o id fica marcado como resolvido.
+   * · erro de rede ou 5xx → desmarca, para a próxima abertura tentar de novo.
+   *   Visualização perdida deixa o número MENOR que a realidade, nunca maior.
+   */
+  function confirmarAlertasVistos() {
+    if (!alertasNaTela.length) return;
+    alertasNaTela.forEach(function (it) {
+      if (!it || !it.id || alertasReportados[it.id]) return;
+      if (!it.el || !it.el.isConnected) return;
+      var r;
+      try {
+        r = it.el.getBoundingClientRect();
+      } catch {
+        return;
+      }
+      // O painel fechado devolve 0×0 para o MESMO elemento. É aqui que "servir"
+      // deixa de contar como "visualizar".
+      if (!(r.height > 0 && r.width > 0)) return;
+
+      alertasReportados[it.id] = true;
+      var body = { campanhaId: it.id };
+      if (track) body.track = track;
+      fetch(API + "/api/v1/alertas/visto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Key": KEY },
+        body: JSON.stringify(body),
+        // `keepalive`: a pessoa pode abrir o painel e trocar de tela do ERP no
+        // mesmo segundo. Sem isto, a requisição morre com a navegação e a
+        // visualização se perde justamente no caso em que ela aconteceu.
+        keepalive: true,
+      })
+        .then(function (resp) {
+          // Só o que é TRANSITÓRIO volta para a fila: teto de requisições e
+          // falha de servidor. Chave inválida e origem não autorizada são
+          // configuração errada — reenviar a cada abertura não conserta nada e só
+          // gera requisição que vai falhar igual.
+          if (resp.status === 429 || resp.status >= 500) alertasReportados[it.id] = false;
+        })
+        .catch(function () {
+          alertasReportados[it.id] = false;
+        });
+    });
+  }
+
   function renderWelcome() {
     if (cfg.welcome) addMsg("assistant", cfg.welcome);
     if (cfg.suggestions && cfg.suggestions.length) {
@@ -6734,6 +6905,9 @@
         return r.ok ? r.json() : null;
       })
       .then(function (h) {
+        // O aviso da empresa entra ANTES de tudo: é a primeira mensagem da
+        // conversa. Desenhar aqui não reporta nada — o painel está fechado.
+        renderAlertas();
         if (h && h.messages && h.messages.length) {
           renderHistory(h.messages);
           if (h.conversationId) conversationId = h.conversationId;
@@ -6745,6 +6919,7 @@
         if (h && h.sessaoExpirada) sessaoExpirou();
       })
       .catch(function () {
+        renderAlertas();
         renderWelcome();
       });
   }
@@ -6789,6 +6964,10 @@
       /* storage indisponível */
     }
     messagesEl.innerHTML = "";
+    // O aviso da empresa NÃO é conversa: "Limpar" apaga o que foi conversado, e
+    // uma campanha ativa continua ativa. Redesenhar não conta visualização de
+    // novo (o id já está em `alertasReportados`, e o banco deduplica).
+    renderAlertas();
     renderWelcome();
   }
 
@@ -9207,6 +9386,11 @@
               if (data.config[k] != null) cfg[k] = data.config[k];
             }
           }
+          // Avisos da empresa (campanhas ativas e elegíveis a ESTA identidade).
+          // Chave de TOPO, ao lado de `config`: o servidor já corta por base,
+          // janela e regra em SQL, e este arquivo é público — filtrar aqui seria
+          // sugestão, não cerca. Ausente (servidor mais velho) = lista vazia.
+          if (data && Array.isArray(data.alertas)) alertasDoServidor = data.alertas;
           mount();
         })
         .catch(function (e) {
