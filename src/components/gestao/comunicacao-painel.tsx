@@ -75,8 +75,9 @@ import { valoresParaDimensao } from "@/app/gestao/conteudo/actions";
  * ── O que esta tela é ─────────────────────────────────────────────────────
  * O cliente escreve um aviso, marca quando ele começa (e opcionalmente quando
  * para), escolhe quem alcança nas mesmas doze dimensões da aba Conteúdo, e vê
- * quem visualizou. O aviso aparece como primeira mensagem de quem abrir o
- * assistente estando dentro do alcance.
+ * quem visualizou. O aviso aparece como primeira mensagem para quem estiver
+ * dentro do alcance: no computador o assistente pode abrir sozinho e levar o
+ * aviso até a pessoa; no celular, só quem abrir o chat recebe.
  *
  * ── E O QUE ELA ATIVAMENTE NÃO FAZ ────────────────────────────────────────
  * Nenhum percentual, nenhuma taxa de leitura, nenhum gráfico de lidos contra não
@@ -333,7 +334,7 @@ export function ComunicacaoPainel({
           <EmptyState
             icon={Megaphone}
             title="Nenhum aviso ainda"
-            description="Um aviso aparece como primeira mensagem para quem abrir o assistente: fechamento da folha, prazo para marcar férias, manutenção do sistema. Você escolhe quem recebe, quando começa a aparecer e quando para."
+            description="Um aviso aparece como primeira mensagem para quem estiver no alcance que você escolher: fechamento da folha, prazo para marcar férias, manutenção do sistema. No computador ele pode aparecer sozinho; no celular, quando a pessoa abrir o assistente. Você escolhe quem recebe, quando começa a aparecer e quando para."
             action={
               <Button type="button" onClick={novo} disabled={pendente}>
                 <Plus aria-hidden="true" />
@@ -1155,8 +1156,9 @@ function FormularioDeAviso({
           {inicial.id ? "Editar aviso" : "Novo aviso"}
         </h3>
         <p className="mt-1 text-xs leading-relaxed text-text-muted">
-          O aviso aparece como primeira mensagem de quem abrir o assistente dentro do alcance que você
-          definir. Ele não é e-mail: quem não abrir o chat não recebe nada.
+          O aviso aparece como primeira mensagem para quem estiver dentro do alcance que você
+          definir. Ele não é e-mail: no computador o assistente pode abrir sozinho e levar o aviso
+          até a pessoa; no celular, só quem abrir o chat recebe.
         </p>
       </div>
 

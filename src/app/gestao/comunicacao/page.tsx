@@ -119,8 +119,9 @@ export default async function GestaoComunicacaoPage({
               </>
             ) : (
               <>
-                {ativas === 1 ? "Um aviso aparece" : `${ativas} avisos aparecem`} para quem abrir o
-                assistente e se encaixar no alcance que você definiu.
+                {ativas === 1 ? "Um aviso aparece" : `${ativas} avisos aparecem`} para quem se
+                encaixar no alcance que você definiu: no computador ele pode aparecer sozinho, e no
+                celular quando a pessoa abrir o assistente.
               </>
             )
           }
@@ -134,7 +135,7 @@ export default async function GestaoComunicacaoPage({
 
       <Bloco
         titulo="Avisos no assistente"
-        descricao="Cada aviso aparece como primeira mensagem de quem abrir o chat dentro do alcance que você definir. Você escolhe quando ele começa, quando para, e se reaparece a cada abertura."
+        descricao="Cada aviso aparece como primeira mensagem para quem estiver dentro do alcance que você definir. No computador o assistente pode abrir sozinho e levar o aviso até a pessoa; no celular ele aparece quando alguém abrir o chat. Você escolhe quando o aviso começa, quando para, e se reaparece a cada abertura."
       >
         <ComunicacaoPainel
           sessao={paramsDaSessao(sessao)}
