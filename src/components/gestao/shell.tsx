@@ -24,23 +24,37 @@ import { linkGestao, type SessaoGestao } from "@/lib/gestao/sessao";
  * ── Sem cabeçalho de marca ────────────────────────────────────────────
  * A página tem de parecer parte do APEX. Um header grande com logo denunciaria
  * o iFrame e roubaria altura de uma tela que já é embutida. O que sobra é o
- * mínimo: onde estou, de que base, e as quatro páginas irmãs.
+ * mínimo: onde estou, de que base, e as páginas irmãs.
  */
 
-export type AbaGestao = "consumo" | "creditos" | "acessos" | "prompts" | "conteudo" | "conversas";
+export type AbaGestao =
+  | "consumo"
+  | "creditos"
+  | "acessos"
+  | "prompts"
+  | "conteudo"
+  | "comunicacao"
+  | "conversas";
 
 const ABAS: { id: AbaGestao; rotulo: string; href: string }[] = [
   { id: "consumo", rotulo: "Consumo", href: "/gestao" },
   { id: "creditos", rotulo: "Créditos", href: "/gestao/creditos" },
   { id: "acessos", rotulo: "Acessos", href: "/gestao/acessos" },
-  // "Prompts" e "Conteúdo" entre Acessos e Conversas de propósito: as QUATRO
-  // abas do meio são as de CONFIGURAR o assistente (quanto pode gastar, quem
-  // pode o quê, o que já vem escrito, sobre o que ele responde), e Conversas é a
-  // de OLHAR o que aconteceu.
+  // "Prompts", "Conteúdo" e "Comunicação" entre Acessos e Conversas de
+  // propósito: as abas do MEIO são as de CONFIGURAR o assistente (quanto pode
+  // gastar, quem pode o quê, o que já vem escrito, sobre o que ele responde, o
+  // que ele avisa sem ninguém perguntar), e Conversas é a de OLHAR o que
+  // aconteceu.
   { id: "prompts", rotulo: "Prompts", href: "/gestao/prompts" },
-  // "Conteúdo", e não "Documentações": a aba também vai receber os ARQUIVOS da
+  // "Conteúdo", e não "Documentações": a aba também recebe os ARQUIVOS da
   // própria empresa (projeto 2), e renomear aba é churn que o usuário percebe.
   { id: "conteudo", rotulo: "Conteúdo", href: "/gestao/conteudo" },
+  // "Comunicação" logo depois de Conteúdo, e não no fim: as duas respondem à
+  // mesma pergunta do operador ("o que o assistente diz para a minha gente?"),
+  // uma quando perguntam e a outra sem ninguém perguntar. Separá-las por
+  // Conversas no meio obrigaria a procurar em dois cantos do menu o que a pessoa
+  // pensa como uma coisa só.
+  { id: "comunicacao", rotulo: "Comunicação", href: "/gestao/comunicacao" },
   { id: "conversas", rotulo: "Conversas", href: "/gestao/conversas" },
 ];
 
