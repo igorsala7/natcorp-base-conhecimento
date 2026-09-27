@@ -11,7 +11,7 @@
  * um cliente à base de outro. Não há cerca de RLS aqui porque não pode
  * haver: este script É a cerca.
  *
- * Cinco provas, uma atrás da outra:
+ * Seis provas, uma atrás da outra:
  *
  *   1) ISOLAMENTO ENTRE BASES — cria duas bases e duas documentações de
  *      teste, anexa cada uma à sua base, cria um arquivo de base em cada, e
@@ -126,6 +126,20 @@
  *      duas funções, mais o `base_id` das consultas do painel. Sem esta seção,
  *      isso é revisão de código e não banco.
  *
+ *   6) ONTOLOGIA POR BASE (tarefa 9b) — um termo da base A, um termo do espaço, e
+ *      os três turnos possíveis com os MESMOS espaços: base A, base B e sem base.
+ *      Prova que o jargão de um cliente não entra na expansão do outro nem na de
+ *      quem lê a documentação sem base, e que o termo da documentação entra nos
+ *      três. É a única superfície desta rodada sem cobertura contra o banco, e o
+ *      que ela vazaria é informação comercial: os termos que uma empresa usa dizem
+ *      o que ela faz.
+ *
+ *      Limite declarado, porque ele muda o que a prova vale: o carregamento aqui é
+ *      SQL escrito na seção, não as consultas PostgREST de `carregarOntologia` —
+ *      tudo roda dentro da transação que reverte, e o cliente PostgREST entra por
+ *      outra conexão e não vê linha não confirmada. O que é de produção, sem cópia,
+ *      é a função que EXPANDE.
+ *
  *      RESSALVA OPERACIONAL de `SABOTAR=anon`: `ALTER POLICY` toma lock
  *      `ACCESS EXCLUSIVE` na tabela `chunks` até o `ROLLBACK`. Enquanto o
  *      lock existe, qualquer sessão que tente LER `chunks` — portal público,
@@ -137,6 +151,8 @@
  */
 import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
+// A EXPANSÃO É A DE PRODUÇÃO, importada — não uma cópia. Ver a seção 12.
+import { expandirComOntologia, normalizarTermo, type EntradaOntologia } from "../src/lib/ai/ontology";
 
 const PREFIXO = "zz-isolamento-teste-";
 const SABOTAR = process.env.SABOTAR; // "isolamento" | "anon" | "campanha" | undefined
@@ -873,19 +889,160 @@ async function main() {
         painelB.has(campanhaB),
         `painel(B) = [${[...painelB].join(", ") || "vazio"}]`,
       );
+
+      // ── 12. ONTOLOGIA POR BASE: o jargão de um cliente não expande a
+      //        consulta de outro, nem a de quem lê sem base ─────────────────
+      //
+      // A superfície nova da tarefa 9b: `ontology_terms` ganhou `base_id`, e o
+      // vocabulário que um arquivo do cliente ensina passou a EXPANDIR as
+      // consultas daquele cliente. Os termos que uma empresa usa dizem o que ela
+      // faz, então um termo cruzando para outro cliente é vazamento comercial —
+      // e nada disso tinha cobertura contra o banco real.
+      //
+      // ── O QUE ESTA SEÇÃO PROVA, E O QUE ELA NÃO PROVA ──────────────────────
+      // Prova: com os MESMOS espaços e o MESMO idioma (o caso comum, porque os
+      // clientes compartilham a documentação global), o termo da base A não entra
+      // na expansão do turno da base B nem na do turno SEM base, e o termo do
+      // espaço entra nos três (o controle positivo, sem o qual um carregador que
+      // devolvesse lista vazia passaria por aqui).
+      //
+      // NÃO prova que as consultas do PostgREST em `carregarOntologia` são estas:
+      // tudo aqui roda dentro da transação que sempre reverte, e o cliente
+      // PostgREST — que entra por outra conexão — não vê linha não confirmada.
+      // Então o PREDICADO DE DONO está escrito uma vez, abaixo, em SQL, com a
+      // mesma forma que aquele arquivo usa (`space_id in (...)` de um lado,
+      // `base_id = ...` do outro); a EXPANSÃO em si é a função de produção,
+      // importada, sem cópia. O piso de vocabulário de RH fica de fora de
+      // propósito: ele não tem dono e não muda nada do que se afirma aqui.
+      const termoDoEspaco = `${PREFIXO}termo-do-espaco-a`;
+      const termoDaBase = `${PREFIXO}jargao-so-da-base-a`;
+      const apelidoDaBase = `${PREFIXO}apelido-so-da-base-a`;
+
+      const termoEspacoId = (
+        await client.query<{ id: string }>(
+          `insert into public.ontology_terms (space_id, term, term_norm, kind, source)
+           values ($1, $2, $3, 'conceito', 'manual') returning id`,
+          [spaceA, termoDoEspaco, normalizarTermo(termoDoEspaco)],
+        )
+      ).rows[0]!.id;
+      const termoBaseId = (
+        await client.query<{ id: string }>(
+          `insert into public.ontology_terms (base_id, term, term_norm, kind, source)
+           values ($1, $2, $3, 'conceito', 'manual') returning id`,
+          [baseA, termoDaBase, normalizarTermo(termoDaBase)],
+        )
+      ).rows[0]!.id;
+      // Um apelido em cada: o alias é alcançado pelo `term_id`, então ele herda o
+      // dono do termo. Provar isso junto é de graça, e sem ele a cerca ficaria
+      // afirmada só para a linha de `ontology_terms`.
+      await client.query(
+        `insert into public.ontology_aliases (term_id, alias, alias_norm, source) values ($1, $2, $3, 'manual')`,
+        [termoBaseId, apelidoDaBase, normalizarTermo(apelidoDaBase)],
+      );
+      await client.query(
+        `insert into public.ontology_aliases (term_id, alias, alias_norm, source) values ($1, $2, $3, 'manual')`,
+        [termoEspacoId, `${PREFIXO}apelido-do-espaco-a`, normalizarTermo(`${PREFIXO}apelido-do-espaco-a`)],
+      );
+
+      /**
+       * As entradas da ontologia de UM dono — o predicado, num lugar só.
+       *
+       * `coluna` é validada contra as duas únicas possibilidades antes de entrar
+       * na consulta: é interpolação de identificador, e mesmo num script de
+       * auditoria isso não vai para o SQL sem conferência.
+       */
+      const ontologiaDe = async (
+        coluna: "space_id" | "base_id",
+        valores: string[],
+      ): Promise<EntradaOntologia[]> => {
+        if (coluna !== "space_id" && coluna !== "base_id") throw new Error("coluna inválida");
+        if (!valores.length) return [];
+        const linhas = (
+          await client.query<{ term: string; term_norm: string; apelidos: string[]; apelidos_norm: string[] }>(
+            `select t.term,
+                    t.term_norm,
+                    coalesce(array_agg(a.alias) filter (where a.alias is not null), '{}') as apelidos,
+                    coalesce(array_agg(a.alias_norm) filter (where a.alias_norm is not null), '{}') as apelidos_norm
+               from public.ontology_terms t
+               left join public.ontology_aliases a on a.term_id = t.id
+              where t.${coluna} = any($1::uuid[])
+              group by t.id, t.term, t.term_norm`,
+            [valores],
+          )
+        ).rows;
+        return linhas.map((l) => ({
+          matchNorms: [l.term_norm, ...l.apelidos_norm],
+          forms: [l.term, ...l.apelidos],
+        }));
+      };
+
+      // A pergunta cita os DOIS vocabulários. Quem decide o que expande é o dono,
+      // nunca a pergunta.
+      const pergunta = `preciso de ajuda com ${termoDaBase} e com ${termoDoEspaco}`;
+      /*
+        A AGULHA É A FORMA ENTRE ASPAS, e não o termo cru.
+
+        `expandirComOntologia` devolve `pergunta or "forma" or "forma"`, então a
+        pergunta inteira está dentro do resultado — e a pergunta CITA o jargão da
+        base A de propósito, para provar que quem decide é o dono e não o texto
+        digitado. Procurar o termo cru acharia a própria pergunta e as duas
+        negativas nunca poderiam passar. Aspas só aparecem no trecho EXPANDIDO.
+      */
+      const expandiu = (resultado: string, forma: string) => resultado.includes(`"${forma}"`);
+      const doEspacoA = await ontologiaDe("space_id", [spaceA]);
+      const daBaseA = await ontologiaDe("base_id", [baseA]);
+      const daBaseB = await ontologiaDe("base_id", [baseB]);
+
+      // Os três turnos, com os MESMOS espaços: o que muda é só o dono da segunda
+      // lista. É exatamente a condição em que um cache com chave errada entregava
+      // a lista de um ao outro.
+      const turnoDaBaseA = expandirComOntologia(pergunta, [...doEspacoA, ...daBaseA]);
+      const turnoDaBaseB = expandirComOntologia(pergunta, [...doEspacoA, ...daBaseB]);
+      const turnoSemBase = expandirComOntologia(pergunta, doEspacoA);
+
+      registra(
+        casos,
+        "termo da base A NÃO expande a consulta da base B",
+        !expandiu(turnoDaBaseB, termoDaBase) && !expandiu(turnoDaBaseB, apelidoDaBase),
+        `expansão(base B) = ${turnoDaBaseB}`,
+      );
+      registra(
+        casos,
+        "termo de base NÃO aparece na expansão de quem consulta SEM base (portal, Cmd+K)",
+        !expandiu(turnoSemBase, termoDaBase) && !expandiu(turnoSemBase, apelidoDaBase),
+        `expansão(sem base) = ${turnoSemBase}`,
+      );
+      registra(
+        casos,
+        "a base A recebe o PRÓPRIO jargão, e o apelido dele (sem isto, as negativas passariam por expansão vazia)",
+        expandiu(turnoDaBaseA, termoDaBase) && expandiu(turnoDaBaseA, apelidoDaBase),
+        `expansão(base A) = ${turnoDaBaseA}`,
+      );
+      registra(
+        casos,
+        "o termo da DOCUMENTAÇÃO expande nos três turnos (o global não é rebaixado por ter base, nem perdido por não ter)",
+        [turnoDaBaseA, turnoDaBaseB, turnoSemBase].every((x) => expandiu(x, termoDoEspaco)),
+        `base A / base B / sem base expandem com o termo do espaço: ${[turnoDaBaseA, turnoDaBaseB, turnoSemBase]
+          .map((x) => (expandiu(x, termoDoEspaco) ? "sim" : "NÃO"))
+          .join(" / ")}`,
+      );
+
     } finally {
       await client.query("ROLLBACK");
     }
 
     // ── Prova de que nada sujou produção ────────────────────────────────
     // Fora de qualquer transação: se o rollback falhou silenciosamente por
-    // algum motivo, isto pega. Conta por prefixo nas NOVE tabelas tocadas
+    // algum motivo, isto pega. Conta por prefixo nas ONZE tabelas tocadas
     // (a quinta, `chunks`, entrou com a tarefa 7; a sexta,
     // `documentacoes_universais`, com a tarefa 9; a sétima, `nodes`, com o
     // artigo publicado do caso positivo do `anon`; a oitava e a nona,
     // `ai_campanhas` e `ai_campanha_visualizacoes`, com o projeto 3 — a
     // visualização é contada pelo `p_usuario` dela, e não pela junção com a
-    // campanha, justamente para uma linha ÓRFÃ aparecer nesta conta).
+    // campanha, justamente para uma linha ÓRFÃ aparecer nesta conta; a décima e a
+    // décima primeira, `ontology_terms` e `ontology_aliases`, com a seção 12 — o
+    // alias é contado pelo texto DELE, e não pela junção com o termo, pela mesma
+    // razão).
     const restos = Number(
       (
         await client.query<{ n: string }>(
@@ -900,7 +1057,9 @@ async function main() {
              (select count(*) from public.nodes where slug like $1) +
              (select count(*) from public.ai_campanhas where titulo like $1) +
              (select count(*) from public.ai_campanha_visualizacoes where p_usuario like $1) +
-             (select count(*) from public.chunks where content like $1)
+             (select count(*) from public.chunks where content like $1) +
+             (select count(*) from public.ontology_terms where term like $1) +
+             (select count(*) from public.ontology_aliases where alias like $1)
            )::text as n`,
           [`${PREFIXO}%`],
         )
@@ -919,7 +1078,7 @@ async function main() {
     console.log(
       `\n  ${
         falhas === 0
-          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada na documentação E no arquivo, arquivo em extração não chega ao RAG, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), a cerca do anon segue de pé nas duas direções (fecha arquivo, abre artigo publicado), e nenhum alerta ou visualização de campanha atravessa de um cliente para o outro (na entrega, no painel e na gravação)"
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada na documentação E no arquivo, arquivo em extração não chega ao RAG, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), a cerca do anon segue de pé nas duas direções (fecha arquivo, abre artigo publicado), nenhum alerta ou visualização de campanha atravessa de um cliente para o outro (na entrega, no painel e na gravação), e o jargão de um cliente não expande a consulta de outro nem a de quem lê sem base"
           : `FALHOU em ${falhas} caso(s)`
       }\n`,
     );
