@@ -770,7 +770,7 @@ function QuemVisualizou({
         <EmptyState
           icon={Users}
           title="Ninguém visualizou ainda"
-          description="A visualização é registrada quando o aviso ENTRA NA ÁREA VISÍVEL da pessoa, e não quando o assistente o entrega: quem abre o chat e fecha sem chegar até o aviso não conta aqui. Se o aviso acabou de começar, ou se ninguém abriu o assistente desde então, este é o número certo."
+          description="A visualização é registrada quando o aviso entra na área visível da pessoa, e não quando o assistente o entrega: quem abre o chat e fecha sem chegar até o aviso não conta aqui. Se o aviso acabou de começar, ou se ninguém abriu o assistente desde então, este é o número certo."
         />
       ) : (
         <Lista painel={painel} filtros={filtros} onFiltros={setFiltros} />
@@ -821,7 +821,8 @@ function Numeros({ painel }: { painel: PainelDeVisualizacoes }) {
           <p className="mt-0.5 text-base font-semibold tabular-nums text-text">{painel.anonimas}</p>
           <p className="mt-0.5 max-w-sm text-2xs leading-relaxed text-text-muted">
             O acesso chegou sem dizer quem era a pessoa, então o aviso foi visto mas não há nome para
-            listar. Quem instala o bloco de rastreio no painel deixa de ter esses casos.
+            listar. Com o bloco de rastreio instalado no painel esses casos deixam de acontecer:
+            peça a instalação ao suporte Natcorp.
           </p>
         </div>
       ) : null}
@@ -872,6 +873,33 @@ function Lista({
 
   const algumFiltro = Object.values(filtros).some((v) => !!v);
   const colunasComFiltro = COLUNAS_DE_FILTRO.filter(({ chave }) => opcoes[chave]);
+
+  /*
+    HOUVE VISUALIZAÇÃO E NENHUMA TROUXE NOME: ISSO PRECISA DE FRASE.
+
+    Este componente só é desenhado com `total > 0`, e a lista traz apenas as
+    linhas IDENTIFICADAS. Com `identificadas = 0` o resultado era um `<ul>` com
+    borda e nenhuma linha dentro, sem uma palavra explicando — e esse é justamente
+    o estado provável da primeira campanha de um cliente antes de o bloco de
+    rastreio estar instalado, ou seja o primeiro contato com o recurso.
+
+    O segundo ramo é o caso torto: a contagem diz que existem identificadas e a
+    janela voltou vazia (linha apagada entre a contagem e a leitura). Raro, mas
+    mostrar a moldura vazia ali seria o mesmo defeito.
+  */
+  if (painel.linhas.length === 0) {
+    return (
+      <EmptyState
+        icon={Users}
+        title="Nenhum nome para listar"
+        description={
+          painel.identificadas === 0
+            ? "Todas as visualizações deste aviso chegaram sem identificação: o assistente registra que o aviso foi visto, mas não tem como dizer quem viu. Para passar a ver nomes aqui, peça ao suporte Natcorp a instalação do bloco de rastreio no painel."
+            : "A lista de nomes voltou vazia, e a contagem acima diz que existem visualizações com identificação. Feche e abra esta lista de novo; se continuar assim, fale com o suporte Natcorp."
+        }
+      />
+    );
+  }
 
   return (
     <div className="space-y-2">
