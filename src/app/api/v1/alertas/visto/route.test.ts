@@ -11,8 +11,11 @@
  *   motivo transformaria o endpoint num oráculo de existência: 36 caracteres de
  *   id e uma resposta que distingue "não existe" de "não é sua" permitem mapear
  *   as campanhas no ar de outro cliente);
- * · repetição da mesma pessoa é sucesso, não falha — `false` faria o widget
- *   achar que errou e reenviar para sempre.
+ * · repetição da mesma pessoa nunca grava duas vezes, e a rota devolve 200 nos
+ *   dois regimes: `registrado: true` quando a campanha repete (continua
+ *   entregável) e `registrado: false` quando ela não repete (o portão já não a
+ *   entrega a quem a viu). O que não pode acontecer em regime nenhum é 4xx/5xx:
+ *   aí o widget acharia que errou e reenviaria para sempre.
  *
  * ── O que é dublado, e o que NÃO é ────────────────────────────────────────────
  * O dublê da RPC reimplementa a SEMÂNTICA de `registrar_visualizacao` (portão por
@@ -59,6 +62,8 @@ const DA_BASE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DA_BASE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const FORJADO = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const DESLIGADA = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+/** Campanha da base A com `repetir = true`: continua entregável a quem já a viu. */
+const QUE_REPETE = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 type Linha = { campanha_id: string; p_usuario: string | null; p_matricula: string | null };
 let gravadas: Linha[] = [];
@@ -68,14 +73,20 @@ let chamadas: { nome: string; args: Record<string, unknown> }[] = [];
  * O banco, com a semântica de `registrar_visualizacao`.
  *
  * `ativas` é o que `alertas_para` devolveria para cada base — ou seja o portão
- * inteiro (base + janela + elegivel) já resolvido. `DESLIGADA` existe em nenhuma
- * lista de propósito: é a campanha que existe mas não está ativa.
+ * inteiro (base + janela + elegivel + repetição) já resolvido. `DESLIGADA` existe
+ * em nenhuma lista de propósito: é a campanha que existe mas não está ativa.
+ *
+ * `QUE_REPETE` é a única com `repetir = true`. Para as outras, o portão deixa de
+ * entregar a campanha depois que aquela identidade registrou visualização — e é
+ * por isso que a segunda chamada da mesma pessoa devolve `false`, não `true`.
+ * "Identidade" é o par (usuario, matricula) com nulo distinto de nulo, a MESMA
+ * definição da chave única, logo quem não traz os dois campos continua recebendo.
  */
 function dublarDb(opcoes: { falhar?: boolean } = {}) {
   gravadas = [];
   chamadas = [];
   const ativas: Record<string, string[]> = {
-    "zz-cliente-a": [DA_BASE_A],
+    "zz-cliente-a": [DA_BASE_A, QUE_REPETE],
     "zz-cliente-b": [DA_BASE_B],
   };
 
@@ -101,8 +112,14 @@ function dublarDb(opcoes: { falhar?: boolean } = {}) {
         gravadas.some(
           (l) => l.campanha_id === campanha && l.p_usuario === usuario && l.p_matricula === matricula,
         );
+      // O PORTÃO DA REPETIÇÃO, que é o mesmo predicado da entrega: numa campanha
+      // que não repete, quem já viu não recebe mais — logo não há o que gravar, e
+      // a resposta é a MESMA recusa de "não é sua". Nada é inserido nem
+      // atualizado: a data que vale é a da primeira vez.
+      if (jaTem && campanha !== QUE_REPETE) return { data: false, error: null };
       if (!jaTem) gravadas.push({ campanha_id: campanha, p_usuario: usuario, p_matricula: matricula });
-      // Repetição devolve TRUE: a campanha continua entregável.
+      // Repetição em campanha com repetir = true devolve TRUE: ela continua
+      // entregável, e `false` faria o widget achar que falhou.
       return { data: true, error: null };
     }),
   };
@@ -200,15 +217,32 @@ describe("id forjado e campanha de outro cliente: a MESMA resposta", () => {
 });
 
 describe("a mesma pessoa duas vezes", () => {
-  it("conta UMA e as duas chamadas devolvem sucesso", async () => {
+  it("campanha que REPETE: conta UMA e as duas chamadas devolvem registrado", async () => {
+    dublarDb();
+
+    const um = await pedir({ campanhaId: QUE_REPETE, track: "tok" });
+    const dois = await pedir({ campanhaId: QUE_REPETE, track: "tok" });
+
+    expect(await um.json()).toEqual({ ok: true, registrado: true });
+    // A campanha continua entregável, então `false` aqui faria o widget achar que
+    // falhou e reenviar.
+    expect(await dois.json()).toEqual({ ok: true, registrado: true });
+    expect(gravadas).toHaveLength(1);
+  });
+
+  it("campanha que NÃO repete: a segunda chamada é recusada, e com 200", async () => {
     dublarDb();
 
     const um = await pedir({ campanhaId: DA_BASE_A, track: "tok" });
     const dois = await pedir({ campanhaId: DA_BASE_A, track: "tok" });
 
     expect(await um.json()).toEqual({ ok: true, registrado: true });
-    // `false` na repetição faria o widget achar que falhou e reenviar.
-    expect(await dois.json()).toEqual({ ok: true, registrado: true });
+    // `registrado: false` porque o portão já não entrega a campanha a quem a viu.
+    // No caminho normal isto nem acontece (sem entrega não há balão para
+    // renderizar); o caso real é a corrida de duas abas da mesma pessoa.
+    expect(dois.status).toBe(200);
+    expect(await dois.json()).toEqual({ ok: true, registrado: false });
+    // E a recusa NÃO pode virar linha nova nem atualizar a data da primeira.
     expect(gravadas).toHaveLength(1);
   });
 

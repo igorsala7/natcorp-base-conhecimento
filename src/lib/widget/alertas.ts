@@ -91,7 +91,10 @@ export function alertasDoWidget(linhas: unknown): AlertaDoWidget[] {
 }
 
 /**
- * Os alertas que ESTA identidade recebe nesta base.
+ * Os alertas que ESTA identidade recebe nesta base, já descontados os que ela
+ * não deve ver de novo (`ai_campanhas.repetir = false` mais visualização
+ * gravada). Esse desconto é do BANCO, e é por isso que `AlertaDoWidget` não tem
+ * campo de repetição: o navegador não decide, ele só não recebe.
  *
  * Nunca lança e nunca derruba a abertura do widget: erro de banco, base ausente
  * ou resposta fora de forma devolvem lista vazia. Mesmo critério de
@@ -125,8 +128,10 @@ export async function alertasDaIdentidade(
  * O resultado de registrar uma visualização, com os dois casos SEPARADOS.
  *
  * `registrado: false` é resposta normal do portão (id inventado, campanha de
- * outro cliente, campanha desligada, janela encerrada entre a abertura e o
- * desenho na tela) e é assunto encerrado — o widget não deve reenviar.
+ * outro cliente, campanha desligada, janela encerrada entre a abertura e a
+ * leitura, ou campanha que não repete cuja visualização desta MESMA pessoa já
+ * está gravada — a corrida de duas abas) e é assunto encerrado: o widget não
+ * deve reenviar.
  * `erro: true` é falha de banco, e aí reenviar na próxima abertura é o certo.
  * Colapsar os dois num booleano faria o widget insistir para sempre numa
  * campanha que nunca vai ser dele, ou desistir de uma que era.
@@ -158,8 +163,10 @@ export async function registrarVisualizacao(
       p_identidade: identidadeDoRastreio(track),
     });
     if (error) return { registrado: false, erro: true };
-    // Repetição da mesma pessoa devolve `true` (a chave única absorve): é por
-    // isso que o widget não fica reenviando quem já contou.
+    // A repetição da mesma pessoa nunca grava de novo. Se a campanha repete, ela
+    // devolve `true` (continua entregável); se não repete, devolve `false`, porque
+    // aí o portão já não a entrega a quem a viu. Os dois são assunto encerrado
+    // para o widget — o que faria ele reenviar é `erro`.
     return { registrado: data === true, erro: false };
   } catch {
     return { registrado: false, erro: true };

@@ -33,6 +33,14 @@
 -- é o próprio comportamento desejado: o alerta espera a pessoa, em vez de
 -- a pessoa precisar estar com o painel aberto no minuto certo.
 --
+-- ── REAPARECE EM TODA ABERTURA? É ESCOLHA POR CAMPANHA ────────────────
+-- `ai_campanhas.repetir` decide, e nasce FALSO: o padrão é "uma vez por
+-- pessoa". Quem aplica é `alertas_para`, e o cabeçalho dela tem os números de
+-- até onde "por pessoa" alcança — para cerca de um quarto dos acessos não
+-- existe sujeito, e o alerta reaparece de todo jeito. Leia aquele cabeçalho
+-- antes de mexer neste predicado, e principalmente antes de "consertar" a
+-- comparação de nulos.
+--
 -- ── SÓ QUEM VISUALIZOU. NUNCA QUEM NÃO VISUALIZOU ─────────────────────
 -- Decisão do dono em 24/09, e o motivo é aritmético, não de gosto: não
 -- existe cadastro de usuários em tabela nenhuma deste banco. O único
@@ -96,6 +104,10 @@ create table if not exists public.ai_campanhas (
   publicar_em timestamptz not null,
   encerrar_em timestamptz,
   enabled     boolean not null default true,
+  -- REAPARECE EM TODA ABERTURA? Decisão do dono em 26/09: escolha por campanha,
+  -- e o padrão é NÃO repetir. Ver o cabeçalho de `alertas_para`, que é quem
+  -- aplica o filtro, e a medição de até onde "uma vez por pessoa" alcança.
+  repetir     boolean not null default false,
   -- `text` e não `uuid references auth.users`: quem cria uma campanha é a
   -- área do cliente, que não tem sessão do Supabase (escreve com
   -- `service_role`). O autor aqui é o rótulo que a action souber dar —
@@ -116,6 +128,17 @@ comment on column public.ai_campanhas.encerrar_em is
   'Instante em que o alerta deixa de estar ativo; nulo é "não encerra". Comparado com `>` e não `>=`: encerrar_em é o primeiro instante em que o alerta NÃO aparece mais.';
 comment on column public.ai_campanhas.criada_por is
   'Rótulo do autor, texto livre. Não é FK para auth.users porque a área do cliente escreve com service_role, sem sessão.';
+-- `add column if not exists` além da definição no `create table`: em banco que
+-- já tem a tabela (produção tem), o `create table if not exists` acima é no-op e
+-- não acrescenta coluna nenhuma. As duas linhas juntas é o que faz este arquivo
+-- valer para banco novo E para banco existente — e não há ledger, então
+-- reaplicar é operação normal. Vem ANTES do `comment on column`, senão o
+-- comentário fala de uma coluna que ainda não existe e o arquivo inteiro aborta.
+alter table public.ai_campanhas
+  add column if not exists repetir boolean not null default false;
+
+comment on column public.ai_campanhas.repetir is
+  'Falso (padrão): o alerta aparece UMA VEZ por pessoa, e alertas_para deixa de devolvê-lo depois que aquela identidade registrou visualização. Verdadeiro: reaparece em toda abertura enquanto a janela estiver aberta. "Pessoa" é o par (p_usuario, p_matricula), a MESMA chave que dedupe a visualização — logo o acesso que não traz os dois campos continua recebendo o alerta a cada abertura, porque não existe sujeito para "uma vez por pessoa". Medido em conversations, 513 acessos, 26/09: 135 (26,3%) caem nesse caso.';
 
 -- CHECK da regra: mesma guarda de gravação das duas tabelas de
 -- documentação. `drop if exists` antes do `add` porque não há ledger e
@@ -160,19 +183,26 @@ create trigger ai_campanhas_touch
 --
 -- ── A CHAVE ÚNICA, E O QUE ELA FAZ COM NULO ───────────────────────────
 -- `unique (campanha_id, p_usuario, p_matricula)` impede que a MESMA pessoa
--- conte duas vezes na mesma campanha: o widget reporta a visualização a
--- cada vez que renderiza o alerta, e sem a chave um usuário que abrisse o
--- chat dez vezes viraria dez visualizações.
+-- conte duas vezes na mesma campanha: o widget reporta a visualização toda vez
+-- que o alerta entra na área visível de uma sessão nova, e sem a chave um
+-- usuário que abrisse o chat dez vezes viraria dez visualizações.
 --
 -- Em Postgres, nulo é DISTINTO de nulo num índice único (NULLS DISTINCT é
 -- o padrão, e `nulls not distinct` NÃO foi usado aqui de propósito).
--- Medido em `conversations`, 513 conversas, 26/09:
+-- Medido em `conversations`, 513 conversas, e REMEDIDO em 26/09 com o mesmo
+-- resultado:
 --
---   · 378 (74%) trazem usuário E matrícula ....... a chave dedupe
---   · 133 (26%) trazem NENHUM dos dois ........... cada visualização é uma
+--   · 378 (73,7%) trazem usuário E matrícula ..... a chave dedupe
+--   · 133 (25,9%) trazem NENHUM dos dois ......... cada visualização é uma
 --                                                 linha nova
---   ·   2 (0,4%) trazem só usuário ............... a chave NÃO dedupe
---   ·   0        trazem só matrícula
+--   ·   2 ( 0,4%) trazem só usuário .............. a chave NÃO dedupe
+--   ·   0         trazem só matrícula
+--
+-- Esta mesma chave é a definição de "pessoa" do filtro de repetição de
+-- `alertas_para` (`repetir = false`), de propósito: são 135 acessos em 513
+-- (26,3%) em que não existe sujeito nem para deduplicar a visualização nem para
+-- dizer "uma vez por pessoa", e uma limitação só é mais fácil de explicar ao
+-- cliente do que duas que quase coincidem.
 --
 -- Os 26% anônimos são o comportamento pedido: a linha registra que ALGUÉM
 -- viu, e essa linha não entra no drilldown por pessoa. Dizer "alguém viu"
@@ -211,7 +241,7 @@ create table if not exists public.ai_campanha_visualizacoes (
 );
 
 comment on table public.ai_campanha_visualizacoes is
-  'Quem visualizou um alerta. SÓ isso: não existe linha, coluna nem função dizendo quem NÃO visualizou, porque não há cadastro de usuários e o denominador seria adoção do chatbot disfarçada de alcance da campanha. A visualização é reportada quando o widget RENDERIZA o alerta, não quando o servidor o entrega: servir não é visualizar, o painel pode estar fechado.';
+  'Quem visualizou um alerta. SÓ isso: não existe linha, coluna nem função dizendo quem NÃO visualizou, porque não há cadastro de usuários e o denominador seria adoção do chatbot disfarçada de alcance da campanha. A visualização é reportada quando o balão ENTRA NA ÁREA VISÍVEL da pessoa (IntersectionObserver no widget), não quando o servidor entrega o alerta nem quando ele é desenhado: servir não é visualizar (o painel pode estar fechado) e estar no layout também não (o aviso pode estar rolado para fora da vista, no topo de um histórico longo). Por isso este número é menor do que "quantos receberam", de propósito.';
 comment on column public.ai_campanha_visualizacoes.p_usuario is
   'Usuário do rastreio. Nome com prefixo p_ para casar com conversations; a identidade de public.elegivel usa a chave SEM prefixo (usuario). A tradução é feita por registrar_visualizacao.';
 comment on column public.ai_campanha_visualizacoes.visto_em is
@@ -248,6 +278,56 @@ alter table public.ai_campanha_visualizacoes
 -- não casa nada, e ausência FECHA. É o mesmo aparo de `codigo_normalizado`
 -- que o resto do escopo por base usa, então NBSP e TAB no código não abrem
 -- nem fecham a cerca por acidente.
+--
+-- ── "UMA VEZ POR PESSOA" (`repetir = false`), E ATÉ ONDE ELA ALCANÇA ──
+-- O quarto predicado é o de repetição, e ele é o único deste arquivo que
+-- depende de um fato já gravado: com `repetir = false`, a campanha PARA de
+-- sair para a identidade que já registrou visualização dela.
+--
+-- "Pessoa" aqui é o par `(p_usuario, p_matricula)`, e a comparação é a
+-- MESMA da chave única que dedupe a visualização
+-- (`ai_campanha_visualizacoes_pessoa_key`). Isso é escolha, não coincidência:
+-- se o filtro soubesse identificar gente que a chave não sabe, entrega e
+-- gravação passariam a discordar, e haveria duas definições de "pessoa"
+-- para explicar ao cliente em vez de uma.
+--
+-- Consequência medida, e ela é do tamanho de um quarto do tráfego. Em
+-- `conversations`, 513 acessos, remedido em 26/09:
+--
+--   · 378 (73,7%) trazem usuário E matrícula .... "uma vez" funciona
+--   · 133 (25,9%) trazem NENHUM dos dois ........ o alerta volta a cada abertura
+--   ·   2 ( 0,4%) trazem só usuário ............. o alerta volta a cada abertura
+--   ·   0         trazem só matrícula
+--
+-- Para 135 acessos em 513 (26,3%) não existe SUJEITO para "uma vez por
+-- pessoa", e o alerta reaparece. Não é defeito que se conserte daqui — não há
+-- ninguém para identificar —, e não é para o cliente descobrir sozinho: a
+-- tela de Comunicação avisa isso em texto, ao lado do interruptor.
+--
+-- E a alternativa "esperta" é PIOR que a limitação, não melhor: com
+-- `is not distinct from` nas duas colunas, nulo casa com nulo, e a PRIMEIRA
+-- visualização anônima esconderia o alerta de TODAS as outras pessoas
+-- anônimas daquele cliente. Deixar o alerta reaparecer para quem não se
+-- identifica erra para o lado de mostrar demais; casar nulo com nulo erra
+-- para o lado de não mostrar para ninguém.
+--
+-- ── POR QUE A COMPARAÇÃO É `=` E NÃO `is not distinct from` (MEDIDO) ──
+-- Além de estar errado (acima), `is not distinct from` não é pesquisável por
+-- índice btree: o plano usa só `campanha_id` e recheca no heap TODAS as linhas
+-- daquela campanha. Medido em 26/09, em transação revertida, 20 campanhas
+-- ativas na mesma base:
+--
+--   · `is not distinct from`, 50 mil visualizações .. 23,3 ms (e CRESCE com a
+--     tabela: 2.500 linhas rechecadas por campanha, 11.160 blocos de heap)
+--   · `=` nas duas colunas, 200 mil visualizações ... 1,10 ms, Index Only Scan
+--     em ai_campanha_visualizacoes_pessoa_key, 0,007 ms por campanha — PLANO
+--     E TEMPO IGUAIS aos de 50 mil
+--
+-- Sem o filtro, a mesma consulta custa 0,86 ms. O filtro na versão `=` custa
+-- +0,24 ms no caminho quente de toda abertura de widget e não cresce com o
+-- volume. A versão `is not distinct from` cresceria justamente com as linhas
+-- ANÔNIMAS, que são as únicas que crescem sem teto (26% dos acessos gravam
+-- linha nova a cada visualização, porque nulo é distinto de nulo na chave).
 -- =====================================================================
 create or replace function public.alertas_para(
   p_base text,
@@ -263,14 +343,39 @@ language sql
 stable security definer
 set search_path to 'public', 'extensions'
 as $$
+  -- O MESMO aparo de `registrar_visualizacao`, e tem de continuar sendo: é ela
+  -- que grava as colunas que este `not exists` compara. Se um lado aparar e o
+  -- outro não, o filtro não casa nunca e "uma vez por pessoa" volta a repetir
+  -- em silêncio. A assertiva com identidade cheia de espaço é o que pega isso.
+  with ident as (
+    select nullif(btrim(coalesce(p_identidade ->> 'usuario',   '')), '') as usuario,
+           nullif(btrim(coalesce(p_identidade ->> 'matricula', '')), '') as matricula
+  )
   select c.id, c.titulo, c.corpo, c.publicar_em
     from public.ai_campanhas c
+   cross join ident i
    where c.base_id in (select t.id from public.bases_do_codigo(p_base) as t(id))
      and c.enabled
      -- O PREDICADO DE AGENDAMENTO. Ver o cabeçalho: não vire isto numa fila.
      and c.publicar_em <= now()
      and (c.encerrar_em is null or c.encerrar_em > now())
      and public.elegivel(c.regra, p_identidade)
+     -- O PREDICADO DE REPETIÇÃO. Ver o cabeçalho para os números.
+     and (
+       c.repetir
+       -- Sem usuário OU sem matrícula não há sujeito para "uma vez por pessoa",
+       -- e o alerta continua saindo. É a limitação de 26,3% dos acessos, e ela
+       -- é a mesma da chave única que dedupe a visualização.
+       or i.usuario is null
+       or i.matricula is null
+       or not exists (
+            select 1
+              from public.ai_campanha_visualizacoes v
+             where v.campanha_id  = c.id
+               and v.p_usuario    = i.usuario
+               and v.p_matricula  = i.matricula
+          )
+     )
    -- Mais recente primeiro: o alerta é a primeira mensagem do chat, e o
    -- que acabou de ser publicado é o que a pessoa ainda não viu. `id` no
    -- fim só para a ordem ser total (duas campanhas podem nascer no mesmo
@@ -279,7 +384,7 @@ as $$
 $$;
 
 comment on function public.alertas_para(text, jsonb) is
-  'Alertas ativos e elegíveis desta identidade nesta base. Ativo é predicado (enabled and publicar_em <= now() and (encerrar_em is null or encerrar_em > now())), nunca job. Elegível é public.elegivel sobre a regra jsonb. NÃO devolve `regra`: widget.js é público. Base desconhecida ou nula devolve zero linhas (ausência fecha), com o mesmo aparo de public.codigo_normalizado do resto do escopo por base. EXECUTE só para service_role: sendo definer ela ignora a RLS, e com grant a authenticated qualquer Leitor deduzia a regra de qualquer cliente variando a identidade.';
+  'Alertas ativos e elegíveis desta identidade nesta base, já descontados os que ela não deve ver de novo. Ativo é predicado (enabled and publicar_em <= now() and (encerrar_em is null or encerrar_em > now())), nunca job. Elegível é public.elegivel sobre a regra jsonb. Com repetir = false (padrão) a campanha para de sair depois que esta identidade registrou visualização; "identidade" é o par (p_usuario, p_matricula), a MESMA comparação da chave única que dedupe a visualização — e por isso o acesso que não traz os DOIS campos continua recebendo o alerta a cada abertura: 135 de 513 acessos medidos em conversations (26,3%) em 26/09. A comparação é = e não is not distinct from por dois motivos: casar nulo com nulo esconderia o alerta de todo mundo que não se identifica depois da primeira visualização anônima, e is not distinct from não é pesquisável por índice (medido: 23,3 ms com 50 mil linhas, contra 1,10 ms com 200 mil na versão com =). NÃO devolve `regra` nem `repetir`: widget.js é público. Base desconhecida ou nula devolve zero linhas (ausência fecha), com o mesmo aparo de public.codigo_normalizado do resto do escopo por base. EXECUTE só para service_role: sendo definer ela ignora a RLS, e com grant a authenticated qualquer Leitor deduzia a regra de qualquer cliente variando a identidade.';
 
 revoke all on function public.alertas_para(text, jsonb) from public, anon, authenticated;
 grant execute on function public.alertas_para(text, jsonb) to service_role;
@@ -306,11 +411,22 @@ grant execute on function public.alertas_para(text, jsonb) to service_role;
 -- uma campanha encerrada para sempre, inflando o único número que o painel
 -- mostra. Perder na borda é melhor que inflar sem limite.
 --
--- Devolve `true` quando a campanha é entregável a essa identidade — tanto
--- na primeira vez quanto nas repetições, que o `on conflict` absorve. `false`
--- é recusa do portão, e é isso que a rota deve tratar como "não é sua".
--- Devolver `false` na repetição faria o widget achar que falhou e tentar de
--- novo.
+-- Devolve `true` quando a campanha é entregável a essa identidade. `false` é
+-- recusa do portão, e é isso que a rota deve tratar como "não é sua" — assunto
+-- encerrado, sem reenvio.
+--
+-- ── O QUE `repetir = false` MUDOU AQUI, E POR QUE NÃO É PROBLEMA ──────
+-- Com `repetir = true` a repetição da mesma pessoa devolve `true`: a campanha
+-- continua entregável e o `on conflict` absorve a segunda linha.
+--
+-- Com `repetir = false` (o padrão), a SEGUNDA chamada da mesma pessoa devolve
+-- `false`, porque `alertas_para` — que é o portão — já não devolve aquela
+-- campanha para ela. Isso não vira reenvio eterno no widget: `false` é assunto
+-- encerrado do outro lado, e o caminho normal nem chega aqui (a campanha não é
+-- mais entregue, então não há balão para renderizar). O caso que chega é a
+-- corrida de duas abas abertas ao mesmo tempo, e ali a segunda aba recebe
+-- `false` depois de a primeira ter gravado — a visualização já está contada, e
+-- a resposta certa é justamente não contar de novo.
 -- =====================================================================
 create or replace function public.registrar_visualizacao(
   p_campanha uuid,
@@ -362,7 +478,7 @@ end
 $$;
 
 comment on function public.registrar_visualizacao(uuid, text, jsonb) is
-  'Grava que esta identidade visualizou este alerta, e devolve false quando o alerta não é entregável a ela. O portão é public.alertas_para com a MESMA base e identidade, porque p_campanha vem do corpo da requisição e é controlado pelo chamador: sem portão, uma chave pública gravava visualização na campanha de outro cliente. Repetição da mesma pessoa não conta de novo (chave única) e devolve true, não false — false faria o widget achar que falhou. Identidade com usuario e matricula nulos grava visualização ANÔNIMA, uma linha por vez, porque nulo é distinto de nulo na chave única: dizer "alguém viu" é verdade, inventar quem viu não é. EXECUTE só para service_role.';
+  'Grava que esta identidade visualizou este alerta, e devolve false quando o alerta não é entregável a ela. O portão é public.alertas_para com a MESMA base e identidade, porque p_campanha vem do corpo da requisição e é controlado pelo chamador: sem portão, uma chave pública gravava visualização na campanha de outro cliente. Repetição da mesma pessoa nunca conta de novo (chave única); numa campanha com repetir = true ela devolve true, e numa com repetir = false devolve false, porque aí o portão já não entrega a campanha a quem a viu — o widget trata os dois casos como assunto encerrado e não reenvia. Identidade com usuario e matricula nulos grava visualização ANÔNIMA, uma linha por vez, porque nulo é distinto de nulo na chave única: dizer "alguém viu" é verdade, inventar quem viu não é. EXECUTE só para service_role.';
 
 revoke all on function public.registrar_visualizacao(uuid, text, jsonb) from public, anon, authenticated;
 grant execute on function public.registrar_visualizacao(uuid, text, jsonb) to service_role;
@@ -506,9 +622,13 @@ begin
     'alerta com enabled=false nao pode sair, e saiu';
   raise notice 'assertiva extra OK — encerrar_em no passado e enabled=false tambem cortam';
 
-  -- ── A regra NÃO sai para o widget ───────────────────────────────────
+  -- ── A regra e o interruptor NÃO saem para o widget ──────────────────
   -- `widget.js` é público. Se alguém acrescentar `regra` ao retorno, esta
   -- assertiva quebra antes de a configuração do cliente virar dado público.
+  -- `repetir` está na mesma lista por outro motivo: o filtro de repetição é do
+  -- SERVIDOR, e mandar a bandeira ao navegador convidaria a próxima pessoa a
+  -- escrever um filtro no cliente — que em arquivo público é sugestão, não
+  -- cerca, e faz a pessoa depois dela confiar nele.
   assert not exists (
     select 1
       from information_schema.routines r
@@ -517,18 +637,167 @@ begin
      where r.routine_schema = 'public'
        and r.routine_name = 'alertas_para'
        and p.parameter_mode = 'OUT'
-       and p.parameter_name = 'regra'
-  ), 'alertas_para NAO pode devolver a coluna `regra`: widget.js e publico e a regra e configuracao interna do cliente';
-  raise notice 'assertiva extra OK — alertas_para nao expoe a regra';
+       and p.parameter_name in ('regra', 'repetir')
+  ), 'alertas_para NAO pode devolver `regra` nem `repetir`: widget.js e publico, a regra e configuracao interna do cliente e o filtro de repeticao e do servidor';
+  raise notice 'assertiva extra OK — alertas_para nao expoe a regra nem o interruptor de repeticao';
 
   delete from public.ai_bases where base_code like 'zz-campanha-assert-%';
 end $entrega$;
 
 -- =====================================================================
+-- ASSERTIVA A2 — "UMA VEZ POR PESSOA", E A LIMITAÇÃO PREGADA NO LUGAR
+--
+-- Comportamental, e cada item cai sozinho se a peça que ele guarda sair:
+--
+--   1. controle: antes de qualquer visualização, a campanha SAI para a pessoa
+--      (sem ele, o item 2 passaria com a função devolvendo nada);
+--   2. campanha que não repete, já vista por AQUELA identidade, não volta;
+--   3. a MESMA campanha continua saindo para identidade DIFERENTE (é filtro por
+--      pessoa, não interruptor global);
+--   4. campanha com `repetir = true` volta para a mesma identidade;
+--   5. identidade SEM usuário e SEM matrícula continua recebendo a campanha que
+--      não repete — a limitação de 26% medida, pregada aqui para ninguém
+--      "consertar" isso em silêncio trocando `=` por `is not distinct from`, o
+--      que esconderia o alerta de TODOS os anônimos depois do primeiro;
+--   6. identidade com só usuário também continua recebendo (os 0,4%), pelo
+--      mesmo motivo e com a mesma chave da deduplicação;
+--   7. o aparo da identidade é o MESMO nos dois lados: gravar com espaço em
+--      volta e consultar com espaço em volta tem de fechar. Se um lado aparar e
+--      o outro não, o filtro não casa nunca e a repetição volta sem sintoma.
+-- =====================================================================
+do $repeticao$
+declare
+  v_base_a uuid;
+  v_cod_a  text := 'zz-repetir-assert-base-a';
+  v_uma    uuid;   -- repetir = false (padrão, sem informar a coluna)
+  v_uma2   uuid;   -- idem, para o caso do aparo
+  v_rep    uuid;   -- repetir = true
+  v_ana    jsonb := '{"portal":"PG","usuario":"zz.ana","matricula":"9001"}'::jsonb;
+  v_bruno  jsonb := '{"portal":"PG","usuario":"zz.bruno","matricula":"9002"}'::jsonb;
+  v_anon   jsonb := '{"portal":"PG"}'::jsonb;
+  v_souser jsonb := '{"portal":"PG","usuario":"zz.clara"}'::jsonb;
+  v_espaco jsonb := '{"portal":"PG","usuario":"  zz.dora  ","matricula":" 9004 "}'::jsonb;
+  v_tem    boolean;
+  v_ok     boolean;
+  v_n      int;
+  v_def    text;
+begin
+  delete from public.ai_bases where base_code like 'zz-repetir-assert-%';
+  insert into public.ai_bases (base_code, name) values (v_cod_a, v_cod_a) returning id into v_base_a;
+
+  -- `repetir` NÃO é informado: o padrão do banco é que decide, e o padrão é
+  -- "uma vez por pessoa". Informar aqui esconderia um default trocado.
+  insert into public.ai_campanhas (base_id, titulo, publicar_em)
+    values (v_base_a, 'zz uma vez', now() - interval '1 hour') returning id into v_uma;
+  insert into public.ai_campanhas (base_id, titulo, publicar_em)
+    values (v_base_a, 'zz uma vez (aparo)', now() - interval '2 hours') returning id into v_uma2;
+  insert into public.ai_campanhas (base_id, titulo, publicar_em, repetir)
+    values (v_base_a, 'zz repete', now() - interval '1 hour', true) returning id into v_rep;
+
+  -- ── 1. Controle: antes de ver, a campanha SAI ───────────────────────
+  select exists (select 1 from public.alertas_para(v_cod_a, v_ana) a where a.id = v_uma) into v_tem;
+  assert v_tem,
+    'assertiva A2.1 (controle): campanha que nao repete tem de sair ANTES de a pessoa ve-la, e nao saiu — sem isto o item 2 passaria por a funcao devolver nada';
+
+  -- ── 2. Depois de vista, NÃO volta ───────────────────────────────────
+  v_ok := public.registrar_visualizacao(v_uma, v_cod_a, v_ana);
+  assert v_ok, 'assertiva A2.2: a primeira visualizacao tem de ser aceita';
+
+  select exists (select 1 from public.alertas_para(v_cod_a, v_ana) a where a.id = v_uma) into v_tem;
+  assert not v_tem,
+    'assertiva A2.2: campanha com repetir=false ja vista por ESTA identidade nao pode voltar, e voltou — o predicado de repeticao nao esta cortando';
+  raise notice 'assertiva A2.2 OK — vista uma vez, nao volta para a mesma pessoa';
+
+  -- ── 3. Continua saindo para OUTRA identidade ────────────────────────
+  -- Sem este item, o predicado poderia estar desligando a campanha para todo
+  -- mundo na primeira visualizacao de qualquer um, e o item 2 passaria igual.
+  select exists (select 1 from public.alertas_para(v_cod_a, v_bruno) a where a.id = v_uma) into v_tem;
+  assert v_tem,
+    'assertiva A2.3: a MESMA campanha tem de continuar saindo para identidade diferente, e nao saiu — o filtro e por pessoa, nao interruptor global';
+  raise notice 'assertiva A2.3 OK — o corte e por pessoa, nao por campanha';
+
+  -- ── 4. `repetir = true` volta para a mesma identidade ───────────────
+  v_ok := public.registrar_visualizacao(v_rep, v_cod_a, v_ana);
+  assert v_ok, 'assertiva A2.4: visualizacao em campanha que repete tem de ser aceita';
+  select exists (select 1 from public.alertas_para(v_cod_a, v_ana) a where a.id = v_rep) into v_tem;
+  assert v_tem,
+    'assertiva A2.4: campanha com repetir=true tem de voltar para quem ja a viu, e nao voltou — o interruptor por campanha nao esta sendo lido';
+  raise notice 'assertiva A2.4 OK — com repetir=true a campanha reaparece';
+
+  -- ── 5. Sem usuário e sem matrícula: A LIMITAÇÃO MEDIDA ──────────────
+  -- 133 de 513 acessos (25,9%) chegam assim. Não há sujeito para "uma vez por
+  -- pessoa", e o alerta reaparece. Isto está PREGADO: trocar a comparacao por
+  -- `is not distinct from` para "consertar" faria a primeira visualizacao
+  -- anonima esconder o alerta de todos os outros anonimos daquele cliente.
+  select exists (select 1 from public.alertas_para(v_cod_a, v_anon) a where a.id = v_uma) into v_tem;
+  assert v_tem, 'assertiva A2.5 (controle): identidade anonima tem de receber a campanha antes de ve-la';
+  v_ok := public.registrar_visualizacao(v_uma, v_cod_a, v_anon);
+  assert v_ok, 'assertiva A2.5: visualizacao anonima tem de ser aceita';
+  select exists (select 1 from public.alertas_para(v_cod_a, v_anon) a where a.id = v_uma) into v_tem;
+  assert v_tem,
+    'assertiva A2.5: identidade SEM usuario e SEM matricula tem de CONTINUAR recebendo a campanha que nao repete. Isto nao e defeito: nao ha quem identificar. Se esta assertiva quebrou porque alguem trocou `=` por `is not distinct from`, o efeito e pior que a limitacao — o primeiro anonimo esconde o alerta de todos os outros.';
+  raise notice 'assertiva A2.5 OK — quem nao se identifica continua recebendo (26%% dos acessos), e a limitacao esta pregada';
+
+  -- ── 6. Só usuário (os 0,4%): mesma limitação, mesma chave ───────────
+  v_ok := public.registrar_visualizacao(v_uma, v_cod_a, v_souser);
+  assert v_ok, 'assertiva A2.6: visualizacao com so usuario tem de ser aceita';
+  select exists (select 1 from public.alertas_para(v_cod_a, v_souser) a where a.id = v_uma) into v_tem;
+  assert v_tem,
+    'assertiva A2.6: identidade com SO usuario tem de continuar recebendo — e a mesma limitacao da chave unica, que tambem nao dedupe esse caso (2 de 513 acessos)';
+  raise notice 'assertiva A2.6 OK — so usuario: entrega e deduplicacao falham no MESMO caso, e nao em casos diferentes';
+
+  -- ── 7. O aparo é o mesmo nos dois lados ─────────────────────────────
+  v_ok := public.registrar_visualizacao(v_uma2, v_cod_a, v_espaco);
+  assert v_ok, 'assertiva A2.7: visualizacao com identidade cheia de espaco tem de ser aceita';
+  select count(*) into v_n
+    from public.ai_campanha_visualizacoes
+   where campanha_id = v_uma2 and p_usuario = 'zz.dora' and p_matricula = '9004';
+  assert v_n = 1,
+    format('assertiva A2.7: registrar_visualizacao tem de APARAR a identidade antes de gravar, e gravou %s linha(s) com o valor aparado', v_n);
+  select exists (select 1 from public.alertas_para(v_cod_a, v_espaco) a where a.id = v_uma2) into v_tem;
+  assert not v_tem,
+    'assertiva A2.7: alertas_para tem de aparar a identidade do MESMO jeito que registrar_visualizacao apara antes de gravar. Se um lado apara e o outro nao, o filtro nao casa nunca e "uma vez por pessoa" volta a repetir sem sintoma nenhum.';
+  raise notice 'assertiva A2.7 OK — entrega e gravacao aparam a identidade do mesmo jeito';
+
+  -- ── 8. A COMPARAÇÃO TEM DE CONTINUAR PESQUISÁVEL POR ÍNDICE ─────────
+  -- Esta é a única assertiva deste bloco que olha o TEXTO da função, e ela está
+  -- aqui porque o defeito que ela pega é INVISÍVEL para assertiva
+  -- comportamental: `coalesce(v.p_usuario, '') = coalesce(i.usuario, '')` e
+  -- `is not distinct from` dão exatamente as MESMAS respostas que a comparação
+  -- atual (os escapes de nulo acima já cobrem o caso em que elas diferiam), e
+  -- mudam só o PLANO — de Index Only Scan em
+  -- ai_campanha_visualizacoes_pessoa_key para recheca no heap de todas as linhas
+  -- daquela campanha. Medido: 1,10 ms com 200 mil visualizações contra 23,3 ms
+  -- com 50 mil, e o segundo número cresce com a tabela.
+  --
+  -- Este ramo já pagou por essa classe uma vez, no trigram de CONTEÚDO da busca
+  -- (1,0 s → 5,9 s por uma expressão sobre a coluna indexada). Rodei a sabotagem
+  -- do `coalesce` e nenhuma das sete assertivas acima falhou — foi por isso que
+  -- esta nasceu.
+  --
+  -- A menção a `ai_campanha_visualizacoes` é a sentinela: sem ela, a assertiva
+  -- passaria feliz no dia em que alguém apagasse o filtro inteiro.
+  v_def := pg_get_functiondef('public.alertas_para(text, jsonb)'::regprocedure);
+  assert v_def like '%ai_campanha_visualizacoes%',
+    'o filtro de repeticao saiu de alertas_para: esta assertiva de plano perdeu o que media';
+  assert v_def not like '%coalesce(v.%',
+    'a comparacao do filtro de repeticao nao pode envolver a coluna numa expressao (coalesce(v....)): o indice unico deixa de ser pesquisavel e a consulta passa a rechecar no heap todas as linhas da campanha — 23,3 ms com 50 mil visualizacoes contra 1,10 ms com 200 mil. Nenhuma assertiva comportamental pega isso, porque a RESPOSTA e a mesma.';
+  assert v_def not like '%is not distinct from%',
+    '`is not distinct from` no filtro de repeticao nao e pesquisavel por indice btree (mesmo custo de 23,3 ms acima) e, sem os escapes de nulo, esconde o alerta de todos os anonimos depois do primeiro. Use `=` e deixe o nulo cair pelos escapes.';
+  raise notice 'assertiva A2.8 OK — a comparacao do filtro continua pesquisavel por indice';
+
+  delete from public.ai_bases where base_code like 'zz-repetir-assert-%';
+end $repeticao$;
+
+-- =====================================================================
 -- ASSERTIVA B — A GRAVAÇÃO: MESMA VISUALIZAÇÃO DUAS VEZES CONTA UMA
 --
 -- Quatro coisas, e cada uma falha se a peça que ela guarda sair:
---   1. duas chamadas com a MESMA identidade → UMA linha (chave única);
+--   1. duas chamadas com a MESMA identidade → UMA linha (chave única), nos
+--      DOIS regimes: com `repetir = true` a segunda chamada devolve `true` (a
+--      campanha continua entregável) e com `repetir = false` devolve `false`
+--      (o portão já não entrega a quem viu). O que NÃO muda entre os dois é o
+--      número de linhas;
 --   2. controle: identidade DIFERENTE → linha própria (senão o item 1
 --      passaria com a função não inserindo nada);
 --   3. identidade anônima (sem usuário e sem matrícula) → uma linha POR
@@ -543,6 +812,7 @@ declare
   v_cod_b  text := 'zz-visu-assert-base-b';
   v_camp_a uuid;
   v_camp_b uuid;
+  v_camp_rep uuid;
   v_ana    jsonb := '{"portal":"PG","usuario":"zz.ana","matricula":"9001","empresa":"1"}'::jsonb;
   v_ana2   jsonb := '{"portal":"PG","usuario":"zz.ana","matricula":"9001","empresa":"1","perfil":"MASTER"}'::jsonb;
   v_bruno  jsonb := '{"portal":"PG","usuario":"zz.bruno","matricula":"9002"}'::jsonb;
@@ -561,24 +831,46 @@ begin
   insert into public.ai_campanhas (base_id, titulo, publicar_em)
     values (v_base_b, 'zz alerta da base b', now() - interval '1 hour')
     returning id into v_camp_b;
+  insert into public.ai_campanhas (base_id, titulo, publicar_em, repetir)
+    values (v_base_a, 'zz alerta que repete', now() - interval '1 hour', true)
+    returning id into v_camp_rep;
 
   -- ── 1. A MESMA pessoa duas vezes conta UMA ──────────────────────────
-  v_ok := public.registrar_visualizacao(v_camp_a, v_cod_a, v_ana);
+  -- Com `repetir = true` (a campanha continua entregável a quem já a viu), que
+  -- é o regime em que a chave única é a ÚNICA coisa segurando a contagem.
+  v_ok := public.registrar_visualizacao(v_camp_rep, v_cod_a, v_ana);
   assert v_ok, 'a primeira visualizacao de uma campanha entregavel tem de ser aceita, e foi recusada';
 
   -- Segunda chamada com a identidade ligeiramente diferente no que NÃO é
   -- chave (ganhou `perfil`): a chave é (campanha, usuario, matricula), e
   -- variar o resto não pode criar linha nova.
-  v_ok := public.registrar_visualizacao(v_camp_a, v_cod_a, v_ana2);
+  v_ok := public.registrar_visualizacao(v_camp_rep, v_cod_a, v_ana2);
   assert v_ok,
-    'a repeticao tem de devolver true (a campanha continua entregavel), e devolveu false — o widget acharia que falhou e tentaria de novo';
+    'numa campanha com repetir=true a repeticao tem de devolver true (a campanha continua entregavel), e devolveu false — o widget acharia que falhou e tentaria de novo';
+
+  select count(*) into v_n
+    from public.ai_campanha_visualizacoes
+   where campanha_id = v_camp_rep and p_usuario = 'zz.ana';
+  assert v_n = 1,
+    format('a MESMA pessoa duas vezes tem de contar UMA, e contou %s — sem a chave unica um usuario que abrisse o chat dez vezes viraria dez visualizacoes', v_n);
+  raise notice 'assertiva B.1 OK — com repetir=true, mesma pessoa duas vezes conta uma e a repeticao devolve true';
+
+  -- O MESMO par de chamadas na campanha que NÃO repete: a segunda devolve
+  -- `false`, porque `alertas_para` — o portão — já não entrega a campanha a
+  -- quem a viu. O que não muda é a contagem, e é isso que esta assertiva prova:
+  -- o número é o mesmo nos dois regimes, só a resposta ao widget difere.
+  v_ok := public.registrar_visualizacao(v_camp_a, v_cod_a, v_ana);
+  assert v_ok, 'a primeira visualizacao de uma campanha que nao repete tem de ser aceita';
+  v_ok := public.registrar_visualizacao(v_camp_a, v_cod_a, v_ana2);
+  assert not v_ok,
+    'numa campanha com repetir=false a SEGUNDA chamada da mesma pessoa tem de devolver false, porque o portao (alertas_para) ja nao entrega a campanha a quem a viu — e devolveu true';
 
   select count(*) into v_n
     from public.ai_campanha_visualizacoes
    where campanha_id = v_camp_a and p_usuario = 'zz.ana';
   assert v_n = 1,
-    format('a MESMA pessoa duas vezes tem de contar UMA, e contou %s — sem a chave unica um usuario que abrisse o chat dez vezes viraria dez visualizacoes', v_n);
-  raise notice 'assertiva B.1 OK — mesma pessoa duas vezes conta uma, e a repeticao devolve true';
+    format('com repetir=false a mesma pessoa tambem tem de contar UMA, e contou %s', v_n);
+  raise notice 'assertiva B.1b OK — com repetir=false a repeticao devolve false, e a contagem continua uma';
 
   -- ── 2. Controle: outra pessoa tem linha própria ─────────────────────
   v_ok := public.registrar_visualizacao(v_camp_a, v_cod_a, v_bruno);
