@@ -56,14 +56,14 @@
   // Textos da PRÓPRIA interface do widget por idioma (o chatbot responde no idioma; a casca
   // também acompanha). Fallback no PT. Só as strings mais visíveis — o resto segue em PT.
   var I18N = {
-    pt: { toqueAssunto: "Toque num assunto para começar", placeholder: "Escreva ou fale…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada.", aviso: "Aviso" },
-    en: { toqueAssunto: "Tap a topic to start", placeholder: "Type or speak…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected.", aviso: "Notice" },
-    es: { toqueAssunto: "Toca un tema para empezar", placeholder: "Escribe o habla…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada.", aviso: "Aviso" },
-    fr: { toqueAssunto: "Touchez un sujet pour commencer", placeholder: "Écrivez ou parlez…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté.", aviso: "Avis" },
-    de: { toqueAssunto: "Tippen Sie auf ein Thema", placeholder: "Schreiben oder sprechen…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt.", aviso: "Hinweis" },
-    it: { toqueAssunto: "Tocca un argomento per iniziare", placeholder: "Scrivi o parla…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato.", aviso: "Avviso" },
-    ja: { toqueAssunto: "トピックをタップして開始", placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。", aviso: "お知らせ" },
-    zh: { toqueAssunto: "点击一个主题开始", placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。", aviso: "通知" },
+    pt: { toqueAssunto: "Toque num assunto para começar", placeholder: "Escreva ou fale…", baseDados: "Base de Dados", historico: "Histórico", traduzir: "Traduzir a tela", limpar: "Limpar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Conta conectada.", contaOff: "Conta desconectada.", aviso: "Aviso", avisoNovo: "Novo aviso" },
+    en: { toqueAssunto: "Tap a topic to start", placeholder: "Type or speak…", baseDados: "Data sources", historico: "History", traduzir: "Translate screen", limpar: "Clear", conectar: "Connect", desconectar: "Disconnect", contaOk: "Account connected.", contaOff: "Account disconnected.", aviso: "Notice", avisoNovo: "New notice" },
+    es: { toqueAssunto: "Toca un tema para empezar", placeholder: "Escribe o habla…", baseDados: "Base de datos", historico: "Historial", traduzir: "Traducir pantalla", limpar: "Limpiar", conectar: "Conectar", desconectar: "Desconectar", contaOk: "Cuenta conectada.", contaOff: "Cuenta desconectada.", aviso: "Aviso", avisoNovo: "Nuevo aviso" },
+    fr: { toqueAssunto: "Touchez un sujet pour commencer", placeholder: "Écrivez ou parlez…", baseDados: "Sources de données", historico: "Historique", traduzir: "Traduire l'écran", limpar: "Effacer", conectar: "Connecter", desconectar: "Déconnecter", contaOk: "Compte connecté.", contaOff: "Compte déconnecté.", aviso: "Avis", avisoNovo: "Nouvel avis" },
+    de: { toqueAssunto: "Tippen Sie auf ein Thema", placeholder: "Schreiben oder sprechen…", baseDados: "Datenquellen", historico: "Verlauf", traduzir: "Bildschirm übersetzen", limpar: "Löschen", conectar: "Verbinden", desconectar: "Trennen", contaOk: "Konto verbunden.", contaOff: "Konto getrennt.", aviso: "Hinweis", avisoNovo: "Neuer Hinweis" },
+    it: { toqueAssunto: "Tocca un argomento per iniziare", placeholder: "Scrivi o parla…", baseDados: "Fonti dati", historico: "Cronologia", traduzir: "Traduci schermo", limpar: "Cancella", conectar: "Collega", desconectar: "Scollega", contaOk: "Account collegato.", contaOff: "Account scollegato.", aviso: "Avviso", avisoNovo: "Nuovo avviso" },
+    ja: { toqueAssunto: "トピックをタップして開始", placeholder: "質問を入力するか話してください…", baseDados: "データソース", historico: "履歴", traduzir: "画面を翻訳", limpar: "クリア", conectar: "接続", desconectar: "切断", contaOk: "アカウントを接続しました。", contaOff: "アカウントを切断しました。", aviso: "お知らせ", avisoNovo: "新しいお知らせ" },
+    zh: { toqueAssunto: "点击一个主题开始", placeholder: "输入或说出您的问题…", baseDados: "数据源", historico: "历史", traduzir: "翻译屏幕", limpar: "清除", conectar: "连接", desconectar: "断开", contaOk: "账户已连接。", contaOff: "账户已断开。", aviso: "通知", avisoNovo: "新通知" },
   };
   function wt(k) { return (I18N[widgetLang] && I18N[widgetLang][k]) || I18N.pt[k] || k; }
   // LS_CLEARED e LS_DRAFT também são declarados ADIANTE, junto do LS_SID: os
@@ -158,6 +158,32 @@
   // É o mais sensível dos três: um texto começado sobre atestado, salário ou
   // desligamento reapareceria no campo do próximo usuário do balcão.
   var LS_DRAFT = "kb.widget.draft." + KEY + ESCOPO_SESSAO;
+
+  /**
+   * AUTO-ABERTURA POR AVISO DE CAMPANHA — POR QUE `sessionStorage`, E NÃO `localStorage`.
+   *
+   * O widget mora dentro de um formulário do APEX que a pessoa usa o dia inteiro,
+   * e cada navegação é um carregamento de página novo. Um painel que se abre
+   * sozinho em TODA navegação é hostil, e o primeiro pedido do cliente seria
+   * desligar o recurso. Então a abertura precisa de catraca.
+   *
+   * `sessionStorage` é a granularidade certa: sobrevive à navegação e ao F5 da
+   * MESMA aba (que é o que a pessoa vive como "a mesma sessão de trabalho") e
+   * morre quando ela fecha a aba. `localStorage` guardaria para sempre e o aviso
+   * nunca mais abriria o painel — nem amanhã, nem no mês que vem; e uma variável
+   * de módulo não guardaria nada, porque cada navegação recarrega o arquivo.
+   *
+   * · `SS_ALERTA_ANUNCIADO` — ids já ANUNCIADOS nesta sessão de aba (badge e/ou
+   *   auto-abertura). É o que faz a abertura acontecer UMA vez por campanha.
+   * · `SS_ALERTA_DISPENSA` — a pessoa MINIMIZOU o painel nesta sessão de aba.
+   *   Depois disso não abrimos mais sozinhos: abertura automática que briga com
+   *   um fechamento deliberado é a pior versão deste recurso.
+   *
+   * Escopados por chave e identidade como os três de cima, pelo mesmo motivo: no
+   * balcão, a catraca de uma pessoa não pode esconder o aviso da seguinte.
+   */
+  var SS_ALERTA_ANUNCIADO = "kb.widget.alerta.anunciado." + KEY + ESCOPO_SESSAO;
+  var SS_ALERTA_DISPENSA = "kb.widget.alerta.dispensa." + KEY + ESCOPO_SESSAO;
 
   // Tela atual do usuário (Fase 4): o widget roda na página do produto do
   // cliente, então href/path/título descrevem ONDE a pessoa está. Só DADO —
@@ -3894,6 +3920,22 @@
       ".kbav .kbav-r svg{width:12px;height:12px;flex:none}" +
       ".kbav .kbav-t{font-size:14px;font-weight:700;line-height:1.35;color:#1c1726}" +
       ".kbav .kbav-c{font-size:13.5px;line-height:1.55;color:#3b3548;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;margin-top:4px}" +
+      /* AVISO QUE ACABOU DE CHEGAR — o mesmo recado, DESTAQUE diferente.
+         É o aviso que trouxe o badge e, se o painel estava minimizado, abriu o
+         painel. A diferença é visual e nada mais: continua sendo o que o
+         servidor mandou, contado pelo observador quando entra na vista.
+         Três camadas, todas sem risco de contraste (o rótulo segue na primária,
+         que passa AAA sobre branco; o rosa da marca reprova em texto pequeno):
+         (1) anel da cor da marca em volta do balão, (2) rótulo virando etiqueta
+         preenchida com o texto "Novo aviso", (3) pulso que bate DUAS vezes e
+         para sozinho — sem JS, e sem animação infinita dentro de um ERP.
+         O balão de um aviso já anunciado nesta sessão volta ao `.kbav` calmo. */
+      // `border-left-color` DEPOIS do `border-color`: o atalho pinta os quatro
+      // lados, e sem a longhand a barra grossa da esquerda clarearia junto.
+      ".kbav.kbav-novo{border-color:color-mix(in srgb,var(--pc) 34%,#fff);border-left-color:var(--pc);box-shadow:0 0 0 3px color-mix(in srgb,var(--pc) 13%,#fff),0 8px 22px rgba(60,40,100,.10);animation:kbavnovo 1.5s ease-out 2}" +
+      ".kbav.kbav-novo .kbav-r{display:inline-flex;background:color-mix(in srgb,var(--pc) 12%,#fff);border-radius:999px;padding:3px 9px;margin-bottom:7px}" +
+      "@keyframes kbavnovo{50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--pc) 9%,#fff),0 8px 22px rgba(60,40,100,.10)}}" +
+      "@media(prefers-reduced-motion:reduce){.kbav.kbav-novo{animation:none}}" +
       ".m.a code{background:#f0ebf7;border-radius:5px;padding:1px 5px;font-size:.85em}" +
       ".m.a pre{background:#f4f0fa;border-radius:10px;padding:10px;overflow-x:auto;margin:6px 0}" +
       ".m.a pre code{background:none;padding:0}" +
@@ -6500,6 +6542,30 @@
     atualizarTitulo();
     tocarBip();
   }
+  /**
+   * O AVISO DA EMPRESA TAMBÉM CONTA COMO NÃO LIDO — e reusa este contador.
+   *
+   * O badge não é novo: `_naoLidas` já existia para a resposta que chega com o
+   * widget minimizado, e é ele que pinta o número na bolha e prefixa "(N)" no
+   * título da aba. O aviso de campanha entra no MESMO contador porque é a mesma
+   * pergunta para a pessoa ("tem coisa para ler aqui"), e um segundo indicador
+   * ao lado do primeiro só criaria dois números para explicar.
+   *
+   * Não toca o BIP, ao contrário de `avisarMensagem`. Som precisa de gesto do
+   * usuário para tocar (política de autoplay), e este caminho roda no
+   * carregamento da página, antes de qualquer gesto: chamar `tocarBip()` aqui
+   * seria código que parece avisar e fica em silêncio, no melhor caso, ou um
+   * aviso do navegador no console do ERP do cliente, no pior.
+   *
+   * Painel já aberto não ganha badge: o aviso está na tela, e contar "não lido"
+   * o que está visível é a mentira que o resto desta tarefa existe para evitar.
+   */
+  function avisarAlerta(n) {
+    if (open || !n) return;
+    _naoLidas += n;
+    mostrarBadge();
+    atualizarTitulo();
+  }
   // Abriu o widget = confirmou a leitura → zera contagem/badge/título.
   function marcarLido() {
     _naoLidas = 0;
@@ -6507,7 +6573,51 @@
     atualizarTitulo();
   }
 
-  function toggle() {
+  /**
+   * DEPOIS DE ABRIR PELO GESTO DA PESSOA: fim da conversa e cursor na caixa.
+   *
+   * Era o corpo do `setTimeout` do `toggle`. Virou função com nome para o
+   * caminho da auto-abertura poder trocá-la por outra — e para a troca ficar
+   * legível em uma linha, em vez de um `if` no meio do timer.
+   */
+  function focarEntrada() {
+    rolarChat();
+    inputEl.focus();
+  }
+  /**
+   * DEPOIS DE ABRIR SOZINHO, POR UM AVISO: mostra o aviso e NÃO toca no foco.
+   *
+   * Duas diferenças em relação a `focarEntrada`, e cada uma consertando um jeito
+   * de a auto-abertura roubar o que a pessoa estava fazendo:
+   *
+   * 1. Nada de `inputEl.focus()`. Quem está digitando uma matrícula no formulário
+   *    da folha continua digitando ali. O painel aparece, o cursor fica onde
+   *    estava. (É por isso que as duas funções existem separadas: `focus()` não
+   *    tem "modo silencioso".)
+   * 2. Rola para o TOPO das mensagens, não para o fim. O aviso é a primeira
+   *    mensagem da conversa (`renderAlertas` roda antes do histórico), então
+   *    `rolarChat()` — que vai para a ÚLTIMA — abriria o painel exibindo qualquer
+   *    coisa MENOS o aviso que motivou a abertura. Num histórico longo era
+   *    exatamente esse o defeito: o aviso nascia fora da vista.
+   *
+   * `messagesEl.scrollTop`, e nunca `scrollIntoView`: o segundo rola TODOS os
+   * ancestrais roláveis até o elemento aparecer, e o mais externo deles é o
+   * documento do ERP. A página do cliente não se mexe por causa do widget.
+   */
+  function verAlertaNoTopo() {
+    try { messagesEl.scrollTop = 0; } catch { }
+  }
+
+  /**
+   * @param opts SÓ o caminho da auto-abertura passa objeto: `{paraAlerta:true}`.
+   * Os outros chamadores são `addEventListener("click", toggle)` e o `pointerup`
+   * da bolha — o primeiro entrega o EVENTO aqui, e é por isso que a opção é lida
+   * de uma PROPRIEDADE (evento não tem `paraAlerta`) e não de um booleano
+   * posicional, que um `MouseEvent` satisfaria por ser objeto e, portanto,
+   * verdadeiro.
+   */
+  function toggle(opts) {
+    var paraAlerta = !!(opts && opts.paraAlerta === true);
     open = !open;
     if (open) {
       clearTimeout(_closeT);
@@ -6519,7 +6629,10 @@
       bubble.style.fontSize = "28px";
       limparBloqueiosHost(); // caso um modal já tenha marcado o host
       ligarEscapeFoco(true); // escapa da armadilha de foco do modal
-      desbloquearAudio(); // gesto do usuário: libera o som de notificação
+      // Só o GESTO destrava o áudio. Na auto-abertura não houve gesto nenhum, e
+      // criar o AudioContext fora de um gesto rende aviso no console do host sem
+      // destravar nada — o próximo clique da pessoa no widget faz isso de graça.
+      if (!paraAlerta) desbloquearAudio();
       marcarLido(); // abrir = confirmou a leitura → zera badge/contagem/título
       if (_revealFlush) _revealFlush(); // completa a resposta que ficou parada enquanto minimizado
       /**
@@ -6528,22 +6641,29 @@
        * `panel.classList.add("open")` acabou de trocar `display:none` por
        * `display:flex`. O `IntersectionObserver` de `observarAlertasNaVista`
        * recalcula a interseção no quadro seguinte, sozinho, e reporta se o balão
-       * ENTROU na área visível. Como a rolagem abaixo vai para a última mensagem
-       * e o aviso é a primeira, num histórico longo ele continua fora da vista
-       * depois de abrir — e aí não conta, que é o comportamento certo. Conta
-       * quando a pessoa rolar até ele.
+       * ENTROU na área visível. Na abertura pelo gesto da pessoa a rolagem vai
+       * para a última mensagem e o aviso é a primeira, então num histórico longo
+       * ele continua fora da vista depois de abrir — e aí não conta, que é o
+       * comportamento certo. Conta quando a pessoa rolar até ele.
+       *
+       * Na AUTO-abertura o aviso vai para a vista de propósito (era o defeito
+       * que ela existe para consertar), e aí ele conta — pelo observador, não
+       * por uma chamada daqui. A contagem continua significando "entrou no campo
+       * de visão"; o número sobe porque a pessoa passou a ver, não porque a
+       * régua afrouxou.
        *
        * O `requestAnimationFrame` que existia aqui ("medir depois de o estilo
        * valer") era exatamente o trabalho que o navegador já faz para o
        * observador. Chamar à mão agora só criaria um segundo caminho de reporte.
        */
-      // Rola para a ÚLTIMA mensagem: com histórico, o scroll foi calculado com o
-      // painel oculto (scrollHeight=0), então refazemos agora que ele é visível.
-      setTimeout(function () {
-        rolarChat();
-        inputEl.focus();
-      }, 50);
+      // Com histórico, o scroll foi calculado com o painel oculto
+      // (scrollHeight=0), então a posição é refeita agora que ele é visível.
+      setTimeout(paraAlerta ? verAlertaNoTopo : focarEntrada, 50);
     } else {
+      // A pessoa MINIMIZOU. Registra a dispensa: nesta sessão de aba não abrimos
+      // mais sozinhos por aviso. Abertura automática que briga com fechamento
+      // deliberado é a pior versão deste recurso — o badge continua sinalizando.
+      dispensarAutoAbertura();
       // Minimizar animado: encolhe/desaparece (kbout) e só então esconde.
       bubble.style.fontSize = "";
       bubble.innerHTML = bubbleInner();
@@ -6746,7 +6866,11 @@
    */
   function renderAlertas() {
     if (!alertasDoServidor.length) return;
+    // Quem já foi anunciado nesta sessão de aba. `null` = sem catraca (ver
+    // `alertasAnunciados`): aí ninguém é "novo", e nada se anuncia.
+    var anunciados = alertasAnunciados();
     alertasNaTela = [];
+    var novos = [];
     alertasDoServidor.forEach(function (a) {
       if (!a || !a.id || !a.titulo) return;
       var box = document.createElement("div");
@@ -6755,12 +6879,22 @@
       // `alertaEntrouNaVista` tira o id ao reportar a visualização. (Serve também
       // para investigar no inspetor de qual campanha é o balão sem abrir o banco.)
       box.setAttribute("data-alerta", a.id);
+      // Aviso que ainda não foi anunciado nesta sessão de aba: é ELE que vale
+      // badge, auto-abertura e o destaque mais forte. O que já foi anunciado
+      // (a pessoa recarregou a página do ERP) volta a ser um recado calmo, senão
+      // o dia inteiro seria uma sequência de pulsos pedindo atenção pelo mesmo
+      // texto. O destaque é VISUAL: nada aqui decide quem pode ver o quê.
+      var ehNovo = !!anunciados && anunciados.indexOf(a.id) === -1;
+      if (ehNovo) {
+        box.classList.add("kbav-novo");
+        novos.push(a.id);
+      }
 
       var rot = document.createElement("div");
       rot.className = "kbav-r";
       rot.innerHTML = ICON_BELL;
       var rotTxt = document.createElement("span");
-      rotTxt.textContent = wt("aviso");
+      rotTxt.textContent = ehNovo ? wt("avisoNovo") : wt("aviso");
       rot.appendChild(rotTxt);
       box.appendChild(rot);
 
@@ -6786,6 +6920,116 @@
     // Liga o observador nos balões que acabaram de nascer. Não reporta nada por
     // si: com o painel fechado eles não têm caixa, e quem decide é a interseção.
     observarAlertasNaVista();
+    // E só então avisa a pessoa de que há aviso novo — badge e, se o painel
+    // estiver minimizado, abrindo o painel. Depois do desenho de propósito: o
+    // balão precisa existir para a abertura ter o que mostrar.
+    anunciarAlertasNovos(novos);
+  }
+
+  /**
+   * A CATRACA DA AUTO-ABERTURA, EM QUATRO FUNÇÕES CURTAS.
+   *
+   * `alertasAnunciados` devolve a lista de ids já anunciados nesta sessão de aba,
+   * ou `null` quando o `sessionStorage` não responde (aba anônima, navegador com
+   * armazenamento bloqueado, cota estourada). `null` NÃO é lista vazia, e a
+   * diferença decide comportamento: sem catraca não há como garantir "uma vez",
+   * e o widget então não abre nem badgeia — o aviso continua desenhado na
+   * conversa, que é o comportamento de antes desta tarefa. Errar para o lado de
+   * não incomodar é a direção certa num painel que a pessoa usa o dia inteiro.
+   */
+  function alertasAnunciados() {
+    try {
+      var cru = sessionStorage.getItem(SS_ALERTA_ANUNCIADO);
+      var lista = cru ? JSON.parse(cru) : [];
+      return Array.isArray(lista) ? lista : [];
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Grava os ids anunciados e devolve se a gravação PEGOU. Anunciar sem gravar
+   * repetiria a abertura na navegação seguinte, então a gravação é pré-condição
+   * do anúncio, não consequência dele.
+   *
+   * `slice(-50)` limita o que fica guardado: a chave é por sessão de aba e o
+   * cliente não tem 50 campanhas simultâneas, mas lista sem teto em
+   * armazenamento do navegador é dívida que ninguém volta para pagar.
+   */
+  function marcarAnunciados(ids) {
+    try {
+      var lista = alertasAnunciados() || [];
+      ids.forEach(function (id) {
+        if (lista.indexOf(id) === -1) lista.push(id);
+      });
+      sessionStorage.setItem(SS_ALERTA_ANUNCIADO, JSON.stringify(lista.slice(-50)));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // A pessoa minimizou o painel nesta sessão de aba? Falha de leitura responde
+  // SIM (dispensado), pelo mesmo motivo de `alertasAnunciados`: sem catraca, não
+  // abrimos.
+  function autoAberturaDispensada() {
+    try {
+      return sessionStorage.getItem(SS_ALERTA_DISPENSA) === "1";
+    } catch {
+      return true;
+    }
+  }
+  function dispensarAutoAbertura() {
+    try {
+      sessionStorage.setItem(SS_ALERTA_DISPENSA, "1");
+    } catch {
+      /* sem armazenamento: `autoAberturaDispensada` já responde SIM */
+    }
+  }
+
+  /**
+   * ANUNCIA os avisos novos: badge sempre, painel só se ele estiver minimizado.
+   *
+   * É aqui que mora a decisão do dono: "quando uma nova mensagem chega, o widget
+   * fica com um badge sinalizando nova mensagem para ser lido, mas quando é uma
+   * mensagem de campanha o widget pode abrir (caso esteja minimizado)".
+   *
+   * As quatro guardas, na ordem em que recusam:
+   *
+   * 1. `!novos.length` — nada novo nesta sessão de aba. É o caso comum: a pessoa
+   *    navega entre telas do APEX o dia inteiro e o servidor segue entregando o
+   *    aviso enquanto ela não o vê (ou sempre, se a campanha repete). O painel
+   *    abre uma vez, não a cada navegação.
+   * 2. `!marcarAnunciados(...)` — a catraca não gravou; ver a função.
+   * 3. `open` — já está aberto (corrida rara: a pessoa clicou na bolha ENQUANTO o
+   *    histórico carregava). Não há painel a abrir, mas há aviso a mostrar, e o
+   *    balão acabou de nascer no topo de um painel já rolado para o fim — o mesmo
+   *    "fora da vista" desta tarefa. Então rola até ele, sem mexer no foco. A
+   *    rolagem que a abertura manual agenda pode ganhar dessa e levar de volta ao
+   *    fim; se ganhar, o aviso não conta como visto, que é a resposta certa.
+   * 4. `autoAberturaDispensada()` — a pessoa minimizou o painel nesta sessão.
+   *    A partir daí o badge é o único sinal, para sempre nesta aba. Conservador
+   *    de propósito: inclui o caso de ela ter minimizado ANTES de a campanha
+   *    existir, porque o sinal que temos é "esta pessoa fechou o painel hoje" e
+   *    reabrir contra isso é o comportamento que faria o cliente desligar tudo.
+   * 5. `ehMobile()` — no celular o painel é TELA CHEIA (`aplicarExpansao` põe a
+   *    classe `full`), então abrir sozinho não seria "aparecer num canto": seria
+   *    cobrir o formulário inteiro de quem está no meio de um lançamento. No
+   *    desktop o painel é um cartão no canto e a abertura não tapa o trabalho.
+   *    Aqui o badge é o sinal, e ele já resolve o defeito original — o aviso
+   *    deixa de nascer invisível. Se o dono quiser a abertura também no celular,
+   *    é esta linha que sai.
+   */
+  function anunciarAlertasNovos(novos) {
+    if (!novos.length) return;
+    if (!marcarAnunciados(novos)) return;
+    avisarAlerta(novos.length);
+    if (open) {
+      verAlertaNoTopo();
+      return;
+    }
+    if (autoAberturaDispensada()) return;
+    if (ehMobile()) return;
+    // O painel abre, mostra o aviso e NÃO mexe no foco: `verAlertaNoTopo`.
+    toggle({ paraAlerta: true });
   }
 
   /**
