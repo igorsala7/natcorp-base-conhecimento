@@ -282,6 +282,10 @@ describe("esquema da action", () => {
    * aconteceu em quatro dos cinco campos deste esquema.
    */
   const recusas: { caso: string; payload: unknown }[] = [
+    // O `id` ficou de fora da rodada que traduziu os outros cinco campos, e tem os
+    // DOIS erros: tipo (não é texto) e formato (não é uuid).
+    { caso: "id que não é texto", payload: { ...base, id: 7 } },
+    { caso: "id que não é uuid", payload: { ...base, id: "nao-e-uuid" } },
     { caso: "data de início nula", payload: { ...base, publicarEm: null } },
     { caso: "título que não é texto", payload: { ...base, titulo: 7 } },
     { caso: "mensagem comprida", payload: { ...base, corpo: "y".repeat(5000) } },

@@ -66,8 +66,31 @@ const FALHA_DE_GRAVACAO =
   "Não foi possível salvar este aviso. Atualize a página e tente de novo; se continuar, fale com o suporte Natcorp.";
 
 const campanhaSchema = sessaoSchema.extend(dadosDaCampanhaSchema.shape);
-const alvoSchema = sessaoSchema.extend({ id: z.string().uuid("Escolha o aviso.") });
-const envioSchema = alvoSchema.extend({ enabled: z.boolean() });
+
+/*
+  PORTUGUÊS TAMBÉM NA RECUSA DE TIPO, e não só na de formato.
+
+  Toda action deste arquivo devolve `issues[0].message` direto para a tela, e quem
+  lê é um analista de implantação dentro do ERP. `z.string()` sem argumento entrega
+  o texto padrão do Zod ("Invalid input: expected string, received number"), e
+  `z.boolean()` sem `error` faz o mesmo — a string do construtor cobre o erro de
+  TIPO, e a do `.uuid()` cobre o de FORMATO: são duas mensagens, não uma.
+
+  Nenhum destes caminhos é alcançável pela nossa tela, que só manda o id de uma
+  campanha que ela listou. Eles chegam por payload forjado, e é exatamente aí que
+  a mensagem é a única coisa que a pessoa vê. É a mesma correção que
+  `dadosDaCampanhaSchema` recebeu, e estes dois esquemas tinham ficado de fora.
+*/
+const alvoSchema = sessaoSchema.extend({
+  id: z
+    .string("Não identificamos de qual aviso se trata. Atualize a página e tente de novo.")
+    .uuid("Escolha o aviso."),
+});
+const envioSchema = alvoSchema.extend({
+  enabled: z.boolean({
+    error: "Não recebemos se o aviso deve aparecer ou parar. Atualize a página e tente de novo.",
+  }),
+});
 
 /**
  * Registro da ação.

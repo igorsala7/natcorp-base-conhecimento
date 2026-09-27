@@ -295,7 +295,14 @@ export function campanhaParaFormulario(
  * que fecha numa que abre. Quem julga isso é `chavesProblematicasDaRegra`.
  */
 export const dadosDaCampanhaSchema = z.object({
-  id: z.string().uuid("Aviso inválido.").nullable().optional(),
+  /* A string do construtor cobre o erro de TIPO (id numérico, por exemplo) e a do
+     `.uuid()` cobre o de FORMATO. São duas mensagens: sem a primeira, um id que
+     não é texto saía como "Invalid input: expected string, received number". */
+  id: z
+    .string("Aviso inválido. Atualize a página e tente de novo.")
+    .uuid("Aviso inválido.")
+    .nullable()
+    .optional(),
   /*
     MENSAGEM EM PORTUGUÊS EM TODO CAMPO, e não é capricho: a action devolve
     `issues[0].message` direto para a tela, então um campo sem mensagem própria
