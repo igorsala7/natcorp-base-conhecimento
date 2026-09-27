@@ -340,17 +340,40 @@ export function ArquivosPainel({
             {confirmandoExclusao === a.id ? (
               <div className="mt-3 rounded-md border border-warning-line bg-warning-soft p-3">
                 {/*
-                  A CONFIRMAÇÃO DIZ O QUE ACONTECE, e as duas consequências têm
-                  de estar escritas: o arquivo sai do armazenamento E sai da base
-                  de conhecimento. Quem exclui está pensando em "limpar a lista";
-                  o efeito é o assistente parar de responder por aquele conteúdo,
-                  e isso não é visível no botão.
+                  A CONFIRMAÇÃO DIZ O QUE ACONTECE, e as TRÊS consequências têm de
+                  estar escritas: o arquivo sai do armazenamento, sai da base de
+                  conhecimento, e o VOCABULÁRIO que ele ensinou FICA. Quem exclui
+                  está pensando em "limpar a lista"; os outros dois efeitos não são
+                  visíveis no botão.
+
+                  ── POR QUE O TERCEIRO ESTÁ AQUI, E NÃO CONSERTADO ────────────
+                  Os chunks somem por `ON DELETE CASCADE` em `chunks.document_id`;
+                  os termos extraídos não, porque `ontology_terms` não tem vínculo
+                  com documento — o dono é a BASE. Então eles continuam expandindo
+                  as consultas daquela empresa, e a frase anterior ("o assistente
+                  para de responder com o conteúdo dele") era verdadeira para o
+                  conteúdo e falsa para o vocabulário.
+
+                  Levar os termos junto exige uma coluna `document_id` em
+                  `ontology_terms`, e a decisão é do DONO por causa dos termos que
+                  DOIS arquivos produziram: apagar junto tiraria vocabulário que o
+                  arquivo que ficou também ensina. Enquanto a decisão não vem, a
+                  tela diz a verdade em vez de prometer o que não faz — uma
+                  confirmação que descreve um efeito que não acontece é pior que
+                  uma que declara a limitação.
                 */}
                 <p className="text-xs leading-relaxed text-warning">
                   <strong>Excluir “{a.nome}”?</strong> O arquivo é apagado definitivamente e sai da
                   base de conhecimento: o assistente para de responder com o conteúdo dele, e ele
                   deixa de ficar disponível para download. Não dá para desfazer — para voltar atrás,
                   só anexando o arquivo de novo.
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-warning">
+                  Os termos que este arquivo ensinou ao assistente (os nomes e apelidos que a sua
+                  empresa usa) continuam valendo depois da exclusão. Eles não guardam o conteúdo do
+                  arquivo, só ajudam o assistente a entender como vocês chamam as coisas, e ficam
+                  porque um mesmo termo pode ter vindo de mais de um arquivo. Para revisá-los, fale
+                  com o suporte.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button type="button" variant="warning" onClick={() => excluir(a)} disabled={pendente}>
