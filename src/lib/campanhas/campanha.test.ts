@@ -272,6 +272,34 @@ describe("esquema da action", () => {
     expect(dadosDaCampanhaSchema.safeParse({ ...base, repetir: "sim" }).success).toBe(false);
   });
 
+  /**
+   * NENHUMA RECUSA SAI EM INGLÊS.
+   *
+   * A action devolve `issues[0].message` direto para a tela, e quem está do outro
+   * lado é um analista de RH dentro do ERP. Um campo sem mensagem própria entrega
+   * o texto padrão do Zod ("Invalid input: expected string, received null"), que
+   * não diz o que fazer e não está na língua de ninguém ali. Este caso já
+   * aconteceu em quatro dos cinco campos deste esquema.
+   */
+  const recusas: { caso: string; payload: unknown }[] = [
+    { caso: "data de início nula", payload: { ...base, publicarEm: null } },
+    { caso: "título que não é texto", payload: { ...base, titulo: 7 } },
+    { caso: "mensagem comprida", payload: { ...base, corpo: "y".repeat(5000) } },
+    { caso: "data de parada que não é texto", payload: { ...base, encerrarEm: 5 } },
+    { caso: "sem a escolha de repetição", payload: { titulo: "x", publicarEm: "2026-09-27T09:00" } },
+  ];
+  for (const { caso, payload } of recusas) {
+    it(`a recusa de ${caso} sai em português`, () => {
+      const r = dadosDaCampanhaSchema.safeParse(payload);
+      expect(r.success).toBe(false);
+      const msg = r.success ? "" : (r.error.issues[0]?.message ?? "");
+      expect(msg.length).toBeGreaterThan(0);
+      for (const ingles of ["Invalid input", "expected", "Too big", "Required"]) {
+        expect(msg).not.toContain(ingles);
+      }
+    });
+  }
+
   /* A regra atravessa como `unknown` de propósito: quem julga o conteúdo é
      `chavesProblematicasDaRegra`, que sabe nomear o campo errado em português. Um
      `z.object` aqui descartaria a chave desconhecida, e descartar ABRE. */

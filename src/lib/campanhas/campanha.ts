@@ -295,11 +295,21 @@ export function campanhaParaFormulario(
  * que fecha numa que abre. Quem julga isso é `chavesProblematicasDaRegra`.
  */
 export const dadosDaCampanhaSchema = z.object({
-  id: z.string().uuid().nullable().optional(),
-  titulo: z.string(),
-  corpo: z.string().max(MAX_CORPO, `A mensagem passa de ${MAX_CORPO} caracteres.`).optional(),
-  publicarEm: z.string(),
-  encerrarEm: z.string().nullable().optional(),
+  id: z.string().uuid("Aviso inválido.").nullable().optional(),
+  /*
+    MENSAGEM EM PORTUGUÊS EM TODO CAMPO, e não é capricho: a action devolve
+    `issues[0].message` direto para a tela, então um campo sem mensagem própria
+    entrega ao operador de RH o texto padrão do Zod, em inglês. Quem julga o
+    CONTEÚDO destes campos é `problemasDaCampanha`; aqui só se nomeia o tipo
+    errado, que é o que chega por payload forjado.
+  */
+  titulo: z.string("Escreva o título do aviso."),
+  corpo: z
+    .string("A mensagem chegou num formato inesperado. Atualize a página e tente de novo.")
+    .max(MAX_CORPO, `A mensagem passa de ${MAX_CORPO} caracteres. Encurte um pouco.`)
+    .optional(),
+  publicarEm: z.string("Escolha quando o aviso começa a aparecer."),
+  encerrarEm: z.string("Data de parada inválida.").nullable().optional(),
   repetir: z.boolean({
     error: "Não recebemos a escolha de repetição do aviso. Atualize a página e tente de novo.",
   }),
