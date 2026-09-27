@@ -179,9 +179,11 @@ export async function salvarCampanha(input: unknown): Promise<ResultadoDeCampanh
   if (!sessao.ok) return { ok: false, erro: sessao.erro };
 
   // TRAVA 1 — os dois CHECKs do banco, em português.
+  // Sem `corpo`: o comprimento da mensagem é do `.max()` de
+  // `dadosDaCampanhaSchema`, que já recusou acima, em português. Ver o cabeçalho
+  // de `problemasDaCampanha`.
   const problemas = problemasDaCampanha({
     titulo: parsed.data.titulo,
-    corpo: parsed.data.corpo,
     publicarEm: parsed.data.publicarEm,
     encerrarEm: parsed.data.encerrarEm ?? null,
   });

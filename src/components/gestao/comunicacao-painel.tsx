@@ -1057,8 +1057,8 @@ function FormularioDeAviso({
     botão para uma gravação que o servidor recusa.
   */
   const problemas = useMemo(
-    () => problemasDaCampanha({ titulo, corpo, publicarEm, encerrarEm: encerrarEm || null }),
-    [titulo, corpo, publicarEm, encerrarEm],
+    () => problemasDaCampanha({ titulo, publicarEm, encerrarEm: encerrarEm || null }),
+    [titulo, publicarEm, encerrarEm],
   );
   const problemaDe = (campo: "titulo" | "publicarEm" | "encerrarEm") =>
     problemas.find((p) => p.campo === campo)?.mensagem ?? null;

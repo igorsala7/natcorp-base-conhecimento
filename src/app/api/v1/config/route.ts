@@ -31,6 +31,20 @@ export async function GET(req: NextRequest) {
   if (!originAllowed(key.allowed_origins, origin)) {
     return Response.json({ error: "Origem não autorizada." }, { status: 403, headers: cors });
   }
+
+  /*
+    UM CLIENTE ADMIN POR REQUISIÇÃO, E NÃO UM POR LEITURA.
+
+    `createAdminClient()` monta um cliente novo a cada chamada (não há cache no
+    módulo), e esta rota chamava três vezes no mesmo bootstrap: a base, os títulos
+    de partida e os alertas. É o caminho que o usuário SENTE — a abertura da bolha.
+
+    Preguiçoso, e não construído aqui, porque o caminho BLOQUEADO (sem token, base
+    inativa, painel bloqueado) devolve antes de ler qualquer coisa: ali o certo
+    continua sendo não montar nenhum.
+  */
+  let clienteAdmin: ReturnType<typeof createAdminClient> | null = null;
+  const admin = () => (clienteAdmin ??= createAdminClient());
   // Widget desligado NESTA base + painel → o bootstrap avisa e o widget nem
   // desenha a bolha. Bloquear só no /chat deixaria a bolha na tela para abrir e
   // receber uma recusa, o que é pior que não existir.
@@ -66,8 +80,7 @@ export async function GET(req: NextRequest) {
   let motivo: string | null = motivoIdentidade;
   if (liberado) {
     const baseCode = String(campos.p_base ?? "").trim();
-    const db = createAdminClient();
-    const { data: base } = await db
+    const { data: base } = await admin()
       .from("ai_bases")
       .select("active, widget_paineis")
       .ilike("base_code", baseCode.replace(/([\\%_])/g, "\\$1"))
@@ -130,8 +143,7 @@ export async function GET(req: NextRequest) {
    */
   if (!abertura.suggestions.length) {
     try {
-      const db = createAdminClient();
-      const { data: titulos } = await db.rpc("titulos_de_partida", {
+      const { data: titulos } = await admin().rpc("titulos_de_partida", {
         p_space_id: key.space_id,
         p_limit: 3,
       });
@@ -169,7 +181,7 @@ export async function GET(req: NextRequest) {
    * logo acima: widget sem alerta é o comportamento de sempre; widget que não
    * monta por causa de um alerta é regressão.
    */
-  const alertas = await alertasDaIdentidade(createAdminClient(), campos);
+  const alertas = await alertasDaIdentidade(admin(), campos);
 
   return Response.json(
     { config: { ...cfgAtual, ...abertura }, aiEnabled: await hasAiKey(), alertas },

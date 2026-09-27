@@ -121,10 +121,23 @@ export const MAX_CORPO = 4000;
  * apenas de tabulação passaria pelo CHECK e seria recusado aqui, e o resultado é
  * uma frase na tela em vez de uma primeira mensagem em branco no chat de todo
  * mundo que a regra alcança.
+ *
+ * ── E POR QUE `corpo` NÃO ENTRA AQUI ──────────────────────────────────────
+ * Ele entrava, como parâmetro opcional, e esta função NUNCA o lia. A tela o
+ * passava e ficava esperando julgamento: parâmetro aceito e ignorado é promessa
+ * que não é cumprida, e o próximo a ler acha que o comprimento da mensagem já é
+ * conferido aqui.
+ *
+ * O comprimento já tem dois donos, e nenhum é este. O `<textarea>` trava em
+ * `MAX_CORPO` (o `<input>` do título trava em `MAX_TITULO + 1` de propósito, para
+ * a pessoa ESTOURAR e ver a frase — no corpo o teto é duro, então nunca existe
+ * estado a explicar), e `dadosDaCampanhaSchema` recusa no servidor, em português,
+ * pelo `.max()`. Um terceiro sítio para o mesmo número é a dívida que este
+ * repositório mais paga: seriam três lugares para o limite mudar, e dois deles
+ * silenciosos.
  */
 export function problemasDaCampanha(f: {
   titulo: string;
-  corpo?: string;
   publicarEm: string | null;
   encerrarEm: string | null;
 }): ProblemaDaCampanha[] {

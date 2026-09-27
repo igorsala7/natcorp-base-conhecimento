@@ -190,4 +190,27 @@ describe("os alertas na resposta do bootstrap", () => {
     expect(corpo.alertas).toEqual([]);
     expect(corpo.config.title).toBe("Assistente");
   });
+
+  /**
+   * UM CLIENTE ADMIN POR REQUISIÇÃO, E ZERO NO CAMINHO BLOQUEADO.
+   *
+   * `createAdminClient()` monta um cliente novo a cada chamada — não há cache no
+   * módulo —, e esta rota chamava TRÊS vezes no mesmo bootstrap (a base, os títulos
+   * de partida e os alertas), justamente no caminho que o usuário sente: a abertura
+   * da bolha. O segundo ramo é o que impede a correção de virar o contrário: com o
+   * cliente montado no topo da função, a recusa passaria a construir um cliente
+   * para não ler nada.
+   */
+  it("monta UM cliente admin no caminho liberado e NENHUM no bloqueado", async () => {
+    dublarDb();
+    vi.mocked(createAdminClient).mockClear();
+    await pedir();
+    expect(createAdminClient).toHaveBeenCalledTimes(1);
+
+    dublarDb();
+    decode.mockResolvedValue({ campos: {}, motivo: null });
+    vi.mocked(createAdminClient).mockClear();
+    await pedir("key=pk_x");
+    expect(createAdminClient).not.toHaveBeenCalled();
+  });
 });
