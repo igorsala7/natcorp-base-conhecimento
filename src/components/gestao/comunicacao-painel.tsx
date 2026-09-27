@@ -138,20 +138,39 @@ type ResultadoDeVisualizacoes = Awaited<ReturnType<typeof listarVisualizacoes>>;
 type PainelDeVisualizacoes = Extract<ResultadoDeVisualizacoes, { ok: true }>["painel"];
 
 /**
- * A FRASE QUE EXPLICA A AUSÊNCIA DO OUTRO LADO.
+ * O QUE O NÚMERO SIGNIFICA, E A AUSÊNCIA DO OUTRO LADO.
  *
  * Escrita para quem opera a tela: sem "cadastro de usuários", sem "denominador",
- * sem "tabela". O que ela precisa entregar é a razão pela qual pedir "quem não
- * viu" não vai ser atendido, e por que o número que existiria seria enganoso.
+ * sem "tabela". Ela precisa entregar duas coisas — o que uma visualização é, e a
+ * razão pela qual pedir "quem não viu" não vai ser atendido.
+ *
+ * ── A PRIMEIRA METADE MUDOU DE VERDADE, E A FRASE TINHA FICADO ATRÁS ─────────
+ * Até a tarefa 21 a visualização só nascia de um gesto: a pessoa abria o
+ * assistente e rolava até o aviso. A tela dizia isso, e estava certa. Desde a
+ * tarefa 21 o assistente ABRE SOZINHO no computador quando a pessoa entra numa
+ * tela do sistema, e leva o aviso até a vista — a decisão é do dono, e o número
+ * passou a subir sem ninguém clicar em nada. A frase antiga continuaria
+ * verdadeira na letra ("entrou na área visível") e falsa no que o operador
+ * conclui dela ("então alguém abriu o chat para ler").
+ *
+ * Por isso a frase diz agora, nesta ordem: o que conta, que o aviso pode aparecer
+ * por conta própria no computador, que no celular não, e só então por que o outro
+ * lado não existe.
  *
  * Fica numa constante, e não solta no JSX, porque é a peça que a restrição do dono
  * exige na tela: uma constante com nome é o que a torna fácil de achar e difícil
- * de apagar sem perceber.
+ * de apagar sem perceber. A frase "Não há como mostrar quem não visualizou" é
+ * vigiada pela sentinela de `campanha.test.ts` — reescrever este texto sem ela
+ * derruba o teste, de propósito.
  */
 const SEM_QUEM_NAO_VIU =
-  "Aqui aparece quem visualizou. Não há como mostrar quem não visualizou: o assistente só conhece " +
-  "as pessoas que já conversaram com ele, e não a lista de todo mundo da sua empresa. Um número de " +
-  "“não visualizaram” contaria quem ainda nem abriu o chat, e pareceria falar do alcance do seu aviso.";
+  "Cada visualização é um aviso que ficou na área visível do assistente. No computador o assistente " +
+  "pode abrir sozinho e trazer o aviso à vista quando a pessoa entra numa tela do sistema, então a " +
+  "visualização não quer dizer que ela abriu o chat de propósito; no celular ele não abre sozinho, e " +
+  "lá só conta se a pessoa abrir e chegar até o aviso. Não há como mostrar quem não visualizou: o " +
+  "assistente só conhece as pessoas que já conversaram com ele, e não a lista de todo mundo da sua " +
+  "empresa. Um número de “não visualizaram” contaria quem ainda nem abriu o chat, e pareceria falar " +
+  "do alcance do seu aviso.";
 
 /**
  * O QUE O INTERRUPTOR DE REPETIÇÃO NÃO CONSEGUE FAZER, DITO NA TELA.
@@ -775,7 +794,7 @@ function QuemVisualizou({
         <EmptyState
           icon={Users}
           title="Ninguém visualizou ainda"
-          description="A visualização é registrada quando o aviso entra na área visível da pessoa, e não quando o assistente o entrega: quem abre o chat e fecha sem chegar até o aviso não conta aqui. Se o aviso acabou de começar, ou se ninguém abriu o assistente desde então, este é o número certo."
+          description="No computador o assistente abre sozinho e traz o aviso à vista quando a pessoa entra numa tela do sistema, então este número costuma sair do zero sem ninguém clicar em nada. Ele fica em zero enquanto ninguém entrar numa tela desde que o aviso começou, e continua em zero para quem minimizou o assistente ou está no celular, onde ele não abre sozinho."
         />
       ) : (
         <Lista painel={painel} filtros={filtros} onFiltros={setFiltros} />

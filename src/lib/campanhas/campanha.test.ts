@@ -397,6 +397,23 @@ describe("a tela de comunicação não mede o que não tem denominador", () => {
     expect(TELA).toContain("Não há como mostrar quem não visualizou");
   });
 
+  /**
+   * A TELA DIZ QUE O AVISO PODE APARECER SOZINHO.
+   *
+   * A tarefa 21 fez o assistente ABRIR SOZINHO no computador e trazer o aviso à
+   * vista; a frase ao lado do número continuou descrevendo o mundo anterior, em
+   * que a visualização só nascia de um gesto. Ela ficou verdadeira na letra e
+   * falsa no que o operador conclui dela.
+   *
+   * Esta assertiva é contra a volta desse desencontro: mexer na abertura
+   * automática sem mexer na explicação derruba o teste. Procura a ideia, não a
+   * frase inteira — "abrir sozinho" é o que o operador precisa ler.
+   */
+  it("avisa que o assistente pode abrir sozinho e trazer o aviso à vista", () => {
+    expect(TELA).toContain("abrir sozinho");
+    expect(TELA).toContain("no celular ele não abre sozinho");
+  });
+
   it("avisa que “uma vez por pessoa” não alcança quem não se identifica", () => {
     expect(TELA).toContain(
       'para quem entra assim, o aviso vai reaparecer a cada abertura mesmo com "mostrar uma vez" ligado.',
