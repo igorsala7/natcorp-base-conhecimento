@@ -108,11 +108,28 @@ export async function mesclarTermos(
   }
   const exTermIds = exTerms.map((t) => t.id);
   for (let i = 0; i < exTermIds.length; i += 200) {
-    const { data: exAliases } = await db
-      .from("ontology_aliases")
-      .select("term_id, alias_norm")
-      .in("term_id", exTermIds.slice(i, i + 200));
-    for (const a of exAliases ?? []) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
+    /*
+      PAGINADO — a fatia de 200 termos limita quantos TERMOS entram na consulta,
+      nunca quantos ALIASES ela devolve. Medido em produção (27/09): a maior
+      fatia de 200 termos do dono com 4.424 termos devolve 900 linhas de
+      sinônimo, a segunda maior 820 — a cem linhas do teto de 1.000 do
+      PostgREST. Sem `range()`, o dia em que uma fatia passar de mil aliases
+      corta em silêncio: o índice fica incompleto, o `insert` abaixo acha que o
+      sinônimo não existe, colide com `unique_violation`, e só não perde o
+      termo porque o tratamento de colisão (ver mais abaixo) relê o id — mas o
+      alias que a colisão carregava já foi descartado antes de chegar lá. Mesmo
+      par (`.order("id")` + `.range()`) que `copyOntologyBetweenSpaces` usa para
+      este mesmo `ontology_aliases`.
+    */
+    const exAliases = await fetchAllPaged<{ term_id: string; alias_norm: string }>((de, ate) =>
+      db
+        .from("ontology_aliases")
+        .select("term_id, alias_norm")
+        .in("term_id", exTermIds.slice(i, i + 200))
+        .order("id")
+        .range(de, ate),
+    );
+    for (const a of exAliases) if (!normToTermId.has(a.alias_norm)) normToTermId.set(a.alias_norm, a.term_id);
   }
 
   let found = 0;
