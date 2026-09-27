@@ -102,6 +102,14 @@ export async function copyOntologyBetweenSpaces(
 ): Promise<number> {
   const admin = createAdminClient();
   /*
+    O log leva o DESTINO e o `term_norm`, nunca o `term`/`description` de
+    origem: mesma regra de `mesclarTermos` — o `term_norm` já é o jargão do
+    cliente normalizado (é o que a chave única usa), a redação original não
+    precisa estar no log do servidor.
+  */
+  const aviso = (oQue: string, norm: string, detalhe: string) =>
+    console.error(`[copy-search-data] ${oQue} (space_id=${destSpaceId}, term_norm="${norm}"): ${detalhe}`);
+  /*
     PAGINADO — É O TETO DE 1.000 LINHAS PELA NONA VEZ NESTE REPOSITÓRIO.
 
     Medido em 27/09: 5.582 termos no banco. Uma documentação com mais de mil era
@@ -188,9 +196,12 @@ export async function copyOntologyBetweenSpaces(
 
   let novos = 0;
   for (const t of srcTerms) {
-    let termId = normToTermId.get(t.term_norm);
-    if (!termId) {
-      const { data: novo } = await admin
+    let termId: string;
+    const existente = normToTermId.get(t.term_norm);
+    if (existente) {
+      termId = existente;
+    } else {
+      const { data: novo, error } = await admin
         .from("ontology_terms")
         .insert({
           space_id: destSpaceId,
@@ -202,17 +213,56 @@ export async function copyOntologyBetweenSpaces(
         })
         .select("id")
         .single();
-      if (!novo) continue;
-      termId = novo.id;
-      normToTermId.set(t.term_norm, termId);
-      novos += 1;
+      if (!novo) {
+        /*
+          MESMO TRATAMENTO DE `mesclarTermos` PARA `unique_violation` — a razão é
+          a MESMA: duas cópias do mesmo par de documentações rodando juntas, ou
+          uma varredura da origem terminando no meio desta cópia, fazem o índice
+          lido lá em cima ficar velho antes deste `insert` chegar. Colidir quer
+          dizer que o termo JÁ EXISTE no destino; sair com `continue` sem reler
+          descartaria os sinônimos deste termo, que são o que a cópia existe
+          para trazer.
+        */
+        const codigo = (error as { code?: string } | null)?.code ?? "";
+        if (codigo !== "23505") {
+          aviso("termo NÃO copiado", t.term_norm, error?.message ?? "o banco não devolveu a linha nem erro");
+          continue;
+        }
+        const { data: jaExistia, error: erroRelendo } = await admin
+          .from("ontology_terms")
+          .select("id")
+          .eq("space_id", destSpaceId)
+          .eq("term_norm", t.term_norm)
+          .maybeSingle();
+        if (!jaExistia) {
+          aviso(
+            "termo colidiu e não foi encontrado depois",
+            t.term_norm,
+            erroRelendo?.message ?? "a releitura não achou a linha nem devolveu erro",
+          );
+          continue;
+        }
+        termId = jaExistia.id;
+        normToTermId.set(t.term_norm, termId);
+      } else {
+        termId = novo.id;
+        normToTermId.set(t.term_norm, termId);
+        novos += 1;
+      }
     }
     for (const a of aliasBySrcTerm.get(t.id) ?? []) {
       if (!a.alias_norm || a.alias_norm === t.term_norm) continue;
       if (normToTermId.has(a.alias_norm)) continue;
-      await admin
+      const { error } = await admin
         .from("ontology_aliases")
         .upsert({ term_id: termId, alias: a.alias, alias_norm: a.alias_norm, source: a.source }, { onConflict: "term_id,alias_norm", ignoreDuplicates: true });
+      if (error) {
+        // Sinônimo perdido não entra em `novos`, e `normToTermId` também não
+        // recebe o alias — senão o próximo termo de origem que colidir com ele
+        // o trataria como já copiado.
+        aviso(`sinônimo NÃO copiado (alias_norm="${a.alias_norm}")`, t.term_norm, error.message);
+        continue;
+      }
       normToTermId.set(a.alias_norm, termId);
       novos += 1;
     }
