@@ -100,6 +100,20 @@ export function alertasDoWidget(linhas: unknown): AlertaDoWidget[] {
  * ou resposta fora de forma devolvem lista vazia. Mesmo critério de
  * `titulos_de_partida` no bootstrap — widget sem alerta é o comportamento de
  * sempre; widget que não monta por causa de um alerta é regressão.
+ *
+ * ── O LOG DOS DOIS PONTOS DE QUEDA É OBRIGATÓRIO, NÃO ENFEITE ────────────────
+ * Devolver lista vazia é o comportamento certo e é também o comportamento de
+ * "este cliente não tem aviso nenhum configurado". Sem log, os dois são
+ * indistinguíveis de fora, para todos os clientes e por tempo indeterminado:
+ * migration aplicada pela metade, EXECUTE revogado por um `drop function` futuro
+ * ou assinatura mudada produzem `alertas: []` em silêncio, e o sintoma que chega
+ * até nós é o painel dizendo "Ninguém visualizou ainda" — que o cliente lê como
+ * "minha gente não abre o chat".
+ *
+ * `src/lib/ai/escopo-da-base.ts` carrega esta mesma regra por extenso, e este
+ * ramo já corrigiu a classe cinco vezes. Só a BASE e o nome da RPC entram na
+ * mensagem: a identidade carrega matrícula e usuário, e log não é lugar de dado
+ * de pessoa.
  */
 export async function alertasDaIdentidade(
   db: SupabaseClient,
@@ -111,15 +125,30 @@ export async function alertasDaIdentidade(
   // ausência fecha); o curto-circuito só evita a ida ao banco.
   if (!base) return [];
   try {
-    const { data } = await db.rpc("alertas_para", {
+    const { data, error } = await db.rpc("alertas_para", {
       p_base: base,
       // A identidade só é montada por `identidadeDoRastreio`, nunca à mão: é ela
       // que traduz os `p_*` do rastreio nas chaves das doze dimensões que
       // `public.elegivel` espera.
       p_identidade: identidadeDoRastreio(track),
     });
+    if (error) {
+      // A RPC RESPONDEU com erro (permissão, assinatura mudada, função
+      // inexistente) — diferente da exceção do catch abaixo, que é transporte.
+      console.error(
+        `[widget/alertas] a RPC "alertas_para" respondeu com erro para a base "${base}", entregando ZERO alertas:`,
+        error.message,
+      );
+      return [];
+    }
     return alertasDoWidget(data);
-  } catch {
+  } catch (e) {
+    // Exceção de transporte (rede, timeout) ou algo que nem virou resposta com
+    // `.error`. Mesma regra da mensagem: a base, nunca a identidade.
+    console.error(
+      `[widget/alertas] falha ao ler os alertas da base "${base}", entregando ZERO alertas:`,
+      e instanceof Error ? e.message : e,
+    );
     return [];
   }
 }
@@ -162,13 +191,27 @@ export async function registrarVisualizacao(
       p_base: base,
       p_identidade: identidadeDoRastreio(track),
     });
-    if (error) return { registrado: false, erro: true };
+    if (error) {
+      // Aqui a falha JÁ é visível de fora (a rota devolve 500 e o widget tenta de
+      // novo na próxima abertura), então o log não existe para revelar que houve
+      // falha: existe para dizer QUAL. Sem ele, todo 500 desta rota chega como
+      // "não registrou" e a investigação começa do zero.
+      console.error(
+        `[widget/alertas] a RPC "registrar_visualizacao" respondeu com erro na base "${base}":`,
+        error.message,
+      );
+      return { registrado: false, erro: true };
+    }
     // A repetição da mesma pessoa nunca grava de novo. Se a campanha repete, ela
     // devolve `true` (continua entregável); se não repete, devolve `false`, porque
     // aí o portão já não a entrega a quem a viu. Os dois são assunto encerrado
     // para o widget — o que faria ele reenviar é `erro`.
     return { registrado: data === true, erro: false };
-  } catch {
+  } catch (e) {
+    console.error(
+      `[widget/alertas] falha ao gravar a visualização na base "${base}":`,
+      e instanceof Error ? e.message : e,
+    );
     return { registrado: false, erro: true };
   }
 }
