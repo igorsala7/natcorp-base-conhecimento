@@ -11,7 +11,7 @@
  * um cliente à base de outro. Não há cerca de RLS aqui porque não pode
  * haver: este script É a cerca.
  *
- * Quatro provas, uma atrás da outra:
+ * Cinco provas, uma atrás da outra:
  *
  *   1) ISOLAMENTO ENTRE BASES — cria duas bases e duas documentações de
  *      teste, anexa cada uma à sua base, cria um arquivo de base em cada, e
@@ -90,12 +90,17 @@
  *   npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
  *   SABOTAR=isolamento npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
  *   SABOTAR=anon        npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
+ *   SABOTAR=campanha    npx tsx --env-file=.env.local .audit/isolamento-documentacao-e2e.ts
  *
  * `SABOTAR=isolamento` reproduz o cenário do brief: anexa a documentação de
  * teste de B também à base de teste A. `SABOTAR=anon` reescreve
  * `chunks_public_read` (via `ALTER POLICY`, revertido pelo `ROLLBACK` como
  * qualquer outro DDL transacional) para o mesmo formato vazador que a
- * migration da tarefa 2 documentou por extenso.
+ * migration da tarefa 2 documentou por extenso. `SABOTAR=campanha` anexa a
+ * CAMPANHA de teste de B à base de teste A, e faz cair quatro casos ao mesmo
+ * tempo: o alerta de B passa a sair para A, o alerta de B para de sair na
+ * própria B, o painel de A ganha uma visualização que não é dele e o painel de
+ * B perde a que era.
  *
  *   4) A SOBREPOSIÇÃO POR BASE, e que ela só ESTREITA (tarefa 9) — quatro
  *      documentações UNIVERSAIS e sobreposições só na base A. Prova que
@@ -105,6 +110,21 @@
  *      interseção das duas regras). A migration
  *      `20260925140000_escopo_com_sobreposicao_por_base.sql` tem as mesmas
  *      assertivas, e elas rodam uma vez só; estas rodam a cada portão.
+ *
+ *   5) CAMPANHAS (projeto 3) — uma campanha em cada base e uma visualização em
+ *      cada uma. Prova que o alerta da base B não sai para a base A (com o
+ *      controle positivo dos dois lados, senão a negativa passaria por
+ *      `alertas_para` devolver lista vazia), que a visualização de uma base não
+ *      aparece no painel da outra, e que o portão de ESCRITA recusa gravar
+ *      visualização numa campanha de outro cliente. A sabotagem
+ *      `SABOTAR=campanha` derruba isto de propósito.
+ *
+ *      Vale o mesmo argumento da seção 1, e mais forte: `alertas_para` e
+ *      `registrar_visualizacao` são `security definer` e têm EXECUTE só para
+ *      `service_role`, então a RLS de `ai_campanhas` não vale para elas nem para
+ *      o caminho do widget. A cerca entre clientes é o `base_id` dentro daquelas
+ *      duas funções, mais o `base_id` das consultas do painel. Sem esta seção,
+ *      isso é revisão de código e não banco.
  *
  *      RESSALVA OPERACIONAL de `SABOTAR=anon`: `ALTER POLICY` toma lock
  *      `ACCESS EXCLUSIVE` na tabela `chunks` até o `ROLLBACK`. Enquanto o
@@ -119,7 +139,7 @@ import pg from "pg";
 import { parseDbConfig } from "../src/lib/jobs/db-config";
 
 const PREFIXO = "zz-isolamento-teste-";
-const SABOTAR = process.env.SABOTAR; // "isolamento" | "anon" | undefined
+const SABOTAR = process.env.SABOTAR; // "isolamento" | "anon" | "campanha" | undefined
 
 type LinhaEscopo = { space_id: string; origem: string };
 type LinhaArquivo = { document_id: string };
@@ -691,16 +711,181 @@ async function main() {
         anonArtigoPublicado >= 1,
         `chunks do artigo público alcançáveis por anon = ${anonArtigoPublicado}`,
       );
+
+      // ── 11. CAMPANHAS: a cerca entre clientes na ENTREGA e no PAINEL ──
+      //
+      // Projeto 3, tarefa 4. Sem esta seção, a cerca de campanha é revisão de
+      // código e não banco: `alertas_para` e `registrar_visualizacao` são
+      // `security definer`, então a RLS de `ai_campanhas` não vale para elas, e a
+      // área do cliente escreve com `service_role`, que ignora policy de todo
+      // jeito. O que separa um cliente do outro é o `base_id` dentro daquelas duas
+      // funções mais o `base_id` das consultas do painel — e isso só se prova
+      // rodando.
+      //
+      // Depois da seção 10 de propósito: o `RESET ROLE` acima já aconteceu, então
+      // estas consultas voltam a rodar como o papel da conexão.
+      const campanhaA = (
+        await client.query<{ id: string }>(
+          `insert into public.ai_campanhas (base_id, titulo, corpo, publicar_em)
+           values ($1, $2, $3, now() - interval '1 hour') returning id`,
+          [baseA, `${PREFIXO}aviso-da-base-a`, "aviso do cliente A"],
+        )
+      ).rows[0]!.id;
+      const campanhaB = (
+        await client.query<{ id: string }>(
+          `insert into public.ai_campanhas (base_id, titulo, corpo, publicar_em)
+           values ($1, $2, $3, now() - interval '1 hour') returning id`,
+          [baseB, `${PREFIXO}aviso-da-base-b`, "aviso do cliente B"],
+        )
+      ).rows[0]!.id;
+
+      /*
+        TRÊS identidades, e a terceira não é luxo.
+
+        `identA` e `identB` REGISTRAM visualização, cada uma na campanha do seu
+        cliente. `identC` nunca viu nada, e é ela que faz as leituras de entrega,
+        porque `ai_campanhas.repetir` nasce FALSO: depois de `identA` registrar a
+        visualização, `alertas_para` PARA de devolver aquela campanha para ela. Com
+        `identA` nas leituras, o controle positivo falharia pelo motivo certo e
+        pareceria cerca quebrada.
+      */
+      const identA = { portal: "PG", usuario: `${PREFIXO}user-a`, matricula: "9001" };
+      const identB = { portal: "PG", usuario: `${PREFIXO}user-b`, matricula: "9002" };
+      const identC = { portal: "PG", usuario: `${PREFIXO}user-c`, matricula: "9003" };
+
+      const registrarVisualizacao = async (
+        campanha: string,
+        codigo: string,
+        identidade: Record<string, string>,
+      ) =>
+        (
+          await client.query<{ ok: boolean }>(
+            `select public.registrar_visualizacao($1, $2, $3::jsonb) as ok`,
+            [campanha, codigo, JSON.stringify(identidade)],
+          )
+        ).rows[0]!.ok;
+
+      const vistoA = await registrarVisualizacao(campanhaA, codigoBaseA, identA);
+      const vistoB = await registrarVisualizacao(campanhaB, codigoBaseB, identB);
+      // O PORTÃO DE ESCRITA: `p_campanha` vem do corpo da requisição, ou seja é
+      // controlado por quem chama. Gravar visualização na campanha de outro
+      // cliente tem de ser RECUSADO, senão o painel do dono mostra gente que
+      // nunca viu o aviso dele. Capturado ANTES da sabotagem, que é sobre a
+      // leitura.
+      const portaoDeOutraBase = await registrarVisualizacao(campanhaB, codigoBaseA, identA);
+
+      if (SABOTAR === "campanha") {
+        // SABOTAGEM: anexa a campanha de teste B à base de teste A, que é o
+        // cenário pedido pela tarefa 4. Some com o ROLLBACK do `finally`, como
+        // todo o resto deste arquivo.
+        await client.query(`update public.ai_campanhas set base_id = $1 where id = $2`, [
+          baseA,
+          campanhaB,
+        ]);
+        console.log("  [SABOTAGEM ATIVA] a campanha de teste B foi anexada à base de teste A\n");
+      }
+
+      /** Os alertas que esta identidade recebe nesta base, pela função de verdade. */
+      const alertasDe = async (codigo: string, identidade: Record<string, string>) =>
+        (
+          await client.query<{ id: string }>(`select id from public.alertas_para($1, $2::jsonb)`, [
+            codigo,
+            JSON.stringify(identidade),
+          ])
+        ).rows.map((r) => r.id);
+
+      const alertasA = await alertasDe(codigoBaseA, identC);
+      const alertasB = await alertasDe(codigoBaseB, identC);
+
+      registra(
+        casos,
+        "alerta da base B NÃO aparece para a base A",
+        !alertasA.includes(campanhaB),
+        `alertas(A) = [${alertasA.join(", ") || "vazio"}]`,
+      );
+      // As duas positivas, sem as quais a negativa acima passaria com
+      // `alertas_para` devolvendo lista vazia por qualquer motivo (janela, regra,
+      // filtro de repetição). Negativa sozinha não prova cerca, prova ausência.
+      registra(
+        casos,
+        "alerta da base A aparece na PRÓPRIA base A (a negativa acima não passa por lista vazia)",
+        alertasA.includes(campanhaA),
+        `alertas(A) = [${alertasA.join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "alerta da base B aparece na PRÓPRIA base B",
+        alertasB.includes(campanhaB),
+        `alertas(B) = [${alertasB.join(", ") || "vazio"}]`,
+      );
+
+      /*
+        O PAINEL de um cliente, exatamente como a tela o monta: as visualizações
+        das campanhas DAQUELA base. A tela faz isso em dois passos (lista as
+        campanhas por `base_id`, depois conta e lista as visualizações por
+        `campanha_id`); aqui a junção é uma consulta só, e o que ela prova é o
+        mesmo — nenhuma visualização atravessa de um cliente para o outro.
+      */
+      const campanhasNoPainelDe = async (base: string) =>
+        new Set(
+          (
+            await client.query<{ campanha_id: string }>(
+              `select v.campanha_id
+                 from public.ai_campanha_visualizacoes v
+                 join public.ai_campanhas c on c.id = v.campanha_id
+                where c.base_id = $1
+                order by v.campanha_id`,
+              [base],
+            )
+          ).rows.map((r) => r.campanha_id),
+        );
+
+      const painelA = await campanhasNoPainelDe(baseA);
+      const painelB = await campanhasNoPainelDe(baseB);
+
+      registra(
+        casos,
+        "as duas visualizações de teste foram aceitas, e o portão RECUSOU a campanha de outra base",
+        vistoA && vistoB && !portaoDeOutraBase,
+        `visualização em A = ${vistoA} · em B = ${vistoB} · campanha de B gravada pela base A = ${portaoDeOutraBase}`,
+      );
+      registra(
+        casos,
+        "visualização da base B NÃO aparece no painel da base A",
+        !painelA.has(campanhaB),
+        `painel(A) = [${[...painelA].join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "visualização da base A NÃO aparece no painel da base B",
+        !painelB.has(campanhaA),
+        `painel(B) = [${[...painelB].join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "painel da base A contém a visualização da PRÓPRIA campanha (a negativa acima não passa por painel vazio)",
+        painelA.has(campanhaA),
+        `painel(A) = [${[...painelA].join(", ") || "vazio"}]`,
+      );
+      registra(
+        casos,
+        "painel da base B contém a visualização da PRÓPRIA campanha",
+        painelB.has(campanhaB),
+        `painel(B) = [${[...painelB].join(", ") || "vazio"}]`,
+      );
     } finally {
       await client.query("ROLLBACK");
     }
 
     // ── Prova de que nada sujou produção ────────────────────────────────
     // Fora de qualquer transação: se o rollback falhou silenciosamente por
-    // algum motivo, isto pega. Conta por prefixo nas SETE tabelas tocadas
+    // algum motivo, isto pega. Conta por prefixo nas NOVE tabelas tocadas
     // (a quinta, `chunks`, entrou com a tarefa 7; a sexta,
     // `documentacoes_universais`, com a tarefa 9; a sétima, `nodes`, com o
-    // artigo publicado do caso positivo do `anon`).
+    // artigo publicado do caso positivo do `anon`; a oitava e a nona,
+    // `ai_campanhas` e `ai_campanha_visualizacoes`, com o projeto 3 — a
+    // visualização é contada pelo `p_usuario` dela, e não pela junção com a
+    // campanha, justamente para uma linha ÓRFÃ aparecer nesta conta).
     const restos = Number(
       (
         await client.query<{ n: string }>(
@@ -713,6 +898,8 @@ async function main() {
                 join public.spaces s on s.id = u.space_id where s.slug like $1) +
              (select count(*) from public.knowledge_documents where original_name like $1) +
              (select count(*) from public.nodes where slug like $1) +
+             (select count(*) from public.ai_campanhas where titulo like $1) +
+             (select count(*) from public.ai_campanha_visualizacoes where p_usuario like $1) +
              (select count(*) from public.chunks where content like $1)
            )::text as n`,
           [`${PREFIXO}%`],
@@ -732,7 +919,7 @@ async function main() {
     console.log(
       `\n  ${
         falhas === 0
-          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada na documentação E no arquivo, arquivo em extração não chega ao RAG, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), e a cerca do anon segue de pé nas duas direções (fecha arquivo, abre artigo publicado)"
+          ? "PASSOU — nenhuma base alcança a documentação da outra, a busca recusa documento de outra base mesmo pedido explicitamente, a regra por portal fecha a identidade errada na documentação E no arquivo, arquivo em extração não chega ao RAG, a sobreposição por base só ESTREITA (esconder e estreitar na base A não mexem na base B, e sobreposição aberta não alarga universal restrita), a cerca do anon segue de pé nas duas direções (fecha arquivo, abre artigo publicado), e nenhum alerta ou visualização de campanha atravessa de um cliente para o outro (na entrega, no painel e na gravação)"
           : `FALHOU em ${falhas} caso(s)`
       }\n`,
     );
