@@ -99,6 +99,10 @@ export function IntegrationsShell({
     key: a.key,
     label: a.rotulo,
     grupo: a.grupo,
+    // Só a aba de OUTRA rota carrega `href` e vira link. Passar o href de todas
+    // (o mapa resolve os dois casos) transformaria cada troca de aba desta tela
+    // numa ida ao servidor — e esta tela faz mais de vinte consultas.
+    href: a.outraRota ? a.href : undefined,
   }));
   const tab = useAbaAtual(abas);
 

@@ -414,7 +414,22 @@ export const MAPA: Secao[] = [
 export const ROTAS: Rota[] = MAPA.flatMap((s) => s.rotas);
 
 /** Uma aba já resolvida: com destino final e filtrada por permissão. */
-export type AbaResolvida = { key: string; rotulo: string; href: string; grupo?: string };
+export type AbaResolvida = {
+  key: string;
+  rotulo: string;
+  href: string;
+  grupo?: string;
+  /**
+   * A aba é OUTRA rota (o mapa declarou `href`), não um `?aba=` desta.
+   *
+   * Quem renderiza precisa saber a diferença, e não dá para inferir do `href`:
+   * as duas formas saem daqui como caminho absoluto. Numa barra de cliente, a
+   * aba desta rota troca o painel sem ir ao servidor, e a de outra rota tem de
+   * NAVEGAR — tratá-las igual custa um round-trip em cada clique (se tudo virar
+   * link) ou um painel vazio (se tudo virar `?aba=`).
+   */
+  outraRota: boolean;
+};
 
 /**
  * As abas de uma rota, prontas para renderizar.
@@ -453,6 +468,7 @@ export function abasDaRota(
     key: a.key,
     rotulo: a.rotulo,
     grupo: a.grupo,
+    outraRota: Boolean(a.href),
     href: a.href
       ? a.href.replace("{space}", spaceId ?? "")
       : // A primeira aba VISÍVEL não suja a URL. Tem que ser a primeira depois

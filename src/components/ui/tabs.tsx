@@ -23,6 +23,7 @@
  * que não é navegação.
  */
 import * as React from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,22 @@ import { cn } from "@/lib/utils";
 export type Aba = {
   key: string;
   label: React.ReactNode;
+  /**
+   * Destino quando a aba é OUTRA ROTA — ex.: Conexões › Conversas.
+   *
+   * Sem `href`, a aba é uma região desta mesma tela e a troca acontece no
+   * cliente, sem ir ao servidor. Com `href`, ela é um `<Link>`: navegação de
+   * verdade, que abre em nova aba e entra no histórico.
+   *
+   * As duas formas na MESMA barra existem porque a alternativa é pior. Servir
+   * duas barras empilhadas foi o defeito que a tela de Conversas tinha, e
+   * converter as abas locais em link custaria um round-trip por clique na tela
+   * mais pesada do admin (Conexões faz mais de vinte consultas para montar).
+   *
+   * Uma aba com `href` NUNCA é a aba selecionada desta barra: ela não mora no
+   * `?aba=`, e quem a abre sai desta tela. Ver `atual`.
+   */
+  href?: string;
   icon?: LucideIcon;
   /** Contagem ou aviso. Use com parcimônia: badge em tudo não destaca nada. */
   badge?: React.ReactNode;
@@ -52,6 +69,29 @@ export type Aba = {
    */
   grupo?: string;
 };
+
+/** A aba troca um painel DESTA tela (e não navega para outra rota)? */
+const daTela = (t: Aba) => !t.href;
+
+/** A primeira aba desta tela — a que não suja a URL. */
+function primeiraAba(tabs: Aba[]): string {
+  return tabs.find((t) => !t.disabled && daTela(t))?.key ?? tabs[0]?.key ?? "";
+}
+
+/**
+ * Qual aba o parâmetro da URL seleciona.
+ *
+ * PURA, e chamada pelo `Tabs` e pelo `useAbaAtual`: são duas leituras do mesmo
+ * parâmetro, e barra acesa numa aba com o painel de outra é o defeito que uma
+ * segunda cópia da regra produz.
+ *
+ * Valor desconhecido — ou apontando para aba de OUTRA rota, que não tem painel
+ * aqui — cai na primeira, em vez de deixar a tela em branco.
+ */
+export function resolverAba(tabs: Aba[], naUrl: string | null): string {
+  const escolhida = tabs.find((t) => t.key === naUrl);
+  return escolhida && daTela(escolhida) ? escolhida.key : primeiraAba(tabs);
+}
 
 export function Tabs({
   tabs,
@@ -83,13 +123,10 @@ export function Tabs({
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const refs = React.useRef<(HTMLElement | null)[]>([]);
 
-  const primeira = tabs.find((t) => !t.disabled)?.key ?? tabs[0]?.key ?? "";
-  const naUrl = param ? search.get(param) : null;
-  // Parâmetro desconhecido cai na primeira em vez de mostrar painel vazio: URL
-  // colada de outra versão do produto não pode virar tela em branco.
-  const atual = param ? (tabs.some((t) => t.key === naUrl) ? naUrl! : primeira) : (value ?? primeira);
+  const primeira = primeiraAba(tabs);
+  const atual = param ? resolverAba(tabs, search.get(param)) : (value ?? primeira);
 
   function ir(k: string) {
     if (param) {
@@ -115,7 +152,10 @@ export function Tabs({
     const alvo =
       dir === -999 ? ativos[0]! : dir === 999 ? ativos[ativos.length - 1]! : ativos[(pos + dir + ativos.length) % ativos.length]!;
     refs.current[alvo]?.focus();
-    ir(tabs[alvo]!.key);
+    // Aba de outra rota NÃO se ativa com a seta: ativar é sair da tela, e
+    // atravessar a barra com o teclado passaria por cada uma delas no caminho.
+    // Quem quer ir aperta Enter — que é o comportamento nativo do link.
+    if (daTela(tabs[alvo]!)) ir(tabs[alvo]!.key);
   }
 
   return (
@@ -132,11 +172,56 @@ export function Tabs({
         // teclado: para quem navega por setas, ele não existe — o agrupamento
         // é uma ajuda visual, não uma parada a mais.
         const trocouGrupo = i > 0 && t.grupo !== tabs[i - 1]!.grupo;
+        const aparencia = cn(
+          "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
+          ativa
+            ? "border-primary font-semibold text-primary"
+            : "border-transparent text-text-muted hover:border-border-strong hover:text-text",
+        );
+        const conteudo = (
+          <>
+            {Icone && <Icone className="size-4" aria-hidden="true" />}
+            {t.label}
+            {t.badge != null && (
+              <span className="ml-0.5 rounded-full bg-surface-2 px-1.5 text-2xs tabular-nums text-text-muted">
+                {t.badge}
+              </span>
+            )}
+          </>
+        );
         return (
           <React.Fragment key={t.key}>
             {trocouGrupo && (
               <span aria-hidden="true" className="mx-2 h-4 w-px shrink-0 self-center bg-border" />
             )}
+          {t.href ? (
+            /**
+             * ABA QUE É OUTRA ROTA — `<Link>`, e não botão que navega.
+             *
+             * Fica dentro do mesmo `tablist` de propósito: é UMA barra, e o
+             * teclado continua atravessando-a com as setas. `aria-selected` é
+             * sempre falso porque esta aba nunca é a região exibida aqui — quem
+             * a ativa sai da tela, e é a barra da tela de destino que a acende.
+             *
+             * `<Link>` de verdade porque é navegação de verdade: abre em nova
+             * aba, entra no histórico e funciona sem JavaScript. Mesma escolha
+             * que `AbasRota` faz nas barras que são só navegação.
+             */
+            <Link
+              ref={(el) => {
+                refs.current[i] = el;
+              }}
+              href={t.href}
+              role="tab"
+              id={`aba-${t.key}`}
+              aria-selected={false}
+              tabIndex={-1}
+              onKeyDown={(e) => teclado(e, i)}
+              className={aparencia}
+            >
+              {conteudo}
+            </Link>
+          ) : (
           <button
             ref={(el) => {
               refs.current[i] = el;
@@ -168,21 +253,11 @@ export function Tabs({
             disabled={t.disabled}
             onClick={() => ir(t.key)}
             onKeyDown={(e) => teclado(e, i)}
-            className={cn(
-              "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
-              ativa
-                ? "border-primary font-semibold text-primary"
-                : "border-transparent text-text-muted hover:border-border-strong hover:text-text",
-            )}
+            className={aparencia}
           >
-            {Icone && <Icone className="size-4" aria-hidden="true" />}
-            {t.label}
-            {t.badge != null && (
-              <span className="ml-0.5 rounded-full bg-surface-2 px-1.5 text-2xs tabular-nums text-text-muted">
-                {t.badge}
-              </span>
-            )}
+            {conteudo}
           </button>
+          )}
           </React.Fragment>
         );
       })}
@@ -212,11 +287,10 @@ export function TabPanel({
 
 /**
  * Lê a aba atual da URL no componente pai (que precisa saber qual painel montar).
- * Mesma regra de fallback do `Tabs`, para os dois nunca discordarem.
+ * Chama `resolverAba` — a MESMA função do `Tabs`, e não uma segunda cópia da
+ * regra, que é como barra acesa e painel montado passam a discordar.
  */
 export function useAbaAtual(tabs: Aba[], param = "aba") {
   const search = useSearchParams();
-  const primeira = tabs.find((t) => !t.disabled)?.key ?? tabs[0]?.key ?? "";
-  const naUrl = search.get(param);
-  return tabs.some((t) => t.key === naUrl) ? naUrl! : primeira;
+  return resolverAba(tabs, search.get(param));
 }
