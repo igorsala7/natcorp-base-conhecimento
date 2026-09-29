@@ -34,13 +34,14 @@ describe("busca de destinos", () => {
   it("alcança o destino pelos nomes ANTIGOS", () => {
     // O redesenho move coisa de lugar sem redirects. Estes são os nomes que a
     // equipe tem na memória muscular.
-    // "widget" cai no Assistente, não em Sistema — foi o agrupamento pedido:
-    // configurar o bot DESTA documentação é o trabalho frequente; o registro
-    // global de todas as chaves é auditoria, e vive em Sistema › Chaves.
-    expect(buscarDestinos("widget", TUDO)[0]?.href).toContain("/admin/assistente");
+    // "widget" e "logs do chat" passaram pelo Assistente e hoje caem em
+    // Conexões: uma chave é a INSTALAÇÃO num cliente, e o rastreio é o que a
+    // Natcorp observa atravessando clientes. Os dois nomes continuam achando o
+    // destino novo pelos apelidos, que é o que dispensa redirect.
+    expect(buscarDestinos("widget", TUDO)[0]?.href).toContain("/admin/integracoes");
+    expect(buscarDestinos("logs do chat", TUDO)[0]?.href).toBe("/admin/integracoes");
     expect(buscarDestinos("chaves de api", TUDO)[0]?.href).toContain("/admin/sistema");
     expect(buscarDestinos("análises", TUDO)[0]?.href).toBe("/admin/analises");
-    expect(buscarDestinos("logs do chat", TUDO)[0]?.href).toBe("/admin/assistente");
     expect(buscarDestinos("usuários", TUDO)[0]?.href).toBe("/admin/usuarios");
     expect(buscarDestinos("integrações", TUDO)[0]?.href).toBe("/admin/integracoes");
     // "lixeira" cai na ABA, não na árvore: o rótulo da aba contém a palavra e

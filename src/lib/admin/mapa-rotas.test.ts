@@ -124,6 +124,24 @@ describe("mapa de rotas — abas", () => {
     }
   });
 
+  it("nenhuma aba se chama igual a um item do menu", () => {
+    /**
+     * A aba de Conexões que anexa documentação a um cliente chamava-se
+     * "Documentações" — exatamente o nome do item de menu que LISTA o conteúdo.
+     * O Cmd+K devolvia dois destinos com o mesmo rótulo para conceitos
+     * diferentes, e nada na paleta permitia distingui-los: escolher era sorteio.
+     *
+     * Rótulo igual não quebra nada — é por isso que dura. Só se percebe quando
+     * alguém usa a paleta em vez do menu.
+     */
+    const doMenu = new Set(ROTAS.map((r) => r.rotulo));
+    for (const r of ROTAS) {
+      for (const a of r.abas ?? []) {
+        expect(doMenu.has(a.rotulo), `${r.rotulo} › ${a.rotulo}`).toBe(false);
+      }
+    }
+  });
+
   it("permissão de aba é uma permissão que o mapa conhece", () => {
     // Pega o erro de digitação que faria a aba sumir para todo mundo em
     // silêncio — falha por permissão é indistinguível de aba inexistente.
@@ -165,8 +183,16 @@ describe("abasDaRota", () => {
 
   it("substitui {space} pela documentação em jogo", () => {
     const abas = abasDaRota("/admin/assistente", tudo, "abc-123");
-    const conversas = abas.find((a) => a.key === "atividade")!;
-    expect(conversas.href).toBe("/admin/conversas?space=abc-123");
+    const ontologia = abas.find((a) => a.key === "ontologia")!;
+    expect(ontologia.href).toBe("/admin/ontologia?space=abc-123");
+  });
+
+  it("marca a aba que é OUTRA rota, para a barra saber navegar em vez de trocar painel", () => {
+    // Sem esta marca, quem renderiza teria de inferir do href — e as duas formas
+    // saem daqui como caminho absoluto.
+    const conexoes = abasDaRota("/admin/integracoes", tudo);
+    expect(conexoes.find((a) => a.key === "bases")!.outraRota).toBe(false);
+    expect(conexoes.find((a) => a.key === "conversas")!.outraRota).toBe(true);
   });
 
   it("a aba sem permissão própria herda a da ROTA", () => {
@@ -198,12 +224,25 @@ describe("rotaAtiva / trilha", () => {
     expect(rotaAtiva("/admin")?.rotulo).toBe("Painel");
   });
 
-  it("as três rotas do Assistente acendem o MESMO item do menu", () => {
-    // Era o defeito F2: Acessos dividia barra de abas com Conversas mas o mapa
-    // a arquivava em Desempenho, então clicar na aba do meio fazia o item aceso
-    // pular de seção.
-    for (const p of ["/admin/assistente", "/admin/conversas", "/admin/logs", "/admin/ontologia"]) {
+  it("o Assistente é só a documentação: persona e ontologia", () => {
+    for (const p of ["/admin/assistente", "/admin/ontologia"]) {
       expect(trilha(p)?.rota.rotulo, p).toBe("Assistente de IA");
+    }
+  });
+
+  it("as telas do eixo do CLIENTE acendem Conexões", () => {
+    // Era o defeito F2 em outra forma: Conversas, Rastreio e as chaves dividiam
+    // barra com Persona e Ontologia, mas respondem a perguntas de mundos
+    // diferentes — uma documentação contra um cliente. Com as quatro no `tambem`
+    // de Conexões, trabalhar em qualquer uma delas mantém o mesmo item aceso.
+    for (const p of [
+      "/admin/integracoes",
+      "/admin/chatbot",
+      "/admin/widget",
+      "/admin/conversas",
+      "/admin/logs",
+    ]) {
+      expect(trilha(p)?.rota.rotulo, p).toBe("Conexões");
     }
   });
 

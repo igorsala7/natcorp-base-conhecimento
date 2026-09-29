@@ -162,7 +162,7 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
       /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
       acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
       /**
-       * UMA barra, não duas.
+       * UMA barra, não duas — e agora a de Conexões.
        *
        * Aqui se empilhavam a barra do Assistente e a do rastreio, e a palavra
        * "Conversas" aparecia nas duas, em níveis diferentes. O argumento de que
@@ -171,11 +171,11 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
        * Desempenho, porque é sobre o que foi LIDO, não sobre o que o bot
        * RESPONDEU.
        *
-       * O que sobrou é o par que sempre foi indivisível: a conversa e o rastreio
-       * do turno que a produziu. Eles continuam ligados pelo link que existe
-       * dentro de cada conversa — que nunca dependeu desta barra.
+       * O par que sempre foi indivisível — a conversa e o rastreio do turno que a
+       * produziu — continua vizinho, do lado do CLIENTE. Ler conversa de cliente
+       * é o mesmo verbo de "Fluxo" e "Execuções", que já moravam lá.
        */
-      abas={<AbasRota rota="/admin/assistente" atual="atividade" permissoes={permissoes} spaceId={atual.id} />}
+      abas={<AbasRota rota="/admin/integracoes" atual="conversas" permissoes={permissoes} />}
     >
 
       {/* Filtros — GET, para o estado viver na URL (compartilhável). */}

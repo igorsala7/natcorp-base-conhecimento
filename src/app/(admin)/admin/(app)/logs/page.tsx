@@ -6,8 +6,6 @@ import { SemPermissao } from "@/components/ui/sem-permissao";
 import { controlClass } from "@/components/ui/input";
 import { AbasRota } from "@/components/admin/abas-rota";
 import { permissoesDo } from "@/lib/auth/permissions";
-import { createClient } from "@/lib/supabase/server";
-import { resolvedSpaceId } from "@/lib/content/current-space";
 import { PageShell } from "@/components/ui/page-shell";
 
 export const metadata: Metadata = { title: "Logs do chat" };
@@ -82,14 +80,13 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const { data, error } = await q;
   const rows = (error ? [] : (data ?? [])) as ChatTraceRow[];
 
-  // Cliente NORMAL de propósito: o `admin` desta tela é service role e ignora a
-  // RLS — usá-lo aqui listaria documentações que a pessoa não pode ver, só para
-  // montar um link de volta.
-  const supabase = await createClient();
-  const { data: espacos } = await supabase.from("spaces").select("id");
-  const espacoParaVoltar = await resolvedSpaceId(undefined, espacos ?? []);
   // A barra filtra por permissão sozinha: "Canais e chaves" pede
   // `widget.manage`, independente do `ai.configure` que abriu ESTA tela.
+  //
+  // Não há mais documentação a resolver aqui. A barra é a de Conexões, de escopo
+  // `plataforma`: nenhuma aba dela carrega `{space}`, então a consulta que
+  // existia só para preservar a seleção no caminho de volta deixou de ter
+  // destinatário.
   const permissoes = await permissoesDo();
 
   return (
@@ -101,10 +98,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
          até aqui, e daqui não havia rota de volta — duas telas em grupos de menu
          diferentes, tratando da mesma visita.
 
-         O `space` vem do cookie porque ESTA tela não filtra por documentação (é
-         chaveada por `base_code`). Serve só para as outras duas não perderem a
-         seleção quando a pessoa voltar. */
-      abas={<AbasRota rota="/admin/assistente" atual="rastreio" permissoes={permissoes} spaceId={espacoParaVoltar ?? ""} />}
+         A barra agora é a de Conexões, e o par continua vizinho: esta tela sempre
+         foi do eixo do CLIENTE (filtra `base_code`, nunca teve filtro de
+         documentação), e era o Assistente que estava no eixo errado. */
+      abas={<AbasRota rota="/admin/integracoes" atual="rastreio" permissoes={permissoes} />}
     >
 
       <form className="mt-5 grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">

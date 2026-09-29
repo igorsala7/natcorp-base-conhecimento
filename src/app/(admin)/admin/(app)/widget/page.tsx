@@ -77,8 +77,11 @@ export default async function WidgetPage() {
          diferindo por uma prop. Os títulos anteriores ("Widget e API" × "Chatbot
          desta documentação") não deixavam isso claro: quem caía na errada não
          tinha como perceber que existia a outra. Agora o título nomeia o escopo,
-         a barra de abas mostra que as duas moram no Assistente, e há link entre
-         elas. */
+         a barra de abas mostra que as duas moram em Conexões, e há link entre
+         elas.
+
+         Esta é o destino da aba "Canais e chaves" porque é a visão que ATRAVESSA
+         clientes — a pergunta que justifica lugar no menu do admin. */
       titulo="Chaves de todas as documentações"
       descricao={
         <>
@@ -92,7 +95,7 @@ export default async function WidgetPage() {
         </>
       }
       largura="wide"
-      abas={<AbasRota rota="/admin/assistente" atual="canais" permissoes={await permissoesDo()} />}
+      abas={<AbasRota rota="/admin/integracoes" atual="canais" permissoes={await permissoesDo()} />}
     >
       <ChatbotTabs
         widgetKeys={widgetKeys}

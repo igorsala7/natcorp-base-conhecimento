@@ -34,8 +34,17 @@ import {
  * espalhados por três grupos diferentes. Persona em "Canais e análises",
  * rastreio do chat em "Administração", ontologia sem item nenhum, e
  * `/admin/widget` e `/admin/chatbot` renderizando o mesmo componente com uma
- * prop diferente. Agora tudo o que responde "como o assistente se comporta e o
- * que ele andou fazendo" mora numa seção só.
+ * prop diferente. A primeira correção juntou os dez num item só.
+ *
+ * Juntar de mais foi o erro seguinte, e o dono o apontou: metade daquilo não era
+ * sobre a DOCUMENTAÇÃO. Assunto aqui tem DOIS eixos, e o corte é entre eles:
+ *   · o eixo da DOCUMENTAÇÃO — persona, ontologia: como o bot lê e fala dela;
+ *   · o eixo do CLIENTE — chave, widget, conversa, rastreio: a instalação no
+ *     cliente ou no portal, e o que a Natcorp observa atravessando clientes.
+ * O segundo mora em Conexões. O critério: um item merece lugar no menu do admin
+ * quando a Natcorp precisa dele ATRAVESSANDO clientes ou documentações;
+ * configuração de um cliente só se alcança entrando na tela dele em modo
+ * suporte, não duplicando aqui.
  *
  * ── Os três escopos ─────────────────────────────────────────────────────────
  * `escopo` é o que torna o menu legível. Cada destino pertence a um mundo:
@@ -195,18 +204,28 @@ export const MAPA: Secao[] = [
         escopo: "espaco",
         permissao: "content.view",
         /**
-         * A fusão que o Igor pediu, e mais quatro que vieram no mesmo pacote.
+         * UMA COISA SÓ: com que voz e com que vocabulário o bot fala DESTA
+         * documentação.
          *
-         * Tudo o que define COMO o assistente responde estava separado: a
-         * persona aqui, os sinônimos do RAG numa rota órfã (um único link de
-         * entrada em toda a base), os arquivos que ele lê dentro de "Chatbot",
-         * e as chaves do widget em dois lugares que renderizavam o MESMO
-         * componente. Quem ajustava o comportamento do bot precisava saber, de
-         * cor, que a resposta estava em quatro telas de três grupos de menu.
+         * Este item já foi a fusão de QUATRO telas — persona, ontologia, as
+         * chaves do widget e o que o bot andou respondendo. A fusão resolveu um
+         * problema real (ajustar o comportamento do bot exigia saber de cor que
+         * a resposta morava em quatro telas de três grupos de menu) e criou
+         * outro: metade do que entrou aqui não é sobre a DOCUMENTAÇÃO. Uma chave
+         * é uma INSTALAÇÃO num cliente ou num portal; conversa e rastreio são o
+         * que a Natcorp observa ATRAVESSANDO clientes. Os três foram para
+         * Conexões, e o `tambem` de lá é que os mantém acesos.
+         *
+         * A regra que separou as duas metades, enunciada pelo dono: um item
+         * merece lugar no menu do admin quando a Natcorp precisa dele
+         * atravessando clientes ou documentações. Configuração de UM cliente se
+         * alcança entrando na tela dele em modo suporte, não duplicando aqui.
+         *
+         * Sobram persona e ontologia, que são a mesma pergunta feita duas vezes.
          */
-        descricao: "Persona, ontologia, base de conhecimento, canais e o que ele andou respondendo.",
-        tambem: ["/admin/assistente", "/admin/ontologia", "/admin/chatbot", "/admin/widget", "/admin/conversas", "/admin/logs"],
-        apelidos: ["chatbot", "widget", "bot", "persona", "ontologia", "sinônimos", "conversas", "logs do chat", "rastreio", "embeddings"],
+        descricao: "Persona e ontologia — a voz e o vocabulário do bot nesta documentação.",
+        tambem: ["/admin/assistente", "/admin/ontologia"],
+        apelidos: ["chatbot", "bot", "persona", "ontologia", "sinônimos", "glossário", "tom de voz"],
         /**
          * Cada aba é uma ROTA — daí todas trazerem `href`. Mover os corpos para
          * dentro de um arquivo só exigiria reapontar 18 `revalidatePath`, 13 só
@@ -219,25 +238,13 @@ export const MAPA: Secao[] = [
          * lateral pular no meio de uma barra de abas — o defeito que Acessos
          * causava. A divisão é por verbo: o que ENTRA na base é Importar; como
          * o bot se COMPORTA é aqui.
+         *
+         * Duas abas é o mínimo que uma barra justifica, e é exatamente o que
+         * sobrou. Se uma das duas sair, a barra tem de sair com ela.
          */
         abas: [
           { key: "persona", rotulo: "Persona", href: "/admin/assistente?space={space}" },
           { key: "ontologia", rotulo: "Ontologia", href: "/admin/ontologia?space={space}" },
-          {
-            key: "canais",
-            rotulo: "Canais e chaves",
-            permissao: "widget.manage",
-            href: "/admin/chatbot?space={space}",
-          },
-          { key: "atividade", rotulo: "Conversas", href: "/admin/conversas?space={space}" },
-          // Sem `{space}`: o rastreio é chaveado por `base_code`, não por
-          // documentação. Passar o parâmetro prometeria um filtro que não existe.
-          {
-            key: "rastreio",
-            rotulo: "Rastreio do chat",
-            permissao: "ai.configure",
-            href: "/admin/logs",
-          },
         ],
       },
       {
@@ -294,11 +301,36 @@ export const MAPA: Secao[] = [
         icone: Plug,
         escopo: "plataforma",
         permissao: "integrations.manage",
-        // Fica FORA do Assistente de propósito, apesar de também ser IA: aqui o
-        // objeto é o ERP do cliente — base, credencial, endpoint, agente. Quem
-        // mexe nisto está integrando sistema, não ajustando como o bot fala.
-        descricao: "Bases dos clientes, ferramentas, agentes e execuções.",
-        tambem: ["/admin/conexoes", "/admin/integracoes"],
+        /**
+         * O EIXO DO CLIENTE — e é por isso que ele cresceu.
+         *
+         * Ficava fora do Assistente porque o objeto era o ERP do cliente: base,
+         * credencial, endpoint, agente. Quem mexe nisto está integrando sistema,
+         * não ajustando como o bot fala. O critério não mudou; o que mudou é que
+         * três telas do Assistente sempre foram deste lado e estavam no outro.
+         *
+         * Chegaram "Canais e chaves" (uma chave é uma INSTALAÇÃO num cliente ou
+         * num portal, não uma propriedade da documentação), "Conversas" e
+         * "Rastreio do chat" — observação que a Natcorp faz atravessando
+         * clientes, o mesmo verbo de "Fluxo" e "Execuções", que já moravam aqui.
+         *
+         * As quatro rotas que vieram entram no `tambem`: sem isso, trabalhar
+         * numa delas apagaria Conexões na barra lateral, e uma aba apontando
+         * para outra seção do menu faz o item aceso pular no meio da barra de
+         * abas — o defeito que Acessos causou.
+         */
+        descricao: "Bases dos clientes, canais e chaves, ferramentas, agentes, conversas e execuções.",
+        tambem: [
+          "/admin/conexoes",
+          "/admin/integracoes",
+          // As chaves em dois escopos: as de UMA documentação (`/admin/chatbot`)
+          // e as de todas (`/admin/widget`). Mesmo componente, prop diferente —
+          // e por isso as duas portas precisam acender o mesmo item.
+          "/admin/chatbot",
+          "/admin/widget",
+          "/admin/conversas",
+          "/admin/logs",
+        ],
         apelidos: [
           "integrações",
           "tools",
@@ -307,11 +339,22 @@ export const MAPA: Secao[] = [
           "agentes",
           "whatsapp",
           "execuções",
+          // "documentações" continua aqui: é o nome ANTIGO da aba, e quem o
+          // digitar recebe a listagem de conteúdo primeiro (rótulo exato vence
+          // apelido) e Conexões logo abaixo — que é a ordem certa.
           "documentações",
+          "documentação por cliente",
           "elegibilidade",
+          // Vindos do Assistente com as telas.
+          "widget",
+          "chaves do widget",
+          "canais",
+          "conversas",
+          "rastreio",
+          "logs do chat",
         ],
         /**
-         * Dez abas — a tela mais densa do admin, e a única cujas abas já
+         * Treze abas — a tela mais densa do admin, e a única cujas abas já
          * tinham URL. Ironicamente era também a única sem NENHUMA declarada
          * aqui: o Cmd+K não alcançava nenhuma delas, justamente onde ele
          * funcionaria melhor.
@@ -319,6 +362,10 @@ export const MAPA: Secao[] = [
          * A ordem é o fluxo de montagem, não o alfabeto: cadastra-se o cliente,
          * descreve-se o que dá para perguntar à API dele, decide-se quem pode
          * usar, monta-se o agente, e só então se observa o que aconteceu.
+         *
+         * Três delas são OUTRA ROTA e por isso trazem `href` — a barra desta
+         * tela sabe navegar sem que as outras dez paguem um round-trip por
+         * clique (ver `Aba.href` em `ui/tabs`).
          */
         abas: [
           // QUEM É O CLIENTE — cadastro, credencial, quem pode usar.
@@ -327,8 +374,29 @@ export const MAPA: Secao[] = [
           /* Vizinha de "Acesso por base" de propósito: as duas respondem "o que
              este cliente alcança" — lá são as FERRAMENTAS, aqui é a
              DOCUMENTAÇÃO. Longe uma da outra, quem monta um cliente novo teria
-             de descobrir sozinho que a segunda existe. */
-          { key: "documentacoes", rotulo: "Documentações", grupo: "cliente" },
+             de descobrir sozinho que a segunda existe.
+
+             "Documentação por cliente" e não "Documentações": o rótulo antigo era
+             IDÊNTICO ao item de menu que lista o conteúdo, e o Cmd+K devolvia
+             dois destinos com o mesmo nome para conceitos diferentes. O nome
+             velho continua achando, pelos apelidos. */
+          { key: "documentacoes", rotulo: "Documentação por cliente", grupo: "cliente" },
+          /* COMO O BOT CHEGA AO USUÁRIO — a chave do widget e a da API.
+             Veio do Assistente: uma chave é uma instalação num cliente ou num
+             portal, não uma propriedade da documentação. Vizinha de WhatsApp,
+             que é o outro canal, e não de "Bases / Clientes", para não separar o
+             par "Acesso por base" + "Documentação por cliente".
+
+             O destino é a visão de TODAS as documentações, que é a pergunta que
+             atravessa clientes; a de uma só (`/admin/chatbot`) se alcança pelo
+             cartão da documentação e pelo link dentro da própria tela. */
+          {
+            key: "canais",
+            rotulo: "Canais e chaves",
+            permissao: "widget.manage",
+            href: "/admin/widget",
+            grupo: "cliente",
+          },
           { key: "whatsapp", rotulo: "WhatsApp", grupo: "cliente" },
           // O QUE O BOT SABE FAZER — o catálogo e quem o opera.
           { key: "apis", rotulo: "APIs / Tools", grupo: "capacidade" },
@@ -338,6 +406,25 @@ export const MAPA: Secao[] = [
           // O QUE ACONTECEU — leitura, não configuração.
           { key: "fluxo", rotulo: "Fluxo", grupo: "atividade" },
           { key: "execucoes", rotulo: "Execuções", grupo: "atividade" },
+          /* O par indivisível: a conversa e o passo a passo do turno que a
+             produziu. Sem `{space}` — esta rota é de escopo `plataforma`, ignora
+             o seletor de documentação, e as duas telas são chaveadas pelo
+             cliente. Em Conversas a documentação virou um filtro entre os
+             outros; no Rastreio ela nunca existiu (é `base_code`). */
+          {
+            key: "conversas",
+            rotulo: "Conversas",
+            permissao: "content.view",
+            href: "/admin/conversas",
+            grupo: "atividade",
+          },
+          {
+            key: "rastreio",
+            rotulo: "Rastreio do chat",
+            permissao: "ai.configure",
+            href: "/admin/logs",
+            grupo: "atividade",
+          },
         ],
       },
       {
@@ -365,7 +452,8 @@ export const MAPA: Secao[] = [
            só, com o mesmo componente. Ter as duas portas em seções diferentes
            do menu (Sistema e Assistente) fazia o item aceso mudar conforme o
            escopo, e escopo não é assunto: as duas respondem "como o assistente
-           chega ao usuário". Agora as duas moram no Assistente. */
+           chega ao usuário". Passaram pelo Assistente e hoje moram em Conexões,
+           que é onde vive o resto do eixo do cliente. */
         tambem: ["/admin/sistema", "/admin/chaves-api", "/admin/estilo", "/admin/extensao"],
         apelidos: ["configuração", "smtp", "backup", "chaves de api", "provedores", "estilo"],
         /**

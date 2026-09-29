@@ -120,7 +120,11 @@ export default async function ChatbotPage({
         /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
         <SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />
       }
-      abas={<AbasRota rota="/admin/assistente" atual="canais" permissoes={await permissoesDo()} spaceId={atual.id} />}
+      /* A barra é a de Conexões: chave é instalação no cliente, e esta tela é o
+         recorte de UMA documentação do mesmo objeto. A aba "Canais e chaves"
+         aparece acesa e leva à visão de todas — que é o link que a descrição
+         acima também oferece. */
+      abas={<AbasRota rota="/admin/integracoes" atual="canais" permissoes={await permissoesDo()} />}
     >
 
       {/* Base de conhecimento do bot */}
