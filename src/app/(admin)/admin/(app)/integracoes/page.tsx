@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasPermission } from "@/lib/auth/permissions";
+import { hasPermission, permissoesDo } from "@/lib/auth/permissions";
 import { hasEncryptionKey } from "@/lib/crypto/secrets";
 import { PageShell } from "@/components/ui/page-shell";
 import { SemPermissao } from "@/components/ui/sem-permissao";
@@ -421,6 +421,10 @@ export default async function IntegracoesPage() {
         documentacoes={documentacoes}
         anexosDeDocumentacao={anexosDeDocumentacao}
         podeConfigurarIA={podeConfigurarIA}
+        /* Memoizado por request — o layout já consultou. A barra de abas filtra
+           sozinha o que esta pessoa não pode abrir; a tela não precisa saber
+           quais são. */
+        permissoes={[...(await permissoesDo())]}
       />
     </PageShell>
   );

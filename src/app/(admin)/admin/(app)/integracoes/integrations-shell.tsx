@@ -20,18 +20,6 @@ import { BuilderChat } from "./builder-chat";
 import { WhatsappPanel, type WhatsappSettings } from "./whatsapp-panel";
 
 type SecretsPresent = { app_secret: boolean; access_token: boolean; verify_token: boolean; identity: boolean };
-/**
- * Nenhuma aba desta tela declara permissão própria: a página inteira já exige
- * `integrations.manage`, e quem chegou até aqui pode ver as dez. O conjunto
- * vazio é honesto — filtrar por permissão que ninguém declarou não filtra nada.
- *
- * A aba Documentações é a exceção parcial e ela mesma se defende: as duas
- * tabelas que ela grava exigem `ai.configure` na RLS, então o painel recebe
- * `podeConfigurarIA` e troca a tela pela recusa nomeada em vez de mostrar uma
- * lista vazia que pareceria "nada configurado". Declará-la aqui esconderia a
- * aba, e aba escondida por permissão vira link compartilhado que não abre.
- */
-const PERMISSOES_DA_TELA = new Set<string>();
 
 export type WhatsappBundle = {
   channels: Record<string, WhatsappSettings>;
@@ -56,6 +44,7 @@ export function IntegrationsShell({
   documentacoes,
   anexosDeDocumentacao,
   podeConfigurarIA,
+  permissoes,
 }: {
   bases: BaseRow[];
   tools: ToolRow[];
@@ -74,6 +63,23 @@ export function IntegrationsShell({
   anexosDeDocumentacao: AnexoRow[];
   /** `ai.configure` — a permissão que a RLS das duas tabelas de anexo exige. */
   podeConfigurarIA: boolean;
+  /**
+   * `permissoesDo()` do servidor, como lista (o payload do RSC não carrega Set).
+   *
+   * Antes daqui passava um conjunto VAZIO, com a justificativa de que a página
+   * inteira já exige `integrations.manage` e nenhuma aba declarava permissão
+   * própria. As duas metades caducaram juntas: as abas locais agora declaram
+   * `integrations.manage` e as três que vieram do Assistente pedem
+   * `widget.manage`, `content.view` e `ai.configure`. Com o conjunto vazio, a
+   * barra desta tela ficaria sem NENHUMA aba.
+   *
+   * A aba Documentação por cliente segue sendo a exceção que se defende sozinha:
+   * as duas tabelas que ela grava exigem `ai.configure` na RLS, então o painel
+   * recebe `podeConfigurarIA` e troca a tela pela recusa nomeada em vez de uma
+   * lista vazia que pareceria "nada configurado". Declarar `ai.configure` na aba
+   * a esconderia, e aba escondida vira link compartilhado que não abre.
+   */
+  permissoes: string[];
 }) {
   /**
    * A aba mora na URL, não em `useState`.
@@ -89,7 +95,7 @@ export function IntegrationsShell({
    * justamente onde ele mais ajudaria. Ler daqui resolve os dois lados: a barra
    * e a paleta passam a enxergar a mesma lista.
    */
-  const abas: Aba[] = abasDaRota("/admin/integracoes", PERMISSOES_DA_TELA).map((a) => ({
+  const abas: Aba[] = abasDaRota("/admin/integracoes", new Set(permissoes)).map((a) => ({
     key: a.key,
     label: a.rotulo,
     grupo: a.grupo,

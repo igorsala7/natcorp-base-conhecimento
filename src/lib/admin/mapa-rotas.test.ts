@@ -169,6 +169,21 @@ describe("abasDaRota", () => {
     expect(conversas.href).toBe("/admin/conversas?space=abc-123");
   });
 
+  it("a aba sem permissão própria herda a da ROTA", () => {
+    // O tipo `AbaRota` promete isso desde o começo ("Sem ela, a aba herda a da
+    // rota") e a implementação não cumpria: quem não tinha a permissão da rota
+    // via todas as abas que não declaravam permissão própria. Só aparecia quando
+    // uma barra passou a atravessar seções do menu — aí as abas de Conexões
+    // apareciam para quem só tem `content.view`.
+    // "Auditoria" não declara permissão e a rota exige `audit.read`; "Custos de
+    // IA" declara `ai.configure`. Com só a segunda, sobra só a segunda.
+    const soIA = new Set(["ai.configure"]);
+    expect(abasDaRota("/admin/auditoria", soIA).map((a) => a.key)).toEqual(["custos"]);
+    // …e quem tem a da rota continua vendo as duas.
+    const comAuditoria = new Set(["audit.read", "ai.configure"]);
+    expect(abasDaRota("/admin/auditoria", comAuditoria)).toHaveLength(2);
+  });
+
   it("rota sem abas devolve lista vazia, não quebra", () => {
     expect(abasDaRota("/admin/usuarios", tudo)).toEqual([]);
     expect(abasDaRota("/rota/que/nao/existe", tudo)).toEqual([]);

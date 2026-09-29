@@ -434,7 +434,21 @@ export function abasDaRota(
 ): AbaResolvida[] {
   const rota = ROTAS.find((r) => r.href === hrefDaRota);
   if (!rota?.abas) return [];
-  const visiveis = rota.abas.filter((a) => !a.permissao || permissoes.has(a.permissao));
+  /**
+   * A aba SEM permissão própria HERDA a da rota — o que o tipo `AbaRota` já
+   * prometia ("Sem ela, a aba herda a da rota") e a implementação não cumpria:
+   * ela só filtrava quando a aba declarava permissão própria, então uma aba sem
+   * permissão aparecia para qualquer um.
+   *
+   * Passava despercebido enquanto toda barra morava dentro da própria seção do
+   * menu — a pessoa que abriu a tela já tinha a permissão da rota. Deixa de
+   * passar quando uma barra atravessa seções: um Gestor de conteúdo (60) que
+   * abre `/admin/conversas` por um link antigo tem `content.view` e não tem
+   * `integrations.manage`, e sem a herança ele veria as abas de Conexões — cada
+   * uma levando à tela de recusa. Aba visível que não abre é um beco, e essa
+   * regra já estava escrita aqui embaixo.
+   */
+  const visiveis = rota.abas.filter((a) => permissoes.has(a.permissao ?? rota.permissao));
   return visiveis.map((a, i) => ({
     key: a.key,
     rotulo: a.rotulo,
