@@ -21,13 +21,15 @@ import { cn } from "@/lib/utils";
  * vinda de `abasDaRota()` — a mesma função que o Cmd+K chama.
  *
  * ── Quando usar este, e quando usar `Tabs` ──────────────────────────────────
- * Aqui: quando pelo menos uma aba é OUTRA rota (Assistente › Conversas,
- * Desempenho › Acessos). Navegação de verdade, então `<Link>` de verdade —
- * abre em nova aba, aparece no histórico, funciona sem JavaScript.
+ * Aqui: quando TODA aba é outra rota (Assistente › Ontologia, Conexões ›
+ * Conversas, Desempenho › Acessos). Navegação de verdade, então `<Link>` de
+ * verdade — abre em nova aba, aparece no histórico, funciona sem JavaScript.
  *
- * `Tabs` (o primitivo cliente): quando todas as abas são `?aba=` da mesma rota
- * e os dados já estão no cliente. Lá a troca é instantânea e o round-trip ao
- * servidor seria desperdício.
+ * `Tabs` (o primitivo cliente): quando as abas são `?aba=` da mesma rota e os
+ * dados já estão no cliente — lá a troca é instantânea e o round-trip ao
+ * servidor seria desperdício. Barra MISTA (Conexões tem dez locais e três de
+ * outra rota) é caso do `Tabs`: ele aceita `href` por aba e só as de fora
+ * navegam.
  *
  * ── Por que Server Component ────────────────────────────────────────────────
  * A aba ativa vem de quem renderiza, não da URL lida no cliente: quem monta a

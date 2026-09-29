@@ -256,10 +256,11 @@ export default async function AnalisesPage({
       </section>
       )}
 
-      {/* Chat — o desempenho AGREGADO do assistente. A leitura caso a caso
-          ("por que esta resposta saiu assim") mora em Assistente de IA ›
-          Conversas, junto do rastreio. Número e caso são perguntas diferentes,
-          feitas por pessoas diferentes. */}
+      {/* Chat — o desempenho AGREGADO do assistente, no eixo da DOCUMENTAÇÃO. A
+          leitura caso a caso ("por que esta resposta saiu assim") mora em
+          Conexões › Conversas, junto do rastreio, porque é pergunta sobre um
+          cliente. Número e caso são perguntas diferentes, feitas por pessoas
+          diferentes — e esta é a que fica com quem escreve. */}
       {aba === "chat" && (
       <section>
         <h2 className={`mb-3 ${eyebrowLabel}`}>Assistente (chat)</h2>

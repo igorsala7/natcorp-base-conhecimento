@@ -84,7 +84,7 @@ export function buscarDestinos(
      *
      * Antes esta função montava o destino sozinha, sempre como
      * `${r.href}?aba=${aba.key}`. Duas suposições erradas embutidas ali: que
-     * toda aba é `?aba=` (Assistente › Conversas é outra rota) e que toda tela
+     * toda aba é `?aba=` (Conexões › Conversas é outra rota) e que toda tela
      * lê esse parâmetro (só duas liam). Das 15 abas declaradas, 11 levavam à
      * aba padrão sem aviso.
      *

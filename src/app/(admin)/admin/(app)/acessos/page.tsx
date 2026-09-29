@@ -124,9 +124,10 @@ export default async function AcessosPage({ searchParams }: { searchParams: Prom
        *
        * Ela dividia barra com Conversas e Rastreio — "as três leituras do mesmo
        * tráfego" — mas o `mapa-rotas` arquiva esta rota em Desempenho e as
-       * outras duas em Assistente de IA. A consequência era visível: clicar na
-       * aba do meio fazia o item aceso na barra lateral pular de seção, e sem
-       * breadcrumb a barra lateral era a única resposta para "onde estou".
+       * outras duas moravam em Assistente de IA (hoje em Conexões, do lado do
+       * cliente). A consequência era visível: clicar na aba do meio fazia o item
+       * aceso na barra lateral pular de seção, e sem breadcrumb a barra lateral
+       * era a única resposta para "onde estou".
        */
       abas={<AbasRota rota="/admin/analises" atual="acessos" permissoes={permissoes} spaceId={atual.id} />}
     >
