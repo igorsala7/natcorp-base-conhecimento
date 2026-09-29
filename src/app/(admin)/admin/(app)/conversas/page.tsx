@@ -4,8 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllPaged } from "@/lib/supabase/paginate";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listSpaces } from "@/lib/content/spaces";
-import { pickSpace } from "@/lib/content/current-space";
-import { SpaceSwitcher } from "@/components/content/space-switcher";
 import { ConversasList, type Conversa, type ConvMsg } from "./conversas-list";
 import { comBase } from "@/lib/base-path";
 import { SemPermissao } from "@/components/ui/sem-permissao";
@@ -16,7 +14,21 @@ import { AbasRota } from "@/components/admin/abas-rota";
 
 export const metadata: Metadata = { title: "Conversas" };
 
-/** Teto de conversas trazidas por consulta (as mais recentes que batem no filtro). */
+/**
+ * Teto de conversas trazidas por consulta (as mais recentes que batem no filtro).
+ *
+ * É teto EXPLÍCITO, e continua valendo agora que a documentação deixou de ser
+ * portão: sem `space_id`, a consulta varre as conversas de todas as documentações
+ * que a RLS deixa a pessoa ver, e ainda devolve no máximo 300 — o teto de 1.000
+ * linhas do PostgREST não entra em jogo aqui porque este número é menor que ele.
+ * Quem muda este valor precisa saber que acima de 1.000 o corte passa a ser do
+ * PostgREST, silencioso, e o `totalTrazido` mentiria.
+ *
+ * O que o alargamento muda é a COMPOSIÇÃO das 300: um cliente movimentado pode
+ * ocupá-las sozinho e empurrar os outros para fora da janela. É para isso que os
+ * filtros de base e de documentação existem, e é por isso que a lista avisa
+ * quando bate no teto em vez de fingir que mostrou tudo.
+ */
 const LIMITE = 300;
 
 type SP = {
@@ -50,6 +62,22 @@ function Campo({ label, name, value, type = "text", placeholder }: {
  * portal, empresa, matrícula) e a leitura da thread (pergunta + resposta).
  * Leitura sob RLS: só aparecem conversas de documentações onde o usuário tem
  * `content.view`.
+ *
+ * ── A documentação é FILTRO, não portão ─────────────────────────────────────
+ * Esta tela nasceu no eixo da documentação: `pickSpace` resolvia um espaço pela
+ * URL, pelo cookie ou pelo primeiro do banco, e a consulta SEMPRE filtrava por
+ * ele. Consequência: não havia como responder "o que os clientes andaram
+ * perguntando" — só "o que perguntaram nesta documentação", e qual documentação
+ * era dependia de um cookie escrito em outra tela. A mensagem "Nenhuma
+ * documentação." que parecia ser o caso "nada escolhido" só aparecia quando não
+ * havia espaço NENHUM no banco: `pickSpace` cai no primeiro da lista.
+ *
+ * Com a tela no eixo do cliente (aba de Conexões, escopo `plataforma`), a
+ * documentação virou um filtro entre os outros, e sem escolha explícita a
+ * consulta não filtra nada. O cookie deixou de participar de propósito: tela de
+ * escopo `plataforma` ignora o seletor de documentação (ver `mapa-rotas`), e um
+ * filtro que muda sozinho conforme a última tela visitada é pior que filtro
+ * nenhum.
  */
 export default async function ConversasPage({ searchParams }: { searchParams: Promise<SP> }) {
   if (!(await hasPermission("content.view"))) {
@@ -65,20 +93,22 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
 
   const spaces = await listSpaces();
   const sp = await searchParams;
-  const atual = await pickSpace(spaces, sp.space);
+  // Só id que existe na lista visível vale como filtro. Link antigo apontando
+  // para documentação excluída cai em "todas" — que é o que o seletor mostra —
+  // em vez de devolver uma lista vazia sem dizer por quê.
+  const espacoFiltrado = spaces.find((s) => s.id === sp.space)?.id;
   // Memoizado por request — o layout já consultou. A barra some sozinha com a
   // aba que a pessoa não pode abrir; a tela não precisa mais saber quais são.
   const permissoes = await permissoesDo();
-  if (!atual) return <div className="p-8 text-text-muted">Nenhuma documentação.</div>;
 
   const supabase = await createClient();
 
   let q = supabase
     .from("conversations")
-    .select("id, created_at, session_id, p_base, p_usuario, p_portal, p_empresa, p_matricula, p_perfil")
-    .eq("space_id", atual.id)
+    .select("id, created_at, session_id, space_id, p_base, p_usuario, p_portal, p_empresa, p_matricula, p_perfil")
     .order("created_at", { ascending: false })
     .limit(LIMITE);
+  if (espacoFiltrado) q = q.eq("space_id", espacoFiltrado);
 
   const filtros: [keyof SP, string][] = [
     ["empresa", "p_empresa"], ["usuario", "p_usuario"], ["matricula", "p_matricula"],
@@ -133,7 +163,14 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
   // Filtros que dependem das mensagens (texto e feedback) aplicados em memória.
   const texto = sp.q?.trim().toLowerCase();
   const fb = sp.feedback; // "up" | "down"
-  let lista: Conversa[] = convs.map((c) => ({ ...c, messages: porConversa.get(c.id) ?? [] }));
+  // O NOME da documentação vai para a lista, não o id: a conversa exibe um chip
+  // ao lado de "Base", e uuid em chip não diz nada a quem lê.
+  const nomeDaDocumentacao = new Map(spaces.map((s) => [s.id, s.name]));
+  let lista: Conversa[] = convs.map(({ space_id, ...c }) => ({
+    ...c,
+    documentacao: space_id ? nomeDaDocumentacao.get(space_id) ?? null : null,
+    messages: porConversa.get(c.id) ?? [],
+  }));
   if (texto) {
     lista = lista.filter((c) => c.messages.some((m) => (m.content ?? "").toLowerCase().includes(texto)));
   }
@@ -142,8 +179,11 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
     lista = lista.filter((c) => c.messages.some((m) => m.feedback === alvo));
   }
 
+  // `espacoFiltrado` entra na conta: a documentação é um filtro como os outros, e
+  // "Limpar" tem de limpá-la também.
   const temFiltro = Boolean(
-    sp.empresa || sp.usuario || sp.matricula || sp.portal || sp.base || sp.perfil || sp.de || sp.ate || sp.q || sp.feedback,
+    espacoFiltrado ||
+      sp.empresa || sp.usuario || sp.matricula || sp.portal || sp.base || sp.perfil || sp.de || sp.ate || sp.q || sp.feedback,
   );
 
   return (
@@ -151,16 +191,20 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
       titulo="Conversas"
       descricao={
         <>
-          O que os usuários perguntaram ao chatbot e ao portal — com os parâmetros de rastreio (base, usuário,
-          portal, empresa, matrícula, perfil) que a conversa carregou.{" "}
+          O que os usuários perguntaram ao chatbot e ao portal, de todas as documentações — com os
+          parâmetros de rastreio (base, usuário, portal, empresa, matrícula, perfil) que a conversa
+          carregou. Para uma documentação só, use o filtro.{" "}
           <a href={comBase("/admin/widget")} className="font-medium text-primary hover:underline">
             Como enviar os parâmetros? →
           </a>
         </>
       }
       largura="wide"
-      /* Grava o cookie que o seletor da barra lateral exibe — ver estudio/page.tsx. */
-      acoes={<SpaceSwitcher spaces={spaces} currentId={atual.id} canCreate={false} canManage={false} />}
+      /* SEM `SpaceSwitcher` aqui: ele grava o cookie da documentação "em
+         manutenção", que vale para as telas de escopo `espaco`. Esta é de escopo
+         `plataforma` e a documentação é um filtro — mudar a seleção GLOBAL para
+         estreitar uma lista é efeito colateral que ninguém pediu. O filtro mora
+         no formulário, junto dos outros. */
       /**
        * UMA barra, não duas — e agora a de Conexões.
        *
@@ -180,8 +224,21 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
 
       {/* Filtros — GET, para o estado viver na URL (compartilhável). */}
       <form method="get" className="mt-6 rounded-xl border border-border bg-surface p-4 shadow-1">
-        <input type="hidden" name="space" value={atual.id} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {/* PRIMEIRO campo, e não um seletor no cabeçalho: era ali que a
+              documentação morava enquanto ela era portão. Como filtro, ela
+              pertence ao formulário — junto do que se limpa com um clique. */}
+          <label className="col-span-2 flex flex-col gap-1">
+            <span className="text-xs font-medium text-text-muted">Documentação</span>
+            <select className={controlClass} name="space" defaultValue={espacoFiltrado ?? ""}>
+              <option value="">Todas as documentações</option>
+              {spaces.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <Campo label="Empresa" name="empresa" value={sp.empresa} placeholder="Ex.: ACME" />
           <Campo label="Usuário" name="usuario" value={sp.usuario} placeholder="Ex.: joao" />
           <Campo label="Matrícula" name="matricula" value={sp.matricula} />
@@ -211,7 +268,11 @@ export default async function ConversasPage({ searchParams }: { searchParams: Pr
             </button>
             {temFiltro && (
               <a
-                href={`/admin/conversas?space=${atual.id}`}
+                /* `comBase` porque o basePath do Next NÃO reescreve `href` de
+                   `<a>` cru: com o app em /natcorp/ia, o caminho cru submete para
+                   a raiz do domínio e devolve 404. Mesma armadilha que já
+                   derrubou os filtros da gestão. */
+                href={comBase("/admin/conversas")}
                 className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-text transition-colors hover:border-primary hover:text-primary"
               >
                 Limpar

@@ -22,6 +22,14 @@ export type Conversa = {
   id: string;
   created_at: string;
   session_id: string | null;
+  /**
+   * Nome da documentação, resolvido no servidor — não o `space_id`.
+   *
+   * Existe porque a lista deixou de ser de UMA documentação: sem escolha
+   * explícita, ela traz as 300 conversas mais recentes de todas. Misturar sem
+   * dizer de qual documentação é cada uma seria uma lista que não se pode ler.
+   */
+  documentacao: string | null;
   p_base: string | null;
   p_usuario: string | null;
   p_portal: string | null;
@@ -61,9 +69,13 @@ function tokensDaMensagem(msgs: ConvMsg[], i: number): { entrada: number | null;
   return { entrada: null, saida: null };
 }
 
+// "Documentação" ao lado de "Base" de propósito: as duas dizem DE ONDE a conversa
+// veio (o cliente e a documentação que respondeu), enquanto as outras quatro dizem
+// QUEM perguntou.
 const PARAMS: [keyof Conversa, string][] = [
   ["p_empresa", "Empresa"], ["p_usuario", "Usuário"], ["p_matricula", "Matrícula"],
-  ["p_portal", "Portal"], ["p_base", "Base"], ["p_perfil", "Perfil"],
+  ["p_portal", "Portal"], ["p_base", "Base"], ["documentacao", "Documentação"],
+  ["p_perfil", "Perfil"],
 ];
 
 function Chip({ label, value }: { label: string; value: string }) {
@@ -93,15 +105,16 @@ function csvCell(v: string | number | null): string {
 
 function exportarCsv(conversas: Conversa[]) {
   const head = [
-    "conversa_id", "data_hora", "empresa", "usuario", "matricula", "portal", "base", "perfil",
-    "sessao", "papel", "feedback", "latencia_ms", "tokens_entrada", "tokens_saida", "conteudo",
+    "conversa_id", "data_hora", "empresa", "usuario", "matricula", "portal", "base", "documentacao",
+    "perfil", "sessao", "papel", "feedback", "latencia_ms", "tokens_entrada", "tokens_saida", "conteudo",
   ];
   const linhas = [head.map(csvCell).join(",")];
   for (const c of conversas) {
     c.messages.forEach((m, i) => {
       const { entrada, saida } = tokensDaMensagem(c.messages, i);
       linhas.push([
-        c.id, dataHoraSeg(m.created_at), c.p_empresa, c.p_usuario, c.p_matricula, c.p_portal, c.p_base, c.p_perfil,
+        c.id, dataHoraSeg(m.created_at), c.p_empresa, c.p_usuario, c.p_matricula, c.p_portal, c.p_base,
+        c.documentacao, c.p_perfil,
         c.session_id, m.role === "user" ? "usuário" : "assistente",
         m.feedback === 1 ? "positivo" : m.feedback === -1 ? "negativo" : "",
         m.latency_ms, entrada, saida, m.content,
