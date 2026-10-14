@@ -173,15 +173,19 @@ export const CHAT_MODELS: Record<ProviderKind, string[]> = {
     "gpt-5.4-mini",
     "gpt-5.4-nano",
   ],
+  // Conferido em ai.google.dev (preços e descontinuação) em 14/10/2026. Fora da
+  // lista por serem só redirecionamento: 3.5-flash → 3.6-flash, 3.7-flash →
+  // 3.8-flash, 3-flash-preview (legado) → 3.6-flash. 3.1-flash-lite sai em
+  // 07/05/2027 (substituto: 3.5-flash-lite).
   google: [
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
+    "gemini-4-argon",
     "gemini-3.5-flash-lite",
     "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite",
-    "gemini-3-flash-preview",
     "gemini-2.5-pro",
     "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite",
   ],
   // Sem visão (imagem vira texto por OCR) e sem embeddings. `-br-sp` = mesmo
   // modelo processado só no Brasil, 30% mais caro. Conferido em 13/10/2026.
@@ -203,7 +207,7 @@ export const CHAT_MODELS: Record<ProviderKind, string[]> = {
  */
 export const OCR_MODELS: Record<ProviderKind, string[]> = {
   maritaca: ["sabiazinho-4-br-sp", "sabiazinho-4", "sabia-4-br-sp", "sabia-4"],
-  google: ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.1-pro-preview"],
+  google: ["gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.1-pro-preview"],
   openai: ["gpt-5.4-mini", "gpt-5.5", "gpt-5.6"],
   anthropic: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
 };
