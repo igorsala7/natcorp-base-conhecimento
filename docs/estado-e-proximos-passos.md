@@ -98,9 +98,11 @@ Escopo decidido: **Fase A agora** (provedor + categoria + extração de texto),
    plataforma.maritaca.ai: atribuir a finalidade OCR e clicar **Testar** (o teste imprime
    um código num PDF e só passa se o código VOLTAR lido). Nenhuma finalidade foi atribuída
    à Maritaca.
-2. **Preço em US$ dos 6 modelos Maritaca** está nulo e `confirmado = false`: a Maritaca
-   cobra em R$ e a tabela é em US$. Decisão sua: qual câmbio (fixo? do mês?). Os valores
-   em R$ estão na coluna `fonte`.
+2. **Preço dos 6 modelos Maritaca: cadastrado em 14/10** (`20261014003000_precos_maritaca.sql`,
+   `confirmado = true`). Convertido pelo câmbio que a própria Maritaca publica em
+   maritaca.ai/planos (US$ 1 ≈ R$ 5,14), decisão do dono. Câmbio mudou: linha NOVA com
+   `vigente_desde`, nunca editar a antiga. Desconto noturno/Flex/Batch não modelado
+   (custo sai pelo preço cheio, lado conservador).
 3. **Custo da extração por página** não entra em `ai_usage` (a tabela só conta tokens).
    `extrairTexto` devolve `paginasExtraidas`; falta decidir onde contabilizar.
 4. **Fase B redefinida pelo dono (13/10): o OCR só CAPTURA e disponibiliza; a
