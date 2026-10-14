@@ -147,7 +147,10 @@ export function mensagemErroMaritaca(status: number, corpo: string): string {
     return "Limite de uso da Maritaca atingido (429). Aguarde e tente de novo; no Tier 0 o teto é baixo.";
   }
   if (corpo.includes("insufficient_funds")) {
-    return "A conta da Maritaca está sem créditos. Adicione créditos em plataforma.maritaca.ai e tente de novo.";
+    return (
+      "A Maritaca está sem créditos para esta chave. O saldo precisa estar na MESMA organização em que a chave foi criada " +
+      "em plataforma.maritaca.ai; pagamento ainda não compensado também não conta."
+    );
   }
   if (status === 401 || corpo.includes("Not authenticated")) {
     return "A Maritaca recusou a chave de API. Confira a chave em Sistema → IA → Provedores.";

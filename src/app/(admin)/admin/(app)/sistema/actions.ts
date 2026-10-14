@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { generateText, embed, experimental_transcribe as transcribe } from "ai";
+import { APICallError, generateText, embed, experimental_transcribe as transcribe } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/ai/config";
 import { PROVIDER_LABEL, suportaFinalidade, type ProviderKind, type Purpose } from "@/lib/ai/catalog";
 import { extrairTexto } from "@/lib/ai/ocr";
+import { mensagemErroMaritaca } from "@/lib/ai/ocr-formato";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { sendEmail } from "@/lib/email/send";
 import { loadEmailWrapper } from "@/lib/email/template";
@@ -328,6 +329,11 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
         ok: false,
         error: "O provedor não respondeu dentro do tempo limite. Verifique a rede ou tente um modelo mais rápido.",
       };
+    }
+    // Maritaca: os casos que o administrador resolve sozinho (sem crédito,
+    // chave recusada, limite) saem em português, como no OCR.
+    if (cfg.kind === "maritaca" && APICallError.isInstance(e)) {
+      return { ok: false, error: mensagemErroMaritaca(e.statusCode ?? 0, e.responseBody ?? e.message) };
     }
     // A mensagem CRUA do provedor é o que resolve o problema de quem configura
     // ("crédito insuficiente", "modelo inexistente", "chave inválida").

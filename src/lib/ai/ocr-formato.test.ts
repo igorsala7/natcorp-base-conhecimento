@@ -77,7 +77,7 @@ describe("mensagemErroMaritaca", () => {
     // Corpo real recebido em 13/10/2026 (conta sem crédito).
     const semCredito =
       '{"error":{"message":"Sorry, you need have active credits to use MariTalk via API.","type":"invalid_request_error","param":null,"code":"insufficient_funds"}}';
-    expect(mensagemErroMaritaca(403, semCredito)).toMatch(/sem créditos/);
+    expect(mensagemErroMaritaca(403, semCredito)).toMatch(/sem créditos.*MESMA organização/);
     expect(mensagemErroMaritaca(429, "")).toMatch(/Limite de uso/);
     expect(mensagemErroMaritaca(403, '{"detail":"Not authenticated"}')).toMatch(/recusou a chave/);
     expect(mensagemErroMaritaca(500, "boom")).toBe("Maritaca respondeu 500: boom");
