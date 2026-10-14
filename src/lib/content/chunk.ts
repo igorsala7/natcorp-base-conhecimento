@@ -74,7 +74,7 @@ import { type Chunk, chunkArticle, CHUNK_MAX, fatiar } from "./chunk-split";
  * do manual para dentro do vetor. Só o EMBEDDING muda — a coluna `content`
  * (exibição, snippet, tsv) continua o texto puro.
  */
-function textoParaEmbedding(
+export function textoParaEmbedding(
   contexto: string,
   heading: string,
   content: string,
@@ -86,7 +86,7 @@ function textoParaEmbedding(
 }
 
 /** Reconstrói o uuid a partir do rótulo do ltree (uuid sem hífens). */
-function uuidDeLabel(label: string): string | null {
+export function uuidDeLabel(label: string): string | null {
   if (!/^[0-9a-f]{32}$/.test(label)) return null;
   return `${label.slice(0, 8)}-${label.slice(8, 12)}-${label.slice(12, 16)}-${label.slice(16, 20)}-${label.slice(20)}`;
 }
@@ -116,7 +116,12 @@ async function contextoDoNo(
       .maybeSingle();
     manual = root?.title ?? null;
   }
-  return manual ? `Documento: ${manual} — Artigo: ${node.title}` : `Documento: ${node.title}`;
+  return prefixoDoArtigo(manual, node.title);
+}
+
+/** O prefixo em si, puro — o re-embed em massa monta o mesmo texto sem uma consulta por nó. */
+export function prefixoDoArtigo(manual: string | null, titulo: string): string {
+  return manual ? `Documento: ${manual} — Artigo: ${titulo}` : `Documento: ${titulo}`;
 }
 
 /**

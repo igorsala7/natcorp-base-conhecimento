@@ -10,6 +10,7 @@ import {
   embeddingModel,
   embeddingCallOptions,
   hasEmbeddingKey,
+  resolveAi,
   aiTimeout,
 } from "@/lib/ai/config";
 import {
@@ -355,7 +356,10 @@ async function retrieveWith(
   if (!lexicalOnly && (await hasEmbeddingKey())) {
     // Cache do vetor da query (KV): a MESMA pergunta (mesmo espaço/sinônimos)
     // reaproveita o embedding — corta chamadas ao provedor no pico. TTL 1h.
-    const cacheKey = hashKey("emb:", queryVetor);
+    // O MODELO entra na chave: vetor de um modelo não se compara com o de outro,
+    // e na troca de 14/10 a chave só de texto serviria o vetor velho por até 1 h.
+    const modeloEmb = (await resolveAi("embedding"))?.model ?? "";
+    const cacheKey = hashKey(`emb:${modeloEmb}:`, queryVetor);
     embedding = await kvGetJson<number[]>(cacheKey);
     if (!embedding) {
       try {

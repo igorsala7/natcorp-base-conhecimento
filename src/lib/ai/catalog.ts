@@ -228,7 +228,8 @@ export const EMBEDDING_MODELS: Record<ProviderKind, string[]> = {
   // Só modelos que entregam 1536 dims (nativo ou por parâmetro). Não incluir os
   // que fixam outra dimensão (ex.: text-embedding-004, 768) — não cabem na coluna.
   openai: ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"],
-  google: ["gemini-embedding-001"],
+  // gemini-embedding-2 em uso desde 14/10/2026; o 001 é servido até 14/05/2028.
+  google: ["gemini-embedding-2", "gemini-embedding-001"],
   // A Maritaca não tem modelo de embeddings (a doc dela indica a DeepInfra).
   maritaca: [],
 };

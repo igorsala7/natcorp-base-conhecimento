@@ -92,23 +92,30 @@ async function espacosDaBase(db: DB, baseId: string): Promise<string[]> {
 
 export type ResultadoSyncBase = { total: number; regerados: number; pulados: number; semOntologia: number };
 
+/** O texto que vira o vetor de UMA ferramenta numa base, e o hash dele. */
+export type TextoDaToolNaBase = { toolId: string; key: string; fonte: string; hash: string; termosOntologia: number };
+
 /**
- * (Re)gera os embeddings de UMA BASE com a ontologia dela. Idempotente: só refaz
- * quando o texto-fonte mudou (hash) — republicar ontologia não re-embedda o
- * catálogo inteiro à toa. `force` ignora o hash.
+ * Os textos-fonte dos vetores por base, sem embeddar nada.
  *
- * Best-effort por tool: falha de embedding de uma não derruba o lote.
+ * Separado de `syncToolBaseEmbeddings` para que a troca de MODELO de embedding
+ * (scripts/reembed-tudo.ts) e a calibração (scripts/calibrar-embedding.ts)
+ * vetorizem exatamente o mesmo texto que o sync grava — duas cópias da montagem
+ * divergiriam na primeira mudança de ontologia.
  */
-export async function syncToolBaseEmbeddings(
+export async function textosDaBase(
   db: DB,
   baseCode: string,
-  opts: { toolIds?: string[]; force?: boolean; onProgresso?: (feito: number, total: number) => void } = {},
-): Promise<ResultadoSyncBase> {
-  const zero: ResultadoSyncBase = { total: 0, regerados: 0, pulados: 0, semOntologia: 0 };
+  toolIds?: string[],
+  /** Base desligada também — só para a troca de modelo, que não pode deixar vetor velho para trás. */
+  incluirInativa = false,
+): Promise<{ baseId: string; itens: TextoDaToolNaBase[] } | null> {
   const alvo = String(baseCode ?? "").trim();
-  if (!alvo) return zero;
-  const { data: base } = await db.from("ai_bases").select("id").ilike("base_code", alvo).eq("active", true).maybeSingle();
-  if (!base) return zero;
+  if (!alvo) return null;
+  let consulta = db.from("ai_bases").select("id").ilike("base_code", alvo);
+  if (!incluirInativa) consulta = consulta.eq("active", true);
+  const { data: base } = await consulta.maybeSingle();
+  if (!base) return null;
 
   const spaceIds = await espacosDaBase(db, base.id);
   const { data: rows } = await db
@@ -121,8 +128,8 @@ export async function syncToolBaseEmbeddings(
   const tools = (rows ?? [])
     .map((r) => (r as { tool: Row | null }).tool)
     .filter((t): t is Row => !!t && t.active)
-    .filter((t) => !opts.toolIds?.length || opts.toolIds.includes(t.id));
-  if (!tools.length) return zero;
+    .filter((t) => !toolIds?.length || toolIds.includes(t.id));
+  if (!tools.length) return { baseId: base.id, itens: [] };
   // Chaves das OUTRAS ferramentas: o que aparecer numa descrição citando uma delas é
   // orquestração, não assunto — sai do vetor (ver `semOrquestracao`).
   const todasChaves = new Set(tools.map((t) => t.key.toLowerCase()));
@@ -131,12 +138,6 @@ export async function syncToolBaseEmbeddings(
     s2.delete(propria.toLowerCase());
     return s2;
   };
-
-  const { data: atuais } = await db
-    .from("ai_tool_base_embeddings")
-    .select("tool_id, fonte_hash")
-    .eq("base_id", base.id);
-  const hashAtual = new Map((atuais ?? []).map((r) => [r.tool_id, r.fonte_hash]));
 
   // ── Quais conceitos da ontologia cada ferramenta dispara ────────────────────
   // Duas passadas: a 1ª casa os conceitos e conta em quantas ferramentas cada
@@ -154,38 +155,68 @@ export async function syncToolBaseEmbeddings(
   }
   const formasPorTool = selecionarFormasOntologia(textos, entradas);
 
-  const out: ResultadoSyncBase = { ...zero, total: tools.length };
-  let feito = 0;
-  for (const t of tools) {
+  const itens = tools.map((t) => {
     const texto = textos.get(t.id)!;
     const usadas = formasPorTool.get(t.id) ?? [];
     const fonte = usadas.length ? `${texto}\nTambém chamado de: ${usadas.join(", ")}` : texto;
-    const hash = hashTexto(fonte);
-    if (!usadas.length) out.semOntologia++;
-    if (!opts.force && hashAtual.get(t.id) === hash) {
+    // O hash é do texto inteiro; o vetor, dos primeiros 4000 caracteres.
+    return { toolId: t.id, key: t.key, fonte: fonte.slice(0, 4000), hash: hashTexto(fonte), termosOntologia: usadas.length };
+  });
+  return { baseId: base.id, itens };
+}
+
+/**
+ * (Re)gera os embeddings de UMA BASE com a ontologia dela. Idempotente: só refaz
+ * quando o texto-fonte mudou (hash) — republicar ontologia não re-embedda o
+ * catálogo inteiro à toa. `force` ignora o hash.
+ *
+ * Best-effort por tool: falha de embedding de uma não derruba o lote.
+ */
+export async function syncToolBaseEmbeddings(
+  db: DB,
+  baseCode: string,
+  opts: { toolIds?: string[]; force?: boolean; onProgresso?: (feito: number, total: number) => void } = {},
+): Promise<ResultadoSyncBase> {
+  const zero: ResultadoSyncBase = { total: 0, regerados: 0, pulados: 0, semOntologia: 0 };
+  const alvo = String(baseCode ?? "").trim();
+  const montado = await textosDaBase(db, alvo, opts.toolIds);
+  if (!montado || !montado.itens.length) return zero;
+  const { baseId, itens } = montado;
+
+  const { data: atuais } = await db
+    .from("ai_tool_base_embeddings")
+    .select("tool_id, fonte_hash")
+    .eq("base_id", baseId);
+  const hashAtual = new Map((atuais ?? []).map((r) => [r.tool_id, r.fonte_hash]));
+
+  const out: ResultadoSyncBase = { ...zero, total: itens.length };
+  let feito = 0;
+  for (const t of itens) {
+    if (!t.termosOntologia) out.semOntologia++;
+    if (!opts.force && hashAtual.get(t.toolId) === t.hash) {
       out.pulados++;
-      opts.onProgresso?.(++feito, tools.length);
+      opts.onProgresso?.(++feito, itens.length);
       continue;
     }
-    const emb = await embedTexto(fonte.slice(0, 4000));
+    const emb = await embedTexto(t.fonte);
     if (!emb) {
-      opts.onProgresso?.(++feito, tools.length);
+      opts.onProgresso?.(++feito, itens.length);
       continue; // provedor falhou nesta: mantém o vetor anterior (ou o global)
     }
     const { error } = await db.from("ai_tool_base_embeddings").upsert(
       {
-        base_id: base.id,
-        tool_id: t.id,
+        base_id: baseId,
+        tool_id: t.toolId,
         embedding: vecLiteral(emb),
-        fonte_hash: hash,
-        termos_ontologia: usadas.length,
+        fonte_hash: t.hash,
+        termos_ontologia: t.termosOntologia,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "base_id,tool_id" },
     );
     if (error) console.error(`[tool-catalog] embedding por base (${t.key}):`, error.message);
     else out.regerados++;
-    opts.onProgresso?.(++feito, tools.length);
+    opts.onProgresso?.(++feito, itens.length);
   }
   invalidateCatalogo(alvo);
   return out;
