@@ -17,6 +17,7 @@ import {
   EMBEDDING_DIM,
   PROVIDER_BASE_URL,
   precisaDimensoes,
+  recusaTemperatura,
   type ProviderKind,
   type Purpose,
 } from "@/lib/ai/catalog";
@@ -333,10 +334,19 @@ function instanciar(cfg: ResolvedAi) {
       return createOpenAI({ ...opts, name: "maritaca" }).chat(cfg.model);
     case "google":
       return createGoogleGenerativeAI(opts)(cfg.model);
-    default:
-      return createAnthropic(opts)(cfg.model);
+    default: {
+      const modelo = createAnthropic(opts)(cfg.model);
+      if (!recusaTemperatura(cfg.kind, cfg.model)) return modelo;
+      return wrapLanguageModel({ model: modelo, middleware: semTemperatura });
+    }
   }
 }
+
+/** Tira `temperature` da chamada para o modelo que o recusa (ver `recusaTemperatura`). */
+const semTemperatura: LanguageModelMiddleware = {
+  specificationVersion: "v3",
+  transformParams: async ({ params }) => ({ ...params, temperature: undefined }),
+};
 
 /**
  * Registro de consumo (tokens de envio/recebimento) por provedor e modelo.

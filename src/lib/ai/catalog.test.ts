@@ -8,6 +8,7 @@ import {
   enxergaImagem,
   modelosDe,
   processaNoBrasil,
+  recusaTemperatura,
   suportaFinalidade,
   type ProviderKind,
 } from "./catalog";
@@ -83,5 +84,19 @@ describe("Maritaca", () => {
   it("é o único provedor sem visão", () => {
     expect(enxergaImagem(m)).toBe(false);
     for (const k of ["anthropic", "openai", "google"] as const) expect(enxergaImagem(k)).toBe(true);
+  });
+});
+
+describe("recusaTemperatura (sondado contra a API em 14/10/2026)", () => {
+  it("só os Claude que devolvem 400 por causa do parâmetro", () => {
+    for (const m of ["claude-opus-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-opus-5-20261001"])
+      expect(recusaTemperatura("anthropic", m), m).toBe(true);
+    for (const m of ["claude-haiku-4-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-fable-5", "claude-fable-5-1", "claude-opus-4-8"])
+      expect(recusaTemperatura("anthropic", m), m).toBe(false);
+  });
+
+  it("nome igual em outro provedor não conta", () => {
+    expect(recusaTemperatura("openai", "claude-opus-5")).toBe(false);
+    expect(recusaTemperatura("maritaca", "sabia-4")).toBe(false);
   });
 });

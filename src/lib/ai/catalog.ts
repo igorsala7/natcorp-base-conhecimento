@@ -41,6 +41,19 @@ export function enxergaImagem(kind: ProviderKind): boolean {
 }
 
 /**
+ * Modelo que RECUSA o parâmetro `temperature` (HTTP 400 "`temperature` is
+ * deprecated for this model"). Sondado em 14/10/2026 contra a API: no Claude,
+ * opus-5, opus-5-5 e haiku-5-5 recusam; haiku-4-5, sonnet-5, sonnet-5-5,
+ * fable-5 e fable-5-1 aceitam. Quem recusa recebe a chamada SEM o parâmetro
+ * (config.ts) em vez de falhar: o editor, o importador ("criatividade") e o
+ * OCR por visão passam `temperature`, e trocar o modelo deles para um destes
+ * derrubaria a função inteira. Na OpenAI o SDK já descarta sozinho, com aviso.
+ */
+export function recusaTemperatura(kind: ProviderKind, model: string): boolean {
+  return kind === "anthropic" && /^claude-(opus-5|opus-5-5|haiku-5-5)(-\d{8})?$/.test(model.trim());
+}
+
+/**
  * Modelos com processamento declarado 100% em território nacional. A tela de
  * OCR usa isto para avisar quando um documento pessoal sairia do país —
  * decisão do administrador, não trava do sistema.
