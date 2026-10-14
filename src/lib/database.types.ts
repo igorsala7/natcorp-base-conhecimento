@@ -271,9 +271,11 @@ export type Database = {
         Row: {
           base_code: string
           model: string
+          model_reserva: string | null
           model_sem_credito: string | null
           params: Json
           provider_id: string
+          provider_reserva: string | null
           provider_sem_credito: string | null
           purpose: string
           updated_at: string
@@ -281,9 +283,11 @@ export type Database = {
         Insert: {
           base_code?: string
           model: string
+          model_reserva?: string | null
           model_sem_credito?: string | null
           params?: Json
           provider_id: string
+          provider_reserva?: string | null
           provider_sem_credito?: string | null
           purpose: string
           updated_at?: string
@@ -291,9 +295,11 @@ export type Database = {
         Update: {
           base_code?: string
           model?: string
+          model_reserva?: string | null
           model_sem_credito?: string | null
           params?: Json
           provider_id?: string
+          provider_reserva?: string | null
           provider_sem_credito?: string | null
           purpose?: string
           updated_at?: string

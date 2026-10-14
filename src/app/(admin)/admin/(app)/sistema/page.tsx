@@ -51,7 +51,7 @@ export default async function SistemaPage() {
       supabase.from("ai_providers").select("id, name, kind, base_url, active, base_code").order("name"),
       supabase
         .from("ai_assignments")
-        .select("purpose, provider_id, model, base_code, model_sem_credito, provider_sem_credito"),
+        .select("purpose, provider_id, model, base_code, model_sem_credito, provider_sem_credito, model_reserva, provider_reserva"),
       supabase.from("email_settings").select("*").maybeSingle(),
       secretsPresentes(),
       currentMaxLevel(null),

@@ -63,6 +63,24 @@ export type Purpose =
   | "ocr";
 
 /**
+ * Finalidades que aceitam MODELO DE RESERVA (outro provedor refaz a chamada
+ * quando o principal falha). Fora: embedding (vetor de outro modelo não se
+ * compara), OCR (documento pessoal só vai aonde o administrador escolheu) e
+ * transcrição (só Whisper). O banco tem o mesmo CHECK
+ * (20261014150000_modelo_reserva.sql).
+ */
+export const RESERVA_APLICAVEL: ReadonlySet<Purpose> = new Set<Purpose>([
+  "chat",
+  "chat_ferramentas",
+  "report_analysis",
+  "query_rewrite",
+  "import_structure",
+  "import_layout",
+  "editor_text",
+  "editor_generate",
+]);
+
+/**
  * Grupos da tela "Qual IA faz o quê". Finalidades do mesmo assunto ficam
  * juntas; a ordem aqui é a ordem na tela.
  */

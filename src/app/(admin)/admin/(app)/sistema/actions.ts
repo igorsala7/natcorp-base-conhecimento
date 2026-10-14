@@ -18,7 +18,7 @@ import {
   aiTimeout,
   ehTimeout,
 } from "@/lib/ai/config";
-import { PROVIDER_LABEL, suportaFinalidade, type ProviderKind, type Purpose } from "@/lib/ai/catalog";
+import { PROVIDER_LABEL, RESERVA_APLICAVEL, suportaFinalidade, type ProviderKind, type Purpose } from "@/lib/ai/catalog";
 import { extrairTexto } from "@/lib/ai/ocr";
 import { mensagemErroMaritaca } from "@/lib/ai/ocr-formato";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -135,6 +135,12 @@ export async function assignPurpose(
    * ferramentas continuam ligadas de todo jeito.
    */
   semCredito?: { providerId: string | null; model: string },
+  /**
+   * Modelo de RESERVA: refaz a chamada quando o PROVEDOR principal falha
+   * (crédito da conta, chave, limite, fora do ar). Não é a contingência de
+   * cima, que é sobre o crédito do CLIENTE. Vazio = sem reserva.
+   */
+  reserva?: { providerId: string | null; model: string },
 ): Promise<SysResult> {
   try {
     await requirePermission("ai.configure", null);
@@ -157,7 +163,7 @@ export async function assignPurpose(
   // A tela só oferece provedor compatível, mas quem recusa é o servidor: uma
   // chamada por fora atribuiria, por exemplo, a Maritaca a Embeddings, e a
   // chave dela seguiria para a API da OpenAI.
-  const idsProvedores = [providerId, semCredito?.providerId?.trim() || null].filter(Boolean) as string[];
+  const idsProvedores = [providerId, semCredito?.providerId?.trim() || null, reserva?.providerId?.trim() || null].filter(Boolean) as string[];
   const { data: provs } = await supabase.from("ai_providers").select("id, kind").in("id", idsProvedores);
   for (const id of idsProvedores) {
     const prov = provs?.find((p) => p.id === id);
@@ -176,6 +182,16 @@ export async function assignPurpose(
     };
   }
 
+  const rsProvider = reserva?.providerId?.trim() || null;
+  const rsModel = reserva?.model?.trim() || "";
+  if (Boolean(rsProvider) !== Boolean(rsModel)) {
+    return { ok: false, error: "Reserva incompleta: informe provedor E modelo, ou deixe os dois vazios." };
+  }
+  // O banco também recusa (CHECK); aqui a mensagem é legível.
+  if (rsProvider && !RESERVA_APLICAVEL.has(purpose)) {
+    return { ok: false, error: "Esta finalidade não aceita reserva: embedding e leitura de documentos não podem mudar de provedor sozinhos." };
+  }
+
   const { error } = await supabase
     .from("ai_assignments")
     .upsert(
@@ -186,6 +202,8 @@ export async function assignPurpose(
         model: model.trim(),
         model_sem_credito: scModel || null,
         provider_sem_credito: scProvider,
+        model_reserva: rsModel || null,
+        provider_reserva: rsProvider,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "base_code,purpose" },

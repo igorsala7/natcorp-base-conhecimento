@@ -10,6 +10,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { circuitoAberto, registrarSucesso, registrarFalha, CircuitOpenError } from "./circuit-breaker";
+import { comReserva } from "./reserva";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tryDecryptSecret } from "@/lib/crypto/secrets";
 import {
@@ -89,6 +90,11 @@ export type ResolvedAi = {
   baseUrl?: string;
   /** De onde veio — a tela mostra isso para não haver dúvida. */
   origem: "banco" | "env";
+  /**
+   * Quem refaz a chamada se ESTE provedor falhar (crédito, chave, limite, fora
+   * do ar). Só do banco, e nunca em embedding/OCR — ver `reserva.ts`.
+   */
+  reserva?: ResolvedAi;
 };
 
 /**
@@ -191,7 +197,7 @@ async function doBanco(
     const supabase = createAdminClient();
     const { data: atrib } = await supabase
       .from("ai_assignments")
-      .select("model, provider_id, model_sem_credito, provider_sem_credito")
+      .select("model, provider_id, model_sem_credito, provider_sem_credito, model_reserva, provider_reserva")
       .eq("purpose", purpose)
       .eq("base_code", base)
       .maybeSingle();
@@ -202,32 +208,46 @@ async function doBanco(
     // Sem contingência nesta linha: quem chama decide o degrau seguinte.
     if (!modelo || !providerId) return null;
 
-    const { data: prov } = await supabase
-      .from("ai_providers")
-      .select("kind, base_url, active")
-      .eq("id", providerId)
-      .maybeSingle();
-    if (!prov || !prov.active) return null;
-
-    const { data: chave } = await supabase
-      .from("ai_provider_keys")
-      .select("api_key_enc")
-      .eq("provider_id", providerId)
-      .maybeSingle();
-    const apiKey = tryDecryptSecret(chave?.api_key_enc);
-    if (!apiKey) return null;
-
-    return {
-      kind: prov.kind as ProviderKind,
-      model: modelo,
-      apiKey,
-      baseUrl: prov.base_url ?? undefined,
-      origem: "banco",
-    };
+    const cfg = await configDoProvedor(providerId, modelo);
+    if (!cfg) return null;
+    // Reserva: o banco já recusa em embedding/OCR; aqui é a segunda tranca.
+    if (atrib.model_reserva && atrib.provider_reserva && purpose !== "embedding" && purpose !== "ocr") {
+      const reserva = await configDoProvedor(atrib.provider_reserva, atrib.model_reserva);
+      // Reserva igual ao principal não protege de nada: ignora.
+      if (reserva && !(reserva.kind === cfg.kind && reserva.model === cfg.model)) cfg.reserva = reserva;
+    }
+    return cfg;
   } catch {
     // Banco indisponível não pode derrubar o chat se a env ainda serve.
     return null;
   }
+}
+
+/** Provedor ATIVO + chave que abre → config pronta. `null` em qualquer falta. */
+async function configDoProvedor(providerId: string, modelo: string): Promise<ResolvedAi | null> {
+  const supabase = createAdminClient();
+  const { data: prov } = await supabase
+    .from("ai_providers")
+    .select("kind, base_url, active")
+    .eq("id", providerId)
+    .maybeSingle();
+  if (!prov || !prov.active) return null;
+
+  const { data: chave } = await supabase
+    .from("ai_provider_keys")
+    .select("api_key_enc")
+    .eq("provider_id", providerId)
+    .maybeSingle();
+  const apiKey = tryDecryptSecret(chave?.api_key_enc);
+  if (!apiKey) return null;
+
+  return {
+    kind: prov.kind as ProviderKind,
+    model: modelo,
+    apiKey,
+    baseUrl: prov.base_url ?? undefined,
+    origem: "banco",
+  };
 }
 
 /**
@@ -515,7 +535,21 @@ export async function languageModel(
       "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
     );
   }
-  return comRegistro(instanciar(cfg), cfg, purpose, meta);
+  return montarModelo(cfg, purpose, meta);
+}
+
+/**
+ * Principal com registro de consumo e, se configurada, a RESERVA por trás.
+ * Cada um registra o próprio consumo: a fatura sai no provedor que respondeu.
+ */
+function montarModelo(cfg: ResolvedAi, purpose: Purpose, meta?: UsageMeta) {
+  const principal = comRegistro(instanciar(cfg), cfg, purpose, meta);
+  if (!cfg.reserva || purpose === "embedding" || purpose === "ocr") return principal;
+  const reserva = comRegistro(instanciar(cfg.reserva), cfg.reserva, purpose, meta);
+  return comReserva(principal, reserva, {
+    principal: `${cfg.kind}:${cfg.model}`,
+    reserva: `${cfg.reserva.kind}:${cfg.reserva.model}`,
+  });
 }
 
 /** Modelo de chat (streamText/generateObject/generateText). `base` = p_base do
@@ -578,7 +612,7 @@ export async function configEscolhida(
 
 /** Modelo já resolvido, com o consumo registrado na finalidade certa. */
 export function languageModelDe(cfg: ResolvedAi, purpose: Purpose, meta?: UsageMeta) {
-  return comRegistro(instanciar(cfg), cfg, purpose, meta);
+  return montarModelo(cfg, purpose, meta);
 }
 
 /** Modelo de um provider+model ESCOLHIDO na requisição (override). Cai no padrão

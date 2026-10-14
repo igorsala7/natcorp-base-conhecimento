@@ -21,6 +21,7 @@ import {
   PROVIDER_BASE_URL,
   PURPOSES,
   PURPOSE_GROUPS,
+  RESERVA_APLICAVEL,
   enxergaImagem,
   modelosDe,
   processaNoBrasil,
@@ -61,6 +62,9 @@ export type AssignmentRow = {
   /** Modelo de contingência: o que roda enquanto a base está sem crédito. */
   model_sem_credito: string | null;
   provider_sem_credito: string | null;
+  /** Modelo de reserva: refaz a chamada quando o PROVEDOR principal falha. */
+  model_reserva: string | null;
+  provider_reserva: string | null;
 };
 export type EmailRow = {
   transport: string;
@@ -822,6 +826,8 @@ function LinhaFinalidade({
   const [model, setModel] = useState(atual?.model ?? "");
   const [scProvider, setScProvider] = useState(atual?.provider_sem_credito ?? "");
   const [scModel, setScModel] = useState(atual?.model_sem_credito ?? "");
+  const [rsProvider, setRsProvider] = useState(atual?.provider_reserva ?? "");
+  const [rsModel, setRsModel] = useState(atual?.model_reserva ?? "");
   // Embedding não roda em qualquer provedor: a Anthropic não tem essa API.
   const elegiveis = providers.filter(
     (p) => p.active && suportaFinalidade(p.kind as ProviderKind, purpose),
@@ -830,6 +836,8 @@ function LinhaFinalidade({
   const sugestoes = escolhido ? modelosDe(escolhido.kind as ProviderKind, purpose) : [];
   const scEscolhido = elegiveis.find((p) => p.id === scProvider);
   const scSugestoes = scEscolhido ? modelosDe(scEscolhido.kind as ProviderKind, purpose) : [];
+  const rsEscolhido = elegiveis.find((p) => p.id === rsProvider);
+  const rsSugestoes = rsEscolhido ? modelosDe(rsEscolhido.kind as ProviderKind, purpose) : [];
 
   return (
     <div className="rounded-lg border border-border p-3">
@@ -938,6 +946,54 @@ function LinhaFinalidade({
       ) : null}
 
       {/*
+        RESERVA SE O PROVEDOR FALHAR.
+        Fica logo abaixo da contingência porque as duas respondem "e se der
+        errado?", mas a pergunta é outra: aqui é o PROVEDOR que não atendeu
+        (crédito pré-pago da conta, chave, limite, fora do ar), não o saldo do
+        cliente. Fora de embedding, OCR e transcrição (ver RESERVA_APLICAVEL).
+      */}
+      {providerId && RESERVA_APLICAVEL.has(purpose) ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-2 text-xs text-text-muted">
+            <span className="font-medium text-text">Se o provedor falhar</span>{" "}
+            (crédito da conta, chave, limite de uso ou fora do ar), a mesma pergunta é refeita
+            neste modelo e o usuário recebe a resposta normalmente. Prefira OUTRO provedor.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <Select
+              aria-label={`Provedor de reserva para ${label}`}
+              className={`${controlClass} h-9 w-auto`}
+              value={rsProvider}
+              onChange={(v) => { setRsProvider(v); setRsModel(""); }}
+            >
+              <option value="">— sem reserva —</option>
+              {elegiveis.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+            {rsProvider && (
+              <input
+                aria-label={`Modelo de reserva para ${label}`}
+                list={`modelos-rs-${purpose}`}
+                className={`${controlClass} h-9 w-auto`}
+                value={rsModel}
+                onChange={(e) => setRsModel(e.target.value)}
+                placeholder="modelo de reserva"
+              />
+            )}
+            <datalist id={`modelos-rs-${purpose}`}>
+              {rsSugestoes.map((m) => <option key={m} value={m} />)}
+            </datalist>
+            {rsProvider && rsProvider === providerId ? (
+              <span className="text-xs text-text-muted">
+                Mesmo provedor: só protege de modelo descontinuado, não de crédito nem de queda.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/*
         AÇÕES NO PÉ DO CARTÃO, e não na linha dos campos.
         `Salvar` grava o cartão INTEIRO — modelo normal e contingência na mesma
         chamada. Enquanto ele ficou na primeira linha, quem preenchia a
@@ -952,10 +1008,14 @@ function LinhaFinalidade({
           disabled={pending}
           onClick={() =>
             run(() =>
-              assignPurpose(purpose, providerId || null, model, base, {
-                providerId: scProvider || null,
-                model: scModel,
-              }),
+              assignPurpose(
+                purpose,
+                providerId || null,
+                model,
+                base,
+                { providerId: scProvider || null, model: scModel },
+                { providerId: rsProvider || null, model: rsModel },
+              ),
             )
           }
         >
@@ -965,7 +1025,7 @@ function LinhaFinalidade({
           <Zap className="size-4" /> Testar
         </Button>
         <span className="text-xs text-text-muted">
-          Salva o modelo e a contingência juntos.
+          Salva o modelo, a contingência e a reserva juntos.
         </span>
       </div>
     </div>
