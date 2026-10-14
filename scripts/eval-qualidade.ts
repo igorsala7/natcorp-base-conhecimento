@@ -41,6 +41,13 @@ const arg = (n: string, p: string): string => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : p;
 };
 const SAIDA = arg("saida", "eval/qualidade-texto.md");
+/**
+ * Teto de saída por resposta. 900 é o histórico (comparável com as rodadas
+ * antigas), mas pune modelo de RACIOCÍNIO: o pensamento sai do mesmo teto e a
+ * resposta é cortada — medido em 14/10 com o sabia-4-thinking. A produção usa
+ * 4096 a 8192; para comparar modelos, use `--max-saida 4096`.
+ */
+const MAX_SAIDA = Number(arg("max-saida", "900"));
 const MODELOS = arg("modelos", [
   "google:gemini-3.6-flash", "google:gemini-3.5-flash", "google:gemini-3.5-flash-lite",
   "anthropic:claude-haiku-4-5", "anthropic:claude-sonnet-5", "anthropic:claude-opus-5",
@@ -209,7 +216,7 @@ async function main() {
       const t0 = Date.now();
       try {
         const model = await resolver(spec);
-        const r = await generateText({ model, system: sistema, prompt: caso.prompt, maxOutputTokens: 900 });
+        const r = await generateText({ model, system: sistema, prompt: caso.prompt, maxOutputTokens: MAX_SAIDA });
         p.ms += Date.now() - t0; p.n++;
         if (caso.ok(r.text ?? "")) { p.ok++; process.stdout.write("."); }
         else { p.falhou.push(caso.nome); process.stdout.write("x"); }

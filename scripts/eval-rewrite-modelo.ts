@@ -30,6 +30,7 @@ import type { Database } from "../src/lib/database.types";
 import { simTools } from "../src/lib/integrations/tool-catalog";
 import { selecionarTopK } from "../src/lib/integrations/tool-narrow";
 import { interpretarConsulta } from "../src/lib/ai/query-understanding";
+import { montarResolver } from "./modelo-por-spec";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -56,7 +57,8 @@ async function main() {
     process.exit(1);
   }
   const db = createClient<Database>(url, chave, { auth: { persistSession: false } });
-  const { google } = await import("@ai-sdk/google");
+  // `provedor:modelo` com a chave do sistema (nome sem prefixo = Google).
+  const resolver = await montarResolver(db);
 
   const { data: base } = await db.from("ai_bases").select("id").eq("base_code", BASE).maybeSingle();
   if (!base) { console.error(`Base "${BASE}" não encontrada.`); process.exit(1); }
@@ -126,7 +128,7 @@ async function main() {
     for (const nome of MODELOS) {
       let reescrita = c.pergunta;
       try {
-        reescrita = await interpretarConsulta(c.spaceId, c.pergunta, historico, "", google(nome));
+        reescrita = await interpretarConsulta(c.spaceId, c.pergunta, historico, "", await resolver(nome));
       } catch {
         continue; // modelo indisponível: não conta como erro dele nem como acerto
       }
