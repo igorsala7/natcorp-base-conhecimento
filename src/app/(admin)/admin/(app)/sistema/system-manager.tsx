@@ -18,8 +18,12 @@ import { DataTable, DataHead, Th, Td, Tr, EmptyRow } from "@/components/ui/data-
 import {
   PROVIDER_LABEL,
   PROVIDER_HELP,
+  PROVIDER_BASE_URL,
   PURPOSES,
+  PURPOSE_GROUPS,
+  enxergaImagem,
   modelosDe,
+  processaNoBrasil,
   suportaFinalidade,
   type ProviderKind,
   type Purpose,
@@ -395,8 +399,16 @@ function AbaIA({
               />
             </Field>
 
-            <Field label="URL base (opcional)" htmlFor="p-url" hint="Para gateway compatível — Azure OpenAI, LiteLLM, proxy interno.">
-              <Input id="p-url" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://…" />
+            <Field
+              label="URL base (opcional)"
+              htmlFor="p-url"
+              hint={
+                PROVIDER_BASE_URL[form.kind]
+                  ? `Em branco usa ${PROVIDER_BASE_URL[form.kind]}. Preencha só para passar por gateway ou proxy.`
+                  : "Para gateway compatível — Azure OpenAI, LiteLLM, proxy interno."
+              }
+            >
+              <Input id="p-url" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder={PROVIDER_BASE_URL[form.kind] ?? "https://…"} />
             </Field>
 
             <label className="flex items-center gap-2 text-sm">
@@ -436,18 +448,25 @@ function AbaIA({
         <p className="text-xs leading-relaxed text-text-muted">
           Sem atribuição, a finalidade usa as variáveis de ambiente (o comportamento de sempre).
         </p>
-        {PURPOSES.map((p) => (
-          <LinhaFinalidade
-            key={p.key}
-            purpose={p.key}
-            label={p.label}
-            desc={p.desc}
-            providers={providersAtrib}
-            atual={assignments.find((a) => a.purpose === p.key && a.base_code === baseSel)}
-            base={baseSel}
-            pending={pending}
-            run={run}
-          />
+        {PURPOSE_GROUPS.map((g) => (
+          <section key={g.key} className="space-y-2" aria-labelledby={`grupo-${g.key}`}>
+            <h3 id={`grupo-${g.key}`} className="pt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+              {g.label}
+            </h3>
+            {PURPOSES.filter((p) => p.grupo === g.key).map((p) => (
+              <LinhaFinalidade
+                key={p.key}
+                purpose={p.key}
+                label={p.label}
+                desc={p.desc}
+                providers={providersAtrib}
+                atual={assignments.find((a) => a.purpose === p.key && a.base_code === baseSel)}
+                base={baseSel}
+                pending={pending}
+                run={run}
+              />
+            ))}
+          </section>
         ))}
       </Surface>
 
@@ -825,7 +844,9 @@ function LinhaFinalidade({
           value={providerId}
           onChange={(v) => { setProviderId(v); setModel(""); }}
         >
-          <option value="">{base ? "— herdar o padrão —" : "— usar variáveis de ambiente —"}</option>
+          <option value="">
+            {base ? "— herdar o padrão —" : purpose === "ocr" ? "— desligado —" : "— usar variáveis de ambiente —"}
+          </option>
           {elegiveis.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -845,6 +866,32 @@ function LinhaFinalidade({
           {sugestoes.map((m) => <option key={m} value={m} />)}
         </datalist>
       </div>
+
+      {/*
+        OCR lida com documento pessoal (e atestado, dado sensível). A escolha do
+        provedor é livre por decisão do dono; o que a tela não pode é deixar a
+        escolha às cegas. Os dois selos dizem ONDE o documento é processado e
+        O QUE o motor consegue julgar.
+      */}
+      {purpose === "ocr" && escolhido && model.trim() ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          {processaNoBrasil(escolhido.kind as ProviderKind, model) ? (
+            <Badge tone="success">Processado 100% no Brasil</Badge>
+          ) : (
+            <Badge tone="warning">Processado fora do Brasil</Badge>
+          )}
+          {enxergaImagem(escolhido.kind as ProviderKind) ? (
+            <Badge tone="info">Com visão: lê a imagem</Badge>
+          ) : (
+            <Badge tone="neutral">Só texto: não avalia foto nem montagem</Badge>
+          )}
+          {!processaNoBrasil(escolhido.kind as ProviderKind, model) ? (
+            <span className="text-text-muted">
+              Para RG, CPF, CNH e atestado, prefira um modelo Maritaca terminado em -br-sp.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
         CONTINGÊNCIA SEM CRÉDITO.

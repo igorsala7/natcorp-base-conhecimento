@@ -18,7 +18,9 @@ import {
   aiTimeout,
   ehTimeout,
 } from "@/lib/ai/config";
-import type { ProviderKind, Purpose } from "@/lib/ai/catalog";
+import { PROVIDER_LABEL, suportaFinalidade, type ProviderKind, type Purpose } from "@/lib/ai/catalog";
+import { extrairTexto } from "@/lib/ai/ocr";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { sendEmail } from "@/lib/email/send";
 import { loadEmailWrapper } from "@/lib/email/template";
 import { emailParagraph } from "@/lib/blocks/email-html";
@@ -151,6 +153,19 @@ export async function assignPurpose(
 
   if (!model.trim()) return { ok: false, error: "Informe o modelo." };
 
+  // A tela só oferece provedor compatível, mas quem recusa é o servidor: uma
+  // chamada por fora atribuiria, por exemplo, a Maritaca a Embeddings, e a
+  // chave dela seguiria para a API da OpenAI.
+  const idsProvedores = [providerId, semCredito?.providerId?.trim() || null].filter(Boolean) as string[];
+  const { data: provs } = await supabase.from("ai_providers").select("id, kind").in("id", idsProvedores);
+  for (const id of idsProvedores) {
+    const prov = provs?.find((p) => p.id === id);
+    if (!prov) return { ok: false, error: "Provedor não encontrado." };
+    if (!suportaFinalidade(prov.kind as ProviderKind, purpose)) {
+      return { ok: false, error: `${PROVIDER_LABEL[prov.kind as ProviderKind] ?? prov.kind} não atende esta finalidade.` };
+    }
+  }
+
   const scProvider = semCredito?.providerId?.trim() || null;
   const scModel = semCredito?.model?.trim() || "";
   if (Boolean(scProvider) !== Boolean(scModel)) {
@@ -216,6 +231,22 @@ function wavSilencioTeste(): Uint8Array {
   return new Uint8Array(buf);
 }
 
+/**
+ * Marcador impresso no PDF de teste do OCR. O teste só passa se ele VOLTAR na
+ * leitura: um provedor que responde "ok" sem ter lido nada não engana.
+ */
+const MARCADOR_OCR = "NATCORP-OCR-7Q4";
+
+/** PDF de uma página com texto fictício de documento — amostra do teste de OCR. */
+async function pdfTesteOcr(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const pagina = pdf.addPage([420, 260]);
+  const fonte = await pdf.embedFont(StandardFonts.Helvetica);
+  const linhas = ["DOCUMENTO DE TESTE", `Codigo: ${MARCADOR_OCR}`, "Nome: Maria de Teste", "Data: 13/10/2026"];
+  linhas.forEach((t, i) => pagina.drawText(t, { x: 30, y: 210 - i * 34, size: 18, font: fonte }));
+  return pdf.save();
+}
+
 export async function testPurpose(purpose: Purpose): Promise<SysResult> {
   try {
     await requirePermission("ai.configure", null);
@@ -263,6 +294,23 @@ export async function testPurpose(purpose: Purpose): Promise<SysResult> {
       return {
         ok: true,
         msg: `OK — ${cfg.kind}/${cfg.model} transcreveu o áudio de teste${trecho ? ` ("${trecho}")` : ""} (origem: ${cfg.origem}).`,
+      };
+    }
+    if (purpose === "ocr") {
+      const r = await extrairTexto({ nome: "teste-ocr.pdf", bytes: await pdfTesteOcr() });
+      if (!r.texto.replace(/\s+/g, "").includes(MARCADOR_OCR)) {
+        return {
+          ok: false,
+          error: `${r.provider}/${r.model} respondeu, mas não leu o código do documento de teste. Lido: "${r.texto.slice(0, 80)}"`,
+        };
+      }
+      const onde = r.noBrasil ? "processado no Brasil" : "processado FORA do Brasil";
+      const paginas = r.paginasExtraidas
+        ? `, ${r.paginasExtraidas.medium + r.paginasExtraidas.advanced} página(s) de extração cobrada(s)`
+        : "";
+      return {
+        ok: true,
+        msg: `OK — ${r.provider}/${r.model} leu o documento de teste (${r.motor === "ocr" ? "OCR, só texto" : "visão"}; ${onde}${paginas}).`,
       };
     }
     const { text } = await generateText({
