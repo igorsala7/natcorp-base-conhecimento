@@ -89,7 +89,7 @@ import { idiomaNativo, idiomaValido } from "@/lib/i18n/languages";
 import { marcarCacheDeTools, withPrefixCache, withFirstCache } from "@/lib/ai/anthropic-cache";
 import { pedeAnalise } from "@/lib/chat/intencao-dados";
 import { notaDataAtual } from "@/lib/ai/current-date";
-import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial } from "@/lib/ai/answer-style";
+import { pedeCompletude, notaCompletude, pedeEnumeracao, notaEnumeracao, pedeTutorial, pedeRespostaAnalitica, notaRespostaAnalitica, respostaAnaliticaLigada } from "@/lib/ai/answer-style";
 import { tenantKey, checkQuota, acquireSlot, releaseSlot } from "@/lib/ai/tenant-guard";
 import type { OutFile } from "@/lib/integrations/documents";
 
@@ -569,7 +569,11 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
   // Tutorial ("como uso essa tela") também amplia o teto de saída, para o guiado
   // listar TODOS os campos sem truncar — mas SEM a nota de passo a passo (as
   // explicações vão nos passos da ferramenta, não num texto longo).
-  const completo = compl || enumera || pedeTutorial(question);
+  // Análise ("o que chama atenção", "riscos", "sugestões") também amplia o teto e o
+  // RAG, com nota própria de estrutura (ver `notaRespostaAnalitica`). Não confundir com
+  // `pedeAnalise` (intencao-dados), que decide FERRAMENTA de dado, não o estilo do texto.
+  const analitica = respostaAnaliticaLigada() && pedeRespostaAnalitica(question);
+  const completo = compl || enumera || pedeTutorial(question) || analitica;
   // Escopo do chatbot: TODAS as documentações vinculadas à chave (um `scope`
   // por botão só NARROW dentro delas — nunca escapa da chave).
   // Pergunta composta (mistura relatório com documentação/API/regra) — definida CEDO
@@ -2677,6 +2681,7 @@ async function handlePost(req: NextRequest, ctxConsumo: UsageContext) {
     { rotulo: "referente", texto: diretrizReferente(scopeIn?.referente), classe: "diretriz" },
     { rotulo: "destacado", texto: refDestacado.tipo === "destacados" ? refDestacado.diretriz : "", classe: "diretriz" },
     { rotulo: "enumeracao", texto: enumera ? notaEnumeracao() : compl ? notaCompletude() : "", classe: "diretriz" },
+    { rotulo: "analise", texto: analitica ? notaRespostaAnalitica() : "", classe: "diretriz" },
     { rotulo: "rag", texto: blocoRag, classe: "dado_pergunta" },
     { rotulo: "anexo", texto: attach.contextBlock, classe: "dado_pergunta" },
     { rotulo: "anexo_tabela", texto: anexoTabelaBloco, classe: "dado_pergunta" },

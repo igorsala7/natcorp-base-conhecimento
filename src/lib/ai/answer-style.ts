@@ -25,6 +25,40 @@ export function notaCompletude(): string {
 }
 
 /**
+ * Pedido de ANÁLISE — "analise", "o que chama atenção", "sugestões", "riscos",
+ * "pontos de atenção", "o que você recomenda".
+ *
+ * Reclamação do dono (14/10): a resposta vinha "condensada e pouco analítica".
+ * Medido no mesmo dia (rodada:e2e): a Maritaca escreve cerca de METADE do texto
+ * do Gemini para a mesma pergunta e pede esclarecimento mais cedo. Como na
+ * completude, a nota é DIRECIONADA — só nesses pedidos —, para não inflar a
+ * pergunta simples, que continua curta.
+ */
+const RX_RESPOSTA_ANALITICA =
+  /\ban[aá]lis|\banal[ií]tic|o que (te |lhe )?chama (a )?aten|ponto?s? de aten[çc]|\briscos?\b|sugest|o que (voc[êe] )?(me )?(sugere|recomenda|acha)|recomenda[çc]|diagn[óo]stic|interpret|\bconclus|\bimpactos?\b|tend[êe]ncia|\bavali(e|ar)\b/i;
+
+export function pedeRespostaAnalitica(pergunta: string): boolean {
+  return RX_RESPOSTA_ANALITICA.test(String(pergunta ?? ""));
+}
+
+/** Liga/desliga sem deploy: `RESPOSTA_ANALITICA=0` volta ao comportamento anterior. */
+export function respostaAnaliticaLigada(): boolean {
+  return process.env.RESPOSTA_ANALITICA !== "0";
+}
+
+/** Nota injetada quando o usuário pede análise, sugestões ou riscos. */
+export function notaRespostaAnalitica(): string {
+  return (
+    "RESPOSTA ANALÍTICA (o usuário pediu análise, sugestões, riscos ou pontos de atenção): NÃO resuma em poucas linhas. " +
+    "Estruture: (1) o diagnóstico em 1–2 frases; (2) cada achado com o PORQUÊ e o número ou o trecho que o sustenta " +
+    "(cite de onde veio: tela, ferramenta ou documentação); (3) riscos e pontos de atenção em ordem de gravidade, cada um " +
+    "com o que fazer; (4) próximos passos práticos. A profundidade vem dos DADOS disponíveis: busque o que faltar com as " +
+    "ferramentas antes de pedir ao usuário, e o que não der para obter, diga o que falta e como conseguir, em vez de supor. " +
+    "Nunca invente número, regra ou fato que não esteja nos dados."
+  );
+}
+
+/**
  * Pergunta de ENUMERAÇÃO — "quais são TODOS os X", "liste os programas de Y",
  * "quantos itens tem…". Difere da completude (passo a passo): aqui o usuário
  * quer a LISTA INTEIRA de itens (ex.: os programas de um módulo). O RAG traz
