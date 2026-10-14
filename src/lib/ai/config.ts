@@ -14,6 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { tryDecryptSecret } from "@/lib/crypto/secrets";
 import {
   EMBEDDING_DIM,
+  PROVIDER_BASE_URL,
   precisaDimensoes,
   type ProviderKind,
   type Purpose,
@@ -125,8 +126,19 @@ const TIMEOUT_MS: Record<Purpose | "embedding_query" | "ontology_scan", number> 
   editor_text: 60_000,
   editor_generate: 90_000,
   transcricao: 180_000, // áudio pode ser longo — Whisper leva mais tempo
+  ocr: 120_000, // PDF de várias páginas: a extração roda antes do modelo responder
   ontology_scan: 120_000, // lê lotes grandes de texto por chamada (usa a IA do Chat)
 };
+
+/**
+ * Finalidades que NÃO herdam o provedor do Chat quando estão sem atribuição.
+ *
+ * Embedding: modelo de chat não gera vetor. OCR: o documento é pessoal (RG,
+ * CPF, atestado médico) e só pode ir para o provedor que o administrador
+ * apontou para ESTA finalidade, sabendo onde ele processa. Herdar o Chat
+ * mandaria o documento para fora do país sem ninguém ter escolhido isso.
+ */
+const NAO_HERDA_CHAT = new Set<Purpose>(["chat", "embedding", "ocr"]);
 
 /** `abortSignal` pronto para passar às funções do AI SDK. */
 export function aiTimeout(purpose: Purpose | "embedding_query" | "ontology_scan"): AbortSignal {
@@ -144,6 +156,8 @@ export function ehTimeout(e: unknown): boolean {
 }
 
 function doEnv(purpose: Purpose): ResolvedAi | null {
+  // OCR não tem env própria e não pode cair na do chat (ver NAO_HERDA_CHAT).
+  if (purpose === "ocr") return null;
   if (purpose === "embedding") {
     const apiKey = process.env.EMBEDDING_API_KEY;
     if (!apiKey) return null;
@@ -250,7 +264,7 @@ export async function resolveAi(
   const contingencia = semCredito
     ? ((base ? await doBanco(purpose, base, true) : null) ??
       (await doBanco(purpose, "", true)) ??
-      (purpose !== "embedding" && purpose !== "chat"
+      (!NAO_HERDA_CHAT.has(purpose)
         ? ((base ? await doBanco("chat", base, true) : null) ??
           (await doBanco("chat", "", true)))
         : null))
@@ -262,7 +276,7 @@ export async function resolveAi(
     contingencia ??
     (base ? await doBanco(purpose, base) : null) ??
     (await doBanco(purpose, "")) ??
-    (purpose !== "embedding" && purpose !== "chat"
+    (!NAO_HERDA_CHAT.has(purpose)
       ? ((base ? await doBanco("chat", base) : null) ?? (await doBanco("chat", "")))
       : null) ??
     doEnv(purpose);
@@ -278,11 +292,25 @@ export async function hasEmbeddingKey(): Promise<boolean> {
   return (await resolveAi("embedding")) !== null;
 }
 
+/** URL efetiva: a cadastrada na tela (gateway/proxy) vence a padrão do provedor. */
+export function baseUrlDe(cfg: Pick<ResolvedAi, "kind" | "baseUrl">): string | undefined {
+  return cfg.baseUrl || PROVIDER_BASE_URL[cfg.kind];
+}
+
 function instanciar(cfg: ResolvedAi) {
-  const opts = { apiKey: cfg.apiKey, ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}) };
+  const baseURL = baseUrlDe(cfg);
+  const opts = { apiKey: cfg.apiKey, ...(baseURL ? { baseURL } : {}) };
   switch (cfg.kind) {
     case "openai":
       return createOpenAI(opts)(cfg.model);
+    case "maritaca":
+      // Protocolo OpenAI, mas pela CHAT COMPLETIONS (`/chat/completions`), o
+      // caminho que a doc da Maritaca documenta igual no cURL e no SDK. O
+      // padrão do SDK seria a Responses API, que a doc mostra ora com, ora
+      // sem `/v1` — apostar nisso é descobrir o 404 em produção. O cache é
+      // automático e volta em `prompt_tokens_details.cached_tokens`, que o
+      // SDK já converte em `cacheRead` para o faturamento.
+      return createOpenAI({ ...opts, name: "maritaca" }).chat(cfg.model);
     case "google":
       return createGoogleGenerativeAI(opts)(cfg.model);
     default:
@@ -339,6 +367,24 @@ async function logUsage(row: {
     // Nunca propagar: o registro é secundário à resposta da IA.
     console.error("[ai_usage] erro ao registrar consumo:", e instanceof Error ? e.message : e);
   }
+}
+
+/**
+ * Registro de consumo para chamadas que NÃO passam pelo AI SDK (e portanto
+ * pelo middleware de `comRegistro`) — hoje, o OCR direto na Maritaca, que
+ * precisa do `extracted_files` que o SDK não expõe. Sem isto, essas chamadas
+ * sumiriam do relatório de Consumo e da fatura.
+ */
+export async function registrarUsoDireto(row: {
+  provider: ProviderKind;
+  model: string;
+  purpose: Purpose;
+  input: number;
+  output: number;
+  cacheRead?: number;
+  meta?: UsageMeta;
+}): Promise<void> {
+  await logUsage(row);
 }
 
 /** No nível da spec V3, o uso vem aninhado; o total não existe pronto. */
@@ -507,21 +553,49 @@ async function resolveAiPorProvider(kind: ProviderKind, model: string): Promise<
   }
 }
 
-/** Modelo de um provider+model ESCOLHIDO na requisição (override). Cai no padrão
- *  de `chat` quando o provider não é válido/configurado. */
-export async function languageModelEscolhido(
-  llm: { provider?: string | null; model?: string | null } | null | undefined,
-  meta?: UsageMeta,
+type LlmEscolhido = { provider?: string | null; model?: string | null } | null | undefined;
+
+/**
+ * Config de um provider+model ESCOLHIDO na requisição (override); sem override
+ * válido, a da finalidade. Exposta para quem precisa saber o provedor ANTES de
+ * montar a chamada (a leitura de documentos muda de caminho quando o provedor
+ * não tem visão). `null` = nada configurado para a finalidade.
+ */
+export async function configEscolhida(
+  llm: LlmEscolhido,
+  purpose: Purpose = "chat",
   base = "",
-) {
+): Promise<ResolvedAi | null> {
   const kind = String(llm?.provider ?? "").toLowerCase();
   const model = String(llm?.model ?? "").trim();
-  const kinds: readonly string[] = ["anthropic", "openai", "google"];
+  const kinds: readonly string[] = ["anthropic", "openai", "google", "maritaca"];
   if (model && kinds.includes(kind)) {
     const cfg = await resolveAiPorProvider(kind as ProviderKind, model);
-    if (cfg) return comRegistro(instanciar(cfg), cfg, "chat", meta);
+    if (cfg) return cfg;
   }
-  return languageModel("chat", meta, base); // sem override → config da base (ou padrão)
+  return resolveAi(purpose, base); // sem override → config da base (ou padrão)
+}
+
+/** Modelo já resolvido, com o consumo registrado na finalidade certa. */
+export function languageModelDe(cfg: ResolvedAi, purpose: Purpose, meta?: UsageMeta) {
+  return comRegistro(instanciar(cfg), cfg, purpose, meta);
+}
+
+/** Modelo de um provider+model ESCOLHIDO na requisição (override). Cai no padrão
+ *  da finalidade (`chat`, se não informada) quando o provider não é válido/configurado. */
+export async function languageModelEscolhido(
+  llm: LlmEscolhido,
+  meta?: UsageMeta,
+  base = "",
+  purpose: Purpose = "chat",
+) {
+  const cfg = await configEscolhida(llm, purpose, base);
+  if (!cfg) {
+    throw new Error(
+      "Nenhuma IA configurada para esta finalidade. Cadastre um provedor em Sistema → IA, ou defina AI_API_KEY.",
+    );
+  }
+  return languageModelDe(cfg, purpose, meta);
 }
 
 /**

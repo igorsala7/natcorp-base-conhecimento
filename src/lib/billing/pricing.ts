@@ -281,6 +281,7 @@ export const ROTULO_ACAO: Record<string, string> = {
   editor_text: "Editor — texto",
   editor_generate: "Editor — geração",
   transcricao: "Transcrição",
+  ocr: "Leitura de documentos (OCR)",
 };
 
 export const rotuloAcao = (p: string): string => ROTULO_ACAO[p] ?? p;
