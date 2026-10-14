@@ -6,6 +6,7 @@ import { interpretarArquivos, type ArquivoIn } from "@/lib/analyze/files";
 import { analisarDados } from "@/lib/analyze/analyze";
 import { resolverModo } from "@/lib/analyze/doc-catalog";
 import { withTenantSlot, TenantBusyError } from "@/lib/ai/tenant-guard";
+import { OcrDesligadoError } from "@/lib/ai/ocr";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -16,7 +17,9 @@ export const maxDuration = 180;
  *
  *  - `extrair` (estruturado): identifica o TIPO e devolve os dados no padrão
  *    canônico do tipo (documentos pessoais, currículo, …). Direcionado aos
- *    CAMPOS DA TELA quando `campos` é enviado.
+ *    CAMPOS DA TELA quando `campos` é enviado. Roda no provedor de Sistema →
+ *    IA → "Leitura de documentos (OCR)"; desligada, responde 503. Só captura:
+ *    a validação é do sistema que chama.
  *  - `analisar` (livre): responde ao `prompt` sobre o documento (ex.: "faça um
  *    resumo deste documento técnico sobre Java") — retorna texto.
  *
@@ -93,6 +96,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     if (e instanceof TenantBusyError) return apiJson({ error: e.message }, 429);
+    if (e instanceof OcrDesligadoError) return apiJson({ error: e.message }, 503);
     return apiJson({ error: "Falha ao processar o documento.", detalhe: (e as Error).message }, 500);
   }
 }

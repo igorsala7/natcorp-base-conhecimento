@@ -1,8 +1,12 @@
 import "server-only";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { languageModelEscolhido, type UsageMeta } from "@/lib/ai/config";
-import { interpretarArquivos, type ArquivoIn } from "./files";
+import { enxergaImagem } from "@/lib/ai/catalog";
+import { configEscolhida, languageModelDe, type ResolvedAi, type UsageMeta } from "@/lib/ai/config";
+import { OcrDesligadoError, extrairTexto } from "@/lib/ai/ocr";
+import { extensaoPorBytes } from "@/lib/ai/ocr-formato";
+import { interpretarArquivos, type ArquivoIn, type FilePart } from "./files";
+import type { ImagePart } from "@/lib/chat/attachment-store";
 import { catalogoParaPrompt, tipoPorChave, normalizarChave, montarDados } from "./doc-catalog";
 
 /** Campo-alvo da tela (rótulo/ref) para direcionar a extração. */
@@ -28,7 +32,9 @@ const schema = z.object({
       z.object({
         campo: z.string().describe("Chave do dado — a chave canônica do tipo (modo por-tipo) OU o rótulo/ref da tela (modo direcionado)."),
         valor: z.string().describe("Valor lido do documento, no formato em que aparece."),
-        confianca: z.number().min(0).max(1).describe("0..1 — segurança da leitura."),
+        // Sem .min/.max: o JSON Schema da Maritaca recusa `minimum`/`maximum`.
+        // A faixa é garantida em código (`entre0e1`), para todo provedor.
+        confianca: z.number().describe("0..1 — segurança da leitura."),
         ref: z.string().optional().describe("O ref do campo da tela, quando fornecido."),
       }),
     )
@@ -36,10 +42,38 @@ const schema = z.object({
   observacao: z.string().optional().describe("O que ficou ilegível/duvidoso, se algo."),
 });
 
+const entre0e1 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
+
 /**
- * Extrai dados de DOCUMENTOS pessoais (imagem/PDF) por OCR do modelo de visão.
+ * Provedor SEM visão (Maritaca): cada imagem e PDF escaneado passa pelo OCR
+ * dele e segue como TEXTO. Um por vez: o Tier 0 da Maritaca tem 60 RPM, e um
+ * lote de 10 documentos em paralelo bateria no limite à toa.
+ */
+async function transcreverSemVisao(
+  partes: (ImagePart | FilePart)[],
+  cfg: ResolvedAi,
+  meta?: UsageMeta,
+): Promise<string> {
+  const blocos: string[] = [];
+  for (const [i, p] of partes.entries()) {
+    const bytes = p.type === "image" ? p.image : p.data;
+    const nome = `documento-${i + 1}.${extensaoPorBytes(bytes) ?? "bin"}`;
+    const r = await extrairTexto({ nome, bytes }, { cfg, meta });
+    blocos.push(`### ${nome} (transcrição OCR)\n${r.texto}`);
+  }
+  return blocos.join("\n\n");
+}
+
+/**
+ * Extrai dados de DOCUMENTOS pessoais (imagem/PDF) com o provedor da finalidade
+ * "Leitura de documentos (OCR)" em Sistema → IA (ou o `llm` da requisição).
  * Identifica o TIPO e devolve os dados num PADRÃO canônico por tipo (catálogo).
  * Direcionado aos CAMPOS DA TELA quando fornecidos; senão, schema do tipo.
+ *
+ * Só CAPTURA: validar o que foi lido é do sistema que consome (decisão do dono).
+ * Por isso o valor vem como aparece no documento, e o que não aparece fica fora
+ * (ou `null` no schema do tipo) — um dado "arrumado" aqui esconderia do
+ * validador exatamente o erro que ele existe para pegar.
  */
 export async function extrairDocumento(input: {
   arquivos: ArquivoIn[];
@@ -52,7 +86,19 @@ export async function extrairDocumento(input: {
   if (!arq.imageParts.length && !arq.fileParts.length && !arq.texto) {
     throw new Error("Nenhum documento legível recebido.");
   }
-  const model = await languageModelEscolhido(input.llm, input.meta);
+  // Documento pessoal só vai para onde o administrador apontou: a finalidade
+  // OCR não herda do Chat, e desligada ela recusa em vez de cair em outro modelo.
+  const cfg = await configEscolhida(input.llm, "ocr");
+  if (!cfg) throw new OcrDesligadoError();
+
+  let texto = arq.texto;
+  let partes: (ImagePart | FilePart)[] = [...arq.imageParts, ...arq.fileParts];
+  if (partes.length && !enxergaImagem(cfg.kind)) {
+    texto = [texto, await transcreverSemVisao(partes, cfg, input.meta)].filter(Boolean).join("\n\n");
+    partes = [];
+  }
+
+  const model = languageModelDe(cfg, "ocr", input.meta);
   const direcionado = !!input.campos?.length;
 
   const alvo = direcionado
@@ -74,9 +120,8 @@ export async function extrairDocumento(input: {
     "CEP/telefone/CPF/CNPJ só com os dígitos que aparecem. Se algo estiver ilegível, diga em `observacao`.\n\n" +
     alvo +
     (input.instrucao ? `\n\nOBSERVAÇÃO DO SOLICITANTE: ${input.instrucao}` : "") +
-    (arq.texto ? `\n\nCONTEÚDO TEXTUAL JÁ EXTRAÍDO DO(S) ARQUIVO(S):\n${arq.texto}` : "");
+    (texto ? `\n\nCONTEÚDO TEXTUAL JÁ EXTRAÍDO DO(S) ARQUIVO(S):\n${texto}` : "");
 
-  const partes = [...arq.imageParts, ...arq.fileParts];
   const { object } = await generateObject({
     model,
     schema,
@@ -87,13 +132,14 @@ export async function extrairDocumento(input: {
 
   const chaveTipo = normalizarChave(object.tipo_documento);
   const tipo = tipoPorChave(chaveTipo);
+  const campos = object.campos.map((c) => ({ ...c, confianca: entre0e1(c.confianca) }));
   const res: ExtracaoDoc = {
     tipo_documento: tipo?.tipo ?? (chaveTipo || "outro"),
     tipo_label: tipo?.label ?? (object.tipo_documento || "Outro"),
-    campos: object.campos,
+    campos,
     observacao: object.observacao,
   };
   // Modo por-tipo: entrega o schema PADRÃO do tipo (todas as chaves, faltantes null).
-  if (!direcionado) res.dados = montarDados(tipo, object.campos);
+  if (!direcionado) res.dados = montarDados(tipo, campos);
   return res;
 }

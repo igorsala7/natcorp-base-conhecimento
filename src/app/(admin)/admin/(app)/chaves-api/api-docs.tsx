@@ -364,7 +364,7 @@ curl -H "Authorization: Bearer sk_live_..." "$HOST/api/v1/analyze?jobId=5b1e..."
             { nome: "modo", tipo: "enum", desc: '"auto" (padrão) · "extrair" · "analisar".' },
             { nome: "prompt / instrucao", tipo: "string", desc: "a orientação. Em analisar, é o pedido (resumo, parecer…)." },
             { nome: "campos", tipo: "array", desc: "[{ref?,label,tipo?,descricao?}] — campos da tela para extração direcionada." },
-            { nome: "llm", tipo: "object", desc: "{provider,model} — override do modelo (visão melhor com Anthropic)." },
+            { nome: "llm", tipo: "object", desc: "{provider,model} — override do modelo. Sem ele, a extração usa o provedor de Sistema → IA → Leitura de documentos (OCR); se ela estiver desligada, a resposta é 503." },
           ]}
         />
 
