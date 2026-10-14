@@ -1,6 +1,6 @@
 # Estado do projeto e próximos passos
 
-> **Atualizado em 23/09/2026.**
+> **Atualizado em 13/10/2026** (rodada Maritaca + OCR logo abaixo).
 > A rodada corrente é a de **assertividade e custo do chat**, aberta pelo guia técnico
 > externo de 107 seções. O que está abaixo da linha "HISTÓRICO" é de 16/08 e já foi
 > superado — leia como registro, não como tarefa.
@@ -55,6 +55,65 @@
    O `NEXT_PUBLIC_BASE_PATH=` só é necessário se o seu `.env.local` não o zerar — se
    esquecer, o guard do `playwright.config.ts` avisa com a linha de comando pronta.
 5. O plano aprovado está em `~/.claude/plans/glistening-splashing-ritchie.md`.
+
+---
+
+## RODADA DE 13/10 — provedor Maritaca (Sabiá) e a finalidade OCR
+
+Pedido do dono: a Maritaca como provedor (chat, cache, OCR) e uma categoria de
+**Leitura de documentos (OCR)** com provedor e modelo próprios, para o recurso que
+vai ler e validar RG, CPF, CNH, comprovante, currículo, certidões e atestado.
+Escopo decidido: **Fase A agora** (provedor + categoria + extração de texto),
+**Fase B depois** (reconhecimento e validação por tipo de documento).
+
+### O que a documentação da Maritaca define (lida inteira, 33 páginas)
+
+- API compatível com OpenAI em `https://chat.maritaca.ai/api`. Usamos a **Chat
+  Completions**: o caminho `/api/chat/completions` foi conferido sem chave (403 nele,
+  404 numa rota inexistente).
+- **Sem embeddings** e **sem visão**: imagem e PDF passam por OCR no servidor dela e o
+  modelo recebe TEXTO. Serve para ler; não julga foto, carimbo nem montagem.
+- Cache automático por prefixo, 1/4 do preço de entrada, sem custo de escrita; o SDK
+  já converte `cached_tokens` em `cacheRead`.
+- OCR cobrado por página de PDF (R$ 0,02 medium · R$ 0,045 advanced), à parte dos tokens.
+- Tier 0: 60 RPM e **10 mil tokens de saída por minuto**. Qualquer gasto pago sobe
+  para o Tier 1. Não pôr no chat de produção em Tier 0.
+
+### Decisões
+
+- **OCR não herda do Chat nem da env** (`NAO_HERDA_CHAT` em `config.ts`): documento
+  pessoal só vai para onde o administrador apontou. Sem atribuição, fica desligado.
+- **Provedor livre, com aviso** (decisão do dono): a tela mostra "processado no/fora
+  do Brasil" (só os modelos Maritaca `-br-sp` são 100% no Brasil) e "com visão / só texto".
+- Nenhuma atribuição existente foi trocada. Pôr a Maritaca no chat com ferramentas
+  exige medir antes (`npm run eval:tools`): no benchmark da própria Maritaca, o Sabiá 4
+  faz 72% em capacidade agêntica contra 85–90% dos modelos de fronteira.
+
+### Aberto, e o que destrava
+
+1. **Chave cadastrada em 13/10** (provedor "Maritaca (Sabiá)", global, cifrada `v1:`,
+   registrada no `audit_log`). Com ela, `/models` responde 200 e lista exatamente os 6
+   modelos do catálogo. **Mas a conta está SEM CRÉDITO**: chat, ferramentas, cache, OCR e
+   extração voltaram 403 `insufficient_funds`. Depois de pôr crédito em
+   plataforma.maritaca.ai: atribuir a finalidade OCR e clicar **Testar** (o teste imprime
+   um código num PDF e só passa se o código VOLTAR lido). Nenhuma finalidade foi atribuída
+   à Maritaca.
+2. **Preço em US$ dos 6 modelos Maritaca** está nulo e `confirmado = false`: a Maritaca
+   cobra em R$ e a tabela é em US$. Decisão sua: qual câmbio (fixo? do mês?). Os valores
+   em R$ estão na coluna `fonte`.
+3. **Custo da extração por página** não entra em `ai_usage` (a tabela só conta tokens).
+   `extrairTexto` devolve `paginasExtraidas`; falta decidir onde contabilizar.
+4. **Fase B redefinida pelo dono (13/10): o OCR só CAPTURA e disponibiliza; a
+   validação é do sistema que consome.** A captura por tipo já existia:
+   `POST /api/v1/extract` (15 tipos no `doc-catalog.ts`, campos direcionados, chave
+   `sk_` com escopo `data.analyze`), mas rodava no modelo do **Chat**. Agora roda na
+   finalidade **OCR** (desligada → 503 com o que fazer; Maritaca → transcreve imagem e
+   PDF escaneado antes e manda só texto; consumo registrado como `ocr`). Nenhuma chave
+   `sk_` existia no banco, então a troca não quebrou integração. Ainda abertos:
+   - o `llm` da requisição continua podendo escolher outro provedor (contrato
+     documentado). Se o documento deve ir SÓ para o provedor da tela, é decisão sua;
+   - o modo `analisar` (resumo livre do documento) segue no Chat;
+   - medir a extração contra documentos reais (gabarito) antes de pôr em produção.
 
 ---
 
