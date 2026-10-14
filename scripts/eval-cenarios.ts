@@ -61,6 +61,7 @@ import { antecedenteDoTurno } from "../src/lib/chat/antecedente";
 import { buildQueryTool } from "../src/lib/chat/query-tools";
 import { buildFormTools, buildTutorialTool } from "../src/lib/chat/form-fields";
 import { buildVisualTools } from "../src/lib/chat/report-tools";
+import { modeloPorSpec } from "./modelo-por-spec";
 
 /**
  * AS FERRAMENTAS LOCAIS, COM A DEFINIÇÃO REAL DO PRODUTO.
@@ -430,16 +431,7 @@ async function montarProvedores(db: ReturnType<typeof createClient<Database>>) {
     const nome = resto.join(":");
     const apiKey = porKind.get(kind!);
     if (!apiKey) throw new Error(`sem chave para o provedor "${kind}"`);
-    if (kind === "google") {
-      const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
-      return createGoogleGenerativeAI({ apiKey })(nome);
-    }
-    if (kind === "anthropic") {
-      const { createAnthropic } = await import("@ai-sdk/anthropic");
-      return createAnthropic({ apiKey })(nome);
-    }
-    const { createOpenAI } = await import("@ai-sdk/openai");
-    return createOpenAI({ apiKey })(nome);
+    return modeloPorSpec(kind!, nome, apiKey);
   };
 }
 

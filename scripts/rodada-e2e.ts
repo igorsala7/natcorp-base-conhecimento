@@ -42,7 +42,10 @@ const CHAVE = arg("chave", "pk_live_77c1d31cadd25d2768ac7c93167023bf");
 
 /** Identidade real do painel do Operador — a mesma que gerou 2.044 chamadas em 7 dias. */
 const IDENTIDADE = {
-  p_base: "natcorp", p_usuario: "365785", p_portal: "PO",
+  // `--base natcorp-dev`: mesma documentação e ferramentas, ERP de desenvolvimento,
+  // e atribuição de modelo PRÓPRIA (Sistema → IA por base) — dá para comparar
+  // modelos de ponta a ponta sem mudar o que o usuário real recebe.
+  p_base: arg("base", "natcorp"), p_usuario: "365785", p_portal: "PO",
   p_empresa: "700", p_matricula: "365785", p_perfil: "MASTER",
 };
 
@@ -233,7 +236,7 @@ async function enviar(track: string, convId: string | null, historico: { role: s
   const t0 = Date.now();
   const r = await fetch(`${URL_BASE}/api/v1/chat`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: URL_BASE },
+    headers: { "content-type": "application/json", origin: new URL(URL_BASE).origin },
     body: JSON.stringify({
       key: CHAVE, track, conversationId: convId,
       messages: [...historico, { role: "user", content: pergunta }],
@@ -293,7 +296,12 @@ async function main() {
   console.log("SÓ LEITURA — nenhuma pergunta cria, envia ou altera nada.\n");
 
   const soConversa = arg("conversa", "");
-  const lista = soSocial ? CONVERSAS.slice(0, 1) : soConversa ? CONVERSAS.filter((c) => c.nome === soConversa) : CONVERSAS;
+  // `--pergunta "..."`: uma conversa avulsa de um turno, para medir um pedido
+  // específico (ex.: o estilo da resposta) sem mexer na bateria fixa.
+  const avulsa = arg("pergunta", "");
+  const lista = avulsa
+    ? [{ nome: "avulsa", cenario: "avulsa", turnos: [avulsa] }]
+    : soSocial ? CONVERSAS.slice(0, 1) : soConversa ? CONVERSAS.filter((c) => c.nome === soConversa) : CONVERSAS;
   if (!lista.length) { console.error(`Conversa "${soConversa}" não existe.`); process.exit(1); }
   const turnos: Turno[] = [];
   for (const conv of lista) {

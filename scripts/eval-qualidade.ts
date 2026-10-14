@@ -29,6 +29,7 @@ import { generateText } from "ai";
 import type { Database } from "../src/lib/database.types";
 import { REGRAS_ABSOLUTAS, PERSONA_RH } from "../src/lib/ai/prompt-cascade";
 import { avisarCusto, type Preco } from "./custo-da-rodada";
+import { modeloPorSpec } from "./modelo-por-spec";
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
   const { WebSocket } = await import("ws");
@@ -179,16 +180,7 @@ async function montarProvedores(db: ReturnType<typeof createClient<Database>>) {
     const nome = r.join(":");
     const apiKey = porKind.get(kind!);
     if (!apiKey) throw new Error(`sem chave para "${kind}"`);
-    if (kind === "google") {
-      const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
-      return createGoogleGenerativeAI({ apiKey })(nome);
-    }
-    if (kind === "anthropic") {
-      const { createAnthropic } = await import("@ai-sdk/anthropic");
-      return createAnthropic({ apiKey })(nome);
-    }
-    const { createOpenAI } = await import("@ai-sdk/openai");
-    return createOpenAI({ apiKey })(nome);
+    return modeloPorSpec(kind!, nome, apiKey);
   };
 }
 
